@@ -1,7 +1,7 @@
 // Every assessment result is scoped to the endpoint and the exact local engine
 // catalogue. The catalogue is populated from the pinned compiled binaries;
 // names offered by a server never become new instructions to the engine.
-export const TLS_PROFILE_VERSION = 'cybermeters-tls-profile/1';
+export const TLS_PROFILE_VERSION = 'cybermeters-tls-profile/2';
 export const TLS_POLICY_VERSION = 'rfc9325-2022/1';
 export const TLS_SPECIAL_CONSENT_VERSION = 'tls-special-2026-10-13';
 export const TLS_TRUST_BUNDLE = Object.freeze({name:'curl Mozilla CA Extract',version:'2026-09-25',

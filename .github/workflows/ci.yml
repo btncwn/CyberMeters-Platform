@@ -167,6 +167,14 @@ jobs:
           python3 workers/network-probe/tls-engine/test-engine.py
           node workers/network-probe/tls-engine/test-parent.js
           docker build --file workers/network-probe/tls-engine/Dockerfile --tag cybermeters-tls-ci:${{ github.sha }} .
+          set -o pipefail
+          for pair in legacy:ssl2 modern:tls1_3; do
+            engine="${pair%%:*}"
+            protocol="${pair##*:}"
+            docker run --rm --entrypoint "/opt/cybermeters/tls-baseline-${engine}" \
+              cybermeters-tls-ci:${{ github.sha }} --control catalog --protocol "$protocol" |
+              python3 -c 'import json,sys; wire=sys.stdin.buffer.read(); assert len(wire)>5 and wire[0]==3 and int.from_bytes(wire[1:5],"big")==len(wire)-5; result=json.loads(wire[5:]); assert result["engine"]["sandboxed"] is True and result["state"]=="accepted"'
+          done
 
       - name: Validate private network collector and live TLS evidence
         run: node scripts/validate-network-probe.js

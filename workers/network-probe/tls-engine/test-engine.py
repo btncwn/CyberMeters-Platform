@@ -169,7 +169,8 @@ class BaselineTests(unittest.TestCase):
         for family in ['legacy','modern']:
             prefix = BUILD / ('install-' + family)
             lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
-            linker = ['-lpthread', *(['-ldl'] if platform.system() == 'Linux' else [])]
+            linker = ['-lpthread', *(['-lz'] if family == 'legacy' else []),
+                      *(['-ldl'] if platform.system() == 'Linux' else [])]
             run(['cc', '-Wno-deprecated-declarations', '-I' + str(prefix / 'include'), ENGINE / 'src/fixture-server.c', lib / 'libssl.a', lib / 'libcrypto.a', *linker, '-o', BUILD / 'bin' / ('fixture-server-' + family)])
         cls.directory = tempfile.TemporaryDirectory(prefix='tls-rig-', dir=BUILD)
         cls.fixture = Path(cls.directory.name)
@@ -383,6 +384,76 @@ class BaselineTests(unittest.TestCase):
                 self.assertIn('Ciphersuite: ' + cipher, output)
                 self.assertIn('Verification: OK', output)
 
+    def test_pinned_openssl_reference_legacy_protocols_and_ciphers(self):
+        cases = [
+            ('ssl2', 'SSLv2', 'RC4-MD5'),
+            ('ssl3', 'SSLv3', 'RC4-SHA'),
+            ('tls1', 'TLSv1', 'RC4-SHA'),
+            ('tls1_1', 'TLSv1.1', 'DES-CBC3-SHA'),
+            ('tls1_2', 'TLSv1.2', 'ECDHE-RSA-AES128-GCM-SHA256'),
+        ]
+        for protocol, reference_version, cipher in cases:
+            with self.subTest(protocol=protocol, cipher=cipher):
+                with server(self.legacy, self.cert, self.key, protocol,
+                            ['-cipher', cipher]) as port:
+                    result = self.assess(protocol, port, extra=['--cipher', cipher])
+                    command = [self.legacy, 's_client', '-connect', f'127.0.0.1:{port}',
+                               '-CAfile', self.cert, '-' + protocol, '-cipher', cipher]
+                    if protocol != 'ssl2':
+                        command.extend(['-servername', 'localhost'])
+                    reference = run(command, input=b'', timeout=5)
+                output = (reference.stdout + reference.stderr).decode()
+                self.assertEqual(result['state'], 'accepted', result)
+                self.assertTrue(result['authenticated_finished'])
+                self.assertEqual(result['negotiated']['cipher'], cipher)
+                self.assertEqual(result['certificates']['trust'], 'valid')
+                self.assertIn('Protocol  : ' + reference_version, output)
+                self.assertIn('Cipher    : ' + cipher, output)
+                self.assertIn('Verify return code: 0 (ok)', output)
+
+    def test_pinned_openssl_reference_certificate_failures(self):
+        cases = [
+            ('wrong_hostname', self.cert, self.key, self.cert,
+             'other.example.org', 'hostname mismatch'),
+            ('untrusted', self.cert, self.key, self.unrelated_cert,
+             'localhost', 'self-signed certificate'),
+            ('expired', self.expired_cert, self.expired_key, self.expired_cert,
+             'localhost', 'certificate has expired'),
+            ('not_yet_valid', self.future_cert, self.future_key, self.future_cert,
+             'localhost', 'certificate is not yet valid'),
+            ('missing_intermediate', self.chain_leaf, self.chain_key, self.cert,
+             'localhost', 'unable to get local issuer certificate'),
+        ]
+        for scenario, certificate, key, trust, hostname, diagnostic in cases:
+            with self.subTest(scenario=scenario):
+                with server(self.modern, certificate, key, 'tls1_2') as port:
+                    result = self.assess('tls1_2', port, family='modern',
+                                         control='certificate', hostname=hostname, trust=trust)
+                    reference = subprocess.run(
+                        [str(self.modern), 's_client', '-brief', '-connect', f'127.0.0.1:{port}',
+                         '-servername', 'localhost', '-verify_hostname', hostname,
+                         '-CAfile', str(trust), '-verify_return_error', '-tls1_2'],
+                        input=b'', capture_output=True, timeout=5)
+                output = (reference.stdout + reference.stderr).decode()
+                self.assertEqual(result['state'], 'accepted', result)
+                self.assertTrue(result['authenticated_finished'])
+                self.assertNotEqual(reference.returncode, 0, output)
+                self.assertIn(diagnostic, output)
+                if scenario == 'wrong_hostname':
+                    self.assertFalse(result['certificates']['hostname'])
+                    self.assertEqual(result['certificates']['trust'], 'valid')
+                else:
+                    self.assertEqual(result['certificates']['trust'], 'invalid')
+        with server(self.modern, self.complete_chain, self.chain_key, 'tls1_2') as port:
+            complete = self.assess('tls1_2', port, family='modern', control='certificate')
+            reference = run([self.modern, 's_client', '-brief', '-connect', f'127.0.0.1:{port}',
+                             '-servername', 'localhost', '-verify_hostname', 'localhost',
+                             '-CAfile', self.cert, '-verify_return_error', '-tls1_2'],
+                            input=b'', timeout=5)
+        self.assertEqual(complete['certificates']['trust'], 'valid')
+        self.assertEqual(len(complete['certificates']['offered_chain']), 2)
+        self.assertIn('Verification: OK', (reference.stdout + reference.stderr).decode())
+
     def test_same_ip_selects_different_certificates_by_sni(self):
         alternate=(self.alternate_cert,self.alternate_key,'other.example.org')
         with server(self.modern,self.cert,self.key,'tls1_2',alternate=alternate) as port:
@@ -451,14 +522,29 @@ class BaselineTests(unittest.TestCase):
         self.assertTrue(result['extensions']['renegotiation_completed'])
         self.assertEqual(result['telemetry']['connections'], 1)
 
-    def test_unoffered_compression_is_not_a_clean_result(self):
-        result = self.assess('tls1_2', control='compression')
-        self.assertEqual(result['state'], 'unexecutable')
-        self.assertEqual(result['telemetry']['connections'], 0)
-        self.assertIn('compression_not_offered', result['limitations'])
-        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
-            handshake = self.assess('tls1_2', port, family='modern')
-        self.assertIsNone(handshake['extensions']['compression'])
+    def test_compression_is_measured_only_by_dedicated_legacy_check(self):
+        for protocol in ('ssl3', 'tls1', 'tls1_1', 'tls1_2'):
+            with self.subTest(protocol=protocol):
+                with server(self.legacy, self.cert, self.key, protocol) as port:
+                    offered = self.assess(protocol, port, control='compression')
+                    ordinary = self.assess(protocol, port)
+                    offered_reference = run([self.legacy, 's_client', '-connect', f'127.0.0.1:{port}',
+                                             '-servername', 'localhost', '-' + protocol], input=b'', timeout=5)
+                self.assertEqual(offered['state'], 'accepted', offered)
+                self.assertTrue(offered['authenticated_finished'])
+                self.assertTrue(offered['extensions']['compression'])
+                self.assertIsNone(ordinary['extensions']['compression'])
+                self.assertIn('Compression: zlib compression',
+                              (offered_reference.stdout + offered_reference.stderr).decode())
+                with server(self.legacy, self.cert, self.key, protocol + '_nocomp') as port:
+                    refused = self.assess(protocol, port, control='compression')
+                    refused_reference = run([self.legacy, 's_client', '-connect', f'127.0.0.1:{port}',
+                                             '-servername', 'localhost', '-' + protocol], input=b'', timeout=5)
+                self.assertEqual(refused['state'], 'accepted', refused)
+                self.assertTrue(refused['authenticated_finished'])
+                self.assertFalse(refused['extensions']['compression'])
+                self.assertIn('Compression: NONE',
+                              (refused_reference.stdout + refused_reference.stderr).decode())
 
     def test_version_rejection_is_not_engine_unsupported(self):
         with server(self.modern, self.cert, self.key, 'tls1_3') as port:

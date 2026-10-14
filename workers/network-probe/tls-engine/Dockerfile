@@ -6,8 +6,15 @@ COPY scripts/build-tls-engine.py scripts/build-tls-engine.py
 COPY workers/network-probe/tls-engine/ workers/network-probe/tls-engine/
 RUN printf '%s  %s\n' 'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505' \
     'workers/network-probe/tls-engine/trust/ca-bundle.pem' | sha256sum -c -
-RUN python3 scripts/build-tls-engine.py --jobs 4
-RUN python3 workers/network-probe/tls-engine/test-engine.py
+# OpenSSL 1.0.2's recursive make occasionally loses GNU make jobserver FDs
+# under Docker BuildKit. Build each pinned library serially in its own cached
+# layer; binary linking then reuses the finished libraries.
+RUN python3 scripts/build-tls-engine.py --engine legacy --jobs 1 --libraries-only
+RUN python3 scripts/build-tls-engine.py --engine modern --jobs 1 --libraries-only
+# Wrangler builds linux/amd64 even on arm64 hosts. QEMU cannot install this
+# child's seccomp filter, so execute the binaries in native amd64 CI and the
+# controlled production canary, never inside the emulated image build.
+RUN python3 scripts/build-tls-engine.py --jobs 1 --skip-catalog
 
 FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 RUN mkdir -p /opt/cybermeters/trust /opt/cybermeters/licenses && chown -R node:node /opt/cybermeters
@@ -17,6 +24,8 @@ COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/trus
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.openssl-1.0.2u /opt/cybermeters/licenses/LICENSE.openssl-1.0.2u
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.openssl-3.5.9 /opt/cybermeters/licenses/LICENSE.openssl-3.5.9
 COPY --from=build --chown=node:node /build/workers/network-probe/tls-engine/LICENSE.mpl-2.0 /opt/cybermeters/licenses/LICENSE.mpl-2.0
+RUN cp /usr/share/doc/zlib1g/copyright /opt/cybermeters/licenses/LICENSE.zlib1g && \
+    ldd /opt/cybermeters/tls-baseline-legacy | grep -q 'libz.so.1'
 USER node
 WORKDIR /home/node
 CMD ["sleep", "infinity"]

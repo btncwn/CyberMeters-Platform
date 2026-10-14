@@ -44,8 +44,9 @@ int main(int argc,char **argv) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSL_library_init();OpenSSL_add_all_algorithms();
     const SSL_METHOD *m=!strcmp(protocol,"ssl2")?SSLv2_server_method():
-      !strcmp(protocol,"ssl3")?SSLv3_server_method():!strcmp(protocol,"tls1")?TLSv1_server_method():
-      !strcmp(protocol,"tls1_1")?TLSv1_1_server_method():TLSv1_2_server_method();
+      (!strcmp(protocol,"ssl3")||!strcmp(protocol,"ssl3_nocomp"))?SSLv3_server_method():
+      (!strcmp(protocol,"tls1")||!strcmp(protocol,"tls1_nocomp"))?TLSv1_server_method():
+      (!strcmp(protocol,"tls1_1")||!strcmp(protocol,"tls1_1_nocomp"))?TLSv1_1_server_method():TLSv1_2_server_method();
     ctx=SSL_CTX_new(m);
 #else
     OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG,NULL);ctx=SSL_CTX_new(TLS_server_method());
@@ -76,6 +77,7 @@ int main(int argc,char **argv) {
         SSL_CTX_set_tlsext_status_cb(ctx,staple);
     }
     SSL_CTX_set_cipher_list(ctx,argc>5?argv[5]:"ALL:eNULL:!PSK:!SRP");
+    if(strstr(protocol,"_nocomp"))SSL_CTX_set_options(ctx,SSL_OP_NO_COMPRESSION);
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSL_CTX_set_ecdh_auto(ctx,1);
 #else

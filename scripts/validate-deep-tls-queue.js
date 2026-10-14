@@ -5,6 +5,8 @@ import { performance } from 'node:perf_hooks';
 import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
+import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
 
 const sql=new DatabaseSync(':memory:');
 sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
@@ -16,7 +18,7 @@ sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql'
 const prepare=(query,args=[])=>({bind:(...values)=>prepare(query,values),first:async()=>sql.prepare(query).get(...args)||null,
   all:async()=>({results:sql.prepare(query).all(...args)}),run:async()=>({meta:{changes:sql.prepare(query).run(...args).changes}})});
 const sent=[];
-const env={cybermeters_db:{prepare},SCAN_QUEUE:{send:async message=>sent.push(message)}};
+const env={cybermeters_db:{prepare},SCAN_QUEUE:{send:async message=>sent.push(message)},TLS_ASSESSMENT_MODE:'evidence-v1'};
 const check={control:'protocol',protocol:'tls1_2',cipher_id:null};
 const lookupTlsDns=async(_host,type)=>type==='A'?{Status:0,Answer:[{type:1,name:_host+'.',data:'8.8.8.8'}]}:{Status:0,Answer:[]};
 let collectorCalls=0;
@@ -103,6 +105,35 @@ interrupted=sql.prepare('SELECT state,charged_requests,plan_json FROM external_e
 assert.equal(interrupted.state,'cancelled');
 assert.equal(interrupted.charged_requests,TLS_SLICE_LIMITS.connections);
 assert.equal(JSON.parse(interrupted.plan_json).tls.results.length,0);
+// Turning off the rollout must drain an already-planned TLS job without
+// dispatching a connection or misreporting the skipped control as clean.
+const rollbackMessage=interruptedJob('tls_flag_off');
+const rollbackPlan=JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('tls_flag_off').plan_json);
+rollbackPlan.tls.selected=Array.from({length:TLS_SLICE_LIMITS.checks+1},(_,i)=>({endpoint_index:0,
+  check:{control:'protocol',protocol:i%2?'tls1_2':'tls1_3',cipher_id:null}}));
+sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(rollbackPlan),'tls_flag_off');
+const callsBeforeRollback=collectorCalls;
+env.TLS_ASSESSMENT_MODE='disabled';
+assert.equal((await processExposureMessage(rollbackMessage,env,{lookupTlsDns,collectTlsAssessment})).outcome,'feature_disabled');
+const rollbackRow=sql.prepare('SELECT state,charged_requests,charged_bytes,plan_json FROM external_exposure_jobs WHERE scan_id=?').get('tls_flag_off');
+assert.equal(rollbackRow.state,'complete');
+assert.equal(rollbackRow.charged_requests,0);
+assert.equal(rollbackRow.charged_bytes,0);
+assert.equal(JSON.parse(rollbackRow.plan_json).tls.results.length,TLS_SLICE_LIMITS.checks+1);
+assert(JSON.parse(rollbackRow.plan_json).tls.results.every(result=>result.state==='unexecutable'&&result.reason==='feature_disabled'));
+const rollbackAssessment=await readTlsAssessmentForScan(env,{workspaceId:'w_interrupt',scanId:'tls_flag_off'});
+assert.equal(rollbackAssessment.quality,'partial');
+assert.equal(rollbackAssessment.coverage.unexecutable,TLS_SLICE_LIMITS.checks+1);
+const resumedTlsModule=await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'tls_flag_off',durableInvocation:true});
+assert.deepEqual(resumedTlsModule,rollbackAssessment);
+const resumedReport={scan_quality:{status:'complete',modules_skipped:[]},
+  modules:{certificate_intelligence:{},tls_assessment:resumedTlsModule},findings:[]};
+const certificateState=resolveCyberMotDomainStates(resumedReport).find(row=>row.domain_key==='certificates_trust');
+assert.equal(certificateState.state,'evidence_insufficient');
+assert.equal(await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'not_planned',durableInvocation:true}),null);
+assert.equal(await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'tls_flag_off',durableInvocation:false}),null);
+assert.equal(collectorCalls,callsBeforeRollback);
+env.TLS_ASSESSMENT_MODE='evidence-v1';
 // Revocation during DNS must prevent dispatch; revocation after collection
 // must prevent the accepted evidence from crossing the atomic write fence.
 const scopeWorkspace='w_scope',scopeDomain='mail.example.org',scopeDomainId='d_scope';

@@ -72,6 +72,8 @@ def main():
     parser.add_argument('--build-dir', type=Path, default=ENGINE / '.build')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--libraries-only', action='store_true')
+    parser.add_argument('--skip-catalog', action='store_true',
+                        help='Cross-build only: do not execute the target binary under emulation')
     args = parser.parse_args()
     build = args.build_dir.resolve()
     if not (build.is_relative_to(ROOT) or build.is_relative_to(Path('/private/tmp'))
@@ -123,7 +125,7 @@ def main():
         if identity == 'legacy':
             target = ('BSD-generic64' if system == 'Darwin' else
                       'linux-aarch64' if machine in ('aarch64', 'arm64') else 'linux-x86_64')
-            options = [target, 'no-shared', 'no-dso', 'no-engine', 'no-zlib',
+            options = [target, 'no-shared', 'no-dso', 'no-engine', 'zlib',
                        'enable-ssl2', 'enable-ssl3', 'enable-weak-ssl-ciphers']
             if system == 'Darwin':
                 options.append('no-asm')
@@ -145,12 +147,14 @@ def main():
             lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
             output = binary_dir / ('tls-baseline-' + identity)
             build_id = hashlib.sha256((source['sha256'] + sha256(ENGINE / 'src/engine.c')
-                                       + sha256(ENGINE / 'src/sandbox.h')).encode()).hexdigest()
+                                       + sha256(ENGINE / 'src/sandbox.h')
+                                       + json.dumps(options, separators=(',', ':'))).encode()).hexdigest()
             command = [os.environ.get('CC', 'cc'), '-std=c11', '-D_GNU_SOURCE', '-O2',
                        '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations',
                        '-DCM_BUILD_ID="' + build_id + '"', '-DCM_ENGINE_FAMILY="' + identity + '"',
                        '-I' + str(prefix / 'include'), str(ENGINE / 'src/engine.c'),
-                       str(lib / 'libssl.a'), str(lib / 'libcrypto.a'), '-lpthread', '-o', str(output)]
+                       str(lib / 'libssl.a'), str(lib / 'libcrypto.a'), '-lpthread',
+                       *(['-lz'] if identity == 'legacy' else []), '-o', str(output)]
             if system == 'Linux':
                 command.extend(['-ldl'])
             run(command, ROOT, log)
@@ -159,7 +163,7 @@ def main():
                       'baseline_upstream_modified': False}
             (binary_dir / (output.name + '.json')).write_text(json.dumps(record, indent=2) + '\n')
         print('Ready: ' + identity, flush=True)
-    if not args.libraries_only:
+    if not args.libraries_only and not args.skip_catalog:
         write_catalog(build)
 
 
