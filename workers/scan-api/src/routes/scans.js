@@ -48,6 +48,7 @@ import {
 } from "../engines/phase5-evidence.js";
 import { projectCertificateSharedSanForCustomer } from "./certificate-shared-san-projection.js";
 import { projectTlsReportForCustomer } from "../engines/tls-evidence.js";
+import { projectTlsScanQualityForCustomer } from "../engines/tls-quality.js";
 
 function readScheduledAssetChangeProjection(value) {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -813,7 +814,9 @@ export async function scanRoutes(rctx) {
           cyber_mot_domains: [],
           findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
           recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
-          scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
+          scan_quality: projectTlsScanQualityForCustomer(
+            raw.scan_quality ?? buildScanQuality(normalisedModules), normalisedModules.tls_assessment,
+          ),
           monitoring_states: raw.monitoring_states ?? null,
           certificate_assurance: buildCertificateCustomerPresentation({
             signalCompleteness:
@@ -867,7 +870,9 @@ export async function scanRoutes(rctx) {
           cyber_mot_domains: snap.domains || [],
           findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
           recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
-          scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
+          scan_quality: projectTlsScanQualityForCustomer(
+            raw.scan_quality ?? buildScanQuality(normalisedModules), normalisedModules.tls_assessment,
+          ),
           // Completed report consumers use the immutable snapshot's canonical,
           // fail-closed monitoring record (raw R2 only for pre-snapshot scans).
           monitoring_states: snap.monitoring_states ?? raw.monitoring_states ?? null,

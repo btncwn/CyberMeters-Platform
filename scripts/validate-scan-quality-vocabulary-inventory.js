@@ -57,8 +57,10 @@ const EXPECTED = Object.freeze({
     // 'complete'; the scan page's sidebar reads scan_quality.status ===
     // 'complete'; the dashboard and onboarding count 'partial'/'degraded'
     // completed scans (the new source file). No gate added; SQL unchanged.
-    comparison_occurrences: 53,
-    source_file_count: 23,
+    // TLS coverage adds one guard that preserves degraded quality and one
+    // aggregate gate that excludes provisional rows from complete-scan means.
+    comparison_occurrences: 55,
+    source_file_count: 24,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -94,7 +96,9 @@ const EXPECTED = Object.freeze({
     // (file/kind/operator/status/access/snippet), deliberately excluding line
     // and AST-offset positions. The count and duplicate multiplicity remain
     // pinned, so real additions/removals still fail while line-only edits do not.
-    fingerprint: "bd4a9b81f054573a3c5a94ecd81532c1718be2d323cc0a900158bf663192cd7c",
+    // TLS release: the historical customer projector consumes effective
+    // quality, and the aggregate now checks the projected complete state.
+    fingerprint: "f9ba32fc389786264f88543ac0941b90c98b0487c06262cd48ab8fb36b186686",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -148,8 +152,9 @@ const EXPECTED = Object.freeze({
     // Queued-scan authority: 80 -> 81, additive only — the queue validator
     // asserts that a scan failed for lost authority writes a failed report
     // whose scan_quality is null (validate-scan-queue-dispatch.js).
-    comparison_occurrences: 81,
-    source_file_count: 29,
+    // Two focused TLS regression assertions add governance comparisons only.
+    comparison_occurrences: 83,
+    source_file_count: 30,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
@@ -168,12 +173,12 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "91c1ad1cbc81ee145fd114970a49502172af760f3797da803884fec21960b355",
+    fingerprint: "e5493464689c67ce07d6a7cc66a046ea657b8c5f9e02adde51ea83b55a04b882",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
-  // Honest coverage: OnboardingPage.jsx joins the runtime set, 32 -> 33.
-  runtime_source_file_count: 33,
+  // TLS quality: the new quality projector joins the runtime set, 33 -> 34.
+  runtime_source_file_count: 34,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -221,7 +226,7 @@ const EXPECTED = Object.freeze({
     // above, plus the scan lists (ScansPage, DomainHistory, WorkspaceDetailPage)
     // and the scan page header handing the recorded quality to StatusBadge,
     // which shows a completed partial scan as "Partial results".
-    runtime: { occurrence_count: 114, source_file_count: 41, fingerprint: "bd3822241880d881aedc220ee2ecd5db35d36157d656a93200dae33626f29e58" },
+    runtime: { occurrence_count: 118, source_file_count: 41, fingerprint: "12e435724843da4ab64fb99d45dd62ad4d50c9140bccc7f1ad0ea329a3df73eb" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -252,7 +257,7 @@ const EXPECTED = Object.freeze({
     // Queued-scan authority: 115 -> 116, the read behind that one assertion.
     // Load lab: 116 -> 118 across 36 -> 37 files — scripts/lab/load-lab.mjs reads
     // each finished scan's recorded quality to report how many were partial.
-    governance: { occurrence_count: 118, source_file_count: 37, fingerprint: "06f80ea57b06a45037b186057d6b9a455c00a7e25c90840967de02eaf489d336" },
+    governance: { occurrence_count: 121, source_file_count: 38, fingerprint: "8e808944cb3583c217e6011b17b54c2b144efc65f0d183fc9bf8feb31a08a2e6" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -266,7 +271,8 @@ const EXPECTED = Object.freeze({
   // also projects workspace_id; the baseline read now filters on scan_quality
   // (counted with the SQL predicates above), so it leaves this projection set.
   // The asset-alert delivery reads shift source positions only.
-  sql_reads: { projection_occurrences: 22, fingerprint: "aee939440ef293ad2b9aef359cf278ae8bfff32ae5c33d7070a2193eda37d41a" },
+  // TLS report projection adds route source lines; the 22 SQL reads are unchanged.
+  sql_reads: { projection_occurrences: 22, fingerprint: "f31767485eccf2beab8070563f14bfc3c6ed2df864258ce476fa2df915ab8856" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

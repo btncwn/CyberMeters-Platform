@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { validateTlsAssessmentRequest, projectTlsCollectorReceipt, validateTlsAssessmentReceipt, validateTlsEngineResult } from '../workers/network-probe/src/tls-contract.js';
 import { parseTlsDnsAnswers, buildTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
 import { collectTlsAssessment } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
+import { resolveAssessmentPresentation } from '../workers/scan-api/src/engines/assessment-presentation.js';
+import { projectPhase5SnapshotForCustomer, resolvePhase5HistoricalCustomerProjection, resolvePhase5CustomerAggregate } from '../workers/scan-api/src/engines/phase5-evidence.js';
+import { projectTlsScanQualityForCustomer, tlsSupportedCoverageGapReason } from '../workers/scan-api/src/engines/tls-quality.js';
 
 const now = Date.now();
 const iso = offset => new Date(now + offset).toISOString();
@@ -72,6 +76,60 @@ assert(consentedPlan.static_results.some(row=>row.check.control==='heartbleed'&&
 assert(!consentedPlan.selected.some(row=>['heartbleed','robot','ccs'].includes(row.check.control)));
 assert(plan.static_results.some(row=>row.check.control==='early_data'&&row.check.protocol==='tls1_2'&&row.state==='not_applicable'));
 assert(plan.static_results.some(row=>row.check.control==='cipher'&&row.check.protocol==='ssl2'&&row.state==='unexecutable'));
+const tlsPartial={source:'tls_assessment',quality:'partial',coverage:{omitted_checks:1176,uncertain:395,
+  unexecutable:336,omitted_services:0,endpoint_gaps:0},endpoints:[{hostname:'acme.org',checks:[]}]};
+const tlsStaticOnly={...tlsPartial,coverage:{...tlsPartial.coverage,omitted_checks:0,uncertain:0}};
+assert.equal(tlsSupportedCoverageGapReason(tlsPartial),'tls_checks_outside_scan_budget');
+assert.equal(tlsSupportedCoverageGapReason(tlsStaticOnly),null,'unavailable special controls alone do not degrade supported coverage');
+assert.equal(buildScanQuality({tls_assessment:tlsPartial}).status,'partial');
+assert.equal(buildScanQuality({tls_assessment:tlsStaticOnly}).status,'complete');
+const oldQuality={status:'complete',warnings:[],modules_incomplete:[],modules_skipped:[]};
+const correctedQuality=projectTlsScanQualityForCustomer(oldQuality,tlsPartial);
+assert.equal(correctedQuality.status,'partial','stored complete quality is customer-projected as partial');
+assert.equal(correctedQuality.modules_incomplete[0].incomplete_reason,'tls_checks_outside_scan_budget');
+assert.equal(oldQuality.status,'complete','stored quality remains immutable');
+assert.equal(projectTlsScanQualityForCustomer({...oldQuality,status:'degraded'},tlsPartial).status,'degraded',
+  'TLS gaps do not upgrade an already degraded scan');
+const completeModules={
+  technology_detection:{technologies:['nginx'],technology_fingerprints:[{technology:'nginx',source:'server',confidence:90}],
+    serviceability_contract:{serviceable:true,conclusion_class:'conclusive',reason:'origin_response_serviceable'}},
+  cve_intelligence:{technologies_checked:['nginx'],lookup_statuses:{nginx:{status:'complete'}},results:{},total_cves:0,
+    critical_count:0,high_count:0,cve_coverage:'complete',source:'nvd_api'},
+  known_exploited_vulnerabilities:{matches:[]},email_security_intelligence:{email_security_score:100},
+};
+const historical=resolvePhase5HistoricalCustomerProjection({score:100,riskLevel:'excellent',
+  assessment:resolveAssessmentPresentation({score:100,scanQuality:'complete',status:'completed'}),
+  scanQuality:'complete',modules:{...completeModules,tls_assessment:tlsPartial}});
+assert.equal(historical.score,100,'persisted score remains numeric for the measured scoring scope');
+assert.equal(historical.risk_level,null,'stored final band is withheld');
+assert.equal(historical.scan_quality,'partial');
+assert.equal(historical.assessment.provisional,true);
+assert.equal(historical.assessment.display_rating,null);
+const alreadyDegraded=resolvePhase5HistoricalCustomerProjection({score:80,riskLevel:'good',
+  scanQuality:'degraded',modules:{...completeModules,tls_assessment:tlsPartial}});
+assert.equal(alreadyDegraded.scan_quality,'degraded','historical projection preserves worse evidence quality');
+const portfolioAggregate=resolvePhase5CustomerAggregate([
+  {status:'completed',score:100,scan_quality:historical.scan_quality,assessment:historical.assessment,
+    phase5_evidence:{complete:true},phase5_evidence_read:{state:'verified'}},
+  {status:'completed',score:80,scan_quality:'complete',
+    assessment:resolveAssessmentPresentation({score:80,scanQuality:'complete',status:'completed'}),
+    phase5_evidence:{complete:true},phase5_evidence_read:{state:'verified'}},
+]);
+assert.deepEqual(portfolioAggregate.scores,[80],'provisional TLS score is excluded from complete-scan averages');
+assert.equal(portfolioAggregate.evidence_coverage.assessed_row_count,1);
+assert.equal(portfolioAggregate.evidence_coverage.incomplete_row_count,1);
+const storedSnapshot={domains:[{domain_key:'certificates_trust',trend:{scan_quality:'complete',comparable_basis:true}}],
+  overall:{cyber_metrics_score:100,score_band:'excellent',summary:'Excellent',
+    assessment:resolveAssessmentPresentation({score:100,scanQuality:'complete',status:'completed'}),
+    business_risk_indicator:{band:'low',provisional:false,internal_metrics:{score:95}},
+    evidence_completeness:{scan_quality:'complete',assessment_quality:'complete'},not_fully_assessed:[]}};
+const customerSnapshot=projectPhase5SnapshotForCustomer(storedSnapshot,{...completeModules,tls_assessment:tlsPartial});
+assert.equal(customerSnapshot.overall.cyber_metrics_score,100);
+assert.equal(customerSnapshot.overall.score_band,null);
+assert.equal(customerSnapshot.overall.assessment.provisional,true);
+assert.equal(customerSnapshot.overall.business_risk_indicator.band,null);
+assert.equal(customerSnapshot.domains[0].trend.comparable_basis,false);
+assert.equal(storedSnapshot.overall.score_band,'excellent','immutable snapshot facts are untouched');
 const stop=new AbortController();
 const hung=collectTlsAssessment({NETWORK_PROBE:{fetch:()=>new Promise(()=>{})}},request,{signal:stop.signal});
 const abortTimer=setTimeout(()=>stop.abort(),5);

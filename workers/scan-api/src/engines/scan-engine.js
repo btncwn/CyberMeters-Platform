@@ -85,6 +85,7 @@ import { signInPageFindings } from "./signin-page-findings.js";
 import { readExposureForScan, readTlsAssessmentForScan } from "./exposure-jobs.js";
 import { externalExposureModule } from "./exposure-findings.js";
 import { tlsAssessmentFindings } from "./tls-findings.js";
+import { projectTlsScanQualityForCustomer } from "./tls-quality.js";
 import { homePageAvailabilityFindings } from "./website-availability.js";
 
 import { SIGNED_IN_SCAN_VERSION, runSignedInScan, signedInSummary } from "./website-signed-in-scan.js";
@@ -292,7 +293,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
       ? "degraded"
       : (warnings.length > 0 || modulesSkipped.length > 0 ? "degraded" : "complete"));
 
-  return {
+  return projectTlsScanQualityForCustomer({
     status,
     warnings,
     // Structured carrier. Always an array so consumers never branch on undefined.
@@ -312,7 +313,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
         ? null
         : Math.max(0, effectiveLimit - estimated),
     },
-  };
+  }, modules.tls_assessment);
 }
 
 // ── Durable, tri-state scan finalization (Tier 1) ─────────────────────────────
