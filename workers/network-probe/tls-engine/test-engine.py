@@ -549,18 +549,20 @@ class BaselineTests(unittest.TestCase):
                               (refused_reference.stdout + refused_reference.stderr).decode())
 
     def test_heartbleed_patched_server_is_not_observed(self):
-        with server(self.legacy, self.cert, self.key, 'tls1_2_hb') as port:
-            result = self.assess('tls1_2', port, control='heartbleed', family='active_legacy')
-        self.assertEqual(result['engine']['family'], 'active_legacy')
-        self.assertEqual(result['state'], 'rejected', result)
-        self.assertEqual(result['reason'], 'active_not_observed')
-        self.assertTrue(result['authenticated_finished'])
-        self.assertEqual(result['vulnerability'], {
-            'status': 'not_observed', 'profile': 'heartbleed-minimal-v1',
-            'completed_vectors': 3, 'planned_vectors': 3,
-        })
-        self.assertEqual(result['telemetry']['connections'], 1)
-        self.assertNotIn('localhost', json.dumps(result))
+        for protocol in ('tls1', 'tls1_1', 'tls1_2'):
+            with self.subTest(protocol=protocol):
+                with server(self.legacy, self.cert, self.key, protocol + '_hb') as port:
+                    result = self.assess(protocol, port, control='heartbleed', family='active_legacy')
+                self.assertEqual(result['engine']['family'], 'active_legacy')
+                self.assertEqual(result['state'], 'rejected', result)
+                self.assertEqual(result['reason'], 'active_not_observed')
+                self.assertTrue(result['authenticated_finished'])
+                self.assertEqual(result['vulnerability'], {
+                    'status': 'not_observed', 'profile': 'heartbleed-minimal-v1',
+                    'completed_vectors': 3, 'planned_vectors': 3,
+                })
+                self.assertEqual(result['telemetry']['connections'], 1)
+                self.assertNotIn('localhost', json.dumps(result))
 
     def test_heartbleed_abort_preserves_unknown_and_stops_before_tls(self):
         result = self.assess('tls1_2', control='heartbleed', family='active_legacy', abort=True)
@@ -598,18 +600,20 @@ class BaselineTests(unittest.TestCase):
              ENGINE / 'src/fixture-server.c', vulnerable_lib, lib / 'libcrypto.a',
              '-lpthread', '-lz', *(['-ldl'] if platform.system() == 'Linux' else []),
              '-o', fixture_binary])
-        with server(self.legacy, self.cert, self.key, 'tls1_2_hb', binary=fixture_binary) as port:
-            result = self.assess('tls1_2', port, control='heartbleed', family='active_legacy')
-        self.assertEqual(result['state'], 'accepted', result)
-        self.assertEqual(result['reason'], 'active_confirmed')
-        self.assertTrue(result['authenticated_finished'])
-        self.assertEqual(result['vulnerability'], {
-            'status': 'confirmed', 'profile': 'heartbleed-minimal-v1',
-            'completed_vectors': 3, 'planned_vectors': 3,
-        })
-        self.assertEqual(result['telemetry']['connections'], 1)
-        self.assertLess(result['telemetry']['bytes_received'], 4096)
-        self.assertNotIn('localhost', json.dumps(result))
+        for protocol in ('tls1', 'tls1_1', 'tls1_2'):
+            with self.subTest(protocol=protocol):
+                with server(self.legacy, self.cert, self.key, protocol + '_hb', binary=fixture_binary) as port:
+                    result = self.assess(protocol, port, control='heartbleed', family='active_legacy')
+                self.assertEqual(result['state'], 'accepted', result)
+                self.assertEqual(result['reason'], 'active_confirmed')
+                self.assertTrue(result['authenticated_finished'])
+                self.assertEqual(result['vulnerability'], {
+                    'status': 'confirmed', 'profile': 'heartbleed-minimal-v1',
+                    'completed_vectors': 3, 'planned_vectors': 3,
+                })
+                self.assertEqual(result['telemetry']['connections'], 1)
+                self.assertLess(result['telemetry']['bytes_received'], 4096)
+                self.assertNotIn('localhost', json.dumps(result))
 
     def test_version_rejection_is_not_engine_unsupported(self):
         with server(self.modern, self.cert, self.key, 'tls1_3') as port:

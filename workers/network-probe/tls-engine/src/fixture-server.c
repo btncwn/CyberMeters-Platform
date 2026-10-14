@@ -45,8 +45,8 @@ int main(int argc,char **argv) {
     SSL_library_init();OpenSSL_add_all_algorithms();
     const SSL_METHOD *m=!strcmp(protocol,"ssl2")?SSLv2_server_method():
       (!strcmp(protocol,"ssl3")||!strcmp(protocol,"ssl3_nocomp"))?SSLv3_server_method():
-      (!strcmp(protocol,"tls1")||!strcmp(protocol,"tls1_nocomp"))?TLSv1_server_method():
-      (!strcmp(protocol,"tls1_1")||!strcmp(protocol,"tls1_1_nocomp"))?TLSv1_1_server_method():TLSv1_2_server_method();
+      (!strcmp(protocol,"tls1")||!strcmp(protocol,"tls1_nocomp")||!strcmp(protocol,"tls1_hb"))?TLSv1_server_method():
+      (!strcmp(protocol,"tls1_1")||!strcmp(protocol,"tls1_1_nocomp")||!strcmp(protocol,"tls1_1_hb"))?TLSv1_1_server_method():TLSv1_2_server_method();
     ctx=SSL_CTX_new(m);
 #else
     OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG,NULL);ctx=SSL_CTX_new(TLS_server_method());
