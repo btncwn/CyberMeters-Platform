@@ -22,8 +22,9 @@ Heartbleed evidence, and the executive certificate summary distinguishes
 baseline OCSP limits from separately recorded endpoint evidence. No D1
 migration or new active customer scan was part of this release.
 
-Cloudflare Pages production deployment `53d5e879-7544-438a-bbe3-4d505c7443f0`
-serves `main @ 56a7ee3d` on both `www` and `app`; the previous Pages
+The first Cloudflare Pages production deployment for this change,
+`53d5e879-7544-438a-bbe3-4d505c7443f0`, served `main @ 56a7ee3d` on
+both `www` and `app`; the previous Pages
 deployment is `65c700c5-bd81-404a-ac0b-e900ba4550c1`. The coordinated
 email Worker is `92122494-69be-46e2-96fd-1f7fb5fbd982` (rollback
 `abfec745-6de0-44cf-816e-7a65fd64155b`), and the API Worker is
