@@ -154,7 +154,7 @@ function DomainForm({ id, tone = 'dark' }) {
             className="w-full min-w-0 bg-transparent text-[17px] text-[#121A2E] placeholder:text-[#8A93A8] outline-none"
           />
         </div>
-        <button type="submit" className="h-[52px] px-6 rounded-[8px] bg-[#FFB81C] hover:bg-[#FFC640] text-[#1B2333] text-[16px] font-semibold inline-flex items-center justify-center gap-2 transition-colors">
+        <button type="submit" className="h-[52px] px-6 rounded-[8px] btn-amber text-[16px]">
           Run a free check
         </button>
       </div>
@@ -459,7 +459,7 @@ export default function PublicLandingPage() {
                 ))}
               </ul>
               <div className="mt-auto pt-8">
-                <Link to="/free-scan" className="h-[50px] px-6 rounded-[8px] bg-[#FFB81C] hover:bg-[#FFC640] text-[#1B2333] text-[16px] font-semibold inline-flex items-center transition-colors">Check a domain now</Link>
+                <Link to="/free-scan" className="h-[50px] px-6 rounded-[8px] btn-amber text-[16px]">Check a domain now</Link>
               </div>
             </div>
             <div className="rounded-[14px] border-2 border-[#2550B6] p-8 bg-white flex flex-col">

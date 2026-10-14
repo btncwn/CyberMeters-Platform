@@ -71,7 +71,7 @@ export default function PublicSiteHeader({ tone = 'light', signedIn = false }) {
             to="/free-scan"
             // On the landing page phones already have the same action in the hero
             // form right below, so the header keeps only the menu there.
-            className={`h-11 px-5 rounded-[8px] text-[15px] font-semibold items-center transition-colors ${dark ? 'hidden sm:inline-flex bg-white text-[#183A86] hover:bg-[#EEF3FF]' : 'inline-flex bg-[#FFB81C] text-[#1B2333] hover:bg-[#FFC640]'}`}
+            className={`h-11 px-5 rounded-[8px] text-[15px] font-semibold items-center transition-colors ${dark ? 'hidden sm:inline-flex bg-white text-[#183A86] hover:bg-[#EEF3FF]' : 'btn-amber'}`}
           >
             Run a free check
           </Link>

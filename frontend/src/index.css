@@ -202,6 +202,17 @@
   }
   .pill-eyebrow .pill-dot { @apply w-[7px] h-[7px] rounded-full bg-brand-600; }
 
+  /* Public call-to-action: the warm amber of the brand mark, deep orange at
+     the left running to amber at the right. Dark text keeps 4.5:1 on both. */
+  .btn-amber {
+    @apply inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 select-none;
+    color: #1B2333;
+    background: linear-gradient(90deg, #D6792D 0%, #E29535 100%);
+    box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 8px 20px -10px rgba(214,121,45,.7);
+  }
+  .btn-amber:hover { background: linear-gradient(90deg, #C96F27 0%, #D88B2F 100%); }
+  .btn-amber:active { background: linear-gradient(90deg, #BD6723 0%, #CB822B 100%); }
+
   /* Buttons */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
