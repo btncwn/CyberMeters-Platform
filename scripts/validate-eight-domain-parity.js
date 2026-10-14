@@ -24,6 +24,10 @@ const { resolveCyberMotDomainStates, CYBER_MOT_DOMAINS, CYBER_MOT_STATES } =
   await import(pathToFileURL(path.join(enginesDir, "cyber-mot-domains.js")).href);
 const { getCyberEssentialsSnapshot } =
   await import(pathToFileURL(path.join(enginesDir, "ce-readiness.js")).href);
+const { executiveDashboardRoutes } =
+  await import(pathToFileURL(path.join(routesDir, "executive-dashboard.js")).href);
+const { getCurrentPosturePresentation } =
+  await import(pathToFileURL(path.join(enginesDir, "current-posture.js")).href);
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -184,6 +188,57 @@ const cleanComplete = () => ({
   ok("B3: Dashboard.jsx renders <CyberMotDomains", jsx.includes("<CyberMotDomains"));
   ok("B3: Dashboard.jsx does NOT gate the panel behind report?.cyber_mot_domains &&",
     !jsx.includes("report?.cyber_mot_domains &&"));
+}
+
+// B4. A newer provisional TLS assessment must supply the grid's evidence even
+// when an older complete scan still supplies the last authoritative score.
+{
+  const older = { scan_id: "scan-older", score: 82, rating: "good",
+    scan_quality: "complete", created_at: "2026-10-12T22:32:00Z" };
+  const newer = { scan_id: "scan-newer", score: 100, rating: "excellent",
+    scan_quality: "partial", created_at: "2026-10-14T01:48:00Z" };
+  const oldReport = cleanComplete();
+  oldReport.scan_id = older.scan_id;
+  oldReport.modules = {
+    ...oldReport.modules,
+    technology_detection: {
+      technologies: ["nginx"],
+      technology_fingerprints: [{ technology: "nginx", source: "server", confidence: 90 }],
+      serviceability_contract: { serviceable: true, conclusion_class: "conclusive", reason: "origin_response_serviceable" },
+    },
+    cve_intelligence: { technologies_checked: ["nginx"], lookup_statuses: { nginx: { status: "complete" } },
+      results: {}, total_cves: 0, critical_count: 0, high_count: 0, cve_coverage: "complete", source: "nvd_api" },
+    known_exploited_vulnerabilities: { matches: [] },
+    email_security_intelligence: { email_security_score: 100 },
+  };
+  const newReport = { ...cleanComplete(), scan_id: newer.scan_id,
+    scan_quality: { status: "partial", modules_skipped: [] },
+    modules: { ...cleanComplete().modules,
+      tls_assessment: { quality: "partial", coverage: { completed: 1, uncertain: 1 } } } };
+  const reportById = { [older.scan_id]: oldReport, [newer.scan_id]: newReport };
+  const env = {
+    cybermeters_db: { prepare(sql) { return { bind() { return {
+      all: async () => ({ results: sql.includes("s.scan_quality='complete'") ? [older] : [] }),
+      first: async () => sql.includes("FROM scans s") ? newer : null,
+    }; } }; } },
+    cybermeters_reports: { get: async (key) => {
+      const id = key.match(/^reports\/(.+)\.json$/)?.[1];
+      return reportById[id] ? { json: async () => reportById[id] } : null;
+    } },
+  };
+  const posture = await getCurrentPosturePresentation(env, { workspaceId: "ws-parity" });
+  ok("B4 fixture keeps the older score authoritative and the newer scan provisional",
+    posture.authoritative_scan_id === older.scan_id && posture.latest_provisional_scan_id === newer.scan_id);
+  const url = new URL("https://api.cybermeters.com/api/workspaces/ws-parity/cyber-mot-domains");
+  const response = await executiveDashboardRoutes({ request: new Request(url), env, url,
+    json: (body, status = 200) => Response.json(body, { status }),
+    requireAuth: async () => ({ id: "founder" }), requireWorkspaceRole: async () => true,
+    serverError: (_area, error) => { throw error; },
+  });
+  const body = await response.json();
+  ok("B4 grid selects the newer provisional scan's evidence", body.source_scan_id === newer.scan_id);
+  ok("B4 incomplete TLS cannot read Healthy from the older complete scan",
+    byKey(body.cyber_mot_domains, "certificates_trust")?.state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
 }
 
 // ════ SECTION C — Per-domain healthy-eligibility matrix ════════════════════════
