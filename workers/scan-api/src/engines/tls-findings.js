@@ -27,10 +27,10 @@ const evidence = (endpoint,row,value) => ({type:'tls_endpoint_measurement',label
   endpoint_identity:endpoint.endpoint_identity,control:row.control,protocol:row.protocol,cipher:row.evidence?.negotiated?.cipher||null,
   engine:{family:row.engine.family,version:row.engine.version,build_id:row.engine.build_id},
   profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION});
-const make = (type,endpoint,row,{title,description,severity,recommendation,value,detail=''}) => {
+const make = (type,endpoint,row,{title,description,severity,recommendation,value,detail='',confidence=95}) => {
   const id=conditionKey(type,endpoint,row,detail);
   if(!id)return null;
-  return {id,module:'tls_assessment',finding_type:'finding',severity,confidence:95,score_impact:0,title,description,recommendation,
+  return {id,module:'tls_assessment',finding_type:'finding',severity,confidence,score_impact:0,title,description,recommendation,
     evidence:[evidence(endpoint,row,value)],tls_condition:{type,endpoint_identity:endpoint.endpoint_identity,
       control:row.control,protocol:row.protocol,cipher_id:row.cipher_id||null,detail,
       engine_build_id:row.engine.build_id,profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
@@ -66,9 +66,14 @@ export function tlsAssessmentFindings(assessment) {
     if(['heartbleed','robot','ccs'].includes(row.control)&&row.evidence?.vulnerability?.status==='confirmed'&&
       row.evidence.vulnerability.completed_vectors===row.evidence.vulnerability.planned_vectors&&
       row.evidence.vulnerability.completed_vectors>0&&row.physical_telemetry?.connections>0)
-      add(make(`tls_${row.control}_confirmed`,endpoint,row,{title:`${row.control.toUpperCase()} behaviour confirmed`,
-        description:`The bounded ${row.evidence.vulnerability.profile} profile confirmed the behaviour on this measured endpoint. No memory collection or decryption was performed.`,
-        severity:'high',recommendation:'Update or reconfigure the affected TLS implementation for this service, then repeat the same bounded control.',
+      add(make(`tls_${row.control}_confirmed`,endpoint,row,{title:row.control==='robot'?'RSA padding oracle signal observed':`${row.control.toUpperCase()} behaviour confirmed`,
+        description:row.control==='robot'
+          ? `The bounded ${row.evidence.vulnerability.profile} profile observed repeatable different TLS alerts for RSA padding classes on this measured endpoint. No decryption was attempted. A CDN edge result does not establish an origin vulnerability; confirm the edge behaviour with its operator.`
+          : `The bounded ${row.evidence.vulnerability.profile} profile confirmed the behaviour on this measured endpoint. No memory collection or decryption was performed.`,
+        severity:'high',confidence:row.control==='robot'?80:95,
+        recommendation:row.control==='robot'
+          ? 'Ask the measured edge or service operator to investigate the RSA padding oracle signal, update or reconfigure its TLS implementation where confirmed, then repeat this bounded control.'
+          : 'Update or reconfigure the affected TLS implementation for this service, then repeat the same bounded control.',
         value:`${row.evidence.vulnerability.completed_vectors}/${row.evidence.vulnerability.planned_vectors} bounded vectors`,
         detail:row.evidence.vulnerability.profile}));
     if(row.control==='certificate'&&positive(row)){
@@ -139,8 +144,10 @@ export function evaluateTlsCondition(id,assessment) {
           ? {state:'clear',reason:'compression_retested'} : {state:'deferred',reason:'compression_retest_inconclusive'};
         if(type.endsWith('_confirmed')){
           const v=row.evidence?.vulnerability;
-          return v?.status==='not_observed'&&v.completed_vectors===v.planned_vectors
-            ? {state:'clear',reason:'exact_active_profile_retested'} : {state:'deferred',reason:'active_retest_inconclusive'};
+          if(v?.completed_vectors!==v?.planned_vectors)return {state:'deferred',reason:'active_retest_inconclusive'};
+          if(v.status==='confirmed'&&row.state==='accepted')return {state:'present',reason:'tls_condition_still_observed'};
+          if(v.status==='not_observed'&&row.state==='rejected')return {state:'clear',reason:'exact_active_profile_retested'};
+          return {state:'deferred',reason:'active_retest_inconclusive'};
         }
         if(['tls_certificate_hostname','tls_certificate_trust','tls_ocsp_revoked','tls_weak_certificate_key','tls_weak_certificate_signature'].includes(type)
           && !positive(row))return {state:'deferred',reason:'certificate_retest_inconclusive'};

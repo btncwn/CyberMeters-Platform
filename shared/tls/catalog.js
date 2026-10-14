@@ -19,9 +19,8 @@ export const TLS_APPLICATIONS = Object.freeze({
   pop3s:Object.freeze([995]),
 });
 export const TLS_SPECIAL_CONTROLS = Object.freeze(['heartbleed','robot','ccs']);
-// The pinned engine currently reports these as unexecutable without a network
-// attempt. Keep them visible in coverage but do not spend a scan slice on them.
-export const TLS_SPECIAL_CONTROLS_AVAILABLE = false;
+// Customer consent and live scope rechecks still gate every special slice.
+export const TLS_SPECIAL_CONTROLS_AVAILABLE = true;
 export const TLS_CONTROLS = Object.freeze([
   'protocol','cipher','key_exchange','certificate','ocsp','compression',
   'secure_renegotiation','fallback_scsv','extended_master_secret',
@@ -32,6 +31,9 @@ export const TLS_SLICE_LIMITS = Object.freeze({
   durationMs:25000, requestBytes:16384, responseBytes:524288,
   engineBytes:262144, engineResultBytes:262144,
 });
+// Special checks always occupy their own slice. The ROBOT profile needs a
+// verified baseline plus two rounds of five vectors in two message flows.
+export const TLS_SPECIAL_CONNECTION_LIMITS = Object.freeze({heartbleed:1,robot:21,ccs:5});
 
 const tls13Only = new Set(['early_data']);
 const legacyOnly = new Set(['compression','secure_renegotiation','fallback_scsv','extended_master_secret']);

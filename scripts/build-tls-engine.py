@@ -68,7 +68,7 @@ def write_catalog(build):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--engine', choices=['legacy', 'modern', 'all'], default='all')
+    parser.add_argument('--engine', choices=['legacy', 'modern', 'active_legacy', 'all'], default='all')
     parser.add_argument('--build-dir', type=Path, default=ENGINE / '.build')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--libraries-only', action='store_true')
@@ -89,7 +89,7 @@ def main():
         identity = source['id']
         if identity not in SOURCE_URLS or source['url'] != SOURCE_URLS[identity]:
             raise RuntimeError('unexpected source URL')
-        if args.engine not in ('all', identity):
+        if args.engine not in ('all', identity) and not (args.engine == 'active_legacy' and identity == 'legacy'):
             continue
         archive = build / ('openssl-' + source['version'] + '.tar.gz')
         if not archive.exists():
@@ -145,23 +145,30 @@ def main():
             run(['make', 'install_sw'], source_dir, log)
         if not args.libraries_only:
             lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
-            output = binary_dir / ('tls-baseline-' + identity)
-            build_id = hashlib.sha256((source['sha256'] + sha256(ENGINE / 'src/engine.c')
-                                       + sha256(ENGINE / 'src/sandbox.h')
-                                       + json.dumps(options, separators=(',', ':'))).encode()).hexdigest()
-            command = [os.environ.get('CC', 'cc'), '-std=c11', '-D_GNU_SOURCE', '-O2',
-                       '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations',
-                       '-DCM_BUILD_ID="' + build_id + '"', '-DCM_ENGINE_FAMILY="' + identity + '"',
-                       '-I' + str(prefix / 'include'), str(ENGINE / 'src/engine.c'),
-                       str(lib / 'libssl.a'), str(lib / 'libcrypto.a'), '-lpthread',
-                       *(['-lz'] if identity == 'legacy' else []), '-o', str(output)]
-            if system == 'Linux':
-                command.extend(['-ldl'])
-            run(command, ROOT, log)
-            record = {**source, 'build_id': build_id, 'binary_sha256': sha256(output),
-                      'platform': system + '-' + machine, 'configure': options,
-                      'baseline_upstream_modified': False}
-            (binary_dir / (output.name + '.json')).write_text(json.dumps(record, indent=2) + '\n')
+            variants = (['legacy', 'active_legacy'] if args.engine == 'all' and identity == 'legacy'
+                        else [args.engine] if args.engine == 'active_legacy' else [identity])
+            for variant in variants:
+                active = variant == 'active_legacy'
+                output = binary_dir / ('tls-active-legacy' if active else 'tls-baseline-' + identity)
+                build_id = hashlib.sha256((source['sha256'] + sha256(ENGINE / 'src/engine.c')
+                                           + sha256(ENGINE / 'src/sandbox.h') + (variant if active else '')
+                                           + json.dumps(options, separators=(',', ':'))).encode()).hexdigest()
+                command = [os.environ.get('CC', 'cc'), '-std=c11', '-D_GNU_SOURCE', '-O2',
+                           '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations',
+                           '-DCM_BUILD_ID="' + build_id + '"', '-DCM_ENGINE_FAMILY="' + variant + '"',
+                           *(['-DCM_SPECIAL_ENGINE=1'] if active else []),
+                           '-I' + str(prefix / 'include'), str(ENGINE / 'src/engine.c'),
+                           str(lib / 'libssl.a'), str(lib / 'libcrypto.a'), '-lpthread',
+                           *(['-lz'] if identity == 'legacy' else []), '-o', str(output)]
+                if system == 'Linux':
+                    command.extend(['-ldl'])
+                run(command, ROOT, log)
+                record = {**source, 'build_id': build_id, 'binary_sha256': sha256(output),
+                          'platform': system + '-' + machine, 'configure': options,
+                          'baseline_upstream_modified': False}
+                if active:
+                    record['variant'] = variant
+                (binary_dir / (output.name + '.json')).write_text(json.dumps(record, indent=2) + '\n')
         print('Ready: ' + identity, flush=True)
     if not args.libraries_only and not args.skip_catalog:
         write_catalog(build)

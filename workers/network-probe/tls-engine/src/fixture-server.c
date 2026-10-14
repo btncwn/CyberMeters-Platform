@@ -45,8 +45,8 @@ int main(int argc,char **argv) {
     SSL_library_init();OpenSSL_add_all_algorithms();
     const SSL_METHOD *m=!strcmp(protocol,"ssl2")?SSLv2_server_method():
       (!strcmp(protocol,"ssl3")||!strcmp(protocol,"ssl3_nocomp"))?SSLv3_server_method():
-      (!strcmp(protocol,"tls1")||!strcmp(protocol,"tls1_nocomp"))?TLSv1_server_method():
-      (!strcmp(protocol,"tls1_1")||!strcmp(protocol,"tls1_1_nocomp"))?TLSv1_1_server_method():TLSv1_2_server_method();
+      (!strcmp(protocol,"tls1")||!strcmp(protocol,"tls1_nocomp")||!strcmp(protocol,"tls1_hb"))?TLSv1_server_method():
+      (!strcmp(protocol,"tls1_1")||!strcmp(protocol,"tls1_1_nocomp")||!strcmp(protocol,"tls1_1_hb"))?TLSv1_1_server_method():TLSv1_2_server_method();
     ctx=SSL_CTX_new(m);
 #else
     OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG,NULL);ctx=SSL_CTX_new(TLS_server_method());
@@ -95,7 +95,16 @@ int main(int argc,char **argv) {
     for(;;) {
         int peer=accept(fd,NULL,NULL);if(peer<0)return 5;
         SSL *ssl=SSL_new(ctx);SSL_set_fd(ssl,peer);
-        if(SSL_accept(ssl)==1) {unsigned char byte;SSL_read(ssl,&byte,1);}
+        if(strstr(protocol,"_hb"))SSL_set_mode(ssl,SSL_MODE_AUTO_RETRY);
+        if(SSL_accept(ssl)==1) {
+            unsigned char byte;
+            if(strstr(protocol,"_hb")) {
+                for(int i=0;i<8;i++) {
+                    int ret=SSL_read(ssl,&byte,1);
+                    if(ret>0||SSL_get_error(ssl,ret)!=SSL_ERROR_WANT_READ)break;
+                }
+            } else SSL_read(ssl,&byte,1);
+        }
         SSL_free(ssl);close(peer);
     }
 }

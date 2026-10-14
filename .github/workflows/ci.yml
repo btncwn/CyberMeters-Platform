@@ -166,6 +166,7 @@ jobs:
           python3 scripts/build-tls-engine.py --jobs 4
           python3 workers/network-probe/tls-engine/test-engine.py
           node workers/network-probe/tls-engine/test-parent.js
+          node workers/network-probe/tls-engine/test-parent-active.js
           docker build --file workers/network-probe/tls-engine/Dockerfile --tag cybermeters-tls-ci:${{ github.sha }} .
           set -o pipefail
           for pair in legacy:ssl2 modern:tls1_3; do

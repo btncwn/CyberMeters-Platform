@@ -6,7 +6,7 @@ import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
-import { TLS_SLICE_LIMITS, TLS_TRUST_BUNDLE, TLS_SPECIAL_CONSENT_VERSION, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, TLS_SPECIAL_CONSENT_VERSION, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
@@ -30,7 +30,8 @@ function priorTlsRiskChecks(previousPlan) {
       row.control === 'key_exchange' && (row.evidence?.negotiated?.pfs === false ||
         Number.isInteger(row.evidence?.negotiated?.group_bits) && row.evidence.negotiated.group_bits < 2048) ||
       row.control === 'certificate' && (row.evidence?.certificates?.trust === 'invalid' || row.evidence?.certificates?.hostname === false) ||
-      row.control === 'compression' && row.evidence?.extensions?.compression === true))
+      row.control === 'compression' && row.evidence?.extensions?.compression === true ||
+      ['heartbleed','robot','ccs'].includes(row.control) && row.evidence?.vulnerability?.status === 'confirmed'))
     .map(row => ({endpoint_identity:tls.endpoints[row.endpoint_index]?.endpoint_identity,
       control:row.control,protocol:row.protocol,cipher_id:row.cipher_id||null}))
     .filter(row=>row.endpoint_identity);
@@ -272,9 +273,10 @@ export function mergeWebsiteContentPlan(plan,receipt,domain) {
 function nextTlsChecks(plan) {
   const tls=plan.tls,first=tls?.selected?.[tls.cursor];
   if(!first)return [];
+  if(['heartbleed','robot','ccs'].includes(first.check.control))return [first];
   const batch=[];
   for(const row of tls.selected.slice(tls.cursor,tls.cursor+TLS_SLICE_LIMITS.checks)){
-    if(row.endpoint_index!==first.endpoint_index)break;
+    if(row.endpoint_index!==first.endpoint_index||['heartbleed','robot','ccs'].includes(row.check.control))break;
     batch.push(row);
   }
   return batch;
@@ -310,7 +312,7 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
   if(!await tlsScopeStillAuthorized(env,scan,entry))
     return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
   const token=crypto.randomUUID().replaceAll('-',''),db=env.cybermeters_db;
-  const reservationRequests=TLS_SLICE_LIMITS.connections;
+  const reservationRequests=TLS_SPECIAL_CONNECTION_LIMITS[items[0].check.control]||TLS_SLICE_LIMITS.connections;
   const reservationBytes=TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes;
   const claimed=await db.prepare(`UPDATE external_exposure_jobs SET state='running',lease_token=?,lease_until=?,
     charged_requests=charged_requests+?,charged_bytes=charged_bytes+?,attempts=attempts+1,

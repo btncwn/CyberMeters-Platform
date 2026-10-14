@@ -28,6 +28,7 @@ if(!process.env.CM_TLS_TEST_CERTIFICATE || !process.env.CM_TLS_TEST_KEY){
 let source=readFileSync(join(root,'workers/network-probe/src/tls-collector-runtime.js'),'utf8');
 for(const [from,to] of [
   ['/opt/cybermeters/tls-baseline-legacy',runtimeRoot?join(runtimeRoot,'tls-baseline-legacy'):join(build,'bin/tls-baseline-legacy')],
+  ['/opt/cybermeters/tls-active-legacy',runtimeRoot?join(runtimeRoot,'tls-active-legacy'):join(build,'bin/tls-active-legacy')],
   ['/opt/cybermeters/tls-baseline-modern',runtimeRoot?join(runtimeRoot,'tls-baseline-modern'):join(build,'bin/tls-baseline-modern')],
   ['/opt/cybermeters/trust/ca-bundle.pem',certificate],
 ])source=source.replaceAll(from,to);
@@ -175,13 +176,19 @@ try{
   const blocked=await measuredCollector(changed);
   assert.equal(blocked.results[0].reason,'dns_authority_changed');
   assert.equal(blocked.telemetry.connections,0);
-  const unavailable={...request,request_id:'local_parent_special_unavailable',
+  const unavailable={...request,request_id:'local_parent_special_without_consent',
     checks:[{control:'heartbleed',protocol:'tls1_2',cipher_id:null}],
     deadline_at:new Date(Date.now()+20000).toISOString()};
   const noActive=await measuredCollector(unavailable);
   assert.equal(noActive.results[0].engine_result?.state,'unexecutable');
   assert.equal(noActive.results[0].engine_result?.reason,'control_unavailable');
   assert.equal(noActive.telemetry.connections,0);
+  const consentedUnavailable={...unavailable,request_id:'local_parent_special_consented_no_heartbeat',
+    scope:{...unavailable.scope,special_consent:true,consent_version:'tls-special-2026-10-13'}};
+  const activeWithoutHeartbeat=await measuredCollector(consentedUnavailable);
+  assert.equal(activeWithoutHeartbeat.results[0].engine_result?.state,'unexecutable');
+  assert.equal(activeWithoutHeartbeat.results[0].engine_result?.reason,'heartbeat_unavailable');
+  assert.equal(activeWithoutHeartbeat.telemetry.connections,1);
   await checkMailUpgrade(request,'imap');
   await checkMailUpgrade(request,'pop3');
   await checkMailUpgrade(request,'imap','missing');

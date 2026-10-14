@@ -107,7 +107,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     ["tls_weak_key_exchange", "Strengthen the measured key exchange", "Configure a current key exchange group on this service."],
     ["tls_no_forward_secrecy", "Enable forward-secret key exchange", "Offer and prefer a forward-secret key exchange on this service."],
     ["tls_heartbleed_confirmed", "Correct the confirmed Heartbleed behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
-    ["tls_robot_confirmed", "Correct the confirmed ROBOT behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
+    ["tls_robot_confirmed", "Investigate the observed RSA padding oracle signal", "Confirm the measured edge behaviour with its operator, correct the TLS implementation where needed, and repeat the bounded control."],
     ["tls_ccs_confirmed", "Correct the confirmed CCS behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
     ["tls_certificate_hostname", "Correct the measured TLS service hostname", "Deploy a certificate whose names cover the measured service hostname."],
     ["tls_certificate_trust", "Correct the observed certificate trust failure", "Correct the offered chain or certificate configuration for this service."],
