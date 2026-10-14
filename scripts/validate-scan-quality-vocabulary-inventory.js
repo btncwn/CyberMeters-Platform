@@ -59,9 +59,10 @@ const EXPECTED = Object.freeze({
     // completed scans (the new source file). No gate added; SQL unchanged.
     // TLS coverage adds one guard that preserves degraded quality and one
     // aggregate gate that excludes provisional rows from complete-scan means.
-    // Live dashboard closure: latest-scan posture, comparable trend and recent
-    // scan labels add four governed comparisons in Dashboard.jsx (55 -> 59).
-    comparison_occurrences: 59,
+    // Dashboard presentation now requires the projected assessment authority
+    // and comparability. Stored scan_quality alone cannot establish a rating;
+    // the removed direct comparisons leave this integrated inventory at 53.
+    comparison_occurrences: 53,
     source_file_count: 24,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -100,7 +101,7 @@ const EXPECTED = Object.freeze({
     // pinned, so real additions/removals still fail while line-only edits do not.
     // TLS release: the historical customer projector consumes effective
     // quality, and the aggregate now checks the projected complete state.
-    fingerprint: "120eafa54a1126e0c817ea2e851c530744d044cb0551d37bcaf54098fa6c1767",
+    fingerprint: "5ee4e49f2e1046e41e14233afbc07ccd5b18b60bd42e305f18740450d8ebb58e",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -228,9 +229,9 @@ const EXPECTED = Object.freeze({
     // above, plus the scan lists (ScansPage, DomainHistory, WorkspaceDetailPage)
     // and the scan page header handing the recorded quality to StatusBadge,
     // which shows a completed partial scan as "Partial results".
-    // Three additional direct quality reads are confined to the existing
-    // Dashboard.jsx customer presentation (118 -> 121; file set unchanged).
-    runtime: { occurrence_count: 121, source_file_count: 41, fingerprint: "04120d4dccbf0d5dc70a7dcb4134445f758cdc206953d1da61d264d9e3ac7709" },
+    // Dashboard now uses the backend assessment for finality, with direct
+    // quality reads retained only for fail-closed checks and visible labels.
+    runtime: { occurrence_count: 115, source_file_count: 41, fingerprint: "7e8d6593af17d8629a960a8d715eaa3bcf8d2bae55ae99ecee0c6121f7ce1bba" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

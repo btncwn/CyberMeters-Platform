@@ -30,6 +30,24 @@ function relativeTime(str) {
   return `${Math.floor(h / 24)}d ago`
 }
 
+function assessedScan(scan) {
+  const assessment = scan?.assessment
+  const score = assessment
+    ? Number.isFinite(assessment.display_score) ? assessment.display_score : null
+    : Number.isFinite(scan?.score) ? scan.score : null
+  // The backend assessment is the authority for finality. A stored scan row
+  // can say "complete" while required monitoring evidence is still missing.
+  const authoritative = scan?.status === 'completed'
+    && scan?.scan_quality === 'complete'
+    && assessment?.quality === 'complete'
+    && assessment?.authoritative === true
+    && assessment?.provisional === false
+    && assessment?.display_rating != null
+    && Number.isFinite(assessment?.display_score)
+  return { score, authoritative, comparable: authoritative && assessment?.comparable === true,
+    rating: authoritative ? assessment.display_rating : null }
+}
+
 /* ─── Derive insights from real scan data + optional report ─────────────── */
 
 export function deriveInsights(scans, report) {
@@ -41,10 +59,11 @@ export function deriveInsights(scans, report) {
   // The hero describes the latest finished scan. An older complete scan cannot
   // turn a newer partial result into an established current posture.
   const latest = completed[0] || null
-  const score = Number.isFinite(latest?.score) ? latest.score : null
-  const postureEstablished = latest?.scan_quality === 'complete' && score !== null
-  const postureProvisional = !!latest && latest.scan_quality !== 'complete'
-  const riskLevel = postureEstablished ? latest.rating ?? null : null
+  const latestAssessment = assessedScan(latest)
+  const score = latestAssessment.score
+  const postureEstablished = latestAssessment.authoritative
+  const postureProvisional = !!latest && !postureEstablished
+  const riskLevel = latestAssessment.rating
 
   // Health categories: derive from report modules if available, else use scan counts
   const mods = report?.modules ?? {}
@@ -78,12 +97,12 @@ export function deriveInsights(scans, report) {
   // Only fully assessed scores are comparable; partial scores remain visible
   // on their own scan reports, never as points on an unqualified trend.
   const trend = completed
-    .filter(s => s.scan_quality === 'complete' && Number.isFinite(s.score))
+    .filter(s => assessedScan(s).comparable)
     .slice(0, 7)
     .reverse()
     .map((s, i) => ({
       label: s.domain?.split('.')[0] || `#${i + 1}`,
-      value: Number.isFinite(s.score) ? s.score : null,
+      value: s.assessment.display_score,
       date:  s.created_at,
     }))
 
@@ -118,9 +137,9 @@ export function deriveInsights(scans, report) {
   return {
     score, riskLevel, postureProvisional, postureEstablished, completed, failed, active, domains,
     // A finished run whose checks did not all complete is counted, never hidden.
-    partialCompleted: completed.filter(s => ['partial', 'degraded'].includes(s.scan_quality)).length,
+    partialCompleted: completed.filter(s => !assessedScan(s).authoritative).length,
     healthCategories, findings, trend, actions,
-    scanQuality: latest?.scan_quality ?? null,
+    scanQuality: postureEstablished ? 'complete' : latest?.assessment?.quality ?? latest?.scan_quality ?? null,
     criticalCount, highCount,
   }
 }
@@ -757,8 +776,8 @@ export default function Dashboard() {
             {ins.postureProvisional && (
               <p className="text-[13px] text-amber-700 text-center leading-relaxed max-w-[200px] font-medium">
                 {ins.score != null
-                  ? 'Some checks were not completed. This score is provisional.'
-                  : 'Some checks were not completed, so no score is shown for this scan.'}
+                  ? 'Some checks or required evidence are incomplete. This score is provisional.'
+                  : 'Some checks or required evidence are incomplete, so no score is shown for this scan.'}
               </p>
             )}
           </div>
@@ -767,7 +786,7 @@ export default function Dashboard() {
           <div className="flex-1 lg:border-l border-gray-200 lg:pl-8">
             <p className="text-[15px] text-gray-700 leading-relaxed max-w-lg">
               {ins.postureProvisional
-                ? 'Some checks were not completed, so current posture is not yet established. Re-run the Cyber MOT for a complete assessment.'
+                ? 'The current assessment is provisional because checks or required evidence are incomplete. Review the report and re-run the Cyber MOT.'
                 : ins.score === null
                 ? 'Run your first Cyber MOT to generate your Cyber Metrics Score and reveal your external security posture.'
                 : ['excellent', 'good'].includes(scoreBand(ins.score))
@@ -864,7 +883,7 @@ export default function Dashboard() {
             )}
           </div>
           {ins.findings.length === 0 ? (
-            ins.scanQuality === 'complete' ? (
+            ins.postureEstablished ? (
               <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
                 <p className="text-sm font-semibold text-gray-900">No findings</p>
                 <p className="text-xs text-gray-400">Nothing was found in what the latest complete scan checked. That is not proof of no risk.</p>
@@ -959,7 +978,9 @@ export default function Dashboard() {
             <Link to="/scans" className="btn-ghost text-xs">View all</Link>
           </div>
           <ul className="divide-y divide-gray-50">
-            {scans.slice(0, 5).map(scan => (
+            {scans.slice(0, 5).map(scan => {
+              const scanAssessment = assessedScan(scan)
+              return (
               <li
                 key={scan.id}
                 onClick={() => navigate(`/scans/${scan.id}`)}
@@ -967,17 +988,20 @@ export default function Dashboard() {
               >
                 <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
                 {/* Show real score if available */}
-                {Number.isFinite(scan.score) && (
-                  <span className={`text-sm font-bold flex-shrink-0 ${scan.scan_quality === 'complete' ? 'text-brand-600' : 'text-amber-700'}`}>
-                    {scan.score}{scan.scan_quality === 'complete' ? '' : ' provisional'}
+                {scanAssessment.score !== null && (
+                  <span className={`text-sm font-bold flex-shrink-0 ${scanAssessment.authoritative ? 'text-brand-600' : 'text-amber-700'}`}>
+                    {scanAssessment.score}{scanAssessment.authoritative ? '' : ' provisional'}
                   </span>
                 )}
                 <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <span>{scan.status === 'completed' && scan.scan_quality !== 'complete' ? 'Partial results' : scan.status}</span>
+                  <span>{scan.status === 'completed' && !scanAssessment.authoritative
+                    ? scan.scan_quality === 'complete' ? 'Provisional result' : 'Partial results'
+                    : scan.status}</span>
                 </span>
                 <span className="text-xs text-gray-400 hidden sm:block flex-shrink-0">{formatDate(scan.created_at)}</span>
               </li>
-            ))}
+              )
+            })}
           </ul>
         </div>
       )}

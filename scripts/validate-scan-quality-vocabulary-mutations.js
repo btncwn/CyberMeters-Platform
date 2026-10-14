@@ -120,10 +120,10 @@ export const ctR2UnknownStatusGate = ctR2UnknownCarrier.scan_quality === "provid
     file: commentTargetRel,
     mutate: (source) => replaceExactlyOnce(
       source,
-      "  const postureEstablished = latest?.scan_quality === 'complete' && score !== null",
-      `  // const postureEstablished = latest?.scan_quality === 'complete' && score !== null
-  void "latest?.scan_quality === 'complete'"
-  const postureEstablished = score !== null`,
+      "  const postureEstablished = latestAssessment.authoritative",
+      `  // const postureEstablished = latestAssessment.authoritative
+  void "latestAssessment.authoritative"
+  const postureEstablished = latest?.scan_quality === 'complete' && score !== null`,
       "comment and string cannot impersonate a removed caller",
     ),
     expectedFailures: [RUNTIME_FAILURE, DIRECT_RUNTIME_FAILURE],
