@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PublicSiteHeader from '../components/PublicSiteHeader'
 import PublicSiteFooter from '../components/PublicSiteFooter'
-import IrisGlobe from '../components/landing/IrisGlobe'
+import IrisGlobe, { GLOBE, heroGlobe } from '../components/landing/IrisGlobe'
 import ProductFrame from '../components/landing/ProductFrame'
 import ProductShowcase from '../components/landing/ProductShowcase'
 import ProductTour from '../components/landing/ProductTour'
@@ -171,10 +171,14 @@ function HeroStage() {
   const eyeRef = useRef(null)
   const textRef = useRef(null)
   const SIZE = 1000
+  const [globe, setGlobe] = useState(() => heroGlobe(typeof window === 'undefined' ? 0 : window.innerWidth))
 
   useEffect(() => {
     if (!wide) return undefined
     let raf = 0
+    // The world settles above the facts band at the same size however large it
+    // is in the hero, so it never reaches the heading below it.
+    const settle = 0.74 * Math.min(1, GLOBE / globe)
     const apply = () => {
       raf = 0
       const stage = stageRef.current
@@ -185,25 +189,26 @@ function HeroStage() {
       const e = p * p * (3 - 2 * p)
       const x = w * 0.74 + (w * 0.5 - w * 0.74) * e
       const y = 470 + (1000 - 470) * e
-      const s = 1 - 0.26 * e
+      const s = 1 - (1 - settle) * e
       eye.style.transform = `translate3d(${(x - SIZE / 2).toFixed(1)}px, ${(y - SIZE / 2).toFixed(1)}px, 0) scale(${s.toFixed(3)})`
     }
     const on = () => { if (!raf) raf = requestAnimationFrame(apply) }
+    const onResize = () => { setGlobe(heroGlobe(window.innerWidth)); on() }
     apply()
     window.addEventListener('scroll', on, { passive: true })
-    window.addEventListener('resize', on)
+    window.addEventListener('resize', onResize)
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('scroll', on)
-      window.removeEventListener('resize', on)
+      window.removeEventListener('resize', onResize)
     }
-  }, [wide, still])
+  }, [wide, still, globe])
 
   return (
     <div ref={stageRef} className="cm-stage relative overflow-hidden text-white">
       {wide && (
         <div ref={eyeRef} className="absolute left-0 top-0 z-0 will-change-transform" style={{ width: SIZE, height: SIZE, transformOrigin: '50% 50%' }}>
-          <IrisGlobe size={SIZE} preferRight avoidRef={textRef} />
+          <IrisGlobe size={SIZE} globe={globe} preferRight avoidRef={textRef} />
         </div>
       )}
       <div className="cm-legibility absolute inset-0 z-0 pointer-events-none" aria-hidden="true" />

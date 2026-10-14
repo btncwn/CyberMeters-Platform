@@ -43,18 +43,6 @@ const ROUTES = [
   ['Mexico City', 'Los Angeles'], ['Nairobi', 'Dubai'], ['Seoul', 'Shanghai'], ['São Paulo', 'Lagos'],
 ]
 
-// Small deterministic generator so the iris looks the same on every load.
-function mulberry32(seed) {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
 const reducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
 // Phones and tablets: a touch screen is the main input and nothing hovers.
 const touchScreen = () => Boolean(window.matchMedia?.('(hover: none) and (pointer: coarse)').matches)
@@ -72,17 +60,30 @@ function context(canvas, cssSize, maxDpr) {
 
 const polar = (c, r, a) => [c + Math.cos(a) * r, c + Math.sin(a) * r]
 
-// Iris fibres radiate from the pupil edge, sweep a little, and fade outwards.
-// Additive blending makes overlapping fibres glow.
-export function paintIris(canvas, size) {
+// Share of the eye's radius the globe fills. A larger share gives a bigger
+// world in the same eye; the pupil and its tick ring grow with it.
+export const GLOBE = 0.29
+export const HERO_GLOBE_MAX = 0.4
+
+// The desktop hero has more room beside its heading as the screen widens. The
+// world keeps the standard size up to 1200px and grows to its largest by
+// 1300px, staying clear of the heading at every width in between.
+export function heroGlobe(width) {
+  const t = Math.min(1, Math.max(0, (width - 1200) / 100))
+  return Math.round((GLOBE + t * (HERO_GLOBE_MAX - GLOBE)) * 100) / 100
+}
+
+// The iris: a deep blue disc fading outwards, with a fine tick ring on the
+// pupil edge.
+export function paintIris(canvas, size, globe = GLOBE) {
   const ctx = context(canvas, size, 1.5)
   if (!ctx) return false
   const c = size / 2
   const R = size / 2
-  const rnd = mulberry32(20261011)
+  const k = globe / GLOBE
 
-  // A deeper iris disc under the fibres so they read as light on a lighter page.
-  const disc = ctx.createRadialGradient(c, c, R * 0.33, c, c, R * 0.97)
+  // A deeper iris disc so the eye reads as light on a lighter page.
+  const disc = ctx.createRadialGradient(c, c, R * 0.33 * k, c, c, R * 0.97)
   disc.addColorStop(0, 'rgba(6,22,78,0.62)')
   disc.addColorStop(0.45, 'rgba(10,34,104,0.38)')
   disc.addColorStop(0.8, 'rgba(14,44,124,0.14)')
@@ -92,55 +93,24 @@ export function paintIris(canvas, size) {
 
   ctx.globalCompositeOperation = 'lighter'
   ctx.lineCap = 'round'
-  const fibres = size > 700 ? 3600 : 2200
-  for (let i = 0; i < fibres; i++) {
-    const a = rnd() * TAU
-    const r0 = R * (0.355 + rnd() * 0.05)
-    const reach = Math.pow(rnd(), 0.6)
-    const r1 = R * (0.47 + reach * 0.5)
-    const sweep = (rnd() - 0.5) * 0.55
-    const mid = 0.45 + rnd() * 0.15
-    const [x0, y0] = polar(c, r0, a)
-    const [xm, ym] = polar(c, r0 + (r1 - r0) * mid, a + sweep * 0.45 + (rnd() - 0.5) * 0.04)
-    const [x1, y1] = polar(c, r1, a + sweep)
-    const pick = rnd()
-    const hue = pick < 0.62 ? 190 + rnd() * 12 : pick < 0.94 ? 208 + rnd() * 14 : 250 + rnd() * 16
-    const light = 48 + rnd() * 24
-    const alpha = (0.07 + rnd() * 0.17) * (1 - reach * 0.55)
-    ctx.strokeStyle = `hsla(${hue.toFixed(0)},100%,${light.toFixed(0)}%,${alpha.toFixed(3)})`
-    ctx.lineWidth = 0.5 + rnd() * 1.2
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(xm, ym, x1, y1); ctx.stroke()
-  }
-
-  // Bright collarette just outside the pupil.
-  for (let i = 0; i < fibres * 0.4; i++) {
-    const a = rnd() * TAU
-    const r0 = R * (0.36 + rnd() * 0.01)
-    const r1 = r0 + R * (0.03 + rnd() * 0.1)
-    const [x0, y0] = polar(c, r0, a)
-    const [x1, y1] = polar(c, r1, a + (rnd() - 0.5) * 0.06)
-    ctx.strokeStyle = `hsla(${(190 + rnd() * 20).toFixed(0)},100%,${(72 + rnd() * 20).toFixed(0)}%,${(0.08 + rnd() * 0.2).toFixed(3)})`
-    ctx.lineWidth = 0.6 + rnd() * 0.9
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
-  }
 
   // Fine tick ring on the pupil edge.
   ctx.strokeStyle = 'rgba(150,225,255,0.45)'
   ctx.lineWidth = 1
   for (let i = 0; i < 180; i++) {
     const a = (i / 180) * TAU
-    const [x0, y0] = polar(c, R * 0.338, a)
-    const [x1, y1] = polar(c, R * (i % 5 === 0 ? 0.354 : 0.347), a)
+    const [x0, y0] = polar(c, R * 0.338 * k, a)
+    const [x1, y1] = polar(c, R * (i % 5 === 0 ? 0.354 : 0.347) * k, a)
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
   }
 
   ctx.globalCompositeOperation = 'source-over'
-  const pupil = ctx.createRadialGradient(c, c, 0, c, c, R * 0.34)
+  const pupil = ctx.createRadialGradient(c, c, 0, c, c, R * 0.34 * k)
   pupil.addColorStop(0, '#0C1E4C')
   pupil.addColorStop(0.85, '#091840')
   pupil.addColorStop(1, '#0A1B46')
   ctx.fillStyle = pupil
-  ctx.beginPath(); ctx.arc(c, c, R * 0.334, 0, TAU); ctx.fill()
+  ctx.beginPath(); ctx.arc(c, c, R * 0.334 * k, 0, TAU); ctx.fill()
   return true
 }
 
@@ -365,7 +335,7 @@ function drawGlobe(ctx, canvas, box, R, spin, tilt, active, now, fx, scene) {
   return placed
 }
 
-export default function IrisGlobe({ size, labels = true, preferRight = false, avoidRef = null, className = '', style }) {
+export default function IrisGlobe({ size, globe = GLOBE, labels = true, preferRight = false, avoidRef = null, className = '', style }) {
   const rootRef = useRef(null)
   const shakeRef = useRef(null)
   const irisRef = useRef(null)
@@ -375,23 +345,23 @@ export default function IrisGlobe({ size, labels = true, preferRight = false, av
   const labelRefs = useRef([])
 
   const globeBox = Math.round(size * 0.9)
-  const globeR = size * 0.5 * 0.29
+  const globeR = size * 0.5 * globe
 
   useEffect(() => {
     const iris = irisRef.current
     let cancelled = false
     const paint = () => {
       if (cancelled || !iris) return
-      if (paintIris(iris, size)) iris.dataset.ready = 'true'
+      if (paintIris(iris, size, globe)) iris.dataset.ready = 'true'
     }
-    // Let the first paint of the page happen before the fibres are drawn.
+    // Let the first paint of the page happen before the iris is drawn.
     const id = window.requestIdleCallback ? window.requestIdleCallback(paint, { timeout: 400 }) : window.setTimeout(paint, 60)
     return () => {
       cancelled = true
       if (window.cancelIdleCallback) window.cancelIdleCallback(id)
       window.clearTimeout(id)
     }
-  }, [size])
+  }, [size, globe])
 
   useEffect(() => {
     const canvas = globeRef.current
