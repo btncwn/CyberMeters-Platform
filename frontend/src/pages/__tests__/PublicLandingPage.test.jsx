@@ -45,7 +45,7 @@ describe('PublicLandingPage', () => {
 
   it('describes the free check as a bounded one-off snapshot, with full access only after verification', () => {
     renderLanding()
-    expect(screen.getByText(/one-off snapshot of public evidence: nothing is stored or monitored until you create an account/i)).toBeInTheDocument()
+    expect(screen.getByText(/A one-off snapshot of public evidence. No scan report or monitoring history is saved/)).toBeInTheDocument()
     expect(screen.getByText(/Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain/i)).toBeInTheDocument()
     expect(screen.getByText(/Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial/i)).toBeInTheDocument()
     expect(screen.getByText(/bounded, non-persistent external snapshot/i)).toBeInTheDocument()
@@ -82,6 +82,12 @@ describe('PublicLandingPage', () => {
     renderLanding()
     expect(screen.queryByText(/small businesses, startups|digital agencies|small teams/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/across (all )?(eight|8) areas/i)).not.toBeInTheDocument()
+  })
+
+  it('limits the free-check storage promise to reports and monitoring history', () => {
+    renderLanding()
+    expect(screen.getByText(/No scan report or monitoring history is saved/)).toHaveTextContent('Limited rate-limit records help prevent misuse')
+    expect(document.body.textContent).not.toContain('nothing is stored')
   })
 
   it('does not advertise the MSP portfolio view, which is not customer-accepted', () => {

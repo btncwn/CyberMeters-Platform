@@ -61,9 +61,10 @@ export async function billingRoutes(rctx) {
     // Runs a bounded five-module public snapshot and returns a deliberately
     // reduced eight-domain projection suitable for the /free-scan page.
     //
-    // Rate limit: 5 free scans per IP per hour (IP stored hashed in api_rate_limits).
-    // No D1 persistence — results are returned inline and discarded.
-    // No R2 writes — no report is stored.
+    // Rate limit: 5 free scans per IP per hour. The IP- and domain-derived
+    // counters are stored in D1 and swept daily after their one-hour window;
+    // the shared five-minute per-IP API guard is swept by the same retention.
+    // Results are returned inline and discarded; no R2 report is stored.
     //
     // Hidden findings, evidence, remediation, PDF and monitoring history are
     // not returned to anonymous callers. Full access still passes through the

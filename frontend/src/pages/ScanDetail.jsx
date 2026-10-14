@@ -1713,10 +1713,10 @@ export default function ScanDetail() {
 
                     {(reportV2 && report)
                       ? (reportTab === 'executive'
-                          ? <ExecutiveReportV2 report={reportV2} />
+                          ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
                           : <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                       : (reportV2
-                          ? <ExecutiveReportV2 report={reportV2} />
+                          ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
                           : <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                     }
                   </div>

@@ -447,7 +447,7 @@ export default function PublicLandingPage() {
           <div className="mt-14 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="rounded-[14px] bg-white border border-[#DDE2EE] p-8 flex flex-col">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Free check</h3>
-              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence: nothing is stored or monitored until you create an account.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence. No scan report or monitoring history is saved. Limited rate-limit records help prevent misuse.</p>
               <ul className="mt-6 space-y-3 text-[17px] text-[#2B3448] list-disc pl-5 marker:text-[#2550B6]">
                 {['External checks, nothing installed', 'Shows what could not be assessed', 'No sign-up needed'].map(t => (
                   <li key={t}>{t}</li>

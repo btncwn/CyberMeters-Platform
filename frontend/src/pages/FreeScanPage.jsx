@@ -241,7 +241,7 @@ export default function FreeScanPage() {
                 <span className="fm-kicker">Free Cyber MOT</span>
                 <h1>See what your domain shows the internet — before an attacker does.</h1>
                 <p className="fm-hero__lede">
-                  One bounded snapshot of honest public signals for your domain.
+                  Five bounded public checks, summarised across the eight Cyber MOT areas.
                   Deep takeover and asset checks unlock only after account and domain verification.
                 </p>
                 <form className="fm-scan-form" onSubmit={handleScan}>
@@ -269,7 +269,7 @@ export default function FreeScanPage() {
                 <div className="fm-trust-row">
                   <span>Passive external evidence</span>
                   <span>Rate-limited single snapshot</span>
-                  <span>Nothing stored</span>
+                  <span>No scan report saved</span>
                 </div>
               </div>
 
@@ -286,7 +286,7 @@ export default function FreeScanPage() {
                     </li>
                   ))}
                 </ul>
-                <p>Full findings, remediation, PDF and monitoring require a verified domain.</p>
+                <p>These five checks may leave some areas unassessed. Full findings, remediation, PDF and monitoring require a verified domain. Limited rate-limit records are kept to prevent misuse.</p>
               </aside>
             </div>
           </section>
