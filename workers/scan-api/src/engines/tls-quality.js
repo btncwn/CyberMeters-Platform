@@ -27,7 +27,6 @@ export function projectTlsScanQualityForCustomer(quality, assessment) {
   if (!reason) return quality;
   const original = quality && typeof quality === 'object' ? quality : { status: quality ?? null };
   const incomplete = Array.isArray(original.modules_incomplete) ? original.modules_incomplete : [];
-  const skipped = Array.isArray(original.modules_skipped) ? original.modules_skipped : [];
   const warnings = Array.isArray(original.warnings) ? original.warnings : [];
   return {
     ...original,
@@ -36,7 +35,6 @@ export function projectTlsScanQualityForCustomer(quality, assessment) {
       ...incomplete.filter(item => item?.module !== 'tls_assessment'),
       { module: 'tls_assessment', incomplete_reason: reason },
     ],
-    modules_skipped: skipped.includes('tls_assessment') ? skipped : [...skipped, 'tls_assessment'],
     warnings: warnings.includes('Module incomplete: tls_assessment')
       ? warnings : [...warnings, 'Module incomplete: tls_assessment'],
   };

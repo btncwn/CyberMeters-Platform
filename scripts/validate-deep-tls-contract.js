@@ -87,6 +87,7 @@ const oldQuality={status:'complete',warnings:[],modules_incomplete:[],modules_sk
 const correctedQuality=projectTlsScanQualityForCustomer(oldQuality,tlsPartial);
 assert.equal(correctedQuality.status,'partial','stored complete quality is customer-projected as partial');
 assert.equal(correctedQuality.modules_incomplete[0].incomplete_reason,'tls_checks_outside_scan_budget');
+assert.deepEqual(correctedQuality.modules_skipped,[], 'an attempted TLS assessment is incomplete, not skipped');
 assert.equal(oldQuality.status,'complete','stored quality remains immutable');
 assert.equal(projectTlsScanQualityForCustomer({...oldQuality,status:'degraded'},tlsPartial).status,'degraded',
   'TLS gaps do not upgrade an already degraded scan');
