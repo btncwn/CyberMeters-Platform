@@ -84,7 +84,16 @@ try{
   const drift=await __runTlsCollector(drifted);
   assert.equal(drift.results[0].reason,'dns_authority_changed');
   assert.equal(drift.telemetry.connections,0);
-  console.log('TLS active parent: one bounded Heartbleed connection; no-consent and DNS drift made zero connections');
+  for(const control of ['robot','ccs']){
+    const unavailable={...request,request_id:`local_${control}_unavailable`,
+      checks:[{control,protocol:'tls1_2',cipher_id:null}],deadline_at:new Date(Date.now()+15000).toISOString()};
+    const receipt=await __runTlsCollector(unavailable);
+    assert.equal(receipt.results[0].engine_result?.state,'unexecutable');
+    assert.equal(receipt.results[0].engine_result?.reason,'control_unavailable');
+    assert.equal(receipt.telemetry.connections,0);
+    projectTlsCollectorReceipt(unavailable,receipt,{requireSandbox:false});
+  }
+  console.log('TLS active parent: one bounded Heartbleed connection; no-consent, DNS drift, ROBOT and CCS made zero connections');
 }finally{
   child.kill('SIGTERM');
   if(child.exitCode===null)await new Promise(resolve=>child.once('exit',resolve));
