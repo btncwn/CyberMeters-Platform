@@ -64,7 +64,10 @@ def bridge(binary, arguments, port=None, mutate=None, abort=False):
                     # same select batch. Ignore that now-stale readiness event.
                     if sock is None or key.fileobj is not sock:
                         continue
-                    data = sock.recv(16384)
+                    try:
+                        data = sock.recv(16384)
+                    except ConnectionResetError:
+                        data = b''
                     if not data:
                         events.unregister(sock)
                         sock.close()
@@ -285,9 +288,10 @@ class BaselineTests(unittest.TestCase):
                hostname='localhost', trust=None, **kwargs):
         family = family or ('modern' if protocol == 'tls1_3' else 'legacy')
         binary = 'tls-active-legacy' if family == 'active_legacy' else 'tls-baseline-' + family
+        timeout_arg = [] if '--timeout-ms' in extra else ['--timeout-ms', '5000']
         result = bridge(BUILD / 'bin' / binary,
                         ['--protocol', protocol, '--control', control, '--hostname', hostname,
-                         '--trust-bundle', str(trust or self.cert), '--timeout-ms', '5000', *extra], port, **kwargs)
+                         '--trust-bundle', str(trust or self.cert), *timeout_arg, *extra], port, **kwargs)
         if port is not None:
             self.measurements.append(result)
         return result
@@ -623,6 +627,109 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(result['telemetry']['connections'], 1)
                 self.assertLess(result['telemetry']['bytes_received'], 4096)
                 self.assertNotIn('localhost', json.dumps(result))
+
+    def test_ccs_early_record_differential_in_loopback_lab(self):
+        source_tree = BUILD / 'openssl-1.0.2u'
+        source = (source_tree / 'ssl/s3_pkt.c').read_text()
+        guards = [
+            ('        if (!(s->s3->flags & SSL3_FLAGS_CCS_OK)) {\n'
+             '            al = SSL_AD_UNEXPECTED_MESSAGE;\n'
+             '            SSLerr(SSL_F_SSL3_READ_BYTES, SSL_R_CCS_RECEIVED_EARLY);\n'
+             '            goto f_err;\n'
+             '        }\n'),
+            ('        if (s->session == NULL || s->session->master_key_length == 0) {\n'
+             '            /* might happen if dtls1_read_bytes() calls this */\n'
+             '            SSLerr(SSL_F_SSL3_DO_CHANGE_CIPHER_SPEC,\n'
+             '                   SSL_R_CCS_RECEIVED_EARLY);\n'
+             '            return (0);\n'
+             '        }\n'),
+        ]
+        for guard in guards:
+            self.assertEqual(source.count(guard), 1)
+            source = source.replace(guard, '', 1)
+        modified = self.fixture / 's3_pkt.c'
+        modified.write_text(source)
+        replacement = self.fixture / 's3_pkt.o'
+        run(['cc', '-DOPENSSL_THREADS', '-pthread', '-D_THREAD_SAFE', '-D_REENTRANT',
+             '-O3', '-Wall', '-I' + str(source_tree / 'crypto'), '-I' + str(source_tree),
+             '-I' + str(source_tree / 'include'), '-I' + str(source_tree / 'ssl'),
+             '-c', modified, '-o', replacement])
+        prefix = BUILD / 'install-legacy'
+        lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
+        modified_lib = self.fixture / 'libssl-ccs.a'
+        shutil.copy2(lib / 'libssl.a', modified_lib)
+        run(['ar', 'r', modified_lib, replacement])
+        run(['ranlib', modified_lib])
+        fixture_binary = self.fixture / 'fixture-early-ccs'
+        run(['cc', '-Wno-deprecated-declarations', '-I' + str(prefix / 'include'),
+             ENGINE / 'src/fixture-server.c', modified_lib, lib / 'libcrypto.a',
+             '-lpthread', '-lz', *(['-ldl'] if platform.system() == 'Linux' else []),
+             '-o', fixture_binary])
+        for protocol in ('tls1', 'tls1_1', 'tls1_2'):
+            with self.subTest(protocol=protocol):
+                for binary, expected in ((BUILD / 'bin/fixture-server-legacy', 'not_observed'),
+                                         (fixture_binary, 'confirmed')):
+                    with server(self.legacy, self.cert, self.key, protocol, binary=binary) as port:
+                        result = self.assess(protocol, port, control='ccs', family='active_legacy',
+                                             extra=['--max-connections', '5', '--timeout-ms', '10000'])
+                    self.assertEqual(result['vulnerability'], {
+                        'status': expected, 'profile': 'ccs-early-record-v1',
+                        'completed_vectors': 4, 'planned_vectors': 4,
+                    }, result)
+                    self.assertEqual(result['telemetry']['connections'], 5)
+                    self.assertTrue(result['authenticated_finished'])
+                    self.assertNotIn('localhost', json.dumps(result))
+
+    def test_robot_rsa_padding_oracle_in_loopback_lab(self):
+        source_tree = BUILD / 'openssl-1.0.2u'
+        source = (source_tree / 'ssl/s3_srvr.c').read_text()
+        anchor = '        decrypt_good &= version_good;\n'
+        self.assertEqual(source.count(anchor), 1)
+        # Test-only historical oracle: reveal a padding/version error before
+        # the Finished exchange. Production binaries retain pinned OpenSSL.
+        modified = self.fixture / 's3_srvr.c'
+        modified.write_text(source.replace(anchor, anchor +
+            '        if (!decrypt_good) {\n'
+            '            al = SSL_AD_DECRYPT_ERROR;\n'
+            '            goto f_err;\n'
+            '        }\n', 1))
+        replacement = self.fixture / 's3_srvr.o'
+        run(['cc', '-DOPENSSL_THREADS', '-pthread', '-D_THREAD_SAFE', '-D_REENTRANT',
+             '-O3', '-Wall', '-I' + str(source_tree / 'crypto'), '-I' + str(source_tree),
+             '-I' + str(source_tree / 'include'), '-I' + str(source_tree / 'ssl'),
+             '-c', modified, '-o', replacement])
+        prefix = BUILD / 'install-legacy'
+        lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')
+        modified_lib = self.fixture / 'libssl-robot.a'
+        shutil.copy2(lib / 'libssl.a', modified_lib)
+        run(['ar', 'r', modified_lib, replacement])
+        run(['ranlib', modified_lib])
+        fixture_binary = self.fixture / 'fixture-robot-oracle'
+        run(['cc', '-Wno-deprecated-declarations', '-I' + str(prefix / 'include'),
+             ENGINE / 'src/fixture-server.c', modified_lib, lib / 'libcrypto.a',
+             '-lpthread', '-lz', *(['-ldl'] if platform.system() == 'Linux' else []),
+             '-o', fixture_binary])
+        for protocol in ('ssl3', 'tls1', 'tls1_1', 'tls1_2'):
+            with self.subTest(protocol=protocol):
+                with server(self.legacy, self.cert, self.key, protocol, binary=fixture_binary) as port:
+                    result = self.assess(protocol, port, control='robot', family='active_legacy',
+                                         extra=['--max-connections', '21', '--timeout-ms', '25000'])
+                self.assertEqual(result['vulnerability'], {
+                    'status': 'confirmed', 'profile': 'robot-finite-v1',
+                    'completed_vectors': 10, 'planned_vectors': 10,
+                }, result)
+                self.assertEqual(result['telemetry']['connections'], 11)
+                self.assertTrue(result['authenticated_finished'])
+                self.assertNotIn('localhost', json.dumps(result))
+        with server(self.legacy, self.cert, self.key, 'tls1_2') as port:
+            result = self.assess('tls1_2', port, control='robot', family='active_legacy',
+                                 extra=['--max-connections', '21', '--timeout-ms', '25000'])
+        self.assertEqual(result['vulnerability'], {
+            'status': 'not_observed', 'profile': 'robot-finite-v1',
+            'completed_vectors': 20, 'planned_vectors': 20,
+        }, result)
+        self.assertEqual(result['telemetry']['connections'], 21)
+        self.assertLess(result['telemetry']['bytes_sent'] + result['telemetry']['bytes_received'], 65536)
 
     def test_version_rejection_is_not_engine_unsupported(self):
         with server(self.modern, self.cert, self.key, 'tls1_3') as port:

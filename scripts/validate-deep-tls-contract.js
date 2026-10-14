@@ -49,6 +49,16 @@ const heartbleedCheck={control:'heartbleed',protocol:'tls1_2',cipher_id:null};
 const heartbleed={...structuredClone(engine),engine:{...engine.engine,family:'active_legacy',version:'1.0.2u'},
   control:'heartbleed',reason:'active_confirmed',vulnerability:{status:'confirmed',profile:'heartbleed-minimal-v1',completed_vectors:3,planned_vectors:3}};
 assert.equal(validateTlsEngineResult(heartbleed,heartbleedCheck).ok,true,'bounded positive evidence accepted');
+for(const [control,profile,vectors,connections] of [
+  ['ccs','ccs-early-record-v1',4,5],['robot','robot-finite-v1',10,11],['robot','robot-finite-v1',20,21],
+]){
+  const row=structuredClone(heartbleed),check={control,protocol:'tls1_2',cipher_id:null};
+  row.control=control;row.vulnerability={status:'confirmed',profile,completed_vectors:vectors,planned_vectors:vectors};
+  row.telemetry.connections=connections;
+  assert.equal(validateTlsEngineResult(row,check).ok,true,`${control} complete profile`);
+  row.vulnerability.completed_vectors--;
+  assert.equal(validateTlsEngineResult(row,check).ok,false,`${control} partial profile cannot confirm`);
+}
 const interrupted={...structuredClone(heartbleed),state:'uncertain',reason:'aborted',authenticated_finished:false,
   negotiated:null,vulnerability:{...heartbleed.vulnerability,status:'unknown',completed_vectors:0},
   telemetry:{connections:1,bytes_sent:0,bytes_received:0,duration_ms:2}};
@@ -73,8 +83,11 @@ const fakeNetwork=structuredClone(raw);fakeNetwork.results[0].physical_telemetry
 assert.throws(()=>projectTlsCollectorReceipt(request,fakeNetwork,{now:now+100}),/engine_cost_conflict|unproved_network_verdict/);
 const secret=structuredClone(receipt);secret.results[0].evidence.raw_server_text='password';
 assert.equal(validateTlsAssessmentReceipt(request,secret,{now:now+100}).ok,false,'receipt must reject extra server text');
-const unknown={...request,checks:[{control:'heartbleed',protocol:'tls1_2',cipher_id:null}],scope:{...request.scope,special_consent:true,consent_version:'tls-special-2026-10-13'}};
-assert.deepEqual(validateTlsAssessmentRequest(unknown,now),{ok:false,reason:'control_unavailable'});
+const authorizedSpecial={...request,checks:[{control:'heartbleed',protocol:'tls1_2',cipher_id:null}],max_connections:1,
+  scope:{...request.scope,special_consent:true,consent_version:'tls-special-2026-10-13'}};
+assert.equal(validateTlsAssessmentRequest(authorizedSpecial,now).ok,true);
+assert.equal(validateTlsAssessmentRequest({...authorizedSpecial,max_connections:2},now).reason,'invalid_budget');
+assert.equal(validateTlsAssessmentRequest({...authorizedSpecial,checks:[...authorizedSpecial.checks,request.checks[0]]},now).reason,'special_slice_required');
 assert.deepEqual(parseTlsDnsAnswers([
   ['A',{Status:0,Answer:[{type:5,name:'mail.acme.org.',data:'edge.provider.net.'},{type:1,name:'edge.provider.net.',data:'8.8.8.8'},
     {type:1,name:'evilmail.acme.org.',data:'1.1.1.1'},{type:1,name:'mail.acme.org.',data:'127.0.0.1'}]}],
@@ -84,13 +97,11 @@ const endpoint={endpoint:request.endpoint,endpoint_identity:'mail.acme.org|mail.
 const plan=buildTlsCheckPlan({endpoints:[endpoint],cipherCatalog:[{protocol:'tls1_2',name:'ECDHE-RSA-AES256-GCM-SHA384',executable:true},
   {protocol:'ssl2',name:'EXP-RC4-MD5',executable:false,reason:'engine_unsupported'}],maxChecks:100});
 assert(plan.selected.some(row=>row.check.control==='cipher'&&row.check.protocol==='tls1_2'));
-assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='unexecutable'
-  &&row.reason==='engine_capability_limit'));
+assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='not_authorized'));
 const consentedPlan=buildTlsCheckPlan({endpoints:[{...endpoint,scope:{...endpoint.scope,special_consent:true,
-  consent_version:'tls-special-2026-10-13'}}],maxChecks:100});
-assert(consentedPlan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='unexecutable'
-  &&row.reason==='engine_capability_limit'));
-assert(!consentedPlan.selected.some(row=>['heartbleed','robot','ccs'].includes(row.check.control)));
+  consent_version:'tls-special-2026-10-13'}}],maxChecks:512});
+assert(consentedPlan.selected.some(row=>['heartbleed','robot','ccs'].includes(row.check.control)));
+assert.equal(consentedPlan.selected.filter(row=>['heartbleed','robot','ccs'].includes(row.check.control)).length,10);
 assert(plan.static_results.some(row=>row.check.control==='early_data'&&row.check.protocol==='tls1_2'&&row.state==='not_applicable'));
 assert(plan.static_results.some(row=>row.check.control==='cipher'&&row.check.protocol==='ssl2'&&row.state==='unexecutable'));
 const tlsPartial={source:'tls_assessment',quality:'partial',coverage:{omitted_checks:1176,uncertain:395,

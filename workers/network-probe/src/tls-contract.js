@@ -1,5 +1,5 @@
 import { isProbeHostname, isPublicProbeAddress } from './contract.js';
-import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
+import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
 
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value);
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
@@ -34,7 +34,9 @@ export function validateTlsAssessmentRequest(input, now = Date.now()) {
         : !id(input.scope.service_authorization_id))) return fail('invalid_scope');
   if (!isoTime(input.deadline_at) || Date.parse(input.deadline_at) <= now ||
       Date.parse(input.deadline_at) > now + TLS_SLICE_LIMITS.durationMs) return fail('invalid_deadline');
-  if (!Number.isSafeInteger(input.max_connections) || input.max_connections < 1 || input.max_connections > TLS_SLICE_LIMITS.connections ||
+  const specialControl=input.checks?.length===1?input.checks[0]?.control:null;
+  const connectionLimit=TLS_SPECIAL_CONNECTION_LIMITS[specialControl]||TLS_SLICE_LIMITS.connections;
+  if (!Number.isSafeInteger(input.max_connections) || input.max_connections < 1 || input.max_connections > connectionLimit ||
       !Number.isSafeInteger(input.max_bytes) || input.max_bytes < 4096 || input.max_bytes > TLS_SLICE_LIMITS.bytes) return fail('invalid_budget');
   if (!Array.isArray(input.checks) || input.checks.length < 1 || input.checks.length > TLS_SLICE_LIMITS.checks) return fail('invalid_checks');
   const seen = new Set();
@@ -50,6 +52,7 @@ export function validateTlsAssessmentRequest(input, now = Date.now()) {
     seen.add(key);
   }
   if (input.checks.some(check => TLS_SPECIAL_CONTROLS.includes(check.control)) && !input.scope.special_consent) return fail('special_consent_required');
+  if (input.checks.some(check => TLS_SPECIAL_CONTROLS.includes(check.control)) && input.checks.length !== 1) return fail('special_slice_required');
   if (input.checks.some(check => TLS_SPECIAL_CONTROLS.includes(check.control)) && !TLS_SPECIAL_CONTROLS_AVAILABLE) return fail('control_unavailable');
   return { ok: true, endpoint_identity: tlsEndpointIdentity(e) };
 }
@@ -105,12 +108,14 @@ export function validateTlsEngineResult(value, check, { requireSandbox = true } 
   if (value.state === 'rejected' && !['protocol_version_rejected','fallback_rejected','renegotiation_refused','resumption_declined','active_not_observed'].includes(value.reason)) return fail('unproved_rejection');
   const v = value.vulnerability;
   if (v !== null && (!keys(v,['status','profile','completed_vectors','planned_vectors']) ||
-      !choice(v.status,['confirmed','not_observed','unknown']) || !choice(v.profile,['heartbleed-minimal-v1','robot-finite-v1','ccs-finished-v1']) ||
+      !choice(v.status,['confirmed','not_observed','unknown']) || !choice(v.profile,['heartbleed-minimal-v1','robot-finite-v1','ccs-early-record-v1']) ||
       !integer(v.completed_vectors,64) || !integer(v.planned_vectors,64,1) || v.completed_vectors > v.planned_vectors ||
       !TLS_SPECIAL_CONTROLS.includes(check.control))) return fail('vulnerability_shape');
   if (TLS_SPECIAL_CONTROLS.includes(check.control) && v === null && !['not_applicable','unexecutable'].includes(value.state)) return fail('vulnerability_missing');
-  if (v && (v.profile !== ({heartbleed:'heartbleed-minimal-v1',robot:'robot-finite-v1',ccs:'ccs-finished-v1'})[check.control] ||
+  if (v && (v.profile !== ({heartbleed:'heartbleed-minimal-v1',robot:'robot-finite-v1',ccs:'ccs-early-record-v1'})[check.control] ||
       (check.control === 'heartbleed' && v.planned_vectors !== 3) ||
+      (check.control === 'ccs' && v.planned_vectors !== 4) ||
+      (check.control === 'robot' && ![10,20].includes(v.planned_vectors)) ||
       (v.status === 'confirmed' && (value.state !== 'accepted' || value.reason !== 'active_confirmed')) ||
       (v.status === 'not_observed' && (value.state !== 'rejected' || value.reason !== 'active_not_observed')) ||
       (v.status === 'unknown' && (value.state !== 'uncertain' || !['active_inconclusive','aborted','budget_exhausted',
@@ -156,7 +161,7 @@ function projectTlsResult(check, raw, { requireSandbox }) {
   if (!keys(raw,['check','engine_result','reason','observed_at','physical_telemetry']) ||
       !observed || JSON.stringify(raw.check) !== JSON.stringify(check) ||
       !keys(pt,['connections','bytes_sent','bytes_received','duration_ms']) ||
-      !integer(pt.connections,TLS_SLICE_LIMITS.connections) ||
+      !integer(pt.connections,TLS_SPECIAL_CONNECTION_LIMITS[check.control]||TLS_SLICE_LIMITS.connections) ||
       !integer(pt.bytes_sent,TLS_SLICE_LIMITS.bytes + TLS_SLICE_LIMITS.overreadBytes) ||
       !integer(pt.bytes_received,TLS_SLICE_LIMITS.bytes + TLS_SLICE_LIMITS.overreadBytes) ||
       !integer(pt.duration_ms,TLS_SLICE_LIMITS.durationMs + 1000)) throw new Error('result_shape');

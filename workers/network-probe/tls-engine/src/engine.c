@@ -443,6 +443,9 @@ static SSL_CTX *context(void) {
             state="unexecutable";reason="group_unavailable";SSL_CTX_free(ctx);return NULL;
         }
     }
+    const char *cipher_list=opt.cipher?opt.cipher:
+        !strcmp(opt.control,"robot")?"AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:DES-CBC3-SHA":
+        "ALL:eNULL:!PSK:!SRP";
 #if !CM_LEGACY
     if(!strcmp(opt.protocol,"tls1_3")) {
         if(!SSL_CTX_set_ciphersuites(ctx,opt.cipher?opt.cipher:"TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:TLS_AES_128_CCM_SHA256:TLS_AES_128_CCM_8_SHA256")) {
@@ -450,7 +453,7 @@ static SSL_CTX *context(void) {
         }
     } else
 #endif
-    if(!SSL_CTX_set_cipher_list(ctx,opt.cipher?opt.cipher:"ALL:eNULL:!PSK:!SRP")) {
+    if(!SSL_CTX_set_cipher_list(ctx,cipher_list)) {
         state="unexecutable";reason="cipher_unavailable";SSL_CTX_free(ctx);return NULL;
     }
     if(opt.cipher&&(strstr(opt.cipher,"PSK")||strstr(opt.cipher,"SRP"))) {
@@ -730,6 +733,248 @@ static void catalog_json(SSL_CTX *ctx) {
     }
     append("]");SSL_free(s);
 }
+#ifdef CM_SPECIAL_ENGINE
+/* Raw TLS records remain inside the socketless child. Only the parent can
+ * open the previously authorized endpoint, and every byte crosses its meter. */
+#define RAW_TLS_MAX 65536
+struct raw_tls_reader { unsigned char bytes[RAW_TLS_MAX];size_t length,offset; };
+static int raw_tls_more(struct raw_tls_reader *r) {
+    unsigned t;size_t n;
+    if(r->offset) {
+        memmove(r->bytes,r->bytes+r->offset,r->length-r->offset);
+        r->length-=r->offset;r->offset=0;
+    }
+    if(r->length>RAW_TLS_MAX-FRAME_MAX){reason="active_inconclusive";return 0;}
+    if(!recv_frame(&t,&n))return 0;
+    if(t==4){closed(frame,n);return 0;}
+    if(t!=2||!n||!connected||n>BYTE_MAX-received){reason="malformed_ipc";return 0;}
+    received+=(unsigned)n;memcpy(r->bytes+r->length,frame,n);r->length+=n;
+    return 1;
+}
+static int raw_tls_record(struct raw_tls_reader *r,unsigned *type,const unsigned char **body,size_t *length) {
+    while(r->length-r->offset<5)if(!raw_tls_more(r))return 0;
+    const unsigned char *h=r->bytes+r->offset;
+    size_t n=((size_t)h[3]<<8)|h[4];
+    if(n>18432){reason="active_inconclusive";return 0;}
+    while(r->length-r->offset<5+n)if(!raw_tls_more(r))return 0;
+    h=r->bytes+r->offset;*type=h[0];*body=h+5;*length=n;r->offset+=5+n;
+    return 1;
+}
+static int raw_tls_send(const unsigned char *data,size_t n) {
+    if(!connected||n>FRAME_MAX||n>BYTE_MAX-sent){reason="budget_exhausted";return 0;}
+    sent+=(unsigned)n;return emit(2,data,n);
+}
+static int raw_tls_hello(SSL_CTX *ctx,SSL **ssl,BIO **wire) {
+    BIO *inside=NULL;*ssl=SSL_new(ctx);
+    if(!*ssl||!BIO_new_bio_pair(&inside,FRAME_MAX,wire,FRAME_MAX)){reason="engine_error";return 0;}
+    SSL_set_bio(*ssl,inside,inside);SSL_set_connect_state(*ssl);
+    if(opt.hostname)SSL_set_tlsext_host_name(*ssl,opt.hostname);
+    SSL_set_tlsext_status_type(*ssl,TLSEXT_STATUSTYPE_ocsp);
+    if(!strcmp(opt.alpn,"http1")) {
+        const unsigned char alpn[]={8,'h','t','t','p','/','1','.','1'};
+        SSL_set_alpn_protos(*ssl,alpn,sizeof(alpn));
+    } else if(!strcmp(opt.alpn,"h2-http1")) {
+        const unsigned char alpn[]={2,'h','2',8,'h','t','t','p','/','1','.','1'};
+        SSL_set_alpn_protos(*ssl,alpn,sizeof(alpn));
+    }
+    if(!connect_parent())return 0;
+    ERR_clear_error();int ret=SSL_do_handshake(*ssl),error=SSL_get_error(*ssl,ret);
+    if(!drain(*wire))return 0;
+    if(ret==1||error!=SSL_ERROR_WANT_READ){reason="active_inconclusive";return 0;}
+    return 1;
+}
+static int raw_tls_server_flight(struct raw_tls_reader *r,int expected_version,unsigned long expected_cipher,
+                                 const unsigned char expected_cert[32]) {
+    unsigned char handshake[RAW_TLS_MAX];size_t used=0;int hello=0,cert=0;
+    for(unsigned records=0;records<64;records++) {
+        unsigned type;const unsigned char *body;size_t length;
+        if(!raw_tls_record(r,&type,&body,&length))return 0;
+        if(type!=SSL3_RT_HANDSHAKE||length>sizeof(handshake)-used){reason="active_inconclusive";return 0;}
+        memcpy(handshake+used,body,length);used+=length;
+        size_t off=0;
+        while(used-off>=4) {
+            const unsigned char *h=handshake+off;
+            size_t n=((size_t)h[1]<<16)|((size_t)h[2]<<8)|h[3];
+            if(n>sizeof(handshake)-4){reason="active_inconclusive";return 0;}
+            if(used-off<4+n)break;
+            const unsigned char *message=h+4;
+            if(h[0]==SSL3_MT_SERVER_HELLO) {
+                if(hello||n<38){reason="active_inconclusive";return 0;}
+                size_t sid=message[34];
+                if(n<38+sid||(((int)message[0]<<8)|message[1])!=expected_version||
+                   (((unsigned long)message[35+sid]<<8)|message[36+sid])!=(expected_cipher&0xffffUL)) {
+                    reason="active_inconclusive";return 0;
+                }
+                hello=1;
+            } else if(h[0]==SSL3_MT_CERTIFICATE) {
+                if(cert||n<6){reason="active_inconclusive";return 0;}
+                size_t first=((size_t)message[3]<<16)|((size_t)message[4]<<8)|message[5];
+                unsigned char digest[32];
+                if(first<1||first>n-6){reason="active_inconclusive";return 0;}
+                SHA256(message+6,first,digest);
+                if(memcmp(digest,expected_cert,32)){reason="active_inconclusive";return 0;}
+                cert=1;
+            } else if(h[0]==SSL3_MT_SERVER_DONE) {
+                if(n||!hello||!cert){reason="active_inconclusive";return 0;}
+                return 1;
+            }
+            off+=4+n;
+        }
+        if(off){memmove(handshake,handshake+off,used-off);used-=off;}
+    }
+    reason="active_inconclusive";return 0;
+}
+static int ccs_alert(struct raw_tls_reader *r) {
+    uint64_t saved=deadline,until=now_ms()+1200;
+    if(until<deadline)deadline=until;
+    int answer=-1;
+    for(unsigned records=0;records<4;records++) {
+        unsigned type;const unsigned char *body;size_t length;
+        if(!raw_tls_record(r,&type,&body,&length))break;
+        if(type==SSL3_RT_ALERT&&length==2){answer=body[1];break;}
+        if(type!=SSL3_RT_HANDSHAKE)break;
+    }
+    deadline=saved;return answer;
+}
+static int ccs_vector(SSL_CTX *ctx,int version,unsigned long cipher,const unsigned char cert[32],int early) {
+    SSL *probe=NULL;BIO *wire=NULL;struct raw_tls_reader reader={0};int alert=-1;
+    if(!raw_tls_hello(ctx,&probe,&wire))goto done;
+    if(!raw_tls_server_flight(&reader,version,cipher,cert))goto done;
+    const unsigned char ccs[]={SSL3_RT_CHANGE_CIPHER_SPEC,(unsigned char)(version>>8),(unsigned char)version,0,1,1};
+    const unsigned char data[]={SSL3_RT_APPLICATION_DATA,(unsigned char)(version>>8),(unsigned char)version,0,2,0,0};
+    if(early&&!raw_tls_send(ccs,sizeof(ccs)))goto done;
+    if(!raw_tls_send(data,sizeof(data)))goto done;
+    alert=ccs_alert(&reader);
+ done:
+    if(connected){const char *saved=reason;close_parent();reason=saved;}
+    SSL_free(probe);BIO_free(wire);return alert;
+}
+static void assess_ccs(SSL_CTX *ctx,SSL *baseline) {
+    active_profile="ccs-early-record-v1";active_status="unknown";active_planned=4;active_completed=0;
+    X509 *peer=SSL_get_peer_certificate(baseline);unsigned char cert[32];unsigned digest_len=0;
+    const SSL_CIPHER *selected=SSL_get_current_cipher(baseline);
+    if(!peer||!selected||!X509_digest(peer,EVP_sha256(),cert,&digest_len)||digest_len!=32) {
+        X509_free(peer);active_unknown();return;
+    }
+    X509_free(peer);
+    int version=SSL_version(baseline);unsigned long cipher=SSL_CIPHER_get_id(selected);
+    int answer[4]={-1,-1,-1,-1};
+    for(unsigned round=0;round<2;round++)for(unsigned kind=0;kind<2;kind++) {
+        unsigned index=round*2+kind;
+        answer[index]=ccs_vector(ctx,version,cipher,cert,kind==0);
+        if(answer[index]<0){active_unknown();return;}
+        active_completed++;
+    }
+    if(answer[0]!=answer[2]||answer[1]!=answer[3]){active_unknown();return;}
+    if((answer[0]==SSL_AD_BAD_RECORD_MAC||answer[0]==SSL_AD_DECRYPTION_FAILED)&&
+       answer[1]==SSL_AD_UNEXPECTED_MESSAGE) {
+        state="accepted";reason="active_confirmed";active_status="confirmed";
+    } else if(answer[0]==SSL_AD_UNEXPECTED_MESSAGE&&answer[1]==SSL_AD_UNEXPECTED_MESSAGE) {
+        state="rejected";reason="active_not_observed";active_status="not_observed";
+    } else active_unknown();
+}
+/* Five PKCS#1 v1.5 plaintext classes, with each observable response repeated.
+ * No private-key operation or decryption is attempted by this client. */
+static int robot_cipher(const char *name) {
+    static const char *allowed[]={"AES128-GCM-SHA256","AES256-GCM-SHA384",
+        "AES128-SHA","DES-CBC3-SHA",NULL};
+    return in_list(name,allowed);
+}
+static int robot_ciphertext(RSA *rsa,int version,unsigned kind,unsigned char *out,size_t *length) {
+    int n=RSA_size(rsa);
+    if(n<128||n>512)return 0;
+    unsigned char plain[512]={0};
+    plain[0]=kind==1?0x41:0;plain[1]=kind==1?0x17:2;
+    for(int i=2;i<n-49;i++)plain[i]=(i&1)?0xcd:0xab;
+    plain[n-49]=(kind==2||kind==3)?0x11:0;
+    plain[n-48]=(unsigned char)((kind==4?0x0202:version)>>8);
+    plain[n-47]=(unsigned char)(kind==4?0x02:version);
+    for(int i=n-46;i<n;i++)plain[i]=(unsigned char)(0x11+(i&0x7f));
+    if(kind==2){plain[n-2]=0;plain[n-1]=0x11;}
+    if(RSA_public_encrypt(n,plain,out,rsa,RSA_NO_PADDING)!=n)return 0;
+    *length=(size_t)n;return 1;
+}
+static int robot_response(struct raw_tls_reader *r) {
+    uint64_t saved=deadline,until=now_ms()+1000;
+    if(until<deadline)deadline=until;
+    int answer=-1;
+    for(unsigned records=0;records<4;records++) {
+        unsigned type;const unsigned char *body;size_t length;
+        if(!raw_tls_record(r,&type,&body,&length)) {
+            if(!strcmp(reason,"transport_eof")||!strcmp(reason,"transport_timeout"))answer=256;
+            break;
+        }
+        if(type==SSL3_RT_ALERT&&length==2){answer=body[1];break;}
+        if(type!=SSL3_RT_HANDSHAKE){answer=257;break;}
+    }
+    deadline=saved;return answer;
+}
+static int robot_vector(SSL_CTX *ctx,RSA *rsa,int version,unsigned long cipher,
+                        const unsigned char cert[32],unsigned kind,int shortened) {
+    SSL *probe=NULL;BIO *wire=NULL;struct raw_tls_reader reader={0};int response=-1;
+    unsigned char encrypted[512];size_t encrypted_len=0;
+    if(!robot_ciphertext(rsa,version,kind,encrypted,&encrypted_len))goto done;
+    if(!raw_tls_hello(ctx,&probe,&wire))goto done;
+    if(!raw_tls_server_flight(&reader,version,cipher,cert))goto done;
+    unsigned char cke[5+4+2+512];size_t msg_len=encrypted_len+(version==SSL3_VERSION?0:2);
+    cke[0]=SSL3_RT_HANDSHAKE;cke[1]=(unsigned char)(version>>8);cke[2]=(unsigned char)version;
+    cke[3]=(unsigned char)((msg_len+4)>>8);cke[4]=(unsigned char)(msg_len+4);
+    cke[5]=SSL3_MT_CLIENT_KEY_EXCHANGE;cke[6]=0;cke[7]=(unsigned char)(msg_len>>8);cke[8]=(unsigned char)msg_len;
+    size_t offset=9;
+    if(version!=SSL3_VERSION){cke[offset++]=(unsigned char)(encrypted_len>>8);cke[offset++]=(unsigned char)encrypted_len;}
+    memcpy(cke+offset,encrypted,encrypted_len);offset+=encrypted_len;
+    if(!raw_tls_send(cke,offset))goto done;
+    if(!shortened) {
+        const unsigned char ccs[]={SSL3_RT_CHANGE_CIPHER_SPEC,(unsigned char)(version>>8),(unsigned char)version,0,1,1};
+        unsigned char bogus[5+64]={SSL3_RT_HANDSHAKE,(unsigned char)(version>>8),(unsigned char)version,0,64};
+        memset(bogus+5,0x55,64);
+        if(!raw_tls_send(ccs,sizeof(ccs))||!raw_tls_send(bogus,sizeof(bogus)))goto done;
+    }
+    response=robot_response(&reader);
+ done:
+    if(connected){const char *saved=reason;close_parent();reason=saved;}
+    SSL_free(probe);BIO_free(wire);return response;
+}
+static void assess_robot(SSL_CTX *ctx,SSL *baseline) {
+    active_profile="robot-finite-v1";active_status="unknown";active_planned=10;active_completed=0;
+    X509 *peer=SSL_get_peer_certificate(baseline);EVP_PKEY *key=peer?X509_get_pubkey(peer):NULL;
+    RSA *rsa=key?EVP_PKEY_get1_RSA(key):NULL;
+    unsigned char cert[32];unsigned digest_len=0;
+    const SSL_CIPHER *selected=SSL_get_current_cipher(baseline);
+    int valid=peer&&rsa&&selected&&robot_cipher(SSL_CIPHER_get_name(selected))&&
+        X509_digest(peer,EVP_sha256(),cert,&digest_len)&&digest_len==32&&
+        RSA_size(rsa)>=128&&RSA_size(rsa)<=512;
+    EVP_PKEY_free(key);X509_free(peer);
+    if(!valid){RSA_free(rsa);active_unknown();return;}
+    int version=SSL_version(baseline);unsigned long cipher=SSL_CIPHER_get_id(selected);
+    for(unsigned flow=0;flow<2;flow++) {
+        int responses[10];
+        if(flow)active_planned=20;
+        for(unsigned round=0;round<2;round++)for(unsigned kind=0;kind<5;kind++) {
+            unsigned index=round*5+kind;
+            responses[index]=robot_vector(ctx,rsa,version,cipher,cert,kind,(int)flow);
+            if(responses[index]<0){RSA_free(rsa);active_unknown();return;}
+            active_completed++;
+        }
+        for(unsigned kind=0;kind<5;kind++)if(responses[kind]!=responses[5+kind]) {
+            RSA_free(rsa);active_unknown();return;
+        }
+        int distinct=0;
+        for(unsigned kind=1;kind<5;kind++)if(responses[kind]!=responses[0])distinct=1;
+        if(distinct) {
+            /* A confirmation requires two different explicit TLS alerts.
+             * EOFs, timing and unrecognized records remain inconclusive. */
+            for(unsigned kind=0;kind<5;kind++)if(responses[kind]>=256) {
+                RSA_free(rsa);active_unknown();return;
+            }
+            state="accepted";reason="active_confirmed";active_status="confirmed";
+            RSA_free(rsa);return;
+        }
+    }
+    state="rejected";reason="active_not_observed";active_status="not_observed";
+    RSA_free(rsa);
+}
+#endif
 static void result(SSL_CTX *ctx,SSL *ssl) {
     uint64_t duration=now_ms()-started;X509 *leaf=NULL;STACK_OF(X509) *built=NULL;
     json_len=0;
@@ -783,6 +1028,30 @@ int main(int argc,char **argv) {
             } else {
                 active_status="unknown";active_profile="heartbleed-minimal-v1";
                 active_planned=3;active_completed=0;
+                active_unknown();
+            }
+            if(connected){const char *saved=reason;close_parent();reason=saved;}
+            goto done;
+        }
+        if(!strcmp(opt.control,"ccs")) {
+            if(start_tls(ctx,NULL,&ssl,&wire)) {
+                finished=1;
+                if(connected){const char *saved=reason;close_parent();reason=saved;}
+                assess_ccs(ctx,ssl);
+            } else {
+                active_profile="ccs-early-record-v1";active_planned=4;active_completed=0;
+                active_unknown();
+            }
+            if(connected){const char *saved=reason;close_parent();reason=saved;}
+            goto done;
+        }
+        if(!strcmp(opt.control,"robot")) {
+            if(start_tls(ctx,NULL,&ssl,&wire)) {
+                finished=1;
+                if(connected){const char *saved=reason;close_parent();reason=saved;}
+                assess_robot(ctx,ssl);
+            } else {
+                active_profile="robot-finite-v1";active_planned=10;active_completed=0;
                 active_unknown();
             }
             if(connected){const char *saved=reason;close_parent();reason=saved;}

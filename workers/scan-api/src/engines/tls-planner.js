@@ -155,9 +155,11 @@ export function buildTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[
   const buckets = endpoints.map((endpoint,index) => {
     const rows=pending.filter(row => row.endpoint_index === index && !priority.has(key(row)));
     const protocols=rows.filter(row => row.check.control === 'protocol');
-    const controls=rotate(rows.filter(row => row.check.control !== 'protocol' && row.check.control !== 'cipher'),scanId+endpoint.endpoint_identity+'controls');
+    const specials=rows.filter(row => TLS_SPECIAL_CONTROLS.includes(row.check.control));
+    const controls=rotate(rows.filter(row => row.check.control !== 'protocol' && row.check.control !== 'cipher' &&
+      !TLS_SPECIAL_CONTROLS.includes(row.check.control)),scanId+endpoint.endpoint_identity+'controls');
     const ciphers=rotate(rows.filter(row => row.check.control === 'cipher'),scanId+endpoint.endpoint_identity+'ciphers');
-    const mixed=[...protocols];
+    const mixed=[...protocols,...specials];
     while(controls.length||ciphers.length){
       if(controls.length)mixed.push(controls.shift());
       for(let n=0;n<2&&ciphers.length;n++)mixed.push(ciphers.shift());

@@ -181,6 +181,55 @@ assert.equal(fenced.tls.results.length,0);
 assert.equal((await processExposureMessage(second.message,env,{lookupTlsDns,collectTlsAssessment,now:()=>second.now+31000})).outcome,'scope_changed');
 fenced=JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_receipt').plan_json);
 assert.equal(fenced.tls.results[0].state,'not_authorized');
+// A normal check and each active check get separate reservations. In
+// particular ROBOT's 21 connections cannot spill into the next control.
+{
+  const workspace='w_special',scanId='tls_special_slices',domainId='d_special',domain='special.example.org',now=Date.now();
+  sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(workspace);
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
+  sql.prepare("INSERT INTO workspace_domains VALUES(?,?,'verified')").run(workspace,domainId);
+  sql.prepare('INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,updated_at) VALUES(?,1,1,?,?)')
+    .run(workspace,'tls-special-2026-10-13',new Date(now).toISOString());
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+    dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const controls=['protocol','robot','ccs'];
+  const selected=controls.map(control=>({endpoint_index:0,check:{control,protocol:'tls1_2',cipher_id:null}}));
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
+      generation:1,special_consent:true,consent_version:'tls-special-2026-10-13'}}],selected,static_results:[],results:[],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
+  sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
+  const reservations=[];
+  const specialCollector=async(_env,input)=>{
+    const control=input.checks[0].control;
+    assert.equal(input.checks.length,1);
+    reservations.push([control,input.max_connections]);
+    const physical={connections:control==='robot'?21:control==='ccs'?5:1,bytes_sent:1000,bytes_received:2000,duration_ms:10};
+    const special=control!=='protocol';
+    const engine={schema:'tls-engine-result-v1',engine:{family:special?'active_legacy':'modern',
+      version:special?'1.0.2u':'3.5.9',build_id:'a'.repeat(64),sandboxed:true},
+      control:special?control:'handshake',protocol:'tls1_2',state:special?'rejected':'accepted',
+      reason:special?'active_not_observed':'handshake_completed',authenticated_finished:true,
+      vulnerability:special?{status:'not_observed',profile:control==='robot'?'robot-finite-v1':'ccs-early-record-v1',
+        completed_vectors:control==='robot'?20:4,planned_vectors:control==='robot'?20:4}:null,
+      negotiated:{version:'tls1_2',cipher:'AES128-GCM-SHA256',cipher_bits:128,group:null,group_bits:null,pfs:false,alpn:null,sni_sent:true},
+      certificates:null,ocsp:null,extensions:null,telemetry:physical,limitations:[],catalog:null};
+    const timestamp=new Date().toISOString();
+    const raw={schema_version:'tls-collector-raw-v1',request_id:input.request_id,started_at:timestamp,finished_at:timestamp,
+      results:[{check:input.checks[0],engine_result:engine,reason:null,observed_at:timestamp,physical_telemetry:physical}],
+      telemetry:physical};
+    return projectTlsCollectorReceipt(input,raw);
+  };
+  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
+  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector})).outcome,'pending');
+  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector})).outcome,'pending');
+  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector})).outcome,'complete');
+  assert.deepEqual(reservations,[['protocol',16],['robot',21],['ccs',5]]);
+  const finished=sql.prepare('SELECT charged_requests,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
+  assert.equal(finished.charged_requests,27);
+  assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
+}
 console.log(JSON.stringify({synthetic_tls_jobs:1000,live_customer_domains:0,load_deliveries:2000,
   load_completed:1000,load_charged_connections:1000,load_charged_bytes:430000,
   total_collector_calls:collectorCalls,scope_revocation_races:2,

@@ -176,18 +176,19 @@ try{
   const blocked=await measuredCollector(changed);
   assert.equal(blocked.results[0].reason,'dns_authority_changed');
   assert.equal(blocked.telemetry.connections,0);
-  const unavailable={...request,request_id:'local_parent_special_unavailable',
+  const unavailable={...request,request_id:'local_parent_special_without_consent',
     checks:[{control:'heartbleed',protocol:'tls1_2',cipher_id:null}],
     deadline_at:new Date(Date.now()+20000).toISOString()};
   const noActive=await measuredCollector(unavailable);
   assert.equal(noActive.results[0].engine_result?.state,'unexecutable');
   assert.equal(noActive.results[0].engine_result?.reason,'control_unavailable');
   assert.equal(noActive.telemetry.connections,0);
-  const consentedUnavailable={...unavailable,request_id:'local_parent_special_consented_but_disabled',
+  const consentedUnavailable={...unavailable,request_id:'local_parent_special_consented_no_heartbeat',
     scope:{...unavailable.scope,special_consent:true,consent_version:'tls-special-2026-10-13'}};
-  const noActiveEvenWithConsent=await measuredCollector(consentedUnavailable);
-  assert.equal(noActiveEvenWithConsent.results[0].engine_result?.state,'unexecutable');
-  assert.equal(noActiveEvenWithConsent.telemetry.connections,0);
+  const activeWithoutHeartbeat=await measuredCollector(consentedUnavailable);
+  assert.equal(activeWithoutHeartbeat.results[0].engine_result?.state,'unexecutable');
+  assert.equal(activeWithoutHeartbeat.results[0].engine_result?.reason,'heartbeat_unavailable');
+  assert.equal(activeWithoutHeartbeat.telemetry.connections,1);
   await checkMailUpgrade(request,'imap');
   await checkMailUpgrade(request,'pop3');
   await checkMailUpgrade(request,'imap','missing');

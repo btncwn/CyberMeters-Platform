@@ -47,6 +47,18 @@ assert.equal(evaluateTlsCondition(weakSignatureFinding.id,unknown).state,'deferr
 const strong=module([protocol('tls1_2'),certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,strong).state,'clear');
 assert.equal(evaluateTlsCondition(weakSignatureFinding.id,strong).state,'clear');
+const robot={...protocol('tls1_2'),control:'robot',reason:'active_confirmed',engine:{...engine,family:'active_legacy'},
+  evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'robot-finite-v1',completed_vectors:10,planned_vectors:10}},
+  physical_telemetry:{...good,connections:11}};
+const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).find(row=>row.id.startsWith('tls_robot_confirmed__'));
+assert(robotFinding);
+assert.equal(robotFinding.confidence,80);
+assert.match(robotFinding.description,/CDN edge result does not establish an origin vulnerability/);
+assert.equal(evaluateTlsCondition(robotFinding.id,module([protocol('tls1_2'),robot])).state,'present');
+const robotClear={...robot,state:'rejected',reason:'active_not_observed',evidence:{...robot.evidence,
+  vulnerability:{...robot.evidence.vulnerability,status:'not_observed'}}};
+assert.equal(evaluateTlsCondition(robotFinding.id,module([protocol('tls1_2'),robotClear])).state,'clear');
+assert.equal(evaluateTlsCondition(robotFinding.id,module([protocol('tls1_2'),{...robotClear,state:'uncertain'}])).state,'deferred');
 const plan=buildTlsCheckPlan({endpoints:[{endpoint_identity:identity,scope:{special_consent:false}}],cipherCatalog:[
   ...Array.from({length:160},(_,index)=>({protocol:'tls1_2',name:`CIPHER_${index}`,executable:true}))],scanId:'scanA',maxChecks:60});
 const next=buildTlsCheckPlan({endpoints:[{endpoint_identity:identity,scope:{special_consent:false}}],cipherCatalog:[

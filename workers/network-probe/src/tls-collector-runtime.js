@@ -11,7 +11,7 @@ const MAX_LINE = 4096;
 const MAX_STARTTLS_BYTES = 8192;
 const CONNECT_TIMEOUT_MS = 4000;
 const DNS_TIMEOUT_MS = 4000;
-const CHECK_TIMEOUT_MS = 12000;
+const CHECK_TIMEOUT_MS = 25000;
 const MAX_WIRE_OVERREAD = 65536;
 const CONNECTION_BINARY = Object.freeze({
   legacy: '/opt/cybermeters/tls-baseline-legacy',
@@ -19,9 +19,8 @@ const CONNECTION_BINARY = Object.freeze({
   modern: '/opt/cybermeters/tls-baseline-modern',
 });
 const activeControls = new Set(['heartbleed', 'robot', 'ccs']);
-// The private parent retains its own fail-closed switch even when a caller
-// bypasses the public request validator. Enable only with the catalogue gate.
-const SPECIAL_CONTROLS_ENABLED = false;
+// The private parent independently requires the versioned workspace consent.
+const SPECIAL_CONTROLS_ENABLED = true;
 const productControl = Object.freeze({ protocol:'handshake',cipher:'handshake',key_exchange:'handshake',certificate:'certificate',ocsp:'certificate',compression:'compression',secure_renegotiation:'renegotiation',fallback_scsv:'fallback',extended_master_secret:'handshake',session_resumption:'resumption',early_data:'resumption',sni_alpn:'handshake',heartbleed:'heartbleed',robot:'robot',ccs:'ccs' });
 
 function ipKey(value) {
@@ -155,7 +154,7 @@ function engineCommand(input, check, maxConnections) {
     : check.control === 'cipher' || ['ssl2','ssl3','tls1','tls1_1'].includes(check.protocol) ? CONNECTION_BINARY.legacy : CONNECTION_BINARY.modern;
   const args = ['--control',productControl[check.control],'--protocol',check.protocol,'--max-connections',String(maxConnections),
     '--hostname',input.endpoint.sni,'--alpn',input.endpoint.application_protocol === 'https' ? 'h2-http1' : 'none',
-    '--trust-bundle','/opt/cybermeters/trust/ca-bundle.pem','--timeout-ms',String(Math.min(CHECK_TIMEOUT_MS, 25000))];
+    '--trust-bundle','/opt/cybermeters/trust/ca-bundle.pem','--timeout-ms',String(check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000)];
   if (check.cipher_id !== null) args.push('--cipher',check.cipher_id);
   return { binary, args };
 }
@@ -216,7 +215,7 @@ export async function runTlsEngineCheck(input, check, budget, signal) {
       result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(payload));
     } else throw new Error('engine_frame_invalid');
   };
-  const timeout = setTimeout(abort, CHECK_TIMEOUT_MS);
+  const timeout = setTimeout(abort, check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000);
   try {
     for await (const chunk of child.stdout) {
       for (const f of parseFrames(parser, chunk)) await onFrame(f);
