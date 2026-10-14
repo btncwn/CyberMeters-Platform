@@ -25,9 +25,9 @@ globalThis.fetch = async (url) => { outbound++; throw new Error(`Unexpected outb
 // Pinned here as well as in the generated file: a list that only checks itself
 // would accept any list with a recomputed digest.
 const PINNED_LIST = Object.freeze({
-  version: "PIN_AFTER_BUILD",
-  count: 0,
-  sha256: "PIN_AFTER_BUILD",
+  version: "2026-10-14.1",
+  count: 27516,
+  sha256: "ea5d3210f12550ff9983d59e4a91c7c862501c70b5e172dafeeaf7d098aa0829",
 });
 
 // Small inputs in each provider's published format.
@@ -156,6 +156,9 @@ await test("a missing, truncated or altered list attributes nothing", async () =
     { ...good, count: good.count + 1 },
     listOf(["104.16.0.0/13\tsomeone\t\t"]),
     listOf(["104.16.0.0/13\tcloudflare\t\t", "104.16.0.0/13\tcloudflare\t\t"]),
+    listOf(["104.16.0.1/13\tcloudflare\t\t"]),
+    listOf(["2606:4700::1/32\tcloudflare\t\t"]),
+    listOf(["104.16.0.0/33\tcloudflare\t\t"]),
     null,
   ];
   for (const list of broken) {

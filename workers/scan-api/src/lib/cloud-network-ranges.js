@@ -22,6 +22,64 @@ export function networkKind(provider, service) {
 const V4_BITS = 32;
 const V6_BITS = 128;
 
+// Hot-path helpers for the lookup index (no BigInt, no regular expressions):
+// IPv4 as an unsigned number, IPv6 as 32 lower-case hex digits.
+export function parseIpv4Number(text) {
+  const str = String(text);
+  let value = 0, octet = 0, digits = 0, dots = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c === 46) {
+      if (digits === 0 || dots === 3) return null;
+      value = value * 256 + octet; octet = 0; digits = 0; dots++;
+    } else if (c >= 48 && c <= 57) {
+      if (digits > 0 && octet === 0) return null; // leading zero
+      octet = octet * 10 + (c - 48); digits++;
+      if (digits > 3 || octet > 255) return null;
+    } else return null;
+  }
+  if (dots !== 3 || digits === 0) return null;
+  return value * 256 + octet;
+}
+
+export function expandIpv6Hex(text) {
+  const str = String(text).toLowerCase();
+  if (!str.includes(":") || str.length > 45 || str.includes(".")) {
+    // Embedded IPv4 tails are rare in published ranges; take the general path.
+    const parsed = parseIpAddress(str);
+    return parsed?.version === 6 ? parsed.value.toString(16).padStart(32, "0") : null;
+  }
+  const halves = str.split("::");
+  if (halves.length > 2) return null;
+  const words = (half) => (half === "" ? [] : half.split(":"));
+  const head = words(halves[0]), tail = halves.length === 2 ? words(halves[1]) : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 2 ? missing < 1 : missing !== 0) return null;
+  let out = "";
+  for (const w of [...head, ...new Array(Math.max(0, missing)).fill("0"), ...tail]) {
+    if (w.length < 1 || w.length > 4) return null;
+    for (let i = 0; i < w.length; i++) {
+      const c = w.charCodeAt(i);
+      if (!((c >= 48 && c <= 57) || (c >= 97 && c <= 102))) return null;
+    }
+    out += "0000".slice(w.length) + w;
+  }
+  return out;
+}
+
+// The key of a /bits network in a 32-hex-digit address: its leading digits,
+// with the last partial digit masked.
+export function ipv6HexKey(hex, bits) {
+  const whole = bits >> 2, rest = bits & 3;
+  if (!rest) return hex.slice(0, whole);
+  const nibble = parseInt(hex[whole], 16) & ((0xf << (4 - rest)) & 0xf);
+  return hex.slice(0, whole) + nibble.toString(16);
+}
+
+export function ipv4MaskNumber(bits) {
+  return bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+}
+
 function parseIpv4(text) {
   const parts = text.split(".");
   if (parts.length !== 4) return null;

@@ -16,7 +16,8 @@
 import { CLOUD_NETWORK_LIST } from "./cloud-networks-data.js";
 
 import {
-  canonicalCidr, maskFor, networkKind, NETWORK_PROVIDERS, parseCidr, parseIpAddress,
+  canonicalCidr, expandIpv6Hex, ipv4MaskNumber, ipv6HexKey, networkKind, NETWORK_PROVIDERS, parseCidr,
+  parseIpAddress, parseIpv4Number,
 } from "./cloud-network-ranges.js";
 
 export { canonicalCidr, networkKind, NETWORK_PROVIDERS, parseCidr, parseIpAddress };
@@ -31,12 +32,31 @@ async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// IPv4 networks as unsigned numbers; IPv6 networks as leading hex digits.
+// The build clears host bits, so a row that still has them is a damaged list.
+function parseIndexCidr(cidr) {
+  const slash = cidr.indexOf("/");
+  if (slash < 0 || cidr.indexOf("/", slash + 1) >= 0) return null;
+  const addr = cidr.slice(0, slash), bitsText = cidr.slice(slash + 1);
+  if (!/^[0-9]{1,3}$/.test(bitsText)) return null;
+  const bits = Number(bitsText);
+  if (!addr.includes(":")) {
+    const value = parseIpv4Number(addr);
+    if (value == null || bits > 32) return null;
+    return ((value & ipv4MaskNumber(bits)) >>> 0) === value ? { version: 4, bits, network: value } : null;
+  }
+  const hex = expandIpv6Hex(addr);
+  if (hex == null || bits > 128) return null;
+  const key = ipv6HexKey(hex, bits);
+  return hex === key.padEnd(32, "0") ? { version: 6, bits, network: key } : null;
+}
+
 // One map per (family, prefix length); a lookup tries the longest prefix first.
 function buildIndex(lines) {
   const tables = { 4: new Map(), 6: new Map() };
   for (const line of lines) {
     const [cidr, provider, region = "", service = ""] = line.split("\t");
-    const parsed = parseCidr(cidr);
+    const parsed = parseIndexCidr(cidr);
     if (!parsed || !NETWORK_PROVIDERS[provider]) return null;
     const byBits = tables[parsed.version];
     if (!byBits.has(parsed.bits)) byBits.set(parsed.bits, new Map());
@@ -76,8 +96,11 @@ export function createNetworkLookup(list) {
     const ip = parseIpAddress(address);
     if (!ip) return "invalid";
     const family = index[ip.version];
+    const v4 = ip.version === 4 ? Number(ip.value) : 0;
+    const v6 = ip.version === 6 ? ip.value.toString(16).padStart(32, "0") : "";
     for (const bits of family.order) {
-      const hit = family.tables.get(bits).get(ip.value & maskFor(ip.version, bits));
+      const key = ip.version === 4 ? (v4 & ipv4MaskNumber(bits)) >>> 0 : ipv6HexKey(v6, bits);
+      const hit = family.tables.get(bits).get(key);
       if (hit) return hit;
     }
     return null;
