@@ -139,7 +139,7 @@ export default function WorkspaceNav({ wsName }) {
 
 
   return (
-    <aside className="w-full lg:w-[20%] lg:max-w-[280px] lg:min-w-[236px] flex-shrink-0 bg-white border-b lg:border-b-0 lg:border-r border-gray-200 xl:sticky xl:top-[68px] xl:h-[calc(100vh-68px)] xl:overflow-y-auto flex flex-col" onKeyDown={event => { if (event.key === 'Escape' && mobileOpen) { setMobileOpen(false); mobileToggle.current?.focus() } }}>
+    <aside className="w-full lg:w-[20%] lg:max-w-[280px] lg:min-w-[236px] flex-shrink-0 bg-white border-b lg:border-b-0 lg:border-r border-gray-200 xl:sticky xl:top-[144px] xl:h-[calc(100vh-144px)] xl:overflow-y-auto flex flex-col" onKeyDown={event => { if (event.key === 'Escape' && mobileOpen) { setMobileOpen(false); mobileToggle.current?.focus() } }}>
       <button ref={mobileToggle} type="button" aria-label="Workspace navigation" aria-expanded={mobileOpen} aria-controls="workspace-service-navigation" onClick={() => setMobileOpen(value => !value)} className="lg:hidden flex items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-gray-800">
         <span className="min-w-0 truncate">{wsName || 'Workspace'} · Services</span>
         <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform ${mobileOpen ? 'rotate-180' : ''}`} />
