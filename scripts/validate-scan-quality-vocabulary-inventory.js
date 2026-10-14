@@ -123,9 +123,12 @@ const EXPECTED = Object.freeze({
     // Deep TLS historical retest added four lines before the existing
     // historical-scan.js query. The two-tree dump shows only its line
     // moving 196 -> 200; predicate text, count and classification are equal.
-    fingerprint: "2204ed5f41bafc935ff73e10f54c54a0972d57b4c205b119a9b6ec692109354b",
+    // Cyber MOT coverage now prefers the newest provisional report. One added
+    // route comment shifts the existing executive-dashboard SQL query site by
+    // one line; predicate text, site/sink counts and classification are unchanged.
+    fingerprint: "d8e52ddea65db1694d5fdd96daa284022c156143c87cce0e8be87ca05d5513d9",
     resolved_query_sink_count: 20,
-    resolved_query_sink_fingerprint: "86e8b1f031a81fec8236321fffb58b4b891081469445e8be9937814b23f14fdd",
+    resolved_query_sink_fingerprint: "f5f169fd08389ccc15f9be03f0b755eef088eb22cd469857ef34a77361de3d92",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
