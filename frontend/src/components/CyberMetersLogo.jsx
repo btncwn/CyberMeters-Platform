@@ -17,6 +17,7 @@
  *                         changes. Stroke, 45° bracket angle, needle tilt, colors and the
  *                         32px canvas are unchanged — this is a spacing/geometry refinement.
  *   darkMode    {bool}    Lighten the brackets for dark backgrounds (default false).
+ *   wordmarkColor{string}  Explicit wordmark colour (e.g. the brand amber on the app bar).
  *   className   {string}  Extra class on the root element.
  *
  * Animation note:
@@ -83,6 +84,7 @@ export default function CyberMetersLogo({
   animated = false,
   spacing = 'wide',
   darkMode = false,
+  wordmarkColor = null,
   className = '',
 }) {
   // Unique gradient ID — prevents conflicts when multiple instances are on the page.
@@ -175,7 +177,7 @@ export default function CyberMetersLogo({
       <span className="leading-none select-none">
         <span
           className={`font-semibold tracking-tight block ${darkMode ? 'text-white' : 'text-gray-900'}`}
-          style={{ fontSize: wordmarkSize }}
+          style={{ fontSize: wordmarkSize, color: wordmarkColor || undefined }}
         >
           CyberMeters
         </span>
