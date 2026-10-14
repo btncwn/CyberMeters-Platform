@@ -7,6 +7,40 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.14-1 — supported TLS security assessment — 14 October 2026
+
+Work Order 2 deliveries 2A/2B are available to customers. Authorized scans
+measure endpoint-specific protocol and cipher acceptance, certificate/trust and
+stapled OCSP evidence, key exchange, fallback, renegotiation, resumption,
+authorized STARTTLS and a dedicated TLS compression check. The scan report
+shows the recorded checks, uncertain results and checks outside its budget;
+partial coverage keeps Certificates & Trust evidence-insufficient. Heartbleed,
+ROBOT and CCS active tests remain unavailable and explicitly `unexecutable`
+until delivery 2C passes its separate fixtures and review. PRs #602 and #604
+merged after 16/16 exact-head checks and independent R1 review; the frontend
+report correction is PR #605.
+
+Before additive D1 migrations 119/120, a Time Travel bookmark and private SQL
+export were captured. The migrations and four new tables were verified. Email
+Worker `079c8615-d4c0-4c39-84cc-02bbd63b5f94` replaced
+`b29fac30-dd1b-4ab2-ae99-0092b7580192`; private probe
+`97f0d3dc-99ae-48bb-908a-e1d7483fb85d` replaced
+`108b7685-00f4-45d8-8f2f-d00090692793`. API
+`e4806fca-c3b0-406a-bfca-ab2ee975669a` runs
+`2026.10.14-tls-core.0e8f3f4ef478` with the supported profile on. API
+`d9950558-b236-45ad-be6c-bcbe9c4d4d9e` is the immediate feature-off
+rollback target. API health/readiness and anonymous 401 passed.
+
+One authorized `cybermeters.com` scan
+`scan_9ef6a971-8270-435f-b361-5d64d0f26937` completed in production.
+Four endpoints showed TLS 1.2 compression disabled; legacy compression checks
+were uncertain where handshakes failed. The report kept partial coverage, 395
+uncertain outcomes and 1,176 checks outside the scan budget visible. The
+[acceptance ledger](docs/WORK-ORDER-2-TLS-ACCEPTANCE.md) records collector
+cost, Cloudflare container billing-window units and remaining 2C/cost limits.
+This company-domain canary does not certify every customer domain or replace a
+live rollback drill.
+
 ## RECORDED AFTER THE FACT — baseline reconciliation — 13 October 2026
 
 Before the shared-content release, read-only Cloudflare inspection found API
