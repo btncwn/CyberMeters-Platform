@@ -37,7 +37,8 @@ describe('WorkspaceNav (eight-domain sidebar)', () => {
   })
   it('shows the eight canonical domains in order', () => {
     renderNav()
-    const names = ['Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
+    // Founder order (14 Oct 2026): strongest evidence first, readiness last.
+    const names = ['Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
     const elements = names.map(name => screen.getByText(name))
     for (let i = 1; i < elements.length; i++) {
       expect(elements[i - 1].compareDocumentPosition(elements[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

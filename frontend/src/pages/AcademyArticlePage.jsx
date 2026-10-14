@@ -122,7 +122,7 @@ function TableOfContents({ sections }) {
           href={`#section-${i}`}
           className="flex items-center gap-2 text-[14px] text-gray-500 hover:text-brand-600 transition-colors py-0.5"
         >
-          <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-[12px] font-bold flex items-center justify-center flex-shrink-0">
+          <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-[13px] font-bold flex items-center justify-center flex-shrink-0">
             {i + 1}
           </span>
           {s.heading}

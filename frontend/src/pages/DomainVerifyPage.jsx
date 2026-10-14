@@ -27,7 +27,7 @@ function CopyField({ label, value }) {
   }
   return (
     <div className="bg-gray-50 rounded-xl p-4">
-      <p className="text-[12px] font-semibold uppercase tracking-widest text-gray-400 mb-1.5">{label}</p>
+      <p className="text-[13px] font-semibold uppercase tracking-widest text-gray-400 mb-1.5">{label}</p>
       <div className="flex items-center gap-2">
         <code className="flex-1 text-sm text-gray-800 break-all font-mono leading-snug">{value}</code>
         <button

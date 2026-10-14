@@ -1,5 +1,6 @@
-// ── Glacier domain palette — SINGLE SOURCE OF TRUTH ───────────────────────────
-// The canonical Cyber MOT domains each own one cool "glacier" identity colour.
+// ── Sea-glass domain palette — SINGLE SOURCE OF TRUTH ───────────────────────────
+// The canonical Cyber MOT domains each own one soft sea-glass colour: a pastel
+// fill (chip/card) and a deep ink (text) that reads at 4.5:1 on the fill and on white.
 // Every surface that shows domain navigation, dashboard cards or workspace
 // sections reads its colours from here so customer-facing domain presentation
 // cannot drift between frontend surfaces.
@@ -15,14 +16,14 @@
 //             domain's pages. Deliberately lighter than `card` so white cards
 //             still pop and severity colours stay unambiguous on top of it.
 export const SERVICE_COLORS = {
-  email:            { icon: '#1E5FDB', text: '#1A4FB8', chip: '#DCE8FC', card: '#EEF3FD', ring: '#D6E2FB', surface: '#F5F8FE' }, // Glacier blue
-  brand:            { icon: '#D6488E', text: '#AE3670', chip: '#FADFEC', card: '#FCEFF6', ring: '#F6D2E4', surface: '#FEF6FA' }, // Rose (founder re-theme 21 Jul — completes the 8-swatch scale; also breaks up the blue-family crowding next to certs/surface)
-  surface:          { icon: '#12938C', text: '#0E736D', chip: '#D6F0EC', card: '#E6F5F3', ring: '#CBEBE6', surface: '#F1F9F8' }, // Glacier teal
-  certs:            { icon: '#1685C9', text: '#0F689F', chip: '#DBEDFB', card: '#E8F3FC', ring: '#CFE6F8', surface: '#F3F8FD' }, // Azure
-  cyber_essentials: { icon: '#0F9F6E', text: '#0B7D56', chip: '#D9F3E8', card: '#E9F8F1', ring: '#CBEFDB', surface: '#F3FBF7' }, // Mint
-  website:          { icon: '#C77C16', text: '#98600F', chip: '#F8E9CF', card: '#FCF3E4', ring: '#F4DDB7', surface: '#FDF9F0' }, // Gold
-  identity:         { icon: '#5B6EE1', text: '#4656B7', chip: '#E3E7FC', card: '#F0F2FE', ring: '#D8DDFB', surface: '#F6F7FE' }, // Periwinkle
-  shadow_it:        { icon: '#8A5CCB', text: '#6E46A5', chip: '#ECE3F8', card: '#F5F0FB', ring: '#E4D6F4', surface: '#F9F6FD' }, // Violet
+  email:            { icon: '#517894', text: '#2C5878', chip: '#BFD7EA', card: '#DCE9F3', ring: '#C9DDED', surface: '#F1F6FA' }, // Powder blue
+  brand:            { icon: '#8C5F7C', text: '#6E3C5C', chip: '#E4C7DA', card: '#F0E0EB', ring: '#E8CFE0', surface: '#F9F3F7' }, // Lilac rose
+  surface:          { icon: '#4A8476', text: '#246656', chip: '#BDE0D8', card: '#DBEEEA', ring: '#C7E5DE', surface: '#F0F8F6' }, // Sea glass
+  certs:            { icon: '#557E90', text: '#2F5E72', chip: '#C7DDE8', card: '#E0ECF2', ring: '#CFE2EB', surface: '#F3F8FA' }, // Harbour
+  cyber_essentials: { icon: '#608358', text: '#3B6232', chip: '#CFE5C9', card: '#E5F1E1', ring: '#D6E9D1', surface: '#F4F9F3' }, // Mint
+  website:          { icon: '#7D7256', text: '#5E5232', chip: '#D9D2C0', card: '#EAE6DC', ring: '#DFD9C9', surface: '#F7F5F1' }, // Sand
+  identity:         { icon: '#696699', text: '#48447E', chip: '#CDCBEA', card: '#E4E2F3', ring: '#D4D3ED', surface: '#F4F4FA' }, // Lavender
+  shadow_it:        { icon: '#6E7786', text: '#4B5566', chip: '#D9DEE6', card: '#EAEDF1', ring: '#DFE3EA', surface: '#F7F8FA' }, // Slate mist
 }
 
 // `tint` is an alias of `card` — the sidebar hover state uses the same value.

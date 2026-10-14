@@ -64,7 +64,7 @@ function TechnicalAppendix({ appendix }) {
         <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
           {(appendix.facts || []).map((fact) => (
             <div key={`${fact.label}:${fact.value}`} className="min-w-0">
-              <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+              <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
                 {fact.label}
               </dt>
               <dd className="break-all text-[13px] text-slate-600">{fact.value}</dd>
@@ -74,7 +74,7 @@ function TechnicalAppendix({ appendix }) {
 
         {appendix.lookup_path?.length > 0 && (
           <div>
-            <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
               Ordered lookup evidence
             </p>
             <ol className="mt-1 space-y-1">
@@ -92,12 +92,12 @@ function TechnicalAppendix({ appendix }) {
 
         {appendix.raw_records?.length > 0 && (
           <div>
-            <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
               Observed record data
             </p>
             <div className="mt-1 space-y-1">
               {appendix.raw_records.map((record, index) => (
-                <p key={index} className="break-all rounded bg-slate-50 px-2 py-1 font-mono text-[12px] text-slate-600">
+                <p key={index} className="break-all rounded bg-slate-50 px-2 py-1 font-mono text-[13px] text-slate-600">
                   {String(record?.raw ?? record?.value ?? record)}
                 </p>
               ))}
@@ -151,7 +151,7 @@ export default function DmarcPolicyEvidenceCard({
                 {presentation.customer_message}
               </p>
             </div>
-            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[12px] font-semibold text-slate-600">
+            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[13px] font-semibold text-slate-600">
               {presentation.completeness?.core_label || 'Unavailable'}
             </span>
           </div>
@@ -183,7 +183,7 @@ export default function DmarcPolicyEvidenceCard({
           {!compact && (
             <dl className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-3">
               <div>
-                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+                <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
                   Policy source
                 </dt>
                 <dd className="mt-0.5 text-xs text-slate-700">
@@ -192,7 +192,7 @@ export default function DmarcPolicyEvidenceCard({
                 </dd>
               </div>
               <div>
-                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+                <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
                   Organisational domain
                 </dt>
                 <dd className="mt-0.5 text-xs text-slate-700">
@@ -200,7 +200,7 @@ export default function DmarcPolicyEvidenceCard({
                 </dd>
               </div>
               <div>
-                <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+                <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
                   Monitoring
                 </dt>
                 <dd className="mt-0.5 text-xs text-slate-700">
@@ -222,7 +222,7 @@ export default function DmarcPolicyEvidenceCard({
 
           {!compact && presentation.external_rua?.destinations?.length > 0 && (
             <div className="mt-3">
-              <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+              <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
                 Aggregate-report destinations
               </p>
               <ul className="mt-1 space-y-2">
@@ -232,7 +232,7 @@ export default function DmarcPolicyEvidenceCard({
                       <span className="break-all font-mono text-[13px] text-slate-700">
                         {destination.uri || 'Destination not recorded'}
                       </span>
-                      <span className="text-[12px] font-semibold text-slate-600">
+                      <span className="text-[13px] font-semibold text-slate-600">
                         {destination.status_label}
                       </span>
                     </div>
@@ -252,7 +252,7 @@ export default function DmarcPolicyEvidenceCard({
             </div>
           )}
 
-          <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-relaxed text-slate-500">
+          <p className="mt-2 flex items-start gap-1.5 text-[13px] leading-relaxed text-slate-500">
             A requested DMARC policy does not prove how every receiver handled mail.
           </p>
         </div>

@@ -161,8 +161,8 @@ function CandidateRow({ c, busy, onClassify }) {
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold border ${CHIP[cm.tone]}`}>{cm.label}</span>
         </div>
         <div className="hidden sm:flex sm:col-span-2 flex-wrap gap-1">
-          {badges.slice(0, 2).map(b => <span key={b} className="text-[12px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{b}</span>)}
-          {badges.length > 2 && <span className="text-[12px] text-gray-400">+{badges.length - 2}</span>}
+          {badges.slice(0, 2).map(b => <span key={b} className="text-[13px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{b}</span>)}
+          {badges.length > 2 && <span className="text-[13px] text-gray-400">+{badges.length - 2}</span>}
         </div>
         <div className="col-span-4 sm:col-span-2 flex justify-end">
           <ClassifyMenu disabled={busy} onPick={v => onClassify(c, v)} />
@@ -679,7 +679,7 @@ export default function BrandMonitoringPage() {
           </div>
         ) : (
           <>
-            <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2 bg-gray-50/70 text-[12px] font-semibold text-gray-400 uppercase tracking-wide">
+            <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2 bg-gray-50/70 text-[13px] font-semibold text-gray-400 uppercase tracking-wide">
               <span className="col-span-4">Candidate domain</span>
               <span className="col-span-2">Risk</span>
               <span className="col-span-2">Classification</span>

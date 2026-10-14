@@ -5,7 +5,7 @@ import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 
-// ── Glacier palette — from the shared single source of truth ──────────────────
+// ── Sea-glass palette — from the shared single source of truth ──────────────────
 // The sidebar maps the shared per-domain colours onto the field names it uses
 // (bg = active-item background = the shared `chip`; accent = `icon`). Inline
 // styles keep the themes dynamic without touching tailwind.config (no purge risk).
@@ -17,12 +17,16 @@ const THEME = Object.fromEntries(
 )
 
 // ── Canonical Cyber MOT domains — the primary sections in the sidebar ─────────
+// Founder order (14 Oct): strongest evidence first, down to the readiness area.
 const SERVICES = [
   {
-    key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',
-    match: p => p.startsWith('/ws/identity-exposure'),
+    key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
+    match: p => p.startsWith('/ws/email-protection'),
     items: [
-      { to: '/ws/identity-exposure', label: 'Overview', end: true },
+      { to: '/ws/email-protection', label: 'Overview', end: true },
+      { hash: '#dmarc-setup',       label: 'DMARC Setup' },
+      { hash: '#sender-inventory',  label: 'Sender Inventory' },
+      { hash: '#auth-detail',       label: 'Authentication Detail' },
     ],
   },
   {
@@ -40,20 +44,17 @@ const SERVICES = [
     ],
   },
   {
-    key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
-    match: p => p.startsWith('/ws/email-protection'),
-    items: [
-      { to: '/ws/email-protection', label: 'Overview', end: true },
-      { hash: '#dmarc-setup',       label: 'DMARC Setup' },
-      { hash: '#sender-inventory',  label: 'Sender Inventory' },
-      { hash: '#auth-detail',       label: 'Authentication Detail' },
-    ],
-  },
-  {
     key: 'website', domainKey: 'website_security', title: 'Website Security', to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
     items: [
       { to: '/ws/website-security', label: 'Overview', end: true },
+    ],
+  },
+  {
+    key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',
+    match: p => p.startsWith('/ws/identity-exposure'),
+    items: [
+      { to: '/ws/identity-exposure', label: 'Overview', end: true },
     ],
   },
   {
@@ -176,7 +177,7 @@ export default function WorkspaceNav({ wsName }) {
                   ? { backgroundColor: t.bg, borderLeftColor: t.accent }
                   : hovered ? { backgroundColor: t.tint, borderLeftColor: 'transparent' } : { borderLeftColor: 'transparent' }}
                 className={`flex items-center gap-3 pl-3 pr-2.5 py-2.5 rounded-xl border-l-[3px] transition-colors ${
-                  active ? 'font-semibold' : 'font-medium text-gray-700'
+                  active ? 'font-semibold' : 'font-medium text-black'
                 }`}
               >
                 <span
@@ -226,7 +227,7 @@ export default function WorkspaceNav({ wsName }) {
       <div className="px-2.5 py-2.5 border-t border-gray-100">
         <button
           onClick={() => setToolsOpen(v => !v)}
-          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 hover:bg-gray-50 transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[14px] font-bold text-coral uppercase tracking-widest hover:bg-coral-50 transition-colors"
         >
           <span className="flex-1 text-left">Workspace</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
@@ -242,7 +243,7 @@ export default function WorkspaceNav({ wsName }) {
                 onFocus={() => handlePreload(to)}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                    isActive ? 'text-gray-900 bg-gray-100 font-semibold' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 font-medium'
+                    isActive ? 'text-amber-brand bg-gray-100 font-bold' : 'text-black hover:text-amber-brand hover:bg-gray-50 font-semibold'
                   }`
                 }
               >

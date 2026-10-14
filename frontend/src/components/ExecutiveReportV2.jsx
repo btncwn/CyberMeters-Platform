@@ -129,14 +129,14 @@ function ScoreRing({ score, rating, size = 132 }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {score != null
-            ? <><span className={`text-4xl font-bold ${cfg.text}`}>{score}</span><span className="text-[12px] text-gray-300 font-semibold">/ 100</span></>
+            ? <><span className={`text-4xl font-bold ${cfg.text}`}>{score}</span><span className="text-[13px] text-gray-300 font-semibold">/ 100</span></>
             : <span className="text-gray-300 text-sm">—</span>}
         </div>
       </div>
       <span className={`text-xs font-bold px-3 py-1 rounded-full border mt-2 ${cfg.pill}`}>
         {cfg.label}
       </span>
-      <span className="mt-1 text-[12px] font-semibold text-gray-400">CyberMeters assessment band</span>
+      <span className="mt-1 text-[13px] font-semibold text-gray-400">CyberMeters assessment band</span>
     </div>
   )
 }
@@ -151,7 +151,7 @@ function ItemRow({ item, index, muted = false }) {
     : item.evidence_grade?.grade
   return (
     <li className="flex items-start gap-3 px-5 py-3">
-      <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[12px] font-bold flex-shrink-0 mt-0.5 ${muted ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-700'}`}>
+      <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[13px] font-bold flex-shrink-0 mt-0.5 ${muted ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-700'}`}>
         {index + 1}
       </div>
       <div className="flex-1 min-w-0">
@@ -262,7 +262,7 @@ function AssessmentCoverage({ coverage }) {
         <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
           {facts.map(([label, value]) => (
             <div key={label}>
-              <dt className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+              <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
               <dd className="mt-0.5 text-xs font-semibold text-slate-700">{readableCode(value)}</dd>
             </div>
           ))}

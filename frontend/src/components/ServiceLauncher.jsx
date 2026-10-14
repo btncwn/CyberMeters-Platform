@@ -82,7 +82,7 @@ function StepRow({ n, title, explanation, status, actionLabel, to }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900">{title}</p>
-          <span className={`text-[12px] font-semibold px-1.5 py-0.5 rounded-full border ${s.cls}`}>{s.label}</span>
+          <span className={`text-[13px] font-semibold px-1.5 py-0.5 rounded-full border ${s.cls}`}>{s.label}</span>
         </div>
         <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{explanation}</p>
       </div>

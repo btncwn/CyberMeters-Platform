@@ -286,7 +286,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
           const { label, border, bg } = tierLabels[tier]
           return (
             <div key={tier} className={`border-b ${border} last:border-0 ${bg}`}>
-              <div className="px-6 py-2 text-[12px] font-semibold text-gray-400 uppercase tracking-widest">
+              <div className="px-6 py-2 text-[13px] font-semibold text-gray-400 uppercase tracking-widest">
                 {label} · {items.length}
               </div>
               {items.map((alert, idx) => (

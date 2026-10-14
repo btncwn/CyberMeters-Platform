@@ -39,13 +39,13 @@ function DomainCell({ d }) {
 
   return (
     <div className={`rounded-md border px-2 py-1.5 ${toneClass(state.tone)}`} title={why}>
-      <div className="text-[12px] font-semibold leading-tight truncate">{d.display_name}</div>
+      <div className="text-[13px] font-semibold leading-tight truncate">{d.display_name}</div>
       <div className="flex items-center justify-between gap-1 mt-0.5">
-        <span className="text-[12px] leading-tight truncate">{state.label}</span>
-        <span className="text-[12px] leading-none" aria-hidden="true">{trend.symbol}</span>
+        <span className="text-[13px] leading-tight truncate">{state.label}</span>
+        <span className="text-[13px] leading-none" aria-hidden="true">{trend.symbol}</span>
         <span className="sr-only">, trend: {trend.srLabel}</span>
       </div>
-      {stale && <div className="text-[12px] mt-0.5 font-semibold">stale evidence</div>}
+      {stale && <div className="text-[13px] mt-0.5 font-semibold">stale evidence</div>}
     </div>
   )
 }

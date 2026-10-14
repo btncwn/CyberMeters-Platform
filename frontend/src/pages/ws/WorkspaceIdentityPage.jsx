@@ -75,7 +75,7 @@ function IdentityAssetCard({ asset }) {
         </p>
       )}
 
-      <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-[12px] text-gray-400">
+      <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-[13px] text-gray-400">
         <span>First seen: {asset.first_seen ? parseServerDate(asset.first_seen).toLocaleDateString() : '—'}</span>
         <span>Last seen: {asset.last_seen  ? parseServerDate(asset.last_seen).toLocaleDateString()  : '—'}</span>
       </div>

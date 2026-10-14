@@ -339,7 +339,7 @@ export default function WorkspaceMembersPage() {
                               <p className="text-sm font-semibold text-gray-900 truncate">
                                 {member.name || '—'}
                                 {isCurrentUser && (
-                                  <span className="ml-2 text-[12px] font-medium text-gray-400">(you)</span>
+                                  <span className="ml-2 text-[13px] font-medium text-gray-400">(you)</span>
                                 )}
                               </p>
                               <p className="text-xs text-gray-400 truncate">{member.email}</p>

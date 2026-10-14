@@ -107,7 +107,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
               {allDone ? 'Setup complete' : 'Getting started with CyberMeters'}
             </p>
             {allDone && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-bold bg-brand-50 text-brand-700 uppercase tracking-wide border border-brand-100">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[13px] font-bold bg-brand-50 text-brand-700 uppercase tracking-wide border border-brand-100">
                 Done
               </span>
             )}

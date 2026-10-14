@@ -428,7 +428,7 @@ export default function NotificationsPage() {
                 >
                   {label}
                   {value === 'unread' && unreadCount > 0 && (
-                    <span className="ml-1 text-[12px] text-red-500 font-bold">
+                    <span className="ml-1 text-[13px] text-red-500 font-bold">
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                   )}
