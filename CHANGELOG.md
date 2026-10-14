@@ -7,6 +7,40 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## v2026.10.14-3 — public-claims and retention parity — 14 October 2026
+
+PR #613 merged as `56a7ee3d` after exact-head CI, Frontend E2E and one
+independent targeted R1 review passed. The free check now explains that five
+bounded public checks feed eight customer-facing areas; it stores no scan
+report or monitoring history, while D1 retains short-lived API and free-check
+abuse counters. The privacy page discloses five-minute API-wide and one-hour
+free-check windows. An hourly-triggered Worker task sweeps these counter
+families at 02:00 UTC once their windows ended more than 24 hours earlier;
+other rate-limit actions are untouched. The trust page publishes the dated
+14 October company-domain 2C canary with partial TLS coverage and inconclusive
+Heartbleed evidence, and the executive certificate summary distinguishes
+baseline OCSP limits from separately recorded endpoint evidence. No D1
+migration or new active customer scan was part of this release.
+
+Cloudflare Pages production deployment `53d5e879-7544-438a-bbe3-4d505c7443f0`
+serves `main @ 56a7ee3d` on both `www` and `app`; the previous Pages
+deployment is `65c700c5-bd81-404a-ac0b-e900ba4550c1`. The coordinated
+email Worker is `92122494-69be-46e2-96fd-1f7fb5fbd982` (rollback
+`abfec745-6de0-44cf-816e-7a65fd64155b`), and the API Worker is
+`9da85e91-e62a-4fa1-b0f6-d4de94ae2d88` (rollback
+`285ae695-aa3b-4b79-9be7-64b1b62b72f2`). Both report
+`2026.10.14-public-claims.48415e304b48`. Email D1 and API D1/R2 readiness
+passed; unauthenticated workspace access returned 401. Live rendering of
+the landing, free-check, privacy and trust pages matched the release.
+
+Before the one-time retention cleanup, a D1 Time Travel bookmark
+`00001285-000003d6-00005104-f08012676656a3feedae3cdccb1a308a` was
+recorded. The same action/window predicate as the scheduled task deleted
+8,301 expired counters; a follow-up query found zero remaining expired
+counters. Current API-wide counters and unrelated login counters remained.
+The scheduled task handles future expiry. Reverting Worker code does not
+restore the deleted expired rows.
+
 ## v2026.10.14-2 — Work Order 2C controlled release — 14 October 2026
 
 PR #610 added separately permitted, bounded active checks for Heartbleed,
