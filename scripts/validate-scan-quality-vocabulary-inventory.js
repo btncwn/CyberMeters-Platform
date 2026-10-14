@@ -59,7 +59,9 @@ const EXPECTED = Object.freeze({
     // completed scans (the new source file). No gate added; SQL unchanged.
     // TLS coverage adds one guard that preserves degraded quality and one
     // aggregate gate that excludes provisional rows from complete-scan means.
-    comparison_occurrences: 55,
+    // Live dashboard closure: latest-scan posture, comparable trend and recent
+    // scan labels add four governed comparisons in Dashboard.jsx (55 -> 59).
+    comparison_occurrences: 59,
     source_file_count: 24,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -98,7 +100,7 @@ const EXPECTED = Object.freeze({
     // pinned, so real additions/removals still fail while line-only edits do not.
     // TLS release: the historical customer projector consumes effective
     // quality, and the aggregate now checks the projected complete state.
-    fingerprint: "f9ba32fc389786264f88543ac0941b90c98b0487c06262cd48ab8fb36b186686",
+    fingerprint: "120eafa54a1126e0c817ea2e851c530744d044cb0551d37bcaf54098fa6c1767",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -226,7 +228,9 @@ const EXPECTED = Object.freeze({
     // above, plus the scan lists (ScansPage, DomainHistory, WorkspaceDetailPage)
     // and the scan page header handing the recorded quality to StatusBadge,
     // which shows a completed partial scan as "Partial results".
-    runtime: { occurrence_count: 118, source_file_count: 41, fingerprint: "12e435724843da4ab64fb99d45dd62ad4d50c9140bccc7f1ad0ea329a3df73eb" },
+    // Three additional direct quality reads are confined to the existing
+    // Dashboard.jsx customer presentation (118 -> 121; file set unchanged).
+    runtime: { occurrence_count: 121, source_file_count: 41, fingerprint: "04120d4dccbf0d5dc70a7dcb4134445f758cdc206953d1da61d264d9e3ac7709" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
