@@ -98,7 +98,19 @@ def bridge(binary, arguments, port=None, mutate=None, abort=False):
                 elif kind == 2:
                     assert payload and sock is not None
                     counts['bytes_sent'] += len(payload)
-                    sock.sendall(payload)
+                    try:
+                        sock.sendall(payload)
+                    except (BrokenPipeError, ConnectionResetError):
+                        # A TLS fixture may reject a deliberately malformed
+                        # ROBOT vector and close before the engine finishes
+                        # writing the record. That close is protocol evidence,
+                        # not a failure of the loopback bridge. Report EOF to
+                        # the engine exactly as the read-side close path does.
+                        events.unregister(sock)
+                        sock.close()
+                        sock = None
+                        last_closed = True
+                        child.stdin.write(frame(4, b'eof'))
                 elif kind == 4:
                     assert not payload
                     if sock is None and last_closed:
