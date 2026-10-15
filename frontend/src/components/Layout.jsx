@@ -94,7 +94,7 @@ function WorkspaceSelector() {
     <div className="relative" ref={ref}>
       <button
         onClick={handleOpen}
-        className="h-11 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[15px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
+        className="h-11 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[16px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
       >
         <span className="max-w-[88px] sm:max-w-[140px] truncate">{activeName || 'Workspace'}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-white transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -402,7 +402,7 @@ export default function Layout() {
             className="flex-shrink-0 group"
             aria-label="CyberMeters security overview"
           >
-            <CyberMetersLogo size={38} showWordmark animated darkMode wordmarkColor="#C65B26" />
+            <CyberMetersLogo size={44} showWordmark animated darkMode wordmarkColor="#C65B26" wordmarkSize={30} subtitle={false} />
           </button>
 
           {/* Nav: on wide screens it sits beside the brand; on phones it takes
@@ -433,7 +433,7 @@ export default function Layout() {
                 navigate('/scans/new')
                 window.dispatchEvent(new CustomEvent('cybermeters:new-scan-reset'))
               }}
-              className="btn-amber h-11 lg:h-12 px-4 sm:px-6 rounded-[8px] text-[16px] lg:text-[17px] whitespace-nowrap"
+              className="btn-amber h-11 lg:h-12 px-4 sm:px-6 rounded-[8px] text-[17px] lg:text-[18px] whitespace-nowrap"
               aria-label="New Scan"
             >
               <span>New Scan</span>
