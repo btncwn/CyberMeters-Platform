@@ -59,7 +59,7 @@ function expressionAllowed(expr) {
 
 let pass = 0, fail = 0;
 const violations = [];
-const sbomFiles = ["sbom/scan-api.cdx.json", "sbom/frontend.cdx.json"];
+const sbomFiles = ["sbom/scan-api.cdx.json", "sbom/mcp-server.cdx.json", "sbom/frontend.cdx.json"];
 
 for (const rel of sbomFiles) {
   const p = path.join(root, rel);

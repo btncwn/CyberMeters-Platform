@@ -16,6 +16,7 @@
     "sharp": "0.35.5"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.2.3",
     "tr46": "6.0.0"
   }
 }

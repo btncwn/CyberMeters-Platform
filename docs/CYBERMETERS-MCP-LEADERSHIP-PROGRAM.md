@@ -1,6 +1,6 @@
 # CyberMeters MCP Leadership Program
 
-**Program status:** ACTIVE — Phase 0 and MCP-01A through MCP-04 accepted locally; MCP-04B and MCP-04C are next
+**Program status:** ACTIVE — MCP-04B/04C customer engineering and MCP-05 focused security review have local evidence; MCP-06 client/staging and MCP-07 release gates remain open
 
 **Founder direction:** 15 October 2026
 
@@ -16,9 +16,9 @@ This is a founder-directed, isolated engineering program. It does not lift the r
 
 ## 1. Mission
 
-CyberMeters will provide a secure remote Model Context Protocol (MCP) interface that lets customers use CyberMeters evidence inside approved AI clients such as Claude and ChatGPT. The interface must serve both:
+CyberMeters will provide a secure remote Model Context Protocol (MCP) interface that lets eligible customers use CyberMeters evidence with Anthropic Claude, OpenAI ChatGPT and Codex, and Google Gemini clients. The interface must serve both:
 
-- a business with one domain, where the only workspace is selected automatically and the customer can ask plain questions without learning CyberMeters' internal model; and
+- a business with one domain, where the customer explicitly approves that workspace during OAuth consent and can then ask plain questions without repeatedly selecting it or learning CyberMeters' internal model; and
 - an MSP or multi-tenant operator, where portfolio questions are explicit, every workspace boundary is enforced on the server, and the answer explains which tenants need attention and why.
 
 MCP is a transport and tool contract, not the intelligence itself. CyberMeters' advantage must come from trustworthy evidence, eight-domain coverage, tenant-safe portfolio operations, remediation tracking, and useful explanations grounded in measured data. An AI Classifier and AI-generated summaries are separate product capabilities; connecting an MCP client does not create either one. The beta explanation tool uses measured CyberMeters evidence and versioned Field Guide guidance, with observation and advice kept distinct.
@@ -34,7 +34,7 @@ The program succeeds only when the following are demonstrated with repeatable te
 | Useful for one-domain customers | The default connection can answer the benchmark without asking the user to choose their only workspace repeatedly. |
 | Useful for MSPs | In Release 1B, an entitled user can find critical items across its currently authorised workspaces with clear tenant attribution and bounded pagination. Release 1C adds ranked portfolio overview and comparison without mixing tenant evidence. |
 | Auditable | Every successful tool call has a durable bounded audit record, and denials are durably recorded while the audit store is available. If an audit write fails, access does not succeed: the client receives a safe error and a content-free outage metric is emitted. No bearer token, arguments, response body, secret, or customer free text enters the audit record. |
-| Interoperable | The pinned protocol version and tool contracts pass controlled Claude and ChatGPT client checks before customer beta. |
+| Interoperable | The pinned protocol version and tool contracts pass controlled Anthropic, OpenAI, and Google client checks for each supported surface before that surface is advertised to customers. |
 | Predictable | Inputs, pagination, execution time, and result size are bounded; unknown tools and arbitrary paths, URLs, or SQL are rejected. |
 | Actionable | Benchmark users can move from portfolio or posture question to the relevant CyberMeters page, finding, scan, or managed case without inventing evidence. |
 
@@ -102,10 +102,32 @@ The MCP Worker must not receive D1 credentials and must not trust a positive adm
 The current Microsoft sign-in flow authenticates users to the CyberMeters web application. It is not an MCP OAuth authorization server.
 
 - **Internal engineering trial:** an expiring, explicitly workspace-bound, read-only CyberMeters credential may be used only in controlled local/dev tests. Unbound, non-expiring, write-scoped, or general API credentials are rejected.
-- **Remote customer beta:** implement and verify the authorization-code/PKCE, protected-resource metadata, consent, refresh/revocation, audience, and client compatibility contracts required by the selected Claude and ChatGPT clients. MCP access tokens have a distinct MCP audience and cannot be replayed against the wider API.
+- **Remote customer beta:** implement and verify authorization-code/PKCE, protected-resource metadata, bounded dynamic client registration, consent, refresh/revocation, audience, and client compatibility contracts for Anthropic, OpenAI, and Google clients. MCP access tokens have a distinct MCP audience and cannot be replayed against the wider API. Hosted Claude, ChatGPT, and Gemini connector tests require a reachable HTTPS test URL; localhost proves only local clients.
 - **MSP access in the customer beta:** require separate `portfolio:read` consent and entitlement before any cross-workspace read. The server derives the current accessible workspace set on every request; no token contains a permanent, trusted copy of tenant membership. Dedicated portfolio ranking tools can follow as Release 1C, but an entitled MSP must already be able to ask for critical findings across its authorised workspaces through the bounded Release 1B contract.
 
 OAuth architecture is a focused R1 decision. It requires its own threat model, negative-path tests, and independent targeted review before remote customer use.
+
+### 5.4 Client compatibility and eligibility
+
+One remote MCP endpoint and customer authorization flow serve the three ecosystems. Compatibility is verified per product surface because local CLIs and hosted applications have different network, OAuth, account, admin, and regional requirements.
+
+| Ecosystem | Local development proof | Hosted customer proof and limit |
+| --- | --- | --- |
+| Anthropic | Claude Code connects to the local Streamable HTTP endpoint and completes OAuth discovery, consent, tool discovery, and a tenant-safe read. | Claude.ai and Claude Desktop custom connector tests use staging HTTPS; Team/Enterprise setup may require an administrator. |
+| OpenAI | Codex CLI connects locally with its MCP OAuth login and performs the same safe read. | ChatGPT web custom MCP setup uses staging HTTPS and an eligible plan/developer-mode or workspace-admin path. A local Codex configuration does not establish ChatGPT web access. |
+| Google | Gemini CLI connects locally using Streamable HTTP, OAuth discovery, dynamic client registration, and a tenant-safe read. | Gemini app custom connectors are currently restricted by Google to eligible US personal accounts with its stated activity, age, and language conditions; Gemini Enterprise has a separate confidential-client setup. An unsupported account or region is a client eligibility limit, not an MCP server pass. |
+
+The beta may advertise only surfaces with completed hands-on staging evidence. A successful protocol simulator does not establish end-user compatibility.
+
+**Customer setup after the beta gate:** The planned customer URL is `https://mcp.cybermeters.com/mcp`; the controlled test URL is `https://mcp-staging.cybermeters.com/mcp`. Neither URL is a claim that a route is live today. A customer adds the approved URL in the client's remote MCP/custom connector settings, signs in through CyberMeters OAuth, reviews the named client and workspace, then enables the connector. CyberMeters accepts only the granted read scope and the currently authorised workspace; the customer can remove the connection in account settings.
+
+- **Claude:** In Claude.ai or Claude Desktop, use *Customize → Connectors → Add custom connector*, enter the MCP URL, choose the detected OAuth method (Claude's published identity/CIMD, automatic registration, or a preconfigured client), and sign in. Claude's hosted service calls the public HTTPS endpoint. Free accounts currently allow one custom connector; Team/Enterprise administration may control connector setup. [Anthropic setup](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp), [availability](https://support.claude.com/en/articles/11176164-use-connectors-to-extend-claude-s-capabilities).
+- **OpenAI:** Codex CLI/Desktop and ChatGPT web are separate client checks. An eligible ChatGPT administrator or authorised developer creates a *private custom MCP app*, enters the URL, completes OAuth, scans tools, and enables the draft for the permitted users. Public plugin-directory submission is a later, separate distribution process. OpenAI's OIDC UserInfo `email` and `email_verified` contract enables Enterprise workspace domain restrictions; its documentation does not make that contract a prerequisite for a private custom MCP connection. This beta must not claim Enterprise domain restriction support without it. [Private app setup](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt), [OAuth requirements](https://developers.openai.com/plugins/build/auth), [public submission distinction](https://developers.openai.com/plugins/deploy/app-review).
+- **Google:** Gemini CLI can run the local OAuth/DCR proof. The consumer Gemini app accepts custom MCP URLs only for Google's currently eligible US, adult, personal accounts with Keep Activity enabled and English availability; a UK or work/school account cannot be counted as a consumer-hosted pass. Gemini Enterprise uses a separate administrator-created Streamable HTTP connector with a pre-registered OAuth client ID and secret. [Gemini app eligibility](https://support.google.com/gemini/answer/17209137), [Gemini Enterprise setup](https://support.google.com/g/answer/17106276).
+
+**Gemini Enterprise operator setup, after the staging gate:** Obtain the administrator's exact Google redirect URI (`https://vertexaisearch.cloud.google.com/oauth-redirect`) and create a confidential `client_secret_basic` OAuth client with that sole redirect URI through a restricted operator path using Cloudflare `OAuthHelpers.createClient()`. This is a pre-registered client in the authorization server's KV namespace, not an open registration endpoint. Deliver the generated client ID and one-time secret directly to that administrator through the approved secret channel; never put either in the repository, logs, or a ticket. In Gemini Enterprise, create a *Custom MCP Server* data store with Streamable HTTP URL `https://mcp-staging.cybermeters.com/mcp`, authorization URL `https://api-staging.cybermeters.com/authorize`, token URL `https://api-staging.cybermeters.com/oauth/token`, scope `mcp:read`, PKCE enabled, and the provisioned client ID/secret. Include the exact staging MCP resource as the authorization `resource` parameter using Google's Authorization URL Parameters field. Google must allow outbound FQDNs for both MCP and API hosts. After *Verify Auth*, enable only the twelve reviewed read actions and perform a tenant-safe staging call. Repeat provisioning with production URLs only after the release decision; staging client credentials must not be accepted as production proof. The current implementation has no restricted operator provisioning command, so Gemini Enterprise integration remains blocked until that command and its local tests exist. [Google setup and redirect](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/custom-mcp-server/set-up-custom-mcp-server), [Cloudflare pre-registration API](https://github.com/cloudflare/workers-oauth-provider/blob/main/docs/authorization-server.md#pre-registered-clients).
+
+No hosted Claude, ChatGPT, or Gemini account has yet completed a hands-on CyberMeters staging connection; the local protocol and Worker tests provide engineering evidence only.
 
 ## 6. Capability releases
 
@@ -237,7 +259,7 @@ Claude Desktop retains the Executive role defined by the repository operating mo
 | MCP-04B | Both CLIs, disjoint files | Complete the ten Release 1B read-only customer jobs with canonical minimal backend projections, including the bounded MSP critical-findings view. | Every job has bounded outputs, route-level authorisation, mutation-free read proof, privacy/injection tests, and two-tenant isolation evidence. |
 | MCP-04C | Platform/Data lane with independent review | Implement the selected clients' customer OAuth/PKCE, audience, consent, expiry, refresh, and revocation contracts. | Negative-path and compatibility tests pass; no general API credential can substitute for an MCP customer token. |
 | MCP-05 | Independent reviewer | Focused R1 review of auth, tenant, audit, rate limit, and protocol boundaries. | All material findings resolved or explicitly block beta. |
-| MCP-06 | Coordinator | Controlled Claude/ChatGPT compatibility evidence and rollback package. | Both selected clients pass pinned matrix; no production/customer rollout. |
+| MCP-06 | Coordinator | Controlled Claude, OpenAI, and Gemini compatibility evidence and rollback package. | Local CLI matrix passes and each advertised hosted surface has a separate eligible staging proof; no production/customer rollout. |
 | MCP-07 | Founder/Executive decision | Approve or reject a named, read-only customer beta; assess additional Release 1C MSP portfolio tools separately. | No merge/deploy without the applicable authority and existing release gates; core product launch stays independent. |
 
 Each CLI task must include the exact baseline SHA, owned files, forbidden files, acceptance tests, dangerous negative path, required output, and explicit stop condition. If either CLI finds it needs the other lane's file, it stops and reports the dependency to the coordinator rather than editing across the boundary.
@@ -308,12 +330,14 @@ Customers must be able to view and revoke MCP access, see the granted workspace 
 2. **Local engineering gate:** Release 1A passes all focused and integration tests with fixture data.
 3. **Customer capability and OAuth gate:** all ten Release 1B customer jobs, selected-client OAuth/PKCE, consent, refresh/revocation, and two-tenant negative paths pass. An MSP cohort also requires `portfolio:read` consent and a bounded cross-workspace critical-findings proof. The six-tool internal slice earns no customer-release credit by itself.
 4. **R1 gate:** independent review of the completed customer capability and OAuth paths confirms tenant, auth, audit, limit, and output boundaries.
-5. **Controlled compatibility gate:** selected Claude and ChatGPT clients pass in a non-production environment using the actual customer credential flow.
+5. **Controlled compatibility gate:** Claude Code, Codex CLI, and Gemini CLI pass locally using the actual customer credential flow; each advertised hosted Claude, ChatGPT, or Gemini surface passes separately on staging HTTPS with an eligible account.
 6. **Private customer beta gate:** explicit Founder/Executive release decision, named beta workspaces, reversible canary, monitoring, revocation, and rollback package. This gate does not enter the core product launch checklist.
 7. **MSP portfolio expansion gate:** the additional Release 1C aggregate/ranking tools require separate approval after portfolio entitlement, consent, ranking, and cross-workspace isolation tests pass.
 8. **General availability gate:** benchmark, reliability, support, privacy, documentation, and existing platform release gates pass.
 
 Rollback disables the MCP route or hostname, revokes beta credentials, and leaves the scan API and customer web application functional. No migration may make the existing product dependent on MCP availability.
+
+The staged enablement checklist, named canary controls, evidence requirements, and rollback steps are in the [MCP beta rollout runbook](MCP-BETA-ROLLOUT.md).
 
 ## 14. Phase 0 execution record
 
@@ -331,12 +355,24 @@ Rollback disables the MCP route or hostname, revokes beta credentials, and leave
 - MCP-04 added six bounded Release 1A read tools: the trial-bound workspace list, workspace summary, canonical eight-domain posture, recent scans, one scan's lifecycle and assessment state, and managed cases. The gateway sends only bearer and bounded IDs through the named private RPC; the backend uses fresh token, user, membership, and workspace facts for every call. Lists are capped at ten and disclose `has_more`; report reads are capped per object and request. No MCP read dispatches the public GET routes that may repair state.
 - MCP-04 local evidence: admission 6/6, backend projection 6/6, gateway 26/26, and the two-Worker workerd/D1 two-tenant integration proof pass. The latter exercises all six tools, foreign and missing tenant denials, a shared 30-read budget with the 31st denied, and durable success/denial audit rows. Existing authorization properties, tenant isolation and coverage, route wiring, OpenAPI, static tenant-query audit, entry-point inventory, and both Worker dry-runs pass. The gateway's dry-run lists only the private service binding and no data binding.
 - MCP-04 independent R1 review found and closed incomplete-page signalling, report budget bypasses in the Cyber Essentials path, an unused long-lived subscription method, and slow or oversized request-body cancellation paths. Targeted regressions now cover each boundary. Claude CLI was not authenticated for this package, so a coordinated backend executor owned that lane while Codex CLI owned the gateway lane; their work received cross-lane independent review.
-- This remains an internal engineering slice with an exact trial token/workspace allowlist and no public route or enablement in the deployment config. The six tools do not complete the ten Release 1B customer jobs. Customer OAuth/PKCE, audience and consent, entitlement-aware MSP access, remaining read projections, gateway-side audit of pre-RPC denials, actual client compatibility, and a Founder/Executive release decision still gate any customer beta. The core product launch remains independent.
+- At the MCP-04 checkpoint, the implementation remained an internal six-tool trial with an exact token/workspace allowlist and no public route. The subsequent customer engineering work below is separate from that trial; the core product launch remains independent.
+- MCP-04B/04C customer engineering now has a separate twelve-tool, read-only gateway and private customer backend entrypoint, bounded canonical projections, live tenant and entitlement checks, OAuth authorization-code/PKCE with consent and revocation, pre-RPC denial audit, and a fail-closed edge abuse gate. Focused local tests and Worker dry-runs pass. The customer route remains disabled by default, and these results do not authorize staging or customer access.
+- A data-free loopback workerd fixture passed the resource-server protected-resource metadata, `401` challenge, audience/expiry/PAT denial, MCP tool list, and safe read checks. With isolated temporary settings and a synthetic bearer, the installed Claude Code CLI reported *Connected* and sent `tools/list`; Gemini CLI reported *Connected* and sent `initialize`. Codex CLI accepted a temporary server URL in its configuration, but its status/handshake was not run because this version merged pre-existing user servers and the temporary overrides could not safely isolate them. These checks do not prove the actual OAuth consent flow or hosted Claude, ChatGPT, or Gemini integration.
+- The MCP-04C local OAuth fixture proves authorization-code/PKCE, token refresh, two-tenant separation, a real issued-token backend read, revocation, and durable audit rollback/retry with a workerd D1/KV runtime. Token body/deadline and per-IP abuse bounds, the customer entry inventory, and route wiring pass. Independent MCP-05 R1 review found no remaining material P0/P1 in the reviewed OAuth, gateway, and customer-read paths.
+- A separate local workerd chain fixture exercises DCR, authorization-code/PKCE, two real issued tokens, the gateway's customer handler, both named private service bindings, D1 tenant reads, cross-tenant denials, revocation, and durable audit with synthetic data. It uses test-only entrypoints and a local hostname shim, so it does not prove the deployed gateway configuration or any hosted client.
+- A staging configuration generator requires distinct D1, OAuth KV, R2, and edge-rate resources, fixed staging hosts, staging-only private service targets, and disabled customer flags. Its 14-check local validator includes fake-resource dry-runs of both Workers and a scan-dispatch failure proof with no Queue binding. Actual Cloudflare resource ownership and hosted origin behaviour remain unproven.
+- Further isolated client probes confirmed Codex CLI can complete local DCR/PKCE consent and discover twelve tools, but its data read failed because that disposable localhost fixture used a different resource audience from the canonical staging backend. Claude Code generated a valid authorization URL with PKCE under a temporary profile; its token exchange and read were not completed. Gemini CLI initialized the temporary MCP connection but did not complete OAuth or tool discovery. None of these partial probes is a customer compatibility pass. A safe Codex configuration-isolation probe is retained; the browser-opening exploratory runner was removed and its temporary server stopped.
+- MCP-06/07 remain open: actual customer OAuth flows in Claude Code/Codex CLI/Gemini CLI, Codex CLI isolation, separate HTTPS staging configurations and resources, eligible hosted Claude/ChatGPT/Gemini account checks, privacy and rollback evidence, and the Founder/Executive beta decision. No production customer route or credential is enabled by this record.
 
 ## 15. Reference points
 
 - Cloudflare Agents — MCP Handler API: <https://developers.cloudflare.com/agents/model-context-protocol/apis/handler-api/>
 - Cloudflare Agents — securing MCP servers: <https://developers.cloudflare.com/agents/model-context-protocol/guides/securing-mcp-server/>
 - Model Context Protocol specification: <https://modelcontextprotocol.io/specification/>
-- OpenAI current ChatGPT MCP/plugin controls: <https://learn.chatgpt.com/docs/enterprise/apps-and-connectors>
+- Claude remote connector and OAuth requirements: <https://claude.com/docs/connectors/building/authentication>
+- Codex MCP client setup: <https://learn.chatgpt.com/docs/extend/mcp?surface=cli>
 - OpenAI custom MCP server developer guide: <https://developers.openai.com/plugins/build/app-quickstart>
+- OpenAI ChatGPT MCP eligibility: <https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt>
+- Gemini CLI MCP setup: <https://geminicli.com/docs/tools/mcp-server/>
+- Gemini app custom connector eligibility: <https://support.google.com/gemini/answer/17209137>
+- Gemini Enterprise custom MCP setup: <https://docs.cloud.google.com/gemini/enterprise/docs/connectors/custom-mcp-server/set-up-custom-mcp-server>

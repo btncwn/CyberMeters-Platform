@@ -895,13 +895,25 @@ export default function AccountPage() {
                 <button
                   type="button"
                   onClick={() => navigate('/account/privacy')}
-                  className="w-full flex items-center gap-3 text-left group pt-3"
+                  className="w-full flex items-center gap-3 text-left group py-3"
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900">Privacy &amp; Data</p>
                     <p className="text-xs text-gray-400">Export data, deletion requests, retention policy</p>
                   </div>
                 </button>
+                {import.meta.env.VITE_MCP_BETA_ENABLED === 'true' && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/account/mcp')}
+                    className="w-full flex items-center gap-3 text-left group pt-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">MCP connections</p>
+                      <p className="text-xs text-gray-400">Review AI client access and remove connections</p>
+                    </div>
+                  </button>
+                )}
               </div>
             </div>
 

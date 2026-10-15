@@ -1,13 +1,14 @@
 # Software Bill of Materials (SBOM)
 
 CycloneDX (JSON, spec 1.6) dependency inventories for CyberMeters, one per
-workspace. An SBOM lists every third-party component we ship so a newly
+shipped workspace. An SBOM lists every third-party component we ship so a newly
 disclosed CVE can be matched against our actual dependencies in minutes — a
 customer/Trust-Center artifact and a supply-chain control.
 
 | File | Workspace | What it covers |
 |---|---|---|
 | `scan-api.cdx.json` | `workers/scan-api` | Cloudflare Worker runtime + build deps |
+| `mcp-server.cdx.json` | `workers/mcp-server` | Separate read-only MCP gateway runtime + build deps |
 | `frontend.cdx.json` | `frontend` | React/Vite app + build/test deps |
 
 ## Regenerating
@@ -16,6 +17,8 @@ customer/Trust-Center artifact and a supply-chain control.
 # per workspace, with node_modules installed for an accurate tree
 cd workers/scan-api && npx @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors \
   --output-format JSON --output-file ../../sbom/scan-api.cdx.json
+cd workers/mcp-server && npx @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors \
+  --output-format JSON --output-file ../../sbom/mcp-server.cdx.json
 cd frontend && npx @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors \
   --output-format JSON --output-file ../sbom/frontend.cdx.json
 ```

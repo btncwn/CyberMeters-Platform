@@ -23,7 +23,10 @@ const DOMAIN_KEYS = new Set(CANONICAL_DOMAIN_KEYS);
 
 // Canonical selectors may catch R2 errors and conservatively continue. Track
 // budget breaches outside those helpers so the MCP call still fails closed.
-function boundedReportReads(env) {
+export function boundedReportReads(env, { maxReads = MAX_REPORT_READS } = {}) {
+  if (!Number.isSafeInteger(maxReads) || maxReads < 1 || maxReads > 20) {
+    throw new Error("mcp_report_read_budget");
+  }
   const reports = env.cybermeters_reports;
   let count = 0;
   let bytes = 0;
@@ -37,7 +40,7 @@ function boundedReportReads(env) {
       async get(...args) {
         if (breached) throw new Error("mcp_report_read_budget");
         count += 1;
-        if (count > MAX_REPORT_READS) {
+        if (count > maxReads) {
           breached = true;
           throw new Error("mcp_report_read_budget");
         }

@@ -13,9 +13,9 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 293
+- **Total entry points:** 301
 - **Auth-guarded:** 262
-- **Unauthenticated (public by design):** 31
+- **Unauthenticated (public by design):** 39
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
@@ -24,9 +24,9 @@ guard without an explicit, documented public-allowlist reason.
 | admin | 2 | 2 |
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
-| preflight | 1 | 0 |
-| public-or-global | 39 | 20 |
-| unknown | 74 | 65 |
+| preflight | 3 | 0 |
+| public-or-global | 40 | 20 |
+| unknown | 79 | 65 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
 
@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2455 | preflight | public | — |
-| DELETE | `(none)` | 2461 | unknown | **GAP** | — |
-| GET | `(none)` | 2461 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2461 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2461 | unknown | **GAP** | — |
-| POST | `(none)` | 2461 | unknown | **GAP** | — |
-| PUT | `(none)` | 2461 | unknown | **GAP** | — |
-| GET | `/health` | 2466 | public-or-global | public | — |
-| GET | `/ready` | 2485 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2554 | preflight | public | — |
+| DELETE | `(none)` | 2560 | unknown | **GAP** | — |
+| GET | `(none)` | 2560 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2560 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2560 | unknown | **GAP** | — |
+| POST | `(none)` | 2560 | unknown | **GAP** | — |
+| PUT | `(none)` | 2560 | unknown | **GAP** | — |
+| GET | `/health` | 2565 | public-or-global | public | — |
+| GET | `/ready` | 2584 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -334,6 +334,24 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 197 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 228 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 246 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+
+### `workers/scan-api/src/routes/mcp-oauth-browser.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| OPTIONS | `(none)` | 223 | preflight | public | — |
+
+### `workers/scan-api/src/routes/mcp-oauth-server.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `(none)` | 141 | unknown | **GAP** | — |
+| GET | `(none)` | 156 | unknown | **GAP** | — |
+| POST | `(none)` | 156 | unknown | **GAP** | — |
+| GET | `(none)` | 169 | unknown | **GAP** | — |
+| OPTIONS | `(none)` | 272 | preflight | public | — |
+| GET | `/api/mcp/oauth/connections` | 279 | public-or-global | **GAP** | — |
+| POST | `(none)` | 367 | unknown | **GAP** | — |
 
 ### `workers/scan-api/src/routes/network-assets.js`
 

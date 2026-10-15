@@ -44,7 +44,39 @@ function makeD1(db) {
 const deletedKeys = [];
 const r2 = { get: async () => null, put: async () => ({}), head: async () => null,
   delete: async (k) => { deletedKeys.push(k); }, list: async () => ({ objects: [] }) };
-const env = { cybermeters_db: makeD1(db), cybermeters_reports: r2 };
+const oauthKvRows = new Map();
+const oauthKv = {
+  async list({ prefix = "", limit = 1000, cursor } = {}) {
+    const keys = [...oauthKvRows.keys()].filter((key) => key.startsWith(prefix)).sort();
+    const start = cursor ? Number(cursor) : 0;
+    const end = Math.min(keys.length, start + limit);
+    return { keys: keys.slice(start, end).map((name) => ({ name })),
+      list_complete: end >= keys.length, cursor: end < keys.length ? String(end) : undefined };
+  },
+  async get(key, options) { const value = oauthKvRows.get(key); return value === undefined ? null :
+    options?.type === "json" ? structuredClone(value) : JSON.stringify(value); },
+  async delete(key) { oauthKvRows.delete(key); },
+};
+const oauthPurgeApi = {
+  async listUserGrants(userId, { limit = 50, cursor } = {}) {
+    const prefix = `grant:${userId}:`;
+    const keys = [...oauthKvRows.keys()].filter((key) => key.startsWith(prefix) &&
+      !key.slice(prefix.length).includes(":")).sort();
+    const start = cursor ? Number(cursor) : 0;
+    const end = Math.min(keys.length, start + limit);
+    return { items: keys.slice(start, end).map((key) => oauthKvRows.get(key)),
+      cursor: end < keys.length ? String(end) : undefined };
+  },
+  async revokeGrant(grantId, userId) {
+    for (const key of [...oauthKvRows.keys()]) {
+      if (key === `grant:${userId}:${grantId}` || key.startsWith(`token:${userId}:${grantId}:`)) {
+        await oauthKv.delete(key);
+      }
+    }
+  },
+};
+const env = { cybermeters_db: makeD1(db), cybermeters_reports: r2,
+  OAUTH_KV: oauthKv, MCP_OAUTH_PURGE_API: oauthPurgeApi };
 
 // Generic row seeder: reads the table's columns and fills workspace_id + a
 // UNIQUE dummy for every NOT NULL / PK column so any purge table can be seeded
@@ -128,6 +160,8 @@ const EXPECTED_NOT_PURGED = {
   // quietly drop it.
   ok("cyber_essentials_answers is purged (customer notes + answered_by are customer data)",
      listed.has("cyber_essentials_answers"));
+  ok("MCP workspace grants and beta enrolment are purged",
+     listed.has("mcp_oauth_connections") && listed.has("mcp_beta_workspace_access"));
 }
 
 // Seed two workspaces with a row in every purge table + reports + a scan (+child).
@@ -139,7 +173,22 @@ const EXTRA = {
   network_scans: { status: "queued" },
   network_assets: { port: 443, transport: "tcp", state: "open" },
 };
-for (const t of WORKSPACE_PURGE_TABLES) { const e = EXTRA[t] || {}; if (seedRow(t, "wsPurge", e)) seeded.push(t); seedRow(t, "wsKeep", e); }
+const mcpConnections = {
+  wsPurge: { id: "mcpconn_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", user_id: "uPurge" },
+  wsKeep: { id: "mcpconn_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", user_id: "uKeep" },
+};
+for (const t of WORKSPACE_PURGE_TABLES) {
+  const purgedExtra = t === "mcp_oauth_connections" ? mcpConnections.wsPurge : (EXTRA[t] || {});
+  const keptExtra = t === "mcp_oauth_connections" ? mcpConnections.wsKeep : (EXTRA[t] || {});
+  if (seedRow(t, "wsPurge", purgedExtra)) seeded.push(t);
+  seedRow(t, "wsKeep", keptExtra);
+}
+for (const [ws, conn] of Object.entries(mcpConnections)) {
+  const grantId = ws === "wsPurge" ? "gPurge" : "gKeep";
+  oauthKvRows.set(`grant:${conn.user_id}:${grantId}`,
+    { id: grantId, userId: conn.user_id, metadata: { connectionId: conn.id } });
+  oauthKvRows.set(`token:${conn.user_id}:${grantId}:t`, { userId: conn.user_id });
+}
 seedRow("workspace_reports", "wsPurge", { report_key: "reports/exec-wsPurge.pdf" });
 seedRow("workspace_reports", "wsKeep",  { report_key: "reports/exec-wsKeep.pdf" });
 seedRow("scan_report_snapshots", "wsPurge", { r2_key: "reports/snapshots/wsPurge/scan_wsPurge/snap-p.json", status: "completed" });
@@ -150,6 +199,9 @@ for (const c of SCAN_CHILD_TABLES) { seedRow(c, "wsPurge", { scan_id: "scan_wsPu
 
 ok("seeded a meaningful number of purge tables (>= 20)", seeded.length >= 20);
 for (const table of ["network_targets", "network_scans", "network_assets"]) {
+  ok(`${table} seeded for both tenants`, seeded.includes(table) && countWs(table, "wsKeep") === 1);
+}
+for (const table of ["mcp_oauth_connections", "mcp_beta_workspace_access"]) {
   ok(`${table} seeded for both tenants`, seeded.includes(table) && countWs(table, "wsKeep") === 1);
 }
 
@@ -165,6 +217,10 @@ for (const t of seeded) { if (countWs(t, "wsPurge") !== 0) orphanTables.push(t);
 ok("no orphaned rows remain in any purge table for the purged workspace",
    orphanTables.length === 0);
 if (orphanTables.length) console.log("  orphaned:", orphanTables.join(", "));
+ok("purged workspace OAuth KV grant and token are gone",
+   !oauthKvRows.has("grant:uPurge:gPurge") && !oauthKvRows.has("token:uPurge:gPurge:t"));
+ok("other workspace OAuth KV grant and token survive",
+   oauthKvRows.has("grant:uKeep:gKeep") && oauthKvRows.has("token:uKeep:gKeep:t"));
 
 ok("workspace_reports fully purged", countWs("workspace_reports", "wsPurge") === 0);
 ok("scans fully purged", (db.prepare("SELECT COUNT(*) c FROM scans WHERE workspace_id=?").get("wsPurge").c) === 0);

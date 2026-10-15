@@ -5,10 +5,47 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 preview_urls = false
 
+[observability]
+enabled = true
+
+[observability.traces]
+enabled = true
+
+# Customer abuse gate before OAuth validation or durable denial audit.
+# Counters are per Cloudflare location and intentionally do not include bearer
+# tokens, workspace IDs, or tool inputs. Missing bindings fail closed.
+[[ratelimits]]
+name = "MCP_EDGE_CLIENT_RATE"
+namespace_id = "320031"
+[ratelimits.simple]
+limit = 120
+period = 60
+
+[[ratelimits]]
+name = "MCP_EDGE_GLOBAL_RATE"
+namespace_id = "320032"
+[ratelimits.simple]
+limit = 1000
+period = 60
+
 # Local/dev MCP-03 RPC contract. No enablement variable or public route is set.
 # The backend must export the named McpReadService WorkerEntrypoint.
 [[services]]
 binding = "MCP_BACKEND"
 service = "cybermeters-platform"
 entrypoint = "McpReadService"
+remote = false
+
+# Customer path remains disabled until OAuth KV, staging hostname, and release
+# gates are provisioned. These bindings do not grant data or public routing.
+[[services]]
+binding = "MCP_AUTH"
+service = "cybermeters-platform"
+entrypoint = "McpOAuthAuthorizationService"
+remote = false
+
+[[services]]
+binding = "MCP_CUSTOMER_BACKEND"
+service = "cybermeters-platform"
+entrypoint = "McpCustomerReadService"
 remote = false
