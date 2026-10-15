@@ -29,7 +29,7 @@ function ArticleCard({ article }) {
 
   return (
     <Link
-      to={`/academy/${article.slug}`}
+      to={`/guide/${article.slug}`}
       className="group flex flex-col bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-sm transition-all p-5 gap-3"
     >
       <div className="flex items-start justify-between gap-2">
@@ -71,7 +71,7 @@ function FeaturedCard({ article }) {
 
   return (
     <Link
-      to={`/academy/${article.slug}`}
+      to={`/guide/${article.slug}`}
       className="group relative flex flex-col bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-md transition-all p-6 gap-4"
     >
       <div>
@@ -137,8 +137,8 @@ export default function AcademyPage() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-3">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">CyberMeters Academy</h1>
-            <p className="text-sm text-gray-500">Security knowledge base — findings, remediation, and detection explained.</p>
+            <h1 className="text-xl font-bold text-gray-900">CyberMeters Field Guide</h1>
+            <p className="text-sm text-gray-500">How to use each area, what CyberMeters checks and why, and what your findings mean.</p>
           </div>
         </div>
 

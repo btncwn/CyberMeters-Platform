@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
@@ -65,6 +65,10 @@ const SubscriptionPage          = lazy(() => import('./pages/SubscriptionPage'))
 const DomainVerifyPage          = lazy(() => import('./pages/DomainVerifyPage'))
 const DomainConnectReturnPage   = lazy(() => import('./pages/DomainConnectReturnPage'))
 const AcademyPage               = lazy(() => import('./pages/AcademyPage'))
+function LegacyAcademyRedirect() {
+  const { slug } = useParams()
+  return <Navigate to={`/guide/${slug}`} replace />
+}
 const AcademyArticlePage        = lazy(() => import('./pages/AcademyArticlePage'))
 const NotificationsPage         = lazy(() => import('./pages/NotificationsPage'))
 
@@ -242,8 +246,11 @@ function AppRoutes() {
           <Route path="ws/alerts"               element={<WorkspaceAlertsPage />} />
           <Route path="ws/retention"            element={<WorkspaceRetentionPage />} />
 
-          <Route path="academy"             element={<AcademyPage />} />
-          <Route path="academy/:slug"       element={<AcademyArticlePage />} />
+          <Route path="guide"               element={<AcademyPage />} />
+          <Route path="guide/:slug"         element={<AcademyArticlePage />} />
+          {/* The Field Guide was the Academy; old links keep working. */}
+          <Route path="academy"             element={<Navigate to="/guide" replace />} />
+          <Route path="academy/:slug"       element={<LegacyAcademyRedirect />} />
           <Route path="notifications"       element={<NotificationsPage />} />
           <Route path="*"                   element={<Navigate to="/dashboard" replace />} />
         </Route>

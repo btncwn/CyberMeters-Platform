@@ -111,7 +111,7 @@ function Finding({ finding }) {
       </div>
       {finding.description && <p>{finding.description}</p>}
       {finding.academy_slug && (
-        <Link to={`/academy/${finding.academy_slug}`}>Plain-English guidance</Link>
+        <Link to={`/guide/${finding.academy_slug}`}>Plain-English guidance</Link>
       )}
     </article>
   )
