@@ -43,7 +43,7 @@ function Block({ block }) {
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
               </div>
-              <span className="text-[13px] font-medium text-gray-400 ml-1 uppercase tracking-wide">{block.lang}</span>
+              <span className="text-xs font-medium text-gray-400 ml-1 uppercase tracking-wide">{block.lang}</span>
             </div>
           )}
           <pre className="px-5 py-4 bg-gray-950 overflow-x-auto">
@@ -79,7 +79,7 @@ function Section({ section, index }) {
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-2">
-        <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-[13px] font-bold flex items-center justify-center flex-shrink-0">
+        <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
           {index + 1}
         </span>
         <h2 className="text-base font-bold text-gray-900">{section.heading}</h2>
@@ -97,7 +97,7 @@ function Section({ section, index }) {
 function RelatedCard({ article }) {
   return (
     <Link
-      to={`/academy/${article.slug}`}
+      to={`/guide/${article.slug}`}
       className="group flex items-start gap-3 p-3.5 bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-sm transition-all"
     >
       <div className="min-w-0">
@@ -105,7 +105,7 @@ function RelatedCard({ article }) {
           {article.title}
         </p>
         <div className="flex items-center gap-1 mt-1">
-          <span className="text-[13px] text-gray-400">{article.readTime} min</span>
+          <span className="text-xs text-gray-400">{article.readTime} min</span>
         </div>
       </div>
     </Link>
@@ -122,7 +122,7 @@ function TableOfContents({ sections }) {
           href={`#section-${i}`}
           className="flex items-center gap-2 text-[14px] text-gray-500 hover:text-brand-600 transition-colors py-0.5"
         >
-          <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-[13px] font-bold flex items-center justify-center flex-shrink-0">
+          <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-xs font-bold flex items-center justify-center flex-shrink-0">
             {i + 1}
           </span>
           {s.heading}
@@ -143,15 +143,15 @@ export default function AcademyArticlePage() {
   const c        = COLOR_CLASSES[catMeta?.color] || COLOR_CLASSES.brand
 
   // An earlier slug still opens the article, at its current address.
-  if (article && article.slug !== slug) return <Navigate to={`/academy/${article.slug}`} replace />
+  if (article && article.slug !== slug) return <Navigate to={`/guide/${article.slug}`} replace />
 
   if (!article) {
     return (
       <div className="max-w-screen-xl mx-auto px-6 py-16 text-center">
         <h1 className="text-lg font-bold text-gray-900 mb-2">Article not found</h1>
         <p className="text-sm text-gray-500 mb-6">The article you're looking for doesn't exist or may have been moved.</p>
-        <Link to="/academy" className="btn-primary inline-flex items-center gap-2">
-          Back to Academy
+        <Link to="/guide" className="btn-primary inline-flex items-center gap-2">
+          Back to Field Guide
         </Link>
       </div>
     )
@@ -161,14 +161,14 @@ export default function AcademyArticlePage() {
     <div className="max-w-screen-xl mx-auto px-6 py-8">
 
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-1.5 text-[13px] text-gray-400 mb-6">
-        <Link to="/academy" className="hover:text-brand-600 flex items-center gap-1 transition-colors">
-          Academy
+      <nav className="flex items-center gap-1.5 text-xs text-gray-400 mb-6">
+        <Link to="/guide" className="hover:text-brand-600 flex items-center gap-1 transition-colors">
+          Field Guide
         </Link>
         <span aria-hidden="true">/</span>
         <Link
           to={`/academy`}
-          onClick={e => { e.preventDefault(); navigate('/academy') }}
+          onClick={e => { e.preventDefault(); navigate('/guide') }}
           className="hover:text-brand-600 transition-colors"
         >
           {catMeta?.label}
@@ -185,15 +185,15 @@ export default function AcademyArticlePage() {
           {/* Article header */}
           <div className="mb-8">
             <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[13px] font-semibold ${c.badge}`}>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${c.badge}`}>
                 {catMeta?.label}
               </span>
               {article.featured && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[13px] font-semibold bg-amber-50 text-amber-700">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">
                   Featured
                 </span>
               )}
-              <span className="flex items-center gap-1 text-[13px] text-gray-400 ml-auto">
+              <span className="flex items-center gap-1 text-xs text-gray-400 ml-auto">
                 {article.readTime} min read
               </span>
             </div>
@@ -221,10 +221,10 @@ export default function AcademyArticlePage() {
           {/* Back link */}
           <div className="mt-10 pt-6 border-t border-gray-100">
             <Link
-              to="/academy"
+              to="/guide"
               className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-brand-600 transition-colors"
             >
-              Back to Academy
+              Back to Field Guide
             </Link>
           </div>
         </article>
@@ -234,26 +234,26 @@ export default function AcademyArticlePage() {
 
           {/* Table of contents */}
           <div className="bg-white rounded-xl border border-gray-100 p-5">
-            <h3 className="text-[13px] font-semibold text-gray-400 uppercase tracking-wider mb-3">In this article</h3>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">In this article</h3>
             <TableOfContents sections={article.sections} />
           </div>
 
           {/* Related articles */}
           {related.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-100 p-5">
-              <h3 className="text-[13px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Related articles</h3>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Related articles</h3>
               <div className="space-y-2">
                 {related.map(a => <RelatedCard key={a.slug} article={a} />)}
               </div>
             </div>
           )}
 
-          {/* Back to Academy */}
+          {/* Back to Field Guide */}
           <Link
-            to="/academy"
+            to="/guide"
             className="flex items-center gap-2.5 px-4 py-3 bg-brand-50 hover:bg-brand-100 rounded-xl text-sm font-semibold text-brand-700 transition-colors"
           >
-            Academy home
+            Field Guide home
           </Link>
         </aside>
       </div>

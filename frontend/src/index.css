@@ -262,7 +262,8 @@
     color: #fff;
   }
   .cm-topbar-link {
-    @apply inline-flex items-center text-[17px] lg:text-[19px] font-bold whitespace-nowrap transition-opacity duration-150;
+    /* Founder type scale (15 Oct): top bar 21px+, sidebar 18px+, body 14–16. */
+    @apply inline-flex items-center text-[19px] lg:text-[22px] font-bold whitespace-nowrap transition-opacity duration-150;
   }
   .cm-topbar-link:hover { opacity: .85; }
   .cm-topbar-link > span { padding: 6px 0; border-bottom: 3px solid transparent; }

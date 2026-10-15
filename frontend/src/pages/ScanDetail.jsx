@@ -126,7 +126,7 @@ function ScoreRing({ score, riskLevel }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {score != null
-            ? <><span className={`text-3xl font-bold ${cfg.cls}`}>{score}</span><span className="text-[13px] text-gray-300 font-semibold">/100</span></>
+            ? <><span className={`text-3xl font-bold ${cfg.cls}`}>{score}</span><span className="text-xs text-gray-300 font-semibold">/100</span></>
             : <span className="text-gray-300 text-xs">—</span>
           }
         </div>
@@ -179,7 +179,7 @@ function EvidencePanel({ evidence }) {
   return (
     <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
       <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-1.5">
-        <span className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Evidence</span>
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Evidence</span>
       </div>
       {items.map((item, idx) => {
         // Support Sprint 9C array-item format (type/label/value) and legacy object format
@@ -220,10 +220,10 @@ function EvidencePanel({ evidence }) {
             {/* Phase 5 — Verification Command */}
             {mvc && (
               <div className="border-t border-gray-200 px-3 py-2">
-                <p className="text-[13px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
                   Verification Command
                 </p>
-                <pre className="text-[13px] font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all select-all">
+                <pre className="text-xs font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all select-all">
                   {mvc}
                 </pre>
               </div>
@@ -248,7 +248,7 @@ function CopyButton({ text }) {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 text-[13px] text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
+      className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
       title="Copy value"
     >
       {copied ? 'Copied' : 'Copy'}
@@ -267,23 +267,23 @@ function RemediationPanel({ rem }) {
       {/* Compact metadata row */}
       <div className="flex items-center gap-3 px-3 py-2 flex-wrap border-b border-gray-100">
         {plCfg && (
-          <span className={`flex items-center gap-1 text-[13px] font-bold px-1.5 py-0.5 rounded-full border ${plCfg.bg} ${plCfg.color}`}>
+          <span className={`flex items-center gap-1 text-xs font-bold px-1.5 py-0.5 rounded-full border ${plCfg.bg} ${plCfg.color}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${plCfg.dot}`} />
             {plCfg.label}
           </span>
         )}
         {sla && (
-          <span className="flex items-center gap-1 text-[13px] text-gray-500">
+          <span className="flex items-center gap-1 text-xs text-gray-500">
             Fix within {sla}
           </span>
         )}
         {rem.owner && (
-          <span className="flex items-center gap-1 text-[13px] text-gray-500">
+          <span className="flex items-center gap-1 text-xs text-gray-500">
             {rem.owner}
           </span>
         )}
         {rem.effort && rem.effort !== '—' && (
-          <span className="flex items-center gap-1 text-[13px] text-gray-500">
+          <span className="flex items-center gap-1 text-xs text-gray-500">
             {rem.effort}
           </span>
         )}
@@ -292,22 +292,22 @@ function RemediationPanel({ rem }) {
       {/* Business impact */}
       {rem.business_impact && (
         <div className="px-3 py-2 border-b border-gray-100">
-          <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Business Impact</p>
-          <p className="text-[13px] text-gray-700 leading-relaxed">{rem.business_impact}</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Business Impact</p>
+          <p className="text-xs text-gray-700 leading-relaxed">{rem.business_impact}</p>
         </div>
       )}
 
       {/* Remediation steps */}
       {hasSteps && (
         <div className="px-3 py-2 border-b border-gray-100">
-          <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Remediation Steps</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Remediation Steps</p>
           <ol className="space-y-1">
             {rem.steps.map((step, i) => (
               <li key={i} className="flex items-start gap-2">
-                <span className="flex-shrink-0 w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[13px] font-bold flex items-center justify-center mt-0.5">
+                <span className="flex-shrink-0 w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center mt-0.5">
                   {i + 1}
                 </span>
-                <span className="text-[13px] text-gray-700 leading-relaxed">{step}</span>
+                <span className="text-xs text-gray-700 leading-relaxed">{step}</span>
               </li>
             ))}
           </ol>
@@ -318,10 +318,10 @@ function RemediationPanel({ rem }) {
       {hasVerification && (
         <div className="px-3 py-2">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Verify Fix</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Verify Fix</p>
             <CopyButton text={rem.verification} />
           </div>
-          <pre className="text-[13px] font-mono text-gray-800 bg-gray-100 rounded-lg px-2.5 py-1.5 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+          <pre className="text-xs font-mono text-gray-800 bg-gray-100 rounded-lg px-2.5 py-1.5 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
             {rem.verification}
           </pre>
         </div>
@@ -376,7 +376,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
     <li className="px-6 py-4">
       <div className="flex items-start gap-4">
         {/* Severity-colored index number */}
-        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[13px] font-bold flex-shrink-0 mt-0.5 ${SEV_STYLE[f.severity] || SEV_STYLE.info}`}>
+        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${SEV_STYLE[f.severity] || SEV_STYLE.info}`}>
           {index + 1}
         </div>
 
@@ -396,7 +396,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
           <div className="flex items-center gap-1.5 mt-2 flex-wrap">
             {/* Phase 1 — Confidence badge */}
             {f.confidence != null && (
-              <span className={`text-[13px] font-bold px-1.5 py-0.5 rounded-full border ${confidenceStyle(f.confidence)}`}>
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full border ${confidenceStyle(f.confidence)}`}>
                 {f.confidence} Confidence
               </span>
             )}
@@ -414,7 +414,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
 
             {/* Score impact — suppressed for observations (Sprint 10A) */}
             {!isObservation && f.score_impact != null && f.score_impact !== 0 && (
-              <span className="text-[13px] font-semibold text-red-400">
+              <span className="text-xs font-semibold text-red-400">
                 {f.score_impact} pts
               </span>
             )}
@@ -422,8 +422,8 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {/* Sprint 11A — Academy Learn More link */}
             {academySlug && (
               <Link
-                to={`/academy/${academySlug}`}
-                className="flex items-center gap-1 text-[13px] font-semibold text-brand-600 hover:text-brand-800 transition-colors"
+                to={`/guide/${academySlug}`}
+                className="flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800 transition-colors"
               >
                 Learn more
               </Link>
@@ -433,7 +433,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {hasRem && (
               <button
                 onClick={() => setRemOpen(o => !o)}
-                className={`flex items-center gap-1 text-[13px] font-semibold transition-colors ${remOpen ? 'text-brand-700' : 'text-gray-500 hover:text-brand-700'}`}
+                className={`flex items-center gap-1 text-xs font-semibold transition-colors ${remOpen ? 'text-brand-700' : 'text-gray-500 hover:text-brand-700'}`}
               >
                 {remOpen ? 'Hide remediation' : 'How to fix'}
               </button>
@@ -443,7 +443,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {canWaive && (
               <button
                 onClick={() => setWaiveOpen(o => !o)}
-                className={`flex items-center gap-1 text-[13px] font-semibold transition-colors ${waiveOpen ? 'text-gray-700' : 'text-gray-400 hover:text-gray-700'}`}
+                className={`flex items-center gap-1 text-xs font-semibold transition-colors ${waiveOpen ? 'text-gray-700' : 'text-gray-400 hover:text-gray-700'}`}
               >
                 Accept risk
               </button>
@@ -453,7 +453,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {hasEvidence && (
               <button
                 onClick={() => setOpen(o => !o)}
-                className="flex items-center gap-1 text-[13px] text-brand-600 font-semibold hover:text-brand-800 transition-colors ml-auto"
+                className="flex items-center gap-1 text-xs text-brand-600 font-semibold hover:text-brand-800 transition-colors ml-auto"
               >
                 {open ? 'Hide evidence' : 'Show evidence'}
               </button>
@@ -463,10 +463,10 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
           {/* Risk acceptance confirm — inline, with an optional reason */}
           {waiveOpen && canWaive && (
             <div className="mt-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2.5">
-              <p className="text-[13px] font-semibold text-gray-700">
+              <p className="text-xs font-semibold text-gray-700">
                 Accept this risk for this domain?
               </p>
-              <p className="text-[13px] text-gray-500 mt-0.5 leading-relaxed">
+              <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
                 The finding moves to “Accepted risks” and stops counting as open. It stays visible and you can restore it any time.
               </p>
               <input
@@ -478,11 +478,11 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
               />
               <div className="flex items-center gap-2 mt-2">
                 <button onClick={confirmWaive} disabled={waiving}
-                  className="px-2.5 py-1 text-[13px] font-bold text-white bg-gray-800 hover:bg-gray-900 rounded-lg transition-colors disabled:opacity-50">
+                  className="px-2.5 py-1 text-xs font-bold text-white bg-gray-800 hover:bg-gray-900 rounded-lg transition-colors disabled:opacity-50">
                   {waiving ? 'Accepting…' : 'Accept risk'}
                 </button>
                 <button onClick={() => setWaiveOpen(false)} disabled={waiving}
-                  className="px-2.5 py-1 text-[13px] font-semibold text-gray-500 hover:text-gray-700">
+                  className="px-2.5 py-1 text-xs font-semibold text-gray-500 hover:text-gray-700">
                   Cancel
                 </button>
               </div>
@@ -493,8 +493,8 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
           {isLowConf && (
             <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
               <div>
-                <p className="text-[13px] font-bold text-amber-700">Needs Verification</p>
-                <p className="text-[13px] text-amber-600 leading-relaxed mt-0.5">
+                <p className="text-xs font-bold text-amber-700">Needs Verification</p>
+                <p className="text-xs text-amber-600 leading-relaxed mt-0.5">
                   This finding is based on a weak signal and should be manually verified before remediation decisions are made.
                 </p>
               </div>
@@ -574,7 +574,7 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
                   {f.severity}
                 </span>
               </div>
-              <p className="text-[13px] text-gray-400 mt-0.5 leading-relaxed">
+              <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
                 Risk accepted{w.created_at ? ` on ${parseServerDate(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
                 {w.waived_by_name ? ` by ${w.waived_by_name}` : ''}
                 {w.reason ? <> — “{w.reason}”</> : ''}
@@ -587,7 +587,7 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
                   try { await onUnwaive(f.id) } finally { setRestoring(null) }
                 }}
                 disabled={restoring === f.id}
-                className="flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:text-brand-800 flex-shrink-0 mt-0.5 disabled:opacity-50"
+                className="flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 flex-shrink-0 mt-0.5 disabled:opacity-50"
               >
                 {restoring === f.id ? 'Restoring…' : 'Restore'}
               </button>
@@ -611,7 +611,7 @@ function RecommendationsPanel({ recommendations }) {
     <ul className="divide-y divide-gray-50">
       {recommendations.map((r, i) => (
         <li key={i} className="flex items-start gap-4 px-6 py-4">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[13px] font-bold text-white flex-shrink-0 mt-0.5 bg-brand-600">
+          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 bg-brand-600">
             {r.priority || i + 1}
           </div>
           <div className="flex-1 min-w-0">
@@ -733,7 +733,7 @@ function HeadersPanel({ headers, httpsAvailable }) {
                 : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">Missing</span>
               }
             </div>
-            {val && <p className="text-[13px] text-gray-400 mono mt-1 break-all">{val}</p>}
+            {val && <p className="text-xs text-gray-400 mono mt-1 break-all">{val}</p>}
           </div>
         )
       })}
@@ -776,9 +776,9 @@ function EmailPanel({ email, dmarcPresentation = null }) {
             : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">Missing</span>
           }
         </div>
-        {spf?.record && <p className="text-[13px] text-gray-400 mono mt-1 break-all">{spf.record}</p>}
+        {spf?.record && <p className="text-xs text-gray-400 mono mt-1 break-all">{spf.record}</p>}
         {spfDetail?.includes?.length > 0 && (
-          <p className="text-[13px] text-gray-500 mt-1.5 break-all">
+          <p className="text-xs text-gray-500 mt-1.5 break-all">
             Includes: <span className="mono">{spfDetail.includes.join(', ')}</span>
           </p>
         )}
@@ -805,14 +805,14 @@ function EmailPanel({ email, dmarcPresentation = null }) {
             }
           </div>
         </div>
-        {dmarc?.record && <p className="text-[13px] text-gray-400 mono mt-1 break-all">{dmarc.record}</p>}
-        <p className="text-[13px] text-gray-500 mt-1.5">
+        {dmarc?.record && <p className="text-xs text-gray-400 mono mt-1 break-all">{dmarc.record}</p>}
+        <p className="text-xs text-gray-500 mt-1.5">
           Aggregate reports: {dmarcDetail?.has_reporting ? dmarcDetail.rua.join(', ') : 'Not configured'}
         </p>
-        <p className="text-[13px] text-gray-500 mt-0.5">
+        <p className="text-xs text-gray-500 mt-0.5">
           Failure reports: {dmarcDetail?.has_failure_reporting ? dmarcDetail.ruf.join(', ') : 'Not configured'}
         </p>
-        <p className="text-[13px] text-gray-400 mt-1">
+        <p className="text-xs text-gray-400 mt-1">
           The exact-domain fields above are retained for compatibility. The snapshot-derived DMARC policy evidence shows inheritance, testing adjustments and current DMARCbis meaning.
         </p>
       </div>
@@ -827,10 +827,10 @@ function EmailPanel({ email, dmarcPresentation = null }) {
           }
         </div>
         {dkim?.selector && (
-          <p className="text-[13px] text-gray-400 mt-1">Selector: <span className="mono">{dkim.selector}</span></p>
+          <p className="text-xs text-gray-400 mt-1">Selector: <span className="mono">{dkim.selector}</span></p>
         )}
         {!dkim?.present && (
-          <p className="text-[13px] text-gray-400 mt-1">{dkimDetail?.explanation || 'Common selectors probed; a custom selector may be in use.'}</p>
+          <p className="text-xs text-gray-400 mt-1">{dkimDetail?.explanation || 'Common selectors probed; a custom selector may be in use.'}</p>
         )}
       </div>
 
@@ -844,10 +844,10 @@ function EmailPanel({ email, dmarcPresentation = null }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-gray-800">{action.title}</p>
-                  <p className="text-[13px] text-gray-500 mt-1 leading-relaxed">{action.business_risk}</p>
-                  <p className="text-[13px] text-gray-700 mt-1.5 leading-relaxed">{action.recommended_action}</p>
+                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">{action.business_risk}</p>
+                  <p className="text-xs text-gray-700 mt-1.5 leading-relaxed">{action.recommended_action}</p>
                 </div>
-                <span className={`text-[13px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${
                   action.severity === 'critical' || action.severity === 'high'
                     ? 'bg-red-50 text-red-700 border-red-100'
                     : action.severity === 'medium'
@@ -859,11 +859,11 @@ function EmailPanel({ email, dmarcPresentation = null }) {
               </div>
               {action.copyable_value && (
                 <div className="mt-3 flex items-start gap-3 bg-gray-50 border border-gray-100 rounded p-2.5">
-                  <code className="text-[13px] text-gray-600 break-all flex-1">{action.copyable_value}</code>
+                  <code className="text-xs text-gray-600 break-all flex-1">{action.copyable_value}</code>
                   <CopyButton text={action.copyable_value} />
                 </div>
               )}
-              {action.caution && <p className="text-[13px] text-amber-700 mt-2 leading-relaxed">{action.caution}</p>}
+              {action.caution && <p className="text-xs text-amber-700 mt-2 leading-relaxed">{action.caution}</p>}
             </div>
           ))}
         </div>
@@ -976,7 +976,7 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
       <div className="px-6 py-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
-          <p className="text-[13px] text-gray-300 mono mt-0.5 truncate">vs {changes.previous_scan_id}</p>
+          <p className="text-xs text-gray-300 mono mt-0.5 truncate">vs {changes.previous_scan_id}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 text-sm">
           <span className="text-gray-400">{changes.previous_score ?? '—'}</span>
@@ -1076,14 +1076,14 @@ function BusinessRiskCard({ businessRisk }) {
         <div className={`inline-flex items-center gap-3 rounded-xl border px-4 py-3 w-full ${bandColor}`}>
           <span className={`text-3xl font-black leading-none ${scoreColor}`}>{score}</span>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold uppercase tracking-widest opacity-60 leading-tight">/ 100</p>
+            <p className="text-xs font-semibold uppercase tracking-widest opacity-60 leading-tight">/ 100</p>
             <p className="text-xs font-semibold leading-tight mt-0.5">{band}</p>
           </div>
         </div>
         {summary && (
           <p className="text-xs text-gray-500 mt-2 leading-relaxed line-clamp-3">{summary}</p>
         )}
-        <p className="text-[13px] text-gray-400 mt-2 leading-relaxed">
+        <p className="text-xs text-gray-400 mt-2 leading-relaxed">
           Business Risk estimates likely business impact. The Cyber Metrics Score above measures technical external posture.
         </p>
       </div>
@@ -1098,8 +1098,8 @@ function BusinessRiskCard({ businessRisk }) {
           return (
             <div key={key}>
               <div className="flex justify-between items-center mb-0.5">
-                <span className="text-[13px] text-gray-500">{label}</span>
-                <span className={`text-[13px] font-bold ${txt}`}>{catScore}</span>
+                <span className="text-xs text-gray-500">{label}</span>
+                <span className={`text-xs font-bold ${txt}`}>{catScore}</span>
               </div>
               <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
                 <div className={`h-full ${bar} transition-all`} style={{ width: `${pct}%` }} />
@@ -1112,7 +1112,7 @@ function BusinessRiskCard({ businessRisk }) {
       {/* Top 3 risks */}
       {topRisks.length > 0 && (
         <div className="border-t border-gray-100 px-6 py-3 space-y-2">
-          <p className="text-[13px] font-semibold uppercase tracking-widest text-gray-400">Top Risks</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Top Risks</p>
           {topRisks.slice(0, 3).map((r, i) => {
             const sev = r.severity ?? 'medium'
             const dot = sev === 'critical' ? 'bg-red-500' : sev === 'high' ? 'bg-orange-500' : 'bg-amber-400'
@@ -1163,7 +1163,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
         <div className="flex flex-col sm:flex-row items-center sm:items-stretch">
           {/* Ring */}
           <div className="flex flex-col items-center justify-center gap-2 px-8 py-6 sm:border-r border-gray-100 sm:min-w-[180px]">
-            <span className="label text-[13px]">Cyber Metrics Score</span>
+            <span className="label text-xs">Cyber Metrics Score</span>
             <ScoreRing score={score} riskLevel={risk_level} />
           </div>
 

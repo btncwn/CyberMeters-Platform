@@ -64,7 +64,7 @@ function HttpsChip({ row }) {
     : s.tone === 'info' ? 'bg-blue-50 text-blue-700 border-blue-100'
     : s.tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-100'
     : 'bg-gray-50 text-gray-500 border-gray-200'
-  return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[13px] font-semibold border ${cls}`}>{s.label}</span>
+  return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cls}`}>{s.label}</span>
 }
 
 const COLUMNS = [
@@ -121,7 +121,7 @@ function ActionCard({ severity, title, body }) {
       <div className="flex-1">
         <div className="flex items-center justify-between gap-2 mb-1">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-          <span className={`text-[13px] uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
+          <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed">{body}</p>
       </div>
@@ -137,7 +137,7 @@ function TrustTile({ label, status, tone, hint, to }) {
         <span className="text-sm font-semibold text-gray-800">{label}</span>
       </div>
       <p className={`text-sm font-medium ${cls}`}>{status}</p>
-      {hint && <p className="text-[13px] text-gray-400 mt-1 leading-relaxed">{hint}</p>}
+      {hint && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{hint}</p>}
     </div>
   )
   return to ? <Link to={to} className="block">{inner}</Link> : inner
@@ -156,7 +156,7 @@ function FindingPill({ finding }) {
           <p className="text-sm font-semibold text-gray-900">{finding.title || finding.type}</p>
           <p className="text-xs text-gray-500 mt-1">{finding.reasons?.[0] || 'Certificate evidence needs review.'}</p>
         </div>
-        <span className={`text-[13px] uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
+        <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
       </div>
     </div>
   )

@@ -18,6 +18,8 @@
  *                         32px canvas are unchanged — this is a spacing/geometry refinement.
  *   darkMode    {bool}    Lighten the brackets for dark backgrounds (default false).
  *   wordmarkColor{string}  Explicit wordmark colour (e.g. the brand amber on the app bar).
+ *   wordmarkSize {number}  Explicit wordmark font size in px (default: half the mark size).
+ *   subtitle    {bool}    Show the small "Platform" line under the wordmark (default true).
  *   className   {string}  Extra class on the root element.
  *
  * Animation note:
@@ -85,6 +87,8 @@ export default function CyberMetersLogo({
   spacing = 'wide',
   darkMode = false,
   wordmarkColor = null,
+  wordmarkSize: wordmarkSizeProp = null,
+  subtitle = true,
   className = '',
 }) {
   // Unique gradient ID — prevents conflicts when multiple instances are on the page.
@@ -168,7 +172,7 @@ export default function CyberMetersLogo({
   }
 
   // Font size tracks with mark size so the wordmark stays proportional.
-  const wordmarkSize = Math.round(size * 0.50)
+  const wordmarkSize = wordmarkSizeProp || Math.round(size * 0.50)
   const subSize      = Math.round(size * 0.28)
 
   return (
@@ -181,7 +185,7 @@ export default function CyberMetersLogo({
         >
           CyberMeters
         </span>
-        {size >= 36 && (
+        {subtitle && size >= 36 && (
           <span
             className="font-semibold text-brand-600 tracking-widest uppercase block"
             style={{ fontSize: subSize, marginTop: 2 }}

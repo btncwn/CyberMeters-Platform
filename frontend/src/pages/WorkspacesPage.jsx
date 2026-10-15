@@ -51,7 +51,7 @@ function CreateWorkspaceModal({ onCreated, onClose }) {
           <h2 className="text-lg font-bold text-gray-900">New Workspace</h2>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label="Close new workspace dialog"
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
           >
             <X className="w-4 h-4" />

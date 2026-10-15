@@ -36,7 +36,7 @@ function Field({ label, value, copyLabel }) {
   return (
     <div className="flex items-start justify-between gap-3 py-2.5 border-b border-gray-100 last:border-0">
       <div className="min-w-0">
-        <p className="text-[13px] uppercase tracking-wide text-gray-400 font-semibold mb-0.5">{label}</p>
+        <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-0.5">{label}</p>
         <p className="font-mono text-xs text-gray-900 break-all">{value}</p>
       </div>
       {copyLabel && <CopyButton value={value} label={copyLabel} />}

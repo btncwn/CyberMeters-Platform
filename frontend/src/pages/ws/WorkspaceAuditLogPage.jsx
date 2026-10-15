@@ -180,8 +180,8 @@ export default function WorkspaceAuditLogPage() {
               onClick={() => load(offset)}
               disabled={loading}
               className="btn-secondary p-2"
-              title="Refresh"
-              aria-label="Refresh"
+              title="Refresh audit log"
+              aria-label="Refresh audit log"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>

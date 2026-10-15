@@ -79,7 +79,7 @@ export function PortfolioMaturity() {
                 <div className="text-xs text-gray-500">{r.coverage}</div>
                 {r.notes.length > 0 && <div className="text-xs text-amber-800 mt-0.5">{r.notes.join(' · ')}</div>}
               </div>
-              <span className={`text-[13px] font-medium px-2 py-0.5 rounded-md border ${TONE[r.tone] || TONE.gray}`}>{r.label}</span>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-md border ${TONE[r.tone] || TONE.gray}`}>{r.label}</span>
             </li>
           ))}
         </ul>

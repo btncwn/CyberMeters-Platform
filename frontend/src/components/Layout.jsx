@@ -16,7 +16,7 @@ import NotificationBell from './NotificationBell'
 // - Pricing is a public marketing page already linked in the footer.
 // Top nav is intentionally lean — high-level destinations only. Service-specific
 // areas (Email/Brand/Attack Surface/Certificates) live behind Services and the
-// service sidebars; secondary tools (Scans, Schedules, Academy) live in the user
+// service sidebars; secondary tools (Scans, Schedules, Field Guide) live in the user
 // menu. No routes are removed — everything stays reachable.
 // Founder decision (14 Oct 2026): the top bar reads left to right from the
 // deepest amber to the lightest, two items per step, and Settings lives only in
@@ -34,7 +34,7 @@ const NAV = [
 const MORE_LINKS = [
   { to: '/scans',     label: 'Scans'     },
   { to: '/schedules', label: 'Schedules' },
-  { to: '/academy',   label: 'Academy'   },
+  { to: '/guide',     label: 'Field Guide' },
   { to: '/support',   label: 'Support'   },
 ]
 
@@ -94,7 +94,7 @@ function WorkspaceSelector() {
     <div className="relative" ref={ref}>
       <button
         onClick={handleOpen}
-        className="h-11 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[15px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
+        className="h-11 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[16px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
       >
         <span className="max-w-[88px] sm:max-w-[140px] truncate">{activeName || 'Workspace'}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-white transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -102,7 +102,7 @@ function WorkspaceSelector() {
 
       {open && (
         <div className="absolute top-full mt-2 left-0 sm:left-auto sm:right-0 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
-          <div className="px-3 py-1.5 text-[13px] font-semibold text-gray-400 uppercase tracking-wider">
+          <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
             Switch workspace
           </div>
 
@@ -207,7 +207,7 @@ function UserMenu() {
               </div>
             </div>
             {displayPlan && (
-              <span className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[13px] font-semibold uppercase tracking-wider bg-brand-50 text-brand-700">
+              <span className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider bg-brand-50 text-brand-700">
                 {displayPlan}
               </span>
             )}
@@ -223,7 +223,7 @@ function UserMenu() {
 
           {/* Secondary tools — kept reachable out of the lean top nav. */}
           <div className="border-t border-gray-100 mt-1 pt-1">
-            <p className="px-4 pt-1 pb-0.5 text-[13px] font-semibold text-gray-400 uppercase tracking-widest">Tools</p>
+            <p className="px-4 pt-1 pb-0.5 text-xs font-semibold text-gray-400 uppercase tracking-widest">Tools</p>
             {MORE_LINKS.map(({ to, label }) => (
               <button
                 key={to}
@@ -336,7 +336,7 @@ function UpgradePromptModal() {
             onClick={() => setLimit(null)}
             onPointerDown={(e) => e.stopPropagation()}
             className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex items-center justify-center cursor-pointer"
-            aria-label="Close"
+            aria-label="Close plan limit notice"
           >
             <X className="w-4 h-4" />
           </button>
@@ -402,7 +402,7 @@ export default function Layout() {
             className="flex-shrink-0 group"
             aria-label="CyberMeters security overview"
           >
-            <CyberMetersLogo size={38} showWordmark animated darkMode wordmarkColor="#C65B26" />
+            <CyberMetersLogo size={44} showWordmark animated darkMode wordmarkColor="#C65B26" wordmarkSize={30} subtitle={false} />
           </button>
 
           {/* Nav: on wide screens it sits beside the brand; on phones it takes
@@ -433,7 +433,7 @@ export default function Layout() {
                 navigate('/scans/new')
                 window.dispatchEvent(new CustomEvent('cybermeters:new-scan-reset'))
               }}
-              className="btn-amber h-11 lg:h-12 px-4 sm:px-6 rounded-[8px] text-[16px] lg:text-[17px] whitespace-nowrap"
+              className="btn-amber h-11 lg:h-12 px-4 sm:px-6 rounded-[8px] text-[17px] lg:text-[18px] whitespace-nowrap"
               aria-label="New Scan"
             >
               <span>New Scan</span>

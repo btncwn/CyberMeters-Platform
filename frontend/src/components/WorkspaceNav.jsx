@@ -145,7 +145,7 @@ export default function WorkspaceNav({ wsName }) {
           <ChevronLeft className="w-3.5 h-3.5" />
           All workspaces
         </button>
-        <p className="text-lg font-bold text-gray-900 break-words">{wsName || 'Workspace'}</p>
+        <p className="text-[20px] font-bold text-gray-900 break-words">{wsName || 'Workspace'}</p>
       </div>
 
       {/* ── Cyber MOT domains ── */}
@@ -172,7 +172,7 @@ export default function WorkspaceNav({ wsName }) {
                 <Link
                   to={svc.to}
                   onFocus={() => handlePreload(svc.to)}
-                  className="flex-1 min-w-0 py-2.5 text-[17px] leading-snug"
+                  className="flex-1 min-w-0 py-2.5 text-[18px] leading-snug"
                   style={{ color: active ? t.text : '#000000' }}
                 >
                   {svc.title}
@@ -201,7 +201,7 @@ export default function WorkspaceNav({ wsName }) {
                   {[...svc.items, { to: `/ws/cases?domain_key=${svc.domainKey}`, label: 'Managed cases' }].map((item, i) => item.hash ? (
                     <a key={i} href={item.hash}
                       style={{ color: t.text }}
-                      className="block px-2.5 py-1.5 rounded-lg text-sm font-medium opacity-80 hover:opacity-100 transition-opacity">
+                      className="block px-2.5 py-1.5 rounded-lg text-[17px] font-medium opacity-80 hover:opacity-100 transition-opacity">
                       {item.label}
                     </a>
                   ) : (
@@ -210,7 +210,7 @@ export default function WorkspaceNav({ wsName }) {
                       onFocus={() => handlePreload(item.to)}
                       style={({ isActive }) => isActive ? { color: t.text, backgroundColor: t.bg } : { color: t.text }}
                       className={({ isActive }) =>
-                        `block px-2.5 py-1.5 rounded-lg text-sm transition-all ${
+                        `block px-2.5 py-1.5 rounded-lg text-[17px] transition-all ${
                           isActive ? 'font-semibold' : 'font-medium opacity-80 hover:opacity-100'
                         }`
                       }>
@@ -228,7 +228,7 @@ export default function WorkspaceNav({ wsName }) {
       <div className="px-2.5 py-2.5 border-t border-gray-100">
         <button
           onClick={() => setToolsOpen(v => !v)}
-          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[14px] font-bold text-coral uppercase tracking-widest hover:bg-coral-50 transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[15px] font-bold text-coral uppercase tracking-widest hover:bg-coral-50 transition-colors"
         >
           <span className="flex-1 text-left">Workspace</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
@@ -243,7 +243,7 @@ export default function WorkspaceNav({ wsName }) {
                 onMouseEnter={() => handlePreload(to)}
                 onFocus={() => handlePreload(to)}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                  `flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[18px] transition-colors ${
                     isActive ? 'text-amber-brand bg-gray-100 font-bold' : 'text-black hover:text-amber-brand hover:bg-gray-50 font-semibold'
                   }`
                 }

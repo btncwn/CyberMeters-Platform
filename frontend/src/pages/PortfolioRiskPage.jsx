@@ -32,7 +32,7 @@ function DeltaChip({ delta }) {
   if (delta == null) return null
   const pos = delta >= 0
   return (
-    <span className={`text-[13px] font-bold px-1.5 py-0.5 rounded-full ${
+    <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
       pos ? 'bg-brand-50 text-brand-700' : 'bg-red-50 text-red-700'
     }`}>
       {pos ? '+' : ''}{delta}
@@ -193,7 +193,7 @@ function AlertsList({ alerts }) {
           <div className="min-w-0">
             <p className="text-sm text-gray-800 leading-snug">{a.message}</p>
             {a.workspace_name && (
-              <p className="text-[13px] text-gray-400 mt-0.5 capitalize">{a.type.replace(/_/g, ' ')} · {a.workspace_name}</p>
+              <p className="text-xs text-gray-400 mt-0.5 capitalize">{a.type.replace(/_/g, ' ')} · {a.workspace_name}</p>
             )}
           </div>
         </li>
@@ -429,12 +429,12 @@ export default function PortfolioRiskPage() {
               {data.portfolio_score_state && (
                 <div className="flex flex-col items-center gap-1.5 mt-1">
                   <span
-                    className={`text-[13px] font-semibold px-2.5 py-0.5 rounded-full ${toneClass(scoreStateMeta(data.portfolio_score_state).tone)}`}
+                    className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${toneClass(scoreStateMeta(data.portfolio_score_state).tone)}`}
                   >
                     {scoreStateMeta(data.portfolio_score_state).label}
                   </span>
                   {data.portfolio_score_reason && (
-                    <p className="text-[13px] text-gray-500 text-center leading-snug max-w-[15rem]">
+                    <p className="text-xs text-gray-500 text-center leading-snug max-w-[15rem]">
                       {data.portfolio_score_reason}
                     </p>
                   )}

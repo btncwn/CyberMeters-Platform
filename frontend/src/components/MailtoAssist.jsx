@@ -79,7 +79,7 @@ export default function MailtoAssist() {
             {copied ? 'Copied' : 'Copy address'}
           </button>
         </div>
-        <button type="button" onClick={() => setAddress(null)} aria-label="Close" className="p-1 rounded-md text-gray-400 hover:text-white">
+        <button type="button" onClick={() => setAddress(null)} aria-label="Close email helper" className="p-1 rounded-md text-gray-400 hover:text-white">
           <X className="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
