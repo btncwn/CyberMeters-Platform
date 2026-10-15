@@ -6,17 +6,6 @@
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
 import { evidenceFreshness } from "../engines/cyber-mot-state-history.js";
-
-// Additive: how old each domain's evidence is, decided here (the same
-// evidenceFreshness the portfolio matrix uses) so a screen never has to
-// compute staleness itself. Not a posture verdict; a stale healthy must read
-// as stale, never as a current all-clear.
-function withEvidenceFreshness(domains) {
-  return domains.map((d) => {
-    const f = evidenceFreshness(d.last_assessed_at ?? null);
-    return { ...d, evidence_freshness: f.freshness, evidence_age_days: f.age_days, freshness_reason: f.reason };
-  });
-}
 import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
 import { MATURITY_LEDGER_CONTRACT_VERSION, readWorkspaceMaturity, readDomainMaturityHistory } from "../engines/domain-maturity.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
@@ -28,6 +17,17 @@ import {
   projectPhase5ScanRowsForCustomer,
   resolvePhase5CustomerAggregate,
 } from "../engines/phase5-evidence.js";
+
+// Additive: how old each domain's evidence is, decided here (the same
+// evidenceFreshness the portfolio matrix uses) so a screen never has to
+// compute staleness itself. Not a posture verdict; a stale healthy must read
+// as stale, never as a current all-clear.
+function withEvidenceFreshness(domains) {
+  return domains.map((d) => {
+    const f = evidenceFreshness(d.last_assessed_at ?? null);
+    return { ...d, evidence_freshness: f.freshness, evidence_age_days: f.age_days, freshness_reason: f.reason };
+  });
+}
 
 export async function executiveDashboardRoutes(rctx) {
   const { request, env, url, json, serverError,
