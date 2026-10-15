@@ -235,7 +235,7 @@ async function main() {
   ok("exactly eight canonical domains in fixed order on JSON surfaces",
      keys(repRes.data?.cyber_mot_domains) === canonical && keys(v2Res.data?.cyber_mot_domains) === canonical);
   // Customer presentation order is independent of the persisted JSON contract.
-  const names = ["Identity Exposure", "Attack Surface", "Email Protection", "Website Security", "Shadow IT", "Certificates & Trust", "Brand Protection", "Cyber Essentials Readiness"];
+  const names = ["Email Protection", "Attack Surface", "Website Security", "Identity Exposure", "Shadow IT", "Certificates & Trust", "Brand Protection", "Cyber Essentials Readiness"];
   const domainSection = pdfRes.text.slice(
     pdfRes.text.indexOf("Eight-Domain Cyber MOT"),
     pdfRes.text.indexOf("Observed Findings")

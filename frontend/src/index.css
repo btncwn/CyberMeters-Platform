@@ -445,11 +445,8 @@
   .cm-app :where(h2) { font-size: 1.125rem; line-height: 1.3; font-weight: 700; }
   .cm-app :where(h3, h4) { font-size: 1.0625rem; line-height: 1.35; font-weight: 600; }
   .cm-app :where(h1, h2, h3, h4) { color: #000; }
-  /* A heading carrying a small size utility is lifted to the floor; larger
-     utilities (text-2xl, text-3xl…) still apply. */
-  .cm-app h1:where(.text-xs, .text-sm, .text-base, .text-lg, .text-xl, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.5rem; }
-  .cm-app h2:where(.text-xs, .text-sm, .text-base, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.125rem; }
-  .cm-app :is(h3, h4):where(.text-xs, .text-sm, .text-\[13px\], .text-\[14px\], .text-\[15px\]) { font-size: 1.0625rem; }
+  /* The lift for headings that carry a small size utility lives outside the
+     cascade layers (below), so it still wins over the utilities layer. */
   * { -webkit-font-smoothing: antialiased; }
   * {
     scrollbar-width: thin;
@@ -474,6 +471,17 @@
     border-radius: 6px;
   }
 }
+
+/* Product type floor, part 2 (founder, 14 Oct): a heading carrying a small
+   size utility is lifted to the floor; larger utilities (text-2xl, text-3xl…)
+   still apply because they are not listed. Deliberately unlayered: with
+   Tailwind v4 the base and utilities layers are real cascade layers and a
+   later layer wins regardless of specificity, so inside @layer base these
+   rules lost to text-sm / text-xl and the floor silently dropped
+   (h1 24→21px, h2 18→16px, h3 17→16px). Unlayered rules beat every layer. */
+.cm-app h1:where(.text-xs, .text-sm, .text-base, .text-lg, .text-xl, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.5rem; }
+.cm-app h2:where(.text-xs, .text-sm, .text-base, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.125rem; }
+.cm-app :is(h3, h4):where(.text-xs, .text-sm, .text-\[13px\], .text-\[14px\], .text-\[15px\]) { font-size: 1.0625rem; }
 
 /* ─── CyberMeters logo — animated needle ────────────────────────────────────
  *

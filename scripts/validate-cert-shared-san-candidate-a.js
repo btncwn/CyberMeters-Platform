@@ -567,7 +567,12 @@ const parity = states.map(parityOutputs);
 // Replacing only cyber-mot-domains.js with origin/main reproduces both previous
 // hashes exactly. This fixture has no TLS module or finding, so the change is
 // methodology/scope presentation; all five SAN projection states remain equal.
-const GOLDEN_F13 = "abf6af86b64404dd7e937c0775cf0177b8f293062392d4d92f45d4e3cca571c3";
+// Customer PDF domain order follows the founder order (Email Protection first,
+// Identity Exposure fourth) in both the assessment PDF (REPORT_DOMAIN_ORDER) and
+// the executive PDF (EXECUTIVE_AREAS). Only F13's rendered PDF bytes change:
+// with only those two lists reverted the previous F13 hash (abf6af86…)
+// reproduces exactly, and F14 and the evidence hash are unchanged.
+const GOLDEN_F13 = "c4e6b4e00fb96fd2a3adbabf5cfaef0e9d2234eeff55037292861fa38b883be2";
 const GOLDEN_F14 = "5aeea4a328eb5b188614d08c7e6330f01f044966979e339c7187de2cae615f66";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

@@ -6,6 +6,7 @@ import {
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import ModuleContract from '../../components/module/ModuleContract'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
@@ -616,6 +617,7 @@ export default function BrandMonitoringPage() {
         </div>
       </div>
 
+      <ModuleContract domainKey="brand_protection" workspaceId={wsId} workspaceName={wsName}>
       {/* 2 · Protected brand */}
       <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
 
@@ -692,6 +694,7 @@ export default function BrandMonitoringPage() {
       </section>
 
       <Toast toast={toast} onClose={() => setToast(null)} />
+      </ModuleContract>
     </WsPage>
   )
 }

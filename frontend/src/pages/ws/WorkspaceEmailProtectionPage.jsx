@@ -7,6 +7,7 @@ import CloudflareDnsChanges from '../../components/CloudflareDnsChanges'
 import { api, BASE } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import ModuleContract from '../../components/module/ModuleContract'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Managed DMARC / Email Protection Experience v1
@@ -3607,6 +3608,7 @@ export default function WorkspaceEmailProtectionPage() {
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={loadScans}>
       {header}
+      <ModuleContract domainKey="email_protection" workspaceId={wsId} workspaceName={wsName}>
       <CloudflareDnsChanges workspaceId={wsId} onDomainChange={setSelectedDomain} />
 
       {/* No completed scans at all */}
@@ -3776,6 +3778,7 @@ export default function WorkspaceEmailProtectionPage() {
           <MultiDomainSummary rows={summaryRows} selectedDomain={selectedDomain} onSelect={setSelectedDomain} />
         </div>
       )}
+      </ModuleContract>
     </WsPage>
   )
 }

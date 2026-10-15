@@ -32,7 +32,7 @@ const TARGETS = Object.freeze({
   card: "frontend/src/components/IdentityExposureCard.jsx",
   managedPage: "frontend/src/pages/ws/IdentityExposurePage.jsx",
   landing: "frontend/src/pages/PublicLandingPage.jsx",
-  dashboard: "frontend/src/pages/Dashboard.jsx",
+  dashboard: "frontend/src/lib/moduleRegistry.js",
   capabilities: "docs/CAPABILITIES.md",
   methodology: "docs/risk-methodology-v1.md",
 });
@@ -112,7 +112,7 @@ const MUTANTS = [
   // discipline as every other U3 assertion.
   { id: "U3-M26", target: "landing", expected: ["U3-CS-01"], controls: ["U3-CS-03"], replacements: [{ from: "'Review identity-provider relationships, identity-facing hostnames and measured endpoints. HTTP evidence is shown where collected. This is not employee breach or dark-web monitoring.'", to: "'Public login surfaces and identity-facing entry points, without unsupported breach or dark-web claims.'" }] },
   { id: "U3-M27", target: "landing", expected: ["U3-CS-01"], controls: ["U3-CS-02"], replacements: [{ from: "'Measured endpoints'", to: "'IdP exposure'" }] },
-  { id: "U3-M28", target: "dashboard", expected: ["U3-CS-03"], controls: ["U3-CS-01"], replacements: [{ from: 'fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is shown only with HTTP evidence."', to: 'fallback="Review public login surfaces and identity-facing entry points."' }] },
+  { id: "U3-M28", target: "dashboard", expected: ["U3-CS-03"], controls: ["U3-CS-01"], replacements: [{ from: "fallback: 'Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is shown only with HTTP evidence.'", to: "fallback: 'Review public login surfaces and identity-facing entry points.'" }] },
   { id: "U3-M29", target: "capabilities", expected: ["U3-CS-04"], controls: ["U3-CS-05"], replacements: [{ from: "- **Observes:** identity-provider relationships and identity-facing hostname candidates, derived from public DNS, certificate transparency and HTTP response metadata.", to: "- **Observes:** public login surfaces and identity-facing entry points." }] },
   { id: "U3-M30", target: "methodology", expected: ["U3-CS-05", "U3-CS-06"], controls: ["U3-CS-04"], replacements: [{ from: "| Identity hostname candidates and measured reachable surfaces are inventory evidence. Reachability alone does not establish a vulnerability; neither it nor the deprecated `high_risk_count` heuristic deducts points. | 0 |", to: "| Identity exposure (high_risk_count × 7, capped at −20) | Up to −20 |" }] },
 ];

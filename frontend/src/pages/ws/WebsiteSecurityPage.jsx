@@ -4,6 +4,7 @@ import { ChevronDown, RefreshCw } from 'lucide-react'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import ModuleContract from '../../components/module/ModuleContract'
 import WebsiteScanOverview from '../../components/WebsiteScanOverview'
 import WebsitePagesChecked from '../../components/WebsitePagesChecked'
 import WebsiteSignInSettings from '../../components/WebsiteSignInSettings'
@@ -141,6 +142,7 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
           <button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>
         </div>
       </header>
+      <ModuleContract domainKey="website_security" workspaceId={workspaceId} workspaceName={workspaceName}>
       <WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />
       <WebsitePagesChecked workspaceId={workspaceId} refresh={refresh} />
       <WebsiteSignInSettings workspaceId={workspaceId} />
@@ -165,6 +167,7 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
         <button className={`${ACTION} disabled:opacity-40`} disabled={loading || offset === 0} onClick={() => changePage(Math.max(0, offset - PAGE_SIZE))}>Previous</button>
         <button className={`${ACTION} disabled:opacity-40`} disabled={loading || Boolean(error) || offset + PAGE_SIZE >= total} onClick={() => changePage(offset + PAGE_SIZE)}>Next</button>
       </nav>}
+      </ModuleContract>
     </WsPage>
   )
 }

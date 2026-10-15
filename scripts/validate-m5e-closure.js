@@ -204,12 +204,19 @@ async function checkEightDomainCompleteness() {
   const nav = getSource("frontend/src/components/WorkspaceNav.jsx");
   const launcher = getSource("frontend/src/components/ServiceLauncher.jsx");
   const landing = getSource("frontend/src/pages/PublicLandingPage.jsx");
+  // App Experience PR 2: the overview's eight area cards come from one module
+  // registry rendered by the shared SecurityOverview on BOTH the direct
+  // dashboard and the MSP-selected workspace dashboard (no second implementation).
+  const registry = getSource("frontend/src/lib/moduleRegistry.js");
   const dashboard = getSource("frontend/src/pages/Dashboard.jsx");
+  const workspaceDashboard = getSource("frontend/src/pages/ws/WorkspaceDashboard.jsx");
+  ok("A/G: Dashboard renders the shared SecurityOverview", /<SecurityOverview[\s\n]/.test(dashboard));
+  ok("A/G: WorkspaceDashboard renders the shared SecurityOverview", /<SecurityOverview[\s\n]/.test(workspaceDashboard));
   for (const label of CANONICAL_LABELS) {
     ok(`A/G: WorkspaceNav exposes ${label}`, nav.includes(label));
     ok(`A/G: ServiceLauncher exposes ${label}`, launcher.includes(label));
     ok(`A/G: PublicLandingPage exposes ${label}`, landing.includes(label));
-    ok(`A/G: Dashboard exposes ${label}`, dashboard.includes(label));
+    ok(`A/G: module registry (rendered by both overviews) exposes ${label}`, registry.includes(label));
   }
   // Founder order (14 Oct 2026): strongest evidence first, readiness last.
   const displayLabels = ['Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness'];

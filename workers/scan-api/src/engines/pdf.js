@@ -705,8 +705,10 @@ function findingHeading(item, fallbackTitle = "Finding") {
 // technical finding register carries full narratives once. Older "full" and
 // "concise" modes remain available to other callers.
 // Customer presentation priority only; immutable snapshots retain their own order.
+// Founder order (14 Oct 2026): the same order as the service sidebar and the
+// eight-domain display helpers — strongest evidence first, readiness last.
 const REPORT_DOMAIN_ORDER = [
-  "identity_exposure", "attack_surface", "email_protection", "website_security",
+  "email_protection", "attack_surface", "website_security", "identity_exposure",
   "shadow_it_unmanaged_technology", "certificates_trust", "brand_protection",
   "cyber_essentials_readiness",
 ];
@@ -1595,7 +1597,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
 // Executive-only presentation. The domain order follows the customer UI;
 // these helpers read frozen customer facts without recomputing conclusions.
 const EXECUTIVE_AREAS = [
-  "Identity Exposure", "Attack Surface", "Email Protection", "Website Security",
+  "Email Protection", "Attack Surface", "Website Security", "Identity Exposure",
   "Shadow IT & Unmanaged Technology", "Certificates & Trust", "Brand Protection",
   "Cyber Essentials Readiness",
 ];

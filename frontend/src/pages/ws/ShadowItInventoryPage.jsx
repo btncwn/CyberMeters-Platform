@@ -8,6 +8,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
+import ModuleContract from '../../components/module/ModuleContract'
 import {
   SHADOW_IT_FIRST_OBSERVATION_LABEL,
   classificationMeta, monitoringMeta, ownershipMeta, onboardingMeta, removalMeta,
@@ -83,7 +84,7 @@ export default function ShadowItInventoryPage() {
   // Workspace comes from the canonical context hook, not a route param — the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
-  const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
+  const { wsId: workspaceId, wsName: workspaceName, loading: wsLoading } = useWorkspace()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -180,6 +181,7 @@ export default function ShadowItInventoryPage() {
         <p className="text-sm text-slate-500 mt-1">{SHADOW_IT_SCOPE_NOTE}</p>
       </div>
 
+      <ModuleContract domainKey="shadow_it_unmanaged_technology" workspaceId={workspaceId} workspaceName={workspaceName}>
       <div className="flex flex-wrap items-center gap-2 my-4">
         {['', 'unreviewed', 'approved', 'rejected', 'exception', 'retired'].map((c) => (
           <button
@@ -320,6 +322,7 @@ export default function ShadowItInventoryPage() {
           </table>
         </div>
       )}
+      </ModuleContract>
     </div>
   )
 }

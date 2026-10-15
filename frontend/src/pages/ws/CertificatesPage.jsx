@@ -9,6 +9,7 @@ import {
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import ModuleContract from '../../components/module/ModuleContract'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
@@ -345,6 +346,7 @@ export default function CertificatesPage() {
       </div>
 
       <TlsAuthorizationSettings key={wsId} workspaceId={wsId} />
+      <ModuleContract domainKey="certificates_trust" workspaceId={wsId} workspaceName={wsName}>
 
       {!hasData && !loading ? (
         /* 8 · Empty state */
@@ -525,6 +527,7 @@ export default function CertificatesPage() {
           )}
         </>
       )}
+      </ModuleContract>
     </WsPage>
   )
 }
