@@ -359,10 +359,10 @@ for (const key of SCAN_DOMAINS) {
   const { resolveDisplayDomains, CYBER_MOT_DISPLAY_ORDER } =
     await import(pathToFileURL(path.join(root, "frontend", "src", "lib", "cyberMotDisplay.js")).href);
 
-  const displayKeys = ['identity_exposure', 'attack_surface', 'email_protection', 'website_security', 'shadow_it_unmanaged_technology', 'certificates_trust', 'brand_protection', 'cyber_essentials_readiness'];
+  const displayKeys = ['email_protection', 'attack_surface', 'website_security', 'identity_exposure', 'shadow_it_unmanaged_technology', 'certificates_trust', 'brand_protection', 'cyber_essentials_readiness'];
   ok("D: display order has all eight canonical domain keys",
     CYBER_MOT_DISPLAY_ORDER.length === 8 && [...CYBER_MOT_DISPLAY_ORDER.map((d) => d.domain_key)].sort().join(",") === [...KEYS].sort().join(","));
-  ok("D: display order follows customer navigation priority",
+  ok("D: display order follows the founder service order",
     CYBER_MOT_DISPLAY_ORDER.map((d) => d.domain_key).join(",") === displayKeys.join(","));
 
   for (const [label, input] of [["null", null], ["undefined", undefined], ["empty array", []], ["malformed (missing state)", [{ domain_key: "email_protection" }]], ["short array", [{ domain_key: "email_protection", state: "assessed_healthy" }]]]) {
