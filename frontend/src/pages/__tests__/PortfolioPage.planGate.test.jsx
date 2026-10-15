@@ -12,6 +12,7 @@ vi.mock('../../api', () => ({
     getPortfolioTrends: vi.fn(),
     getPortfolioExecutiveSummary: vi.fn(),
     getPortfolioMaturity: vi.fn(),
+    getPortfolioDomains: vi.fn(),
   },
 }))
 
@@ -41,6 +42,7 @@ describe('Portfolio page plan response', () => {
     api.getPortfolioTrends.mockResolvedValue({ trend: [] })
     api.getPortfolioExecutiveSummary.mockResolvedValue({ executive_summary: 'No customers yet.', top_attention: [] })
     api.getPortfolioMaturity.mockResolvedValue({ portfolio_state: 'no_workspaces', domains: [] })
+    api.getPortfolioDomains.mockResolvedValue({ domains: [], portfolio_state: 'no_workspaces', portfolio_state_reason: 'No customer environments are being monitored yet.', pagination: { limit: 25, offset: 0, total: 0 } })
     renderPage()
 
     expect(await screen.findByText('Service unavailable')).toBeInTheDocument()

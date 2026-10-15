@@ -16,10 +16,26 @@ import { bandMeta, metaForScore } from '../lib/score-presentation'
 import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { PortfolioExecutiveSummary, PortfolioMaturity } from '../components/PortfolioSummaryCards'
 import { PlanGate } from '../components/PlanUsageCard'
+import CustomerDomainMatrix, { MATRIX_LIMIT } from '../components/portfolio/CustomerDomainMatrix'
 
 // A plan gate is one fact about the account, not a failure of each section:
 // show a single upgrade card instead of one "Retry" per section.
 const isPlanGate = (e) => (e?.error ?? e?.code) === 'plan_feature_required'
+
+// A missing API function (older bundle, partial mock) is a failed request, so
+// the section shows Error rather than an empty, settled list.
+const call = (name, ...args) => Promise.resolve().then(() => api[name](...args))
+
+// The command centre's per-customer read: highest priority first, one page.
+const DOMAINS_PARAMS = { limit: MATRIX_LIMIT, offset: 0, sort: 'priority' }
+
+// The customer the MSP opens becomes the selected workspace, exactly as the
+// Customers page selects one, and the workspace surfaces read it from there.
+function selectWorkspace(navigate, workspaceId, workspaceName) {
+  localStorage.setItem('cybermeters_workspace_id', workspaceId)
+  localStorage.setItem('cybermeters_workspace_name', workspaceName)
+  navigate('/ws/dashboard')
+}
 
 // RatingBadge renders the CANONICAL Cyber Metrics Score band vocabulary via the
 // mirror module (M5.e) — one label/tone source, unknown stays neutral.
@@ -146,9 +162,7 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
   const navigate = useNavigate()
 
   function openWorkspace(ws) {
-    localStorage.setItem('cybermeters_workspace_id', ws.workspace_id)
-    localStorage.setItem('cybermeters_workspace_name', ws.workspace_name)
-    navigate('/ws/dashboard')
+    selectWorkspace(navigate, ws.workspace_id, ws.workspace_name)
   }
 
   if (loading) return (
@@ -395,10 +409,14 @@ function TrendsSection({ trend, loading, error, onRetry }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function PortfolioPage() {
+  const navigate = useNavigate()
   const [overview,   setOverview]   = useState(null)
   const [workspaces, setWorkspaces] = useState(null)
   const [alerts,     setAlerts]     = useState(null)
   const [trend,      setTrend]      = useState(null)
+  // /portfolio/domains, shown verbatim by CustomerDomainMatrix: 'loading' |
+  // 'error' | 'ok' plus the backend payload.
+  const [domains,    setDomains]    = useState({ request: 'loading', data: null })
 
   const [overviewErr,   setOverviewErr]   = useState(null)
   const [workspacesErr, setWorkspacesErr] = useState(null)
@@ -413,6 +431,13 @@ export default function PortfolioPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [planGate,   setPlanGate]   = useState(null)
 
+  const loadDomains = useCallback(() => {
+    setDomains({ request: 'loading', data: null })
+    return call('getPortfolioDomains', DOMAINS_PARAMS)
+      .then((data) => { setDomains({ request: 'ok', data }); return { status: 'fulfilled', value: data } })
+      .catch((reason) => { setDomains({ request: 'error', data: null }); return { status: 'rejected', reason } })
+  }, [])
+
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) {
       setOverviewLoading(true); setWorkspacesLoading(true)
@@ -423,12 +448,14 @@ export default function PortfolioPage() {
     setOverviewErr(null); setWorkspacesErr(null)
     setAlertsErr(null);   setTrendErr(null)
 
+    const domainsRead = loadDomains()
     const [ov, ws, al, tr] = await Promise.allSettled([
-      api.getPortfolioOverview(),
-      api.getPortfolioWorkspaces(),
-      api.getPortfolioAlerts(50),
-      api.getPortfolioTrends(),
+      call('getPortfolioOverview'),
+      call('getPortfolioWorkspaces'),
+      call('getPortfolioAlerts', 50),
+      call('getPortfolioTrends'),
     ])
+    const dm = await domainsRead
 
     if (ov.status === 'fulfilled') setOverview(ov.value)
     else setOverviewErr(ov.reason?.message ?? 'Failed to load overview')
@@ -442,12 +469,12 @@ export default function PortfolioPage() {
     if (tr.status === 'fulfilled') setTrend(tr.value?.trend ?? [])
     else setTrendErr(tr.reason?.message ?? 'Failed to load trends')
 
-    setPlanGate([ov, ws, al, tr].find((r) => r.status === 'rejected' && isPlanGate(r.reason))?.reason ?? null)
+    setPlanGate([ov, ws, al, tr, dm].find((r) => r.status === 'rejected' && isPlanGate(r.reason))?.reason ?? null)
 
     setOverviewLoading(false); setWorkspacesLoading(false)
     setAlertsLoading(false);   setTrendLoading(false)
     setRefreshing(false)
-  }, [])
+  }, [loadDomains])
 
   useEffect(() => { loadAll() }, [loadAll])
 
@@ -488,7 +515,21 @@ export default function PortfolioPage() {
       </div>
 
       <PlanGate error={planGate}>
-      {/* Overview cards */}
+      {/* Explanation first: the backend-written summary and who needs attention */}
+      <PortfolioExecutiveSummary />
+
+      {/* Every customer across the eight areas — the command centre's working view */}
+      <CustomerDomainMatrix
+        rows={domains.data?.domains}
+        request={domains.request}
+        portfolioState={domains.data?.portfolio_state}
+        reason={domains.data?.portfolio_state_reason}
+        total={domains.data?.pagination?.total}
+        onRetry={loadDomains}
+        onOpenCustomer={(row) => selectWorkspace(navigate, row.workspace_id, row.workspace_name)}
+      />
+
+      {/* Portfolio counts, then maturity across customers */}
       <OverviewSection
         data={overview}
         loading={overviewLoading}
@@ -498,9 +539,6 @@ export default function PortfolioPage() {
           api.getPortfolioOverview().then(setOverview).catch(e => setOverviewErr(e.message)).finally(() => setOverviewLoading(false))
         }}
       />
-
-      {/* Backend-written summary + who needs attention, then maturity across customers */}
-      <PortfolioExecutiveSummary />
       <PortfolioMaturity />
 
       {/* Workspace risk table */}
