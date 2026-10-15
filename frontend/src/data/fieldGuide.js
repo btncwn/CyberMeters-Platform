@@ -53,7 +53,7 @@ export const GUIDE_AREAS = [
     checks: {
       why: [
         'CyberMeters reads the DNS records your domain publishes and resolves what they actually mean once every include, redirect and lookup is followed. A record that exists is not the same as a record that works: SPF with ten nested includes can fail silently, and a DMARC policy of "none" protects nobody.',
-        'Each record is checked against the current standard it belongs to, and the result is described as standards-aware, never as "fully compliant". CyberMeters checks what it can read; it does not certify your email provider.',
+        'Each record is checked against the current standard it belongs to, and the result is described as standards-aware rather than as a compliance verdict. CyberMeters checks what it can read; it does not certify your email provider.',
       ],
       observed: [
         'SPF: whether a record exists, which sources it authorises after every include is resolved, whether it stays within the lookup limit, and whether it ends permissively.',
