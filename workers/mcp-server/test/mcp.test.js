@@ -6,6 +6,7 @@ import { fixtureSummary, workspaceId } from './fixture.js';
 
 const TOOL = 'cybermeters_get_workspace_summary';
 const BASE = 'http://localhost:8787/mcp';
+const TRIAL_BEARER = `cm_${'a'.repeat(64)}`;
 
 function rpc(method, params = {}, id = 1) {
   return { jsonrpc: '2.0', id, method, params: {
@@ -53,6 +54,149 @@ test('default deployed fetch stays fail-closed even when passed a backend-like e
   assert.equal(response.status, 503);
   assert.deepEqual(await responseJson(response), { error: 'mcp_not_configured' });
   assert.throws(() => createLocalTestWorker(), /local test backend/);
+});
+
+test('default entrypoint needs both explicit enablement and the named RPC binding', async () => {
+  const message = request(rpc('tools/call', {
+    name: TOOL, arguments: { workspace_id: workspaceId },
+  }), { extraHeaders: { authorization: `Bearer ${TRIAL_BEARER}` } });
+  let calls = 0;
+  const binding = { getWorkspaceSummary() { calls++; return fixtureSummary(); } };
+  for (const env of [undefined, {}, { MCP_INTERNAL_ENABLED: 'true' },
+    { MCP_BACKEND: binding }, { MCP_INTERNAL_ENABLED: true, MCP_BACKEND: binding },
+    { MCP_INTERNAL_ENABLED: 'false', MCP_BACKEND: binding },
+    { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: { fetch() {} } }]) {
+    const response = await worker.fetch(message, env);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await responseJson(response), { error: 'mcp_not_configured' });
+  }
+  assert.equal(calls, 0);
+});
+
+test('enabled local entrypoint passes only request bearer and workspace ID through RPC', async () => {
+  const calls = [];
+  const env = { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: {
+    getWorkspaceSummary(args) { calls.push(args); return fixtureSummary(); },
+  } };
+  const response = await worker.fetch(request(rpc('tools/call', {
+    name: TOOL, arguments: { workspace_id: workspaceId },
+  }), { extraHeaders: { authorization: `Bearer ${TRIAL_BEARER}` } }), env);
+  const body = await responseJson(response);
+  assert.equal(response.status, 200);
+  assert.equal(body.result.isError, undefined);
+  assert.deepEqual(calls, [{ bearer: TRIAL_BEARER, workspaceId }]);
+  assert.equal(JSON.parse(body.result.content[0].text).workspace_id, workspaceId);
+  assert.equal(JSON.stringify(body).includes(TRIAL_BEARER), false);
+});
+
+test('parallel local calls keep their bearers request scoped', async () => {
+  const calls = [];
+  const otherBearer = `cm_${'b'.repeat(64)}`;
+  const env = { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: {
+    async getWorkspaceSummary(args) {
+      calls.push(args);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      return fixtureSummary();
+    },
+  } };
+  const makeCall = (bearer) => worker.fetch(request(rpc('tools/call', {
+    name: TOOL, arguments: { workspace_id: workspaceId },
+  }), { extraHeaders: { authorization: `Bearer ${bearer}` } }), env);
+  const responses = await Promise.all([makeCall(TRIAL_BEARER), makeCall(otherBearer)]);
+  for (const response of responses) assert.equal((await responseJson(response)).result.isError, undefined);
+  assert.deepEqual(calls, [
+    { bearer: TRIAL_BEARER, workspaceId },
+    { bearer: otherBearer, workspaceId },
+  ]);
+});
+
+test('absent, session-like, malformed, and oversized bearer values never reach RPC', async () => {
+  let calls = 0;
+  const env = { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: {
+    getWorkspaceSummary() { calls++; return fixtureSummary(); },
+  } };
+  const input = rpc('tools/call', { name: TOOL, arguments: { workspace_id: workspaceId } });
+  for (const authorization of [undefined, 'Bearer ' + 'a'.repeat(64),
+    'Bearer cm_short', 'Bearer cm_' + 'g'.repeat(64),
+    'Bearer cm_' + 'a'.repeat(65), `Bearer  ${TRIAL_BEARER}`,
+    `Basic ${TRIAL_BEARER}`, `Bearer ${TRIAL_BEARER} extra`]) {
+    const response = await worker.fetch(request(input, {
+      extraHeaders: authorization === undefined ? {} : { authorization },
+    }), env);
+    assert.equal(response.status, 401);
+    assert.deepEqual(await responseJson(response), { error: 'invalid_bearer' });
+  }
+  assert.equal(calls, 0);
+});
+
+test('invalid workspace, foreign denial, and foreign summary never disclose backend data', async () => {
+  const calls = [];
+  const secret = 'foreign-private-data';
+  const env = { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: {
+    getWorkspaceSummary(args) {
+      calls.push(args);
+      if (calls.length === 1) throw new Error(secret);
+      return fixtureSummary({ workspace_id: 'foreign-workspace', private_note: secret });
+    },
+  } };
+  for (const badId of ['../foreign', 'x'.repeat(65)]) {
+    const response = await worker.fetch(request(rpc('tools/call', {
+      name: TOOL, arguments: { workspace_id: badId },
+    }), { extraHeaders: { authorization: `Bearer ${TRIAL_BEARER}` } }), env);
+    const body = await responseJson(response);
+    assert.ok(response.status >= 400 || body.error || body.result?.isError);
+  }
+  assert.equal(calls.length, 0);
+  for (let i = 0; i < 2; i++) {
+    const response = await worker.fetch(request(rpc('tools/call', {
+      name: TOOL, arguments: { workspace_id: workspaceId },
+    }), { extraHeaders: { authorization: `Bearer ${TRIAL_BEARER}` } }), env);
+    const body = await responseJson(response);
+    assert.equal(body.result.isError, true);
+    assert.equal(body.result.content[0].text, 'workspace_summary_unavailable');
+    assert.equal(JSON.stringify(body).includes(secret), false);
+    assert.equal(JSON.stringify(body).includes(TRIAL_BEARER), false);
+  }
+  assert.equal(calls.length, 2);
+});
+
+test('RPC failure and response deadline return safe errors', async () => {
+  for (const getWorkspaceSummary of [
+    () => Promise.reject(new Error('backend-secret-failure')),
+    () => new Promise(() => {}),
+  ]) {
+    const response = await worker.fetch(request(rpc('tools/call', {
+      name: TOOL, arguments: { workspace_id: workspaceId },
+    }), { extraHeaders: { authorization: `Bearer ${TRIAL_BEARER}` } }), {
+      MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: { getWorkspaceSummary },
+    });
+    const body = await responseJson(response);
+    assert.equal(body.result.isError, true);
+    assert.equal(body.result.content[0].text, 'workspace_summary_unavailable');
+    assert.equal(JSON.stringify(body).includes('backend-secret-failure'), false);
+    assert.equal(JSON.stringify(body).includes(TRIAL_BEARER), false);
+  }
+});
+
+test('enabled entrypoint still requires exact local host, origin, and path', async () => {
+  let calls = 0;
+  const env = { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: {
+    getWorkspaceSummary() { calls++; return fixtureSummary(); },
+  } };
+  const input = rpc('tools/call', { name: TOOL, arguments: { workspace_id: workspaceId } });
+  for (const options of [
+    { host: 'evil.invalid' }, { origin: 'https://evil.invalid' },
+    { url: 'http://localhost:8787/mcp/extra' },
+  ]) {
+    const response = await worker.fetch(request(input, {
+      ...options, extraHeaders: { authorization: `Bearer ${TRIAL_BEARER}` },
+    }), env);
+    assert.ok(response.status >= 400);
+  }
+  const cfRequest = request(input, { extraHeaders: { authorization: `Bearer ${TRIAL_BEARER}` } });
+  Object.defineProperty(cfRequest, 'cf', { value: {}, configurable: true });
+  assert.equal((await worker.fetch(cfRequest, env)).status, 200);
+  assert.equal(calls, 1);
 });
 
 test('modern discovery, single-tool list, and fixture-backed call use JSON mode', async () => {
@@ -144,11 +288,11 @@ test('local Host, Origin, route, method, and request-size gates fail closed', as
   assert.deepEqual(calls, []);
 });
 
-test('local gate rejects Cloudflare requests and accepts the explicit IPv4 loopback', async () => {
+test('local gate accepts Wrangler-style cf metadata and explicit IPv4 loopback', async () => {
   const { app } = harness();
   const cfRequest = request(rpc('tools/list'));
   Object.defineProperty(cfRequest, 'cf', { value: {}, configurable: true });
-  assert.equal((await app.fetch(cfRequest)).status, 403);
+  assert.equal((await app.fetch(cfRequest)).status, 200);
   const loopback = request(rpc('tools/list'), {
     url: 'http://127.0.0.1:8787/mcp', host: '127.0.0.1:8787',
   });
@@ -201,4 +345,5 @@ test('projection enforces aggregate response cap and drops every unrelated backe
   assert.throws(() => projectWorkspaceSummary(fixtureSummary({ evidence_state: 'insufficient' }), workspaceId), /invalid_evidence_basis/);
   assert.throws(() => projectWorkspaceSummary(fixtureSummary({ coverage_state: 'partial' }), workspaceId), /invalid_evidence_basis/);
   assert.throws(() => projectWorkspaceSummary(fixtureSummary({ display_name: 'Unsafe\u202Ename' }), workspaceId));
+  assert.throws(() => projectWorkspaceSummary(fixtureSummary({ display_name: TRIAL_BEARER }), workspaceId));
 });

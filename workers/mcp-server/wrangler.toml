@@ -4,3 +4,11 @@ compatibility_date = "2026-06-18"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 preview_urls = false
+
+# Local/dev MCP-03 RPC contract. No enablement variable or public route is set.
+# The backend must export the named McpReadService WorkerEntrypoint.
+[[services]]
+binding = "MCP_BACKEND"
+service = "cybermeters-platform"
+entrypoint = "McpReadService"
+remote = false

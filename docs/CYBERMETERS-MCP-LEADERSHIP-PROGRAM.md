@@ -1,6 +1,6 @@
 # CyberMeters MCP Leadership Program
 
-**Program status:** ACTIVE — Phase 0, MCP-01A, and MCP-02A accepted locally; MCP-03 is next
+**Program status:** ACTIVE — Phase 0 and MCP-01A through MCP-03 accepted locally; MCP-04 is next
 
 **Founder direction:** 15 October 2026
 
@@ -304,7 +304,9 @@ Rollback disables the MCP route or hostname, revokes beta credentials, and leave
 - MCP-02A local evidence: 10/10 Node tests pass; Wrangler 4.148.0 dry-run bundles with no bindings; pinned packages are `agents` 0.28.1, `@modelcontextprotocol/server` 2.3.1, and Zod 4.6.7; npm reports zero known vulnerabilities after the override.
 - Cross-lane R1 review completed: Codex CLI reviewed MCP-01A and Claude CLI reviewed MCP-02A. The review closed strict expiry/deletion-state tests, evidence/coverage consistency, untrusted text labelling, backend deadline/abort, metric classification, explicit preview-URL disablement, and documentation accuracy. Both packages now pass for their local-only scope.
 - No source code, database, GitHub setting, production service, customer workspace, or external MCP client was changed during discovery.
-- MCP-01A and MCP-02A are not routed, deployed, customer-ready, or release-authorised. They remain local; MCP-03 must add and prove the private service/admission integration before any endpoint can be enabled.
+- MCP-03 joined the gateway to the scan API through a named private Worker service binding. The gateway has no data binding or enablement variable in its deployment config; the scan API's named entrypoint requires an exact trial token/workspace allowlist, current D1 token and membership facts, an atomic fail-closed budget, and an awaited audit before returning a deliberately unassessed summary.
+- MCP-03 local proof: gateway 17/17 and backend 6/6 tests pass. A repeatable two-Worker workerd/D1 trial with two synthetic tenants proves own access, foreign and nonexistent denial, 30 successful reads, the 31st rate denial, and durable success/denial audit rows without bearer or caller-supplied workspace in denial metadata. Existing auth/tenant, entry-point inventory, route, OpenAPI, and both Worker dry-run gates pass. A separate targeted R1 review found no material P0/P1 issue in the changed MCP paths.
+- MCP-03 is local engineering evidence only. No MCP hostname, enablement variable, OAuth audience, live score projection, customer credential, deploy, push, or PR has been enabled. Gateway rejections before RPC have no backend audit row; that boundary and customer-facing auth remain for later release work.
 
 ## 15. Reference points
 

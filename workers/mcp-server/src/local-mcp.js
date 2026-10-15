@@ -13,7 +13,8 @@ const inputSchema = z.strictObject({ workspace_id: workspaceId });
 const scoreStates = ['assessed', 'latest_incomplete', 'current_not_assessed', 'not_assessed', 'basis_unproven'];
 const coverageStates = ['complete', 'partial', 'unavailable', 'not_assessed'];
 const evidenceStates = ['authoritative', 'provisional', 'insufficient'];
-const safeText = (max) => z.string().min(1).max(max).refine((value) => !/[\x00-\x1f\x7f\p{Cf}]/u.test(value));
+const safeText = (max) => z.string().min(1).max(max).refine((value) =>
+  !/[\x00-\x1f\x7f\p{Cf}]/u.test(value) && !/cm_[a-f0-9]{64}/i.test(value));
 
 class ProjectionError extends Error {
   constructor(code) {
@@ -51,7 +52,9 @@ function localRequestAllowed(request) {
   try {
     const url = new URL(request.url);
     const host = request.headers.get('host');
-    if (request.cf !== undefined || url.protocol !== 'http:' ||
+    // Wrangler also sets request.cf for local workerd requests. The deploy
+    // boundary is the absent enablement variable and route, not that property.
+    if (url.protocol !== 'http:' ||
         !['localhost', '127.0.0.1'].includes(url.hostname) ||
         host?.toLowerCase() !== url.host.toLowerCase() ||
         url.username || url.password) return false;
@@ -214,7 +217,14 @@ export function createLocalMcpWorker({ backend, onEvent, backendTimeoutMs = DEFA
         return safeError(400, 'invalid_json');
       }
       try {
-        const response = await handler.fetch(request, { parsedBody });
+        // The SDK sees only protocol headers and the capped body. In particular,
+        // the request-scoped bearer is never handed to its handler or tools.
+        const protocolHeaders = new Headers(request.headers);
+        protocolHeaders.delete('authorization');
+        const protocolRequest = new Request(request.url, {
+          method: 'POST', headers: protocolHeaders, body,
+        });
+        const response = await handler.fetch(protocolRequest, { parsedBody });
         const nullBodyStatus = [204, 205, 304].includes(response.status);
         const responseText = nullBodyStatus ? '' : await readCapped(response.body, MAX_RESPONSE_BYTES);
         if (responseText === null) {
