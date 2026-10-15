@@ -1,4 +1,4 @@
-import { createLocalMcpWorker } from './local-mcp.js';
+import { createLocalMcpWorker, REQUIRED_RPC_METHODS } from './local-mcp.js';
 
 const DISABLED_BODY = JSON.stringify({ error: 'mcp_not_configured' });
 const INVALID_BEARER_BODY = JSON.stringify({ error: 'invalid_bearer' });
@@ -30,20 +30,26 @@ function invalidBearerResponse() {
 export default {
   fetch(request, env) {
     if (env?.MCP_INTERNAL_ENABLED !== 'true' ||
-        typeof env.MCP_BACKEND?.getWorkspaceSummary !== 'function') return disabledResponse();
+        REQUIRED_RPC_METHODS.some((method) => typeof env.MCP_BACKEND?.[method] !== 'function')) {
+      return disabledResponse();
+    }
 
     const bearer = trialBearer(request);
     if (bearer === null) return invalidBearerResponse();
 
     // A fresh handler and backend closure keep the bearer in this request only.
     // Do not pass AbortSignal over RPC: the named entrypoint contract is exactly
-    // getWorkspaceSummary({ bearer, workspaceId }). The local response deadline
+    // each named method receives only { bearer, workspaceId?, scanId? }.
+    // The local response deadline
     // remains bounded even if the remote method cannot be cancelled.
-    const backend = {
-      getWorkspaceSummary({ workspaceId }) {
-        return env.MCP_BACKEND.getWorkspaceSummary({ bearer, workspaceId });
+    const backend = Object.fromEntries(REQUIRED_RPC_METHODS.map((method) => [method,
+      ({ workspaceId, scanId }) => {
+        const args = { bearer };
+        if (workspaceId !== undefined) args.workspaceId = workspaceId;
+        if (scanId !== undefined) args.scanId = scanId;
+        return env.MCP_BACKEND[method](args);
       },
-    };
+    ]));
     return createLocalMcpWorker({ backend }).fetch(request);
   },
 };
@@ -51,7 +57,7 @@ export default {
 // A test harness must deliberately supply a backend. This function does not run
 // from the deployed entrypoint and rejects non-local requests itself.
 export function createLocalTestWorker({ backend, onEvent, backendTimeoutMs } = {}) {
-  if (!backend || typeof backend.getWorkspaceSummary !== 'function') {
+  if (!backend || REQUIRED_RPC_METHODS.some((method) => typeof backend[method] !== 'function')) {
     throw new TypeError('A local test backend is required');
   }
   return createLocalMcpWorker({ backend, onEvent, backendTimeoutMs });

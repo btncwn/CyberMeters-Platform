@@ -46,6 +46,20 @@ function harness({ mutate, rateResult = null, rateError = false,
   mutate?.(record);
   const overrides = {
     now: NOW,
+    // This validator isolates admission/audit behavior. Canonical read
+    // projections are exercised by the dedicated MCP-04 projection tests.
+    projectRead: async () => ({
+      workspace_id: "ws_1",
+      display_name: "Test workspace",
+      domain_count: 0,
+      open_case_count: 0,
+      score_state: "not_assessed",
+      score_value: null,
+      latest_measurement_at: null,
+      evidence_state: "insufficient",
+      coverage_state: "not_assessed",
+      limitations: ["No verified complete assessment currently establishes this workspace's score."],
+    }),
     hashToken: async (raw) => {
       calls.push("hash");
       assert.equal(raw, TOKEN);
@@ -104,12 +118,14 @@ test("one bound, expiring, read-only token returns a minimal honest summary", as
   assert.deepEqual(result, {
     workspace_id: "ws_1",
     display_name: "Test workspace",
-    score_state: "basis_unproven",
+    domain_count: 0,
+    open_case_count: 0,
+    score_state: "not_assessed",
     score_value: null,
     latest_measurement_at: null,
     evidence_state: "insufficient",
-    coverage_state: "unavailable",
-    limitations: ["The MCP summary has not verified the current assessment basis. Open CyberMeters for measured posture."],
+    coverage_state: "not_assessed",
+    limitations: ["No verified complete assessment currently establishes this workspace's score."],
   });
   assert.equal(JSON.stringify(result).includes(TOKEN), false);
 });
@@ -230,6 +246,12 @@ test("two real tenant rows enforce binding, membership, revocation, budget, and 
       CREATE TABLE audit_events (id TEXT PRIMARY KEY, workspace_id TEXT, user_id TEXT,
         actor_type TEXT, event_type TEXT NOT NULL, entity_type TEXT, entity_id TEXT,
         description TEXT, metadata_json TEXT, created_at TEXT);
+      CREATE TABLE workspace_domains (workspace_id TEXT NOT NULL, domain_id TEXT NOT NULL);
+      CREATE TABLE managed_cases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
+        status TEXT NOT NULL);
+      CREATE TABLE scans (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
+        domain TEXT, domain_id TEXT, status TEXT NOT NULL, score INTEGER,
+        rating TEXT, scan_quality TEXT, created_at TEXT);
     `);
     const tokenA = `cm_${"a".repeat(64)}`;
     const tokenB = `cm_${"b".repeat(64)}`;
