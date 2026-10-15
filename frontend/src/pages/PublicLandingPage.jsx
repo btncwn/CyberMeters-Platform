@@ -140,7 +140,7 @@ function DomainForm({ id, tone = 'dark' }) {
   return (
     <form action="/free-scan" method="get" className="w-full max-w-[600px]">
       <label htmlFor={id} className="sr-only">Your domain</label>
-      <div className={`flex flex-col sm:flex-row gap-2 sm:gap-0 sm:items-stretch rounded-[12px] bg-white p-1.5 ${tone === 'dark' ? 'shadow-[0_18px_50px_-20px_rgba(6,16,48,.65)]' : 'border border-[#D5DBEA] shadow-sm'}`}>
+      <div className={`flex flex-col sm:flex-row gap-2 sm:gap-0 sm:items-stretch rounded-[12px] bg-white p-1.5 ${tone === 'dark' ? 'shadow-[0_18px_50px_-20px_rgba(6,16,48,.65)]' : 'border border-[#D5DBEA] shadow-xs'}`}>
         <div className="flex items-center gap-3 flex-1 min-w-0 pl-4 h-[52px]">
           <input
             id={id}
@@ -151,7 +151,7 @@ function DomainForm({ id, tone = 'dark' }) {
             autoCapitalize="none"
             spellCheck="false"
             placeholder="yourcompany.co.uk"
-            className="w-full min-w-0 bg-transparent text-[17px] text-[#121A2E] placeholder:text-[#8A93A8] outline-none"
+            className="w-full min-w-0 bg-transparent text-[17px] text-[#121A2E] placeholder:text-[#8A93A8] outline-hidden"
           />
         </div>
         <button type="submit" className="h-[52px] px-6 rounded-[8px] btn-amber text-[16px]">
@@ -219,7 +219,7 @@ function HeroStage() {
           <h1 className="font-cm font-normal text-[46px] sm:text-[60px] lg:text-[72px] leading-[1.04] tracking-[-0.01em] text-balance">
             Know where your business is exposed and what to do next.
           </h1>
-          <p className="font-cm mt-7 text-[21px] lg:text-[24px] leading-[1.5] text-white/85 max-w-[40ch] text-pretty">
+          <p className="font-cm mt-7 text-[21px] lg:text-[24px] leading-normal text-white/85 max-w-[40ch] text-pretty">
             CyberMeters runs external security checks on your domain, from email and website to certificates and lookalike domains, and says plainly what it could not check.
           </p>
           <div className="mt-10"><DomainForm id="hero-domain" /></div>
@@ -285,7 +285,7 @@ function AreasOverview() {
         return (
           <li key={s.name} className="border-t border-[#DDE2EE] py-7">
             <div className="flex items-start gap-5">
-              <span className="mt-2 w-1 self-stretch rounded-full flex-shrink-0" style={{ background: c.icon }} aria-hidden="true" />
+              <span className="mt-2 w-1 self-stretch rounded-full shrink-0" style={{ background: c.icon }} aria-hidden="true" />
               <div className="flex-1 min-w-0">
                 <h3 className="font-cm font-normal text-[32px] leading-[1.08] text-[#121A2E]">{s.name}</h3>
                 <p className="mt-3 text-[17px] font-semibold leading-snug" style={{ color: c.text }}>{s.q}</p>
@@ -319,7 +319,7 @@ function SectionHeading({ id, title, lead, center = false }) {
   return (
     <div className={center ? 'text-center mx-auto max-w-[860px]' : 'max-w-[760px]'}>
       <h2 id={id} className="font-cm font-normal text-[38px] sm:text-[46px] lg:text-[56px] leading-[1.06] tracking-[-0.005em] text-[#121A2E] text-balance">{title}</h2>
-      {lead && <p className={`font-cm mt-5 text-[20px] lg:text-[22px] leading-[1.5] text-[#46506A] ${center ? 'text-balance' : 'text-pretty'}`}>{lead}</p>}
+      {lead && <p className={`font-cm mt-5 text-[20px] lg:text-[22px] leading-normal text-[#46506A] ${center ? 'text-balance' : 'text-pretty'}`}>{lead}</p>}
     </div>
   )
 }
@@ -377,7 +377,7 @@ export default function PublicLandingPage() {
             <ol className="mt-12 space-y-9">
               {STEPS.map((s, i) => (
                 <li key={s.title} className="flex gap-5">
-                  <span className="font-cm w-11 h-11 flex-shrink-0 rounded-full bg-[#2550B6] text-white grid place-items-center text-[20px]">{i + 1}</span>
+                  <span className="font-cm w-11 h-11 shrink-0 rounded-full bg-[#2550B6] text-white grid place-items-center text-[20px]">{i + 1}</span>
                   <div>
                     <h3 className="font-cm font-normal text-[26px] leading-[1.15]">{s.title}</h3>
                     <p className="mt-2 text-[17px] leading-[1.6] text-[#46506A]">{s.copy}</p>
@@ -508,7 +508,7 @@ export default function PublicLandingPage() {
         <ClosingEye />
         <div className={`${CONTAINER} relative z-10 py-24 lg:py-[120px]`}>
           <h2 id="cta-title" className="font-cm font-normal text-[40px] sm:text-[48px] lg:text-[56px] leading-[1.06] max-w-[16ch] text-balance">Run a free check on your domain.</h2>
-          <p className="font-cm mt-5 text-[21px] lg:text-[22px] leading-[1.5] text-white/85 max-w-[46ch]">
+          <p className="font-cm mt-5 text-[21px] lg:text-[22px] leading-normal text-white/85 max-w-[46ch]">
             See one bounded, external snapshot of public evidence, including what could not be assessed.
           </p>
           <div className="mt-10"><DomainForm id="cta-domain" /></div>

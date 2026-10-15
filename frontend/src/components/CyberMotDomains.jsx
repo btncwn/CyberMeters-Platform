@@ -67,7 +67,7 @@ function DomainRow({ d }) {
           {customerEvidenceText(d.summary || d.description)}
         </div>
       </div>
-      <div className="flex-shrink-0 text-right">
+      <div className="shrink-0 text-right">
         <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone]}`}>
           {conclusionLabel}{provisional ? ' · provisional' : ''}
         </span>

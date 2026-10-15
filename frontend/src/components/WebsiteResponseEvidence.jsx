@@ -26,7 +26,7 @@ export default function WebsiteResponseEvidence({ headers }) {
           {check.final_url && <p className="break-all">Final URL: {displayUrl(check.final_url)}</p>}
           {check.status === 'ok' && <dl className="space-y-2">
             {HEADERS.filter((name) => Object.hasOwn(check.headers_observed || {}, name)).map((name) => <div key={name}>
-              <dt className="font-medium">{name}</dt><dd className="break-words">{check.headers_observed[name] || 'No value captured'}</dd>
+              <dt className="font-medium">{name}</dt><dd className="wrap-break-word">{check.headers_observed[name] || 'No value captured'}</dd>
             </div>)}
           </dl>}
         </div>

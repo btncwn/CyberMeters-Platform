@@ -27,7 +27,7 @@ function Bullets({ items, colour }) {
     <ul className="mt-3 space-y-2 pl-1">
       {items.map((item, i) => (
         <li key={i} className="flex items-start gap-2.5 text-[16px] text-black leading-relaxed">
-          <span className="mt-[9px] w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} aria-hidden="true" />
+          <span className="mt-[9px] w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: colour }} aria-hidden="true" />
           <span>{item}</span>
         </li>
       ))}
@@ -72,7 +72,7 @@ function ArticleCard({ article }) {
   return (
     <Link
       to={`/guide/${article.slug}`}
-      className="group flex flex-col bg-white rounded-xl border border-gray-200 hover:border-brand-200 hover:shadow-sm transition-all p-4 gap-1.5"
+      className="group flex flex-col bg-white rounded-xl border border-gray-200 hover:border-brand-200 hover:shadow-xs transition-all p-4 gap-1.5"
     >
       <p className="text-[16px] font-bold text-black group-hover:text-brand-700 leading-snug">{article.title}</p>
       <p className="text-xs text-black leading-relaxed line-clamp-2">{article.summary}</p>
@@ -92,7 +92,7 @@ export default function GuideAreaPage() {
   const next = GUIDE_AREAS[index + 1]
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <nav className="flex items-center gap-1.5 text-xs text-black mb-6" aria-label="Breadcrumb">
         <Link to="/guide" className="hover:text-brand-700 transition-colors">Field Guide</Link>
         <span aria-hidden="true">/</span>
@@ -169,19 +169,19 @@ export default function GuideAreaPage() {
           </nav>
         </article>
 
-        <aside className="w-72 flex-shrink-0 hidden lg:flex flex-col gap-6 sticky top-[160px]">
+        <aside className="w-72 shrink-0 hidden lg:flex flex-col gap-6 sticky top-[160px]">
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-xs font-semibold uppercase tracking-wider mb-3">On this page</h3>
             <nav className="space-y-1.5">
               {SECTIONS.map((s, i) => (
                 <a key={s.id} href={`#${s.id}`} className="flex items-center gap-2 text-[15px] text-black hover:text-brand-700 transition-colors">
-                  <span className="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0" style={{ backgroundColor: colours.chip, color: colours.text }}>{i + 1}</span>
+                  <span className="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: colours.chip, color: colours.text }}>{i + 1}</span>
                   {s.heading}
                 </a>
               ))}
               {articles.length > 0 && (
                 <a href="#deeper" className="flex items-center gap-2 text-[15px] text-black hover:text-brand-700 transition-colors">
-                  <span className="w-5 h-5 rounded-full bg-gray-100 text-xs font-bold flex items-center justify-center flex-shrink-0">+</span>
+                  <span className="w-5 h-5 rounded-full bg-gray-100 text-xs font-bold flex items-center justify-center shrink-0">+</span>
                   Deeper reading
                 </a>
               )}

@@ -31,7 +31,7 @@ export function PortfolioExecutiveSummary() {
     <section className="card p-6 mb-8" aria-label="Portfolio summary">
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-sm font-semibold text-gray-900">Portfolio summary</h2>
-        {data?.partial_failure && <span className="text-xs rounded px-2 py-0.5 bg-amber-50 text-amber-800">Partial</span>}
+        {data?.partial_failure && <span className="text-xs rounded-sm px-2 py-0.5 bg-amber-50 text-amber-800">Partial</span>}
       </div>
       {loading && <p className="text-sm text-gray-500">Loading…</p>}
       {!loading && error && <p role="alert" className="text-sm text-red-700">The portfolio summary could not be loaded.</p>}

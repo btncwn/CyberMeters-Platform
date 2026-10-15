@@ -184,14 +184,14 @@ function NotificationCard({ n, onMarkRead }) {
           </div>
 
           {/* Right side: unread dot + scan link */}
-          <div className="flex items-center gap-3 flex-shrink-0 mt-0.5">
+          <div className="flex items-center gap-3 shrink-0 mt-0.5">
             {link && (
               <span className="text-xs text-brand-600 font-medium whitespace-nowrap">
                 {linkLabel}
               </span>
             )}
             {isUnread && (
-              <span className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-brand-500 shrink-0" />
             )}
           </div>
         </div>
@@ -409,7 +409,7 @@ export default function NotificationsPage() {
         </div>
 
         {/* Filters */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-xs mb-4 overflow-hidden">
           <div className="flex items-center gap-1 px-4 py-3 border-b border-gray-100">
             {/* Status tabs */}
             <div className="flex rounded-xl bg-gray-100 p-0.5 mr-3">
@@ -422,7 +422,7 @@ export default function NotificationsPage() {
                   onClick={() => setStatusFilter(value)}
                   className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
                     statusFilter === value
-                      ? 'bg-white text-gray-900 shadow-sm'
+                      ? 'bg-white text-gray-900 shadow-xs'
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >

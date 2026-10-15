@@ -83,7 +83,7 @@ function SectionHeader({ title, subtitle, action }) {
         <h2 className="text-sm font-bold text-gray-900">{title}</h2>
         {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
       </div>
-      {action && <div className="flex-shrink-0">{action}</div>}
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   )
 }
@@ -97,7 +97,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
   const enablingCleanup = !wasAutoCleanup && nowAutoCleanup
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-gray-900/40 px-4">
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-gray-900/40 px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 flex items-start gap-3 border-b border-amber-100 bg-amber-50">
@@ -108,7 +108,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
           <button
             onClick={onCancel}
             disabled={loading}
-            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-amber-100 flex items-center justify-center flex-shrink-0"
+            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-amber-100 flex items-center justify-center shrink-0"
             aria-label="Close retention warning"
           >
             <X className="w-4 h-4" />
@@ -439,7 +439,7 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
               type="button"
               onClick={() => handleChange(days, !cleanup)}
               disabled={saving}
-              className="flex-shrink-0 mt-0.5"
+              className="shrink-0 mt-0.5"
               aria-label={cleanup ? 'Disable auto cleanup' : 'Enable auto cleanup'}
             >
               {cleanup
@@ -641,7 +641,7 @@ export default function WorkspaceRetentionPage() {
     return (
       <div className="flex">
         <div className="flex-1 min-w-0">
-          <div className="max-w-screen-xl mx-auto px-6 py-8">
+          <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
             <NoWorkspaceSelected />
           </div>
         </div>

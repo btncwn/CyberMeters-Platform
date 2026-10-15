@@ -195,7 +195,7 @@ function ManagedCasesPanel({ workspaceId }) {
                   {item.last_verified_at && <span className="inline-flex items-center gap-1">checked {fmtDate(item.last_verified_at)}</span>}
                 </div>
               </div>
-              <div className="w-full lg:w-72 flex-shrink-0 space-y-2">
+              <div className="w-full lg:w-72 shrink-0 space-y-2">
                 {!item.owner_ref && (
                   <div className="flex gap-2">
                     <input
@@ -242,7 +242,7 @@ function ManagedCasesPanel({ workspaceId }) {
 function SummaryCard({ icon: Icon, label, value, iconCls = 'text-brand-600', bgCls = 'bg-brand-50' }) {
   return (
     <div className="card p-4 flex items-center gap-3">
-      <div className={`w-9 h-9 rounded-xl ${bgCls} flex items-center justify-center flex-shrink-0`}>
+      <div className={`w-9 h-9 rounded-xl ${bgCls} flex items-center justify-center shrink-0`}>
         <Icon className={`w-4 h-4 ${iconCls}`} />
       </div>
       <div className="min-w-0">
@@ -411,7 +411,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                       <div className="label mb-1">IP Addresses</div>
                       <div className="flex flex-wrap gap-1">
                         {ips.map(ip => (
-                          <span key={ip} className="mono text-xs bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">
+                          <span key={ip} className="mono text-xs bg-gray-50 border border-gray-200 rounded-sm px-1.5 py-0.5">
                             {ip}
                           </span>
                         ))}
@@ -434,7 +434,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                       const claimDisplay = assetLifecycleClaimDisplay(ev)
                       return (
                       <div key={ev.id} className="flex items-start gap-3 px-3 py-2.5 bg-gray-50 rounded-xl">
-                        <div className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 flex-shrink-0" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 shrink-0" />
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-medium text-gray-700 capitalize">
                             {claimDisplay.title || ev.event_type.replace(/_/g, ' ')}
@@ -589,7 +589,7 @@ export default function AssetsPage() {
   // ── No workspace selected ─────────────────────────────────────────────────
   if (!workspaceId) {
     return (
-      <div className="max-w-screen-xl mx-auto px-6 py-8">
+      <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
         <div className="card p-12 text-center">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Select a Workspace</h2>
           <p className="text-sm text-gray-400 mb-6">
@@ -611,7 +611,7 @@ export default function AssetsPage() {
   })
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
 
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -626,7 +626,7 @@ export default function AssetsPage() {
         <button
           onClick={() => load(true)}
           disabled={refreshing || loading}
-          className="btn-secondary flex-shrink-0"
+          className="btn-secondary shrink-0"
         >
           {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
           Refresh

@@ -46,7 +46,7 @@ export default function MaintenanceOverlay() {
   if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-gray-50 px-6" role="alertdialog" aria-modal="true" aria-label="Scheduled maintenance">
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-gray-50 px-6" role="alertdialog" aria-modal="true" aria-label="Scheduled maintenance">
       <div className="max-w-md w-full text-center">
         <h1 className="text-2xl font-bold text-gray-900">Scheduled maintenance</h1>
         <p className="mt-3 text-gray-600 leading-relaxed">
@@ -57,7 +57,7 @@ export default function MaintenanceOverlay() {
         <button
           onClick={checkLifted}
           disabled={checking}
-          className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:opacity-60"
+          className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-brand-700 disabled:opacity-60"
         >
           {checking ? 'Checking…' : 'Check again'}
         </button>

@@ -64,7 +64,7 @@ export default function ProductShowcase({ rows }) {
                 const c = SERVICE_COLORS[r.key]
                 return (
                   <li key={r.name} className="flex items-start sm:items-center gap-4 px-4 sm:px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
-                    <span className="mt-1.5 sm:mt-0 w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.icon }} aria-hidden="true" />
+                    <span className="mt-1.5 sm:mt-0 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: c.icon }} aria-hidden="true" />
                     <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                       <div className="flex-1 min-w-0">
                         <p className="text-[15px] font-semibold text-[#121A2E]">{r.name}</p>

@@ -315,15 +315,15 @@ export default function InvitationLandingPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Top bar */}
       <header className="bg-white border-b border-gray-100 px-6 py-4">
-        <div className="max-w-screen-md mx-auto">
+        <div className="max-w-(--breakpoint-md) mx-auto">
           <CyberMetersLogoMark size={36} showWordmark animated />
         </div>
       </header>
 
-      <main className="max-w-screen-md mx-auto px-4 py-10 space-y-8">
+      <main className="max-w-(--breakpoint-md) mx-auto px-4 py-10 space-y-8">
 
         {/* ── Invitation card ──────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-xs border border-gray-100 overflow-hidden">
           {/* Header band */}
           <div className="bg-brand-600 px-8 py-6">
             <h1 className="text-2xl font-bold text-white mb-1">
@@ -418,7 +418,7 @@ export default function InvitationLandingPage() {
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {BENEFITS.map(({ title, desc }) => (
-              <div key={title} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+              <div key={title} className="bg-white rounded-xl border border-gray-100 p-5 shadow-xs">
                 <p className="text-sm font-semibold text-gray-900 mb-1">{title}</p>
                 <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
               </div>

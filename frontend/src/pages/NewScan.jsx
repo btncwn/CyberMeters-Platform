@@ -280,7 +280,7 @@ export default function NewScan() {
   }
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors mb-6 font-medium">
         Back to Dashboard
       </Link>

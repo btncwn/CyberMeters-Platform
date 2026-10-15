@@ -214,5 +214,5 @@ function DomainDns({ workspaceId, domain, actions, workspaceCanApply }) {
 }
 
 function Record({ title, records }) {
-  return <div className="min-w-0"><h4 className="text-sm font-semibold text-gray-700">{title}</h4>{!Array.isArray(records) ? <p className="text-xs text-amber-800">Record evidence unavailable</p> : records.length === 0 ? <p className="text-xs text-gray-500">No matching record</p> : records.map((record, index) => <div key={record.id || index} className="text-xs bg-gray-50 rounded p-2 mt-1"><p className="break-all">{record.type} · {record.name}</p><pre className="whitespace-pre-wrap break-all mt-1">{record.content}</pre><p className="text-gray-500 mt-1">TTL: {record.ttl ?? 'Not recorded'}</p></div>)}</div>
+  return <div className="min-w-0"><h4 className="text-sm font-semibold text-gray-700">{title}</h4>{!Array.isArray(records) ? <p className="text-xs text-amber-800">Record evidence unavailable</p> : records.length === 0 ? <p className="text-xs text-gray-500">No matching record</p> : records.map((record, index) => <div key={record.id || index} className="text-xs bg-gray-50 rounded-sm p-2 mt-1"><p className="break-all">{record.type} · {record.name}</p><pre className="whitespace-pre-wrap break-all mt-1">{record.content}</pre><p className="text-gray-500 mt-1">TTL: {record.ttl ?? 'Not recorded'}</p></div>)}</div>
 }

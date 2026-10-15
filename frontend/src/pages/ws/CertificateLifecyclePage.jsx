@@ -184,13 +184,13 @@ export default function CertificateLifecyclePage() {
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex flex-wrap gap-1">
-                      {can('set_expected_hostnames') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'set_expected_hostnames')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Expected hosts</button>}
-                      {can('assign_renewal_owner') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'assign_renewal_owner')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
-                      {can('plan_renewal') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'plan_renewal')} className="text-xs rounded border border-blue-200 text-blue-700 px-2 py-0.5">Plan</button>}
-                      {can('record_replacement_completed') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_replacement_completed')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Record renewal</button>}
-                      {can('request_verification') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded border border-green-200 text-green-700 px-2 py-0.5">Verify</button>}
-                      {can('record_exception') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
-                      {can('retire') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'retire')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
+                      {can('set_expected_hostnames') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'set_expected_hostnames')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Expected hosts</button>}
+                      {can('assign_renewal_owner') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'assign_renewal_owner')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
+                      {can('plan_renewal') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'plan_renewal')} className="text-xs rounded-sm border border-blue-200 text-blue-700 px-2 py-0.5">Plan</button>}
+                      {can('record_replacement_completed') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_replacement_completed')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Record renewal</button>}
+                      {can('request_verification') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded-sm border border-green-200 text-green-700 px-2 py-0.5">Verify</button>}
+                      {can('record_exception') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded-sm border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
+                      {can('retire') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'retire')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
                     </div>
                   </td>
                 </tr>

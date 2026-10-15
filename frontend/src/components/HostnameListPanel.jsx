@@ -79,7 +79,7 @@ function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel }) {
   }
 
   return (
-    <form onSubmit={submit} className="mt-3 space-y-3 rounded border border-gray-200 p-3">
+    <form onSubmit={submit} className="mt-3 space-y-3 rounded-sm border border-gray-200 p-3">
       <div className="flex flex-col gap-1">
         <label htmlFor={`${uid}-format`} className="text-sm font-medium text-gray-800">Format</label>
         <select id={`${uid}-format`} className="input max-w-xs" value={format} onChange={(e) => setFormat(e.target.value)}>
@@ -88,7 +88,7 @@ function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel }) {
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={`${uid}-text`} className="text-sm font-medium text-gray-800">Hostnames under {domain}</label>
-        <textarea id={`${uid}-text`} className="input font-mono text-xs min-h-[8rem]" value={text} spellCheck={false}
+        <textarea id={`${uid}-text`} className="input font-mono text-xs min-h-32" value={text} spellCheck={false}
           placeholder={format === 'csv' ? 'hostname\nportal.' + domain : format === 'zone' ? `$ORIGIN ${domain}.\nportal  IN  A  192.0.2.10` : `portal.${domain}\nvpn.${domain}`}
           onChange={(e) => setText(e.target.value)} />
         <p className="text-xs text-gray-500">Up to 200 hostnames. Names outside {domain} are ignored.</p>
@@ -97,7 +97,7 @@ function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel }) {
         <label htmlFor={`${uid}-file`} className="text-sm font-medium text-gray-800">Or upload a file</label>
         <input id={`${uid}-file`} type="file" accept=".txt,.csv,.zone,.db,text/plain,text/csv" onChange={readFile} className="text-sm" />
       </div>
-      {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded p-2">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-sm p-2">{error}</p>}
       {summary.length > 0 && <ul className="text-xs text-gray-600 list-disc pl-4">{summary.map((line) => <li key={line}>{line}</li>)}</ul>}
       <div className="flex gap-2">
         <button type="submit" className="btn-primary" disabled={busy || !text.trim()}>{busy ? 'Saving…' : 'Save list'}</button>
@@ -146,7 +146,7 @@ function DomainRow({ workspaceId, entry, canManage, maxBytes, onChanged }) {
           </div>
         )}
       </div>
-      {error && <p role="alert" className="mt-2 text-sm text-red-700 bg-red-50 rounded p-2">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-red-700 bg-red-50 rounded-sm p-2">{error}</p>}
       {notice.length > 0 && <ul role="status" className="mt-2 text-xs text-gray-600 list-disc pl-4">{notice.map((line) => <li key={line}>{line}</li>)}</ul>}
       {list && list.hostnames?.length > 0 && (
         <details className="mt-2">
@@ -183,7 +183,7 @@ export default function HostnameListPanel({ workspaceId }) {
         <h2 id="hostname-list-heading" className="text-base font-semibold text-gray-900">Hostnames you know about</h2>
       </div>
       {data?.scope_note && <p className="text-sm text-gray-600">{data.scope_note}</p>}
-      {error && <p role="alert" className="mt-3 text-sm text-red-700 bg-red-50 rounded p-3">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-red-700 bg-red-50 rounded-sm p-3">{error}</p>}
       {!error && !data && <p className="mt-3 text-sm text-gray-500" role="status">Loading…</p>}
       {data && !data.can_manage && <p className="mt-2 text-xs text-gray-500">Only a workspace owner or admin can change hostname lists.</p>}
       {data && (data.domains?.length ? (

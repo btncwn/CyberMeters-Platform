@@ -232,7 +232,7 @@ function ActiveSessions() {
                   onClick={() => handleRevoke(s.session_id)}
                   disabled={revoking === s.session_id}
                   title="Revoke session"
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 shrink-0"
                 >
                   {revoking === s.session_id && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   Revoke

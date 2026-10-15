@@ -53,7 +53,7 @@ function Row({ label, children }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-[170px_minmax(0,1fr)] gap-1 sm:gap-4 px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
       <dt className="text-[14px] text-[#6A7389]">{label}</dt>
-      <dd className="text-[15px] text-[#121A2E] min-w-0 break-words">{children}</dd>
+      <dd className="text-[15px] text-[#121A2E] min-w-0 wrap-break-word">{children}</dd>
     </div>
   )
 }

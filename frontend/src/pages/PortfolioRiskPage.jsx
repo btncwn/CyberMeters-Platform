@@ -45,7 +45,7 @@ function AlertSeverityBar({ level }) {
     level === 'critical' ? 'bg-red-500' :
     level === 'high'     ? 'bg-orange-400' :
     level === 'medium'   ? 'bg-amber-400' : 'bg-gray-300'
-  return <span className={`inline-block w-1 self-stretch rounded-full flex-shrink-0 ${cls}`} />
+  return <span className={`inline-block w-1 self-stretch rounded-full shrink-0 ${cls}`} />
 }
 
 function brsUnavailablePresentation(ranking) {
@@ -324,7 +324,7 @@ export default function PortfolioRiskPage() {
   if (error) {
     if (error.error === 'plan_feature_required') {
       return (
-        <div className="p-6 max-w-screen-xl mx-auto">
+        <div className="p-6 max-w-(--breakpoint-xl) mx-auto">
           <PlanGate error={error}>{null}</PlanGate>
         </div>
       )
@@ -343,7 +343,7 @@ export default function PortfolioRiskPage() {
   }
 
   return (
-    <div className="p-6 max-w-screen-xl mx-auto">
+    <div className="p-6 max-w-(--breakpoint-xl) mx-auto">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
@@ -434,7 +434,7 @@ export default function PortfolioRiskPage() {
                     {scoreStateMeta(data.portfolio_score_state).label}
                   </span>
                   {data.portfolio_score_reason && (
-                    <p className="text-xs text-gray-500 text-center leading-snug max-w-[15rem]">
+                    <p className="text-xs text-gray-500 text-center leading-snug max-w-60">
                       {data.portfolio_score_reason}
                     </p>
                   )}

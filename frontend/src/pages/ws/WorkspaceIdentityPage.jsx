@@ -48,7 +48,7 @@ function IdentityAssetCard({ asset }) {
           </p>
           <p className="text-xs text-gray-400 capitalize mt-0.5">{cfg.label}</p>
         </div>
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${toneClass(claimMeta.tone)}`}>
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${toneClass(claimMeta.tone)}`}>
           {claimMeta.label}
         </span>
       </div>

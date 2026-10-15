@@ -62,7 +62,7 @@ export default function MailtoAssist() {
 
   if (!address) return null
   return (
-    <div role="status" aria-live="polite" className="fixed inset-x-0 bottom-4 z-[100] flex justify-center px-4 pointer-events-none">
+    <div role="status" aria-live="polite" className="fixed inset-x-0 bottom-4 z-100 flex justify-center px-4 pointer-events-none">
       <div className="pointer-events-auto w-full max-w-[460px] rounded-2xl bg-gray-900 text-white shadow-2xl px-5 py-4 flex items-start gap-4">
         <div className="flex-1 min-w-0">
           <p className="text-base font-semibold break-all">{address}</p>

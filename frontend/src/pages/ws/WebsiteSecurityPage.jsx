@@ -34,7 +34,7 @@ function ConditionRow({ item, expanded, onToggle, detail, detailError }) {
       <button type="button" onClick={onToggle} aria-expanded={expanded}
               className="flex w-full items-start gap-3 px-5 py-5 text-left hover:bg-gray-50 focus-visible:outline-brand-600">
         <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold leading-relaxed text-gray-900 break-words">{conditionLabel(item)}</p>
+          <p className="text-base font-semibold leading-relaxed text-gray-900 wrap-break-word">{conditionLabel(item)}</p>
           <p className="mt-1 text-sm text-gray-600 break-all">{item.domain}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Pill meta={monitoringMeta(item.monitoring_status)} />
@@ -63,7 +63,7 @@ function ConditionRow({ item, expanded, onToggle, detail, detailError }) {
               <div><dt className="text-gray-500">First seen</dt><dd>{date(item.first_seen_at)}</dd></div>
               <div><dt className="text-gray-500">Last seen</dt><dd>{date(item.last_seen_at)}</dd></div>
               <div><dt className="text-gray-500">Evidence quality</dt><dd>{scanQualityMeta(item.last_scan_quality).label}</dd></div>
-              <div><dt className="text-gray-500">Check</dt><dd className="break-words">{item.detecting_module || 'Not recorded'}</dd></div>
+              <div><dt className="text-gray-500">Check</dt><dd className="wrap-break-word">{item.detecting_module || 'Not recorded'}</dd></div>
             </dl>
             {!detail && !detailError && <p className="mt-3 text-sm">Loading history…</p>}
             {detail && !detail.events?.length && <p className="mt-3 text-sm">No recorded changes yet.</p>}

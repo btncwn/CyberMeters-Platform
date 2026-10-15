@@ -314,7 +314,7 @@ export default function NotificationBell() {
                           <p className={`text-xs font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
                             {n.title}
                           </p>
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-1 shrink-0">
                             {link && (
                               <span className="text-xs text-brand-500 font-medium">→</span>
                             )}
@@ -323,7 +323,7 @@ export default function NotificationBell() {
                                 onClick={e => { e.stopPropagation(); handleMarkRead(n.id) }}
                                 title="Mark as read"
                                 aria-label="Mark as read"
-                                className="w-5 h-5 flex items-center justify-center rounded text-gray-300 hover:text-brand-500 hover:bg-brand-50 transition-colors"
+                                className="w-5 h-5 flex items-center justify-center rounded-sm text-gray-300 hover:text-brand-500 hover:bg-brand-50 transition-colors"
                               >
                                 <X className="w-3 h-3" />
                               </button>

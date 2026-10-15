@@ -35,7 +35,7 @@ function HostList({ hosts, label }) {
   return (
     <ul className="mt-2 space-y-1 list-disc pl-5" aria-label={label}>
       {hosts.map((host, index) => (
-        <li key={`${host.hostname || 'host'}-${index}`} className="text-sm text-slate-700 break-words">{host.label}</li>
+        <li key={`${host.hostname || 'host'}-${index}`} className="text-sm text-slate-700 wrap-break-word">{host.label}</li>
       ))}
     </ul>
   )

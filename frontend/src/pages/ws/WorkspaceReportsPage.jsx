@@ -142,7 +142,7 @@ function ScheduledReportsCard({ wsId }) {
               <select
                 value={selType}
                 onChange={e => setSelType(e.target.value)}
-                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
                 {SCHEDULE_TYPES.map(t => (
                   <option key={t.value} value={t.value}>{t.label}</option>
@@ -154,7 +154,7 @@ function ScheduledReportsCard({ wsId }) {
               <select
                 value={selFreq}
                 onChange={e => setSelFreq(e.target.value)}
-                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
                 <option value="weekly">Weekly (Mondays)</option>
                 <option value="monthly">Monthly (1st)</option>
@@ -205,7 +205,7 @@ function ScheduledReportsCard({ wsId }) {
                   {sr.last_run_at && ` · Last: ${fmtDateTime(sr.last_run_at)}`}
                 </p>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => handleToggle(sr)}
                   title={sr.enabled ? 'Disable' : 'Enable'}

@@ -85,7 +85,7 @@ const WIZARD_STEPS = [
 function WizardStep({ n, label, active, done }) {
   return (
     <div className="flex items-center gap-1.5">
-      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
         done   ? 'bg-brand-500 text-white' :
         active ? 'bg-brand-600 text-white' :
                  'bg-gray-100 text-gray-400'
@@ -688,7 +688,7 @@ export default function WorkspaceDashboard() {
                     email security posture, exposed assets, and subdomains — producing a scored risk report in minutes.
                   </p>
                 </div>
-                <Link to="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
+                <Link to="/scans/new" className="btn-primary shrink-0 inline-flex items-center gap-2">
                   Start Scan
                 </Link>
               </div>

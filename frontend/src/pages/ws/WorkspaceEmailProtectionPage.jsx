@@ -47,7 +47,7 @@ function CopyButton({ value, label = 'Copy' }) {
   return (
     <button
       onClick={handle}
-      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 transition-colors flex-shrink-0"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 transition-colors shrink-0"
       title="Copy DNS value"
     >
       {copied ? 'Copied' : label}
@@ -183,7 +183,7 @@ function AuthCard({ title, status, statusKind = 'na', children }) {
 function KV({ k, v, mono }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <span className="text-xs font-semibold text-gray-500 flex-shrink-0">{k}</span>
+      <span className="text-xs font-semibold text-gray-500 shrink-0">{k}</span>
       <span className={`text-xs text-gray-800 text-right break-all ${mono ? 'mono' : 'font-medium'}`}>{v}</span>
     </div>
   )
@@ -251,7 +251,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
           <p className="text-xs font-semibold text-gray-500 mb-1">Includes ({detail.includes.length})</p>
           <div className="flex flex-wrap gap-1">
             {detail.includes.map((inc, i) => (
-              <span key={i} className="mono text-xs bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 text-gray-700">{inc}</span>
+              <span key={i} className="mono text-xs bg-gray-50 border border-gray-200 rounded-sm px-1.5 py-0.5 text-gray-700">{inc}</span>
             ))}
           </div>
         </div>
@@ -410,17 +410,17 @@ function ActionCard({ action }) {
   return (
     <div className="card overflow-hidden">
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-start gap-3 px-5 py-4 text-left hover:bg-gray-50/60 transition-colors">
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-2 ${sev.dot}`} />
+        <span className={`w-2 h-2 rounded-full shrink-0 mt-2 ${sev.dot}`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-bold text-gray-900">{action.title}</p>
-            {action.protocol && <span className="text-xs font-bold uppercase tracking-wide text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">{action.protocol}</span>}
-            <span className={`text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${sev.pill}`}>{sev.label}</span>
-            {action.confidence && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${CONFIDENCE[action.confidence] || CONFIDENCE.low}`}>{action.confidence} confidence</span>}
+            {action.protocol && <span className="text-xs font-bold uppercase tracking-wide text-gray-500 bg-gray-100 border border-gray-200 rounded-sm px-1.5 py-0.5">{action.protocol}</span>}
+            <span className={`text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-sm border ${sev.pill}`}>{sev.label}</span>
+            {action.confidence && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-sm border ${CONFIDENCE[action.confidence] || CONFIDENCE.low}`}>{action.confidence} confidence</span>}
           </div>
           {action.issue && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{action.issue}</p>}
         </div>
-        <ChevronDown className={`w-4 h-4 text-gray-300 flex-shrink-0 mt-1 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-4 h-4 text-gray-300 shrink-0 mt-1 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="px-5 pb-5 pt-1 space-y-3 border-t border-gray-50">
@@ -533,7 +533,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
           return (
             <div key={m.key} className={isCurrent ? 'bg-brand-50/30' : ''}>
               <div className="flex items-start gap-3 px-5 py-3.5">
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                   isCurrent ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-400 border border-gray-200'
                 }`}>{i + 1}</span>
                 <div className="flex-1 min-w-0">
@@ -542,7 +542,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
                       {m.title}
                     </p>
                     {isCurrent && (
-                      <span className="text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-brand-50 text-brand-700 border-brand-100">
+                      <span className="text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-sm border bg-brand-50 text-brand-700 border-brand-100">
                         Start here
                       </span>
                     )}
@@ -618,7 +618,7 @@ function DifferentiatorBlock({ wsId }) {
             </Link>
           </div>
         </div>
-        <div className="sm:w-56 flex-shrink-0 bg-brand-50/40 border-t sm:border-t-0 sm:border-l border-gray-100 p-6 flex flex-col justify-center gap-2">
+        <div className="sm:w-56 shrink-0 bg-brand-50/40 border-t sm:border-t-0 sm:border-l border-gray-100 p-6 flex flex-col justify-center gap-2">
           {[
             'DMARC sender intelligence',
             'Email authentication',
@@ -817,7 +817,7 @@ function EnforcementReadiness({ readiness }) {
               const tone = checkTone(c.status)
               return (
                 <div key={c.id} className="flex items-start gap-2" title={c.detail}>
-                  <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${tone.dot}`} />
+                  <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${tone.dot}`} />
                   <div className="min-w-0">
                     <p className={`text-sm font-medium leading-tight ${tone.txt}`}>{c.label}</p>
                     <p className="text-xs text-gray-500 leading-snug">{c.detail}</p>
@@ -1186,7 +1186,7 @@ function EmailLifecycleHistory({ data, error }) {
         </p>
       )}
       {data?.scope_note && (
-        <p className="mt-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-600">{data.scope_note}</p>
+        <p className="mt-4 rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-600">{data.scope_note}</p>
       )}
     </div>
   )
@@ -1314,7 +1314,7 @@ function InstantSourceValidator({ wsId, domain }) {
           onChange={e => setHeaders(e.target.value)}
           rows={5}
           placeholder="Paste full email headers here (Gmail: ⋮ → Show original · Outlook: File → Properties → Internet headers)"
-          className="w-full text-xs font-mono border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-400 resize-y"
+          className="w-full text-xs font-mono border border-gray-200 rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 resize-y"
         />
         <div className="flex items-center gap-3">
           <button onClick={validate} disabled={busy || !headers.trim()} className="btn-primary text-sm disabled:opacity-50">
@@ -1820,7 +1820,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">
             Host your TLS reporting (TLS-RPT)
-            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">Optional</span>}
+            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-gray-600 bg-gray-100 rounded-sm px-1.5 py-0.5">Optional</span>}
           </p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             Add one CNAME and we host the <code className="text-xs">_smtp._tls</code> record for you, so you get
@@ -1859,11 +1859,11 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
           <p className="text-xs text-gray-600">{meta.hint}</p>
           {rec.status !== 'connected' && rec.status !== 'pending_removal' && (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
                 <span className="text-xs font-semibold text-gray-500">Type / Name</span>
                 <DnsValue value={`CNAME  ${rec.cname_name}`} />
               </div>
-              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
                 <span className="text-xs font-semibold text-gray-500">Target</span>
                 <DnsValue value={rec.cname_target} />
               </div>
@@ -1938,7 +1938,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">
             MTA-STS readiness
-            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">Guided</span>}
+            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-gray-600 bg-gray-100 rounded-sm px-1.5 py-0.5">Guided</span>}
           </p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             CyberMeters manages the MTA-STS DNS policy ID. Your organisation or web provider hosts the HTTPS policy file.
@@ -1989,11 +1989,11 @@ function ManagedMtaStsCard({ wsId, domain }) {
 
           {rec.status !== 'connected' && rec.status !== 'pending_removal' && (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-[86px,1fr] gap-2 items-center">
+              <div className="grid grid-cols-[86px_1fr] gap-2 items-center">
                 <span className="text-xs font-semibold text-gray-500">Type / Name</span>
                 <DnsValue value={`CNAME  ${rec.cname_name}`} />
               </div>
-              <div className="grid grid-cols-[86px,1fr] gap-2 items-center">
+              <div className="grid grid-cols-[86px_1fr] gap-2 items-center">
                 <span className="text-xs font-semibold text-gray-500">Target</span>
                 <DnsValue value={rec.cname_target} />
               </div>
@@ -2086,7 +2086,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">
             Let CyberMeters manage this record
-            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded px-1.5 py-0.5">Recommended</span>}
+            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded-sm px-1.5 py-0.5">Recommended</span>}
           </p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             Add one CNAME and we manage the DMARC value for you — no more DNS edits when your
@@ -2133,11 +2133,11 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
           <p className="text-xs text-gray-600">{meta.hint}</p>
           {rec.status !== 'connected' && rec.status !== 'pending_removal' && (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
                 <span className="text-xs font-semibold text-gray-500">Type / Name</span>
                 <DnsValue value={`CNAME  ${rec.cname_name}`} />
               </div>
-              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
                 <span className="text-xs font-semibold text-gray-500">Target</span>
                 <DnsValue value={rec.cname_target} />
               </div>
@@ -2216,7 +2216,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                   const state = i === rec.policy_step.index ? 'current' : i < rec.policy_step.index ? 'done' : 'future'
                   return (
                     <div key={label} className={`flex-1 min-w-[92px] rounded-xl border px-3 py-2.5 text-center ${
-                      state === 'current' ? 'bg-brand-600 border-brand-600 text-white shadow-sm ring-2 ring-brand-200'
+                      state === 'current' ? 'bg-brand-600 border-brand-600 text-white shadow-xs ring-2 ring-brand-200'
                       : state === 'done' ? 'bg-brand-50 border-brand-200 text-brand-700'
                       : 'bg-white border-gray-200 text-gray-400'}`}>
                       <p className="text-[14px] font-bold leading-tight">{label}</p>
@@ -2319,7 +2319,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                         checked={rec.autopilot}
                         disabled={Boolean(busy)}
                         onChange={(e) => act('autopilot', () => api.setHostedDmarcAutopilot(wsId, domain, e.target.checked), { reloadAll: true })}
-                        className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600"
+                        className="mt-0.5 w-4 h-4 rounded-sm border-gray-300 text-brand-600"
                       />
                       <span>
                         <span className="block text-sm font-bold text-gray-900">Self-Driving DMARC</span>
@@ -2545,7 +2545,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
                   <span>You already have a DMARC record. <b>Do not delete it.</b> Just add the CyberMeters reporting address to the existing <code className="mono">rua=</code> tag — the value below already includes both.</span>
                 </div>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-[auto,auto,1fr] gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-[auto_auto_1fr] gap-3">
                 <CopyField label="Type" value="TXT" />
                 <CopyField label="Name / Host" value="_dmarc" />
                 <CopyField label="Value" value={recommendedValue} />
@@ -2754,8 +2754,8 @@ function RemediationsPanel({ wsId, domain }) {
 function ZoneHeader({ n, title, hint }) {
   return (
     <div className="flex items-center gap-3 pt-3">
-      <div className="w-7 h-7 rounded-lg bg-gray-900 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{n}</div>
-      <div className="min-w-0 flex-shrink-0">
+      <div className="w-7 h-7 rounded-lg bg-gray-900 text-white text-xs font-bold flex items-center justify-center shrink-0">{n}</div>
+      <div className="min-w-0 shrink-0">
         <h2 className="text-base font-bold text-gray-900 leading-tight">{title}</h2>
         {hint && <p className="text-xs text-gray-400 leading-tight mt-0.5">{hint}</p>}
       </div>
@@ -3019,7 +3019,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
             <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{STATE.msg}</p>
             {next?.text && <p className="text-xs text-gray-500 mt-2">{next.text}</p>}
           </div>
-          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+          <div className="flex flex-col items-end gap-2 shrink-0">
             <button onClick={verify} disabled={checking || !domain} className="btn-secondary text-sm disabled:opacity-50">
               {checking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking DNS…</> : 'Verify setup'}
             </button>
@@ -3135,7 +3135,7 @@ export function BecExposure({ wsId, domain }) {
           <div className="space-y-5">
             {/* Core: meaning first, number small & below */}
             <div className="flex flex-col lg:flex-row lg:items-start gap-5">
-              <div className="lg:w-72 flex-shrink-0">
+              <div className="lg:w-72 shrink-0">
                 <p className="text-sm font-semibold text-gray-900">Exposure level</p>
                 <p className={`text-lg font-bold ${sev.text}`}>{titleCase(data.exposure_level)}</p>
                 <p className="text-sm text-gray-600 mt-1 leading-relaxed">
@@ -3175,7 +3175,7 @@ export function BecExposure({ wsId, domain }) {
                     {reasons.map((r, i) => (
                       <li key={r.code || i} className="text-sm">
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold uppercase border ${becSev(r.severity).chip}`}>{r.severity || '—'}</span>
+                          <span className={`inline-flex px-1.5 py-0.5 rounded-sm text-xs font-bold uppercase border ${becSev(r.severity).chip}`}>{r.severity || '—'}</span>
                           <span className="font-semibold text-gray-800">{r.label}</span>
                         </div>
                         {r.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{r.detail}</p>}
@@ -3191,7 +3191,7 @@ export function BecExposure({ wsId, domain }) {
                     {actions.map((a, i) => (
                       <li key={a.code || i} className="text-sm">
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold uppercase border ${becSev(a.priority).chip}`}>{a.priority || '—'}</span>
+                          <span className={`inline-flex px-1.5 py-0.5 rounded-sm text-xs font-bold uppercase border ${becSev(a.priority).chip}`}>{a.priority || '—'}</span>
                           <span className="font-semibold text-gray-800">{a.label}</span>
                         </div>
                         {a.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{a.detail}</p>}
@@ -3302,7 +3302,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
                   <p className="text-base font-bold text-gray-900">{STATE.label}</p>
                   <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{STATE.msg}</p>
                 </div>
-                {STATE.act && <button onClick={STATE.act} className="btn-secondary text-sm flex-shrink-0">{STATE.cta}</button>}
+                {STATE.act && <button onClick={STATE.act} className="btn-secondary text-sm shrink-0">{STATE.cta}</button>}
               </div>
             </div>
 
@@ -3322,7 +3322,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Recommended next step</p>
                 <p className="text-sm text-gray-700 mt-0.5">{STATE.next}</p>
               </div>
-              {STATE.act && <button onClick={STATE.act} className="btn-primary text-sm flex-shrink-0">{STATE.cta}</button>}
+              {STATE.act && <button onClick={STATE.act} className="btn-primary text-sm shrink-0">{STATE.cta}</button>}
             </div>
 
             {senderSummary && (

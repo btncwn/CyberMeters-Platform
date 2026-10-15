@@ -117,7 +117,7 @@ function ActionCard({ severity, title, body }) {
   }[severity] || { bar: 'bg-gray-300', chip: 'bg-gray-50 text-gray-600 border-gray-200' }
   return (
     <div className="card p-4 flex gap-3">
-      <div className={`w-1 rounded-full ${cfg.bar} flex-shrink-0`} />
+      <div className={`w-1 rounded-full ${cfg.bar} shrink-0`} />
       <div className="flex-1">
         <div className="flex items-center justify-between gap-2 mb-1">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
@@ -336,7 +336,7 @@ export default function CertificatesPage() {
             The certificate each website presented when CyberMeters connected: whether it matches the name, when it expires and whether it is trusted.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
           <button onClick={scrollToIssues} className="btn-primary text-sm" disabled={!hasData}>
             Review certificate risks
           </button>

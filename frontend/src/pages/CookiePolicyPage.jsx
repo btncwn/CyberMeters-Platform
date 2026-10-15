@@ -18,7 +18,7 @@ export default function CookiePolicyPage() {
       <main className="max-w-3xl mx-auto px-6 py-12">
 
 
-        <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
+        <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Cookie Policy</h1>
           <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">

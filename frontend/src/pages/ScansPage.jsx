@@ -53,7 +53,7 @@ export default function ScansPage() {
   }, [scans, load])
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Scans</h1>
@@ -87,7 +87,7 @@ export default function ScansPage() {
                   Cyber MOT to start monitoring what is visible from outside.
                 </p>
               </div>
-              <Link to="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
+              <Link to="/scans/new" className="btn-primary shrink-0 inline-flex items-center gap-2">
                 New Scan
               </Link>
             </div>

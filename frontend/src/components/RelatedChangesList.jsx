@@ -156,7 +156,7 @@ export default function RelatedChangesList({ workspaceId }) {
                 <button
                   type="button"
                   onClick={() => goToDetail(rc.id)}
-                  className="w-full text-left rounded-xl border border-slate-200 bg-white p-4 hover:border-brand-200 hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  className="w-full text-left rounded-xl border border-slate-200 bg-white p-4 hover:border-brand-200 hover:bg-slate-50 transition-colors focus:outline-hidden focus:ring-2 focus:ring-brand-200"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">

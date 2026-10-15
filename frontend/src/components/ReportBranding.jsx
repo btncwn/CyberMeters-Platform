@@ -86,7 +86,7 @@ function LogoInput({ value, saved, hasSaved, onChange, disabled, onReading }) {
   return <div className="space-y-2">
     <label className="label block">Logo <input aria-label="Logo image" className="block mt-2 max-w-full text-xs" type="file" accept="image/png,image/jpeg" disabled={disabled} onChange={choose} /></label>
     <p className="text-xs text-gray-500">PNG or JPEG · up to 512 KB · 16–4096 pixels per side · up to 4 million pixels.</p>
-    {image ? <img src={image} alt="Report logo preview" className="h-20 max-w-full max-h-20 object-contain rounded border border-gray-200 p-2" /> : hasSaved && value === undefined ? <p className="text-xs text-gray-500">Saved logo; preview is unavailable.</p> : null}
+    {image ? <img src={image} alt="Report logo preview" className="h-20 max-w-full max-h-20 object-contain rounded-sm border border-gray-200 p-2" /> : hasSaved && value === undefined ? <p className="text-xs text-gray-500">Saved logo; preview is unavailable.</p> : null}
     {value !== undefined && <button type="button" className="text-xs text-gray-600 underline" disabled={disabled} onClick={() => { setError(''); onChange(undefined) }}>Discard logo change</button>}
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
   </div>

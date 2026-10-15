@@ -22,16 +22,16 @@ function OutcomePanel({ outcome, detail, when }) {
   const meta = signInOutcomeMeta(outcome)
   const facts = outcome === 'signed_in' ? sessionFacts(detail) : []
   return (
-    <div className="mt-2 rounded border border-gray-200 p-3 text-sm" role="status">
+    <div className="mt-2 rounded-sm border border-gray-200 p-3 text-sm" role="status">
       <p className="flex flex-wrap items-center gap-2">
-        <span className={`rounded px-2 py-0.5 text-xs font-medium ${TONE[meta.tone]}`}>{meta.label}</span>
+        <span className={`rounded-sm px-2 py-0.5 text-xs font-medium ${TONE[meta.tone]}`}>{meta.label}</span>
         {when && <span className="text-xs text-gray-500">{when}</span>}
       </p>
       {meta.help && <p className="mt-1 text-gray-700">{meta.help}</p>}
       {outcome === 'signed_in' && PROOF_TEXT[detail?.basis] && <p className="mt-1 text-xs text-gray-500">{PROOF_TEXT[detail.basis]}</p>}
       {facts.length > 0 && (
         <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Observed at sign-in">
-          {facts.map((f) => <li key={f} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-700">{f}</li>)}
+          {facts.map((f) => <li key={f} className="rounded-sm border border-gray-200 px-2 py-0.5 text-xs text-gray-700">{f}</li>)}
         </ul>
       )}
     </div>
@@ -53,12 +53,12 @@ function SignedInPages({ latest }) {
               <li key={p.path} className="py-2 flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="mono text-sm text-gray-900 break-all">{p.path}</span>
-                  {label && <span className="text-xs rounded px-2 py-0.5 bg-brand-50 text-brand-700">{label}</span>}
-                  <span className="text-xs rounded px-2 py-0.5 bg-gray-100 text-gray-700">{SIGNED_IN_PAGE_STATUS[p.outcome] || 'Unknown'}</span>
+                  {label && <span className="text-xs rounded-sm px-2 py-0.5 bg-brand-50 text-brand-700">{label}</span>}
+                  <span className="text-xs rounded-sm px-2 py-0.5 bg-gray-100 text-gray-700">{SIGNED_IN_PAGE_STATUS[p.outcome] || 'Unknown'}</span>
                 </div>
                 {facts.length > 0 && (
                   <ul className="flex flex-wrap gap-1.5" aria-label={`Observed on ${p.path}`}>
-                    {facts.map((f) => <li key={f} className="text-xs rounded border border-gray-200 px-2 py-0.5 text-gray-700">{f}</li>)}
+                    {facts.map((f) => <li key={f} className="text-xs rounded-sm border border-gray-200 px-2 py-0.5 text-gray-700">{f}</li>)}
                   </ul>
                 )}
               </li>
@@ -121,7 +121,7 @@ export function SignInForm({ workspaceId, domain, profile, onSaved, onCancel }) 
   }
 
   return (
-    <form onSubmit={submit} className="mt-3 flex flex-col gap-3 rounded border border-gray-200 p-4" aria-label={`Sign-in details for ${domain}`}>
+    <form onSubmit={submit} className="mt-3 flex flex-col gap-3 rounded-sm border border-gray-200 p-4" aria-label={`Sign-in details for ${domain}`}>
       <fieldset className="flex flex-col gap-1">
         <legend className="text-sm font-medium text-gray-800">How should CyberMeters sign in?</legend>
         {Object.entries(SIGN_IN_METHOD_LABEL).map(([value, label]) => (

@@ -147,7 +147,7 @@ function CandidateRow({ c, busy, onClassify }) {
     <div className={`border-b border-gray-100 ${closed ? 'opacity-70' : ''}`}>
       <div className="px-4 py-3 grid grid-cols-12 gap-3 items-center">
         <button onClick={() => setOpen(o => !o)} className="col-span-12 sm:col-span-4 flex items-center gap-2 text-left min-w-0">
-          {open ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
+          {open ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />}
           <span className="min-w-0">
             <span className="block mono text-sm text-gray-900 truncate">{c.candidate_domain || '—'}</span>
             {c.unicode_domain && c.unicode_domain !== c.candidate_domain && (
@@ -161,7 +161,7 @@ function CandidateRow({ c, busy, onClassify }) {
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${CHIP[cm.tone]}`}>{cm.label}</span>
         </div>
         <div className="hidden sm:flex sm:col-span-2 flex-wrap gap-1">
-          {badges.slice(0, 2).map(b => <span key={b} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{b}</span>)}
+          {badges.slice(0, 2).map(b => <span key={b} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-sm">{b}</span>)}
           {badges.length > 2 && <span className="text-xs text-gray-400">+{badges.length - 2}</span>}
         </div>
         <div className="col-span-4 sm:col-span-2 flex justify-end">
@@ -296,7 +296,7 @@ function ProtectedBrand({ profile, editing, setEditing, onSave, saving }) {
           <span className="eyebrow">Protected brand</span>
           <h2 className="section-title mt-1">{profile?.brand_name || profile?.primary_domain || 'Your brand'}</h2>
         </div>
-        <button onClick={() => setEditing(true)} className="btn-secondary text-sm flex-shrink-0">Edit</button>
+        <button onClick={() => setEditing(true)} className="btn-secondary text-sm shrink-0">Edit</button>
       </div>
 
       {!profile ? (
@@ -314,9 +314,9 @@ function ProtectedBrand({ profile, editing, setEditing, onSave, saving }) {
             <div><dt className="text-xs text-gray-400">Primary domain</dt><dd className="mono text-gray-800 mt-0.5">{profile.primary_domain || '—'}</dd></div>
             <div><dt className="text-xs text-gray-400">Status</dt><dd className="text-gray-800 mt-0.5">{profile.inferred ? 'Inferred from workspace' : 'Configured'}{fmtDate(profile.updated_at || profile.last_updated_at) ? ` · updated ${fmtDate(profile.updated_at || profile.last_updated_at)}` : ''}</dd></div>
             <div className="sm:col-span-2"><dt className="text-xs text-gray-400">Protected domains</dt>
-              <dd className="mt-1 flex flex-wrap gap-1.5">{asList(profile.protected_domains).length ? asList(profile.protected_domains).map(d => <span key={d} className="mono text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{d}</span>) : <span className="text-gray-400 text-xs">None</span>}</dd></div>
+              <dd className="mt-1 flex flex-wrap gap-1.5">{asList(profile.protected_domains).length ? asList(profile.protected_domains).map(d => <span key={d} className="mono text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-sm">{d}</span>) : <span className="text-gray-400 text-xs">None</span>}</dd></div>
             <div className="sm:col-span-2"><dt className="text-xs text-gray-400">Keywords</dt>
-              <dd className="mt-1 flex flex-wrap gap-1.5">{asList(profile.keywords).length ? asList(profile.keywords).map(k => <span key={k} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded">{k}</span>) : <span className="text-gray-400 text-xs">None</span>}</dd></div>
+              <dd className="mt-1 flex flex-wrap gap-1.5">{asList(profile.keywords).length ? asList(profile.keywords).map(k => <span key={k} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-sm">{k}</span>) : <span className="text-gray-400 text-xs">None</span>}</dd></div>
           </dl>
         </>
       )}
@@ -610,7 +610,7 @@ export default function BrandMonitoringPage() {
           <h1 className="page-title">Brand Protection</h1>
           <p className="page-subtitle">Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
           <button onClick={scrollToQueue} className="btn-primary text-sm">Review suspicious domains</button>
           <button onClick={() => setEditing(true)} className="btn-secondary text-sm">Update protected brand</button>
         </div>

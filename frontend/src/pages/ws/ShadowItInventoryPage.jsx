@@ -289,7 +289,7 @@ export default function ShadowItInventoryPage() {
                         hierarchy. A group disappears entirely when the server
                         advertises none of its actions, so a viewer (actions: [])
                         sees no action surface at all. */}
-                    <div className="space-y-1.5 min-w-[12rem]">
+                    <div className="space-y-1.5 min-w-48">
                       {ACTION_GROUPS.map((group) => {
                         const available = group.actions.filter((a) => can(a.action))
                         if (available.length === 0) return null
@@ -303,7 +303,7 @@ export default function ShadowItInventoryPage() {
                                   type="button"
                                   disabled={busy === it.inventory_item_id}
                                   onClick={() => act(it, a.action)}
-                                  className={`text-xs rounded border px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${ACTION_TONE[a.tone]}`}
+                                  className={`text-xs rounded-sm border px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${ACTION_TONE[a.tone]}`}
                                 >
                                   {a.label}
                                 </button>

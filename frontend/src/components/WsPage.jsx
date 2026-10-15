@@ -27,7 +27,7 @@ export function NoWorkspaceSelected() {
 
 export default function WsPage({ wsId, wsName, loading, error, onRetry, children }) {
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       {loading ? (
         <div className="flex items-center justify-center py-32">
           <Spinner />

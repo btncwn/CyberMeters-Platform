@@ -163,7 +163,7 @@ function WorkspaceSelector() {
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
             >
               <span className="flex-1 truncate">{ws.name}</span>
-              {ws.id === activeId && <Check className="w-3.5 h-3.5 text-brand-600 flex-shrink-0" />}
+              {ws.id === activeId && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
             </button>
           ))}
 
@@ -240,7 +240,7 @@ function UserMenu({ extraLinks = [] }) {
           {/* User info */}
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+              <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
                 {initial}
               </div>
               <div className="min-w-0">
@@ -353,7 +353,7 @@ function UpgradePromptModal() {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/30 px-4">
+    <div className="fixed inset-0 z-100 flex items-center justify-center bg-gray-900/30 px-4">
       <div
         className="w-full max-w-md rounded-xl bg-white border border-gray-100 shadow-xl p-5"
         style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
@@ -443,7 +443,7 @@ export default function Layout() {
           {/* Logo */}
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex-shrink-0 group"
+            className="shrink-0 group"
             aria-label="CyberMeters security overview"
           >
             <CyberMetersLogo size={44} showWordmark animated darkMode wordmarkColor="#C65B26" wordmarkSize={30} subtitle={false} />
@@ -451,7 +451,7 @@ export default function Layout() {
 
           {/* Nav: on wide screens it sits beside the brand; on phones it takes
               its own row under the brand and the account controls. */}
-          <nav aria-label="Main navigation" className="order-3 lg:order-none w-full lg:w-auto lg:flex-1 min-w-0 flex flex-wrap items-center gap-x-5 lg:gap-x-8 gap-y-1">
+          <nav aria-label="Main navigation" className="order-3 lg:order-0 w-full lg:w-auto lg:flex-1 min-w-0 flex flex-wrap items-center gap-x-5 lg:gap-x-8 gap-y-1">
             {nav.map(({ to, label }, index) => (
               <NavLink
                 key={to}
@@ -515,7 +515,7 @@ export default function Layout() {
 
       {/* Footer */}
       <footer className="border-t border-gray-100 bg-white">
-        <div className="max-w-screen-xl mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs text-gray-500">© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
           <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
             <NavLink to="/pricing"  className="hover:text-gray-700">Pricing</NavLink>

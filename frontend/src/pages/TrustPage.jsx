@@ -9,7 +9,7 @@ function Section({ title, children }) {
   </section>
 }
 function Item({ children }) {
-  return <li className="flex items-start gap-2"><span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" /><span>{children}</span></li>
+  return <li className="flex items-start gap-2"><span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" /><span>{children}</span></li>
 }
 
 // Dated, operator-published observation; deliberately not a live trust badge.
@@ -19,7 +19,7 @@ export default function TrustPage() {
   return <div className="min-h-screen bg-gray-50">
       <PublicSiteHeader />
     <main className="max-w-3xl mx-auto px-5 sm:px-6 py-10 sm:py-12">
-      <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 sm:p-10">
+      <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-6 sm:p-10">
         <h1 className="text-3xl font-bold text-gray-900">Trust &amp; Security</h1>
         <p className="text-sm text-gray-600 mt-4 leading-relaxed">CyberMeters is built and operated by Turhan Acar, a sole trader. Here is what we have checked, how the product handles evidence and where assurance remains limited.</p>
         <Link to="/status" className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700">System status</Link>

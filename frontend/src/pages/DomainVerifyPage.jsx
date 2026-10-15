@@ -32,7 +32,7 @@ function CopyField({ label, value }) {
         <code className="flex-1 text-sm text-gray-800 break-all font-mono leading-snug">{value}</code>
         <button
           onClick={copy}
-          className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition-colors"
+          className="shrink-0 flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition-colors"
         >
           {copied ? 'Copied' : 'Copy'}
         </button>
@@ -68,8 +68,8 @@ function DnsCheckResult({ result }) {
         TXT record found but value doesn't match
       </div>
       <div className="text-xs space-y-1">
-        <p><span className="font-medium">Found:</span> <code className="bg-white/60 px-1 rounded break-all">{value}</code></p>
-        <p><span className="font-medium">Expected:</span> <code className="bg-white/60 px-1 rounded break-all">{expected}</code></p>
+        <p><span className="font-medium">Found:</span> <code className="bg-white/60 px-1 rounded-sm break-all">{value}</code></p>
+        <p><span className="font-medium">Expected:</span> <code className="bg-white/60 px-1 rounded-sm break-all">{expected}</code></p>
       </div>
     </div>
   )
@@ -286,7 +286,7 @@ export default function DomainVerifyPage() {
           <button
             onClick={handleGenerate}
             disabled={generating}
-            className="btn-secondary text-sm flex-shrink-0"
+            className="btn-secondary text-sm shrink-0"
           >
             {generating
               ? <><Activity className="w-3.5 h-3.5 animate-spin" /> Generating…</>

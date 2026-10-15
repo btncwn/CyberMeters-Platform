@@ -166,7 +166,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
                 onClick={() => onButtonClick(t)}
                 disabled={Boolean(busy)}
                 aria-busy={busy === t.target_status}
-                className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {busy === t.target_status ? 'Working…' : t.label}
               </button>
@@ -191,7 +191,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-none focus:ring-2 focus:ring-brand-300"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-hidden focus:ring-2 focus:ring-brand-300"
                 placeholder="Why is this the right outcome? Recorded in the case history."
               />
             </label>
@@ -204,7 +204,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
                 type="date"
                 value={expiry}
                 onChange={(e) => setExpiry(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-none focus:ring-2 focus:ring-brand-300"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-hidden focus:ring-2 focus:ring-brand-300"
               />
             </label>
           )}
@@ -222,7 +222,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
                   value={attestation}
                   onChange={(e) => setAttestation(e.target.value)}
                   rows={3}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-none focus:ring-2 focus:ring-brand-300"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-hidden focus:ring-2 focus:ring-brand-300"
                   placeholder="Describe what you changed and confirm the remediation is in place."
                 />
               </label>
@@ -236,7 +236,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
               type="button"
               onClick={submitForm}
               disabled={!canSubmit}
-              className="inline-flex items-center rounded-lg bg-brand-600 px-4 min-h-[40px] text-sm font-semibold text-white hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center rounded-lg bg-brand-600 px-4 min-h-[40px] text-sm font-semibold text-white hover:bg-brand-700 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy ? 'Working…' : 'Confirm'}
             </button>
@@ -244,7 +244,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
               type="button"
               onClick={cancel}
               disabled={Boolean(busy)}
-              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50"
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50"
             >
               Cancel
             </button>

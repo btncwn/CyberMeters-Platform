@@ -402,7 +402,7 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       {/* Page header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Account</h1>
@@ -855,7 +855,7 @@ export default function AccountPage() {
                                 Last used {token.last_used_at ? parseServerDate(token.last_used_at).toLocaleDateString() : 'never'}
                               </p>
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="flex items-center gap-2 shrink-0">
                               <span className={`text-xs font-semibold uppercase ${token.status === 'active' ? 'text-green-600' : 'text-gray-400'}`}>
                                 {token.status}
                               </span>

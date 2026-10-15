@@ -50,7 +50,7 @@ function NextSteps({ domain }) {
       <ol className="mt-5 space-y-5">
         {steps.map(([title, copy], i) => (
           <li key={title} className="flex gap-4">
-            <span className="w-8 h-8 flex-shrink-0 rounded-full bg-brand-50 text-brand-700 text-sm font-bold grid place-items-center">{i + 1}</span>
+            <span className="w-8 h-8 shrink-0 rounded-full bg-brand-50 text-brand-700 text-sm font-bold grid place-items-center">{i + 1}</span>
             <div>
               <p className="text-sm font-semibold text-gray-900">{title}</p>
               <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{copy}</p>
@@ -131,7 +131,7 @@ export default function SignupPage() {
       ) : (
 
       /* ── Signup form ── */
-      <div className="card auth-card shadow-card-lg !rounded-[20px]">
+      <div className="card auth-card shadow-card-lg rounded-[20px]!">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Create account</h1>
         <p className="text-sm text-gray-500 mb-6">See your business's external security risks in minutes.</p>
 

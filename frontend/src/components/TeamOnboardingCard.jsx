@@ -47,7 +47,7 @@ export default function TeamOnboardingCard() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-brand-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-brand-100 shadow-xs overflow-hidden">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 border-b border-gray-50">
         <div>
@@ -58,7 +58,7 @@ export default function TeamOnboardingCard() {
         </div>
         <button
           onClick={dismiss}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
           aria-label="Dismiss team invitation card"
         >
           <X className="w-4 h-4" />

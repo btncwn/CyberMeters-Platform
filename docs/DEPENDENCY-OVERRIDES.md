@@ -38,10 +38,15 @@ and must carry a near-term review date and a removal check.
 The records below are the human-readable half; the register is authoritative for exact
 versions, paths, owners and dates.
 
-## OV-6 — `postcss-selector-parser` forced to `7.1.6` (frontend build only)
+## Retired OV-6 — `postcss-selector-parser` forced to `7.1.6` (frontend build only)
 
-Introduced/reviewed **2026-10-08**; owner **CyberMeters engineering (founder-owned)**;
-review by **2026-11-23**. Tailwind 3.4.19 and postcss-nested 6.2.0 declare parser
+**Retired 15 October 2026.** Tailwind CSS 4.3.3 removed this parser from the
+frontend dependency graph, so the manifest override and live register entry were
+deleted. The complete frontend audit, build, tests and browser lifecycle passed
+without it. The text below records why the override existed.
+
+Introduced/reviewed **2026-10-08**; owner **CyberMeters engineering (founder-owned)**.
+Tailwind 3.4.19 and postcss-nested 6.2.0 declare parser
 6.x ranges, so this temporary pin deliberately crosses their declared major range
 to fix [GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf)
 (affected <7.1.6). It changes the installed dependency, not the audit policy or
@@ -57,10 +62,8 @@ its 56 mutation checks and the install policy pass. Tailwind's separately bundle
 CLI peers are not replaced by this override; these checks cover the Vite build
 path used by CyberMeters.
 
-Remove this pin when supported Tailwind/PostCSS dependencies resolve an unaffected
-parser without it, then repeat the full audit, build, selector compatibility and
-frontend tests. This is local build compatibility evidence; CI must pass before
-merge, and this record does not claim a production vulnerability closure.
+The removal criterion was satisfied by the Tailwind CSS 4.3.3 migration. This
+record no longer describes a live override.
 
 ---
 

@@ -54,7 +54,7 @@ export default function DomainHistory() {
   const latest    = scans[0]
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
       <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors font-medium">
         Back to Scans
       </Link>
@@ -123,7 +123,7 @@ export default function DomainHistory() {
                   onClick={() => navigate(`/scans/${scan.id}`)}
                   className="flex items-start gap-4 px-6 py-4 hover:bg-brand-50/40 cursor-pointer transition-colors group"
                 >
-                  <div className="relative z-10 flex-shrink-0 mt-0.5">
+                  <div className="relative z-10 shrink-0 mt-0.5">
                     <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
                       i === 0 ? 'border-brand-500 bg-brand-50' : 'border-gray-200 bg-white'
                     }`}>

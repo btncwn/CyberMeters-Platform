@@ -40,7 +40,7 @@ function EventRow({ event }) {
         )}
       </div>
       <time
-        className="text-xs text-gray-400 flex-shrink-0 mt-0.5"
+        className="text-xs text-gray-400 shrink-0 mt-0.5"
         title={fmtFull(event.created_at)}
       >
         {fmtTime(event.created_at)}
@@ -136,7 +136,7 @@ export default function ActivityTimeline({ workspaceId }) {
           <select
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"
           >
             {EVENT_TYPES.map(t => (
               <option key={t.value} value={t.value}>{t.label}</option>

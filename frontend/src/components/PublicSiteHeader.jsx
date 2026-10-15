@@ -44,8 +44,8 @@ export default function PublicSiteHeader({ tone = 'light', signedIn = false }) {
   }, [dark])
 
   const shell = dark
-    ? `fixed inset-x-0 top-0 z-50 transition-[background-color,box-shadow] duration-300 ${solid || menuOpen ? 'bg-[#183A86]/95 shadow-[0_8px_30px_-12px_rgba(6,16,48,.6)] backdrop-blur' : 'bg-transparent'}`
-    : 'sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-[#E6EAF3]'
+    ? `fixed inset-x-0 top-0 z-50 transition-[background-color,box-shadow] duration-300 ${solid || menuOpen ? 'bg-[#183A86]/95 shadow-[0_8px_30px_-12px_rgba(6,16,48,.6)] backdrop-blur-sm' : 'bg-transparent'}`
+    : 'sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-[#E6EAF3]'
   const utility = dark ? 'text-white/80 hover:text-white' : 'text-[#5A6378] hover:text-[#121A2E]'
   const link = dark ? 'hover:text-[#BFE6FF]' : 'hover:text-[#1D46A8]'
   const navText = dark ? 'text-white' : 'text-[#121A2E]'

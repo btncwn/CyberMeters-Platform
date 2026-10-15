@@ -1,75 +1,431 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-/* Computer Modern Serif for the public website headings and copy. Unmodified
+@theme {
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #3a3f4b;
+  --color-gray-500: #20242e;
+  --color-gray-600: #14171f;
+  --color-gray-700: #0d1016;
+  --color-gray-800: #07090d;
+  --color-gray-900: #000000;
+  --color-gray-950: #000000;
+
+  --color-coral-50: #fbeeea;
+  --color-coral-600: #c2503a;
+  --color-coral: #d9634a;
+
+  --color-brand-50: #e6f4f1;
+  --color-brand-100: #c1e4da;
+  --color-brand-200: #97d3c2;
+  --color-brand-300: #6dc2aa;
+  --color-brand-400: #4db596;
+  --color-brand-500: #2ea989;
+  --color-brand-600: #00876a;
+  --color-brand-700: #006a53;
+  --color-brand-800: #004d3c;
+  --color-brand-900: #003328;
+
+  --text-xs: 0.875rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.65rem;
+  --text-lg: 1.1875rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.875rem;
+
+  --font-sans: 'Computer Modern Text', 'Computer Modern Serif', Georgia, serif;
+  --font-cm: 'Computer Modern Serif', Georgia, Cambria, serif;
+  --font-mono: 'Computer Modern Typewriter', ui-monospace, monospace;
+
+  --tracking-tighter: 0;
+  --tracking-tight: 0;
+
+  --shadow-card:
+    0 1px 2px 0 rgba(16, 24, 40, 0.05), 0 1px 3px 0 rgba(16, 24, 40, 0.04);
+  --shadow-card-md:
+    0 4px 14px -3px rgba(16, 24, 40, 0.1), 0 2px 6px -2px rgba(16, 24, 40, 0.05);
+  --shadow-card-lg:
+    0 12px 30px -6px rgba(16, 24, 40, 0.14),
+    0 4px 10px -3px rgba(16, 24, 40, 0.07);
+  --shadow-btn: 0 1px 2px 0 rgba(16, 24, 40, 0.08);
+  --shadow-btn-brand:
+    0 2px 5px -1px rgba(0, 135, 106, 0.35), 0 1px 2px 0 rgba(0, 135, 106, 0.2);
+  --shadow-header:
+    0 1px 0 0 rgba(16, 24, 40, 0.06), 0 4px 16px -8px rgba(16, 24, 40, 0.1);
+
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility card {
+  /* Cards — flat, crisp 1px border + a whisper of shadow reads more premium
+     than a soft heavy shadow on a near-invisible border. */
+  @apply bg-white rounded-2xl border border-gray-200/80 shadow-card;
+}
+
+@utility card-md {
+  @apply bg-white rounded-2xl border border-gray-200/80 shadow-card-md;
+}
+
+@utility card-hover {
+  /* Interactive card — subtle confident lift on hover for clickable surfaces. */
+  @apply transition-all duration-200 hover:border-brand-200 hover:shadow-card-md;
+}
+
+@utility auth-card {
+  /* ── Canonical compact auth-card sizing ──────────────────────────────────
+     ONE shared size contract for every centered single-card auth screen:
+     sign-in, sign-up, forgot/reset password and all their success / error /
+     expired states, and the invitation state cards. Every one of these uses
+     `.auth-card` so the family is a single size — no per-state one-offs, no
+     "form small / success large". Mobile: fills the page's px-4 gutter (~92vw,
+     never overflows). Desktop: ~41% of the content width, floored so it never
+     looks lost in the canvas and capped so it never sprawls. Width + padding
+     scale together; inner buttons/inputs are w-full so they scale with it. */
+  width: 100%;
+  max-width: 34rem; /* 544px — tablet cap; phones fill the gutter */
+  padding: 2rem; /* 32px */
+  @media (min-width: 768px) {
+    width: clamp(34rem, 41vw, 42.5rem); /* 544px → 41vw → 680px */
+    max-width: none;
+    padding: 2.75rem; /* 44px */
+  }
+}
+
+@utility auth-card-col {
+  /* width-only variant for container columns */
+  width: 100%;
+  max-width: 34rem;
+  @media (min-width: 768px) {
+    width: clamp(34rem, 41vw, 42.5rem);
+    max-width: none;
+  }
+}
+
+@utility mono {
+  font-family: 'Computer Modern Typewriter', ui-monospace, monospace;
+}
+
+@utility label {
+  @apply text-[13px] font-bold text-gray-500 uppercase tracking-[0.12em];
+}
+
+@utility eyebrow {
+  /* Premium typographic system — headings lead, numbers support. Section titles
+     are deliberately stronger so product meaning reads before raw figures. */
+  @apply text-[13px] font-bold text-brand-600 uppercase tracking-[0.14em];
+}
+
+@utility page-title {
+  @apply text-[28px] font-bold text-gray-900 tracking-tight leading-tight;
+}
+
+@utility page-subtitle {
+  @apply text-sm text-gray-500 mt-1.5 leading-relaxed;
+}
+
+@utility section-title {
+  @apply text-lg font-bold text-gray-900 tracking-tight;
+}
+
+@utility stat-tile {
+  /* KPI tile — a confident standalone statistic surface (vs cramped hairline grids). */
+  @apply bg-white rounded-2xl border border-gray-200/80 shadow-card
+           px-5 py-4 flex flex-col gap-1;
+}
+
+@utility metric-label {
+  /* APP PHILOSOPHY: text leads, number supports. The label is the largest
+     element; the value sits BELOW it and is deliberately SMALLER. */
+  @apply text-[15px] font-semibold text-gray-900 leading-snug;
+}
+
+@utility metric-sub {
+  @apply text-xs text-gray-500;
+}
+
+@utility metric-value {
+  @apply text-[14px] font-bold text-gray-800 leading-none tabular-nums;
+}
+
+@utility section-head {
+  /* Section header block: eyebrow + title + optional action, consistent across pages. */
+  @apply flex items-end justify-between gap-4 mb-4;
+}
+
+@utility accent-danger {
+  /* Restrained semantic accents for risk surfaces — a quiet left rule, never a
+     loud filled block. Green = healthy/primary, amber = warning, red = critical. */
+  @apply border-l-2 border-red-400;
+}
+
+@utility accent-warning {
+  @apply border-l-2 border-amber-400;
+}
+
+@utility accent-info {
+  @apply border-l-2 border-blue-400;
+}
+
+@utility auth-bg {
+  /* Premium glacier-light atmosphere — a soft, full-viewport field that gives
+     auth screens and the app shell the same calm depth as the landing hero.
+     Content sits above it via the z-indexed child rule. */
+  background-color: #f6f8f7;
+  position: relative;
+  &::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(900px 520px at 82% -10%, #d6eae2 0%, transparent 60%),
+      radial-gradient(760px 480px at 8% 108%, #e7f2ee 0%, transparent 58%),
+      linear-gradient(180deg, #edf2f0 0%, #f6f8f7 55%);
+  }
+  & > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+@utility pill-eyebrow {
+  /* Reusable status-pill eyebrow (landing signature, also used on auth + app). */
+  @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-100
+           text-[13px] font-semibold uppercase tracking-[0.13em] text-brand-800;
+  background: rgba(231, 242, 238, 0.7);
+  font-family: 'Computer Modern Typewriter', ui-monospace, monospace;
+  & .pill-dot {
+    @apply w-[7px] h-[7px] rounded-full bg-brand-600;
+  }
+}
+
+@utility pill-dot {
+  .pill-eyebrow & {
+    @apply w-[7px] h-[7px] rounded-full bg-brand-600;
+  }
+}
+
+@utility btn-amber {
+  /* Public call-to-action: the warm amber of the brand mark, deep orange at
+     the left running to amber at the right. Dark text keeps 4.5:1 on both. */
+  @apply inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 select-none;
+  color: #1b2333;
+  background: linear-gradient(90deg, #d6792d 0%, #e29535 100%);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.08) inset,
+    0 8px 20px -10px rgba(214, 121, 45, 0.7);
+  &:hover {
+    background: linear-gradient(90deg, #c96f27 0%, #d88b2f 100%);
+  }
+  &:active {
+    background: linear-gradient(90deg, #bd6723 0%, #cb822b 100%);
+  }
+}
+
+@utility btn-primary {
+  /* Buttons */
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
+           bg-brand-600 hover:bg-brand-700 active:bg-brand-800
+           text-white font-semibold text-sm rounded-xl
+           shadow-btn-brand hover:-translate-y-px active:translate-y-0
+           transition-all duration-150 select-none;
+}
+
+@utility btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
+           bg-white hover:bg-gray-50 active:bg-gray-100
+           text-gray-800 font-semibold text-sm rounded-xl
+           border border-gray-300 shadow-btn transition-all duration-150 select-none;
+}
+
+@utility btn-ghost {
+  @apply inline-flex items-center gap-1.5 px-3 py-1.5
+           text-gray-600 hover:text-brand-700 hover:bg-brand-50
+           rounded-lg text-sm font-medium transition-all duration-150;
+}
+
+@utility input {
+  /* Inputs */
+  @apply w-full bg-white border border-gray-300 text-gray-900
+           rounded-xl px-4 py-3 text-sm placeholder-gray-400
+           focus:outline-hidden focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500
+           transition-all shadow-btn;
+}
+
+@utility cm-topbar {
+  /* Nav */
+  /* App top bar (founder, 14 Oct): deep navy, darkest behind the brand and
+     opening towards the right; links carry their own amber step inline and
+     underline when active. */
+  background: linear-gradient(90deg, #02081a 0%, #071b40 45%, #0d2a62 100%);
+  color: #fff;
+}
+
+@utility cm-topbar-link {
+  /* Founder type scale (15 Oct): top bar 21px+, sidebar 18px+, body 14–16. */
+  @apply inline-flex items-center text-[19px] lg:text-[22px] font-bold whitespace-nowrap transition-opacity duration-150;
+  &:hover {
+    opacity: 0.85;
+  }
+  & > span {
+    padding: 6px 0;
+    border-bottom: 3px solid transparent;
+  }
+}
+
+@utility cm-topbar-link-active {
+  & > span {
+    border-bottom-color: currentColor;
+  }
+}
+
+@utility text-amber-brand {
+  background-image: linear-gradient(90deg, #d6792d 0%, #e29535 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility badge-critical {
+  /* Risk badges */
+  @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           bg-red-50 text-red-700 text-xs font-semibold border border-red-100;
+}
+
+@utility badge-high {
+  @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           bg-orange-50 text-orange-700 text-xs font-semibold border border-orange-100;
+}
+
+@utility badge-medium {
+  @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-100;
+}
+
+@utility badge-low {
+  @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-100;
+}
+
+@utility badge-unknown {
+  /* "We do not know" — deliberately slate, never a risk colour. RiskBadge used to
+     fall back to .badge-low for any level it did not recognise, so the backend's
+     honest 'unknown' rendered in the same benign blue as a genuinely low-risk
+     finding. Absence of evidence must not look like evidence of safety. */
+  @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200;
+}
+
+@utility data-table {
+  /* Table */
+  & th {
+    @apply text-left text-[13px] font-bold text-gray-500 uppercase tracking-wider
+           px-5 py-3 bg-gray-50 border-b border-gray-200;
+  }
+  & td {
+    @apply px-5 py-3.5 text-sm;
+  }
+  & tr:not(:last-child) td {
+    @apply border-b border-gray-100;
+  }
+}
+
+@layer utilities {
+  /* Computer Modern Serif for the public website headings and copy. Unmodified
    CMU web fonts, SIL Open Font License (public/fonts/computer-modern/OFL.txt).
    Display headings use it at true size through the `font-cm` utility. */
-@font-face {
-  font-family: 'Computer Modern Serif';
-  src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Computer Modern Serif';
-  src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Computer Modern Serif';
-  src: url('/fonts/computer-modern/cmunti.woff') format('woff');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
+  @font-face {
+    font-family: 'Computer Modern Serif';
+    src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Computer Modern Serif';
+    src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Computer Modern Serif';
+    src: url('/fonts/computer-modern/cmunti.woff') format('woff');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+  }
 
-/* Product text face: the same unmodified CMU files, scaled up because Computer
+  /* Product text face: the same unmodified CMU files, scaled up because Computer
    Modern draws smaller than common UI faces at the same size (founder, 12 Oct:
    one LaTeX-paper type style everywhere, never small). */
-@font-face {
-  font-family: 'Computer Modern Text';
-  src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
-  font-weight: 100 500;
-  font-style: normal;
-  font-display: swap;
-  size-adjust: 112%;
-}
-@font-face {
-  font-family: 'Computer Modern Text';
-  src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
-  font-weight: 600 900;
-  font-style: normal;
-  font-display: swap;
-  size-adjust: 112%;
-}
-@font-face {
-  font-family: 'Computer Modern Text';
-  src: url('/fonts/computer-modern/cmunti.woff') format('woff');
-  font-weight: 100 500;
-  font-style: italic;
-  font-display: swap;
-  size-adjust: 112%;
-}
-@font-face {
-  font-family: 'Computer Modern Text';
-  src: url('/fonts/computer-modern/cmunbi.woff') format('woff');
-  font-weight: 600 900;
-  font-style: italic;
-  font-display: swap;
-  size-adjust: 112%;
-}
-/* Code, DNS records and other literal values. */
-@font-face {
-  font-family: 'Computer Modern Typewriter';
-  src: url('/fonts/computer-modern/cmuntt.woff') format('woff');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-  size-adjust: 108%;
+  @font-face {
+    font-family: 'Computer Modern Text';
+    src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
+    font-weight: 100 500;
+    font-style: normal;
+    font-display: swap;
+    size-adjust: 112%;
+  }
+  @font-face {
+    font-family: 'Computer Modern Text';
+    src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
+    font-weight: 600 900;
+    font-style: normal;
+    font-display: swap;
+    size-adjust: 112%;
+  }
+  @font-face {
+    font-family: 'Computer Modern Text';
+    src: url('/fonts/computer-modern/cmunti.woff') format('woff');
+    font-weight: 100 500;
+    font-style: italic;
+    font-display: swap;
+    size-adjust: 112%;
+  }
+  @font-face {
+    font-family: 'Computer Modern Text';
+    src: url('/fonts/computer-modern/cmunbi.woff') format('woff');
+    font-weight: 600 900;
+    font-style: italic;
+    font-display: swap;
+    size-adjust: 112%;
+  }
+  /* Code, DNS records and other literal values. */
+  @font-face {
+    font-family: 'Computer Modern Typewriter';
+    src: url('/fonts/computer-modern/cmuntt.woff') format('woff');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+    size-adjust: 108%;
+  }
 }
 
 @layer base {
@@ -117,195 +473,6 @@
     outline-offset: 2px;
     border-radius: 6px;
   }
-}
-
-@layer components {
-  /* Cards — flat, crisp 1px border + a whisper of shadow reads more premium
-     than a soft heavy shadow on a near-invisible border. */
-  .card {
-    @apply bg-white rounded-2xl border border-gray-200/80 shadow-card;
-  }
-  .card-md {
-    @apply bg-white rounded-2xl border border-gray-200/80 shadow-card-md;
-  }
-  /* Interactive card — subtle confident lift on hover for clickable surfaces. */
-  .card-hover {
-    @apply transition-all duration-200 hover:border-brand-200 hover:shadow-card-md;
-  }
-
-  /* ── Canonical compact auth-card sizing ──────────────────────────────────
-     ONE shared size contract for every centered single-card auth screen:
-     sign-in, sign-up, forgot/reset password and all their success / error /
-     expired states, and the invitation state cards. Every one of these uses
-     `.auth-card` so the family is a single size — no per-state one-offs, no
-     "form small / success large". Mobile: fills the page's px-4 gutter (~92vw,
-     never overflows). Desktop: ~41% of the content width, floored so it never
-     looks lost in the canvas and capped so it never sprawls. Width + padding
-     scale together; inner buttons/inputs are w-full so they scale with it. */
-  .auth-card {
-    width: 100%;
-    max-width: 34rem;            /* 544px — tablet cap; phones fill the gutter */
-    padding: 2rem;               /* 32px */
-  }
-  .auth-card-col {               /* width-only variant for container columns */
-    width: 100%;
-    max-width: 34rem;
-  }
-  @media (min-width: 768px) {
-    .auth-card {
-      width: clamp(34rem, 41vw, 42.5rem);  /* 544px → 41vw → 680px */
-      max-width: none;
-      padding: 2.75rem;          /* 44px */
-    }
-    .auth-card-col {
-      width: clamp(34rem, 41vw, 42.5rem);
-      max-width: none;
-    }
-  }
-
-  .mono { font-family: 'Computer Modern Typewriter', ui-monospace, monospace; }
-  .label { @apply text-[13px] font-bold text-gray-500 uppercase tracking-[0.12em]; }
-
-  /* Premium typographic system — headings lead, numbers support. Section titles
-     are deliberately stronger so product meaning reads before raw figures. */
-  .eyebrow { @apply text-[13px] font-bold text-brand-600 uppercase tracking-[0.14em]; }
-  .page-title { @apply text-[28px] font-bold text-gray-900 tracking-tight leading-tight; }
-  .page-subtitle { @apply text-sm text-gray-500 mt-1.5 leading-relaxed; }
-  .section-title { @apply text-lg font-bold text-gray-900 tracking-tight; }
-
-  /* KPI tile — a confident standalone statistic surface (vs cramped hairline grids). */
-  .stat-tile {
-    @apply bg-white rounded-2xl border border-gray-200/80 shadow-card
-           px-5 py-4 flex flex-col gap-1;
-  }
-  /* APP PHILOSOPHY: text leads, number supports. The label is the largest
-     element; the value sits BELOW it and is deliberately SMALLER. */
-  .metric-label { @apply text-[15px] font-semibold text-gray-900 leading-snug; }
-  .metric-sub   { @apply text-xs text-gray-500; }
-  .metric-value { @apply text-[14px] font-bold text-gray-800 leading-none tabular-nums; }
-
-  /* Section header block: eyebrow + title + optional action, consistent across pages. */
-  .section-head { @apply flex items-end justify-between gap-4 mb-4; }
-
-  /* Restrained semantic accents for risk surfaces — a quiet left rule, never a
-     loud filled block. Green = healthy/primary, amber = warning, red = critical. */
-  .accent-danger  { @apply border-l-2 border-red-400; }
-  .accent-warning { @apply border-l-2 border-amber-400; }
-  .accent-info    { @apply border-l-2 border-blue-400; }
-
-  /* Premium glacier-light atmosphere — a soft, full-viewport field that gives
-     auth screens and the app shell the same calm depth as the landing hero.
-     Content sits above it via the z-indexed child rule. */
-  .auth-bg { background-color: #F6F8F7; position: relative; }
-  .auth-bg::before {
-    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(900px 520px at 82% -10%, #D6EAE2 0%, transparent 60%),
-      radial-gradient(760px 480px at 8% 108%, #E7F2EE 0%, transparent 58%),
-      linear-gradient(180deg, #EDF2F0 0%, #F6F8F7 55%);
-  }
-  .auth-bg > * { position: relative; z-index: 1; }
-
-  /* Reusable status-pill eyebrow (landing signature, also used on auth + app). */
-  .pill-eyebrow {
-    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-100
-           text-[13px] font-semibold uppercase tracking-[0.13em] text-brand-800;
-    background: rgba(231,242,238,0.7); font-family: 'Computer Modern Typewriter', ui-monospace, monospace;
-  }
-  .pill-eyebrow .pill-dot { @apply w-[7px] h-[7px] rounded-full bg-brand-600; }
-
-  /* Public call-to-action: the warm amber of the brand mark, deep orange at
-     the left running to amber at the right. Dark text keeps 4.5:1 on both. */
-  .btn-amber {
-    @apply inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 select-none;
-    color: #1B2333;
-    background: linear-gradient(90deg, #D6792D 0%, #E29535 100%);
-    box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 8px 20px -10px rgba(214,121,45,.7);
-  }
-  .btn-amber:hover { background: linear-gradient(90deg, #C96F27 0%, #D88B2F 100%); }
-  .btn-amber:active { background: linear-gradient(90deg, #BD6723 0%, #CB822B 100%); }
-
-  /* Buttons */
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
-           bg-brand-600 hover:bg-brand-700 active:bg-brand-800
-           text-white font-semibold text-sm rounded-xl
-           shadow-btn-brand hover:-translate-y-px active:translate-y-0
-           transition-all duration-150 select-none;
-  }
-  .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
-           bg-white hover:bg-gray-50 active:bg-gray-100
-           text-gray-800 font-semibold text-sm rounded-xl
-           border border-gray-300 shadow-btn transition-all duration-150 select-none;
-  }
-  .btn-ghost {
-    @apply inline-flex items-center gap-1.5 px-3 py-1.5
-           text-gray-600 hover:text-brand-700 hover:bg-brand-50
-           rounded-lg text-sm font-medium transition-all duration-150;
-  }
-
-  /* Inputs */
-  .input {
-    @apply w-full bg-white border border-gray-300 text-gray-900
-           rounded-xl px-4 py-3 text-sm placeholder-gray-400
-           focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500
-           transition-all shadow-btn;
-  }
-
-  /* Nav */
-  /* App top bar (founder, 14 Oct): deep navy, darkest behind the brand and
-     opening towards the right; links carry their own amber step inline and
-     underline when active. */
-  .cm-topbar {
-    background: linear-gradient(90deg, #02081A 0%, #071B40 45%, #0D2A62 100%);
-    color: #fff;
-  }
-  .cm-topbar-link {
-    /* Founder type scale (15 Oct): top bar 21px+, sidebar 18px+, body 14–16. */
-    @apply inline-flex items-center text-[19px] lg:text-[22px] font-bold whitespace-nowrap transition-opacity duration-150;
-  }
-  .cm-topbar-link:hover { opacity: .85; }
-  .cm-topbar-link > span { padding: 6px 0; border-bottom: 3px solid transparent; }
-  .cm-topbar-link-active > span { border-bottom-color: currentColor; }
-  .text-amber-brand {
-    background-image: linear-gradient(90deg, #D6792D 0%, #E29535 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-  }
-
-  /* Risk badges */
-  .badge-critical {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-           bg-red-50 text-red-700 text-xs font-semibold border border-red-100;
-  }
-  .badge-high {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-           bg-orange-50 text-orange-700 text-xs font-semibold border border-orange-100;
-  }
-  .badge-medium {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-           bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-100;
-  }
-  .badge-low {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-           bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-100;
-  }
-  /* "We do not know" — deliberately slate, never a risk colour. RiskBadge used to
-     fall back to .badge-low for any level it did not recognise, so the backend's
-     honest 'unknown' rendered in the same benign blue as a genuinely low-risk
-     finding. Absence of evidence must not look like evidence of safety. */
-  .badge-unknown {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-           bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200;
-  }
-
-  /* Table */
-  .data-table th {
-    @apply text-left text-[13px] font-bold text-gray-500 uppercase tracking-wider
-           px-5 py-3 bg-gray-50 border-b border-gray-200;
-  }
-  .data-table td { @apply px-5 py-3.5 text-sm; }
-  .data-table tr:not(:last-child) td { @apply border-b border-gray-100; }
 }
 
 /* ─── CyberMeters logo — animated needle ────────────────────────────────────

@@ -151,7 +151,7 @@ function ItemRow({ item, index, muted = false }) {
     : item.evidence_grade?.grade
   return (
     <li className="flex items-start gap-3 px-5 py-3">
-      <div className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${muted ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-700'}`}>
+      <div className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${muted ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-700'}`}>
         {index + 1}
       </div>
       <div className="flex-1 min-w-0">
@@ -159,7 +159,7 @@ function ItemRow({ item, index, muted = false }) {
           <p className="text-sm font-semibold text-gray-900 leading-snug">{item.title}</p>
           {explicitSeverity && (
             <span
-              className={`flex-shrink-0 ${SEV_BADGE[severityStyleKey] || SEV_BADGE.info}`}
+              className={`shrink-0 ${SEV_BADGE[severityStyleKey] || SEV_BADGE.info}`}
               aria-label={`${muted ? 'Observation severity' : 'Severity'}: ${explicitSeverity}`}
             >
               {explicitSeverity}
@@ -213,7 +213,7 @@ function ActionList({ items }) {
     <ol className="divide-y divide-gray-50">
       {items.map((item, i) => (
         <li key={item.remediation_id || i} className="flex items-start gap-3 px-6 py-4">
-          <span className={`flex-shrink-0 ${SEV_BADGE[item.priority] || SEV_BADGE.info} mt-0.5`}>
+          <span className={`shrink-0 ${SEV_BADGE[item.priority] || SEV_BADGE.info} mt-0.5`}>
             {item.priority || 'info'}
           </span>
           <div className="min-w-0 flex-1">
@@ -314,7 +314,7 @@ const MODULE_TEXT = Object.freeze({
 
 function SectionCard({ title, count, children }) {
   return (
-    <section className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+    <section className="bg-white border border-gray-100 rounded-2xl shadow-xs overflow-hidden">
       <header className="flex items-center gap-2 px-6 pt-5 pb-3">
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
         {count != null && <span className="text-xs text-gray-400 font-semibold">({count})</span>}
@@ -358,7 +358,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
   return (
     <div className="space-y-5">
       {/* Header: identity, evidence and coverage. Findings/actions lead the score. */}
-      <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+      <div className="bg-white border border-gray-100 rounded-2xl shadow-xs p-6">
         <HowToReadReport />
         <EvidenceStrengthSummary
           assertions={[
@@ -430,7 +430,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
         <ActionList items={report.remediation_actions} />
       </SectionCard>
 
-      <section aria-labelledby="assessment-score-heading" className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+      <section aria-labelledby="assessment-score-heading" className="bg-white border border-gray-100 rounded-2xl shadow-xs p-6">
         <h3 id="assessment-score-heading" className="text-sm font-bold text-gray-900">Assessment Score</h3>
         <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-xl">

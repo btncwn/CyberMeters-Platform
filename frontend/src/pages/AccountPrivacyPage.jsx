@@ -67,7 +67,7 @@ function ConfirmModal({ open, onClose, onConfirm, title, description, confirmWor
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-gray-900/40 px-4">
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-gray-900/40 px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className={`px-6 py-5 flex items-start gap-3 border-b ${dangerous ? 'border-red-100 bg-red-50' : 'border-gray-100'}`}>
@@ -79,7 +79,7 @@ function ConfirmModal({ open, onClose, onConfirm, title, description, confirmWor
             onClick={handleClose}
             disabled={loading}
             aria-label={`Close ${title}`}
-            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center flex-shrink-0"
+            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -324,7 +324,7 @@ function WorkspaceRow({ workspace, onRequested }) {
           Deletion requested
         </span>
       ) : (
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <div className="flex flex-col items-end gap-1 shrink-0">
           {errorMsg && <p className="text-xs text-red-500 max-w-[180px] text-right">{errorMsg}</p>}
           <button
             type="button"
@@ -477,7 +477,7 @@ function LegalLinksSection() {
 
 export default function AccountPrivacyPage() {
   return (
-    <div className="max-w-screen-lg mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-lg) mx-auto px-6 py-8">
 
       {/* Header */}
       <div className="mb-8">

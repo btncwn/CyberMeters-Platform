@@ -212,7 +212,7 @@ function EvidencePanel({ evidence }) {
             <div className="divide-y divide-gray-100">
               {rows.map(([label, value]) => (
                 <div key={label} className="flex gap-3 px-3 py-1.5 text-xs">
-                  <span className="text-gray-400 flex-shrink-0 w-24">{label}</span>
+                  <span className="text-gray-400 shrink-0 w-24">{label}</span>
                   <span className="text-gray-700 font-mono break-all">{value}</span>
                 </div>
               ))}
@@ -223,7 +223,7 @@ function EvidencePanel({ evidence }) {
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
                   Verification Command
                 </p>
-                <pre className="text-xs font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all select-all">
+                <pre className="text-xs font-mono text-gray-700 bg-white border border-gray-200 rounded-sm px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all select-all">
                   {mvc}
                 </pre>
               </div>
@@ -248,7 +248,7 @@ function CopyButton({ text }) {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
+      className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors shrink-0"
       title="Copy value"
     >
       {copied ? 'Copied' : 'Copy'}
@@ -304,7 +304,7 @@ function RemediationPanel({ rem }) {
           <ol className="space-y-1">
             {rem.steps.map((step, i) => (
               <li key={i} className="flex items-start gap-2">
-                <span className="flex-shrink-0 w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center mt-0.5">
+                <span className="shrink-0 w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center mt-0.5">
                   {i + 1}
                 </span>
                 <span className="text-xs text-gray-700 leading-relaxed">{step}</span>
@@ -376,7 +376,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
     <li className="px-6 py-4">
       <div className="flex items-start gap-4">
         {/* Severity-colored index number */}
-        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${SEV_STYLE[f.severity] || SEV_STYLE.info}`}>
+        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${SEV_STYLE[f.severity] || SEV_STYLE.info}`}>
           {index + 1}
         </div>
 
@@ -384,7 +384,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
           {/* Title + severity badge on same row */}
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm font-semibold text-gray-900 leading-snug">{f.title}</p>
-            <span className={`flex-shrink-0 text-xs ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
+            <span className={`shrink-0 text-xs ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
               {f.severity}
             </span>
           </div>
@@ -474,7 +474,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
                 onChange={e => setWaiveReason(e.target.value)}
                 maxLength={500}
                 placeholder="Reason (optional) — e.g. compensating control in place"
-                className="mt-2 w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-brand-400"
+                className="mt-2 w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:border-brand-400"
               />
               <div className="flex items-center gap-2 mt-2">
                 <button onClick={confirmWaive} disabled={waiving}
@@ -570,7 +570,7 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-gray-500 line-through decoration-gray-300">{f.title}</p>
-                <span className={`flex-shrink-0 text-xs ${SEV_BADGE[f.severity] || SEV_BADGE.info} opacity-60`}>
+                <span className={`shrink-0 text-xs ${SEV_BADGE[f.severity] || SEV_BADGE.info} opacity-60`}>
                   {f.severity}
                 </span>
               </div>
@@ -587,7 +587,7 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
                   try { await onUnwaive(f.id) } finally { setRestoring(null) }
                 }}
                 disabled={restoring === f.id}
-                className="flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 flex-shrink-0 mt-0.5 disabled:opacity-50"
+                className="flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 shrink-0 mt-0.5 disabled:opacity-50"
               >
                 {restoring === f.id ? 'Restoring…' : 'Restore'}
               </button>
@@ -611,7 +611,7 @@ function RecommendationsPanel({ recommendations }) {
     <ul className="divide-y divide-gray-50">
       {recommendations.map((r, i) => (
         <li key={i} className="flex items-start gap-4 px-6 py-4">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 bg-brand-600">
+          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5 bg-brand-600">
             {r.priority || i + 1}
           </div>
           <div className="flex-1 min-w-0">
@@ -847,7 +847,7 @@ function EmailPanel({ email, dmarcPresentation = null }) {
                   <p className="text-xs text-gray-500 mt-1 leading-relaxed">{action.business_risk}</p>
                   <p className="text-xs text-gray-700 mt-1.5 leading-relaxed">{action.recommended_action}</p>
                 </div>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${
                   action.severity === 'critical' || action.severity === 'high'
                     ? 'bg-red-50 text-red-700 border-red-100'
                     : action.severity === 'medium'
@@ -858,7 +858,7 @@ function EmailPanel({ email, dmarcPresentation = null }) {
                 </span>
               </div>
               {action.copyable_value && (
-                <div className="mt-3 flex items-start gap-3 bg-gray-50 border border-gray-100 rounded p-2.5">
+                <div className="mt-3 flex items-start gap-3 bg-gray-50 border border-gray-100 rounded-sm p-2.5">
                   <code className="text-xs text-gray-600 break-all flex-1">{action.copyable_value}</code>
                   <CopyButton text={action.copyable_value} />
                 </div>
@@ -895,12 +895,12 @@ function ChangeList({ title, items, total, renderItem, tone }) {
       </p>
       <div className="flex flex-wrap gap-1.5">
         {items.map((item, i) => (
-          <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded mono text-xs ${toneStyle}`}>
+          <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded-sm mono text-xs ${toneStyle}`}>
             {renderItem(item)}
           </span>
         ))}
         {overflow > 0 && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-400">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-gray-100 text-gray-400">
             +{overflow} more
           </span>
         )}
@@ -978,7 +978,7 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
           <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
           <p className="text-xs text-gray-300 mono mt-0.5 truncate">vs {changes.previous_scan_id}</p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0 text-sm">
+        <div className="flex items-center gap-2 shrink-0 text-sm">
           <span className="text-gray-400">{changes.previous_score ?? '—'}</span>
           <span className="text-gray-200">→</span>
           <span className="font-bold text-gray-900">{changes.current_score}</span>
@@ -1118,7 +1118,7 @@ function BusinessRiskCard({ businessRisk }) {
             const dot = sev === 'critical' ? 'bg-red-500' : sev === 'high' ? 'bg-orange-500' : 'bg-amber-400'
             return (
               <div key={i} className="flex items-start gap-2">
-                <div className={`w-1.5 h-1.5 rounded-full ${dot} flex-shrink-0 mt-1.5`} />
+                <div className={`w-1.5 h-1.5 rounded-full ${dot} shrink-0 mt-1.5`} />
                 <p className="text-xs text-gray-600 leading-snug">{r.title ?? r.category ?? ''}</p>
               </div>
             )
@@ -1578,7 +1578,7 @@ export default function ScanDetail() {
   const assessmentBand = bandMeta(assessmentRating)
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
       <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors font-medium">
         Back to Scans
       </Link>
@@ -1604,7 +1604,7 @@ export default function ScanDetail() {
               </div>
               <p className="mono text-xs text-gray-500">{scan.id}</p>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               <button onClick={() => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`)} className="btn-secondary">
                 Domain History
               </button>
@@ -1693,7 +1693,7 @@ export default function ScanDetail() {
                         <button
                           onClick={() => setReportTab('executive')}
                           className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                            reportTab === 'executive' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                            reportTab === 'executive' ? 'bg-white text-brand-700 shadow-xs' : 'text-gray-500 hover:text-gray-700'
                           }`}
                           aria-pressed={reportTab === 'executive'}
                         >
@@ -1702,7 +1702,7 @@ export default function ScanDetail() {
                         <button
                           onClick={() => setReportTab('technical')}
                           className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                            reportTab === 'technical' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                            reportTab === 'technical' ? 'bg-white text-brand-700 shadow-xs' : 'text-gray-500 hover:text-gray-700'
                           }`}
                           aria-pressed={reportTab === 'technical'}
                         >

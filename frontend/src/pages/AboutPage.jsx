@@ -7,7 +7,7 @@ export default function AboutPage() {
   return <div className="min-h-screen bg-gray-50 text-gray-900">
       <PublicSiteHeader />
     <main className="max-w-3xl mx-auto px-5 sm:px-6 py-10 sm:py-12">
-      <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 sm:p-10 space-y-8">
+      <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-6 sm:p-10 space-y-8">
         <header>
           <p className="eyebrow">About CyberMeters</p>
           <h1 className="text-3xl sm:text-4xl font-bold mt-3 tracking-tight">Know where your business is exposed and what to do next.</h1>

@@ -171,13 +171,13 @@ export default function IdentityExposurePage() {
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex flex-wrap gap-1">
-                      {can(it, 'classify_expected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_expected')} className="text-xs rounded border border-green-200 text-green-700 px-2 py-0.5">Expected</button>}
-                      {can(it, 'classify_unexpected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_unexpected')} className="text-xs rounded border border-red-200 text-red-700 px-2 py-0.5">Unexpected</button>}
-                      {can(it, 'assign_identity_owner') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'assign_identity_owner')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
-                      {can(it, 'record_surface_removed') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_surface_removed')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Record removed</button>}
-                      {can(it, 'request_verification') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded border border-blue-200 text-blue-700 px-2 py-0.5">Verify</button>}
-                      {can(it, 'record_exception') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
-                      {can(it, 'retire') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'retire')} className="text-xs rounded border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
+                      {can(it, 'classify_expected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_expected')} className="text-xs rounded-sm border border-green-200 text-green-700 px-2 py-0.5">Expected</button>}
+                      {can(it, 'classify_unexpected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_unexpected')} className="text-xs rounded-sm border border-red-200 text-red-700 px-2 py-0.5">Unexpected</button>}
+                      {can(it, 'assign_identity_owner') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'assign_identity_owner')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
+                      {can(it, 'record_surface_removed') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_surface_removed')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Record removed</button>}
+                      {can(it, 'request_verification') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded-sm border border-blue-200 text-blue-700 px-2 py-0.5">Verify</button>}
+                      {can(it, 'record_exception') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded-sm border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
+                      {can(it, 'retire') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'retire')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
                     </div>
                   </td>
                 </tr>

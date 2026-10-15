@@ -43,7 +43,7 @@ function CreateWorkspaceModal({ onCreated, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-gray-900/40 backdrop-blur-xs"
         onClick={onClose}
       />
       <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
@@ -147,7 +147,7 @@ export default function WorkspacesPage() {
   }
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
