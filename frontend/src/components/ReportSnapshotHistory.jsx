@@ -48,7 +48,7 @@ export default function ReportSnapshotHistory({ wsId }) {
               <span className="text-gray-900">{fmt(r.assessed_at)}</span>
               <span className="text-gray-700">{r.domain || 'Domain no longer in this workspace'}</span>
               <span className="text-xs text-gray-500">{r.quality}</span>
-              <span className={`text-xs rounded px-2 py-0.5 ${r.current ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-600'}`}>
+              <span className={`text-xs rounded-sm px-2 py-0.5 ${r.current ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-600'}`}>
                 {r.current ? 'Latest for this domain' : 'Superseded by a later scan'}
               </span>
               {r.scan_id && <Link to={`/scans/${encodeURIComponent(r.scan_id)}`} className="text-xs text-brand-700 hover:underline">Scan details</Link>}

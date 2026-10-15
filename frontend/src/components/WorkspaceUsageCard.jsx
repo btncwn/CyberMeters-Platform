@@ -35,7 +35,7 @@ export default function WorkspaceUsageCard({ workspaceId }) {
         <>
           <dl className="grid gap-4 sm:grid-cols-3">
             {usageRows(data).map((r) => (
-              <div key={r.key} className="rounded border border-gray-100 p-3">
+              <div key={r.key} className="rounded-sm border border-gray-100 p-3">
                 <dt className="text-xs font-medium text-gray-500">{r.label}</dt>
                 <dd className="text-2xl font-semibold text-gray-900">{r.value.toLocaleString()}</dd>
                 <dd className="text-xs text-gray-500">{r.sub}</dd>

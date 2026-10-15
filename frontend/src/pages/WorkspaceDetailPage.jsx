@@ -31,7 +31,7 @@ function StatCard({ icon: Icon, label, value, sub, iconColor = 'text-brand-600',
   return (
     <div className="card p-5">
       <div className="flex items-start gap-3">
-        <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
+        <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
           <Icon className={`w-[18px] h-[18px] ${iconColor}`} />
         </div>
         <div>
@@ -69,7 +69,7 @@ function AddDomainModal({ workspaceId, onAdded, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-xs" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-gray-900">Add Domain</h2>
@@ -159,7 +159,7 @@ function DeleteWorkspaceModal({ workspaceId, workspaceName, onClose, onDeleted }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={loading ? undefined : onClose} />
+      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-xs" onClick={loading ? undefined : onClose} />
       <div role="dialog" aria-modal="true" aria-label="Delete workspace" className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-red-700">Delete workspace</h2>
@@ -400,7 +400,7 @@ export default function WorkspaceDetailPage() {
 
   if (error && !workspace) {
     return (
-      <div className="max-w-screen-xl mx-auto px-6 py-8">
+      <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
         <ErrorAlert message={error} />
       </div>
     )
@@ -421,7 +421,7 @@ export default function WorkspaceDetailPage() {
   const hasRetainedHistory = (stats?.total_scans ?? 0) > 0 || (assetSummary?.total_assets ?? 0) > 0
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
 
       {/* Back + header */}
       <div>

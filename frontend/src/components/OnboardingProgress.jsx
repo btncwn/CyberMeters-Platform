@@ -21,20 +21,20 @@ const DISMISS_KEY = 'cybermeters_onboarding_dismissed'
 function StepDot({ done, active, number }) {
   if (done) {
     return (
-      <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0">
+      <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center shrink-0">
         <span className="text-xs font-bold text-white">{number}</span>
       </div>
     )
   }
   if (active) {
     return (
-      <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center flex-shrink-0">
+      <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shrink-0">
         <span className="text-xs font-bold text-white">{number}</span>
       </div>
     )
   }
   return (
-    <div className="w-7 h-7 rounded-full border-2 border-gray-200 flex items-center justify-center flex-shrink-0">
+    <div className="w-7 h-7 rounded-full border-2 border-gray-200 flex items-center justify-center shrink-0">
       <span className="text-xs font-semibold text-gray-300">{number}</span>
     </div>
   )
@@ -99,7 +99,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 mb-1">
             {!allDone && (
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-900">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-gray-900">
                 <span className="text-xs font-bold text-white">{doneCount + 1}</span>
               </div>
             )}
@@ -122,7 +122,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
           onClick={dismiss}
           title="Dismiss onboarding checklist"
           aria-label="Dismiss onboarding checklist"
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors shrink-0"
         >
           <X className="w-4 h-4" />
         </button>
@@ -147,7 +147,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
                 step.done
                   ? 'border-brand-100 bg-brand-50/60'
                   : isActive
-                    ? 'border-gray-200 bg-white shadow-sm'
+                    ? 'border-gray-200 bg-white shadow-xs'
                     : 'border-gray-100 bg-gray-50/40'
               }`}
             >

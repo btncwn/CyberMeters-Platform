@@ -96,7 +96,7 @@ function DnsAnswer({ dns }) {
               {(family.values || []).length > 0 && (
                 <span className="mt-1 flex flex-wrap gap-1">
                   {family.values.map((value) => (
-                    <span key={value} className="mono text-xs bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 break-all">{value}</span>
+                    <span key={value} className="mono text-xs bg-gray-50 border border-gray-200 rounded-sm px-1.5 py-0.5 break-all">{value}</span>
                   ))}
                   {family.more_values > 0 && <span className="text-xs text-gray-500">and {family.more_values} more</span>}
                 </span>

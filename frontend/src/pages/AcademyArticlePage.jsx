@@ -27,7 +27,7 @@ function Block({ block }) {
         <ul className="mt-3 space-y-1.5 pl-1">
           {block.items.map((item, i) => (
             <li key={i} className="flex items-start gap-2.5 text-[15px] text-gray-700 leading-relaxed">
-              <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" />
+              <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" />
               {item}
             </li>
           ))}
@@ -80,7 +80,7 @@ function Section({ section, index }) {
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-2">
-        <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+        <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
           {index + 1}
         </span>
         <h2 className="text-base font-bold text-gray-900">{section.heading}</h2>
@@ -99,7 +99,7 @@ function RelatedCard({ article }) {
   return (
     <Link
       to={`/guide/${article.slug}`}
-      className="group flex items-start gap-3 p-3.5 bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-sm transition-all"
+      className="group flex items-start gap-3 p-3.5 bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-xs transition-all"
     >
       <div className="min-w-0">
         <p className="text-sm font-semibold text-gray-800 group-hover:text-brand-600 transition-colors leading-snug line-clamp-2">
@@ -123,7 +123,7 @@ function TableOfContents({ sections }) {
           href={`#section-${i}`}
           className="flex items-center gap-2 text-[14px] text-gray-500 hover:text-brand-600 transition-colors py-0.5"
         >
-          <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-xs font-bold flex items-center justify-center flex-shrink-0">
+          <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-xs font-bold flex items-center justify-center shrink-0">
             {i + 1}
           </span>
           {s.heading}
@@ -148,7 +148,7 @@ export default function AcademyArticlePage() {
 
   if (!article) {
     return (
-      <div className="max-w-screen-xl mx-auto px-6 py-16 text-center">
+      <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-16 text-center">
         <h1 className="text-lg font-bold text-gray-900 mb-2">Article not found</h1>
         <p className="text-sm text-gray-500 mb-6">The article you're looking for doesn't exist or may have been moved.</p>
         <Link to="/guide" className="btn-primary inline-flex items-center gap-2">
@@ -159,7 +159,7 @@ export default function AcademyArticlePage() {
   }
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
 
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-xs text-gray-400 mb-6">
@@ -229,7 +229,7 @@ export default function AcademyArticlePage() {
         </article>
 
         {/* ── Sidebar ───────────────────────────────────────────────────────── */}
-        <aside className="w-72 flex-shrink-0 hidden lg:flex flex-col gap-6 sticky top-24">
+        <aside className="w-72 shrink-0 hidden lg:flex flex-col gap-6 sticky top-24">
 
           {/* Table of contents */}
           <div className="bg-white rounded-xl border border-gray-100 p-5">

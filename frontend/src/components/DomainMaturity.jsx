@@ -29,7 +29,7 @@ function Flags({ flags }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1 justify-end">
       {chips.map((c, i) => (
-        <span key={i} className={`inline-block text-xs font-medium px-1.5 py-0.5 rounded border ${c.cls}`}>{c.text}</span>
+        <span key={i} className={`inline-block text-xs font-medium px-1.5 py-0.5 rounded-sm border ${c.cls}`}>{c.text}</span>
       ))}
     </div>
   )
@@ -94,7 +94,7 @@ function MaturityRow({ d, workspaceId }) {
         )}
         {open && canShowHistory && <MaturityHistory workspaceId={workspaceId} d={d} />}
       </div>
-      <div className="flex-shrink-0 text-right">
+      <div className="shrink-0 text-right">
         <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone] || TONE.gray}`}>
           {d.stage_label || meta.label}
         </span>

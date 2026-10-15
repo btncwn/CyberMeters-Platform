@@ -81,7 +81,7 @@ export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, 
         <div className="mt-3 flex items-center gap-2">
           <select
             aria-label="Assign owner"
-            className="text-sm border border-slate-200 rounded-md px-2 py-1.5 text-slate-700 min-w-[12rem]"
+            className="text-sm border border-slate-200 rounded-md px-2 py-1.5 text-slate-700 min-w-48"
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
             disabled={loading || saving || members.length === 0}

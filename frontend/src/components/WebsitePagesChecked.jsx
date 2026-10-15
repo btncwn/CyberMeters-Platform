@@ -18,15 +18,15 @@ function PageRow({ page }) {
     <li className="py-3 flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
         <span className="mono text-sm text-gray-900 break-all">{page.path}</span>
-        {sensitiveLabel(page) && <span className="text-xs rounded px-2 py-0.5 bg-brand-50 text-brand-700">{sensitiveLabel(page)}</span>}
-        <span className={`text-xs rounded px-2 py-0.5 ${status.tone === 'neutral' ? 'bg-gray-100 text-gray-700' : 'bg-gray-50 text-gray-500'}`} title={status.help || undefined}>{status.label}</span>
+        {sensitiveLabel(page) && <span className="text-xs rounded-sm px-2 py-0.5 bg-brand-50 text-brand-700">{sensitiveLabel(page)}</span>}
+        <span className={`text-xs rounded-sm px-2 py-0.5 ${status.tone === 'neutral' ? 'bg-gray-100 text-gray-700' : 'bg-gray-50 text-gray-500'}`} title={status.help || undefined}>{status.label}</span>
       </div>
       {facts.length > 0 && page.monitoring_status !== 'observed' && (
         <p className="text-xs text-gray-500">As of when it was last seen{fmt(page.last_seen_at) ? ` (${fmt(page.last_seen_at)})` : ''}:</p>
       )}
       {facts.length > 0 && (
         <ul className="flex flex-wrap gap-1.5" aria-label={`Observed on ${page.path}`}>
-          {facts.map((f) => <li key={f} className="text-xs rounded border border-gray-200 px-2 py-0.5 text-gray-700">{f}</li>)}
+          {facts.map((f) => <li key={f} className="text-xs rounded-sm border border-gray-200 px-2 py-0.5 text-gray-700">{f}</li>)}
         </ul>
       )}
       <p className="text-xs text-gray-500">

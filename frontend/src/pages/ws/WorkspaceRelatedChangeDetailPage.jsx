@@ -300,7 +300,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                       ) : (
                         <p className="text-sm font-medium text-slate-800">{producerFamilyLabel(e.producer_family)}</p>
                       )}
-                      <p className="text-xs text-slate-500 mt-0.5 break-words">
+                      <p className="text-xs text-slate-500 mt-0.5 wrap-break-word">
                         {e.entity_key || e.source_record_id || '—'}
                         {eventTypeLabel(e.source_event_type) ? ` · ${eventTypeLabel(e.source_event_type)}` : ''}
                       </p>
@@ -351,7 +351,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                 onChange={(e) => setNote(e.target.value)}
                 rows={2}
                 placeholder="Add context for your review…"
-                className="mt-1 w-full text-sm border border-slate-200 rounded-md px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-200"
+                className="mt-1 w-full text-sm border border-slate-200 rounded-md px-3 py-2 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
               />
             </label>
 
@@ -379,7 +379,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                   onChange={(e) => setCaseIdInput(e.target.value)}
                   placeholder="Existing case ID"
                   aria-label="Existing case ID"
-                  className="flex-1 text-sm border border-slate-200 rounded-md px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  className="flex-1 text-sm border border-slate-200 rounded-md px-3 py-1.5 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
                 />
                 <button
                   type="button"

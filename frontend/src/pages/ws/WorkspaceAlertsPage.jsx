@@ -60,15 +60,15 @@ function SecretModal({ secret, onClose }) {
           <div>
             <h3 className="text-base font-bold text-gray-900">Your signing secret</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Shown once, never again. Use it to verify the <code className="text-xs bg-gray-100 px-1 rounded">X-CyberMeters-Signature</code> header
-              (hex HMAC-SHA256 of the raw request body, prefixed <code className="text-xs bg-gray-100 px-1 rounded">sha256=</code>).
+              Shown once, never again. Use it to verify the <code className="text-xs bg-gray-100 px-1 rounded-sm">X-CyberMeters-Signature</code> header
+              (hex HMAC-SHA256 of the raw request body, prefixed <code className="text-xs bg-gray-100 px-1 rounded-sm">sha256=</code>).
             </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close signing secret"><X className="w-5 h-5" /></button>
         </div>
         <div className="mt-4 flex items-center gap-2">
           <code className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 break-all">{secret}</code>
-          <button onClick={copy} className="btn-secondary text-sm flex-shrink-0" aria-label="Copy signing secret">
+          <button onClick={copy} className="btn-secondary text-sm shrink-0" aria-label="Copy signing secret">
             {copied ? <Check className="w-4 h-4 text-brand-600" /> : <Copy className="w-4 h-4" />}
           </button>
         </div>

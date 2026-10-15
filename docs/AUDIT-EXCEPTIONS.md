@@ -28,32 +28,31 @@ counts as killed only when its declared test emits an assertion `FAIL` with exit
 severity and full-graph command mutants supplement the per-guard proof. No-op
 and wrong-guard controls must retain the original rejection.
 
-## E-1
+## Resolved E-1
 
 **braces — GHSA-vfj7-8cjw-p6xm — `<=3.0.3`**
 
-Status: **time-limited risk acceptance, not fixed**. Authorized by the Founder
-under LYNCEUS P2 FIX ADDENDUM-R5 on 4 October 2026. The register dates below are
-the explicit dispatch dates; they do not backdate this authorization.
+Status: **RESOLVED 15 October 2026**. The former time-limited risk acceptance
+was authorized by the Founder under LYNCEUS P2 FIX ADDENDUM-R5 on 4 October
+2026. The register dates below are the explicit dispatch dates; they do not
+backdate this authorization.
 
-- Workspace: `frontend`.
-- Locked path: `node_modules/braces`, version `3.0.3`, `dev=true`.
-- Reachability: `dev_only`; the complete locked path set is checked and
+- Workspace was `frontend`.
+- Locked path was `node_modules/braces`, version `3.0.3`, `dev=true`.
+- Reachability was `dev_only`; the complete locked path set was checked and
   `npm ls --omit=dev braces` must return an empty dependency tree after the
   governed install. The `--omit` flag is used only for this separate reachability
   proof, never for the audit.
-- Advisory: stack exhaustion through deeply nested patterns. There is no fixed
-  braces version in the current advisory. Tailwind CSS 4 is a possible upstream
-  removal path, not a migration authorized by this change.
-- Transitive audit records: `chokidar`, `fast-glob`, `micromatch`, `tailwindcss`
-  are accepted only when **all** of their `via` paths terminate at this exact
+- Advisory: stack exhaustion through deeply nested patterns. No fixed braces
+  version existed, so Tailwind CSS 4 was the upstream removal path.
+- Transitive audit records were `chokidar`, `fast-glob`, `micromatch` and
+  `tailwindcss`; they were accepted only when **all** of their `via` paths terminated at this exact
   advisory. Their names are not a blanket allowlist.
 - Owner: **CyberMeters engineering (founder-owned)**.
 - Introduced/reviewed: **2026-10-03**. Review by: **2027-01-01 UTC**.
 
-Remove E-1 when a fixed braces version is installed or an authorized Tailwind CSS
-4 migration removes the affected chain. With the record deleted, prove the full
-frontend `npm audit --audit-level=high` is clean and run typecheck, coverage and
-build. If no supported fix is ready at expiry, CI fails; renewal needs a fresh
-explicit decision. This exception leaves the Worker audit unchanged and grants
-no case-database transition or verified-fix claim.
+Tailwind CSS 4.3.3 removed `braces`, `chokidar`, `fast-glob` and `micromatch` from
+the frontend dependency graph. E-1 was deleted from the live register after the
+complete frontend audit reported zero vulnerabilities and local typecheck,
+component tests, production build and browser lifecycle test passed. This section
+is retained only as the historical record of the former exception.

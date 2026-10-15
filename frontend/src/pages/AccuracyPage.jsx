@@ -58,7 +58,7 @@ export default function AccuracyPage() {
   useEffect(() => { load() }, [load])
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Scanner Accuracy</h1>
@@ -79,8 +79,8 @@ export default function AccuracyPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="card p-5 animate-pulse">
-              <div className="h-3 bg-gray-100 rounded w-1/2 mb-4" />
-              <div className="h-7 bg-gray-100 rounded w-2/3" />
+              <div className="h-3 bg-gray-100 rounded-sm w-1/2 mb-4" />
+              <div className="h-7 bg-gray-100 rounded-sm w-2/3" />
             </div>
           ))}
         </div>

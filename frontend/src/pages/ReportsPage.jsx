@@ -18,7 +18,7 @@ export default function ReportsPage() {
   if (activeWorkspaceId) return null
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
         <p className="text-sm text-gray-400 mt-0.5">Security posture reports for stakeholders</p>

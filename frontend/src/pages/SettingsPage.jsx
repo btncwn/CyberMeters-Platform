@@ -169,7 +169,7 @@ function NotificationPreferencesCard() {
                 value={opt.value}
                 checked={freq === opt.value}
                 onChange={() => setFreq(opt.value)}
-                className="mt-0.5 accent-brand-600 flex-shrink-0"
+                className="mt-0.5 accent-brand-600 shrink-0"
               />
               <div>
                 <p className="text-sm font-semibold text-gray-800">{opt.label}</p>
@@ -297,14 +297,14 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="max-w-screen-xl mx-auto px-6 py-8">
+      <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
         <div className="card p-12 text-center text-sm text-gray-400">Loading account settings...</div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <p className="text-sm text-gray-400 mt-0.5">Account, company, and subscription details.</p>

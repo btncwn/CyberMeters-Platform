@@ -93,7 +93,7 @@ function EventRow({ event }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900 leading-snug">{claimDisplay.title}</p>
-          <span className={`text-xs font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${sev}`}>
+          <span className={`text-xs font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-sm ${sev}`}>
             {event.severity}
           </span>
         </div>
@@ -107,7 +107,7 @@ function EventRow({ event }) {
           <p className="text-xs text-gray-400 font-mono mt-1 truncate">{event.hostname}</p>
         )}
       </div>
-      <time className="text-xs text-gray-400 flex-shrink-0 mt-0.5">{fmtTime(event.created_at)}</time>
+      <time className="text-xs text-gray-400 shrink-0 mt-0.5">{fmtTime(event.created_at)}</time>
     </div>
   )
 }
@@ -171,7 +171,7 @@ export default function ExposureTimeline({ workspaceId }) {
           <select
             value={severity}
             onChange={e => setSeverity(e.target.value)}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"
           >
             {SEVERITY_FILTERS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>

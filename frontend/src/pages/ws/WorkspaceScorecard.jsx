@@ -182,7 +182,7 @@ export default function WorkspaceScorecard() {
           <div className="space-y-3">
             {report.recommendations.map((r, i) => (
               <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50">
-                <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                   {r.priority}
                 </span>
                 <div>

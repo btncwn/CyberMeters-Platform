@@ -149,9 +149,14 @@ function assertCase(evaluator, c) {
 function assertCommandContract(collector) {
   const calls = [];
   collector(root, (command, args, options) => { calls.push({ command, args, cwd: options.cwd }); return tool({}); });
+  const register = JSON.parse(fs.readFileSync(path.join(root, "scripts/security/audit-exception-register.json"), "utf8"));
   const expected = [
     { command: "npm", args: ["audit", "--json", "--include=dev", "--include=optional", "--include=peer"], cwd: path.join(root, "frontend") },
-    { command: "npm", args: ["ls", "--omit=dev", "--json", "braces"], cwd: path.join(root, "frontend") },
+    ...register.exceptions.map((entry) => ({
+      command: "npm",
+      args: ["ls", "--omit=dev", "--json", entry.package],
+      cwd: path.join(root, "frontend"),
+    })),
   ];
   if (JSON.stringify(calls) !== JSON.stringify(expected)) {
     console.error(`FAIL ASSERTION command-contract: expected ${JSON.stringify(expected)}, got ${JSON.stringify(calls)}`);

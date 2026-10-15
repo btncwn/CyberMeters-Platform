@@ -78,7 +78,7 @@ function StepRow({ n, title, explanation, status, actionLabel, to }) {
   const s = STEP_STATUS[status] || STEP_STATUS.recommended
   return (
     <li className="flex items-start gap-3 py-3">
-      <span className="w-5 h-5 rounded-full border border-gray-300 text-xs font-bold text-gray-400 flex items-center justify-center flex-shrink-0 mt-0.5">{n}</span>
+      <span className="w-5 h-5 rounded-full border border-gray-300 text-xs font-bold text-gray-400 flex items-center justify-center shrink-0 mt-0.5">{n}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900">{title}</p>
@@ -86,7 +86,7 @@ function StepRow({ n, title, explanation, status, actionLabel, to }) {
         </div>
         <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{explanation}</p>
       </div>
-      <Link to={to} className="text-xs font-semibold text-brand-700 hover:text-brand-800 flex-shrink-0 mt-0.5 whitespace-nowrap">
+      <Link to={to} className="text-xs font-semibold text-brand-700 hover:text-brand-800 shrink-0 mt-0.5 whitespace-nowrap">
         {actionLabel} →
       </Link>
     </li>
@@ -161,7 +161,7 @@ export default function ServiceLauncher() {
             <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next step</p>
             <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{next.text}</p>
           </div>
-          <Link to={next.to} className="btn-primary text-sm flex-shrink-0">{next.cta}</Link>
+          <Link to={next.to} className="btn-primary text-sm shrink-0">{next.cta}</Link>
         </div>
 
         {/* 3 · Cyber MOT domains */}

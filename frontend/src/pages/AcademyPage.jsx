@@ -31,7 +31,7 @@ function ArticleResult({ article }) {
   return (
     <Link
       to={`/guide/${article.slug}`}
-      className="group flex flex-col bg-white rounded-xl border border-gray-200 hover:border-brand-200 hover:shadow-sm transition-all p-4 gap-1.5"
+      className="group flex flex-col bg-white rounded-xl border border-gray-200 hover:border-brand-200 hover:shadow-xs transition-all p-4 gap-1.5"
     >
       {area && <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: SERVICE_COLORS[area.colourKey].text }}>{area.title}</span>}
       <p className="text-[16px] font-bold text-black group-hover:text-brand-700 leading-snug">{article.title}</p>
@@ -47,7 +47,7 @@ export default function AcademyPage() {
   const results = useMemo(() => (searching ? searchArticles(query) : []), [query, searching])
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="mb-8">
         <h1 className="text-[28px] font-bold text-black">CyberMeters Field Guide</h1>
         <p className="mt-2 text-[17px] text-black max-w-[70ch] leading-relaxed">
@@ -61,7 +61,7 @@ export default function AcademyPage() {
             placeholder="Search articles, e.g. DMARC, HSTS, takeover…"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            className="w-full pl-4 pr-4 py-2.5 rounded-xl border border-gray-300 bg-white text-[16px] text-black placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="w-full pl-4 pr-4 py-2.5 rounded-xl border border-gray-300 bg-white text-[16px] text-black placeholder:text-gray-500 focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
       </div>

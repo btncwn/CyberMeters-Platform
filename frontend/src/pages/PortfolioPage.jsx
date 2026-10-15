@@ -111,8 +111,8 @@ function OverviewSection({ data, loading, error, onRetry }) {
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
       {Array.from({ length: 9 }).map((_, i) => (
         <div key={i} className="card p-5 animate-pulse">
-          <div className="h-3 bg-gray-100 rounded w-1/2 mb-3" />
-          <div className="h-7 bg-gray-100 rounded w-2/3" />
+          <div className="h-3 bg-gray-100 rounded-sm w-1/2 mb-3" />
+          <div className="h-7 bg-gray-100 rounded-sm w-2/3" />
         </div>
       ))}
     </div>
@@ -154,12 +154,12 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
   if (loading) return (
     <div className="card overflow-hidden mb-8">
       <div className="p-6 border-b border-gray-100">
-        <div className="h-5 bg-gray-100 rounded animate-pulse w-48" />
+        <div className="h-5 bg-gray-100 rounded-sm animate-pulse w-48" />
       </div>
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="px-6 py-4 border-b border-gray-50 flex gap-4">
           {Array.from({ length: 6 }).map((_, j) => (
-            <div key={j} className="h-4 bg-gray-100 rounded animate-pulse flex-1" />
+            <div key={j} className="h-4 bg-gray-100 rounded-sm animate-pulse flex-1" />
           ))}
         </div>
       ))}
@@ -242,13 +242,13 @@ const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info']
 function AlertsSection({ alerts, loading, error, onRetry }) {
   if (loading) return (
     <div className="card p-6 mb-8">
-      <div className="h-5 bg-gray-100 rounded animate-pulse w-40 mb-4" />
+      <div className="h-5 bg-gray-100 rounded-sm animate-pulse w-40 mb-4" />
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex gap-3 py-3 border-b border-gray-50 animate-pulse">
           <div className="h-5 w-16 bg-gray-100 rounded-full" />
           <div className="flex-1 space-y-2">
-            <div className="h-4 bg-gray-100 rounded w-2/3" />
-            <div className="h-3 bg-gray-100 rounded w-1/2" />
+            <div className="h-4 bg-gray-100 rounded-sm w-2/3" />
+            <div className="h-3 bg-gray-100 rounded-sm w-1/2" />
           </div>
         </div>
       ))}
@@ -294,7 +294,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
                   key={idx}
                   className="px-6 py-3 border-t border-gray-50 first:border-t-0 flex items-start gap-3"
                 >
-                  <div className="mt-0.5 flex-shrink-0">
+                  <div className="mt-0.5 shrink-0">
                     <SeverityBadge level={alert.severity} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -308,7 +308,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
                       <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{assetLifecycleClaimDisplay({ ...alert, event_type: alert.type }).description}</p>
                     )}
                   </div>
-                  <div className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-300">
+                  <div className="shrink-0 flex items-center gap-1 text-xs text-gray-300">
                     {fmtDateTime(alert.created_at)}
                   </div>
                 </div>
@@ -326,7 +326,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
 function TrendsSection({ trend, loading, error, onRetry }) {
   if (loading) return (
     <div className="card p-6 mb-8 animate-pulse">
-      <div className="h-5 bg-gray-100 rounded w-48 mb-6" />
+      <div className="h-5 bg-gray-100 rounded-sm w-48 mb-6" />
       <div className="h-48 bg-gray-50 rounded-xl" />
     </div>
   )
@@ -455,7 +455,7 @@ export default function PortfolioPage() {
   const highestRisk = overview?.highest_risk_workspace
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
 
       {/* Page header */}
       <div className="flex items-start justify-between mb-8">

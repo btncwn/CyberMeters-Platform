@@ -183,7 +183,7 @@ function deriveReadinessResult(answers, hasCyberMotEvidence = false) {
 
 function Header() {
   return (
-    <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/95 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
         <Link to="/" aria-label="CyberMeters home">
           <CyberMetersLogo className="h-7" />
@@ -391,7 +391,7 @@ function QuestionnaireView({ answers, onAnswer, onSubmit, onBack }) {
                   return (
                     <div key={question.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
                       <div className="flex items-start gap-3">
-                        <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-white text-xs font-bold text-gray-500 ring-1 ring-gray-200">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white text-xs font-bold text-gray-500 ring-1 ring-gray-200">
                           {questionIndex + 1}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -420,7 +420,7 @@ function QuestionnaireView({ answers, onAnswer, onSubmit, onBack }) {
         })}
       </div>
 
-      <div className="sticky bottom-4 z-20 mt-6 rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-card-md backdrop-blur">
+      <div className="sticky bottom-4 z-20 mt-6 rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-card-md backdrop-blur-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <ProgressBar answered={answered} total={totalQuestions} />
           <button type="button" onClick={onSubmit} disabled={!complete} className="btn-primary disabled:cursor-not-allowed disabled:opacity-40">
@@ -469,7 +469,7 @@ function ControlResultCard({ control }) {
           {control.answers.map(item => (
             <div key={item.question.id} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs">
               <span className="line-clamp-1 text-gray-500">{item.question.question}</span>
-              <span className="flex-shrink-0 font-bold text-gray-800">{answerLabel(item.answer)}</span>
+              <span className="shrink-0 font-bold text-gray-800">{answerLabel(item.answer)}</span>
             </div>
           ))}
         </div>

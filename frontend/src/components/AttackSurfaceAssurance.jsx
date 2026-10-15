@@ -82,7 +82,7 @@ function AssuranceProjection({ presentation }) {
             {lifecycle.customer_message}
           </p>
           {(lifecycle.records || []).map(record => (
-            <div key={record.asset_id || record.hostname} className="mt-2 rounded bg-gray-50 px-2.5 py-2">
+            <div key={record.asset_id || record.hostname} className="mt-2 rounded-sm bg-gray-50 px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="mono text-xs font-semibold text-gray-700">
                   {record.hostname || 'Unnamed asset'}
@@ -107,7 +107,7 @@ function AssuranceProjection({ presentation }) {
             {alertEligibility.customer_message}
           </p>
           {(alertEligibility.decisions || []).map((decision, index) => (
-            <div key={`${decision.event_type}-${decision.reason_code}-${index}`} className="mt-2 rounded bg-gray-50 px-2.5 py-2">
+            <div key={`${decision.event_type}-${decision.reason_code}-${index}`} className="mt-2 rounded-sm bg-gray-50 px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-gray-700">
                   {ALERT_EVENT_NAMES[decision.event_type] || 'Asset change'}

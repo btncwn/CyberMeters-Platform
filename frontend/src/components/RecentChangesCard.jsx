@@ -52,9 +52,9 @@ export default function RecentChangesCard({ workspaceId }) {
           const claimDisplay = assetLifecycleClaimDisplay(e)
           return (
             <li key={e.id} className="flex items-center gap-3">
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${SEVERITY_DOT[e.severity] ?? SEVERITY_DOT.info}`} />
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SEVERITY_DOT[e.severity] ?? SEVERITY_DOT.info}`} />
               <span className="text-sm text-gray-700 truncate flex-1 min-w-0">{claimDisplay.title}</span>
-              <time className="text-xs text-gray-400 flex-shrink-0">{relTime(e.created_at)}</time>
+              <time className="text-xs text-gray-400 shrink-0">{relTime(e.created_at)}</time>
             </li>
           )
         })}

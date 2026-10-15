@@ -108,7 +108,7 @@ function InviteForm({ workspaceId, callerRole, onSuccess }) {
           className="input flex-1"
           disabled={saving}
         />
-        <div className="relative flex-shrink-0">
+        <div className="relative shrink-0">
           <select
             value={role}
             onChange={e => setRole(e.target.value)}
@@ -121,7 +121,7 @@ function InviteForm({ workspaceId, callerRole, onSuccess }) {
           </select>
           <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
         </div>
-        <button type="submit" className="btn-primary flex-shrink-0" disabled={saving}>
+        <button type="submit" className="btn-primary shrink-0" disabled={saving}>
           {saving && <RefreshCw className="w-4 h-4 animate-spin" />}
           {saving ? 'Sending…' : 'Send Invite'}
         </button>
@@ -173,7 +173,7 @@ function RoleSelector({ currentRole, memberId, workspaceId, callerRole, onChange
           value={currentRole}
           onChange={change}
           disabled={changing}
-          className="text-xs font-semibold border border-gray-200 rounded-lg px-2.5 py-1.5 pr-6 bg-white appearance-none cursor-pointer hover:border-brand-300 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-200"
+          className="text-xs font-semibold border border-gray-200 rounded-lg px-2.5 py-1.5 pr-6 bg-white appearance-none cursor-pointer hover:border-brand-300 transition-colors focus:outline-hidden focus:ring-2 focus:ring-brand-200"
         >
           <option value="viewer">Viewer</option>
           <option value="analyst">Analyst</option>
@@ -256,7 +256,7 @@ export default function WorkspaceMembersPage() {
 
   if (!workspaceId) {
     return (
-      <div className="max-w-screen-xl mx-auto px-6 py-8">
+      <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
         <div className="card p-12 text-center">
           <p className="text-sm font-semibold text-gray-900 mb-1">No workspace selected</p>
           <p className="text-xs text-gray-400 mb-4">Select a workspace to manage team members.</p>
@@ -267,7 +267,7 @@ export default function WorkspaceMembersPage() {
   }
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
 
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
@@ -330,7 +330,7 @@ export default function WorkspaceMembersPage() {
                       <tr key={member.id} className="hover:bg-gray-50/40 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
                               <span className="text-xs font-bold text-brand-700">
                                 {(member.name || member.email || '?')[0].toUpperCase()}
                               </span>

@@ -97,7 +97,7 @@ function TechnicalAppendix({ appendix }) {
             </p>
             <div className="mt-1 space-y-1">
               {appendix.raw_records.map((record, index) => (
-                <p key={index} className="break-all rounded bg-slate-50 px-2 py-1 font-mono text-xs text-slate-600">
+                <p key={index} className="break-all rounded-sm bg-slate-50 px-2 py-1 font-mono text-xs text-slate-600">
                   {String(record?.raw ?? record?.value ?? record)}
                 </p>
               ))}

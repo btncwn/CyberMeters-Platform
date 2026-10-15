@@ -218,7 +218,7 @@ export function PlanGate({ error, children, feature: featureOverride, requiredPl
             <ul className="space-y-2">
               {planFeatures.map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-gray-700">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${planCfg.text.replace('text-', 'bg-')}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${planCfg.text.replace('text-', 'bg-')}`} />
                   {f}
                 </li>
               ))}

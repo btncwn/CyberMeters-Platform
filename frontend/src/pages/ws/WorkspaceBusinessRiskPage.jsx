@@ -77,7 +77,7 @@ function CategoryRow({ label, category, weight }) {
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow text-xs">
+    <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm text-xs">
       <p className="text-gray-500 mb-1">{parseServerDate(label).toLocaleDateString()}</p>
       {payload.map(p => (
         <p key={p.dataKey} style={{ color: p.color }} className="font-semibold">
@@ -129,7 +129,7 @@ export default function WorkspaceBusinessRiskPage() {
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error?.error === 'plan_feature_required' ? null : error?.message} onRetry={load}>
       <PlanGate error={error}>
-      <div className="max-w-screen-lg mx-auto">
+      <div className="max-w-(--breakpoint-lg) mx-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -155,8 +155,8 @@ export default function WorkspaceBusinessRiskPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[1, 2, 3, 4].map(i => (
               <div key={i} className="card p-6 animate-pulse">
-                <div className="h-4 bg-gray-100 rounded w-1/3 mb-3" />
-                <div className="h-8 bg-gray-100 rounded w-1/2" />
+                <div className="h-4 bg-gray-100 rounded-sm w-1/3 mb-3" />
+                <div className="h-8 bg-gray-100 rounded-sm w-1/2" />
               </div>
             ))}
           </div>

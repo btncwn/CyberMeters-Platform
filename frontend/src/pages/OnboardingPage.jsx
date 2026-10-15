@@ -48,7 +48,7 @@ function StepCard({ number, title, done, active, children }) {
       className={`card p-6 ${active ? 'ring-2 ring-brand-100' : ''}`}
     >
       <div className="flex items-start gap-4">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
           done ? 'bg-brand-50 text-brand-600' : active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500'
         }`}>
           <span className="text-sm font-bold">{number}</span>
@@ -308,7 +308,7 @@ export default function OnboardingPage() {
     || (selectedDomain?.verification_token ? `cybermeters-verification=${selectedDomain.verification_token}` : '')
 
   return (
-    <div className="max-w-screen-lg mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-lg) mx-auto px-6 py-8 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Get Started</h1>

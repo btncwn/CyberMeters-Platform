@@ -89,7 +89,7 @@ function SectionHeader({ title, aside }) {
   return (
     <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gray-50/80">
       <h2 className="text-sm font-bold text-gray-900">{title}</h2>
-      {aside && <div className="flex-shrink-0">{aside}</div>}
+      {aside && <div className="shrink-0">{aside}</div>}
     </div>
   )
 }
@@ -158,11 +158,11 @@ function ScoreBar({ label, value, max }) {
   const color = pct >= 80 ? '#00876A' : pct >= 50 ? '#F59E0B' : '#EF4444'
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-500 w-16 text-right flex-shrink-0">{label}</span>
+      <span className="text-xs text-gray-500 w-16 text-right shrink-0">{label}</span>
       <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
       </div>
-      <span className="text-xs font-bold text-gray-700 w-12 flex-shrink-0">{value}/{max}</span>
+      <span className="text-xs font-bold text-gray-700 w-12 shrink-0">{value}/{max}</span>
     </div>
   )
 }
@@ -171,7 +171,7 @@ function ScoreBar({ label, value, max }) {
 
 function NoWorkspaceState() {
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="card p-12 flex flex-col items-center text-center gap-4">
         <div>
           <h3 className="text-base font-bold text-gray-900 mb-1">No workspace selected</h3>
@@ -297,7 +297,7 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
                     {s.value}
                   </span>
                   {s.kevBadge && (
-                    <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded leading-none">
+                    <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-sm leading-none">
                       +{s.kevCount} KEV
                     </span>
                   )}
@@ -416,7 +416,7 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{group.label}</p>
               <div className="flex flex-wrap gap-1.5">
                 {group.labels.slice(0, 5).map((label, index) => (
-                  <span key={`${label}-${index}`} className={`text-xs px-2 py-0.5 rounded ${group.tone}`}>{label}</span>
+                  <span key={`${label}-${index}`} className={`text-xs px-2 py-0.5 rounded-sm ${group.tone}`}>{label}</span>
                 ))}
               </div>
             </div>
@@ -509,14 +509,14 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
                 <div className="space-y-2.5">
                   {shown.map((f, i) => (
                     <div key={f.id || i} className="flex items-start gap-3">
-                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${SEV_DOT[f.severity?.toLowerCase()] || 'bg-gray-300'}`} />
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${SEV_DOT[f.severity?.toLowerCase()] || 'bg-gray-300'}`} />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-gray-800 leading-snug">{f.title}</p>
                         {f.business_impact && (
                           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.business_impact}</p>
                         )}
                       </div>
-                      <div className="flex-shrink-0 mt-0.5 flex items-center gap-1.5">
+                      <div className="shrink-0 mt-0.5 flex items-center gap-1.5">
                         {/* Attributed score impact: the backend stamps the APPLIED
                             KEV/CVE deduction onto these notes (score_impact mirrors
                             score_impact_applied — single scoring owner, no second
@@ -525,7 +525,7 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
                             and an incomplete risk projection never presents a
                             deduction (unavailable evidence is not a signal). */}
                         {!risk.incomplete && Number.isFinite(f.score_impact) && f.score_impact < 0 && (
-                          <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100">
+                          <span className="text-xs font-bold px-1.5 py-0.5 rounded-sm bg-red-50 text-red-600 border border-red-100">
                             {f.score_impact} pts
                           </span>
                         )}
@@ -554,7 +554,7 @@ function RemediationItem({ item, index, tier }) {
   const c = P_COLOR[tier]
   return (
     <div className={`flex items-start gap-3 p-3 rounded-xl border ${c.bg} ${c.border}`}>
-      <div className={`w-5 h-5 rounded-full ${c.badge} flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5`}>
+      <div className={`w-5 h-5 rounded-full ${c.badge} flex items-center justify-center text-xs font-bold shrink-0 mt-0.5`}>
         {index + 1}
       </div>
       <div className="min-w-0 flex-1">
@@ -651,12 +651,12 @@ function RemediationSection({ plan, assessmentMessage = null }) {
 function EmailControl({ label, status, statusCls, detail, mono, warning }) {
   return (
     <div className="px-5 py-3 flex items-start gap-3 border-b border-gray-50 last:border-0">
-      <span className="text-xs font-semibold text-gray-500 w-16 flex-shrink-0 pt-0.5">{label}</span>
+      <span className="text-xs font-semibold text-gray-500 w-16 shrink-0 pt-0.5">{label}</span>
       <div className="flex-1 min-w-0">
         {detail && <p className={`text-xs ${mono ? 'mono text-gray-500 break-all' : 'text-gray-500'} leading-snug`}>{detail}</p>}
         {warning && <p className="text-xs text-amber-600 mt-0.5 leading-snug">{warning}</p>}
       </div>
-      <div className="flex-shrink-0">
+      <div className="shrink-0">
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${statusCls}`}>{status}</span>
       </div>
     </div>
@@ -805,7 +805,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start gap-2 justify-between">
                     <p className="text-xs font-semibold text-gray-800">{imp.technical}</p>
-                    <span className={`flex-shrink-0 ${rlBadge[imp.risk_level] || rlBadge.LOW}`}>{imp.risk_level}</span>
+                    <span className={`shrink-0 ${rlBadge[imp.risk_level] || rlBadge.LOW}`}>{imp.risk_level}</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{imp.business_impact}</p>
                   {imp.recommendation && (
@@ -827,7 +827,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
           <ul className="divide-y divide-gray-50">
             {intel.findings.map((f, i) => (
               <li key={f.id || i} className="flex items-start gap-3 px-5 py-3">
-                <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${SEV_DOT[f.severity] || 'bg-gray-300'}`} />
+                <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${SEV_DOT[f.severity] || 'bg-gray-300'}`} />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-gray-800">{f.title}</p>
                   <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
@@ -835,7 +835,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
                     <p className="text-xs text-brand-600 font-medium mt-1">→ {f.recommendation}</p>
                   )}
                 </div>
-                <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.informational}`}>{f.severity}</span>
+                <span className={`shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.informational}`}>{f.severity}</span>
               </li>
             ))}
           </ul>
@@ -912,7 +912,7 @@ function TechDetectionSection({ tech }) {
       <div className="divide-y divide-gray-50">
         {headerRows.map(({ label, value }) => (
           <div key={label} className="flex items-start justify-between gap-3 px-5 py-2">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex-shrink-0 pt-0.5 w-20">{label}</span>
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0 pt-0.5 w-20">{label}</span>
             <span className={`text-xs text-right break-all leading-relaxed ${
               value?.includes('✓') ? 'text-brand-600 font-medium' :
               value?.includes('✗') ? 'text-red-500 font-medium'  : 'text-gray-700 mono'
@@ -1052,14 +1052,14 @@ function CveIntelSection({ cve, kev = null, checkPack = null, assessmentMessage 
                   <div className="divide-y divide-gray-50">
                     {cves.map(c => (
                       <div key={c.cve_id} className="flex items-start gap-3 px-5 py-3">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded mono flex-shrink-0 mt-0.5 ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-sm mono shrink-0 mt-0.5 ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
                           {c.cve_id}
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-xs text-gray-600 leading-relaxed">{c.description}</p>
                         </div>
-                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
                             {c.severity}
                           </span>
                           {c.cvss_score != null && (
@@ -1130,7 +1130,7 @@ function KevSection({ kev, assessmentMessage = null }) {
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="text-xs font-bold mono text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
+                    <span className="text-xs font-bold mono text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-sm">
                       {m.cve_id}
                     </span>
                     {m.vendor_project && (
@@ -1234,7 +1234,7 @@ export default function IntelligencePage() {
   const contextDomain = report?.domain || storedScanObj?.domain || null
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
 
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -1249,7 +1249,7 @@ export default function IntelligencePage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {scans.length > 1 && (
             <select
               value={selectedId || ''}
@@ -1298,7 +1298,7 @@ export default function IntelligencePage() {
         <>
           {/* Scan context strip */}
           {storedScanObj && (
-            <div className="flex items-center gap-3 text-sm bg-white border border-gray-100 rounded-xl px-4 py-2.5 shadow-sm">
+            <div className="flex items-center gap-3 text-sm bg-white border border-gray-100 rounded-xl px-4 py-2.5 shadow-xs">
               <span className="font-semibold text-gray-800">{contextDomain}</span>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentPresentation.band.pill}`}>
                 {assessmentPresentation.band.label}

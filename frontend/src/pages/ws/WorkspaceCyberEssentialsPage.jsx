@@ -361,7 +361,7 @@ function Recommendations({ readiness }) {
         <ul className="mt-4 space-y-3">
           {readiness.recommendations.map((item, index) => (
             <li key={index} className="flex gap-3 text-sm leading-relaxed text-gray-600">
-              <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white">
                 {index + 1}
               </span>
               <span>{item}</span>
@@ -472,7 +472,7 @@ function ExternallyObservedControls({ data, error }) {
       </div>
 
       {data.scope_note && (
-        <p className="mt-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-600">{data.scope_note}</p>
+        <p className="mt-4 rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-600">{data.scope_note}</p>
       )}
     </div>
   )
@@ -667,7 +667,7 @@ export default function WorkspaceCyberEssentialsPage() {
             )}
 
             {questionSet.length > 0 && (
-              <div className="sticky bottom-4 z-20 rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-card-md backdrop-blur">
+              <div className="sticky bottom-4 z-20 rounded-2xl border border-gray-200 bg-white/95 p-4 shadow-card-md backdrop-blur-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-gray-900">Save self-declared answers</p>

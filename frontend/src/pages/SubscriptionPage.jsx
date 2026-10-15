@@ -149,7 +149,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
         </div>
         <button
           onClick={onUpgrade}
-          className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-xl transition-colors ${btnBg}`}
+          className={`shrink-0 flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-xl transition-colors ${btnBg}`}
         >
           Upgrade now
         </button>
@@ -218,7 +218,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
           <p className="text-xs text-gray-500 mt-2 leading-relaxed max-w-sm">{meta.description}</p>
         </div>
         {shownGbp !== null && (
-          <div className="text-right flex-shrink-0">
+          <div className="text-right shrink-0">
             {shownGbp === 0 ? (
               <p className="text-2xl font-black text-gray-800">£0</p>
             ) : (
@@ -233,7 +233,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
           </div>
         )}
         {shownGbp === null && plan === 'enterprise' && (
-          <div className="text-right flex-shrink-0">
+          <div className="text-right shrink-0">
             <p className="text-lg font-black text-amber-700">{mspFloor != null ? `from £${mspFloor.toFixed(2)}` : 'Contact us'}</p>
             <p className="text-xs text-gray-400 font-medium">{mspFloor != null ? `${annualBilling ? '/ year' : '/ month'} · contact us` : 'sales-led'}</p>
           </div>
@@ -562,7 +562,7 @@ export default function SubscriptionPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-10">
         <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-100 rounded w-1/3" />
+          <div className="h-6 bg-gray-100 rounded-sm w-1/3" />
           <div className="h-32 bg-gray-100 rounded-2xl" />
           <div className="h-24 bg-gray-100 rounded-2xl" />
           <div className="grid grid-cols-3 gap-3">
@@ -627,7 +627,7 @@ export default function SubscriptionPage() {
       {/* ── Stripe return banners ── */}
       {activation === 'activating' && (
         <div className="flex items-center gap-3 bg-brand-50 border border-brand-100 rounded-2xl px-4 py-3" role="status">
-          <RefreshCw className="w-5 h-5 text-brand-600 flex-shrink-0 animate-spin" />
+          <RefreshCw className="w-5 h-5 text-brand-600 shrink-0 animate-spin" />
           <div>
             <p className="text-sm font-bold text-gray-900">Checkout complete — activating your plan…</p>
             <p className="text-xs text-gray-600 mt-0.5">This usually takes a few seconds. Please don't pay again.</p>

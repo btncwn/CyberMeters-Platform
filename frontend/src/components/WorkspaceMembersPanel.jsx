@@ -169,7 +169,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
               <li key={m.id} className="flex items-center justify-between py-2.5 gap-3">
                 {/* Avatar + info */}
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-xs font-bold text-brand-700 flex-shrink-0">
+                  <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-xs font-bold text-brand-700 shrink-0">
                     {(m.name || m.email || '?')[0].toUpperCase()}
                   </div>
                   <div className="min-w-0">
@@ -185,7 +185,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
                 </div>
 
                 {/* Role + actions */}
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <RoleBadge role={m.role} />
                   {canRemove && (
                     <button
@@ -193,7 +193,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
                       disabled={removingId === m.id}
                       title="Remove member"
                       aria-label="Remove member"
-                      className="w-6 h-6 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                      className="w-6 h-6 flex items-center justify-center rounded-sm text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -252,7 +252,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
               <button
                 type="submit"
                 disabled={adding || !addEmail.trim()}
-                className="btn-primary flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50"
+                className="btn-primary flex items-center gap-1.5 shrink-0 disabled:opacity-50"
               >
                 {adding ? 'Inviting…' : 'Invite'}
               </button>

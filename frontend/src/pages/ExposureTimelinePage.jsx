@@ -33,7 +33,7 @@ export default function ExposureTimelinePage() {
   const workspaceId = requestedRow ? requestedRow.id : (pendingRequested ? null : activeWsId)
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
       <div>
         <div className="flex items-center gap-2">
           <h1 className="text-xl font-bold text-gray-900">Exposure Timeline</h1>

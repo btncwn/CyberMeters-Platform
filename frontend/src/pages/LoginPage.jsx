@@ -159,7 +159,7 @@ export default function LoginPage() {
   return (
     <AuthShell>
 
-      <div className="card auth-card shadow-card-lg !rounded-[20px]">
+      <div className="card auth-card shadow-card-lg rounded-[20px]!">
 
         {/* ── Step 1: Email + Password ── */}
         {!mfaRequired && (

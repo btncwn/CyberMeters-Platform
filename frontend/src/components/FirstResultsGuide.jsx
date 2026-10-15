@@ -62,7 +62,7 @@ export default function FirstResultsGuide({ compact = false }) {
   return (
     <div className="card overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-brand-50/40 to-white">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-linear-to-r from-brand-50/40 to-white">
         <div>
           <p className="text-sm font-bold text-gray-900">Understand Your Results</p>
           <p className="text-xs text-gray-400">Your first scan is complete — here's what everything means.</p>

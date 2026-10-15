@@ -163,7 +163,7 @@ export default function PricingPage() {
               }}
               className={`px-4 py-2 rounded-xl text-sm font-semibold border ${
                 interval === key
-                  ? 'bg-white text-gray-900 border-gray-200 shadow-sm'
+                  ? 'bg-white text-gray-900 border-gray-200 shadow-xs'
                   : 'bg-transparent text-gray-500 border-transparent hover:bg-white'
               }`}
             >
@@ -207,7 +207,7 @@ export default function PricingPage() {
                 }`}
               >
                 {plan.key === 'professional' && (
-                  <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow-sm">
+                  <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow-xs">
                     Most popular
                   </span>
                 )}

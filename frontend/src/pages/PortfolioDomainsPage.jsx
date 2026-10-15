@@ -71,7 +71,7 @@ function DomainRow({ row }) {
             {row.workspace_name} · {row.freshness_reason}
           </div>
         </div>
-        <div className="text-right flex-shrink-0">
+        <div className="text-right shrink-0">
           {/* No score is not a zero and not a 100 — the reason is shown instead of a
               number, and the /100 is omitted rather than printed with nothing in it. */}
           {hasScore(row.overall_score) && row.overall_rating ? (
@@ -186,11 +186,11 @@ export default function PortfolioDomainsPage() {
     return <div className="p-6 flex items-center justify-center min-h-64"><div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-brand-600" /></div>
   }
   if (error?.error === 'plan_feature_required') {
-    return <div className="p-6 max-w-screen-xl mx-auto"><PlanGate error={error}>{null}</PlanGate></div>
+    return <div className="p-6 max-w-(--breakpoint-xl) mx-auto"><PlanGate error={error}>{null}</PlanGate></div>
   }
   if (error) {
     return (
-      <div className="p-6 max-w-screen-xl mx-auto">
+      <div className="p-6 max-w-(--breakpoint-xl) mx-auto">
         <div className="card p-6 border border-red-100 bg-red-50 flex items-start gap-3">
           <div>
             <div className="text-sm font-semibold text-red-800">Could not load your portfolio</div>
@@ -205,7 +205,7 @@ export default function PortfolioDomainsPage() {
   const rows = data?.domains ?? []
 
   return (
-    <div className="p-6 max-w-screen-xl mx-auto">
+    <div className="p-6 max-w-(--breakpoint-xl) mx-auto">
       <div className="mb-6">
         <div className="eyebrow">MSP Portfolio</div>
         <h1 className="page-title">Domain state &amp; trend</h1>

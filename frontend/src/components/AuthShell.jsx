@@ -19,7 +19,7 @@ export default function AuthShell({ children, aside = null }) {
         {aside ? (
           <div className="w-full max-w-[1100px] grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] gap-10 lg:gap-14 items-center justify-items-center">
             <div className="w-full flex flex-col items-center">{children}</div>
-            <aside className="w-full max-w-[34rem] lg:max-w-none">{aside}</aside>
+            <aside className="w-full max-w-136 lg:max-w-none">{aside}</aside>
           </div>
         ) : (
           <div className="w-full flex flex-col items-center">{children}</div>

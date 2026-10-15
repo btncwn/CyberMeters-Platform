@@ -16,7 +16,7 @@ const date = value => {
 }
 
 function Observation({ state }) {
-  return <span className={`inline-flex rounded px-2 py-1 text-xs font-medium ${state === 'open' ? 'bg-blue-50 text-blue-800' : 'bg-gray-100 text-gray-700'}`}>{OBSERVATION_LABELS[state] || 'Not assessed'}</span>
+  return <span className={`inline-flex rounded-sm px-2 py-1 text-xs font-medium ${state === 'open' ? 'bg-blue-50 text-blue-800' : 'bg-gray-100 text-gray-700'}`}>{OBSERVATION_LABELS[state] || 'Not assessed'}</span>
 }
 
 function Coverage({ coverage, quality }) {
@@ -62,7 +62,7 @@ const SHARED_EVIDENCE = { published_edge_range: 'its published edge address rang
 
 function Suggestions({ state, canManage, onUse }) {
   if (state?.loading) return <p className="text-sm text-gray-500" role="status">Looking at hosts found by your Cyber MOT…</p>
-  if (state?.error) return <p role="alert" className="text-sm text-red-700 bg-red-50 rounded p-3">{state.error}</p>
+  if (state?.error) return <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-sm p-3">{state.error}</p>
   const result = state?.data
   if (!result) return null
   const rows = Array.isArray(result.suggestions) ? result.suggestions : []
@@ -73,13 +73,13 @@ function Suggestions({ state, canManage, onUse }) {
   return <div className="space-y-3">
     <p className="text-sm text-gray-600">Public addresses behind hosts your Cyber MOT found under verified domains. Nothing is tested until you add an address and declare that you are authorized to test it.</p>
     {own !== null && covered !== null && <p className="text-sm font-medium text-gray-800">{covered} of {own} likely server{own === 1 ? '' : 's'} {covered === 1 ? 'has' : 'have'} a network target.{shared ? ` ${shared} address${shared === 1 ? ' belongs' : 'es belong'} to shared provider infrastructure and ${shared === 1 ? 'is' : 'are'} not suggested for testing.` : ''}</p>}
-    {!rows.length ? <p className="text-sm text-gray-500">No discovered hosts with public addresses yet. They appear after a Cyber MOT discovers hosts under a verified domain.</p> : <ul className="space-y-2">{rows.map(row => <li key={row.address} className="border border-gray-200 rounded p-3 space-y-1" data-testid="network-suggestion">
+    {!rows.length ? <p className="text-sm text-gray-500">No discovered hosts with public addresses yet. They appear after a Cyber MOT discovers hosts under a verified domain.</p> : <ul className="space-y-2">{rows.map(row => <li key={row.address} className="border border-gray-200 rounded-sm p-3 space-y-1" data-testid="network-suggestion">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-mono text-sm">{row.address}</span>
         <span className="flex flex-wrap gap-1">
-          {row.priority === 'high' && <span className="rounded bg-amber-50 text-amber-800 px-2 py-0.5 text-xs font-medium">Sensitive name: {row.high_value_labels.join(', ')}</span>}
-          {row.recommendation === 'covered' && <span className="rounded bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Already a network target</span>}
-          {row.recommendation === 'provider_infrastructure' && <span className="rounded bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Shared infrastructure: {row.provider}</span>}
+          {row.priority === 'high' && <span className="rounded-sm bg-amber-50 text-amber-800 px-2 py-0.5 text-xs font-medium">Sensitive name: {row.high_value_labels.join(', ')}</span>}
+          {row.recommendation === 'covered' && <span className="rounded-sm bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Already a network target</span>}
+          {row.recommendation === 'provider_infrastructure' && <span className="rounded-sm bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Shared infrastructure: {row.provider}</span>}
         </span>
       </div>
       <p className="text-xs text-gray-600 break-all">{row.hostnames.join(', ')}{row.hostname_count > row.hostnames.length ? ` and ${row.hostname_count - row.hostnames.length} more` : ''}</p>
@@ -249,15 +249,15 @@ export default function NetworkAssetsPanel({ workspaceId }) {
       <div><h2 className="text-lg font-semibold text-gray-900 ">Network assets</h2><p className="text-sm text-gray-500 mt-1">Public IP addresses and networks you are authorized to test. An open port is an observation, not a vulnerability.</p></div>
       <button className="btn-secondary text-sm" onClick={() => refresh()} disabled={refreshing || busy}>{refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}Refresh network assets</button>
     </div>
-    {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded p-3">{error}{current && ' Previously loaded observations remain shown.'}</p>}
+    {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-sm p-3">{error}{current && ' Previously loaded observations remain shown.'}</p>}
     {message && <p role="status" className="text-sm text-brand-700">{message}</p>}
     {!current && !error && <p className="text-sm text-gray-500" role="status">Loading network inventory…</p>}
     {current && <>
-      {capabilities.collector_available !== true && <p className="text-sm text-amber-800 bg-amber-50 p-3 rounded">Network scanning is currently unavailable. Recorded targets and observations remain available.</p>}
+      {capabilities.collector_available !== true && <p className="text-sm text-amber-800 bg-amber-50 p-3 rounded-sm">Network scanning is currently unavailable. Recorded targets and observations remain available.</p>}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Network asset views">{[['targets', 'Targets'], ['suggested', 'Suggested'], ['services', 'Services'], ['scans', 'Recent scans']].map(([value, title]) => <button role="tab" aria-selected={tab === value} key={value} className={tab === value ? 'btn-primary text-sm' : 'btn-secondary text-sm'} onClick={() => setTab(value)}>{title}</button>)}</div>
 
       {tab === 'targets' && <div className="space-y-4" role="tabpanel" aria-label="Targets">
-        {capabilities.can_manage === true && <form onSubmit={addTarget} className="rounded border border-gray-200 bg-gray-50 p-4 space-y-3">
+        {capabilities.can_manage === true && <form onSubmit={addTarget} className="rounded-sm border border-gray-200 bg-gray-50 p-4 space-y-3">
           <div className="grid sm:grid-cols-2 gap-3"><label className="text-sm font-medium">IP address or CIDR<input className="input w-full mt-1" value={target} onChange={event => setTarget(event.target.value)} placeholder="203.0.113.10 or 203.0.113.0/28" maxLength={80} required /></label><label className="text-sm font-medium">Label (optional)<input className="input w-full mt-1" value={label} onChange={event => setLabel(event.target.value)} maxLength={120} /></label></div>
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={authorized} onChange={event => setAuthorized(event.target.checked)} className="mt-1" />I own this address range or have permission to test it.</label>
           <p className="text-xs text-gray-500">This records your authorization declaration; it is not independent ownership verification.{count(capabilities.limits?.max_addresses) !== null ? ` Up to ${capabilities.limits.max_addresses} public addresses per target.` : ''}</p>
@@ -282,7 +282,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
         <h3 className="font-semibold text-sm">Recent changes</h3><p className="text-xs text-gray-500">From the latest 25 completed scans. Open a scan to see its full change record.</p><ChangeList changes={current.changes} />
       </div>}
 
-      {tab === 'scans' && <div role="tabpanel" aria-label="Recent scans" className="space-y-3"><p className="text-xs text-gray-500">Showing {current.scans.length}{current.scanTotal !== null ? ` of ${current.scanTotal}` : ''} network scans. This view includes the latest 100 runs.{current.scansTruncated && ' Older runs remain accessible from their scan reference.'}</p>{!current.scans.length ? <p className="text-sm text-gray-500">No network scans recorded yet.</p> : current.scans.map(scan => <div key={scan.id} className="border border-gray-200 rounded p-3 space-y-2">
+      {tab === 'scans' && <div role="tabpanel" aria-label="Recent scans" className="space-y-3"><p className="text-xs text-gray-500">Showing {current.scans.length}{current.scanTotal !== null ? ` of ${current.scanTotal}` : ''} network scans. This view includes the latest 100 runs.{current.scansTruncated && ' Older runs remain accessible from their scan reference.'}</p>{!current.scans.length ? <p className="text-sm text-gray-500">No network scans recorded yet.</p> : current.scans.map(scan => <div key={scan.id} className="border border-gray-200 rounded-sm p-3 space-y-2">
         <div className="flex flex-wrap justify-between gap-2"><span className="font-medium text-sm">{scan.target || current.targets.find(row => row.id === scan.target_id)?.target || 'Target not recorded'}</span><span className="text-sm">{RUN_LABELS[scan.status] || 'Unknown status'}</span></div>
         <p className="text-xs text-gray-500">Started {date(scan.created_at)}{scan.completed_at ? ` · Finished ${date(scan.completed_at)}` : ''}</p>
         {!pending(scan) && <Coverage coverage={scan.coverage} quality={scan.quality} />}{scan.reason && <p className="text-sm text-gray-600">{scan.reason}</p>}
@@ -290,7 +290,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
       </div>)}</div>}
     </>}
 
-    {detail?.workspaceId === workspaceId && <div className="border border-brand-200 bg-brand-50/30 rounded p-4 space-y-3" aria-label="Network scan evidence">
+    {detail?.workspaceId === workspaceId && <div className="border border-brand-200 bg-brand-50/30 rounded-sm p-4 space-y-3" aria-label="Network scan evidence">
       <div className="flex justify-between items-center"><h3 className="font-semibold">Network scan evidence</h3><button aria-label="Close network scan evidence" onClick={() => { detailRequest.current += 1; setDetail(null) }}><X className="w-5 h-5" /></button></div>
       {detail.loading ? <p>Loading evidence…</p> : detail.error ? <p role="alert" className="text-red-700">{detail.error}</p> : <>
         <p className="text-xs text-gray-500">Scan reference: {detail.scan?.id || 'Not recorded'}</p>

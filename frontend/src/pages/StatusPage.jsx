@@ -91,10 +91,10 @@ export default function StatusPage() {
       <PublicSiteHeader />
       <main className="max-w-2xl mx-auto px-6 py-12">
 
-        <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
+        <div className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              {state === 'loading' && <RefreshCw className="w-6 h-6 text-gray-300 animate-spin flex-shrink-0" />}
+              {state === 'loading' && <RefreshCw className="w-6 h-6 text-gray-300 animate-spin shrink-0" />}
               <div className="min-w-0">
                 <h1 className="text-xl font-bold text-gray-900">System status</h1>
                 <p className={`text-sm font-semibold ${state === 'loading' ? 'text-gray-400' : s.cls}`}>
@@ -105,7 +105,7 @@ export default function StatusPage() {
             <button
               onClick={check}
               disabled={loading}
-              className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:border-brand-300 hover:text-brand-700 transition-colors disabled:opacity-50"
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:border-brand-300 hover:text-brand-700 transition-colors disabled:opacity-50"
             >
               {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               Refresh

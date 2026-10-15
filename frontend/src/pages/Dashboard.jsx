@@ -322,7 +322,7 @@ function RiskBadge({ risk }) {
  */
 function CreateFirstWorkspaceState() {
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Security overview</h1>
         <p className="text-sm text-gray-400 mt-0.5">Your attack surface dashboard</p>
@@ -377,7 +377,7 @@ function CreateFirstWorkspaceState() {
  */
 function SelectWorkspaceState() {
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="flex items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Security overview</h1>
@@ -587,7 +587,7 @@ export default function Dashboard() {
   const showTeamOnboarding = localStorage.getItem('cybermeters_joined_via_invite') === 'true'
 
   return (
-    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
+    <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-8">
 
       {/* Header */}
       <div className="flex items-end justify-between gap-4">
@@ -712,7 +712,7 @@ export default function Dashboard() {
                 <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next action</p>
                 <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{rec.text}</p>
               </div>
-              <Link to={rec.to} className="btn-primary text-sm flex-shrink-0">{rec.cta}</Link>
+              <Link to={rec.to} className="btn-primary text-sm shrink-0">{rec.cta}</Link>
             </div>
 
             {/* Posture overview */}
@@ -757,7 +757,7 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
-          <Link to="/ws/dashboard" className="btn-primary flex-shrink-0">
+          <Link to="/ws/dashboard" className="btn-primary shrink-0">
             Add Domain
           </Link>
         </div>
@@ -899,7 +899,7 @@ export default function Dashboard() {
                   onClick={() => f.scanId ? navigate(`/scans/${f.scanId}`) : navigate('/scans')}
                   className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
                 >
-                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 ${
+                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5 ${
                     f.risk === 'critical' ? 'bg-red-500'    :
                     f.risk === 'high'     ? 'bg-orange-500' :
                     f.risk === 'medium'   ? 'bg-amber-400'  : 'bg-blue-400'
@@ -947,7 +947,7 @@ export default function Dashboard() {
             {ins.actions.slice(0, 3).map((action, i) => (
               <div key={action.id} className="card p-5 flex flex-col gap-4 hover:shadow-card-md transition-shadow">
                 <div className="flex items-start gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 ${
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5 ${
                     i === 0 ? 'bg-red-500' : i === 1 ? 'bg-amber-500' : 'bg-brand-600'
                   }`}>{action.priority}</div>
                   <div>
@@ -986,7 +986,7 @@ export default function Dashboard() {
                 <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
                 {/* Show real score if available */}
                 {scanAssessment.score !== null && (
-                  <span className={`text-sm font-bold flex-shrink-0 ${scanAssessment.authoritative ? 'text-brand-600' : 'text-amber-700'}`}>
+                  <span className={`text-sm font-bold shrink-0 ${scanAssessment.authoritative ? 'text-brand-600' : 'text-amber-700'}`}>
                     {scanAssessment.score}{scanAssessment.authoritative ? '' : ' provisional'}
                   </span>
                 )}
@@ -995,7 +995,7 @@ export default function Dashboard() {
                     ? scan.scan_quality === 'complete' ? 'Provisional result' : 'Partial results'
                     : scan.status}</span>
                 </span>
-                <span className="text-xs text-gray-400 hidden sm:block flex-shrink-0">{formatDate(scan.created_at)}</span>
+                <span className="text-xs text-gray-400 hidden sm:block shrink-0">{formatDate(scan.created_at)}</span>
               </li>
               )
             })}
