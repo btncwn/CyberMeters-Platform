@@ -10,7 +10,6 @@ import WorkspaceNav, { detectServiceKey } from './WorkspaceNav'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 import SafeBoundary from './SafeBoundary'
 import NotificationBell from './NotificationBell'
-import FeedbackWidget from './FeedbackWidget'
 
 // Accuracy and Pricing are removed from the main nav:
 // - Accuracy is an internal developer tool not intended for beta users.
@@ -23,7 +22,7 @@ import FeedbackWidget from './FeedbackWidget'
 // deepest amber to the lightest, two items per step, and Settings lives only in
 // the workspace sidebar (a control never appears in three places).
 const NAV = [
-  { to: '/dashboard',  label: 'Dashboard',  color: '#CB6629' },
+  { to: '/dashboard',  label: 'Overview',   color: '#CB6629' },
   { to: '/services',   label: 'Services',   color: '#CB6629' },
   { to: '/workspaces', label: 'Workspaces', color: '#D57B2E' },
   { to: '/reports',    label: 'Reports',    color: '#D57B2E' },
@@ -36,6 +35,7 @@ const MORE_LINKS = [
   { to: '/scans',     label: 'Scans'     },
   { to: '/schedules', label: 'Schedules' },
   { to: '/academy',   label: 'Academy'   },
+  { to: '/support',   label: 'Support'   },
 ]
 
 // ── Workspace Selector Dropdown ───────────────────────────────────────────────
@@ -86,6 +86,8 @@ function WorkspaceSelector() {
     setActiveId(null)
     setActiveName(null)
     setOpen(false)
+    // The /ws/... pages belong to the workspace just cleared, so leave them.
+    navigate('/workspaces')
   }
 
   return (
@@ -392,13 +394,13 @@ export default function Layout() {
       {/* Top bar: deep navy, darkest at the brand and lighter towards the
           right; brand and navigation in the amber steps of the wordmark. */}
       <header className="cm-topbar sticky top-0 z-50">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-10 min-h-[96px] lg:min-h-[144px] flex flex-wrap items-center gap-x-6 gap-y-2 lg:gap-x-11 py-3 lg:py-0">
+        <div className="w-full px-4 sm:px-6 lg:px-10 min-h-[96px] lg:min-h-[144px] flex flex-wrap items-center gap-x-6 gap-y-2 lg:gap-x-11 py-3 lg:py-0">
 
           {/* Logo */}
           <button
             onClick={() => navigate('/dashboard')}
             className="flex-shrink-0 group"
-            aria-label="Dashboard"
+            aria-label="CyberMeters security overview"
           >
             <CyberMetersLogo size={38} showWordmark animated darkMode wordmarkColor="#C65B26" />
           </button>
@@ -466,9 +468,6 @@ export default function Layout() {
           </div>
         </div>
       </main>
-
-      {/* Beta feedback entry point */}
-      <FeedbackWidget />
 
       {/* Footer */}
       <footer className="border-t border-gray-100 bg-white">

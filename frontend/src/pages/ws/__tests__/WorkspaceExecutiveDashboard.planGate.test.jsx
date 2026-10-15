@@ -60,7 +60,7 @@ describe('Executive Dashboard plan response', () => {
     api.getExecutiveDashboard.mockResolvedValue(dashboard)
     renderPage()
     expect(await screen.findByText('82')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Executive Dashboard' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Executive dashboard' })).toBeInTheDocument()
     expect(screen.queryByText(/requires an upgrade/)).not.toBeInTheDocument()
   })
 })

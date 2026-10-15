@@ -52,21 +52,42 @@ describe('WorkspaceNav (eight-domain sidebar)', () => {
     expect(screen.queryByText('Typosquat Candidates')).not.toBeInTheDocument()
   })
 
-  it('accordion: clicking the open service collapses its sub-items (the fixed bug)', () => {
+  it('the area name is a link and the chevron is a separate expand/collapse button', () => {
     renderNav('/ws/email-protection')
+    const link = screen.getByRole('link', { name: 'Email Protection' })
+    expect(link).toHaveAttribute('href', '/ws/email-protection')
+    const toggle = screen.getByRole('button', { name: 'Collapse Email Protection' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Email Protection'))
+    // Clicking the name does NOT collapse anything: it only navigates.
+    fireEvent.click(link)
+    expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
+    // The chevron collapses, then reopens.
+    fireEvent.click(toggle)
     expect(screen.queryByText('DMARC Setup')).not.toBeInTheDocument()
-    // …and clicking again reopens it.
-    fireEvent.click(screen.getByText('Email Protection'))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Email Protection' }))
     expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
   })
 
   it('switching domain moves the accordion: Brand opens, Email closes', () => {
     renderNav('/ws/email-protection')
-    fireEvent.click(screen.getByText('Brand Protection'))
+    fireEvent.click(screen.getByRole('link', { name: 'Brand Protection' }))
     expect(screen.getByText('Typosquat Candidates')).toBeInTheDocument()
     expect(screen.queryByText('DMARC Setup')).not.toBeInTheDocument()
+  })
+
+  it('no two visible controls in one navigation group share a destination', () => {
+    // Every service's sub-items (plus its Managed cases entry) and the
+    // Workspace tools are each one group; one destination appears once.
+    for (const path of ['/assets', '/ws/email-protection', '/ws/certificates', '/ws/brand-monitoring', '/ws/shadow-it']) {
+      const { unmount } = renderNav(path)
+      const hrefs = screen.getAllByRole('link').map(a => a.getAttribute('href'))
+      const seen = new Map()
+      for (const h of hrefs) seen.set(h, (seen.get(h) || 0) + 1)
+      const dupes = [...seen].filter(([, n]) => n > 1).map(([h]) => h)
+      expect(dupes).toEqual([])
+      unmount()
+    }
   })
 
   it('sub-items inherit their parent service colour', () => {
