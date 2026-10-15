@@ -49,7 +49,7 @@ const readOf = (snap) => ({ status: "ok", snapshot: snap, row: { id: "s1" }, int
   const t = txt(buildScanReportPdf({ domain: "acme.co.uk" }, readOf(snap), { mode: "cybermeters", attribution: "full" }, null));
   const domainText = assessmentDomainSection(t);
 
-  const EIGHT = ["Identity Exposure", "Attack Surface", "Email Protection", "Website Security", "Shadow IT & Unmanaged Technology", "Certificates & Trust", "Brand Protection", "Cyber Essentials Readiness"];
+  const EIGHT = ["Email Protection", "Attack Surface", "Website Security", "Identity Exposure", "Shadow IT & Unmanaged Technology", "Certificates & Trust", "Brand Protection", "Cyber Essentials Readiness"];
   const inOrder = (text) => EIGHT.every((name, i) => text.indexOf(name) >= 0 && (i === 0 || text.indexOf(EIGHT[i - 1]) < text.indexOf(name)));
   ok("Assessment PDF follows customer domain presentation order", inOrder(domainText));
   ok("all eight domains appear in the Assessment PDF", EIGHT.every((d) => domainText.includes(d)));

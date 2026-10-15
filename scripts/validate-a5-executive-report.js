@@ -299,9 +299,12 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
 {
   // Refreshed for the founder-requested domain presentation order (9 October).
   // Both prior goldens were reproduced; visible text is identical apart from order.
+  // Refreshed again for the founder order of 14 October (Email Protection first,
+  // Identity Exposure fourth): with only EXECUTIVE_AREAS reverted, both prior
+  // goldens (9d0cffaa…, aa004a08…) reproduce exactly; only the row order moved.
   const executiveGolden = {
-    false: "9d0cffaad57027fcd014d0aa2999cb6d2c0ccf2623ccef4f5f10cd7619e34a68",
-    true: "aa004a0888283b1d14e6e74c7419204cb06f9bb0d87ea9670d525f5d5beba657",
+    false: "47bfa7b64c9eb2767478a58d8cf1fad4a0e7a4d15613150bd034422ea1d2d7f2",
+    true: "75773ac64f01fbb21122de8d4990b43443d18b76b2d91b7bfc5f7f4c80298617",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));

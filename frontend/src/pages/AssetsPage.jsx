@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Server, AlertTriangle, Globe, Cloud, Shield, Activity, X, Layers } from 'lucide-react'
 import { api } from '../api'
+import ModuleContract from '../components/module/ModuleContract'
 import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
@@ -633,6 +634,7 @@ export default function AssetsPage() {
         </button>
       </div>
 
+      <ModuleContract domainKey="attack_surface" workspaceId={workspaceId} workspaceName={workspaceName}>
       {/* Error */}
       {error && (
         <div className="px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
@@ -772,6 +774,8 @@ export default function AssetsPage() {
           </div>
         </>
       )}
+
+      </ModuleContract>
 
       {/* ── Detail panel ────────────────────────────────────────────────────── */}
       {selectedId && (

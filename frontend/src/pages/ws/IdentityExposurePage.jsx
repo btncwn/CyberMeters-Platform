@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
+import ModuleContract from '../../components/module/ModuleContract'
 import {
   classificationMeta, riskMeta, ownershipMeta, verificationMeta, surfaceLabel, toneClass,
   isAwaitingVerification, IDENTITY_SCOPE_NOTE, identityClaimMeta, confidenceDetailLabel,
@@ -25,7 +26,7 @@ export default function IdentityExposurePage() {
   // Workspace comes from the canonical context hook, not a route param â the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
-  const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
+  const { wsId: workspaceId, wsName: workspaceName, loading: wsLoading } = useWorkspace()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -98,6 +99,7 @@ export default function IdentityExposurePage() {
       </div>
 
 
+      <ModuleContract domainKey="identity_exposure" workspaceId={workspaceId} workspaceName={workspaceName}>
       <h2 className="font-semibold text-slate-800 mt-6">Login-surface review</h2>
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 my-3">
         {IDENTITY_SCOPE_NOTE}
@@ -186,6 +188,7 @@ export default function IdentityExposurePage() {
           </table>
         </div>
       )}
+      </ModuleContract>
     </div>
   )
 }

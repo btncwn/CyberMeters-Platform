@@ -130,13 +130,14 @@ export default function ActivityTimeline({ workspaceId }) {
   return (
     <div className="card p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="text-sm font-semibold text-gray-900">Activity</h2>
-        <div className="flex items-center gap-2">
+        {/* The filter's widest option must never push the page past a phone's edge. */}
+        <div className="flex items-center gap-2 min-w-0">
           <select
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+            className="min-w-0 max-w-full text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"
           >
             {EVENT_TYPES.map(t => (
               <option key={t.value} value={t.value}>{t.label}</option>

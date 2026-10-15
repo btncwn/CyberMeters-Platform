@@ -9,7 +9,7 @@ import TeamOnboardingCard  from '../components/TeamOnboardingCard'
 import RecentChangesCard   from '../components/RecentChangesCard'
 import { bandMeta, metaForScore, scoreBand } from '../lib/score-presentation'
 import CyberMotDomains      from '../components/CyberMotDomains'
-import { SERVICE_COLORS }   from '../theme/serviceColors'
+import SecurityOverview, { requestManagedCases } from '../components/overview/SecurityOverview'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -403,44 +403,6 @@ function SelectWorkspaceState() {
   )
 }
 
-/* ─── Domain shortcut card ──────────────────────────────────────────────── */
-
-// Glacier identity colours — from the shared single source of truth so domain
-// cards always match the landing, workspace pages and sidebar.
-const SERVICE_THEME = SERVICE_COLORS
-
-const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
-
-function ServiceKpiCard({ title, to, cta, accentTone, kpis, fallback, status, theme }) {
-  const accent = accentTone === 'bad' ? 'accent-danger' : accentTone === 'warn' ? 'accent-warning' : ''
-  return (
-    <div className={`card p-5 flex flex-col relative overflow-hidden ${accent}`}>
-      {theme && <span className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: theme.icon, opacity: 0.85 }} />}
-      <div className="flex items-center gap-2 mb-3">
-        <h3 className="text-sm font-bold text-gray-900">{title}</h3>
-      </div>
-      {status && (
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{status}</p>
-      )}
-      {kpis && kpis.length ? (
-        <dl className="space-y-1.5 flex-1">
-          {kpis.map((k, i) => (
-            <div key={i} className="flex items-center justify-between gap-2">
-              <dt className="text-xs text-gray-600">{k.label}</dt>
-              <dd className={`text-xs font-bold tabular-nums ${k.tone === 'bad' ? 'text-red-700' : k.tone === 'warn' ? 'text-amber-700' : 'text-gray-800'}`}>{k.value}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <p className="text-xs text-gray-500 leading-relaxed flex-1">{fallback}</p>
-      )}
-      <Link to={to} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 hover:text-brand-800">
-        {cta}
-      </Link>
-    </div>
-  )
-}
-
 /* ─── Main Dashboard ───────────────────────────────────────────────────── */
 
 export default function Dashboard() {
@@ -448,6 +410,9 @@ export default function Dashboard() {
   const [report,        setReport]        = useState(null)
   const [motDomains,    setMotDomains]    = useState([])   // server-resolved eight-domain states (always 8)
   const [scorecard,     setScorecard]     = useState(null)
+  const [motRequest,    setMotRequest]    = useState('loading') // how the eight-domain read went
+  const [cases,         setCases]         = useState([])
+  const [casesRequest,  setCasesRequest]  = useState('loading')
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
   const [refreshing,    setRefreshing]    = useState(false)
@@ -533,11 +498,12 @@ export default function Dashboard() {
     else setRefreshing(true)
     setError(null)
     try {
-      const [data, domainsData, scorecardData, motData] = await Promise.all([
+      const [data, domainsData, scorecardData, motData, casesData] = await Promise.all([
         api.getWorkspaceScans(wsId),
         api.getWorkspaceDomains(wsId).catch(() => ({ domains: [] })),
         api.getWorkspaceScorecard(wsId).catch(() => null), // optional; powers service KPIs
         api.getCyberMotDomains(wsId).catch(() => null),    // canonical eight-domain states (server-resolved)
+        requestManagedCases(wsId).catch(() => null),       // managed cases, shown per area by the overview
       ])
       const list = data.scans || []
       setScans(list)
@@ -545,6 +511,9 @@ export default function Dashboard() {
       setScorecard(scorecardData)
       // Always eight; the endpoint returns canonical no-scan states when no scan exists.
       setMotDomains(Array.isArray(motData?.cyber_mot_domains) ? motData.cyber_mot_domains : [])
+      setMotRequest(Array.isArray(motData?.cyber_mot_domains) ? 'ok' : 'error')
+      setCases(Array.isArray(casesData?.cases) ? casesData.cases : [])
+      setCasesRequest(Array.isArray(casesData?.cases) ? 'ok' : 'error')
 
       // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
@@ -621,115 +590,26 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Operational KPI overview + recommended action + observations ── */}
-      {(() => {
-        const sc = scorecard
-        const brand = sc?.brand_risks
-        const cr = sc?.certificate_risks?.risk_level
-        const critical = ins.criticalCount ?? 0
-        const high = ins.highCount ?? 0
-
-        const brandKpis = brand && (brand.active != null || brand.high != null) ? [
-          { label: 'High-risk lookalikes', value: brand.high ?? 0, tone: (brand.high ?? 0) > 0 ? 'bad' : '' },
-          { label: 'Active candidates',    value: brand.active ?? 0 },
-        ] : null
-        const surfaceKpis = hasCompletedScan ? [
-          { label: 'Critical findings', value: critical, tone: critical > 0 ? 'bad' : '' },
-          { label: 'High findings',     value: high, tone: high > 0 ? 'warn' : '' },
-          ...(sc?.active_assets != null ? [{ label: 'Active assets', value: sc.active_assets }] : []),
-        ] : null
-        const certKpis = cr ? [
-          { label: 'Certificate risk', value: titleCase(cr), tone: ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : '' },
-          ...(sc?.certificate_risks?.expiring_soon != null ? [{ label: 'Expiring soon', value: sc.certificate_risks.expiring_soon, tone: sc.certificate_risks.expiring_soon > 0 ? 'warn' : '' }] : []),
-        ] : null
-
-        // Recommended next action — derived honestly from real signals only.
-        const rec = domainCount === 0
-          ? { text: 'Add your first domain so CyberMeters can start monitoring it.', cta: 'Add a domain', to: '/ws/dashboard' }
-          : !hasCompletedScan
-            ? { text: 'Run your first external scan to discover exposed assets and email posture.', cta: 'Run a scan', to: '/scans/new' }
-            : (cr && ['high', 'critical'].includes(cr))
-              ? { text: 'Certificate trust needs attention — review expiry and HTTPS posture.', cta: 'Review certificates', to: '/ws/certificates' }
-              : (brand && (brand.high ?? 0) > 0)
-                ? { text: 'High-risk lookalike domains detected — review brand candidates.', cta: 'Review brand candidates', to: '/ws/brand-monitoring' }
-                : critical > 0
-                  ? { text: 'Critical findings on your attack surface — review and remediate.', cta: 'Review attack surface', to: '/assets' }
-                  : { text: 'Connect Email Protection to measure impersonation exposure and receive DMARC reports.', cta: 'Open Email Protection', to: '/ws/email-protection' }
-
-        // M5.e: this block no longer DECIDES security states locally — counts are
-        // presented as observations; the eight-domain Cyber MOT grid below is
-        // the one canonical state surface on this page.
-        const posture = [
-          { label: 'Brand candidates',  value: brand ? `${brand.active ?? 0} active${(brand.high ?? 0) > 0 ? `, ${brand.high} high-risk` : ''}` : 'Unknown', tone: brand && (brand.high ?? 0) > 0 ? 'bad' : 'na' },
-          { label: 'Open findings',     value: hasCompletedScan ? `${critical} critical, ${high} high` : 'No completed scan', tone: critical > 0 ? 'bad' : high > 0 ? 'warn' : 'na' },
-          { label: 'Certificate risk',  value: cr ? titleCase(cr) : 'Unknown', tone: cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : 'na' },
-        ]
-        const pTone = (t) => t === 'bad' ? 'text-red-700' : t === 'warn' ? 'text-amber-700' : t === 'ok' ? 'text-brand-700' : 'text-gray-400'
-
-        return (
-          <div className="space-y-6">
-            {/* Eight-domain Cyber MOT coverage — ALWAYS all eight, server-resolved
-                (canonical no-scan states before any scan); missing evidence is never
-                shown as healthy and no domain silently disappears. */}
-            <CyberMotDomains
-              domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
-              subtitle="All eight Cyber MOT areas, each with what the latest scan could establish." />
-
-            {/* Domain shortcut cards */}
-            <div>
-              <h2 className="section-title mb-3">Your Cyber MOT domains</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <ServiceKpiCard title="Identity Exposure" to="/ws/identity-exposure" cta="Review Identity Exposure"
-                  theme={SERVICE_THEME.identity} status="Externally observed"
-                  fallback="Review observed identity-provider relationships and identity-facing hostnames. Endpoint reachability is shown only with HTTP evidence." />
-                <ServiceKpiCard title="Attack Surface" to="/assets" cta="Review Attack Surface"
-                  theme={SERVICE_THEME.surface} kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
-                  fallback="Run your first external scan to discover exposed assets." />
-                <ServiceKpiCard title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
-                  theme={SERVICE_THEME.email} status="Not measured"
-                  fallback="Connect DMARC reporting to measure impersonation exposure." />
-                <ServiceKpiCard title="Website Security" to="/ws/website-security" cta="Review Website Security"
-                  theme={SERVICE_THEME.website} status="Externally observed"
-                  fallback="Review HTTPS, redirects, headers and cookie flag evidence." />
-                <ServiceKpiCard title="Shadow IT & Unmanaged Technology" to="/ws/shadow-it" cta="Review Shadow IT"
-                  theme={SERVICE_THEME.shadow_it} status="Externally observed"
-                  fallback="Review SaaS, vendor, script and unmanaged technology observations." />
-                <ServiceKpiCard title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
-                  theme={SERVICE_THEME.certs} kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
-                  fallback="Review certificate expiry and HTTPS trust posture." />
-                <ServiceKpiCard title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
-                  theme={SERVICE_THEME.brand} kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}
-                  fallback="Add a protected brand profile to monitor lookalike domains." />
-                <ServiceKpiCard title="Cyber Essentials Readiness" to="/ws/cyber-essentials" cta="Review Readiness"
-                  theme={SERVICE_THEME.cyber_essentials} status="Evidence-led"
-                  fallback="Review readiness evidence and saved questionnaire answers." />
-              </div>
-            </div>
-
-            {/* Recommended next action */}
-            <div className="card p-5 border-brand-100 bg-brand-50/40 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next action</p>
-                <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{rec.text}</p>
-              </div>
-              <Link to={rec.to} className="btn-primary text-sm shrink-0">{rec.cta}</Link>
-            </div>
-
-            {/* Posture overview */}
-            <div className="card p-5">
-              <h3 className="section-title mb-3">Posture overview</h3>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {posture.map(p => (
-                  <div key={p.label} className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-                    <p className="text-sm font-semibold text-gray-900 leading-snug">{p.label}</p>
-                    <p className={`text-[14px] font-bold mt-1 ${pTone(p.tone)}`}>{p.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )
-      })()}
+      {/* ── Eight-domain overview — the shared component set ──
+          CyberMotDomains: backend-owned states for ALL EIGHT domains (canonical
+          no-scan states before any scan); missing evidence is never shown as
+          healthy and no domain silently disappears.
+          SecurityOverview: the one overview for direct and MSP-selected
+          customers — per-area status words from the backend, counts as
+          observations, the recommended next action and the posture overview. */}
+      <div className="space-y-6">
+        <CyberMotDomains
+          domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
+          subtitle="All eight Cyber MOT areas, each with what the latest scan could establish." />
+        <SecurityOverview
+          workspaceName={activeWorkspaceName}
+          domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
+          domainsRequest={motRequest}
+          cases={cases}
+          casesRequest={casesRequest}
+          signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0 }}
+        />
+      </div>
 
       {/* ── Recent changes (Exposure Timeline habit hook — self-hides when empty) ── */}
       <RecentChangesCard workspaceId={activeWorkspaceId} />

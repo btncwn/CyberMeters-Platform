@@ -109,7 +109,9 @@ export function useWorkspace() {
     }
 
     validateAndBootstrap()
-    return () => { cancelled = true }
+    // A cancelled fetch (StrictMode's dev double-invoke, or an unmount) must
+    // not pin `loading` true forever: let the next mount fetch again.
+    return () => { cancelled = true; didFetch.current = false }
   }, [setWorkspace])
 
   // Sync when another tab or component switches workspace via localStorage.

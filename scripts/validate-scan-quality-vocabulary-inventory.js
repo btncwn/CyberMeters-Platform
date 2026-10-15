@@ -126,9 +126,14 @@ const EXPECTED = Object.freeze({
     // Cyber MOT coverage now prefers the newest provisional report. One added
     // route comment shifts the existing executive-dashboard SQL query site by
     // one line; predicate text, site/sink counts and classification are unchanged.
-    fingerprint: "d8e52ddea65db1694d5fdd96daa284022c156143c87cce0e8be87ca05d5513d9",
+    // App Experience PR 2: the cyber-mot-domains route gained an additive
+    // evidence-freshness helper (import + 11 lines) above the existing
+    // executive-dashboard SQL query site, which moves by that much; the
+    // two-tree --dump-current diff shows only line/offset shifts — predicate
+    // text, site/sink counts and classification are unchanged.
+    fingerprint: "87e8b134b95fe187d8aa267e9ec2689298ca6f36a7426c7b91d724dc47b5ed1a",
     resolved_query_sink_count: 20,
-    resolved_query_sink_fingerprint: "f5f169fd08389ccc15f9be03f0b755eef088eb22cd469857ef34a77361de3d92",
+    resolved_query_sink_fingerprint: "c70c8709637ae77b95a447d131c2347e1957b01c95c53f3e6c1c04e38f4d1268",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1

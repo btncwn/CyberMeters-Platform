@@ -13,6 +13,7 @@ import {
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import CyberMotDomains from '../../components/CyberMotDomains'
+import SecurityOverview, { requestManagedCases } from '../../components/overview/SecurityOverview'
 import CanonicalScore from '../../components/CanonicalScore'
 import { bandMeta } from '../../lib/score-presentation'
 import { canonicalScoreView } from '../../lib/canonical-score-presentation'
@@ -531,6 +532,9 @@ export default function WorkspaceDashboard() {
   const { user } = useAuth()
   const [scorecard, setScorecard] = useState(null)
   const [motDomains, setMotDomains] = useState([])
+  const [motRequest, setMotRequest] = useState('loading')
+  const [cases,      setCases]      = useState([])
+  const [casesRequest, setCasesRequest] = useState('loading')
   const [timeline,  setTimeline]  = useState([])
   const [summary,   setSummary]   = useState(null)
   const [health,    setHealth]    = useState(null)
@@ -542,15 +546,19 @@ export default function WorkspaceDashboard() {
     if (!wsId) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const [sc, tl, sm, hl, dm, mot] = await Promise.allSettled([
+      const [sc, tl, sm, hl, dm, mot, mc] = await Promise.allSettled([
         api.getWorkspaceScorecard(wsId),
         api.getWorkspacePostureTimeline(wsId),
         api.getWorkspaceSummary(wsId),
         api.getWorkspaceHealth(wsId),
         api.getWorkspaceDomains(wsId),
         api.getCyberMotDomains(wsId),
+        requestManagedCases(wsId),
       ])
       setMotDomains(mot.status === 'fulfilled' ? (mot.value?.cyber_mot_domains ?? []) : [])
+      setMotRequest(mot.status === 'fulfilled' && Array.isArray(mot.value?.cyber_mot_domains) ? 'ok' : 'error')
+      setCases(mc.status === 'fulfilled' && Array.isArray(mc.value?.cases) ? mc.value.cases : [])
+      setCasesRequest(mc.status === 'fulfilled' && Array.isArray(mc.value?.cases) ? 'ok' : 'error')
       if (sc.status === 'fulfilled') setScorecard(sc.value)
       setTimeline(tl.status === 'fulfilled' ? (tl.value.timeline || []).slice(-30) : [])
       if (sm.status === 'fulfilled') setSummary(sm.value)
@@ -673,8 +681,18 @@ export default function WorkspaceDashboard() {
           {/* Eight-domain Cyber MOT — the canonical state surface (M5.e).
               Renders backend-owned states for ALL EIGHT domains; with no data
               the shared component shows honest unavailable states. */}
-          <div className="mb-8">
+          <div className="mb-8 space-y-6">
             <CyberMotDomains domains={motDomains} />
+            {/* The same overview a direct customer sees on /dashboard — one
+                component set for both, with this workspace's backend states. */}
+            <SecurityOverview
+              workspaceName={wsName}
+              domains={motDomains}
+              domainsRequest={motRequest}
+              cases={cases}
+              casesRequest={casesRequest}
+              signals={{ domainCount: domains.length, hasCompletedScan: !noScans, scorecard: sc, critical: sc?.critical_findings ?? 0, high: sc?.high_findings ?? 0 }}
+            />
           </div>
 
           {noScans ? (

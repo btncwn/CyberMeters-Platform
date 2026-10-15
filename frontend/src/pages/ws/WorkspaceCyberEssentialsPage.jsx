@@ -6,6 +6,7 @@ import {
   toneClass as ceToneClass, controlLabel as ceControlLabel, EXTERNAL_SECTION_NOTE,
 } from '../../lib/ceControlDisplay'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import ModuleContract from '../../components/module/ModuleContract'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { PlanGate } from '../../components/PlanUsageCard'
 
@@ -629,6 +630,7 @@ export default function WorkspaceCyberEssentialsPage() {
           </div>
         </div>
 
+        <ModuleContract domainKey="cyber_essentials_readiness" workspaceId={wsId} workspaceName={wsName}>
         <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="flex gap-3">
             <p className="text-sm leading-relaxed text-blue-800">
@@ -718,6 +720,7 @@ export default function WorkspaceCyberEssentialsPage() {
             </div>
           </section>
         </div>
+        </ModuleContract>
       </PlanGate>
     </WsPage>
   )

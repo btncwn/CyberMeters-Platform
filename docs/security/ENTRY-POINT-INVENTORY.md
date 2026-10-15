@@ -279,11 +279,11 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^/` | 33 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 70 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 393 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 458 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 476 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 45 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 82 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 405 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 470 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 488 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/global-billing.js`
 
