@@ -21,7 +21,7 @@ export default function WorkspaceCasesPage() {
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8">
       <div className="mb-5">
-        <h1 className="text-xl font-semibold text-slate-900">Managed cases</h1>
+        <h1 className="text-xl font-semibold text-slate-900">Operations</h1>
         <p className="text-sm text-slate-500 mt-1">
           Evidence, fixes and verification across all eight services.
         </p>

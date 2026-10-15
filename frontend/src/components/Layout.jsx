@@ -11,30 +11,69 @@ import { SERVICE_COLORS } from '../theme/serviceColors'
 import SafeBoundary from './SafeBoundary'
 import NotificationBell from './NotificationBell'
 
-// Accuracy and Pricing are removed from the main nav:
-// - Accuracy is an internal developer tool not intended for beta users.
-// - Pricing is a public marketing page already linked in the footer.
 // Top nav is intentionally lean — high-level destinations only. Service-specific
-// areas (Email/Brand/Attack Surface/Certificates) live behind Services and the
-// service sidebars; secondary tools (Scans, Schedules, Field Guide) live in the user
-// menu. No routes are removed — everything stays reachable.
+// areas live behind Services and the service sidebars; secondary tools (Scans,
+// Schedules) live in the user menu. No routes are removed — everything stays
+// reachable (Workspaces through the workspace selector's "Manage workspaces").
 // Founder decision (14 Oct 2026): the top bar reads left to right from the
 // deepest amber to the lightest, two items per step, and Settings lives only in
 // the workspace sidebar (a control never appears in three places).
-const NAV = [
-  { to: '/dashboard',  label: 'Overview',   color: '#CB6629' },
-  { to: '/services',   label: 'Services',   color: '#CB6629' },
-  { to: '/workspaces', label: 'Workspaces', color: '#D57B2E' },
-  { to: '/reports',    label: 'Reports',    color: '#D57B2E' },
-  { to: '/billing',    label: 'Billing',    color: '#DE8E33' },
+//
+// Two menus, chosen by ENTITLEMENT (the `features` list the API publishes on
+// /account/usage), never by workspace or domain count: a direct customer with
+// twelve domains is still a direct customer, and an MSP with one customer is
+// still an MSP. Until usage has loaded — or when it cannot — the direct menu
+// shows, so nobody is ever shown an MSP surface the API would 403.
+export const MSP_NAV_FEATURE = 'portfolio_monitoring'
+
+export const DIRECT_NAV = [
+  { to: '/dashboard', label: 'Overview'    },
+  { to: '/services',  label: 'Services'    },
+  { to: '/ws/cases',  label: 'Cases'       },
+  { to: '/reports',   label: 'Reports'     },
+  { to: '/guide',     label: 'Field Guide' },
+  { to: '/billing',   label: 'Billing'     },
 ]
 
+export const MSP_NAV = [
+  { to: '/portfolio',  label: 'Portfolio'   },
+  { to: '/workspaces', label: 'Customers'   },
+  { to: '/ws/cases',   label: 'Operations'  },
+  { to: '/reports',    label: 'Reports'     },
+  { to: '/guide',      label: 'Field Guide' },
+]
+
+// Colour belongs to the POSITION, not the destination: two items per amber step.
+const NAV_STEP_COLORS = ['#CB6629', '#D57B2E', '#DE8E33']
+export function navColorAt(index) {
+  return NAV_STEP_COLORS[Math.min(Math.floor(index / 2), NAV_STEP_COLORS.length - 1)]
+}
+
+export function selectNav(features) {
+  return Array.isArray(features) && features.includes(MSP_NAV_FEATURE) ? MSP_NAV : DIRECT_NAV
+}
+
+// Entitled feature keys for the signed-in account. `null` until the usage call
+// resolves; `[]` when it fails — both read as "direct menu".
+function useAccountFeatures() {
+  const [features, setFeatures] = useState(null)
+  useEffect(() => {
+    let alive = true
+    Promise.resolve()
+      .then(() => api.getAccountUsage())
+      .then(data => { if (alive) setFeatures(Array.isArray(data?.features) ? data.features : []) })
+      .catch(() => { if (alive) setFeatures([]) })
+    return () => { alive = false }
+  }, [])
+  return features
+}
+
 // Secondary destinations surfaced in the user menu so they stay reachable
-// without crowding the primary navigation.
+// without crowding the primary navigation. Billing joins the list only when
+// the top bar does not carry it (the MSP menu), so it never shows twice.
 const MORE_LINKS = [
   { to: '/scans',     label: 'Scans'     },
   { to: '/schedules', label: 'Schedules' },
-  { to: '/guide',     label: 'Field Guide' },
   { to: '/support',   label: 'Support'   },
 ]
 
@@ -91,12 +130,15 @@ function WorkspaceSelector() {
   }
 
   return (
-    <div className="relative" ref={ref}>
+    // min-w-0 down the chain so the selector is the control that gives way on a
+    // phone: the right-hand cluster then fits 390px and nothing pushes the
+    // avatar past the page edge.
+    <div className="relative min-w-0" ref={ref}>
       <button
         onClick={handleOpen}
-        className="h-11 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[16px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
+        className="h-11 w-full min-w-0 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[16px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
       >
-        <span className="max-w-[88px] sm:max-w-[140px] truncate">{activeName || 'Workspace'}</span>
+        <span className="min-w-0 max-w-[88px] sm:max-w-[140px] truncate">{activeName || 'Workspace'}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-white transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -149,7 +191,7 @@ function WorkspaceSelector() {
 
 // ── User Menu ────────────────────────────────────────────────────────────────
 
-function UserMenu() {
+function UserMenu({ extraLinks = [] }) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [open, setOpen]   = useState(false)
@@ -224,7 +266,7 @@ function UserMenu() {
           {/* Secondary tools — kept reachable out of the lean top nav. */}
           <div className="border-t border-gray-100 mt-1 pt-1">
             <p className="px-4 pt-1 pb-0.5 text-xs font-semibold text-gray-400 uppercase tracking-widest">Tools</p>
-            {MORE_LINKS.map(({ to, label }) => (
+            {[...extraLinks, ...MORE_LINKS].map(({ to, label }) => (
               <button
                 key={to}
                 onClick={() => { setOpen(false); navigate(to) }}
@@ -377,6 +419,8 @@ export default function Layout() {
   // and non-domain routes (dashboard, cases, settings…) keep the neutral grey.
   const { pathname } = useLocation()
   const domainColors = SERVICE_COLORS[detectServiceKey(pathname)] || null
+  const nav = selectNav(useAccountFeatures())
+  const userMenuExtras = nav.some(item => item.to === '/billing') ? [] : [{ to: '/billing', label: 'Billing' }]
   useEffect(() => {
     function sync() {
       setWsId(localStorage.getItem('cybermeters_workspace_id'))
@@ -408,11 +452,11 @@ export default function Layout() {
           {/* Nav: on wide screens it sits beside the brand; on phones it takes
               its own row under the brand and the account controls. */}
           <nav aria-label="Main navigation" className="order-3 lg:order-none w-full lg:w-auto lg:flex-1 min-w-0 flex flex-wrap items-center gap-x-5 lg:gap-x-8 gap-y-1">
-            {NAV.map(({ to, label, color }) => (
+            {nav.map(({ to, label }, index) => (
               <NavLink
                 key={to}
                 to={to}
-                style={{ color }}
+                style={{ color: navColorAt(index) }}
                 className={({ isActive }) => `cm-topbar-link${isActive ? ' cm-topbar-link-active' : ''}`}
               >
                 <span>{label}</span>
@@ -439,7 +483,7 @@ export default function Layout() {
               <span>New Scan</span>
             </button>
 
-            <UserMenu />
+            <UserMenu extraLinks={userMenuExtras} />
           </div>
         </div>
       </header>

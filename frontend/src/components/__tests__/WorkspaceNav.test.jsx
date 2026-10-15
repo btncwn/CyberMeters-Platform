@@ -77,7 +77,7 @@ describe('WorkspaceNav (eight-domain sidebar)', () => {
   })
 
   it('no two visible controls in one navigation group share a destination', () => {
-    // Every service's sub-items (plus its Managed cases entry) and the
+    // Every service's sub-items (plus its Operations entry) and the
     // Workspace tools are each one group; one destination appears once.
     for (const path of ['/assets', '/ws/email-protection', '/ws/certificates', '/ws/brand-monitoring', '/ws/shadow-it']) {
       const { unmount } = renderNav(path)
@@ -147,7 +147,7 @@ it.each([
   ['/ws/email-protection', 'email_protection'], ['/ws/website-security', 'website_security'],
   ['/ws/shadow-it', 'shadow_it_unmanaged_technology'], ['/ws/certificates', 'certificates_trust'],
   ['/ws/brand-monitoring', 'brand_protection'], ['/ws/cyber-essentials', 'cyber_essentials_readiness'],
-])('links %s to its existing managed-case queue', (path, domain) => {
+])('links %s to its existing operations queue', (path, domain) => {
   renderNav(path)
-  expect(screen.getByRole('link', { name: 'Managed cases' })).toHaveAttribute('href', `/ws/cases?domain_key=${domain}`)
+  expect(screen.getByRole('link', { name: 'Operations' })).toHaveAttribute('href', `/ws/cases?domain_key=${domain}`)
 })
