@@ -5,7 +5,7 @@
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #18).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { PLAN_FEATURES, getEffectivePlan, hasFeatureEntitlement, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { PLAN_FEATURES, getEffectivePlan, hasFeatureEntitlement, listEntitledFeatures, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { validateBrandingInput } from "../engines/report-branding.js";
 import { validateFindingEvidence } from "../engines/findings.js";
 import { visibleFindingSql } from "../engines/finding-identity.js";
@@ -540,7 +540,10 @@ export async function accountRoutes(rctx) {
     }
 
     // ── GET /api/account/usage ───────────────────────────────────────────
-    // Returns: { plan, limits, usage, percentages, upgrade_signals }
+    // Returns: { plan, limits, usage, trial, features, percentages, upgrade_signals }
+    // features: every feature key the effective plan is entitled to, from the
+    //   same gate the route handlers use. The client chooses its navigation
+    //   from this list, never from workspace or domain counts. Additive.
     // percentages: per-resource % of plan limit used (omitted for unlimited).
     // upgrade_signals: ordered list of resources at ≥80% capacity.
     if (request.method === "GET" && url.pathname === "/api/account/usage") {
@@ -556,7 +559,7 @@ export async function accountRoutes(rctx) {
           }
         }
         const upgrade_signals = getUpgradeRecommendation(context.limits, context.usage);
-        return json({ ...context, percentages, upgrade_signals });
+        return json({ ...context, features: listEntitledFeatures(context.plan), percentages, upgrade_signals });
       } catch (e) {
         return serverError("api", e);
       }

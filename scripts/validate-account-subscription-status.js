@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = (...p) => pathToFileURL(path.join(root, "workers", "scan-api", "src", ...p)).href;
 const {
-  ACCOUNT_SUBSCRIPTION_STATUSES, describeAccountSubscription, getEffectivePlanState, planStateFromRows,
+  ACCOUNT_SUBSCRIPTION_STATUSES, PLAN_FEATURES, describeAccountSubscription, getEffectivePlanState, hasFeatureEntitlement, listEntitledFeatures, planStateFromRows,
 } = await import(src("engines", "entitlements.js"));
 const { accountRoutes } = await import(src("routes", "account.js"));
 const { globalBillingRoutes } = await import(src("routes", "global-billing.js"));
@@ -189,6 +189,33 @@ async function billing(db, opts) { const r = await globalBillingRoutes(rctx("/ap
   // Tenant isolation: another owner's paid row never reaches this account.
   const [, body] = await account(createDb([row({ owner_user_id: "someone_else" })]));
   eq("account: foreign owner's row ignored", [body.subscription.status, body.subscription.plan], ["none", "free"]);
+}
+
+// ── 4. Entitled feature list (GET /api/account/usage `features`) ────────────
+// The navigation gate: MSP surfaces are chosen from `portfolio_monitoring`
+// in this list, never from workspace or domain counts. The list is decided by
+// the same hasFeatureEntitlement the route gates call.
+{
+  for (const plan of Object.keys(PLAN_FEATURES)) {
+    const features = listEntitledFeatures(plan);
+    ok(`features(${plan}): every key passes the route gate`, features.every((k) => hasFeatureEntitlement(plan, k)));
+    eq(`features(${plan}): matches the plan registry`, [...features].sort(), [...PLAN_FEATURES[plan]].sort());
+  }
+  eq("features(free): nothing", listEntitledFeatures("free"), []);
+  eq("features(unknown plan): fail closed to free", listEntitledFeatures("platinum"), []);
+  eq("features(null): fail closed to free", listEntitledFeatures(null), []);
+  ok("features: portfolio_monitoring is business+", !listEntitledFeatures("professional").includes("portfolio_monitoring") && listEntitledFeatures("business").includes("portfolio_monitoring") && listEntitledFeatures("enterprise").includes("portfolio_monitoring"));
+  ok("features: executive_dashboard is professional+", !listEntitledFeatures("starter").includes("executive_dashboard") && listEntitledFeatures("professional").includes("executive_dashboard"));
+  // Expired / lapsed accounts resolve to free through the canonical resolver,
+  // so their feature list is empty — no MSP surface survives a lapsed plan.
+  const lapsed = planStateFromRows([row({ subscription_status: "trialing", trial_end: iso(-1), current_period_end: null, stripe_subscription_id: null })]);
+  eq("features: expired trial → none", listEntitledFeatures(lapsed.plan), []);
+  const trial = planStateFromRows([row({ plan: "business", subscription_status: "trialing", trial_end: iso(5), current_period_end: null, stripe_subscription_id: null })]);
+  ok("features: active business trial carries portfolio_monitoring", listEntitledFeatures(trial.plan).includes("portfolio_monitoring"));
+  // The usage route publishes the list under `features` (additive field).
+  const accountSource = await import("node:fs").then((fs) => fs.readFileSync(path.join(root, "workers", "scan-api", "src", "routes", "account.js"), "utf8"));
+  const usageRoute = accountSource.slice(accountSource.indexOf('url.pathname === "/api/account/usage"'));
+  ok("usage route returns features from listEntitledFeatures", usageRoute.slice(0, 1200).includes("features: listEntitledFeatures(context.plan)"));
 }
 
 console.log(`validate-account-subscription-status: ${pass} passed, ${fail} failed`);
