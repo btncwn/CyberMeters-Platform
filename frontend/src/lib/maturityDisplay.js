@@ -9,11 +9,12 @@ import { sortDisplayDomains } from './cyberMotDisplay.js'
 // mature verdict — maturity is not computed in the frontend.
 
 // Canonical domain names in customer presentation order (display copy only — no evidence, no derived stage).
+// Founder order (14 Oct 2026): the same order as the service sidebar — strongest evidence first, readiness last.
 export const MATURITY_DISPLAY_ORDER = [
-  { domain_key: 'identity_exposure',              display_name: 'Identity Exposure' },
-  { domain_key: 'attack_surface',                 display_name: 'Attack Surface' },
   { domain_key: 'email_protection',               display_name: 'Email Protection' },
+  { domain_key: 'attack_surface',                 display_name: 'Attack Surface' },
   { domain_key: 'website_security',               display_name: 'Website Security' },
+  { domain_key: 'identity_exposure',              display_name: 'Identity Exposure' },
   { domain_key: 'shadow_it_unmanaged_technology', display_name: 'Shadow IT & Unmanaged Technology' },
   { domain_key: 'certificates_trust',             display_name: 'Certificates & Trust' },
   { domain_key: 'brand_protection',               display_name: 'Brand Protection' },

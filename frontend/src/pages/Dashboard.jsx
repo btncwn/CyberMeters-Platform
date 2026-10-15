@@ -324,7 +324,7 @@ function CreateFirstWorkspaceState() {
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Security Overview</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Security overview</h1>
         <p className="text-sm text-gray-400 mt-0.5">Your attack surface dashboard</p>
       </div>
 
@@ -380,7 +380,7 @@ function SelectWorkspaceState() {
     <div className="max-w-screen-xl mx-auto px-6 py-8">
       <div className="flex items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Security Overview</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Security overview</h1>
           <p className="text-sm text-gray-400 mt-0.5">Select a workspace to view security data</p>
         </div>
       </div>

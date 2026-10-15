@@ -454,6 +454,15 @@ export function hasFeatureEntitlement(plan, featureKey) {
   return getPlanFeatures(plan).includes(featureKey);
 }
 
+// Every feature key the plan is entitled to, decided by the SAME gate the route
+// handlers call (hasFeatureEntitlement), so the client's navigation can never
+// disagree with a 403 from the API. Read surface only: an unknown or expired
+// plan resolves to the free list, which is empty.
+export function listEntitledFeatures(plan) {
+  const keys = [...new Set(Object.values(PLAN_FEATURES).flat())];
+  return keys.filter((key) => hasFeatureEntitlement(plan, key));
+}
+
 // Billing interval normaliser (monthly|annual).
 export function normalizeBillingInterval(interval) {
   const value = String(interval || "monthly").trim().toLowerCase();

@@ -461,7 +461,7 @@ export default function PortfolioPage() {
       <div className="flex items-start justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            Portfolio Dashboard
+            Portfolio command centre
           </h1>
           <p className="text-sm text-gray-400 mt-1">
             Multi-workspace security posture overview

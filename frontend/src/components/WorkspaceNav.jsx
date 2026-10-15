@@ -93,7 +93,7 @@ const WORKSPACE_TOOLS = [
   { to: '/ws/dashboard',           label: 'Administration' },
   { to: '/ws/scorecard',           label: 'Scorecard'    },
   { to: '/ws/executive-dashboard', label: 'Executive dashboard' },
-  { to: '/ws/cases',               label: 'Managed Cases' },
+  { to: '/ws/cases',               label: 'Operations' },
   { to: '/ws/related-changes',     label: 'Related Changes' },
   { to: '/ws/audit-log',           label: 'Audit Log'    },
   { to: '/ws/members',             label: 'Team Members' },
@@ -199,7 +199,7 @@ export default function WorkspaceNav({ wsName }) {
                   className="ml-3 mt-1 mb-1.5 pl-3.5 space-y-0.5 border-l-2"
                   style={{ borderColor: t.bg }}
                 >
-                  {[...svc.items, { to: `/ws/cases?domain_key=${svc.domainKey}`, label: 'Managed cases' }, { to: `/guide/${guideSlugForColourKey(svc.key)}`, label: 'Field Guide' }].map((item, i) => item.hash ? (
+                  {[...svc.items, { to: `/ws/cases?domain_key=${svc.domainKey}`, label: 'Operations' }, { to: `/guide/${guideSlugForColourKey(svc.key)}`, label: 'Field Guide' }].map((item, i) => item.hash ? (
                     <a key={i} href={item.hash}
                       style={{ color: t.text }}
                       className="block px-2.5 py-1.5 rounded-lg text-[17px] font-medium opacity-80 hover:opacity-100 transition-opacity">
