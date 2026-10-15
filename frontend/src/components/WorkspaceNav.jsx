@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronDown, ChevronRight } from 'lucide-react'
 import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
 import { SERVICE_COLORS } from '../theme/serviceColors'
+import { guideSlugForColourKey } from '../data/fieldGuide'
 
 // ── Sea-glass palette — from the shared single source of truth ──────────────────
 // The sidebar maps the shared per-domain colours onto the field names it uses
@@ -198,7 +199,7 @@ export default function WorkspaceNav({ wsName }) {
                   className="ml-3 mt-1 mb-1.5 pl-3.5 space-y-0.5 border-l-2"
                   style={{ borderColor: t.bg }}
                 >
-                  {[...svc.items, { to: `/ws/cases?domain_key=${svc.domainKey}`, label: 'Managed cases' }].map((item, i) => item.hash ? (
+                  {[...svc.items, { to: `/ws/cases?domain_key=${svc.domainKey}`, label: 'Managed cases' }, { to: `/guide/${guideSlugForColourKey(svc.key)}`, label: 'Field Guide' }].map((item, i) => item.hash ? (
                     <a key={i} href={item.hash}
                       style={{ color: t.text }}
                       className="block px-2.5 py-1.5 rounded-lg text-[17px] font-medium opacity-80 hover:opacity-100 transition-opacity">
