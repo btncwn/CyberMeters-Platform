@@ -128,7 +128,7 @@ const SURVIVORS = [
     "{ action: 'approve',        label: 'Approve',       tone: 'green' },",
     "{ action: 'approve',        label: 'Approve',       tone: 'slate' },"],
   ["S2-action-column-width", PAGE,
-    'className="space-y-1.5 min-w-[12rem]"', 'className="space-y-1.5 min-w-[14rem]"'],
+    'className="space-y-1.5 min-w-48"', 'className="space-y-1.5 min-w-56"'],
 ];
 
 function applyExact(rel, find, replace, label) {
