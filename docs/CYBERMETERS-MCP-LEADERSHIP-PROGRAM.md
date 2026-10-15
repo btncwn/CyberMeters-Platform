@@ -12,7 +12,7 @@
 
 **Executors:** Claude CLI (Platform & Data lane) and Codex CLI (Runtime lane)
 
-This is a founder-directed, isolated engineering program. It does not lift the repository's current HOLD, change the canonical pre-beta backlog, or claim that MCP is deployed, customer-ready, or accepted. All required checks run locally before any push or pull request. GitHub Actions remains enabled as a secondary signal and is not manually rerun.
+This is a founder-directed, isolated engineering program. It does not lift the repository's current HOLD, change the canonical pre-beta backlog, or claim that MCP is deployed, customer-ready, or accepted. The core product launch keeps its existing release gates and priority; MCP acceptance is not a prerequisite and MCP work must not delay it. If capacity or a gate conflicts, defer the MCP beta. All required checks run locally before any push or pull request. GitHub Actions remains enabled as a secondary signal and is not manually rerun.
 
 ## 1. Mission
 
@@ -21,7 +21,7 @@ CyberMeters will provide a secure remote Model Context Protocol (MCP) interface 
 - a business with one domain, where the only workspace is selected automatically and the customer can ask plain questions without learning CyberMeters' internal model; and
 - an MSP or multi-tenant operator, where portfolio questions are explicit, every workspace boundary is enforced on the server, and the answer explains which tenants need attention and why.
 
-MCP is a transport and tool contract, not the intelligence itself. CyberMeters' advantage must come from trustworthy evidence, eight-domain coverage, tenant-safe portfolio operations, remediation tracking, and useful explanations grounded in measured data.
+MCP is a transport and tool contract, not the intelligence itself. CyberMeters' advantage must come from trustworthy evidence, eight-domain coverage, tenant-safe portfolio operations, remediation tracking, and useful explanations grounded in measured data. An AI Classifier and AI-generated summaries are separate product capabilities; connecting an MCP client does not create either one. The beta explanation tool uses measured CyberMeters evidence and versioned Field Guide guidance, with observation and advice kept distinct.
 
 ## 2. What “number one” means
 
@@ -32,7 +32,7 @@ The program succeeds only when the following are demonstrated with repeatable te
 | Tenant safety | Zero cross-workspace disclosure across the complete two-tenant negative test matrix. |
 | Evidence honesty | Every security conclusion carries measurement time, evidence/coverage state, and material limits. Unsupported conclusions are represented as unavailable, incomplete, or not assessed. |
 | Useful for one-domain customers | The default connection can answer the benchmark without asking the user to choose their only workspace repeatedly. |
-| Useful for MSPs | An entitled portfolio user can identify at-risk workspaces, explain the ranking, and drill into one workspace without mixing tenant evidence. |
+| Useful for MSPs | In Release 1B, an entitled user can find critical items across its currently authorised workspaces with clear tenant attribution and bounded pagination. Release 1C adds ranked portfolio overview and comparison without mixing tenant evidence. |
 | Auditable | Every successful tool call has a durable bounded audit record, and denials are durably recorded while the audit store is available. If an audit write fails, access does not succeed: the client receives a safe error and a content-free outage metric is emitted. No bearer token, arguments, response body, secret, or customer free text enters the audit record. |
 | Interoperable | The pinned protocol version and tool contracts pass controlled Claude and ChatGPT client checks before customer beta. |
 | Predictable | Inputs, pagination, execution time, and result size are bounded; unknown tools and arbitrary paths, URLs, or SQL are rejected. |
@@ -103,15 +103,15 @@ The current Microsoft sign-in flow authenticates users to the CyberMeters web ap
 
 - **Internal engineering trial:** an expiring, explicitly workspace-bound, read-only CyberMeters credential may be used only in controlled local/dev tests. Unbound, non-expiring, write-scoped, or general API credentials are rejected.
 - **Remote customer beta:** implement and verify the authorization-code/PKCE, protected-resource metadata, consent, refresh/revocation, audience, and client compatibility contracts required by the selected Claude and ChatGPT clients. MCP access tokens have a distinct MCP audience and cannot be replayed against the wider API.
-- **MSP portfolio beta:** add a separate `portfolio:read` consent and entitlement. The server derives the current accessible workspace set on every request; no token contains a permanent, trusted copy of tenant membership.
+- **MSP access in the customer beta:** require separate `portfolio:read` consent and entitlement before any cross-workspace read. The server derives the current accessible workspace set on every request; no token contains a permanent, trusted copy of tenant membership. Dedicated portfolio ranking tools can follow as Release 1C, but an entitled MSP must already be able to ask for critical findings across its authorised workspaces through the bounded Release 1B contract.
 
 OAuth architecture is a focused R1 decision. It requires its own threat model, negative-path tests, and independent targeted review before remote customer use.
 
 ## 6. Capability releases
 
-### Release 1A — internal, read-only, one workspace
+### Release 1A — internal engineering slice, read-only, one workspace
 
-This is the first implementation target. It proves transport, projection, admission, audit, limits, and tenant safety without write access.
+This is the first implementation target, not the complete customer beta. It proves transport, projection, admission, audit, limits, and tenant safety without write access.
 
 | Tool | Customer job | Initial source contract | Output boundary |
 | --- | --- | --- | --- |
@@ -124,9 +124,28 @@ This is the first implementation target. It proves transport, projection, admiss
 
 Every mapping is provisional until the route-purity and projection tests prove that a GET has no state mutation and the response contains no excluded fields.
 
-### Release 1B — private MSP portfolio beta
+### Release 1B — first read-only customer beta
 
-Only explicitly entitled portfolio users receive these tools:
+The first customer beta must cover the ten founder-selected customer jobs below for both a single-domain business and an entitled MSP. Release 1A's six tools are an internal implementation slice; its completion alone cannot justify customer access. A job may need more than one narrowly scoped MCP tool, but every job must work end to end before its capability is advertised. Each read uses the current credential, role, scope, entitlement, workspace state, and route-level tenant check; every successful call requires an awaited audit record. Missing canonical backend projections block the affected tool rather than inviting raw report access or invented results.
+
+| Customer job | Proposed MCP contract and beta boundary |
+| --- | --- |
+| 1. List workspaces | `cybermeters_list_workspaces`; show only currently authorised workspaces. A workspace-bound single-domain credential yields its one workspace; an entitled MSP gets a bounded, paginated current set. |
+| 2. List domains | `cybermeters_list_domains`; bounded list of verified/managed domains in one authorised workspace, with relevant state and measurement time. |
+| 3. Get security posture summary | `cybermeters_get_workspace_summary` and `cybermeters_get_workspace_posture`; preserve all eight canonical domain states, coverage, freshness, and limitations. |
+| 4. Get critical findings | `cybermeters_list_findings`; severity-filtered and bounded, with source evidence state and no private notes or raw payloads. An entitled MSP can request a bounded, paginated view across its server-derived authorised workspace set; every item carries its workspace ID, and a partial page is never presented as the whole portfolio. |
+| 5. Explain a finding's evidence and remedy | `cybermeters_explain_finding`; authorise the finding's workspace, then separate observation, evidence, limitation, Field Guide guidance, and next step. |
+| 6. Get certificate and TLS status | `cybermeters_get_tls_posture`; expose expiry and measured TLS/certificate state only where canonical evidence exists. |
+| 7. Get email security status | `cybermeters_get_email_posture`; expose measured DMARC/SPF and related email state with coverage and freshness. |
+| 8. Get scan status and recent results | `cybermeters_get_scan_status` and `cybermeters_list_recent_scans`; distinguish lifecycle status from authoritative assessment quality. |
+| 9. List open managed cases | `cybermeters_list_managed_cases`; bounded open-case view with canonical status and verification support. |
+| 10. Get executive report summary | `cybermeters_get_report_summary`; return an authorised, bounded summary of an existing report, not a raw export or a new report-generation action. |
+
+All ten jobs remain read-only. DNS changes, domain deletion, user invitations, automatic policy changes, scan requests, case creation, and report generation have no beta tool. Customer-facing access also requires the separate OAuth, client compatibility, consent, revocation, tenant-isolation, audit, rate-limit, privacy, and rollback gates below. A tool's `readOnlyHint` cannot substitute for backend enforcement.
+
+### Release 1C — private MSP portfolio expansion
+
+Only explicitly entitled portfolio users receive these additional aggregate and ranking tools:
 
 | Tool | Customer job | Required boundary |
 | --- | --- | --- |
@@ -136,17 +155,9 @@ Only explicitly entitled portfolio users receive these tools:
 
 The one-domain journey remains the default. Portfolio language and tools appear only when the account actually has multiple accessible workspaces and the required entitlement.
 
-### Release 2 — evidence-grounded investigation
+### Release 2 — further evidence-grounded investigation
 
-Add the following only after a canonical minimal backend projection exists and is independently reviewed:
-
-- `cybermeters_list_findings`
-- `cybermeters_explain_finding`
-- `cybermeters_get_tls_posture`
-- `cybermeters_get_email_posture`
-- `cybermeters_get_report_summary`
-
-Explanations must be produced from a versioned CyberMeters guidance contract and measured fields. They must separate observation, interpretation, limitation, and next step. Free-form model output is never stored as authoritative evidence.
+Additional investigation depth is considered only after the ten Release 1B customer jobs work through canonical minimal backend projections and independent review. Explanations must be produced from a versioned CyberMeters guidance contract and measured fields. They must separate observation, interpretation, limitation, and next step. Free-form model output is never stored as authoritative evidence.
 
 ### Release 3 — bounded actions
 
@@ -222,10 +233,12 @@ Claude Desktop retains the Executive role defined by the repository operating mo
 | MCP-01 | Claude CLI | Read-only, workspace-bound admission contract plus negative tests. | Local focused tests pass; no OAuth migration; no production credential. |
 | MCP-02 | Codex CLI | Stateless MCP Worker skeleton with one fixture-backed tool and protocol tests. | No data bindings; local tests and dry-run pass; no public route/deploy. |
 | MCP-03 | Coordinator | Join gateway to admission through local/dev service contract. | Two-tenant and denied-path matrix passes; audit and limit behavior proven. |
-| MCP-04 | Both CLIs, disjoint files | Implement and verify the six Release 1A tools. | Tool schema snapshot, projection, mutation-free GET, privacy, and injection tests pass. |
+| MCP-04 | Both CLIs, disjoint files | Implement and verify the six Release 1A internal tools. | Tool schema snapshot, projection, mutation-free GET, privacy, and injection tests pass; no customer access. |
+| MCP-04B | Both CLIs, disjoint files | Complete the ten Release 1B read-only customer jobs with canonical minimal backend projections, including the bounded MSP critical-findings view. | Every job has bounded outputs, route-level authorisation, mutation-free read proof, privacy/injection tests, and two-tenant isolation evidence. |
+| MCP-04C | Platform/Data lane with independent review | Implement the selected clients' customer OAuth/PKCE, audience, consent, expiry, refresh, and revocation contracts. | Negative-path and compatibility tests pass; no general API credential can substitute for an MCP customer token. |
 | MCP-05 | Independent reviewer | Focused R1 review of auth, tenant, audit, rate limit, and protocol boundaries. | All material findings resolved or explicitly block beta. |
 | MCP-06 | Coordinator | Controlled Claude/ChatGPT compatibility evidence and rollback package. | Both selected clients pass pinned matrix; no production/customer rollout. |
-| MCP-07 | Founder/Executive decision | Approve or reject private beta and later OAuth/MSP release package. | No merge/deploy without the applicable authority and existing release gates. |
+| MCP-07 | Founder/Executive decision | Approve or reject a named, read-only customer beta; assess additional Release 1C MSP portfolio tools separately. | No merge/deploy without the applicable authority and existing release gates; core product launch stays independent. |
 
 Each CLI task must include the exact baseline SHA, owned files, forbidden files, acceptance tests, dangerous negative path, required output, and explicit stop condition. If either CLI finds it needs the other lane's file, it stops and reports the dependency to the coordinator rather than editing across the boundary.
 
@@ -266,13 +279,20 @@ The compatibility harness must evaluate at least these questions with fixed fixt
 4. “Which open case should I handle first, and what measured evidence supports that?”
 5. “Where in CyberMeters can I verify this answer and learn what it means?”
 
-### MSP operator
+### MSP operator — Release 1B customer beta
 
-1. “Which workspaces need attention today?”
+1. “Across my authorised customers, which critical findings need attention today?”
+2. “Which workspaces do those findings belong to, and when was each measured?”
+3. “Which authorised workspaces have incomplete or stale evidence, and what can be concluded from that?”
+4. “Show open managed cases for one selected tenant without exposing another tenant.”
+5. “Explain a selected finding using its measured evidence and Field Guide guidance.”
+
+### MSP operator — Release 1C portfolio expansion
+
+1. “Which workspaces need attention first, and why?”
 2. “Which rankings are based on stale or incomplete evidence?”
 3. “Compare these three authorised workspaces using the same evidence window.”
-4. “Show critical managed cases for one selected tenant without exposing another tenant.”
-5. “Explain why a workspace moved in the ranking and link to the relevant CyberMeters evidence.”
+4. “Explain why a workspace moved in the ranking and link to the relevant CyberMeters evidence.”
 
 Each answer is scored for authorization, evidence correctness, limitation disclosure, tenant attribution, actionability, bounded size, and absence of unsupported claims. A fluent answer with incorrect or mixed evidence fails.
 
@@ -286,11 +306,12 @@ Customers must be able to view and revoke MCP access, see the granted workspace 
 
 1. **Design gate:** program, tool allowlist, schemas, auth boundary, threat model, and ownership accepted.
 2. **Local engineering gate:** Release 1A passes all focused and integration tests with fixture data.
-3. **R1 gate:** independent review confirms tenant, auth, audit, limit, and output boundaries.
-4. **Controlled compatibility gate:** selected Claude and ChatGPT clients pass in a non-production environment.
-5. **Private beta gate:** explicit Founder/Executive release decision, named beta workspaces, reversible canary, monitoring, revocation, and rollback package.
-6. **MSP/OAuth gate:** separate approval after OAuth and portfolio consent tests pass.
-7. **General availability gate:** benchmark, reliability, support, privacy, documentation, and existing platform release gates pass.
+3. **Customer capability and OAuth gate:** all ten Release 1B customer jobs, selected-client OAuth/PKCE, consent, refresh/revocation, and two-tenant negative paths pass. An MSP cohort also requires `portfolio:read` consent and a bounded cross-workspace critical-findings proof. The six-tool internal slice earns no customer-release credit by itself.
+4. **R1 gate:** independent review of the completed customer capability and OAuth paths confirms tenant, auth, audit, limit, and output boundaries.
+5. **Controlled compatibility gate:** selected Claude and ChatGPT clients pass in a non-production environment using the actual customer credential flow.
+6. **Private customer beta gate:** explicit Founder/Executive release decision, named beta workspaces, reversible canary, monitoring, revocation, and rollback package. This gate does not enter the core product launch checklist.
+7. **MSP portfolio expansion gate:** the additional Release 1C aggregate/ranking tools require separate approval after portfolio entitlement, consent, ranking, and cross-workspace isolation tests pass.
+8. **General availability gate:** benchmark, reliability, support, privacy, documentation, and existing platform release gates pass.
 
 Rollback disables the MCP route or hostname, revokes beta credentials, and leaves the scan API and customer web application functional. No migration may make the existing product dependent on MCP availability.
 
@@ -306,11 +327,12 @@ Rollback disables the MCP route or hostname, revokes beta credentials, and leave
 - No source code, database, GitHub setting, production service, customer workspace, or external MCP client was changed during discovery.
 - MCP-03 joined the gateway to the scan API through a named private Worker service binding. The gateway has no data binding or enablement variable in its deployment config; the scan API's named entrypoint requires an exact trial token/workspace allowlist, current D1 token and membership facts, an atomic fail-closed budget, and an awaited audit before returning a deliberately unassessed summary.
 - MCP-03 local proof: gateway 17/17 and backend 6/6 tests pass. A repeatable two-Worker workerd/D1 trial with two synthetic tenants proves own access, foreign and nonexistent denial, 30 successful reads, the 31st rate denial, and durable success/denial audit rows without bearer or caller-supplied workspace in denial metadata. Existing auth/tenant, entry-point inventory, route, OpenAPI, and both Worker dry-run gates pass. A separate targeted R1 review found no material P0/P1 issue in the changed MCP paths.
-- MCP-03 is local engineering evidence only. No MCP hostname, enablement variable, OAuth audience, live score projection, customer credential, deploy, push, or PR has been enabled. Gateway rejections before RPC have no backend audit row; that boundary and customer-facing auth remain for later release work.
+- MCP-03 is local engineering evidence only. The branch was pushed to the private GitHub remote after local gates passed, but no MCP hostname, enablement variable, OAuth audience, live score projection, customer credential, deploy, or PR has been enabled. Gateway rejections before RPC have no backend audit row; that boundary and customer-facing auth remain for later release work.
 
 ## 15. Reference points
 
 - Cloudflare Agents — MCP Handler API: <https://developers.cloudflare.com/agents/model-context-protocol/apis/handler-api/>
 - Cloudflare Agents — securing MCP servers: <https://developers.cloudflare.com/agents/model-context-protocol/guides/securing-mcp-server/>
 - Model Context Protocol specification: <https://modelcontextprotocol.io/specification/>
-- OpenAI full MCP connectors and developer mode: <https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt>
+- OpenAI current ChatGPT MCP/plugin controls: <https://learn.chatgpt.com/docs/enterprise/apps-and-connectors>
+- OpenAI custom MCP server developer guide: <https://developers.openai.com/plugins/build/app-quickstart>
