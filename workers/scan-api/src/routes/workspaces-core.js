@@ -11,6 +11,7 @@ import { getEffectiveDomainLimit, getEffectivePlanState } from "../engines/entit
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { canonicalDomainInput, createId, isValidDomain, isValidEmail } from "../lib/util.js";
+import { revokeMcpOAuthWorkspaceConnections } from "./mcp-oauth-purge.js";
 import {
   phase5EvidenceReadCoverage,
   projectPhase5ScanRowsForCustomer,
@@ -490,6 +491,7 @@ export async function workspacesCoreRoutes(rctx) {
 	        const now = new Date().toISOString();
 
 	        // Soft-delete the workspace
+	        await revokeMcpOAuthWorkspaceConnections(env, workspaceId);
 	        await env.cybermeters_db
 	          .prepare("UPDATE workspaces SET deleted_at = ? WHERE id = ?")
 	          .bind(now, workspaceId)

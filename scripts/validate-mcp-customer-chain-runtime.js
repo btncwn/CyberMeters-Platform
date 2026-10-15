@@ -19,9 +19,9 @@ const resource = 'https://mcp-staging.cybermeters.com/mcp';
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const challenge = (value) => createHash('sha256').update(value).digest('base64url');
 const methods = ['listWorkspaces', 'getWorkspaceSummary', 'getWorkspacePosture',
-  'listRecentScans', 'getScanStatus', 'listManagedCases', 'listDomains',
+  'listRecentScans', 'getScanStatus', 'listManagedCases', 'getManagedCase', 'listDomains',
   'listFindings', 'explainFinding', 'getTlsPosture', 'getEmailPosture',
-  'getReportSummary'];
+  'getReportSummary', 'getPortfolioSummary'];
 
 async function main() {
   const temp = await mkdtemp(join(tmpdir(), 'cybermeters-mcp-chain-'));
@@ -82,7 +82,8 @@ export default { async fetch(request, env, ctx) {
 } };\n`);
     await writeFile(gatewayConfig, JSON.stringify({
       name: 'cybermeters-mcp-chain-gateway', main: gatewayFixture,
-      compatibility_date: '2026-06-18', compatibility_flags: ['nodejs_compat'],
+      compatibility_date: '2026-06-18',
+      compatibility_flags: ['nodejs_compat', 'global_fetch_strictly_public'],
       workers_dev: false,
       services: [
         { binding: 'MCP_OAUTH_HTTP', service: 'cybermeters-mcp-chain-backend', remote: false },
@@ -106,6 +107,12 @@ export default { async fetch(request, env, ctx) {
     }));
     const migration = await readFile(join(repo, 'database/migrations/121-mcp-oauth.sql'), 'utf8');
     const rate = await readFile(join(repo, 'database/migrations/026-api-rate-limits.sql'), 'utf8');
+    const auditRetentionIndex = await readFile(join(repo,
+      'database/migrations/122-audit-retention-index.sql'), 'utf8');
+    const mcpRateRetentionIndex = await readFile(join(repo,
+      'database/migrations/123-mcp-rate-retention-index.sql'), 'utf8');
+    const selectedWorkspaces = await readFile(join(repo,
+      'database/migrations/124-mcp-oauth-selected-workspaces.sql'), 'utf8');
     await writeFile(seedPath, `
       CREATE TABLE users(id TEXT PRIMARY KEY, status TEXT, email_verified INTEGER);
       CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT);
@@ -120,7 +127,12 @@ export default { async fetch(request, env, ctx) {
       CREATE TABLE managed_cases(id TEXT, workspace_id TEXT, status TEXT);
       CREATE TABLE scans(id TEXT, workspace_id TEXT, domain_id TEXT, status TEXT,
         scan_quality TEXT, score INTEGER, rating TEXT, created_at TEXT);
-      ${rate}\n${migration}
+      CREATE TABLE subscriptions(id TEXT PRIMARY KEY, owner_user_id TEXT,
+        workspace_id TEXT, plan TEXT, status TEXT, subscription_status TEXT,
+        trial_end TEXT, expires_at TEXT, current_period_end TEXT,
+        payment_failed_at TEXT, stripe_subscription_id TEXT,
+        created_at TEXT, updated_at TEXT);
+      ${rate}\n${migration}\n${auditRetentionIndex}\n${mcpRateRetentionIndex}\n${selectedWorkspaces}
       INSERT INTO users VALUES ('u1','active',1),('u2','active',1);
       INSERT INTO workspaces VALUES ('w1','One',NULL),('w2','Two',NULL);
       INSERT INTO workspace_members VALUES ('wm1','w1','u1','viewer'),('wm2','w2','u2','viewer');
@@ -128,6 +140,10 @@ export default { async fetch(request, env, ctx) {
         ('s2','u2','${hash(sessionB)}','2099-01-01');
       INSERT INTO mcp_beta_workspace_access(workspace_id,status)
         VALUES ('w1','enabled'),('w2','enabled');
+      INSERT INTO subscriptions(id,owner_user_id,workspace_id,plan,status,
+        subscription_status,trial_end,created_at) VALUES
+        ('trial_u1','u1','w1','professional','trialing','trialing','2099-01-01','2026-01-01'),
+        ('trial_u2','u2','w2','professional','trialing','trialing','2099-01-01','2026-01-01');
       INSERT INTO workspace_domains VALUES ('w1','d1'),('w2','d2'),('w2','d3');
       INSERT INTO managed_cases VALUES ('c1','w1','detected'),('c2','w2','detected'),
         ('c3','w2','detected');

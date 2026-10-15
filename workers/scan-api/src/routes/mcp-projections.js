@@ -3,7 +3,7 @@
 // routes: some public GETs intentionally perform report repair on read.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
-import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
+import { readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 import {
   CANONICAL_DOMAIN_KEYS, canonicalPhaseFor, caseTypeEntry,
@@ -14,8 +14,10 @@ const SAFE_NAME_RE = /^[^\x00-\x1f\x7f\p{Cf}]{1,100}$/u;
 const SAFE_HOST_RE = /^[A-Za-z0-9.-]{1,253}$/;
 const SAFE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const SAFE_CODE_RE = /^[a-z][a-z0-9_]{0,31}$/;
+const SAFE_CURSOR_RE = /^[A-Za-z0-9_~.-]{1,420}$/;
 const SCAN_LIMIT = 10;
 const CASE_LIMIT = 10;
+const PORTFOLIO_LIMIT = 5;
 const MAX_REPORT_BYTES = 2_000_000;
 const MAX_REPORT_READS = 16;
 const MAX_TOTAL_REPORT_BYTES = 8_000_000;
@@ -95,6 +97,32 @@ function safeDate(value) {
   return new Date(time).toISOString();
 }
 
+function listCursor(kind, workspaceId, row) {
+  const time = row.created_at;
+  safeDate(time);
+  if (!SAFE_ID_RE.test(row.id) || typeof time !== "string" ||
+      !/^[\x20-\x7e]{1,40}$/.test(time)) throw new Error("invalid_projection");
+  const encoded = btoa(time).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return `${kind}1~${workspaceId}~${encoded}~${row.id}`;
+}
+
+function parseListCursor(value, kind, workspaceId) {
+  if (value == null) return null;
+  if (typeof value !== "string" || !SAFE_CURSOR_RE.test(value)) throw new Error("invalid_projection");
+  const parts = value.split("~");
+  if (parts.length !== 4 || parts[0] !== `${kind}1` ||
+      parts[1] !== workspaceId || !SAFE_ID_RE.test(parts[3]) ||
+      !/^[A-Za-z0-9_-]{1,56}$/.test(parts[2])) throw new Error("invalid_projection");
+  let createdAt;
+  try {
+    createdAt = atob(parts[2].replace(/-/g, "+").replace(/_/g, "/"));
+    if (listCursor(kind, workspaceId, { created_at: createdAt, id: parts[3] }) !== value) {
+      throw new Error("invalid_projection");
+    }
+  } catch { throw new Error("invalid_projection"); }
+  return { createdAt, id: parts[3] };
+}
+
 function safeScore(value) {
   if (value == null) return null;
   const n = Number(value);
@@ -115,6 +143,32 @@ function safeCode(value) {
 function scoreState(posture) {
   if (posture?.latest_provisional) return "latest_incomplete";
   return posture?.state === "established" ? "assessed" : "not_assessed";
+}
+
+async function verifiedPostureSnapshot(env, workspaceId, scanId) {
+  if (!SAFE_ID_RE.test(scanId)) throw new Error("invalid_projection");
+  let read;
+  try {
+    read = await readScanReportSnapshot(env, scanId, {
+      repair: false, allowReconstruction: false, includeSuccessor: false,
+    });
+  } catch {
+    return null;
+  }
+  const meta = read?.customerSnapshot?.snapshot;
+  const domains = read?.customerSnapshot?.domains;
+  if (read?.status !== "ok" || read.integrity?.verified !== true ||
+      read.row?.scan_id !== scanId || read.row?.workspace_id !== workspaceId ||
+      meta?.scan_id !== scanId || meta?.workspace_id !== workspaceId ||
+      meta?.domain_id !== read.row?.domain_id ||
+      !Array.isArray(domains) || domains.length !== 8 ||
+      new Set(domains.map((row) => row?.domain_key)).size !== 8 ||
+      domains.some((row) => !DOMAIN_KEYS.has(row?.domain_key) ||
+        row.state === "assessed_healthy" &&
+          (!row.evidence_grade?.grade || row.evidence_grade.grade === "L0"))) {
+    return null;
+  }
+  return read.customerSnapshot;
 }
 
 function projectScan(row) {
@@ -166,18 +220,28 @@ export async function projectMcpSummary(env, grant, facts) {
   reports.assertWithinBudget();
   if (!domains || !cases) throw new Error("invalid_projection");
   const state = scoreState(posture);
-  const established = state === "assessed";
-  const authoritative = posture?.authoritative;
+  const snapshot = state === "assessed" && posture?.authoritative_scan_id
+    ? await verifiedPostureSnapshot(reports.env, workspaceId, posture.authoritative_scan_id)
+    : null;
+  reports.assertWithinBudget();
+  const assessment = snapshot?.overall?.assessment;
+  const snapshotScore = safeScore(snapshot?.overall?.cyber_metrics_score);
+  const established = state === "assessed" && assessment?.quality === "complete" &&
+    assessment.authoritative === true && assessment.provisional !== true &&
+    assessment.comparable === true && snapshotScore !== null &&
+    snapshotScore === safeScore(posture?.authoritative?.display_score);
   const latestAt = safeDate(latest?.created_at);
   if (established && latestAt === null) throw new Error("invalid_projection");
-  const score = established ? safeScore(authoritative?.display_score) : null;
-  if (established && score === null) throw new Error("invalid_projection");
+  const score = established ? snapshotScore : null;
+  const presentedState = established ? "assessed" :
+    state === "latest_incomplete" ? "latest_incomplete" :
+    latestAt !== null ? "current_not_assessed" : "not_assessed";
   return {
     workspace_id: workspaceId,
     display_name: safeName(facts.workspace?.name),
     domain_count: safeCount(domains.n),
     open_case_count: safeCount(cases.n),
-    score_state: state === "not_assessed" && latestAt !== null ? "current_not_assessed" : state,
+    score_state: presentedState,
     score_value: established ? Math.round(score) : null,
     latest_measurement_at: latestAt,
     evidence_state: established ? "authoritative" : state === "latest_incomplete" ? "provisional" : "insufficient",
@@ -186,43 +250,66 @@ export async function projectMcpSummary(env, grant, facts) {
   };
 }
 
+/** Summaries are computed only for the exact workspace set selected at consent. */
+export async function projectMcpPortfolioSummary(env, grant, facts, input = {}) {
+  const selected = grant?.portfolioWorkspaceIds;
+  const workspaces = facts?.portfolio;
+  if (grant?.portfolioRead !== true || !Array.isArray(selected) ||
+      !Array.isArray(workspaces) || selected.length > 500 ||
+      workspaces.length !== selected.length ||
+      new Set(selected).size !== selected.length ||
+      new Set(workspaces.map((row) => row?.id)).size !== selected.length ||
+      selected.some((id) => typeof id !== "string" || !SAFE_ID_RE.test(id)) ||
+      workspaces.some((row) => !row || !selected.includes(row.id))) {
+    throw new Error("invalid_projection");
+  }
+  const ordered = [...workspaces].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const cursor = input.cursor;
+  if (cursor !== undefined && (!SAFE_ID_RE.test(cursor) || !selected.includes(cursor))) {
+    throw new Error("invalid_projection");
+  }
+  const remaining = cursor ? ordered.filter((row) => row.id > cursor) : ordered;
+  const page = remaining.slice(0, PORTFOLIO_LIMIT);
+  // A single R2 budget spans the whole portfolio page, including selectors that
+  // intentionally catch R2 errors. The page fails closed if that budget is hit.
+  const reports = boundedReportReads(env);
+  const summaries = [];
+  for (const row of page) {
+    summaries.push(await projectMcpSummary(reports.env,
+      { ...grant, workspaceId: row.id }, { workspace: row }));
+    reports.assertWithinBudget();
+  }
+  const value = {
+    scope: "portfolio", selected_workspace_count: selected.length,
+    workspaces: summaries, limit: PORTFOLIO_LIMIT,
+    has_more: remaining.length > PORTFOLIO_LIMIT,
+    next_cursor: remaining.length > PORTFOLIO_LIMIT ? page.at(-1).id : null,
+    coverage_state: "not_proven_complete",
+  };
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 20_000) {
+    throw new Error("invalid_projection");
+  }
+  return value;
+}
+
 export async function projectMcpPosture(env, grant) {
   const workspaceId = grant.workspaceId;
   const reports = boundedReportReads(env);
   const posture = await getCurrentPosturePresentation(reports.env, { workspaceId });
   reports.assertWithinBudget();
   const sourceScanId = posture?.latest_provisional_scan_id ?? posture?.authoritative_scan_id ?? null;
-  const latest = await env.cybermeters_db.prepare(
-    "SELECT id FROM scans WHERE workspace_id = ? AND status = 'completed' ORDER BY created_at DESC, id DESC LIMIT 1",
-  ).bind(workspaceId).first();
-  if (latest && !sourceScanId) throw new Error("invalid_projection");
-  let report = null;
-  if (sourceScanId) {
-    if (!SAFE_ID_RE.test(sourceScanId)) throw new Error("invalid_projection");
-    const object = await reports.env.cybermeters_reports?.get(`reports/${sourceScanId}.json`);
-    reports.assertWithinBudget();
-    if (!object || !Number.isSafeInteger(object.size) || object.size > MAX_REPORT_BYTES) {
-      throw new Error("invalid_projection");
-    }
-    report = await object.json();
-    if (!report || typeof report !== "object" || Array.isArray(report)) {
-      throw new Error("invalid_projection");
-    }
-    if ((report.scan_id && report.scan_id !== sourceScanId) ||
-        (report.workspace_id && report.workspace_id !== workspaceId)) {
-      throw new Error("invalid_projection");
-    }
-  }
-  // The canonical resolver supplies the eight domain states. Never derive them
-  // from the scorecard or from a scan's numeric score.
-  const ce = await getCyberEssentialsSnapshot(workspaceId, reports.env);
+  // The snapshot freezes resolver decisions, including the Cyber Essentials
+  // context from scan finalisation. Never re-resolve from mutable raw R2 JSON.
+  const snapshot = sourceScanId
+    ? await verifiedPostureSnapshot(reports.env, workspaceId, sourceScanId)
+    : null;
   reports.assertWithinBudget();
-  const resolved = resolveCyberMotDomainStates(report, { scanId: sourceScanId, cyberEssentials: ce });
+  const resolved = snapshot?.domains ?? resolveCyberMotDomainStates(null, { scanId: null });
   if (!Array.isArray(resolved) || resolved.length !== 8) throw new Error("invalid_projection");
   return {
     workspace_id: workspaceId,
-    source_scan_id: sourceScanId,
-    score_state: scoreState(posture),
+    source_scan_id: snapshot ? sourceScanId : null,
+    score_state: snapshot ? scoreState(posture) : "not_assessed",
     domains: resolved.map((domain) => {
       if (!DOMAIN_KEYS.has(domain.domain_key)) throw new Error("invalid_projection");
       return {
@@ -243,12 +330,16 @@ export async function projectMcpPosture(env, grant) {
   };
 }
 
-export async function projectMcpRecentScans(env, grant) {
+export async function projectMcpRecentScans(env, grant, _facts, input = {}) {
+  const cursor = parseListCursor(input.cursor, "s", grant.workspaceId);
   const result = await env.cybermeters_db.prepare(
     `SELECT id, domain, status, score, rating, scan_quality, created_at
        FROM scans WHERE workspace_id = ?
+        ${cursor ? "AND (created_at < ? OR (created_at = ? AND id < ?))" : ""}
       ORDER BY created_at DESC, id DESC LIMIT ?`,
-  ).bind(grant.workspaceId, SCAN_LIMIT + 1).all();
+  ).bind(...(cursor
+    ? [grant.workspaceId, cursor.createdAt, cursor.createdAt, cursor.id, SCAN_LIMIT + 1]
+    : [grant.workspaceId, SCAN_LIMIT + 1])).all();
   if (!Array.isArray(result?.results)) throw new Error("invalid_projection");
   const reports = boundedReportReads(env);
   const projected = await projectPhase5ScanRowsForCustomer(reports.env, result.results.slice(0, SCAN_LIMIT));
@@ -258,6 +349,8 @@ export async function projectMcpRecentScans(env, grant) {
     scans: projected.map(projectScan),
     limit: SCAN_LIMIT,
     has_more: result.results.length > SCAN_LIMIT,
+    next_cursor: result.results.length > SCAN_LIMIT
+      ? listCursor("s", grant.workspaceId, result.results[SCAN_LIMIT - 1]) : null,
   };
 }
 
@@ -273,34 +366,55 @@ export async function projectMcpScanStatus(env, grant, _facts, input) {
   return { workspace_id: grant.workspaceId, ...projectScan(projected) };
 }
 
-export async function projectMcpManagedCases(env, grant) {
+export async function projectMcpManagedCases(env, grant, _facts, input = {}) {
+  const cursor = parseListCursor(input.cursor, "c", grant.workspaceId);
   const result = await env.cybermeters_db.prepare(
     `SELECT id, case_type, domain_key, status, severity, remediation_id,
             created_at, updated_at, verified_at
        FROM managed_cases
       WHERE workspace_id = ? AND status NOT IN ('closed','false_positive','risk_accepted')
+        ${cursor ? "AND (created_at < ? OR (created_at = ? AND id < ?))" : ""}
       ORDER BY created_at DESC, id DESC LIMIT ?`,
-  ).bind(grant.workspaceId, CASE_LIMIT + 1).all();
+  ).bind(...(cursor
+    ? [grant.workspaceId, cursor.createdAt, cursor.createdAt, cursor.id, CASE_LIMIT + 1]
+    : [grant.workspaceId, CASE_LIMIT + 1])).all();
   if (!Array.isArray(result?.results)) throw new Error("invalid_projection");
   return {
     workspace_id: grant.workspaceId,
-    cases: result.results.slice(0, CASE_LIMIT).map((row) => {
-      if (!SAFE_ID_RE.test(row.id)) throw new Error("invalid_projection");
-      const key = row.domain_key || caseTypeEntry(row.case_type)?.domain_key;
-      if (!DOMAIN_KEYS.has(key)) throw new Error("invalid_projection");
-      return {
-        case_id: row.id,
-        domain_key: key,
-        canonical_phase: canonicalPhaseFor(row.case_type, row.status),
-        status: safeCode(row.status),
-        severity: safeCode(row.severity),
-        verification_support: verificationSupportForCase(row),
-        created_at: safeDate(row.created_at),
-        updated_at: safeDate(row.updated_at),
-        verified_at: safeDate(row.verified_at),
-      };
-    }),
+    cases: result.results.slice(0, CASE_LIMIT).map(projectManagedCaseRow),
     limit: CASE_LIMIT,
     has_more: result.results.length > CASE_LIMIT,
+    next_cursor: result.results.length > CASE_LIMIT
+      ? listCursor("c", grant.workspaceId, result.results[CASE_LIMIT - 1]) : null,
   };
+}
+
+function projectManagedCaseRow(row) {
+  if (!row || !SAFE_ID_RE.test(row.id)) throw new Error("invalid_projection");
+  const key = row.domain_key || caseTypeEntry(row.case_type)?.domain_key;
+  if (!DOMAIN_KEYS.has(key)) throw new Error("invalid_projection");
+  return {
+    case_id: row.id,
+    domain_key: key,
+    canonical_phase: canonicalPhaseFor(row.case_type, row.status),
+    status: safeCode(row.status),
+    severity: safeCode(row.severity),
+    verification_support: verificationSupportForCase(row),
+    created_at: safeDate(row.created_at),
+    updated_at: safeDate(row.updated_at),
+    verified_at: safeDate(row.verified_at),
+  };
+}
+
+/** Resolve one case only inside the freshly admitted workspace. */
+export async function projectMcpManagedCase(env, grant, _facts, input) {
+  if (!SAFE_ID_RE.test(input?.caseId)) throw new Error("invalid_projection");
+  const row = await env.cybermeters_db.prepare(
+    `SELECT id, case_type, domain_key, status, severity, remediation_id,
+            created_at, updated_at, verified_at
+       FROM managed_cases WHERE workspace_id = ? AND id = ?
+         AND status NOT IN ('closed','false_positive','risk_accepted') LIMIT 1`,
+  ).bind(grant.workspaceId, input.caseId).first();
+  if (!row) throw new Error("invalid_projection");
+  return { workspace_id: grant.workspaceId, ...projectManagedCaseRow(row) };
 }

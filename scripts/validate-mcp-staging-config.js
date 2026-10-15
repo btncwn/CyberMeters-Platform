@@ -60,6 +60,8 @@ check("private gateway bindings all target staging API", () => {
   assert.equal(mcp.r2_buckets, undefined);
 });
 check("staging origins explicit and customer access disabled", () => {
+  assert.deepEqual(api.compatibility_flags, ["global_fetch_strictly_public"]);
+  assert.deepEqual(mcp.compatibility_flags, ["nodejs_compat", "global_fetch_strictly_public"]);
   for (const config of [api, mcp]) {
     assert.equal(config.vars.MCP_DEPLOYMENT_TIER, "staging");
     assert.equal(config.vars.MCP_STAGING_ISSUER, "https://api-staging.cybermeters.com");
@@ -69,7 +71,10 @@ check("staging origins explicit and customer access disabled", () => {
   assert.equal(api.vars.MCP_CUSTOMER_OAUTH_ENABLED, "false");
   assert.equal(api.vars.MCP_CUSTOMER_READ_ENABLED, "false");
   assert.equal(api.vars.MCP_OAUTH_DCR_ENABLED, "false");
+  assert.equal(api.vars.MAINTENANCE_MODE, "on");
+  assert.equal(api.vars.MCP_STAGING_AUTH_TEST_ENABLED, "false");
   assert.equal(api.vars.MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS, "[]");
+  assert.equal(api.vars.MCP_OAUTH_CIMD_ALLOWED_CLIENT_IDS, "[]");
   assert.equal(mcp.vars.MCP_CUSTOMER_ENABLED, "false");
   assert.equal(api.vars.ALLOWED_ORIGIN, "https://app-staging.cybermeters.com");
   assert.equal(api.vars.FRONTEND_URL, "https://app-staging.cybermeters.com");

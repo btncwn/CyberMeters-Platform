@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createCustomerMcpWorker, CUSTOMER_RPC_METHODS,
-  projectCustomerDomains, projectCustomerFindings,
+  projectCustomerDomains, projectCustomerFindings, projectCustomerPortfolioSummary,
   projectCustomerFindingExplanation, projectCustomerTlsPosture,
   projectCustomerEmailPosture, projectCustomerReportSummary,
 } from '../src/customer-mcp.js';
@@ -54,9 +54,10 @@ function backendFixture(overrides = {}) {
     getWorkspaceSummary: () => fixtureSummary(),
     getWorkspacePosture: () => fixturePosture(),
     listRecentScans: () => ({ workspace_id: workspaceId, scans: [fixtureScan()],
-      limit: 10, has_more: false }),
+      limit: 10, has_more: false, next_cursor: null }),
     getScanStatus: () => ({ workspace_id: workspaceId, ...fixtureScan() }),
-    listManagedCases: () => fixtureCases(),
+    listManagedCases: () => ({ ...fixtureCases(), next_cursor: null }),
+    getManagedCase: () => ({ workspace_id: workspaceId, ...fixtureCases().cases[0] }),
     listDomains: () => ({ workspace_id: workspaceId, domains: [{
       workspace_id: workspaceId, domain_id: 'domain_fixture_1', domain: 'example.invalid',
       verification_status: 'verified', verified_at: '2026-10-15T10:00:00Z',
@@ -81,6 +82,7 @@ function backendFixture(overrides = {}) {
     getTlsPosture: () => { throw new Error('not yet implemented'); },
     getEmailPosture: () => { throw new Error('not yet implemented'); },
     getReportSummary: () => { throw new Error('not yet implemented'); },
+    getPortfolioSummary: () => { throw new Error('not yet implemented'); },
   };
   return { ...backend, ...overrides };
 }
@@ -125,8 +127,8 @@ async function protocolJson(response) {
   return JSON.parse(message.slice(6));
 }
 
-test('configuration requires both private bindings and all twelve customer RPC methods', () => {
-  assert.equal(CUSTOMER_RPC_METHODS.length, 12);
+test('configuration requires both private bindings and all fourteen customer RPC methods', () => {
+  assert.equal(CUSTOMER_RPC_METHODS.length, 14);
   assert.throws(() => createCustomerMcpWorker({ resource: RESOURCE, issuer: ISSUER }),
     /bindings are incomplete/);
   assert.throws(() => createCustomerMcpWorker({ auth: authFixture(),
@@ -196,7 +198,7 @@ test('wrong audience, expired token, and missing read scope fail before backend'
   assert.equal(calls, 0);
 });
 
-test('all twelve customer tools are read only and backend receives only bearer and typed args', async () => {
+test('all fourteen customer tools are read only and backend receives only bearer and typed args', async () => {
   const calls = [];
   const backend = backendFixture({
     getWorkspaceSummary(args) { calls.push(args); return fixtureSummary(); },
@@ -205,9 +207,11 @@ test('all twelve customer tools are read only and backend receives only bearer a
   const list = await app.fetch(request(RESOURCE, { body: rpc('tools/list') }), ctx);
   assert.equal(list.status, 200);
   const listed = await protocolJson(list);
-  assert.equal(listed.result.tools.length, 12);
+  assert.equal(listed.result.tools.length, 14);
   assert.ok(listed.result.tools.every((tool) => tool.annotations.readOnlyHint === true &&
     tool.annotations.destructiveHint === false));
+  assert.equal(JSON.stringify(listed.result.tools).includes('Fixture Workspace'), false);
+  assert.equal(JSON.stringify(listed.result.tools).includes('ignore previous instructions'), false);
   const body = rpc('tools/call', { name: 'cybermeters_get_workspace_summary',
     arguments: { workspace_id: workspaceId } });
   const response = await app.fetch(request(RESOURCE, { body }), ctx);
@@ -253,6 +257,99 @@ test('portfolio finding read requires portfolio scope before backend RPC', async
   assert.equal(calls, 0);
 });
 
+test('portfolio summary requires portfolio consent before private RPC', async () => {
+  let calls = 0;
+  const { app } = harness({ backend: backendFixture({
+    getPortfolioSummary() { calls += 1; return null; },
+  }) });
+  const response = await app.fetch(request(RESOURCE, { body: rpc('tools/call', {
+    name: 'cybermeters_get_portfolio_summary', arguments: {},
+  }) }), ctx);
+  assert.equal(response.status, 403);
+  assert.match(response.headers.get('www-authenticate'), /portfolio:read/);
+  assert.equal(calls, 0);
+});
+
+test('portfolio summary projection whitelists only bounded evidence-honest workspace states', () => {
+  const raw = { scope: 'portfolio', selected_workspace_count: 2,
+    workspaces: [fixtureSummary(), fixtureSummary({ workspace_id: OTHER_WORKSPACE,
+      display_name: 'Other selected workspace', score_state: 'not_assessed',
+      score_value: null, evidence_state: 'insufficient', coverage_state: 'not_assessed',
+      latest_measurement_at: null, limitations: ['No complete assessment.'],
+    })], limit: 5, has_more: false, next_cursor: null,
+    coverage_state: 'not_proven_complete', private_note: 'do-not-disclose' };
+  const projected = JSON.parse(projectCustomerPortfolioSummary(raw));
+  assert.equal(projected.workspaces.length, 2);
+  assert.equal(projected.workspaces[1].score_value, null);
+  assert.equal(projected.coverage_state, 'not_proven_complete');
+  assert.deepEqual(projected.untrusted_fields,
+    ['workspaces[].display_name', 'workspaces[].limitations']);
+  assert.equal(JSON.stringify(projected).includes('do-not-disclose'), false);
+  raw.workspaces[1].score_state = 'assessed';
+  assert.throws(() => projectCustomerPortfolioSummary(raw));
+});
+
+test('authorised portfolio summary sends only bearer and page cursor to private RPC', async () => {
+  const calls = [];
+  const auth = authFixture({
+    props: { userId: 'fixture-user', connectionId: 'fixture-connection',
+      workspaceId: null, portfolioRead: true },
+    scope: ['mcp:read', 'portfolio:read'],
+  });
+  const backend = backendFixture({ getPortfolioSummary(args) {
+    calls.push(args);
+    return { scope: 'portfolio', selected_workspace_count: 1,
+      workspaces: [fixtureSummary()], limit: 5, has_more: false,
+      next_cursor: null, coverage_state: 'not_proven_complete' };
+  } });
+  const { app } = harness({ auth, backend });
+  const response = await app.fetch(request(RESOURCE, { body: rpc('tools/call', {
+    name: 'cybermeters_get_portfolio_summary', arguments: { cursor: workspaceId },
+  }) }), ctx);
+  assert.equal(response.status, 200);
+  const body = await protocolJson(response);
+  assert.equal(body.result.isError, undefined);
+  assert.deepEqual(calls, [{ bearer: TOKEN, cursor: workspaceId }]);
+  const result = JSON.parse(body.result.content[0].text);
+  assert.equal(result.workspaces[0].workspace_id, workspaceId);
+});
+
+test('foreign and nonexistent scan and case IDs have identical safe responses', async () => {
+  const backend = backendFixture({
+    getScanStatus({ scanId }) {
+      if (scanId === 'scan_fixture_1') return { workspace_id: workspaceId, ...fixtureScan() };
+      throw new Error('private lookup failed');
+    },
+    getManagedCase({ caseId }) {
+      if (caseId === 'case_fixture_1') return { workspace_id: workspaceId, ...fixtureCases().cases[0] };
+      throw new Error('private lookup failed');
+    },
+  });
+  const { app } = harness({ backend });
+  const call = async (name, args) => {
+    const response = await app.fetch(request(RESOURCE, { body: rpc('tools/call', {
+      name, arguments: args,
+    }) }), ctx);
+    return { status: response.status, body: await protocolJson(response) };
+  };
+  const foreignScan = await call('cybermeters_get_scan_status',
+    { workspace_id: workspaceId, scan_id: 'scan_foreign' });
+  const missingScan = await call('cybermeters_get_scan_status',
+    { workspace_id: workspaceId, scan_id: 'scan_missing' });
+  assert.deepEqual(foreignScan, missingScan);
+  const foreignCase = await call('cybermeters_get_managed_case',
+    { workspace_id: workspaceId, case_id: 'case_foreign' });
+  const missingCase = await call('cybermeters_get_managed_case',
+    { workspace_id: workspaceId, case_id: 'case_missing' });
+  assert.deepEqual(foreignCase, missingCase);
+  assert.equal(foreignCase.status, 200);
+  assert.equal(foreignCase.body.result.isError, true);
+  const ownCase = await call('cybermeters_get_managed_case',
+    { workspace_id: workspaceId, case_id: 'case_fixture_1' });
+  assert.equal(ownCase.body.result.isError, undefined);
+  assert.equal(JSON.parse(ownCase.body.result.content[0].text).case.case_id, 'case_fixture_1');
+});
+
 test('domain and finding projections drop unknown fields and reject foreign workspace rows', () => {
   const backend = backendFixture();
   const domain = JSON.parse(projectCustomerDomains(backend.listDomains(), workspaceId));
@@ -274,7 +371,9 @@ test('finding, TLS, email, and report projections whitelist customer fields', ()
     source_scan_id: 'scan_fixture_1', source_scan_created_at: at,
     status: 'available', finding: { type: 'tls_expiry', title: 'Certificate expires soon',
       severity: 'high', evidence_grade: 'L3', evidence_state: 'authoritative',
-      evidence_count: 2, source_report_state: 'integrity_verified_snapshot',
+      evidence_count: 2, verification_support: 'automated',
+      verification_ceiling: 'Can be verified by CyberMeters re-observation.',
+      source_report_state: 'integrity_verified_snapshot',
       private_note: 'do-not-disclose' }, remediation: { status: 'resolved',
       remediation_id: 'renew_certificate', version: '1', domain_key: 'certificates_trust',
       title: 'Renew certificate', technical_explanation: 'A trusted certificate expires soon.',
@@ -317,6 +416,8 @@ test('finding, TLS, email, and report projections whitelist customer fields', ()
       private_note: 'do-not-disclose' }, summary: 'Some controls need attention.',
     observed_findings_count: 2, priority_actions: [{ remediation_id: 'renew_certificate',
       priority: 'high', title: 'Renew certificate', action: 'Renew and verify.',
+      verification_support: 'automated',
+      verification_ceiling: 'Can be verified by CyberMeters re-observation.',
       private_note: 'do-not-disclose' }], coverage_state: 'not_proven_complete',
     private_note: 'do-not-disclose' };
   for (const projected of [

@@ -20,6 +20,7 @@ const ALLOWED_PROTOCOL_METHODS = new Set(['server/discover', 'tools/list', 'tool
 const encoder = new TextEncoder();
 const workspaceId = z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
 const scanId = workspaceId;
+const pageCursor = z.string().min(1).max(420).regex(/^[A-Za-z0-9_~.-]+$/);
 const emptyInput = z.strictObject({});
 const workspaceInput = z.strictObject({ workspace_id: workspaceId });
 const scanInput = z.strictObject({ workspace_id: workspaceId, scan_id: scanId });
@@ -106,8 +107,13 @@ function parsedOrThrow(schema, raw, code, requestedId) {
   return result.data;
 }
 
+const evidenceNotice = Object.freeze({
+  unobserved: 'Unknown, unavailable, and unobserved states are not assessed healthy.',
+  customer_attestation: 'Customer statements are not CyberMeters verification.',
+});
 const metadata = (untrustedFields) => ({
   data_classification: 'untrusted_customer_data', untrusted_fields: untrustedFields,
+  evidence_notice: evidenceNotice,
 });
 
 export function projectWorkspaces(raw) {
@@ -141,7 +147,7 @@ export function projectWorkspacePosture(raw, requestedId) {
     last_assessed_at: domain.last_assessed_at,
     limitations: domain.limitations,
   }));
-  return serializeProjection({ ...metadata(['domains[].limitations']),
+  return serializeProjection({ ...metadata(['domains[].display_name', 'domains[].limitations']),
     workspace_id: value.workspace_id, source_scan_id: value.source_scan_id,
     domains,
     ui_path: `/workspaces/${encodeURIComponent(value.workspace_id)}`,
@@ -172,13 +178,18 @@ function projectScan(value) {
   };
 }
 
-export function projectRecentScans(raw, requestedId) {
+export function projectRecentScans(raw, requestedId, options = {}) {
   const value = parsedOrThrow(z.object({
     workspace_id: workspaceId, scans: z.array(scan).max(10), limit: z.literal(10),
-    has_more: z.boolean(),
+    has_more: z.boolean(), next_cursor: pageCursor.nullable().optional(),
   }).passthrough(), raw, 'invalid_backend_scans', requestedId);
-  return serializeProjection({ ...metadata([]), workspace_id: value.workspace_id,
+  if (options.requireCursor &&
+      (value.has_more !== Boolean(value.next_cursor) || value.next_cursor === undefined)) {
+    throw new ProjectionError('invalid_backend_scans');
+  }
+  return serializeProjection({ ...metadata(['scans[].domain']), workspace_id: value.workspace_id,
     limit: 10, has_more: value.has_more,
+    ...(value.next_cursor !== undefined ? { next_cursor: value.next_cursor } : {}),
     scans: value.scans.map((item) => projectScan(item)),
   });
 }
@@ -189,26 +200,45 @@ export function projectScanStatus(raw, requestedId, requestedScanId) {
     ...scan.shape,
   }).passthrough(), raw, 'invalid_backend_scan', requestedId);
   if (value.scan_id !== requestedScanId) throw new ProjectionError('invalid_backend_scan');
-  return serializeProjection({ ...metadata([]), workspace_id: value.workspace_id,
+  return serializeProjection({ ...metadata(['scan.domain']), workspace_id: value.workspace_id,
     scan: projectScan(value),
   }, 2048);
 }
 
-export function projectManagedCases(raw, requestedId) {
+export function projectManagedCases(raw, requestedId, options = {}) {
   const value = parsedOrThrow(z.object({
     workspace_id: workspaceId, cases: z.array(caseItem).max(10), limit: z.literal(10),
-    has_more: z.boolean(),
+    has_more: z.boolean(), next_cursor: pageCursor.nullable().optional(),
   }).passthrough(), raw, 'invalid_backend_cases', requestedId);
+  if (options.requireCursor &&
+      (value.has_more !== Boolean(value.next_cursor) || value.next_cursor === undefined)) {
+    throw new ProjectionError('invalid_backend_cases');
+  }
   return serializeProjection({ ...metadata([]), workspace_id: value.workspace_id,
     limit: 10, has_more: value.has_more,
-    cases: value.cases.map((item) => ({
-      case_id: item.case_id, domain_key: item.domain_key,
-      canonical_phase: item.canonical_phase, severity: item.severity,
-      verification_support: item.verification_support, created_at: item.created_at,
-      updated_at: item.updated_at, verified_at: item.verified_at,
-      ui_path: `/ws/cases/${encodeURIComponent(item.case_id)}`,
-    })),
+    ...(value.next_cursor !== undefined ? { next_cursor: value.next_cursor } : {}),
+    cases: value.cases.map(projectCase),
   });
+}
+
+function projectCase(item) {
+  return {
+    case_id: item.case_id, domain_key: item.domain_key,
+    canonical_phase: item.canonical_phase, severity: item.severity,
+    verification_support: item.verification_support, created_at: item.created_at,
+    updated_at: item.updated_at, verified_at: item.verified_at,
+    ui_path: `/ws/cases/${encodeURIComponent(item.case_id)}`,
+  };
+}
+
+export function projectManagedCase(raw, requestedId, requestedCaseId) {
+  const value = parsedOrThrow(z.object({
+    workspace_id: workspaceId, ...caseItem.shape,
+  }).passthrough(), raw, 'invalid_backend_case', requestedId);
+  if (value.case_id !== requestedCaseId) throw new ProjectionError('invalid_backend_case');
+  return serializeProjection({ ...metadata([]), workspace_id: value.workspace_id,
+    case: projectCase(value),
+  }, 2048);
 }
 
 function safeError(status, error) {
@@ -293,8 +323,7 @@ export function projectWorkspaceSummary(raw, requestedId) {
     throw new ProjectionError('invalid_evidence_basis');
   }
   const projection = {
-    data_classification: 'untrusted_customer_data',
-    untrusted_fields: ['display_name', 'limitations'],
+    ...metadata(['display_name', 'limitations']),
     workspace_id: value.workspace_id,
     display_name: value.display_name,
     domain_count: value.domain_count,

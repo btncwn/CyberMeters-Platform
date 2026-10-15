@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteHeader, { CONTACT } from '../components/PublicSiteHeader'
 import PublicSiteFooter from '../components/PublicSiteFooter'
 import IrisGlobe, { GLOBE, heroGlobe } from '../components/landing/IrisGlobe'
 import ProductFrame from '../components/landing/ProductFrame'
@@ -441,6 +441,30 @@ export default function PublicLandingPage() {
                 </Link>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* A planned read-only connection, separate from the product available today */}
+      <section id="mcp" aria-labelledby="mcp-title" className="scroll-mt-24 bg-[#193A83] py-20 lg:py-24 text-white">
+        <div className={`${CONTAINER} grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-12 lg:gap-20 items-center`}>
+          <div>
+            <p className="text-[13px] font-semibold uppercase tracking-[.16em] text-[#BFE6FF]">In development · Read-only MCP beta</p>
+            <h2 id="mcp-title" className="font-cm font-normal text-[38px] sm:text-[46px] lg:text-[54px] leading-[1.08] mt-5 text-balance">Bring your security questions to your AI assistant.</h2>
+            <p className="mt-6 max-w-[58ch] text-[18px] leading-[1.65] text-white/85">
+              We&apos;re preparing a connection for compatible AI assistants to read CyberMeters evidence from workspaces you&apos;re allowed to access. The first beta will help explain findings and next steps; it will not make changes on your behalf. AI explanations do not independently verify or fix issues.
+            </p>
+            <a href={CONTACT} className="mt-8 h-[50px] px-6 rounded-[8px] bg-white text-[#193A83] text-[16px] font-semibold inline-flex items-center hover:bg-[#EAF4FF] transition-colors">
+              Ask about the MCP beta
+            </a>
+          </div>
+          <div className="rounded-[16px] border border-white/20 bg-white/10 p-7 sm:p-9">
+            <p className="text-[14px] font-semibold uppercase tracking-[.12em] text-[#BFE6FF]">Questions you could ask</p>
+            <ul className="mt-5 space-y-4 text-[18px] leading-[1.5]">
+              <li className="rounded-[10px] border border-white/15 bg-white/10 px-5 py-4">“Which of my certificates expire in the next 30 days?”</li>
+              <li className="rounded-[10px] border border-white/15 bg-white/10 px-5 py-4">“Which critical findings need attention, and why?”</li>
+            </ul>
+            <p className="mt-5 text-[14px] leading-[1.5] text-white/70">Examples of the planned beta, not live results.</p>
           </div>
         </div>
       </section>

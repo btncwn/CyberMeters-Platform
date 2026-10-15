@@ -391,16 +391,19 @@ async function main() {
   const expectedTasks = ["scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
     "alert_delivery_retry", "brand_takedown_followup", "brand_dns_enrichment",
     "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry",
+    "mcp_revoked_grant_cleanup",
     // PR-1 (22 Jul 2026): canonical interrupted-scan terminal recovery — the ONE
     // repair path for scans abandoned mid-flight (GET list/detail are read-only).
     "interrupted_scan_recovery"];
   // Time-gated tasks must mirror src/cron/scheduled.js exactly, or this exact
   // name-set match fails whenever CI happens to run in the relevant window
   // (retention 02:00 UTC; ops-health 08:00 UTC; weekly digest Mon 08:00 UTC).
-  // The 02:00 block runs TWO retention tasks since 14 Oct 2026: report
-  // retention and public-API rate-limit retention (scheduled.js, same gate).
+  // The 02:00 block includes report and public-API rate-limit retention,
+  // plus the MCP audit, rate, and refresh replay retention tasks.
   const nowD = new Date();
-  if (nowD.getUTCHours() === 2) expectedTasks.push("report_retention", "public_api_rate_limit_retention");
+  if (nowD.getUTCHours() === 2) expectedTasks.push(
+    "report_retention", "public_api_rate_limit_retention", "audit_retention",
+    "mcp_rate_retention", "mcp_refresh_replay_retention");
   if (nowD.getUTCHours() === 4) expectedTasks.push("brand_http_enrichment");
   if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat");
   if (nowD.getUTCDay() === 1 && nowD.getUTCHours() === 8) expectedTasks.push("weekly_digest");

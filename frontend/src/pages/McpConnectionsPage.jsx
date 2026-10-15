@@ -107,8 +107,14 @@ export default function McpConnectionsPage() {
         <Link to="/account" className="text-sm text-brand-700 hover:underline">← Account</Link>
         <h1 className="text-2xl font-bold text-gray-900 mt-2">MCP connections</h1>
         <p className="text-sm text-gray-600 mt-2">
-          These AI clients can read the approved CyberMeters workspace data. Client providers may handle
-          information under their own terms. Remove a connection to stop future CyberMeters reads.
+          Your AI assistant can read your CyberMeters data (beta, read-only). It does not verify or fix issues.
+          Connected AI clients can receive approved CyberMeters workspace data. The client or its provider
+          may retain data it receives under its own terms and settings. Removing a connection stops future
+          CyberMeters reads, but cannot delete data already sent to the client. Portfolio connections can
+          read only the workspaces you selected during consent while your membership remains active;
+          newly added workspaces are never included automatically.
+          Access is by workspace invitation. If your plan no longer includes portfolio access,
+          that connection is removed and you can reconnect to one eligible workspace.
         </p>
       </div>
       {!enabled ? <p className="text-sm text-gray-600">MCP connections are not available for this account yet.</p> : <>
@@ -129,9 +135,17 @@ export default function McpConnectionsPage() {
                   <div>
                     <p className="font-semibold text-gray-900">{displayClient(connection.client_id)}</p>
                     <p className="text-sm text-gray-600">
-                      {connection.portfolio_read ? 'Portfolio access' : `Workspace: ${connection.workspace_name || connection.workspace_id}`}
+                      {connection.portfolio_read ? 'Selected portfolio access' : `Workspace: ${connection.workspace_name || connection.workspace_id}`}
                       {' · '}{Array.isArray(connection.scopes) ? connection.scopes.join(', ') : 'Scope unavailable'}
                     </p>
+                    {connection.portfolio_read && Array.isArray(connection.selected_workspaces) &&
+                      <details className="text-sm text-gray-600">
+                        <summary className="cursor-pointer">Selected workspaces ({connection.selected_workspaces.length})</summary>
+                        <ul className="mt-1 ml-5 list-disc">
+                          {connection.selected_workspaces.map((workspace) =>
+                            <li key={workspace.workspace_id}>{workspace.workspace_name || workspace.workspace_id}</li>)}
+                        </ul>
+                      </details>}
                     <p className="text-xs text-gray-500">
                       {connection.last_used_at ? `Last used: ${connection.last_used_at}` : 'Not used yet'}
                       {' · '}Status: {connection.status}

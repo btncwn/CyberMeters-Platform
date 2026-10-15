@@ -1295,21 +1295,36 @@ async function purgeWorkspaceData(env, workspaceId) {
   let mcpConnections;
   try {
     mcpConnections = await env.cybermeters_db.prepare(
-      `SELECT id, user_id FROM mcp_oauth_connections
-        WHERE workspace_id = ? ORDER BY id LIMIT 10`,
-    ).bind(workspaceId).all();
+      `SELECT c.id, c.user_id FROM mcp_oauth_connections c
+        WHERE c.workspace_id = ? OR EXISTS (
+          SELECT 1 FROM mcp_oauth_connection_workspaces selected
+           WHERE selected.connection_id = c.id AND selected.workspace_id = ?)
+        ORDER BY c.id LIMIT 1`,
+    ).bind(workspaceId, workspaceId).all();
   } catch (error) {
     if (!/no such table/i.test(String(error?.message ?? error))) throw error;
-    mcpConnections = { results: [] }; // older database, before migration 121
+    try {
+      mcpConnections = await env.cybermeters_db.prepare(
+        `SELECT id, user_id FROM mcp_oauth_connections
+          WHERE workspace_id = ? ORDER BY id LIMIT 1`,
+      ).bind(workspaceId).all(); // database before migration 124
+    } catch (legacyError) {
+      if (!/no such table/i.test(String(legacyError?.message ?? legacyError))) throw legacyError;
+      mcpConnections = { results: [] }; // database before migration 121
+    }
   }
   if (!Array.isArray(mcpConnections?.results)) throw new Error("MCP grant enumeration unavailable");
   if (mcpConnections.results.length > 0) {
     const { revokeMcpOAuthConnectionGrantsForPurge } = await import("./routes/mcp-oauth-purge.js");
     for (const connection of mcpConnections.results) {
+      await env.cybermeters_db.prepare(
+        `UPDATE mcp_oauth_connections SET status = 'revoked',
+          revoked_at = COALESCE(revoked_at, datetime('now')) WHERE id = ?`,
+      ).bind(connection.id).run();
       await revokeMcpOAuthConnectionGrantsForPurge(env, connection.user_id, connection.id);
       await env.cybermeters_db.prepare(
-        "DELETE FROM mcp_oauth_connections WHERE id = ? AND workspace_id = ?",
-      ).bind(connection.id, workspaceId).run();
+        "DELETE FROM mcp_oauth_connections WHERE id = ? AND user_id = ?",
+      ).bind(connection.id, connection.user_id).run();
     }
     return { done: false };
   }
@@ -2503,6 +2518,25 @@ function isMaintenanceBypass(request, env) {
   return request.headers.get("X-Maintenance-Bypass") === token;
 }
 
+// Hosted MCP OAuth tests need the staging app's password login and session
+// check while the rest of the staging API stays in maintenance. This switch is
+// inert by default and cannot open a route on the production API hostname.
+const STAGING_MCP_AUTH_ORIGIN = "https://api-staging.cybermeters.com";
+const STAGING_MCP_AUTH_ROUTES = new Set([
+  "POST /api/auth/login",
+  "GET /api/auth/me",
+  "POST /api/auth/logout",
+]);
+function isStagingMcpAuthMaintenanceAllowed(request, env) {
+  if (!isMaintenanceMode(env) || env?.MCP_DEPLOYMENT_TIER !== "staging" ||
+      env?.MCP_STAGING_AUTH_TEST_ENABLED !== "true") return false;
+  try {
+    const url = new URL(request.url);
+    return url.origin === STAGING_MCP_AUTH_ORIGIN && !url.search &&
+      STAGING_MCP_AUTH_ROUTES.has(`${request.method} ${url.pathname}`);
+  } catch { return false; }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -2600,13 +2634,14 @@ export default {
     }
 
     // ── Maintenance mode ────────────────────────────────────────────────
-    // When MAINTENANCE_MODE is on, every API route returns a clean 503 so
-    // customers see a friendly "back shortly" message instead of half-broken
-    // behaviour during a planned window. /health and /ready above are exempt so
-    // monitoring keeps working, and a bypass token lets the founder smoke-test
-    // the deploy before lifting the flag. Fail-safe: an unset/garbled var reads
-    // as OFF, so this can never accidentally take the API down.
-    if (isMaintenanceMode(env) && !isMaintenanceBypass(request, env)) {
+    // When MAINTENANCE_MODE is on, API routes return a clean 503 so customers
+    // see a friendly "back shortly" message during a planned window. /health
+    // and /ready remain available for monitoring. A separate explicit staging
+    // test gate permits only password login, session check, and logout on the
+    // staging host; the founder bypass token still permits a smoke test.
+    // Fail-safe: an unset/garbled maintenance var reads as OFF.
+    if (isMaintenanceMode(env) && !isMaintenanceBypass(request, env) &&
+        !isStagingMcpAuthMaintenanceAllowed(request, env)) {
       return Response.json(
         normalizeApiResponseData({
           error: "maintenance",
@@ -2960,6 +2995,7 @@ export {
   ACCOUNT_PURGE_TABLES,
   isMaintenanceMode,
   isMaintenanceBypass,
+  isStagingMcpAuthMaintenanceAllowed,
   _cloudflareRouteFailure,
   alertChannelToApi,
   analyzeSpfChain,

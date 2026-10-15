@@ -109,6 +109,33 @@ ok("updated accepted", updated.status >= 200 && updated.status < 300);
 ok("updated → plan changed to business", rowStatus()?.plan === "business");
 ok("updated → still active", rowStatus()?.subscription_status === "active");
 
+// A signed downgrade must close the D1 portfolio fence before the webhook is
+// marked complete. The old broad grant is never silently converted to one
+// workspace; a separate single-workspace grant stays active.
+const mcpPortfolioId = "mcpconn_00000000-0000-4000-8000-000000000901";
+const mcpSingleId = "mcpconn_00000000-0000-4000-8000-000000000902";
+db.prepare(`INSERT INTO mcp_oauth_connections
+  (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+  VALUES (?,?,'test-client','https://mcp.cybermeters.com/mcp',NULL,1,'["mcp:read","portfolio:read"]')`)
+  .run(mcpPortfolioId, UID);
+db.prepare(`INSERT INTO mcp_oauth_connections
+  (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+  VALUES (?,?,'test-client','https://mcp.cybermeters.com/mcp',?,0,'["mcp:read"]')`)
+  .run(mcpSingleId, UID, WS);
+const mcpDowngrade = await postWebhook(evt("evt_mcp_downgrade", "customer.subscription.updated",
+  subObj("active", "price_sm")));
+ok("MCP downgrade webhook accepted", mcpDowngrade.status === 200);
+ok("MCP downgrade revokes selected-workspace grant", db.prepare(
+  "SELECT status FROM mcp_oauth_connections WHERE id = ?").get(mcpPortfolioId)?.status === "revoked");
+ok("MCP downgrade queues KV grant deletion", db.prepare(
+  "SELECT kv_cleanup_pending FROM mcp_oauth_connections WHERE id = ?")
+  .get(mcpPortfolioId)?.kv_cleanup_pending === 1);
+ok("MCP downgrade retains independent single-workspace grant", db.prepare(
+  "SELECT status FROM mcp_oauth_connections WHERE id = ?").get(mcpSingleId)?.status === "active");
+await postWebhook(evt("evt_mcp_restore", "customer.subscription.updated", subObj("active", "price_bm")));
+ok("MCP upgrade does not resurrect prior broad grant", db.prepare(
+  "SELECT status FROM mcp_oauth_connections WHERE id = ?").get(mcpPortfolioId)?.status === "revoked");
+
 // ── invoice.payment_failed → past_due ────────────────────────────────────────
 const failed = await postWebhook(evt("evt_3", "invoice.payment_failed", { id: "in_1", customer: CUS, subscription: SUB, attempt_count: 1 }));
 ok("payment_failed accepted", failed.status >= 200 && failed.status < 300);

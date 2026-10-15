@@ -23,7 +23,7 @@ cd frontend && npx @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors \
   --output-format JSON --output-file ../sbom/frontend.cdx.json
 ```
 
-CI regenerates both on every run (job `validate` → *Generate SBOMs*) and
+CI regenerates all three on every run (job `validate` → *Generate SBOMs*) and
 uploads them as the `sbom-cyclonedx` build artifact, so the artifact is always
 accurate for that commit. The committed files here are the point-in-time
 snapshot for reference; refresh them when dependencies change materially.
@@ -50,6 +50,6 @@ to do), or add a documented `EXCEPTIONS` entry only if it's genuinely safe.
 
 - `--ignore-npm-errors` tolerates optional-dependency quirks (e.g. `fsevents`
   is darwin-only) without dropping real components.
-- Pair with `npm audit --audit-level=high` (also in CI, 0 vulnerabilities on
-  both workspaces) — audit finds *known* CVEs; the SBOM lets us answer
+- Pair with `npm audit --audit-level=high` (also in CI) — audit finds *known*
+  CVEs; the SBOM lets us answer
   "are we affected?" for any *future* disclosure.

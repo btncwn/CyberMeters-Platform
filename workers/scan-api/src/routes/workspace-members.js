@@ -10,6 +10,7 @@ import { generateInviteToken, hashToken } from "../lib/auth-crypto.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
 import { createId, isValidEmail } from "../lib/util.js";
+import { revokeMcpOAuthUserWorkspaceConnections } from "./mcp-oauth-purge.js";
 
 // ── Workspace-invitation email ────────────────────────────────────────────────
 // Pure/testable builder for the invitation email (subject/text/html). The accept
@@ -478,6 +479,8 @@ export async function workspaceMembersRoutes(rctx) {
           }
         }
 
+        // Removal must also end any grant that selected this workspace.
+        await revokeMcpOAuthUserWorkspaceConnections(env, row.user_id, workspaceId);
         await env.cybermeters_db
           .prepare("DELETE FROM workspace_members WHERE id = ?")
           .bind(memberId)
@@ -542,6 +545,8 @@ export async function workspaceMembersRoutes(rctx) {
         }
 
         const prevRole = row.role;
+        // A role change, including a downgrade, requires a fresh consent.
+        await revokeMcpOAuthUserWorkspaceConnections(env, row.user_id, workspaceId);
         await env.cybermeters_db
           .prepare("UPDATE workspace_members SET role = ? WHERE id = ?")
           .bind(newRole, targetMemberId)

@@ -57,6 +57,22 @@ export async function readBoundedMcpOAuthBody(request, maxBytes, deadlineMs = 10
 
 function appOrigin(options) { return options.appOrigin ?? MCP_OAUTH_APP_ORIGIN; }
 
+/** Read-only shared-cap preflight prevents a new distributed source IP from
+ * creating a D1 counter once the cap is known to be full. The later atomic
+ * claim remains authoritative; concurrent arrivals can race this read. */
+export async function mcpOAuthGlobalBudgetSaturated(env, action, limit, windowSeconds) {
+  if (!env?.cybermeters_db) throw new Error("mcp_oauth_budget_unavailable");
+  const windowStart = new Date(
+    Math.floor(Date.now() / (windowSeconds * 1000)) * windowSeconds * 1000,
+  ).toISOString();
+  const row = await env.cybermeters_db.prepare(
+    `SELECT request_count FROM api_rate_limits
+      WHERE scope = 'mcp_oauth_global' AND scope_id = 'all'
+        AND action = ? AND window_start = ? LIMIT 1`,
+  ).bind(action, windowStart).first();
+  return Number(row?.request_count ?? 0) >= limit;
+}
+
 export function mcpOAuthCorsHeaders(request, options = {}) {
   if (request.headers.get("Origin") !== appOrigin(options)) return null;
   return {
@@ -98,20 +114,44 @@ async function claimIpBudget(request, env, action, limit, seconds, options) {
   const id = await rateLimitScopeId("mcp_oauth_ip", ip);
   return !(await consumeApiRateLimit(env,
     [{ scope: "mcp_oauth_ip", scope_id: id }], action, limit, seconds,
-    { atomic: true, failClosed: true }));
+    { atomic: true, failClosed: true, saturating: true }));
+}
+
+export async function claimMcpOAuthStartIpBudget(request, env, options = {}) {
+  return claimIpBudget(request, env, "mcp_authorize_start", 2, 60, options);
+}
+
+export async function claimMcpOAuthStartGlobalBudget(env) {
+  // Emergency shared ceiling after a 2/min IP gate. At sustained ceilings,
+  // authorize + token exchange use at most 46,080 accepted counter writes/day
+  // (two D1 counters each). Multiple source IPs can still fill the shared
+  // ceiling, so this is a cost bound rather than a DoS guarantee.
+  return !(await consumeApiRateLimit(env,
+    [{ scope: "mcp_oauth_global", scope_id: "all" }],
+    "mcp_authorize_start", 8, 60,
+    { atomic: true, failClosed: true, saturating: true }));
 }
 
 export async function claimMcpOAuthStartBudget(request, env, options = {}) {
-  return claimIpBudget(request, env, "mcp_authorize_start", 30, 60, options);
+  if (await mcpOAuthGlobalBudgetSaturated(env, "mcp_authorize_start", 8, 60)) return false;
+  return await claimMcpOAuthStartIpBudget(request, env, options) &&
+    await claimMcpOAuthStartGlobalBudget(env);
 }
 
 export async function claimMcpOAuthTokenBudget(request, env, options = {}) {
   const ip = request.headers.get("CF-Connecting-IP") ?? options.testClientIp;
   if (!ip || ip.length > 64) return { status: 503 };
+  if (await mcpOAuthGlobalBudgetSaturated(env, "mcp_token_exchange", 8, 60)) {
+    return { status: 429 };
+  }
   const id = await rateLimitScopeId("mcp_oauth_ip", ip);
+  const local = await consumeApiRateLimit(env,
+    [{ scope: "mcp_oauth_ip", scope_id: id }], "mcp_token_exchange", 2, 60,
+    { atomic: true, failClosed: true, saturating: true });
+  if (local) return local;
   return consumeApiRateLimit(env,
-    [{ scope: "mcp_oauth_ip", scope_id: id }], "mcp_token_exchange", 60, 60,
-    { atomic: true, failClosed: true });
+    [{ scope: "mcp_oauth_global", scope_id: "all" }],
+    "mcp_token_exchange", 8, 60, { atomic: true, failClosed: true, saturating: true });
 }
 
 /** Bounded retention sweep; child rows must be removed before their intents. */

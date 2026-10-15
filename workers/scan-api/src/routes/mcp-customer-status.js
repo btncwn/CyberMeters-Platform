@@ -2,7 +2,7 @@
 // entitlement, rate limiting and awaited audit; these projections repeat the
 // live workspace and verified-domain checks before touching customer evidence.
 import { visibleFindingSql } from "../engines/finding-identity.js";
-import { readScanReportSnapshot } from "../engines/report-snapshot.js";
+import { readScanReportSnapshot, verificationCeiling } from "../engines/report-snapshot.js";
 import { resolveRemediation } from "../engines/remediation-registry.js";
 import { buildCertificateLifecycleAssurance } from "../engines/certificate-customer-presentation.js";
 import { boundedReportReads } from "./mcp-projections.js";
@@ -16,6 +16,7 @@ const TYPE = /^[A-Za-z0-9_.-]{1,120}$/;
 const ROLES = new Set(["viewer", "analyst", "admin", "owner"]);
 const QUALITY = new Set(["complete", "partial", "degraded", "unknown"]);
 const GRADES = new Set(["L0", "L1", "L2", "L3", "L4", "L5"]);
+const VERIFICATION_SUPPORT = new Set(["automated", "manual", "external", "unsupported"]);
 const SIGNAL_STATES = new Set(["observed", "not_observed", "unknown", "unavailable", "incomplete"]);
 const CHECK_OUTCOMES = new Set(["passed", "failed", "not_checked"]);
 const DOMAIN_STATES = new Set([
@@ -189,6 +190,7 @@ export async function projectMcpFindingExplanation(env, grant, _facts, input = {
     finding: null, remediation: null, field_guide: null });
   const item = matched[0];
   const grade = findingGrade(item);
+  if (!VERIFICATION_SUPPORT.has(item.verification_support)) throw deny();
   const remediation = safeRemediation(slug, item);
   const guideSlug = GUIDE_SLUG[remediation.domain_key];
   return output({
@@ -201,6 +203,8 @@ export async function projectMcpFindingExplanation(env, grant, _facts, input = {
           ? "authoritative" : "provisional",
       evidence_count: Number.isSafeInteger(item.evidence_ref?.count) && item.evidence_ref.count >= 0
         ? Math.min(item.evidence_ref.count, 1_000) : null,
+      verification_support: item.verification_support,
+      verification_ceiling: verificationCeiling(item.verification_support),
       source_report_state: "integrity_verified_snapshot",
     },
     remediation,
@@ -329,6 +333,7 @@ export async function projectMcpEmailPosture(env, grant, _facts, input = {}, ove
     const email = entries.find((entry) => entry?.domain_key === "email_protection");
     const domainState = listed(email?.state, DOMAIN_STATES, "unavailable");
     const grade = listed(email?.evidence_grade?.grade, GRADES, "L0");
+    if (domainState === "assessed_healthy" && grade === "L0") throw deny();
     const policy = read.dmarcPolicy?.status === "current" ? read.dmarcPolicy.evidence : null;
     const spfModule = read.customerModules?.email_security;
     const usableSpf = spfModule && spfModule.executed !== false &&
@@ -397,6 +402,8 @@ export async function projectMcpReportSummary(env, grant, _facts, input = {}, ov
   const assessment = overall.assessment;
   const quality = listed(assessment?.quality, QUALITY);
   const authoritative = assessment?.authoritative === true;
+  if (authoritative && (quality !== "complete" || assessment?.provisional === true ||
+      assessment?.comparable !== true || base.scan_quality !== "complete")) throw deny();
   const scoreValue = overall.cyber_metrics_score;
   const value = authoritative && Number.isFinite(scoreValue) && scoreValue >= 0 && scoreValue <= 100
     ? Math.round(scoreValue) : null;
@@ -410,12 +417,15 @@ export async function projectMcpReportSummary(env, grant, _facts, input = {}, ov
     score: { value, rating: value == null ? null : text(overall.score_band, 40),
       quality, authoritative, provisional: assessment?.provisional === true,
       comparable: assessment?.comparable === true },
-    summary: overall.summary == null ? null : text(overall.summary, 600),
+    summary: authoritative && overall.summary != null ? text(overall.summary, 600) : null,
     observed_findings_count: findings.length,
-    priority_actions: actions.slice(0, 5).map((action) => ({
+    priority_actions: (authoritative ? actions.slice(0, 5) : []).map((action) => ({
       remediation_id: text(action.remediation_id, 120),
       priority: text(action.priority, 20), title: text(action.title, 200),
       action: text(action.action, 800),
+      verification_support: VERIFICATION_SUPPORT.has(action.verification_support)
+        ? action.verification_support : "unsupported",
+      verification_ceiling: verificationCeiling(action.verification_support),
     })),
   });
 }

@@ -1,12 +1,15 @@
 // Private customer MCP reads. This is a separate admission path from the
 // internal cm_ token trial. No public HTTP route dispatches these methods.
 import { createAuditEvent } from "../lib/events.js";
+import { hashToken } from "../lib/auth-crypto.js";
 import { consumeApiRateLimit } from "../lib/rate-limit.js";
 import { recordMetric } from "../lib/metrics.js";
-import { resolveMcpOAuthConfig } from "./mcp-oauth-admission.js";
+import { getEffectivePlanState, hasFeatureEntitlement } from "../engines/entitlements.js";
+import { listMcpOAuthGrantedWorkspaces, resolveMcpOAuthConfig } from "./mcp-oauth-admission.js";
 import {
   projectMcpSummary, projectMcpPosture, projectMcpRecentScans,
-  projectMcpScanStatus, projectMcpManagedCases,
+  projectMcpScanStatus, projectMcpManagedCases, projectMcpManagedCase,
+  projectMcpPortfolioSummary,
 } from "./mcp-projections.js";
 import {
   projectMcpDomains, projectMcpFindings, projectMcpPortfolioFindings,
@@ -25,19 +28,26 @@ const CURSOR = /^[A-Za-z0-9_~.:-]{1,420}$/;
 // contain ':', so require this exact shape before asking KV to validate it.
 const OAUTH_ACCESS_TOKEN = /^[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{16}:[A-Za-z0-9_-]{32}$/;
 const ROLES = new Set(["viewer", "analyst", "admin", "owner"]);
+// Trial is a live `trialing` subscription, not the post-trial `free` state.
+// Both limits share the same connection and token scopes, so switching plans
+// cannot reset a budget inside the current minute.
+const MCP_TRIAL_READS_PER_MINUTE = 10;
+const MCP_PAID_READS_PER_MINUTE = 30;
 const READS = Object.freeze({
   listWorkspaces: { project: projectCustomerWorkspaces, keys: ["bearer", "cursor"], event: "mcp_customer_workspaces_read" },
   getWorkspaceSummary: { project: projectMcpSummary, keys: ["bearer", "workspaceId"], event: "mcp_customer_summary_read" },
   getWorkspacePosture: { project: projectMcpPosture, keys: ["bearer", "workspaceId"], event: "mcp_customer_posture_read" },
-  listRecentScans: { project: projectMcpRecentScans, keys: ["bearer", "workspaceId"], event: "mcp_customer_scans_read" },
+  listRecentScans: { project: projectMcpRecentScans, keys: ["bearer", "workspaceId", "cursor"], event: "mcp_customer_scans_read" },
   getScanStatus: { project: projectMcpScanStatus, keys: ["bearer", "workspaceId", "scanId"], event: "mcp_customer_scan_read" },
-  listManagedCases: { project: projectMcpManagedCases, keys: ["bearer", "workspaceId"], event: "mcp_customer_cases_read" },
+  listManagedCases: { project: projectMcpManagedCases, keys: ["bearer", "workspaceId", "cursor"], event: "mcp_customer_cases_read" },
+  getManagedCase: { project: projectMcpManagedCase, keys: ["bearer", "workspaceId", "caseId"], event: "mcp_customer_case_read" },
   listDomains: { project: projectMcpDomains, keys: ["bearer", "workspaceId", "cursor"], event: "mcp_customer_domains_read" },
   listFindings: { project: projectMcpFindings, keys: ["bearer", "workspaceId", "cursor", "portfolio"], event: "mcp_customer_findings_read" },
   explainFinding: { project: projectMcpFindingExplanation, keys: ["bearer", "workspaceId", "findingId"], event: "mcp_customer_finding_explanation_read" },
   getTlsPosture: { project: projectMcpTlsPosture, keys: ["bearer", "workspaceId", "cursor"], event: "mcp_customer_tls_read" },
   getEmailPosture: { project: projectMcpEmailPosture, keys: ["bearer", "workspaceId", "cursor"], event: "mcp_customer_email_read" },
   getReportSummary: { project: projectMcpReportSummary, keys: ["bearer", "workspaceId"], event: "mcp_customer_report_read" },
+  getPortfolioSummary: { project: projectMcpPortfolioSummary, keys: ["bearer", "cursor"], event: "mcp_customer_portfolio_summary_read" },
 });
 export const MCP_CUSTOMER_READ_METHODS = Object.freeze(Object.keys(READS));
 
@@ -62,8 +72,10 @@ function validateInput(read, input) {
       !validBearer(input.bearer) || !validCursor(input.cursor) ||
       (input.workspaceId !== undefined && !validId(input.workspaceId)) ||
       (input.scanId !== undefined && !validId(input.scanId)) ||
+      (input.caseId !== undefined && !validId(input.caseId)) ||
       (input.findingId !== undefined && !validId(input.findingId))) return false;
   if (read === "getScanStatus" && !validId(input.scanId)) return false;
+  if (read === "getManagedCase" && !validId(input.caseId)) return false;
   if (read === "explainFinding" && !validId(input.findingId)) return false;
   if (read === "listFindings" && input.portfolio !== undefined && input.portfolio !== true) return false;
   return true;
@@ -85,21 +97,10 @@ async function currentWorkspace(env, userId, workspaceId) {
   return { id: row.id, name: row.name, role: row.role };
 }
 
-async function currentPortfolio(env, userId) {
-  const rows = await env.cybermeters_db.prepare(
-    `SELECT w.id, w.name, m.role FROM workspaces w
-       JOIN mcp_beta_workspace_access b ON b.workspace_id = w.id AND b.status = 'enabled'
-      LEFT JOIN workspace_members m ON m.workspace_id = w.id AND m.user_id = ?
-      WHERE w.deleted_at IS NULL AND m.role IN ('viewer','analyst','admin','owner')
-        AND NOT EXISTS (
-          SELECT 1 FROM deletion_requests dr WHERE dr.request_type = 'workspace'
-            AND dr.workspace_id = w.id AND dr.status NOT IN ('completed','cancelled')
-        )
-      ORDER BY w.id ASC LIMIT 501`,
-  ).bind(userId).all();
-  if (!Array.isArray(rows?.results) || rows.results.length > 500 ||
-      rows.results.some((row) => !validId(row.id) || !ROLES.has(row.role))) throw deny();
-  return rows.results.map((row) => ({ id: row.id, name: row.name, role: row.role }));
+async function currentPortfolio(env, userId, connectionId) {
+  const selected = await listMcpOAuthGrantedWorkspaces(env, userId, connectionId);
+  if (!selected) throw deny();
+  return selected;
 }
 
 async function loadCustomerGrant(env, token, resource) {
@@ -118,7 +119,7 @@ async function loadCustomerGrant(env, token, resource) {
   // The OAuth validator checks this too. A second live read at the data-owning
   // boundary prevents stale gateway approval from widening a later tool call.
   const connection = await env.cybermeters_db.prepare(
-    `SELECT c.id, c.user_id, c.workspace_id, c.portfolio_read, c.status,
+      `SELECT c.id, c.user_id, c.client_id, c.workspace_id, c.portfolio_read, c.status,
             c.resource, c.granted_scopes, u.status AS user_status, u.email_verified
        FROM mcp_oauth_connections c JOIN users u ON u.id = c.user_id
       WHERE c.id = ? AND NOT EXISTS (
@@ -134,6 +135,7 @@ async function loadCustomerGrant(env, token, resource) {
       !hasScopes(connectionScopes(connection.granted_scopes),
         ["mcp:read", ...(props.portfolioRead ? ["portfolio:read"] : [])])) throw deny();
   return { userId: props.userId, connectionId: props.connectionId,
+    clientId: connection.client_id,
     workspaceId: props.workspaceId ?? null, portfolioRead: props.portfolioRead };
 }
 
@@ -155,6 +157,7 @@ export async function callMcpCustomerRead(env, read, input, overrides = {}) {
   const audit = overrides.appendAudit ?? createAuditEvent;
   const requestId = crypto.randomUUID();
   let denialReason = "invalid_request";
+  let admittedGrant = null;
   try {
     if (env?.MCP_CUSTOMER_READ_ENABLED !== "true" ||
         env?.MCP_CUSTOMER_OAUTH_ENABLED !== "true" ||
@@ -167,7 +170,9 @@ export async function callMcpCustomerRead(env, read, input, overrides = {}) {
     const token = await validateToken(env, resource, input.bearer);
     denialReason = "identity_denied";
     const grant = await loadCustomerGrant(env, token, resource);
-    const portfolioRequest = read === "listFindings" && input.portfolio === true;
+    admittedGrant = grant;
+    const portfolioRequest = read === "getPortfolioSummary" ||
+      read === "listFindings" && input.portfolio === true;
     if (portfolioRequest && !grant.portfolioRead) throw deny();
     let workspaceId = input.workspaceId;
     if (portfolioRequest || read === "listWorkspaces") {
@@ -177,6 +182,12 @@ export async function callMcpCustomerRead(env, read, input, overrides = {}) {
       if (!validId(workspaceId) ||
           (grant.workspaceId && workspaceId !== grant.workspaceId)) throw deny();
     }
+    const plan = await getEffectivePlanState(grant.userId, env);
+    // An expired trial/no subscription is not an invited, valid beta plan.
+    // Recheck at the data owner as well as at OAuth admission so a downgrade
+    // cannot retain portfolio reads through a previously issued access token.
+    if (!["trial", "paid", "grace"].includes(plan.source) || plan.plan === "free" ||
+        (grant.portfolioRead && !hasFeatureEntitlement(plan.plan, "portfolio_monitoring"))) throw deny();
     denialReason = "budget_denied";
     // A portfolio connection may read many workspaces. Claim before enumerating
     // its workspaces so over-limit calls do not force expensive tenant reads.
@@ -185,13 +196,18 @@ export async function callMcpCustomerRead(env, read, input, overrides = {}) {
     }, {
       scope: "mcp_customer_connection_workspace",
       scope_id: `${grant.connectionId}:${workspaceId ?? "portfolio"}`,
-    }], "mcp_customer_read", 30, 60, { atomic: true, failClosed: true });
+    }, {
+      scope: "mcp_customer_access_token", scope_id: (await hashToken(input.bearer)).slice(0, 32),
+    }], "mcp_customer_read",
+    plan.is_trial ? MCP_TRIAL_READS_PER_MINUTE : MCP_PAID_READS_PER_MINUTE,
+    60, { atomic: true, failClosed: true });
     if (limit) throw deny();
 
     const facts = {};
-    if (grant.portfolioRead && (portfolioRequest || read === "listWorkspaces")) {
-      facts.portfolio = await currentPortfolio(env, grant.userId);
+    if (grant.portfolioRead) {
+      facts.portfolio = await currentPortfolio(env, grant.userId, grant.connectionId);
       grant.portfolioWorkspaceIds = facts.portfolio.map((row) => row.id);
+      if (workspaceId !== undefined && !grant.portfolioWorkspaceIds.includes(workspaceId)) throw deny();
     }
     if (!portfolioRequest && read !== "listWorkspaces") {
       facts.workspace = await currentWorkspace(env, grant.userId, workspaceId);
@@ -203,7 +219,8 @@ export async function callMcpCustomerRead(env, read, input, overrides = {}) {
     }
 
     denialReason = "projection_denied";
-    const project = overrides.projectRead ?? (portfolioRequest ? projectMcpPortfolioFindings : READS[read].project);
+    const project = overrides.projectRead ?? (read === "listFindings" && input.portfolio === true
+      ? projectMcpPortfolioFindings : READS[read].project);
     const projectionInput = { ...input, workspaceId };
     delete projectionInput.bearer;
     delete projectionInput.portfolio;
@@ -212,16 +229,22 @@ export async function callMcpCustomerRead(env, read, input, overrides = {}) {
     if (!result || typeof result !== "object" || Array.isArray(result)) throw deny();
 
     denialReason = "audit_unavailable";
+    const auditWorkspaceId = workspaceId ??
+      (read === "listWorkspaces" && !grant.portfolioRead ? grant.workspaceId : null);
     const written = await audit(env, {
-      workspace_id: workspaceId ?? null,
+      workspace_id: auditWorkspaceId,
       user_id: grant.userId,
       event_type: READS[read].event,
-      entity_type: workspaceId ? "workspace" : "mcp_connection",
-      entity_id: workspaceId ?? grant.connectionId,
+      entity_type: auditWorkspaceId ? "workspace" : "mcp_connection",
+      entity_id: auditWorkspaceId ?? grant.connectionId,
       description: "MCP customer read",
-      metadata: { tool: read, request_id: requestId, connection_id: grant.connectionId },
+      metadata: { tool: read, request_id: requestId, connection_id: grant.connectionId,
+        client_id_hash: (await hashToken(grant.clientId)).slice(0, 24),
+        ...(portfolioRequest || read === "listWorkspaces" && grant.portfolioRead
+          ? { selected_workspace_count: grant.portfolioWorkspaceIds.length,
+              selected_workspace_ids: grant.portfolioWorkspaceIds } : {}) },
       required: true,
-      active_workspace_required: Boolean(workspaceId),
+      active_workspace_required: Boolean(auditWorkspaceId),
     });
     if (written !== true) throw deny();
     // Last-use is a customer-visible security fact. Keep it durable before a
@@ -237,10 +260,25 @@ export async function callMcpCustomerRead(env, read, input, overrides = {}) {
     recordMetric(env, "mcp_customer_read_denied");
     if (env?.cybermeters_db) {
       try {
+        // Attribute an admitted denial to the actual grant, never to a
+        // caller-supplied foreign workspace ID. Invalid tokens remain a
+        // content-free system event because no identity was established.
+        const auditWorkspaceId = admittedGrant?.workspaceId ?? null;
         await audit(env, {
-          event_type: "mcp_customer_read_denied", actor_type: "system",
+          ...(admittedGrant ? {
+            workspace_id: auditWorkspaceId,
+            user_id: admittedGrant.userId,
+            entity_type: auditWorkspaceId ? "workspace" : "mcp_connection",
+            entity_id: auditWorkspaceId ?? admittedGrant.connectionId,
+          } : {}),
+          event_type: "mcp_customer_read_denied",
           description: "MCP customer read denied",
-          metadata: { request_id: requestId, reason: denialReason }, required: true,
+          metadata: { request_id: requestId, reason: denialReason, tool: read,
+            ...(admittedGrant ? {
+              connection_id: admittedGrant.connectionId,
+              client_id_hash: (await hashToken(admittedGrant.clientId)).slice(0, 24),
+            } : {}) }, required: true,
+          active_workspace_required: false,
         });
       } catch {
         recordMetric(env, "mcp_customer_audit_unavailable");

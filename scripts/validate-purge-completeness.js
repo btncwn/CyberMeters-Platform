@@ -125,6 +125,7 @@ const EXPECTED_NOT_PURGED = {
   scans: "purged directly by purgeWorkspaceData (with its R2 report objects)",
   workspace_reports: "purged directly by purgeWorkspaceData (with its R2 objects)",
   scan_report_snapshots: "purged directly by purgeWorkspaceData (R2 snapshot JSON deleted before its pointer row — mig 093)",
+  mcp_oauth_connection_workspaces: "selected-workspace portfolio grants are revoked, then their connection is deleted and this relation cascades (mig 124)",
   // Deliberately retained — see DELETION_PURGE_WINDOW_DAYS in index.js.
   audit_events: "retained: audit history",
   subscriptions: "retained: accounting",
@@ -162,6 +163,9 @@ const EXPECTED_NOT_PURGED = {
      listed.has("cyber_essentials_answers"));
   ok("MCP workspace grants and beta enrolment are purged",
      listed.has("mcp_oauth_connections") && listed.has("mcp_beta_workspace_access"));
+  ok("MCP selected-workspace relation has a dedicated portfolio revoke/cascade proof",
+     tenantScoped.includes("mcp_oauth_connection_workspaces") &&
+     !listed.has("mcp_oauth_connection_workspaces"));
 }
 
 // Seed two workspaces with a row in every purge table + reports + a scan (+child).
@@ -177,6 +181,9 @@ const mcpConnections = {
   wsPurge: { id: "mcpconn_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", user_id: "uPurge" },
   wsKeep: { id: "mcpconn_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", user_id: "uKeep" },
 };
+const portfolioConnection = {
+  id: "mcpconn_cccccccc-cccc-4ccc-8ccc-cccccccccccc", user_id: "uPortfolio",
+};
 for (const t of WORKSPACE_PURGE_TABLES) {
   const purgedExtra = t === "mcp_oauth_connections" ? mcpConnections.wsPurge : (EXTRA[t] || {});
   const keptExtra = t === "mcp_oauth_connections" ? mcpConnections.wsKeep : (EXTRA[t] || {});
@@ -189,6 +196,22 @@ for (const [ws, conn] of Object.entries(mcpConnections)) {
     { id: grantId, userId: conn.user_id, metadata: { connectionId: conn.id } });
   oauthKvRows.set(`token:${conn.user_id}:${grantId}:t`, { userId: conn.user_id });
 }
+// This portfolio connection is anchored to neither workspace. It explicitly
+// selects both; purging wsPurge must revoke the whole grant, not silently narrow
+// it or leave a refresh token that could regain access.
+db.prepare(`INSERT INTO mcp_oauth_connections
+  (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+  VALUES (?,?,?, ?,NULL,1,?)`).run(portfolioConnection.id, portfolioConnection.user_id,
+  "client-portfolio", "https://mcp.cybermeters.com/mcp", '["mcp:read","portfolio:read"]');
+db.prepare(`INSERT INTO mcp_oauth_connection_workspaces(connection_id,workspace_id)
+  VALUES (?,?),(?,?)`).run(portfolioConnection.id, "wsPurge",
+  portfolioConnection.id, "wsKeep");
+db.prepare(`INSERT INTO mcp_oauth_refresh_uses(token_hash,connection_id)
+  VALUES (?,?)`).run("portfolio-refresh-hash", portfolioConnection.id);
+oauthKvRows.set("grant:uPortfolio:gPortfolio",
+  { id: "gPortfolio", userId: portfolioConnection.user_id,
+    metadata: { connectionId: portfolioConnection.id } });
+oauthKvRows.set("token:uPortfolio:gPortfolio:t", { userId: portfolioConnection.user_id });
 seedRow("workspace_reports", "wsPurge", { report_key: "reports/exec-wsPurge.pdf" });
 seedRow("workspace_reports", "wsKeep",  { report_key: "reports/exec-wsKeep.pdf" });
 seedRow("scan_report_snapshots", "wsPurge", { r2_key: "reports/snapshots/wsPurge/scan_wsPurge/snap-p.json", status: "completed" });
@@ -204,6 +227,16 @@ for (const table of ["network_targets", "network_scans", "network_assets"]) {
 for (const table of ["mcp_oauth_connections", "mcp_beta_workspace_access"]) {
   ok(`${table} seeded for both tenants`, seeded.includes(table) && countWs(table, "wsKeep") === 1);
 }
+ok("portfolio grant selects purged and kept workspaces before purge",
+   db.prepare("SELECT COUNT(*) AS n FROM mcp_oauth_connection_workspaces WHERE connection_id=?")
+     .get(portfolioConnection.id).n === 2 &&
+   oauthKvRows.has("grant:uPortfolio:gPortfolio") &&
+   oauthKvRows.has("token:uPortfolio:gPortfolio:t"));
+
+// Purge fixture rows were seeded without their entire FK parent chains. SQLite
+// does not retroactively validate them when enforcement is turned on; it does
+// enforce the selected-workspace and refresh-use ON DELETE CASCADE below.
+db.exec("PRAGMA foreign_keys = ON");
 
 // Run the purge to completion (it is batched: returns {done:false} until reports
 // and scans are drained, then {done:true} after clearing the purge tables).
@@ -221,6 +254,16 @@ ok("purged workspace OAuth KV grant and token are gone",
    !oauthKvRows.has("grant:uPurge:gPurge") && !oauthKvRows.has("token:uPurge:gPurge:t"));
 ok("other workspace OAuth KV grant and token survive",
    oauthKvRows.has("grant:uKeep:gKeep") && oauthKvRows.has("token:uKeep:gKeep:t"));
+ok("portfolio connection, selected relation and replay record are purged",
+   db.prepare("SELECT COUNT(*) AS n FROM mcp_oauth_connections WHERE id=?")
+     .get(portfolioConnection.id).n === 0 &&
+   db.prepare("SELECT COUNT(*) AS n FROM mcp_oauth_connection_workspaces WHERE connection_id=?")
+     .get(portfolioConnection.id).n === 0 &&
+   db.prepare("SELECT COUNT(*) AS n FROM mcp_oauth_refresh_uses WHERE connection_id=?")
+     .get(portfolioConnection.id).n === 0);
+ok("portfolio OAuth KV grant and refresh token are revoked",
+   !oauthKvRows.has("grant:uPortfolio:gPortfolio") &&
+   !oauthKvRows.has("token:uPortfolio:gPortfolio:t"));
 
 ok("workspace_reports fully purged", countWs("workspace_reports", "wsPurge") === 0);
 ok("scans fully purged", (db.prepare("SELECT COUNT(*) c FROM scans WHERE workspace_id=?").get("wsPurge").c) === 0);

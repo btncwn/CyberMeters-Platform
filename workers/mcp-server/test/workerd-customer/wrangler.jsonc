@@ -2,7 +2,7 @@
   "name": "cybermeters-mcp-oauth-local-smoke",
   "main": "worker.js",
   "compatibility_date": "2026-06-18",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": false,
   "preview_urls": false
 }

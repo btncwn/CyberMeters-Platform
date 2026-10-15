@@ -74,6 +74,9 @@ export async function consumeApiRateLimit(
       // post-increment count atomically for each scope/window.
       for (const scope of activeScopes) {
         const id = rateLimitId(scope.scope, scope.scope_id, action, window_start);
+        // Security-sensitive callers can stop at the cap. A denied request
+        // must not keep writing the same row indefinitely under a flood.
+        const saturating = options.saturating === true;
         const row = await env.cybermeters_db
           .prepare(
             `INSERT INTO api_rate_limits
@@ -83,9 +86,11 @@ export async function consumeApiRateLimit(
              ON CONFLICT(id) DO UPDATE SET
                request_count = api_rate_limits.request_count + 1,
                updated_at = datetime('now')
+             ${saturating ? 'WHERE api_rate_limits.request_count < ?' : ''}
              RETURNING request_count`,
           )
-          .bind(id, scope.scope, scope.scope_id, action, window_start, windowSeconds)
+          .bind(id, scope.scope, scope.scope_id, action, window_start, windowSeconds,
+            ...(saturating ? [limit] : []))
           .first();
         if ((row?.request_count ?? limit + 1) > limit) {
           return {

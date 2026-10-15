@@ -97,7 +97,7 @@ async function main() {
     const tools = await post(message('tools/list'));
     assert.equal(tools.status, 200);
     const listed = await protocolJson(tools);
-    assert.equal(listed.result.tools.length, 12);
+    assert.equal(listed.result.tools.length, 14);
     assert.ok(listed.result.tools.every((tool) => tool.annotations.readOnlyHint === true));
 
     const called = await post(message('tools/call', {

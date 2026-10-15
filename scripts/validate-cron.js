@@ -73,6 +73,22 @@ async function runAtHour(hourUTC, { throwers } = {}) {
   const db = buildDb();
   const env = { cybermeters_db: makeD1(db) };
   const calls = {};
+  // A revoked connection is a durable provider-KV cleanup item. The hourly
+  // tick must process one even if other maintenance tasks are due or fail.
+  db.prepare(`INSERT INTO mcp_oauth_connections
+    (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes,
+     status,oauth_grant_id,kv_cleanup_pending)
+    VALUES ('mcpconn_00000000-0000-4000-8000-000000000001','cron_user','client',
+      'https://mcp.cybermeters.com/mcp',NULL,1,'["mcp:read","portfolio:read"]',
+      'revoked','1234567890abcdef',1)`).run();
+  env.OAUTH_KV = {};
+  env.MCP_OAUTH_PURGE_API = {
+    async listUserGrants() { throw new Error('unexpected_full_grant_sweep'); },
+    async revokeGrant(grantId, userId) {
+      if (grantId !== '1234567890abcdef' || userId !== 'cron_user') throw new Error('wrong_grant');
+      calls.mcpGrantRevoked = (calls.mcpGrantRevoked || 0) + 1;
+    },
+  };
   const tasks = makeTasks(calls, throwers);
   const promises = [];
   const ctx = { waitUntil: (p) => promises.push(Promise.resolve(p).catch(() => {})) };
@@ -93,9 +109,21 @@ async function runAtHour(hourUTC, { throwers } = {}) {
     ["boundary_global_write", "global_write", 300, globalCutoff],
     ["old_account", "login", 3600, new RealDate(fixed.getTime() - 25 * 60 * 60 * 1000).toISOString()],
     ["old_long_window", "free_scan", 86400, new RealDate(fixed.getTime() - 25 * 60 * 60 * 1000).toISOString()],
+    ["old_mcp_rate", "mcp_authorize_start", 60, new RealDate(fixed.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString()],
+    ["fresh_mcp_rate", "mcp_customer_read", 60, new RealDate(fixed.getTime() - 24 * 60 * 60 * 1000).toISOString()],
   ];
   const insertLimit = db.prepare("INSERT INTO api_rate_limits (id, scope, scope_id, action, window_start, window_seconds, request_count) VALUES (?, 'ip', 'test', ?, ?, ?, 1)");
   for (const [id, action, seconds, start] of rows) insertLimit.run(id, action, start, seconds);
+  const insertAudit = db.prepare("INSERT INTO audit_events (id, event_type, created_at) VALUES (?, 'cron_fixture', ?)");
+  insertAudit.run("expired_sqlite_audit", "2024-01-01 00:00:00");
+  insertAudit.run("expired_iso_audit", "2024-01-01T00:00:00.000Z");
+  insertAudit.run("boundary_audit", "2025-01-05T02:30:00.000Z");
+  insertAudit.run("current_audit", "2026-01-01 00:00:00");
+  const insertRefreshUse = db.prepare(`INSERT INTO mcp_oauth_refresh_uses
+    (token_hash, connection_id, expires_at) VALUES (?, 'mcpconn_cron_fixture', ?)`);
+  insertRefreshUse.run("expired_refresh_use", "2026-01-04T02:30:00.000Z");
+  insertRefreshUse.run("boundary_refresh_use", fixed.toISOString());
+  insertRefreshUse.run("future_refresh_use", "2026-01-06T02:30:00.000Z");
   class FakeDate extends RealDate {
     constructor(...args) { if (args.length === 0) super(fixed.getTime()); else super(...args); }
     static now() { return fixed.getTime(); }
@@ -108,6 +136,13 @@ async function runAtHour(hourUTC, { throwers } = {}) {
     globalThis.Date = RealDate;
   }
   calls.rateLimitIds = db.prepare("SELECT id FROM api_rate_limits ORDER BY id").all().map((row) => row.id);
+  calls.auditIds = db.prepare("SELECT id FROM audit_events WHERE event_type = 'cron_fixture' ORDER BY id")
+    .all().map((row) => row.id);
+  calls.refreshUseIds = db.prepare("SELECT token_hash FROM mcp_oauth_refresh_uses ORDER BY token_hash")
+    .all().map((row) => row.token_hash);
+  calls.mcpCleanupPending = db.prepare(
+    "SELECT kv_cleanup_pending FROM mcp_oauth_connections WHERE id='mcpconn_00000000-0000-4000-8000-000000000001'",
+  ).get()?.kv_cleanup_pending;
   return calls;
 }
 
@@ -119,9 +154,13 @@ const ALWAYS = ["generateScheduledReports", "processScheduledReports", "runHoste
 const mid = await runAtHour(13); // 13:00 UTC — no daily gate active
 for (const t of ALWAYS) ok(`13:00 runs always-on task: ${t}`, mid[t] === 1);
 ok("13:00 dispatches the due scheduled scan", mid.triggerScheduledScan === 1);
+ok("13:00 drains one revoked MCP grant with direct provider ID", mid.mcpGrantRevoked === 1 && mid.mcpCleanupPending === 0);
 ok("13:00 passes the seeded schedule to triggerScheduledScan", mid.lastSchedule?.id === "sched_test");
 ok("13:00 does NOT run report_retention (hour!=2)", !mid.cleanupExpiredReports);
 ok("13:00 leaves old free-check counters for daily cleanup", mid.rateLimitIds.includes("old_ip"));
+ok("13:00 leaves old MCP counters for daily cleanup", mid.rateLimitIds.includes("old_mcp_rate"));
+ok("13:00 leaves expired audit rows for daily cleanup", mid.auditIds.includes("expired_sqlite_audit") && mid.auditIds.includes("expired_iso_audit"));
+ok("13:00 leaves expired refresh-use hashes for daily cleanup", mid.refreshUseIds.includes("expired_refresh_use"));
 ok("13:00 does NOT run ops_health (hour!=8)", !mid.opsHealthHeartbeat);
 
 // ── Daily-gated tasks fire only at their hour ────────────────────────────────
@@ -129,11 +168,18 @@ const h2 = await runAtHour(2);
 ok("02:00 runs report_retention", h2.cleanupExpiredReports === 1);
 ok("02:00 removes expired free-check and API-wide counters", ["old_ip", "old_domain", "old_global", "old_global_read", "old_global_write"].every((id) => !h2.rateLimitIds.includes(id)));
 ok("02:00 retains current, boundary, account and long-window counters", ["fresh_free", "fresh_global_write", "boundary_free", "boundary_global_write", "old_account", "old_long_window"].every((id) => h2.rateLimitIds.includes(id)));
+ok("02:00 removes expired MCP counters only", !h2.rateLimitIds.includes("old_mcp_rate") && h2.rateLimitIds.includes("fresh_mcp_rate"));
+ok("02:00 deletes expired audit rows in both UTC timestamp formats", !h2.auditIds.includes("expired_sqlite_audit") && !h2.auditIds.includes("expired_iso_audit"));
+ok("02:00 retains audit events at the 12-month boundary and newer", h2.auditIds.includes("boundary_audit") && h2.auditIds.includes("current_audit"));
+ok("02:00 removes only expired OAuth refresh-use hashes", !h2.refreshUseIds.includes("expired_refresh_use") &&
+   h2.refreshUseIds.includes("boundary_refresh_use") && h2.refreshUseIds.includes("future_refresh_use"));
 ok("02:00 does NOT run ops_health", !h2.opsHealthHeartbeat);
 
 const h8 = await runAtHour(8);
 ok("08:00 runs ops_health heartbeat", h8.opsHealthHeartbeat === 1);
 ok("08:00 does NOT run report_retention", !h8.cleanupExpiredReports);
+ok("08:00 does NOT run audit_retention", h8.auditIds.includes("expired_sqlite_audit") && h8.auditIds.includes("expired_iso_audit"));
+ok("08:00 does NOT run MCP refresh-use retention", h8.refreshUseIds.includes("expired_refresh_use"));
 
 // ── Isolation: a throwing task never aborts the others ───────────────────────
 const iso = await runAtHour(13, { throwers: new Set(["processDeletionRequests"]) });

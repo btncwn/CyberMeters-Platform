@@ -6,10 +6,11 @@
     ".npmrc",
     "frontend/.npmrc",
     "workers/email-ingest/.npmrc",
+    "workers/mcp-server/.npmrc",
     "workers/scan-api/.npmrc"
   ],
-  "expected_package_root_count": 3,
-  "expected_lock_install_marker_count": 6,
+  "expected_package_root_count": 4,
+  "expected_lock_install_marker_count": 11,
   "expected_approved_script_count": 3,
   "package_roots": [
     {
@@ -34,7 +35,9 @@
           "script_sha256": "10f6fa3644d8d23d066ff67b0ae449074e75884503546a9fedb667f1dcb9ade2",
           "platform_binary_subpath": "bin/esbuild",
           "probe_path": "bin/esbuild",
-          "probe_args": ["--version"],
+          "probe_args": [
+            "--version"
+          ],
           "probe_stdout": "0.25.12"
         },
         {
@@ -67,12 +70,66 @@
       "install_script_markers": []
     },
     {
+      "root": "workers/mcp-server",
+      "package_name": "cybermeters-mcp-server",
+      "package_json_sha256": "6974d8f3092c3779ed0b51da052ca2d44aaa91ebb012859c0e072117e0563d74",
+      "lockfile_version": 3,
+      "lockfile_sha256": "82892e9142aa1aca9f294b2fc047882e062162b1bb590ace0a1b4900d89015d1",
+      "install_script_markers": [
+        {
+          "package_path": "node_modules/core-js-pure",
+          "package_name": "core-js-pure",
+          "version": "3.50.0",
+          "resolved": "https://registry.npmjs.org/core-js-pure/-/core-js-pure-3.50.0.tgz",
+          "integrity": "sha512-6GP3Pxz4IKyWjAfa747vIu/jilB5z29JWROLqH/b+pXVcpgh6tM06ZIBwSuglgVqzDYURhOK6oEzTrG0bCHitA==",
+          "disposition": "deny_install_lifecycle",
+          "package_json_sha256": "cb3ab6ba5da1a333b8f8e7f6a10279b5bbe0a923a66b95aee5598a38a3c0d6d0"
+        },
+        {
+          "package_path": "node_modules/esbuild",
+          "package_name": "esbuild",
+          "version": "0.28.2",
+          "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
+          "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==",
+          "disposition": "deny_install_lifecycle",
+          "package_json_sha256": "9d0bc453f4e791553c4cc2298ba023b409241fd9801e494741666eb0f6051490"
+        },
+        {
+          "package_path": "node_modules/fsevents",
+          "package_name": "fsevents",
+          "version": "2.3.3",
+          "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+          "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
+          "disposition": "deny_no_install_lifecycle",
+          "package_json_sha256": "500839fcc76f6c5efcb454e6614b23c26775e75e1140619fff9ca64c291aec2b"
+        },
+        {
+          "package_path": "node_modules/workerd",
+          "package_name": "workerd",
+          "version": "1.20261006.1",
+          "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20261006.1.tgz",
+          "integrity": "sha512-8MadBuffZ5NdpLwZjUmsqT5QlaKXq4gjgT6wzcKeynZTICNXyePhc+5QVoKiK7+MMhFTLNrRO2KXLlpk8Q6BkA==",
+          "disposition": "deny_install_lifecycle",
+          "package_json_sha256": "71ef84ddbd1302831f904f7db06180b2d9d184f73996ad5d4c16080a8695b1a4"
+        },
+        {
+          "package_path": "node_modules/wrangler/node_modules/esbuild",
+          "package_name": "esbuild",
+          "version": "0.28.1",
+          "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz",
+          "integrity": "sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==",
+          "disposition": "deny_install_lifecycle",
+          "package_json_sha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a"
+        }
+      ]
+    },
+    {
       "root": "workers/scan-api",
       "package_name": "cybermeters-scan-api",
       "package_version": "0.1.0",
-      "package_json_sha256": "6c4dfaab01f49677a16c6be56a4ac4b9ff3b724d0adab50e31af120687e0aa42",
+      "package_json_sha256": "5861326d0d07ff57c0d7e61d3c1a1789dfaec97089b854efa8253c6cc42c778a",
       "lockfile_version": 3,
-      "lockfile_sha256": "60cd7b8e4810768ad3fcbaceca1ea28b35ec7b2f252c32cbfe8d0d2273bc9244",
+      "lockfile_sha256": "a34993680a0580b7655c5fcedf170f5d0c626e03704c3a38cd737c483ede0771",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",
@@ -88,7 +145,9 @@
           "script_sha256": "612294e278914443bdcf81cb17f54afec34dbdd2ebd999a6ee187912320cc315",
           "platform_binary_subpath": "bin/esbuild",
           "probe_path": "bin/esbuild",
-          "probe_args": ["--version"],
+          "probe_args": [
+            "--version"
+          ],
           "probe_stdout": "0.28.1"
         },
         {
@@ -114,7 +173,9 @@
           "script_sha256": "ba1ebba846c67b5dd20f4bbfd7b1249ed5fe5ec54c7199352cef36cca7b19d76",
           "platform_binary_subpath": "bin/workerd",
           "probe_path": "bin/workerd",
-          "probe_args": ["--version"],
+          "probe_args": [
+            "--version"
+          ],
           "probe_stdout": "workerd 2026-10-06"
         }
       ]
@@ -192,8 +253,18 @@
     "entrypoint_file": "scripts/install-governed-dependencies.js",
     "entrypoint_sha256": "2c8b748e71fcf1530b7f570a25891bd573e2a364c4aeea5d70883152e5beee28",
     "implementation_file": "scripts/security/install-script-governance.js",
-    "implementation_sha256": "50e0a4de37a933f2c0d142abd97a371f7a7e4bc28ca7d15aa4e5f1f43290bf31",
+    "implementation_sha256": "393131fde86b1ba2b2da7902f0c629949ac5fbf33abd21bc9625ea1b307243aa",
     "npm_subcommand": "ci",
-    "npm_args": ["ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+    "npm_args": [
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ]
+  },
+  "raw_workflow_install_exception": {
+    "file": ".github/workflows/ci.yml",
+    "step_name": "Install MCP gateway dependencies for supply-chain inventory",
+    "command": "npm ci --prefix workers/mcp-server --ignore-scripts"
   }
 }

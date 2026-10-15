@@ -37,7 +37,7 @@ async function main() {
       name: "cybermeters-mcp-server",
       main: join(gatewayDir, "src/index.js"),
       compatibility_date: "2026-06-18",
-      compatibility_flags: ["nodejs_compat"],
+      compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
       workers_dev: false,
       services: [{ binding: "MCP_BACKEND", service: "cybermeters-platform",
         entrypoint: "McpReadService", remote: false }],
@@ -199,14 +199,27 @@ async function main() {
     assert.equal(missing.status, 401);
     assert.deepEqual(missing.body, { error: "invalid_bearer" });
 
-    for (let i = 0; i < 24; i++) {
+    // The functional reads above can straddle a minute boundary. Keep asking
+    // until one 60-second budget is exhausted instead of assuming they all
+    // share a window with a fixed number of subsequent calls.
+    let extraSummaryReads = 0;
+    let capped = false;
+    for (let i = 0; i < 61; i++) {
       const response = await call(tokenA, "ws_a");
+      if (response.body.result?.isError === true) {
+        denied(response);
+        capped = true;
+        break;
+      }
       assert.equal(response.body.result.isError, undefined);
+      extraSummaryReads++;
     }
-    denied(await call(tokenA, "ws_a"));
+    assert.equal(capped, true, "MCP read budget was not enforced within 61 calls");
     const events = await d1("SELECT event_type, workspace_id, user_id, metadata_json FROM audit_events");
-    assert.equal(events.filter((row) => row.event_type === "mcp_workspace_summary_read").length, 25);
-    assert.equal(events.filter((row) => row.event_type.endsWith("_read")).length, 30);
+    assert.equal(events.filter((row) => row.event_type === "mcp_workspace_summary_read").length,
+      1 + extraSummaryReads);
+    assert.equal(events.filter((row) => row.event_type.endsWith("_read")).length,
+      6 + extraSummaryReads);
     const denials = events.filter((row) => row.event_type === "mcp_read_denied");
     assert.equal(denials.length, 4);
     for (const row of denials) {
@@ -216,7 +229,7 @@ async function main() {
     }
     assert.equal(JSON.stringify(events).includes(tokenA), false);
     assert.equal(JSON.stringify(events).includes(tokenB), false);
-    const limit = await d1("SELECT request_count FROM api_rate_limits WHERE scope_id = 'tok_a:ws_a'");
+    const limit = await d1("SELECT request_count FROM api_rate_limits WHERE scope_id = 'tok_a:ws_a' ORDER BY window_start DESC LIMIT 1");
     assert.equal(limit[0].request_count, 31);
     console.log("PASS local two-Worker RPC, two-tenant denial, atomic D1 budget, durable audit");
   } finally {

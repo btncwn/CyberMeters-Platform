@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 111
-- **classified:** 111
-- **tenant owned tables:** 107
+- **schema tables:** 117
+- **classified:** 117
+- **tenant owned tables:** 113
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 39
+- **resource classes:** 40
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -38,6 +38,7 @@ data cannot be silently omitted.
 
 | Class | Domain | Ownership | Tables | Dynamic harness | Property |
 |---|---|---|---|:---:|:---:|
+| mcp_customer_connections | auth | direct(workspace_id), user(user_id), infra, via_mcp_connection(connection_id) | 6 | — | — |
 | identity_workforce_response | identity | direct(workspace_id) | 2 | — | — |
 | identity_public_sources | identity | direct(workspace_id) | 1 | — | — |
 | dns_provider_remediation | email | direct(workspace_id) | 2 | — | — |
@@ -82,6 +83,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 
 ### Coverage notes
 
+- **mcp_customer_connections:** Beta enrollment is workspace-scoped; OAuth sessions are user-scoped; selected portfolio rows and refresh-use hashes inherit their live connection. Pre-consent login intents contain no tenant grant and expire by one-time hash. Dedicated two-tenant workerd, IDOR, revocation, purge and token-replay coverage runs in the MCP local gate (validate-mcp-customer-chain-runtime, validate-mcp-rpc-runtime, mcp-oauth-admission and validate-purge-completeness).
 - **identity_workforce_response:** Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls.
 - **identity_public_sources:** Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation.
 - **dns_provider_remediation:** Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness.
@@ -163,6 +165,12 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `lifecycle_email_events` | direct(workspace_id) | deletion_lifecycle |
 | `managed_case_events` | direct(workspace_id) | managed_cases |
 | `managed_cases` | direct(workspace_id) | managed_cases |
+| `mcp_beta_workspace_access` | direct(workspace_id) | mcp_customer_connections |
+| `mcp_oauth_browser_sessions` | user(user_id) | mcp_customer_connections |
+| `mcp_oauth_connection_workspaces` | direct(workspace_id) | mcp_customer_connections |
+| `mcp_oauth_connections` | direct(workspace_id) | mcp_customer_connections |
+| `mcp_oauth_login_intents` | infra | mcp_customer_connections |
+| `mcp_oauth_refresh_uses` | via_mcp_connection(connection_id) | mcp_customer_connections |
 | `mfa_challenges` | user(user_id) | auth_sessions |
 | `msp_branding_profiles` | account(owner_user_id) | report_branding |
 | `network_assets` | direct(workspace_id) | network_assets |

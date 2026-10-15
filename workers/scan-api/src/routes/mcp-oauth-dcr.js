@@ -1,4 +1,5 @@
 import { consumeApiRateLimit, rateLimitScopeId } from "../lib/rate-limit.js";
+import { mcpOAuthGlobalBudgetSaturated } from "./mcp-oauth-browser.js";
 
 function configuredHostedRedirects(env) {
   try {
@@ -43,11 +44,6 @@ export async function evaluateMcpDcrRegistration({ clientMetadata, request }, en
   if (typeof ip !== "string" || !ip || ip.length > 64) {
     return { code: "temporarily_unavailable", description: "Registration unavailable", status: 503 };
   }
-  const scopeId = await rateLimitScopeId("mcp_dcr", ip);
-  const limited = await consumeApiRateLimit(env,
-    [{ scope: "mcp_dcr_ip", scope_id: scopeId }],
-    "mcp_dcr_register", 10, 3600, { atomic: true, failClosed: true });
-  if (limited) return { code: "temporarily_unavailable", description: "Registration unavailable", status: limited.status };
   if (!clientMetadata || typeof clientMetadata !== "object" || Array.isArray(clientMetadata)) {
     return { code: "invalid_client_metadata", description: "Invalid registration", status: 400 };
   }
@@ -57,6 +53,11 @@ export async function evaluateMcpDcrRegistration({ clientMetadata, request }, en
       typeof clientMetadata.client_name !== "string" ||
       clientMetadata.client_name.length < 1 || clientMetadata.client_name.length > 80 ||
       /[\x00-\x1f\x7f\p{Cf}]/u.test(clientMetadata.client_name) ||
+      clientMetadata.token_endpoint_auth_method !== "none" ||
+      (clientMetadata.token_endpoint_auth_methods_supported !== undefined &&
+        (!Array.isArray(clientMetadata.token_endpoint_auth_methods_supported) ||
+          clientMetadata.token_endpoint_auth_methods_supported.length !== 1 ||
+          clientMetadata.token_endpoint_auth_methods_supported[0] !== "none")) ||
       !Array.isArray(clientMetadata.redirect_uris) ||
       clientMetadata.redirect_uris.length < 1 || clientMetadata.redirect_uris.length > 3) {
     return { code: "invalid_client_metadata", description: "Invalid registration", status: 400 };
@@ -65,13 +66,33 @@ export async function evaluateMcpDcrRegistration({ clientMetadata, request }, en
   if (clientMetadata.redirect_uris.some((uri) =>
     !isMcpDcrLoopbackRedirect(uri) && !(hosted.has(uri) && isSafeHostedRedirect(uri))) ||
       new Set(clientMetadata.redirect_uris).size !== clientMetadata.redirect_uris.length ||
-      (clientMetadata.grant_types &&
-        (!Array.isArray(clientMetadata.grant_types) ||
-          clientMetadata.grant_types.some((grant) => !["authorization_code", "refresh_token"].includes(grant)))) ||
-      (clientMetadata.response_types &&
-        (!Array.isArray(clientMetadata.response_types) ||
-          clientMetadata.response_types.some((type) => type !== "code")))) {
+      !Array.isArray(clientMetadata.grant_types) ||
+      !clientMetadata.grant_types.includes("authorization_code") ||
+      clientMetadata.grant_types.length > 2 ||
+      new Set(clientMetadata.grant_types).size !== clientMetadata.grant_types.length ||
+      clientMetadata.grant_types.some((grant) =>
+        !["authorization_code", "refresh_token"].includes(grant)) ||
+      !Array.isArray(clientMetadata.response_types) ||
+      clientMetadata.response_types.length !== 1 ||
+      clientMetadata.response_types[0] !== "code") {
     return { code: "invalid_client_metadata", description: "Invalid registration", status: 400 };
   }
+  // Validate the bounded registration before charging shared capacity. A
+  // malformed caller must not exhaust the budget for another client.
+  if (await mcpOAuthGlobalBudgetSaturated(env, "mcp_dcr_register", 12, 3600)) {
+    return { code: "temporarily_unavailable", description: "Registration unavailable", status: 429 };
+  }
+  const scopeId = await rateLimitScopeId("mcp_dcr", ip);
+  const limited = await consumeApiRateLimit(env,
+    [{ scope: "mcp_dcr_ip", scope_id: scopeId }],
+    "mcp_dcr_register", 2, 3600,
+    { atomic: true, failClosed: true, saturating: true });
+  if (limited) return { code: "temporarily_unavailable", description: "Registration unavailable", status: limited.status };
+  const globalLimited = await consumeApiRateLimit(env,
+    [{ scope: "mcp_oauth_global", scope_id: "all" }],
+    "mcp_dcr_register", 12, 3600,
+    { atomic: true, failClosed: true, saturating: true });
+  if (globalLimited) return { code: "temporarily_unavailable",
+    description: "Registration unavailable", status: globalLimited.status };
   return undefined;
 }

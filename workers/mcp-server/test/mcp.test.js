@@ -272,7 +272,7 @@ test('modern discovery, six-tool list, and fixture-backed call use JSON mode', a
   const projected = JSON.parse(calledBody.result.content[0].text);
   assert.deepEqual(calls, [{ workspaceId, hasSignal: true }]);
   assert.deepEqual(Object.keys(projected), [
-    'data_classification', 'untrusted_fields',
+    'data_classification', 'untrusted_fields', 'evidence_notice',
     'workspace_id', 'display_name', 'domain_count', 'open_case_count', 'score_state', 'score_value',
     'latest_measurement_at', 'evidence_state', 'coverage_state', 'limitations', 'ui_path',
   ]);
@@ -280,6 +280,9 @@ test('modern discovery, six-tool list, and fixture-backed call use JSON mode', a
   assert.equal(projected.score_value, 73);
   assert.equal(projected.data_classification, 'untrusted_customer_data');
   assert.deepEqual(projected.untrusted_fields, ['display_name', 'limitations']);
+  assert.match(projected.evidence_notice.unobserved, /not assessed healthy/);
+  assert.match(projected.evidence_notice.customer_attestation,
+    /not CyberMeters verification/);
   assert.deepEqual(events, ['tool_success']);
   for (const forbidden of ['fixture-bearer', 'fixture-secret', 'fixture@example.invalid',
     'fixture-owner', 'fixture-raw', 'fixture-note']) {
@@ -495,11 +498,12 @@ test('projections expose only fixed fields and preserve eight domain states and 
   assert.deepEqual(Object.keys(posture.domains[0]), [
     'domain_key', 'display_name', 'state', 'evidence_strength', 'coverage', 'last_assessed_at', 'limitations',
   ]);
-  assert.deepEqual(posture.untrusted_fields, ['domains[].limitations']);
+  assert.deepEqual(posture.untrusted_fields, ['domains[].display_name', 'domains[].limitations']);
 
   const recent = JSON.parse(projectRecentScans({ workspace_id: workspaceId,
     scans: [fixtureScan()], limit: 10, has_more: true }, workspaceId));
   assert.equal(recent.has_more, true);
+  assert.deepEqual(recent.untrusted_fields, ['scans[].domain']);
   const oneScan = recent.scans[0];
   assert.equal(oneScan.status, 'completed');
   assert.equal(oneScan.scan_quality, 'partial');
@@ -509,6 +513,7 @@ test('projections expose only fixed fields and preserve eight domain states and 
   assert.equal(oneScan.score_available, false);
   const detail = JSON.parse(projectScanStatus({ workspace_id: workspaceId,
     ...fixtureScan() }, workspaceId, scanId));
+  assert.deepEqual(detail.untrusted_fields, ['scan.domain']);
   assert.deepEqual(detail.scan, oneScan);
   const provisionalScore = JSON.parse(projectScanStatus({ workspace_id: workspaceId,
     ...fixtureScan({ score_available: true }) }, workspaceId, scanId));
