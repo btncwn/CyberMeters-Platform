@@ -69,7 +69,7 @@ function LegacyAcademyRedirect() {
   const { slug } = useParams()
   return <Navigate to={`/guide/${slug}`} replace />
 }
-const AcademyArticlePage        = lazy(() => import('./pages/AcademyArticlePage'))
+const GuideEntryPage            = lazy(() => import('./pages/GuideEntryPage'))
 const NotificationsPage         = lazy(() => import('./pages/NotificationsPage'))
 
 // ── Lazy-Loaded Workspace Intelligent Subsections ───────────────────────
@@ -247,7 +247,7 @@ function AppRoutes() {
           <Route path="ws/retention"            element={<WorkspaceRetentionPage />} />
 
           <Route path="guide"               element={<AcademyPage />} />
-          <Route path="guide/:slug"         element={<AcademyArticlePage />} />
+          <Route path="guide/:slug"         element={<GuideEntryPage />} />
           {/* The Field Guide was the Academy; old links keep working. */}
           <Route path="academy"             element={<Navigate to="/guide" replace />} />
           <Route path="academy/:slug"       element={<LegacyAcademyRedirect />} />

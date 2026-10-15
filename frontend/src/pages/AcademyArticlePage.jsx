@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
-import { useParams, Link, useNavigate, Navigate } from 'react-router-dom'
+import { useParams, Link, Navigate } from 'react-router-dom'
 import { getArticle, getCategoryMeta, getRelatedArticles } from '../data/academy'
+import { getGuideAreaForArticle } from '../data/fieldGuide'
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 const COLOR_CLASSES = {
@@ -135,11 +136,11 @@ function TableOfContents({ sections }) {
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function AcademyArticlePage() {
   const { slug } = useParams()
-  const navigate  = useNavigate()
 
   const article  = useMemo(() => getArticle(slug), [slug])
   const catMeta  = useMemo(() => article ? getCategoryMeta(article.category) : null, [article])
   const related  = useMemo(() => article ? getRelatedArticles(slug) : [], [slug, article])
+  const area     = useMemo(() => article ? getGuideAreaForArticle(article.slug) : null, [article])
   const c        = COLOR_CLASSES[catMeta?.color] || COLOR_CLASSES.brand
 
   // An earlier slug still opens the article, at its current address.
@@ -166,13 +167,11 @@ export default function AcademyArticlePage() {
           Field Guide
         </Link>
         <span aria-hidden="true">/</span>
-        <Link
-          to={`/academy`}
-          onClick={e => { e.preventDefault(); navigate('/guide') }}
-          className="hover:text-brand-600 transition-colors"
-        >
-          {catMeta?.label}
-        </Link>
+        {area && (
+          <Link to={`/guide/${area.key}`} className="hover:text-brand-600 transition-colors">
+            {area.title}
+          </Link>
+        )}
         <span aria-hidden="true">/</span>
         <span className="text-gray-600 font-medium truncate max-w-xs">{article.title}</span>
       </nav>
@@ -221,10 +220,10 @@ export default function AcademyArticlePage() {
           {/* Back link */}
           <div className="mt-10 pt-6 border-t border-gray-100">
             <Link
-              to="/guide"
+              to={area ? `/guide/${area.key}` : '/guide'}
               className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-brand-600 transition-colors"
             >
-              Back to Field Guide
+              {area ? `Back to ${area.title}` : 'Back to Field Guide'}
             </Link>
           </div>
         </article>

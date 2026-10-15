@@ -1,235 +1,88 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { CATEGORIES, ARTICLES, getFeaturedArticles, searchArticles, getArticlesByCategory } from '../data/academy'
+import { searchArticles } from '../data/academy'
+import { GUIDE_AREAS, getGuideAreaForArticle } from '../data/fieldGuide'
+import { SERVICE_COLORS } from '../theme/serviceColors'
 
-// ── Colour helpers ─────────────────────────────────────────────────────────────
-const COLOR_CLASSES = {
-  brand:  { bg: 'bg-brand-50',  icon: 'text-brand-600',  badge: 'bg-brand-50 text-brand-700'  },
-  blue:   { bg: 'bg-blue-50',   icon: 'text-blue-600',   badge: 'bg-blue-50 text-blue-700'    },
-  indigo: { bg: 'bg-indigo-50', icon: 'text-indigo-600', badge: 'bg-indigo-50 text-indigo-700'},
-  green:  { bg: 'bg-emerald-50',icon: 'text-emerald-600',badge: 'bg-emerald-50 text-emerald-700'},
-  purple: { bg: 'bg-purple-50', icon: 'text-purple-600', badge: 'bg-purple-50 text-purple-700'},
-  red:    { bg: 'bg-red-50',    icon: 'text-red-600',    badge: 'bg-red-50 text-red-700'      },
-  cyan:   { bg: 'bg-cyan-50',   icon: 'text-cyan-600',   badge: 'bg-cyan-50 text-cyan-700'    },
-  amber:  { bg: 'bg-amber-50',  icon: 'text-amber-600',  badge: 'bg-amber-50 text-amber-700'  },
-  pink:   { bg: 'bg-pink-50',   icon: 'text-pink-600',   badge: 'bg-pink-50 text-pink-700'    },
-  orange: { bg: 'bg-orange-50', icon: 'text-orange-600', badge: 'bg-orange-50 text-orange-700'},
-  rose:   { bg: 'bg-rose-50',   icon: 'text-rose-600',   badge: 'bg-rose-50 text-rose-700'    },
-}
+// The Field Guide home: the eight areas in the order the product shows them,
+// each opening a guide with the same four sections. The in-depth articles are
+// reachable by search here and as deeper reading inside each area.
 
-function colorFor(slug) {
-  const cat = CATEGORIES.find(c => c.slug === slug)
-  return COLOR_CLASSES[cat?.color] || COLOR_CLASSES.brand
-}
-
-// ── Article card ───────────────────────────────────────────────────────────────
-function ArticleCard({ article }) {
-  const c = colorFor(article.category)
-  const cat = CATEGORIES.find(cat => cat.slug === article.category)
-
+function AreaCard({ area, index }) {
+  const colours = SERVICE_COLORS[area.colourKey]
   return (
     <Link
-      to={`/guide/${article.slug}`}
-      className="group flex flex-col bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-sm transition-all p-5 gap-3"
+      to={`/guide/${area.key}`}
+      className="group flex flex-col rounded-2xl border border-gray-200 bg-white hover:shadow-md transition-all overflow-hidden"
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${c.badge}`}>
-          {cat?.label || article.category}
-        </span>
-        {article.featured && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">
-            Featured
-          </span>
-        )}
-      </div>
-
-      <div>
-        <h3 className="text-sm font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-snug">
-          {article.title}
-        </h3>
-        <p className="text-[14px] text-gray-500 mt-1.5 leading-relaxed line-clamp-2">
-          {article.summary}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3 mt-auto pt-1">
-        <span className="flex items-center gap-1 text-xs text-gray-400">
-          {article.readTime} min read
-        </span>
-        <span className="ml-auto flex items-center gap-1 text-xs font-semibold text-brand-600 opacity-0 group-hover:opacity-100 transition-opacity">
-          Read
-        </span>
+      <div className="h-2" style={{ backgroundColor: colours.icon }} aria-hidden="true" />
+      <div className="p-5 flex flex-col gap-2 flex-1">
+        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colours.text }}>Area {index + 1}</p>
+        <h2 className="text-[19px] font-bold text-black leading-snug group-hover:text-brand-700 transition-colors">{area.title}</h2>
+        <p className="text-[16px] text-black leading-relaxed">{area.summary}</p>
+        <span className="mt-auto pt-2 text-[15px] font-semibold text-brand-700">Open guide →</span>
       </div>
     </Link>
   )
 }
 
-// ── Featured hero card ─────────────────────────────────────────────────────────
-function FeaturedCard({ article }) {
-  const c = colorFor(article.category)
-  const cat = CATEGORIES.find(cat => cat.slug === article.category)
-
+function ArticleResult({ article }) {
+  const area = getGuideAreaForArticle(article.slug)
   return (
     <Link
       to={`/guide/${article.slug}`}
-      className="group relative flex flex-col bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-md transition-all p-6 gap-4"
+      className="group flex flex-col bg-white rounded-xl border border-gray-200 hover:border-brand-200 hover:shadow-sm transition-all p-4 gap-1.5"
     >
-      <div>
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${c.badge} mb-2`}>
-          {cat?.label}
-        </span>
-        <h3 className="text-base font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-snug">
-          {article.title}
-        </h3>
-        <p className="text-sm text-gray-500 mt-2 leading-relaxed line-clamp-3">
-          {article.summary}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-2 mt-auto">
-        <span className="text-xs text-gray-400">{article.readTime} min read</span>
-        <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-brand-600">
-          Read article
-        </span>
-      </div>
+      {area && <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: SERVICE_COLORS[area.colourKey].text }}>{area.title}</span>}
+      <p className="text-[16px] font-bold text-black group-hover:text-brand-700 leading-snug">{article.title}</p>
+      <p className="text-xs text-black leading-relaxed line-clamp-2">{article.summary}</p>
+      <span className="text-xs text-gray-600 mt-auto pt-1">{article.readTime} min read</span>
     </Link>
   )
 }
 
-// ── Category pill ──────────────────────────────────────────────────────────────
-function CategoryPill({ cat, active, onClick }) {
-  const c = COLOR_CLASSES[cat.color] || COLOR_CLASSES.brand
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap
-        ${active
-          ? `${c.badge} ring-1 ring-inset ring-current`
-          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 bg-white border border-gray-200'
-        }`}
-    >
-      {cat.label}
-    </button>
-  )
-}
-
-// ── Main page ──────────────────────────────────────────────────────────────────
 export default function AcademyPage() {
-  const [query, setQuery]           = useState('')
-  const [activeCategory, setActive] = useState(null) // null = all
-
-  const featured = useMemo(() => getFeaturedArticles(), [])
-
-  const displayArticles = useMemo(() => {
-    let articles = query.trim().length >= 2 ? searchArticles(query) : ARTICLES
-    if (activeCategory && !query.trim()) {
-      articles = articles.filter(a => a.category === activeCategory)
-    }
-    return articles
-  }, [query, activeCategory])
-
-  const isSearching = query.trim().length >= 2
+  const [query, setQuery] = useState('')
+  const searching = query.trim().length >= 2
+  const results = useMemo(() => (searching ? searchArticles(query) : []), [query, searching])
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8">
-
-      {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-3 mb-3">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">CyberMeters Field Guide</h1>
-            <p className="text-sm text-gray-500">How to use each area, what CyberMeters checks and why, and what your findings mean.</p>
-          </div>
-        </div>
-
-        {/* Search */}
+        <h1 className="text-[28px] font-bold text-black">CyberMeters Field Guide</h1>
+        <p className="mt-2 text-[17px] text-black max-w-[70ch] leading-relaxed">
+          One guide for each of the eight areas: what it covers, what CyberMeters checks and why, how to read your results, and what to do next. Every area follows the same four steps.
+        </p>
         <div className="relative max-w-md mt-5">
+          <label htmlFor="guide-search" className="sr-only">Search the Field Guide</label>
           <input
-            type="text"
-            placeholder="Search articles…"
+            id="guide-search"
+            type="search"
+            placeholder="Search articles, e.g. DMARC, HSTS, takeover…"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            className="w-full pl-4 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="w-full pl-4 pr-4 py-2.5 rounded-xl border border-gray-300 bg-white text-[16px] text-black placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
-          {query && (
-            <button
-              onClick={() => setQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Featured — only when not searching or filtering */}
-      {!isSearching && !activeCategory && (
-        <section className="mb-10">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Featured Articles</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {featured.map(a => <FeaturedCard key={a.slug} article={a} />)}
-          </div>
-        </section>
-      )}
-
-      {/* Category filter */}
-      {!isSearching && (
-        <section className="mb-6">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setActive(null)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap
-                ${!activeCategory
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 bg-white border border-gray-200'
-                }`}
-            >
-              All topics
-            </button>
-            {CATEGORIES.map(cat => (
-              <CategoryPill
-                key={cat.slug}
-                cat={cat}
-                active={activeCategory === cat.slug}
-                onClick={() => setActive(activeCategory === cat.slug ? null : cat.slug)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Articles grid */}
-      <section>
-        {isSearching && (
-          <p className="text-sm text-gray-500 mb-4">
-            {displayArticles.length === 0
-              ? `No articles found for "${query}"`
-              : `${displayArticles.length} article${displayArticles.length === 1 ? '' : 's'} for "${query}"`
-            }
+      {searching ? (
+        <section aria-live="polite">
+          <p className="text-[16px] text-black mb-4">
+            {results.length === 0 ? `No articles match "${query}".` : `${results.length} article${results.length === 1 ? '' : 's'} for "${query}"`}
           </p>
-        )}
-
-        {activeCategory && !isSearching && (
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
-            {CATEGORIES.find(c => c.slug === activeCategory)?.label}
-            <span className="ml-2 normal-case font-normal">— {displayArticles.length} article{displayArticles.length !== 1 ? 's' : ''}</span>
-          </h2>
-        )}
-
-        {!isSearching && !activeCategory && (
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">All Articles</h2>
-        )}
-
-        {displayArticles.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-sm">No articles found.</p>
-          </div>
-        ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayArticles.map(a => <ArticleCard key={a.slug} article={a} />)}
+            {results.map(a => <ArticleResult key={a.slug} article={a} />)}
           </div>
-        )}
-      </section>
+        </section>
+      ) : (
+        <section>
+          <h2 className="sr-only">The eight areas</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {GUIDE_AREAS.map((area, i) => <AreaCard key={area.key} area={area} index={i} />)}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
