@@ -1,0 +1,204 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import worker, { createLocalTestWorker } from '../src/index.js';
+import { projectWorkspaceSummary } from '../src/local-mcp.js';
+import { fixtureSummary, workspaceId } from './fixture.js';
+
+const TOOL = 'cybermeters_get_workspace_summary';
+const BASE = 'http://localhost:8787/mcp';
+
+function rpc(method, params = {}, id = 1) {
+  return { jsonrpc: '2.0', id, method, params: {
+    ...params,
+    _meta: {
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientCapabilities': {},
+    },
+  } };
+}
+
+function request(message, { url = BASE, method = 'POST', host = 'localhost:8787', origin,
+  protocol = '2026-07-28', mcpMethod = message?.method, name = message?.params?.name,
+  rawBody, extraHeaders = {} } = {}) {
+  const headers = { host, 'content-type': 'application/json', 'mcp-protocol-version': protocol,
+    'mcp-method': mcpMethod, ...extraHeaders };
+  if (name) headers['mcp-name'] = name;
+  if (origin !== undefined) headers.origin = origin;
+  return new Request(url, { method, headers,
+    ...(method === 'POST' ? { body: rawBody ?? JSON.stringify(message) } : {}) });
+}
+
+function harness(overrides = {}) {
+  const events = [];
+  const calls = [];
+  const backend = { async getWorkspaceSummary(args) {
+    calls.push({ workspaceId: args.workspaceId, hasSignal: args.signal instanceof AbortSignal });
+    if (overrides.hang) return new Promise(() => {});
+    if (overrides.failure) throw new Error('fixture-secret-error');
+    return fixtureSummary(overrides.summary);
+  } };
+  return { app: createLocalTestWorker({
+    backend, onEvent: (event) => events.push(event), backendTimeoutMs: overrides.timeoutMs,
+  }), events, calls };
+}
+
+async function responseJson(response) {
+  return JSON.parse(await response.text());
+}
+
+test('default deployed fetch stays fail-closed even when passed a backend-like environment', async () => {
+  const response = await worker.fetch(request(rpc('tools/list')), {
+    backend: { getWorkspaceSummary: () => fixtureSummary() },
+  });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await responseJson(response), { error: 'mcp_not_configured' });
+  assert.throws(() => createLocalTestWorker(), /local test backend/);
+});
+
+test('modern discovery, single-tool list, and fixture-backed call use JSON mode', async () => {
+  const { app, calls, events } = harness();
+  const discover = await app.fetch(request(rpc('server/discover')));
+  assert.equal(discover.status, 200);
+  const discovered = await responseJson(discover);
+  assert.equal(discovered.jsonrpc, '2.0');
+  assert.ok(discovered.result);
+
+  const listed = await app.fetch(request(rpc('tools/list')));
+  assert.equal(listed.status, 200);
+  const listedBody = await responseJson(listed);
+  assert.deepEqual(listedBody.result.tools.map((tool) => tool.name), [TOOL]);
+  const tool = listedBody.result.tools[0];
+  assert.equal(tool.annotations.readOnlyHint, true);
+  assert.equal(tool.annotations.destructiveHint, false);
+  assert.equal(tool.annotations.idempotentHint, true);
+  assert.equal(tool.inputSchema.additionalProperties, false);
+
+  const called = await app.fetch(request(rpc('tools/call', {
+    name: TOOL, arguments: { workspace_id: workspaceId },
+  })));
+  assert.equal(called.status, 200);
+  const calledBody = await responseJson(called);
+  assert.equal(calledBody.result.isError, undefined);
+  const projected = JSON.parse(calledBody.result.content[0].text);
+  assert.deepEqual(calls, [{ workspaceId, hasSignal: true }]);
+  assert.deepEqual(Object.keys(projected), [
+    'data_classification', 'untrusted_fields',
+    'workspace_id', 'display_name', 'score_state', 'score_value',
+    'latest_measurement_at', 'evidence_state', 'coverage_state', 'limitations', 'ui_path',
+  ]);
+  assert.equal(projected.ui_path, `/workspaces/${workspaceId}`);
+  assert.equal(projected.score_value, 73);
+  assert.equal(projected.data_classification, 'untrusted_customer_data');
+  assert.deepEqual(projected.untrusted_fields, ['display_name', 'limitations']);
+  assert.deepEqual(events, ['tool_success']);
+  for (const forbidden of ['fixture-bearer', 'fixture-secret', 'fixture@example.invalid',
+    'fixture-owner', 'fixture-raw', 'fixture-note']) {
+    assert.equal(JSON.stringify(calledBody).includes(forbidden), false);
+  }
+});
+
+test('legacy initialize is rejected and cannot invoke the backend', async () => {
+  const { app, calls } = harness();
+  const response = await app.fetch(request({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+    protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' },
+  } }, { protocol: '2025-11-25' }));
+  assert.ok(response.status >= 400 || (await responseJson(response)).error);
+  assert.deepEqual(calls, []);
+});
+
+test('unknown tool, extra argument, and malformed workspace IDs never call backend', async () => {
+  const { app, calls } = harness();
+  const cases = [
+    { name: 'unknown_tool', arguments: { workspace_id: workspaceId } },
+    { name: TOOL, arguments: { workspace_id: workspaceId, url: 'https://example.invalid' } },
+    { name: TOOL, arguments: { workspace_id: '../other' } },
+    { name: TOOL, arguments: { workspace_id: 'x'.repeat(65) } },
+    { name: TOOL, arguments: { workspace_id: 42 } },
+  ];
+  for (const params of cases) {
+    const response = await app.fetch(request(rpc('tools/call', params)));
+    const result = await responseJson(response);
+    assert.ok(response.status >= 400 || result.error || result.result?.isError);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('local Host, Origin, route, method, and request-size gates fail closed', async () => {
+  const { app, calls } = harness();
+  const message = rpc('tools/list');
+  const cases = [
+    [request(message, { host: 'evil.invalid' }), 403],
+    [request(message, { url: 'https://evil.invalid/mcp', host: 'evil.invalid' }), 403],
+    [request(message, { origin: 'https://evil.invalid' }), 403],
+    [request(message, { origin: 'null' }), 403],
+    [request(message, { url: 'http://localhost:8787/mcp/extra' }), 404],
+    [request(message, { url: 'http://localhost:8787/mcp?next=1' }), 404],
+    [request(message, { method: 'GET' }), 405],
+    [request(message, { rawBody: 'x'.repeat(4097) }), 413],
+    [request(message, { rawBody: '{' }), 400],
+  ];
+  for (const [req, status] of cases) {
+    const response = await app.fetch(req);
+    assert.equal(response.status, status);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('local gate rejects Cloudflare requests and accepts the explicit IPv4 loopback', async () => {
+  const { app } = harness();
+  const cfRequest = request(rpc('tools/list'));
+  Object.defineProperty(cfRequest, 'cf', { value: {}, configurable: true });
+  assert.equal((await app.fetch(cfRequest)).status, 403);
+  const loopback = request(rpc('tools/list'), {
+    url: 'http://127.0.0.1:8787/mcp', host: '127.0.0.1:8787',
+  });
+  assert.equal((await app.fetch(loopback)).status, 200);
+  const portMismatch = request(rpc('tools/list'), { host: 'localhost:9999' });
+  assert.equal((await app.fetch(portMismatch)).status, 403);
+});
+
+test('backend failure and oversized text produce a safe tool error and content-free metrics', async () => {
+  const input = rpc('tools/call', { name: TOOL, arguments: { workspace_id: workspaceId } });
+  for (const options of [
+    { failure: true, expectedEvent: 'backend_failure' },
+    { summary: { display_name: 'X'.repeat(101) }, expectedEvent: 'projection_rejected' },
+    { summary: { display_name: 'A'.repeat(100),
+      limitations: Array.from({ length: 4 }, () => '界'.repeat(180)) }, expectedEvent: 'response_capped' },
+  ]) {
+    const { app, events } = harness(options);
+    const response = await app.fetch(request(input));
+    const body = await responseJson(response);
+    assert.equal(body.result.isError, true);
+    assert.equal(body.result.content[0].text, 'workspace_summary_unavailable');
+    assert.deepEqual(events, [options.expectedEvent]);
+    assert.equal(JSON.stringify(body).includes('fixture-secret'), false);
+  }
+});
+
+test('backend timeout aborts the call and returns only a safe tool error', async () => {
+  const { app, events } = harness({ hang: true, timeoutMs: 5 });
+  const response = await app.fetch(request(rpc('tools/call', {
+    name: TOOL, arguments: { workspace_id: workspaceId },
+  })));
+  const body = await responseJson(response);
+  assert.equal(body.result.isError, true);
+  assert.equal(body.result.content[0].text, 'workspace_summary_unavailable');
+  assert.deepEqual(events, ['backend_timeout']);
+});
+
+test('projection enforces aggregate response cap and drops every unrelated backend field', () => {
+  const valid = projectWorkspaceSummary(fixtureSummary(), workspaceId);
+  assert.ok(new TextEncoder().encode(valid).byteLength <= 2048);
+  for (const field of ['bearer', 'secret', 'email', 'owner_id', 'raw_response', 'private_note']) {
+    assert.equal(valid.includes(field), false);
+  }
+  assert.throws(() => projectWorkspaceSummary(fixtureSummary({
+    display_name: 'A'.repeat(100),
+    limitations: Array.from({ length: 4 }, () => '界'.repeat(180)),
+  }), workspaceId), /tool_result_too_large/);
+  assert.throws(() => projectWorkspaceSummary(fixtureSummary({ workspace_id: 'other-workspace' }), workspaceId));
+  assert.throws(() => projectWorkspaceSummary(fixtureSummary({ score_state: 'latest_incomplete', score_value: 73 }), workspaceId));
+  assert.throws(() => projectWorkspaceSummary(fixtureSummary({ evidence_state: 'insufficient' }), workspaceId), /invalid_evidence_basis/);
+  assert.throws(() => projectWorkspaceSummary(fixtureSummary({ coverage_state: 'partial' }), workspaceId), /invalid_evidence_basis/);
+  assert.throws(() => projectWorkspaceSummary(fixtureSummary({ display_name: 'Unsafe\u202Ename' }), workspaceId));
+});
