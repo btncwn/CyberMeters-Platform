@@ -312,7 +312,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                         { label: 'Value',       value: instructions.dns?.value },
                       ].map(({ label, value }) => (
                         <div key={label} className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-[13px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
+                          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
                           <div className="flex items-center gap-1">
                             <code className="text-xs text-gray-800 break-all">{value}</code>
                             <CopyButton text={value} />
@@ -328,7 +328,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                         { label: 'File Content (exact)', value: instructions.html?.content },
                       ].map(({ label, value }) => (
                         <div key={label} className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-[13px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
+                          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
                           <div className="flex items-center gap-1">
                             <code className="text-xs text-gray-800 break-all">{value}</code>
                             <CopyButton text={value} />

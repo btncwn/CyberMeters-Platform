@@ -140,8 +140,8 @@ export default function IdentityExposurePage() {
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.primary_hostname || it.provider_name || surfaceLabel(it.surface_type)}</div>
                     <div className="text-xs text-slate-400">{surfaceLabel(it.surface_type)}{it.provider_name ? ` Â· ${it.provider_name}` : ''}</div>
-                    <div className="text-[13px] text-slate-400">{identityClaimMeta(it.identity_claim).label}</div>
-                    <div className="text-[13px] text-slate-400">{confidenceDetailLabel(it.confidence_detail)} · reachability {it.identity_claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</div>
+                    <div className="text-xs text-slate-400">{identityClaimMeta(it.identity_claim).label}</div>
+                    <div className="text-xs text-slate-400">{confidenceDetailLabel(it.confidence_detail)} · reachability {it.identity_claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</div>
                     {it.linked_case_id && (
                       <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
                         Open case →
@@ -154,7 +154,7 @@ export default function IdentityExposurePage() {
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={classificationMeta(it.customer_classification)} />
-                    <div className="text-[13px] text-slate-400 mt-0.5">Classified by you</div>
+                    <div className="text-xs text-slate-400 mt-0.5">Classified by you</div>
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={ownershipMeta(it.ownership_status)} />
@@ -167,7 +167,7 @@ export default function IdentityExposurePage() {
                     {isAwaitingVerification(it) && (
                       <div className="text-xs text-amber-600 mt-0.5">Recorded by you â not yet verified</div>
                     )}
-                    {it.verified_at && <div className="text-[13px] text-slate-300 mt-0.5">Verified by CyberMeters {it.verified_at.slice(0, 10)}</div>}
+                    {it.verified_at && <div className="text-xs text-slate-300 mt-0.5">Verified by CyberMeters {it.verified_at.slice(0, 10)}</div>}
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex flex-wrap gap-1">

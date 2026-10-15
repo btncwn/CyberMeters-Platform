@@ -93,7 +93,7 @@ function EventRow({ event }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-gray-900 leading-snug">{claimDisplay.title}</p>
-          <span className={`text-[13px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${sev}`}>
+          <span className={`text-xs font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${sev}`}>
             {event.severity}
           </span>
         </div>
@@ -101,7 +101,7 @@ function EventRow({ event }) {
           <p className="text-sm text-gray-600 leading-snug mt-0.5">{claimDisplay.description}</p>
         )}
         {claimDisplay.supportLabel && (
-          <p className="text-[13px] font-semibold uppercase tracking-wide text-gray-400 mt-1">{claimDisplay.supportLabel}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mt-1">{claimDisplay.supportLabel}</p>
         )}
         {event.hostname && (
           <p className="text-xs text-gray-400 font-mono mt-1 truncate">{event.hostname}</p>
@@ -179,8 +179,8 @@ export default function ExposureTimeline({ workspaceId }) {
             onClick={() => fetchPage(0, false)}
             disabled={loading}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
-            title="Refresh"
-            aria-label="Refresh"
+            title="Refresh exposure timeline"
+            aria-label="Refresh exposure timeline"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>

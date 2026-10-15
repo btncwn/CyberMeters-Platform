@@ -107,7 +107,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
               {allDone ? 'Setup complete' : 'Getting started with CyberMeters'}
             </p>
             {allDone && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[13px] font-bold bg-brand-50 text-brand-700 uppercase tracking-wide border border-brand-100">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-brand-50 text-brand-700 uppercase tracking-wide border border-brand-100">
                 Done
               </span>
             )}
@@ -120,8 +120,8 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
         </div>
         <button
           onClick={dismiss}
-          title="Dismiss"
-          aria-label="Dismiss"
+          title="Dismiss onboarding checklist"
+          aria-label="Dismiss onboarding checklist"
           className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
         >
           <X className="w-4 h-4" />
@@ -159,7 +159,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
                   {step.label}
                 </span>
               </div>
-              <p className="text-[13px] text-gray-500 leading-relaxed pl-9">
+              <p className="text-xs text-gray-500 leading-relaxed pl-9">
                 {step.done ? '✓ Complete' : step.detail}
               </p>
               {isActive && !step.done && (

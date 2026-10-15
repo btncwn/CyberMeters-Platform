@@ -78,7 +78,7 @@ function ConfirmModal({ open, onClose, onConfirm, title, description, confirmWor
           <button
             onClick={handleClose}
             disabled={loading}
-            aria-label="Close"
+            aria-label={`Close ${title}`}
             className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center flex-shrink-0"
           >
             <X className="w-4 h-4" />

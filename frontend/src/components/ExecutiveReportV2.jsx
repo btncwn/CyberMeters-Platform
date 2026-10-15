@@ -60,7 +60,7 @@ function fmtDate(str) {
 function EvidenceBasis({ label, assertion, className = '' }) {
   if (!assertion?.grade) return null
   return (
-    <p className={`text-[13px] leading-relaxed text-slate-500 ${className}`}>
+    <p className={`text-xs leading-relaxed text-slate-500 ${className}`}>
       <span className="font-semibold text-slate-700">{label}:</span>
       {' '}{customerEvidenceText(assertion.basis) || 'No basis recorded.'}
     </p>
@@ -78,7 +78,7 @@ function EvidenceStrengthSummary({ assertions, className = '' }) {
       {limits.length ? (
         // One readable line up front; the full list stays one click away rather
         // than a wall of text above the report.
-        <details className="mt-0.5 text-[13px] leading-relaxed text-slate-500">
+        <details className="mt-0.5 text-xs leading-relaxed text-slate-500">
           <summary className="cursor-pointer">
             Each domain below states what was and was not assessed.{' '}
             <span className="font-semibold text-slate-700">Show all recorded limits ({limits.length})</span>
@@ -88,7 +88,7 @@ function EvidenceStrengthSummary({ assertions, className = '' }) {
           </ul>
         </details>
       ) : (
-        <p className="mt-0.5 text-[13px] leading-relaxed text-slate-500">
+        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
           <span className="font-semibold text-slate-700">Limits:</span>
           {' '}{primary
             ? 'No additional limit was recorded.'
@@ -129,14 +129,14 @@ function ScoreRing({ score, rating, size = 132 }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {score != null
-            ? <><span className={`text-4xl font-bold ${cfg.text}`}>{score}</span><span className="text-[13px] text-gray-300 font-semibold">/ 100</span></>
+            ? <><span className={`text-4xl font-bold ${cfg.text}`}>{score}</span><span className="text-xs text-gray-300 font-semibold">/ 100</span></>
             : <span className="text-gray-300 text-sm">—</span>}
         </div>
       </div>
       <span className={`text-xs font-bold px-3 py-1 rounded-full border mt-2 ${cfg.pill}`}>
         {cfg.label}
       </span>
-      <span className="mt-1 text-[13px] font-semibold text-gray-400">CyberMeters assessment band</span>
+      <span className="mt-1 text-xs font-semibold text-gray-400">CyberMeters assessment band</span>
     </div>
   )
 }
@@ -151,7 +151,7 @@ function ItemRow({ item, index, muted = false }) {
     : item.evidence_grade?.grade
   return (
     <li className="flex items-start gap-3 px-5 py-3">
-      <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[13px] font-bold flex-shrink-0 mt-0.5 ${muted ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-700'}`}>
+      <div className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${muted ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-700'}`}>
         {index + 1}
       </div>
       <div className="flex-1 min-w-0">
@@ -172,7 +172,7 @@ function ItemRow({ item, index, muted = false }) {
           </p>
         )}
         {(item.confidence != null || evidenceGrade) && (
-          <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
             {item.confidence != null && <span>Confidence: {String(item.confidence)}</span>}
             {item.confidence != null && evidenceGrade && <span aria-hidden="true"> · </span>}
             {evidenceGrade && <span>Evidence grade: {evidenceGrade}</span>}
@@ -224,10 +224,10 @@ function ActionList({ items }) {
               </p>
             )}
             {item.finding_ids?.length > 1 && (
-              <p className="text-[13px] text-gray-400 mt-1">Resolves {item.finding_ids.length} related findings.</p>
+              <p className="text-xs text-gray-400 mt-1">Resolves {item.finding_ids.length} related findings.</p>
             )}
             {item.verification_ceiling && (
-              <p className="text-[13px] text-gray-400 mt-1 inline-flex items-center gap-1">
+              <p className="text-xs text-gray-400 mt-1 inline-flex items-center gap-1">
                 {item.verification_ceiling}
               </p>
             )}
@@ -262,7 +262,7 @@ function AssessmentCoverage({ coverage }) {
         <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
           {facts.map(([label, value]) => (
             <div key={label}>
-              <dt className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
               <dd className="mt-0.5 text-xs font-semibold text-slate-700">{readableCode(value)}</dd>
             </div>
           ))}
@@ -377,7 +377,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
             <p className="text-sm text-gray-500">{report.domain?.name}</p>
             <p className="text-xs text-gray-400 mt-1">Assessed on {fmtDate(report.assessed_at)}</p>
             {report.provenance === 'reconstructed_on_demand' && (
-              <p className="text-[13px] text-amber-600 mt-1">
+              <p className="text-xs text-amber-600 mt-1">
                 Reconstructed on {fmtDate(report.generated_at)} from the evidence recorded at assessment time.
               </p>
             )}
@@ -440,7 +440,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
           <div className="flex items-center gap-8">
             <ScoreRing score={cms.value} rating={cms.rating} />
             <div className="max-w-xs">
-              <p className="text-[13px] font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
               <EvidenceBasis label="Business Risk Indicator basis" assertion={bri.evidence_grade} className="mb-2" />
               {bri.band
                 ? <span className={`text-xs font-bold px-3 py-1 rounded-full border ${BRI_PILL[bri.band] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>{String(bri.band).toUpperCase()}</span>
@@ -453,13 +453,13 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
 
       {/* Methodology + limitations — honesty footer */}
       <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
-        <p className="text-[13px] text-gray-400 font-semibold uppercase tracking-wide mb-2">Methodology &amp; Limitations</p>
-        <p className="text-[13px] text-gray-400">
+        <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-2">Methodology &amp; Limitations</p>
+        <p className="text-xs text-gray-400">
           Resolver {methodology.cyber_mot_resolver_version || '—'} · Score methodology {methodology.cyber_metrics_score_methodology_version || '—'} · Risk indicator methodology {methodology.business_risk_methodology_version || '—'}{methodology.check_pack_version ? ` · Check pack ${methodology.check_pack_version}` : ''}
         </p>
         <ul className="mt-2 list-disc pl-5 space-y-1">
           {(report.limitations || []).map((l, i) => (
-            <li key={i} className="text-[13px] text-gray-400 leading-relaxed">
+            <li key={i} className="text-xs text-gray-400 leading-relaxed">
               {customerEvidenceText(l)}
             </li>
           ))}

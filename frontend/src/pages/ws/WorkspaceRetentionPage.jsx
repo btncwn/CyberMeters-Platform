@@ -109,7 +109,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
             onClick={onCancel}
             disabled={loading}
             className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-amber-100 flex items-center justify-center flex-shrink-0"
-            aria-label="Close"
+            aria-label="Close retention warning"
           >
             <X className="w-4 h-4" />
           </button>
@@ -181,8 +181,8 @@ function StorageUsageCard({ data, loading, error, onRefresh }) {
             <button
               onClick={onRefresh}
               className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors"
-              title="Refresh"
-              aria-label="Refresh"
+              title="Refresh usage and retention"
+              aria-label="Refresh usage and retention"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>

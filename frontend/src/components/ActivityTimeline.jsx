@@ -146,8 +146,8 @@ export default function ActivityTimeline({ workspaceId }) {
             onClick={() => load(true)}
             disabled={loading}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
-            title="Refresh"
-            aria-label="Refresh"
+            title="Refresh activity"
+            aria-label="Refresh activity"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>

@@ -58,9 +58,9 @@ function AssuranceProjection({ presentation }) {
           <div key={signal.signal_key} className="rounded-lg bg-gray-50 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-gray-800">{signal.label}</span>
-              <span className="text-[13px] font-semibold text-gray-500">{signal.state_label}</span>
+              <span className="text-xs font-semibold text-gray-500">{signal.state_label}</span>
             </div>
-            <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
+            <p className="mt-1 text-xs leading-relaxed text-gray-500">
               {signalText(signal)}
             </p>
           </div>
@@ -68,7 +68,7 @@ function AssuranceProjection({ presentation }) {
       </div>
 
       {notes.length > 0 && (
-        <ul className="space-y-0.5 text-[13px] leading-relaxed text-gray-400" aria-label="Notes that apply to these checks">
+        <ul className="space-y-0.5 text-xs leading-relaxed text-gray-400" aria-label="Notes that apply to these checks">
           {notes.map(note => <li key={note}>{note}</li>)}
         </ul>
       )}
@@ -78,21 +78,21 @@ function AssuranceProjection({ presentation }) {
           <div className="flex items-center gap-2 text-xs font-bold text-gray-800">
             Asset lifecycle
           </div>
-          <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
+          <p className="mt-1 text-xs leading-relaxed text-gray-500">
             {lifecycle.customer_message}
           </p>
           {(lifecycle.records || []).map(record => (
             <div key={record.asset_id || record.hostname} className="mt-2 rounded bg-gray-50 px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="mono text-[13px] font-semibold text-gray-700">
+                <span className="mono text-xs font-semibold text-gray-700">
                   {record.hostname || 'Unnamed asset'}
                 </span>
-                <span className="text-[13px] font-semibold text-gray-600">
+                <span className="text-xs font-semibold text-gray-600">
                   {record.lifecycle_state_label}
                 </span>
               </div>
-              <p className="mt-1 text-[13px] text-gray-500">{record.lifecycle_message}</p>
-              <p className="mt-1 text-[13px] text-gray-400">
+              <p className="mt-1 text-xs text-gray-500">{record.lifecycle_message}</p>
+              <p className="mt-1 text-xs text-gray-400">
                 Latest evidence: {record.last_observation_state_label}
               </p>
             </div>
@@ -103,20 +103,20 @@ function AssuranceProjection({ presentation }) {
           <div className="flex items-center gap-2 text-xs font-bold text-gray-800">
             ASM alert eligibility
           </div>
-          <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
+          <p className="mt-1 text-xs leading-relaxed text-gray-500">
             {alertEligibility.customer_message}
           </p>
           {(alertEligibility.decisions || []).map((decision, index) => (
             <div key={`${decision.event_type}-${decision.reason_code}-${index}`} className="mt-2 rounded bg-gray-50 px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[13px] font-semibold text-gray-700">
+                <span className="text-xs font-semibold text-gray-700">
                   {ALERT_EVENT_NAMES[decision.event_type] || 'Asset change'}
                 </span>
-                <span className="text-[13px] font-semibold text-gray-600">
+                <span className="text-xs font-semibold text-gray-600">
                   {decision.eligible ? 'Alert eligible' : 'Alert withheld'}
                 </span>
               </div>
-              <p className="mt-1 text-[13px] text-gray-500">{decision.reason_message}</p>
+              <p className="mt-1 text-xs text-gray-500">{decision.reason_message}</p>
             </div>
           ))}
         </div>

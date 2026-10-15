@@ -27,7 +27,7 @@ describe('MailtoAssist', () => {
     // The copy fallback never leaves its helper field behind, even when the
     // browser refuses to copy.
     expect(document.querySelector('textarea')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close email helper' }))
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 

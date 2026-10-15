@@ -17,7 +17,7 @@ import {
 } from '../lib/portfolioDomainDisplay'
 
 const Chip = ({ tone, children, title }) => (
-  <span title={title} className={`inline-block text-[13px] font-medium px-2 py-0.5 rounded-md border ${toneClass(tone)}`}>
+  <span title={title} className={`inline-block text-xs font-medium px-2 py-0.5 rounded-md border ${toneClass(tone)}`}>
     {children}
   </span>
 )
@@ -39,13 +39,13 @@ function DomainCell({ d }) {
 
   return (
     <div className={`rounded-md border px-2 py-1.5 ${toneClass(state.tone)}`} title={why}>
-      <div className="text-[13px] font-semibold leading-tight truncate">{d.display_name}</div>
+      <div className="text-xs font-semibold leading-tight truncate">{d.display_name}</div>
       <div className="flex items-center justify-between gap-1 mt-0.5">
-        <span className="text-[13px] leading-tight truncate">{state.label}</span>
-        <span className="text-[13px] leading-none" aria-hidden="true">{trend.symbol}</span>
+        <span className="text-xs leading-tight truncate">{state.label}</span>
+        <span className="text-xs leading-none" aria-hidden="true">{trend.symbol}</span>
         <span className="sr-only">, trend: {trend.srLabel}</span>
       </div>
-      {stale && <div className="text-[13px] mt-0.5 font-semibold">stale evidence</div>}
+      {stale && <div className="text-xs mt-0.5 font-semibold">stale evidence</div>}
     </div>
   )
 }
@@ -77,10 +77,10 @@ function DomainRow({ row }) {
           {hasScore(row.overall_score) && row.overall_rating ? (
             <>
               <div className="text-lg font-bold text-gray-900">{row.overall_score}<span className="text-xs text-gray-400">/100</span></div>
-              <div className="text-[13px] text-gray-500 capitalize">{row.overall_rating}</div>
+              <div className="text-xs text-gray-500 capitalize">{row.overall_rating}</div>
             </>
           ) : (
-            <div className="text-[13px] text-slate-500 max-w-[16rem]">{row.overall_reason}</div>
+            <div className="text-xs text-slate-500 max-w-[16rem]">{row.overall_reason}</div>
           )}
         </div>
       </div>
@@ -325,7 +325,7 @@ export default function PortfolioDomainsPage() {
               </tbody>
             </table>
           </div>
-          <p className="text-[13px] text-gray-400 mt-3">
+          <p className="text-xs text-gray-400 mt-3">
             Counts, not an average. A portfolio-wide score would let one critical domain hide behind seven healthy ones.
           </p>
         </div>
@@ -334,7 +334,7 @@ export default function PortfolioDomainsPage() {
       <div className="mt-6"><Legend /></div>
 
       {data?.generated_at && (
-        <div className="text-[13px] text-gray-400 mt-4 flex items-center gap-1">
+        <div className="text-xs text-gray-400 mt-4 flex items-center gap-1">
           Generated {new Date(data.generated_at).toLocaleString('en-GB')}
         </div>
       )}
