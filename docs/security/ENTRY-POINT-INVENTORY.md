@@ -94,18 +94,18 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/api/account/report-branding` | 399 | account | ✓ | requireAuth |
 | PUT | `/api/account/report-branding` | 429 | account | ✓ | requireAuth |
 | GET | `/api/account/subscription` | 514 | account | ✓ | requireAuth |
-| GET | `/api/account/usage` | 546 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/limits` | 567 | account | ✓ | requireAuth |
-| GET | `/api/admin/subscriptions` | 592 | admin | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/api/account/api-tokens` | 639 | account | ✓ | requireAuth |
-| POST | `/api/account/api-tokens` | 661 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 732 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 770 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 829 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 879 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 925 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1021 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1057 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/usage` | 549 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription/limits` | 570 | account | ✓ | requireAuth |
+| GET | `/api/admin/subscriptions` | 595 | admin | ✓ | isPlatformAdmin, requireAuth |
+| GET | `/api/account/api-tokens` | 642 | account | ✓ | requireAuth |
+| POST | `/api/account/api-tokens` | 664 | account | ✓ | requireAuth, requireWorkspaceAccess |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 735 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 773 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 832 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 882 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 928 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1024 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1060 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 
