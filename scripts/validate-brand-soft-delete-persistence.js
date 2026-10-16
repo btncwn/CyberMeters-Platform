@@ -39,7 +39,7 @@ const { brandRoutes } = await import(worker("routes", "brand.js"));
 
 const NOW = "2026-08-11T12:00:00.000Z";
 const DELETED = "2026-08-11T11:59:00.000Z";
-const EXPECTED_ASSERTIONS = 54;
+const EXPECTED_ASSERTIONS = 55;
 
 let passed = 0;
 let failed = 0;
@@ -627,6 +627,22 @@ async function callBrandRoute(db, {
   await enrichBrandCandidatesHttp(env, "ws_a", { probeFetch: async () => new Response("ok", { status: 200 }) });
   await createBrandCasesForWorkspace(env, "ws_a");
   equal("H01-HISTORICAL-BYTE-PRESERVATION", tableBytes(db), before);
+}
+
+// The UI's Monitor action must use the API's accepted persistence value.
+{
+  const db = createDb();
+  seedWorkspace(db, { domain: "acme.com" });
+  seedCandidate(db, { domain: "acme.com" });
+  const response = await callBrandRoute(db, {
+    pathname: "/api/workspaces/ws_a/brand/candidates/bra_a/classify",
+    body: { classification: "monitoring" },
+  });
+  const data = await response.json();
+  check("BRAND-MONITORING-CLASSIFICATION-200", response.status === 200 &&
+    data.candidate?.classification === "monitoring" &&
+    db.prepare("SELECT classification FROM workspace_brand_assets WHERE id='bra_a'").get()?.classification === "monitoring",
+    `status=${response.status} body=${JSON.stringify(data)}`);
 }
 
 // E. Exhaustive current source inventory. Every private Brand candidate write,

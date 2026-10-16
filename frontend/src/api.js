@@ -791,6 +791,8 @@ export const api = {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${id}/brand-monitoring${q ? `?${q}` : ''}`)
   },
+  /** POST /api/workspaces/:id/brand-monitoring/refresh — DNS validation pass */
+  refreshBrandMonitoring: (id) => request(`/workspaces/${id}/brand-monitoring/refresh`, { method: 'POST' }),
 
   // ── Brand Protection Intelligence v1 ──────────────────────────────────────
   /** GET /api/workspaces/:id/brand/profile */
