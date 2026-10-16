@@ -237,7 +237,7 @@ async function main() {
   // Customer presentation order is independent of the persisted JSON contract.
   const names = ["Email Protection", "Attack Surface", "Website Security", "Identity Exposure", "Shadow IT", "Certificates & Trust", "Brand Protection", "Cyber Essentials Readiness"];
   const domainSection = pdfRes.text.slice(
-    pdfRes.text.indexOf("Eight-Domain Cyber MOT"),
+    pdfRes.text.indexOf("Cyber MOT: External posture"),
     pdfRes.text.indexOf("Observed Findings")
   );
   ok("scan PDF renders all eight domains in order",

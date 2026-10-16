@@ -150,7 +150,7 @@ export default function ServiceLauncher() {
             Start by adding a domain, running your first Cyber MOT, and connecting Email Protection.
           </p>
           <p className="text-sm text-gray-500 mt-1.5 max-w-2xl leading-relaxed">
-            CyberMeters helps you monitor all eight Cyber MOT domains from one workspace.
+            CyberMeters helps you monitor your whole external posture from one workspace.
           </p>
           {wsName && <p className="text-xs text-gray-400 mt-2">Current workspace: <span className="font-medium text-gray-600">{wsName}</span></p>}
         </header>

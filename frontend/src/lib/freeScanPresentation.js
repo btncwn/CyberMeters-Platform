@@ -158,7 +158,7 @@ export function deriveFreeScanPresentation(result) {
   )
   if (noIssuesObserved) {
     headline = 'No issues observed in the completed preview checks'
-    summary = 'The bounded preview checks completed and produced no findings. This is not a full eight-domain assessment.'
+    summary = 'The bounded preview checks completed and produced no findings. This is not a full external posture assessment.'
   } else if (issuesObserved) {
     headline = 'Issues observed in the preview checks'
     summary = evidenceIncomplete

@@ -3573,17 +3573,8 @@ export default function WorkspaceEmailProtectionPage() {
     document.getElementById('lifecycle-history')?.scrollIntoView({ block: 'start' })
   }, [lifecycle])
 
-  const header = (
-    <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
-      <div className="min-w-0">
-        <span className="eyebrow" style={{ color: '#1A4FB8' }}>Email Protection</span>
-        <h1 className="page-title">Email Protection</h1>
-        <p className="page-subtitle">Monitor DMARC alignment, sender authentication and report ingestion for your domains.</p>
-        <p className="text-xs text-gray-400 mt-1">
-          {wsName || 'Workspace'}{selectedDomain ? <> · <span className="mono text-gray-500">{selectedDomain}</span></> : ''}
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
+  const headerActions = (
+    <>
         <button onClick={gotoSetup} className="btn-primary text-sm">Review DMARC setup</button>
         <button onClick={gotoSenders} className="btn-secondary text-sm">View sender inventory</button>
         {domainScans.length > 1 && (
@@ -3601,14 +3592,18 @@ export default function WorkspaceEmailProtectionPage() {
         <button onClick={loadScans} className="btn-ghost text-sm" disabled={loading} title="Refresh scans" aria-label="Refresh scans">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
-      </div>
-    </div>
+    </>
   )
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={loadScans}>
-      {header}
-      <ModuleContract domainKey="email_protection" workspaceId={wsId} workspaceName={wsName}>
+      <ModuleContract
+        domainKey="email_protection"
+        workspaceId={wsId}
+        workspaceName={wsName}
+        description={selectedDomain ? `Monitor DMARC alignment, sender authentication and report ingestion for ${selectedDomain}.` : 'Monitor DMARC alignment, sender authentication and report ingestion for your domains.'}
+        actions={headerActions}
+      >
       <CloudflareDnsChanges workspaceId={wsId} onDomainChange={setSelectedDomain} />
 
       {/* No completed scans at all */}

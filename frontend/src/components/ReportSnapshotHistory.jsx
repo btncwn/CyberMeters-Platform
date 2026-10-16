@@ -35,7 +35,7 @@ export default function ReportSnapshotHistory({ wsId }) {
         </button>
       </div>
       <p className="text-sm text-gray-500 mt-1 max-w-3xl">
-        Each completed scan leaves one fixed record of all eight domains. Reports are produced from these records and are
+        Each completed scan leaves one fixed record of every area of your external posture. Reports are produced from these records and are
         never recalculated later, so an old report keeps saying what was true then.
       </p>
       {open && state.loading && <p className="text-sm text-gray-500 mt-3">Loading…</p>}

@@ -129,20 +129,19 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
 
   return (
     <WsPage wsId={workspaceId} wsName={workspaceName}>
-      <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <span className="eyebrow" style={{ color: SERVICE_COLORS.website.text }}>Website Security</span>
-          <h1 className="page-title">Website Security</h1>
-          <p className="page-subtitle text-base">Review HTTPS, browser protections and cookie evidence. Track findings through to verification.</p>
-          <p className="mt-1 text-sm text-gray-500">{workspaceName || 'Workspace'}</p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <Link className="btn-primary" to="/scans/new">Run a scan</Link>
-          <Link className="btn-secondary" to={CASES}>Managed cases</Link>
-          <button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>
-        </div>
-      </header>
-      <ModuleContract domainKey="website_security" workspaceId={workspaceId} workspaceName={workspaceName}>
+      <ModuleContract
+        domainKey="website_security"
+        workspaceId={workspaceId}
+        workspaceName={workspaceName}
+        description="Review HTTPS, browser protections and cookie evidence. Track findings through to verification."
+        actions={(
+          <>
+            <Link className="btn-primary" to="/scans/new">Run a scan</Link>
+            <Link className="btn-secondary" to={CASES}>Managed cases</Link>
+            <button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>
+          </>
+        )}
+      >
       <WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />
       <WebsitePagesChecked workspaceId={workspaceId} refresh={refresh} />
       <WebsiteSignInSettings workspaceId={workspaceId} />

@@ -39,7 +39,7 @@
   --text-xl: 1.3125rem;
   --text-xl--line-height: 1.875rem;
 
-  --font-sans: 'Computer Modern Text', 'Computer Modern Serif', Georgia, serif;
+  --font-sans: 'CM Sans', system-ui, sans-serif;
   --font-cm: 'Computer Modern Serif', Georgia, Cambria, serif;
   --font-mono: 'Computer Modern Typewriter', ui-monospace, monospace;
 
@@ -279,30 +279,42 @@
 }
 
 @utility cm-topbar {
-  /* Nav */
-  /* App top bar (founder, 14 Oct): deep navy, darkest behind the brand and
-     opening towards the right; links carry their own amber step inline and
-     underline when active. */
-  background: linear-gradient(90deg, #02081a 0%, #071b40 45%, #0d2a62 100%);
-  color: #fff;
+  /* App top bar (founder, 16 Oct 2026): white, a hairline below, the brand and
+     the main menu as pills on the left, the bell and the account button on the
+     right. */
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: saturate(140%) blur(8px);
+  border-bottom: 1px solid rgba(16, 24, 40, 0.08);
+  color: #111827;
 }
 
-@utility cm-topbar-link {
-  /* Founder type scale (15 Oct): top bar 21px+, sidebar 18px+, body 14–16. */
-  @apply inline-flex items-center text-[19px] lg:text-[22px] font-bold whitespace-nowrap transition-opacity duration-150;
-  &:hover {
-    opacity: 0.85;
-  }
-  & > span {
-    padding: 6px 0;
-    border-bottom: 3px solid transparent;
-  }
+@utility cm-topbar-inner {
+  /* One row from sm up; on a phone the pills take their own row under the
+     brand and the account controls, so nothing is cut off or pushed out. */
+  @apply w-full px-4 sm:px-6 min-h-[64px] flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-1 py-2 sm:py-0;
 }
 
-@utility cm-topbar-link-active {
-  & > span {
-    border-bottom-color: currentColor;
-  }
+@utility cm-pills {
+  @apply order-3 sm:order-0 w-full sm:w-auto flex items-center gap-1 overflow-x-auto min-w-0 pb-1 sm:pb-0;
+}
+
+@utility cm-pill {
+  @apply inline-flex items-center rounded-full px-2.5 sm:px-3.5 py-1.5 text-[15px] font-semibold text-gray-700 whitespace-nowrap transition-colors duration-150;
+  &:hover { background-color: rgba(16, 24, 40, 0.06); color: #111827; }
+}
+
+@utility cm-pill-active {
+  background-color: rgba(16, 24, 40, 0.08);
+  color: #0b1220;
+}
+
+@utility cm-avatar {
+  @apply inline-flex items-center justify-center w-9 h-9 rounded-full bg-gray-900 text-white text-[15px] font-semibold select-none;
+  &:hover { background-color: #1f2937; }
+}
+
+@utility cm-popover {
+  @apply absolute z-50 bg-white rounded-xl border border-gray-200 shadow-lg py-1;
 }
 
 @utility text-amber-brand {
@@ -426,17 +438,29 @@
     font-display: swap;
     size-adjust: 108%;
   }
+  /* The product sans for everything that is not a display heading: one
+     self-hosted variable face (weight 300–700), SIL Open Font License
+     (public/fonts/cm-sans/OFL.txt). No font is loaded from a third-party host. */
+  @font-face {
+    font-family: 'CM Sans';
+    src: url('/fonts/cm-sans/CMSans-Variable.woff2') format('woff2');
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
+  }
 }
 
 @layer base {
   html { scroll-behavior: smooth; }
   body {
-    /* Cooler, slightly deeper canvas so white cards read as deliberate surfaces
-       (Linear/Vanta-style layering) instead of floating on flat white. */
+    /* White canvas; the shell paints its own white-to-sky gradient over it. */
     @apply text-black antialiased;
-    background-color: #EEF1F6;
-    font-family: 'Computer Modern Text', 'Computer Modern Serif', Georgia, serif;
+    background-color: #ffffff;
+    font-family: 'CM Sans', system-ui, sans-serif;
   }
+  /* Typography (founder, 16 Oct 2026): page and section titles keep the serif;
+     every other text — including h3/h4 — is the product sans. */
+  h1, h2 { font-family: 'Computer Modern Serif', Georgia, Cambria, serif; }
   ::selection { background-color: rgba(0,135,106,.18); }
   /* Product type floor (founder, 14 Oct): inside the app a page title is at
      least 24px, a section title at least 18px, and no heading is ever smaller
@@ -509,4 +533,90 @@
   /* 50° total arc (-15° → 35°) — visibly premium, not a spinner */
   0%, 100% { transform: rotate(-15deg); }
   50%       { transform: rotate(35deg); }
+}
+
+/* ── App shell (founder, 16 Oct 2026) ─────────────────────────────────────── */
+.cm-shell {
+  /* White, opening into a light sky towards the foot of the page. Opaque. */
+  background: linear-gradient(180deg, #ffffff 0%, #f4f8fe 48%, #e8f0fb 100%);
+}
+.cm-skip-link {
+  position: absolute; left: 8px; top: -48px; z-index: 60;
+  padding: 8px 12px; border-radius: 8px; background: #0b1220; color: #fff; font-weight: 600;
+}
+.cm-skip-link:focus { top: 8px; }
+.cm-brand { display: inline-flex; align-items: center; border-radius: 8px; }
+.cm-rail {
+  width: 72px; flex: 0 0 72px;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  padding: 12px 0; gap: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border-right: 1px solid rgba(16, 24, 40, 0.08);
+  position: sticky; top: 64px; height: calc(100vh - 64px); align-self: flex-start;
+}
+.cm-rail-list { display: flex; flex-direction: column; align-items: center; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.cm-rail-foot { display: flex; flex-direction: column; align-items: center; }
+.cm-rail-item {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border-radius: 12px; color: #4b5563;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.cm-rail-item:hover { background-color: rgba(16, 24, 40, 0.06); }
+.cm-rail-item-active { background-color: rgba(16, 24, 40, 0.08); color: #0b1220; }
+.cm-tip {
+  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  padding: 6px 10px; border-radius: 8px; white-space: nowrap;
+  background: #0b1220; color: #fff; font-size: 14px; font-weight: 600; line-height: 1.2;
+  opacity: 0; pointer-events: none; transition: opacity 120ms ease; z-index: 45;
+}
+.cm-rail-item:hover > .cm-tip, .cm-rail-item:focus-visible > .cm-tip { opacity: 1; }
+.cm-main { padding-bottom: 24px; }
+.cm-globe { position: fixed; right: 20px; bottom: 20px; opacity: 0.55; pointer-events: none; z-index: 5; }
+.cm-footer {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 24px; font-size: 14px; color: #6b7280; border-top: 1px solid rgba(16, 24, 40, 0.06);
+  background: rgba(255, 255, 255, 0.6);
+}
+.cm-hero-input {
+  display: flex; align-items: center; gap: 8px; width: 100%; max-width: 560px; margin: 0 auto;
+  padding: 6px 6px 6px 18px; border-radius: 999px; background: #fff;
+  border: 1px solid rgba(16, 24, 40, 0.12); box-shadow: 0 8px 24px -16px rgba(16, 24, 40, 0.35);
+}
+.cm-hero-input input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; color: #111827; }
+.cm-hero-input input::placeholder { color: #9ca3af; }
+.cm-hero-title {
+  font-family: 'Computer Modern Serif', Georgia, Cambria, serif;
+  font-size: clamp(28px, 3.6vw, 44px); line-height: 1.12; font-weight: 700; letter-spacing: -0.01em; color: #0b1220;
+}
+.cm-area-search {
+  display: flex; align-items: center; gap: 8px; min-width: 260px;
+  padding: 8px 12px; border-radius: 999px; background: #fff; border: 1px solid rgba(16, 24, 40, 0.14);
+}
+.cm-area-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 15px; color: #111827; }
+.cm-area-search input::placeholder { color: #9ca3af; }
+.cm-tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(16, 24, 40, 0.1); overflow-x: auto; }
+.cm-tab {
+  padding: 10px 14px; margin-bottom: -1px; font-size: 15px; font-weight: 600; color: #4b5563; white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.cm-tab:hover { color: #111827; }
+.cm-tab[aria-selected="true"] { color: #0b1220; border-bottom-color: var(--domain-accent, #0b1220); }
+@media (max-width: 1023.98px) {
+  .cm-rail {
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto; height: auto; width: auto; flex: none;
+    flex-direction: row; justify-content: flex-start; gap: 4px; padding: 6px 8px;
+    border-right: 0; border-top: 1px solid rgba(16, 24, 40, 0.08); background: rgba(255, 255, 255, 0.96);
+    overflow-x: auto; z-index: 40;
+  }
+  .cm-rail-list { flex-direction: row; gap: 2px; }
+  .cm-rail-foot { margin-left: auto; }
+  .cm-rail-foot .cm-popover { left: auto; right: 0; width: min(18rem, calc(100vw - 16px)); }
+  .cm-rail-item { width: 36px; height: 36px; border-radius: 10px; }
+  .cm-tip { display: none; }
+  .cm-tab { padding: 10px 9px; font-size: 14px; }
+  .cm-main { padding-bottom: 72px; }
+  .cm-footer { padding-bottom: 72px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-pill, .cm-rail-item, .cm-tip { transition: none; }
 }

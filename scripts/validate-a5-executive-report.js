@@ -302,9 +302,13 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   // Refreshed again for the founder order of 14 October (Email Protection first,
   // Identity Exposure fourth): with only EXECUTIVE_AREAS reverted, both prior
   // goldens (9d0cffaa…, aa004a08…) reproduce exactly; only the row order moved.
+  // Refreshed for the external-posture wording (16 Oct 2026): the coverage
+  // section is "2. External posture coverage" and the evidence line "Posture
+  // summary basis". With only the wording files reverted to their previous
+  // text, both prior goldens (47bfa7b6…, 75773ac6…) reproduce exactly.
   const executiveGolden = {
-    false: "47bfa7b64c9eb2767478a58d8cf1fad4a0e7a4d15613150bd034422ea1d2d7f2",
-    true: "75773ac64f01fbb21122de8d4990b43443d18b76b2d91b7bfc5f7f4c80298617",
+    false: "722967f6a033ef85dafea6786a8b6c5e53a531af262795ddd5a395d849ee32fb",
+    true: "698094fe042ccaf2aeb3c23b2e1a33710501540b822bcfbb7cad54c6cadb5030",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));
@@ -358,7 +362,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const multi = latin1(render(snap, { reads: [readOf(old), { status: "integrity_error", domain_id: "unavailable.example" }, readOf(snap), { status: "building", domain_id: "pending.example" }] }));
   ok("brief latest assessment selected independently of input order", multi.indexOf("cybermeters.com") < multi.indexOf("older.example"));
   ok("brief never omits another supplied website or unavailable entry", ["older.example", "unavailable.example", "pending.example", "still being prepared", "not available"].every((name) => multi.includes(name)));
-  ok("brief additional sites retain their own areas without duplicating the workspace summary", (multi.match(/Eight-Domain Cyber MOT/g) || []).length === 2 && (multi.match(/Recorded findings/g) || []).length === 1);
+  ok("brief additional sites retain their own areas without duplicating the workspace summary", (multi.match(/Cyber MOT: External posture/g) || []).length === 2 && (multi.match(/Recorded findings/g) || []).length === 1);
   const newestQuiet = mkSnap({ complete: true });
   newestQuiet.snapshot.domain = "latest-quiet.example";
   newestQuiet.remediation_actions = [{ priority: "low", title: "Routine latest action" }];

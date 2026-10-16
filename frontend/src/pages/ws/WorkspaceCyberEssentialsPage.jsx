@@ -610,27 +610,24 @@ export default function WorkspaceCyberEssentialsPage() {
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={planError} onRetry={load}>
       <PlanGate error={error}>
-        <div className="mb-8 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <span className="eyebrow">Paid workspace service</span>
-            <h1 className="mt-1 text-2xl font-bold text-gray-900">Cyber Essentials Readiness Dashboard</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
-              Save self-declared answers for this workspace and combine them with external Cyber MOT evidence for readiness guidance and gap analysis.
-            </p>
-          </div>
-          <div className="card min-w-full p-4 xl:min-w-[360px]">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold text-gray-900">Question progress</span>
-              <span className="text-sm font-bold tabular-nums text-brand-700">{progress.answered}/{progress.total}</span>
+        <ModuleContract
+          domainKey="cyber_essentials_readiness"
+          workspaceId={wsId}
+          workspaceName={wsName}
+          description="Save self-declared answers for this workspace and combine them with external Cyber MOT evidence for readiness guidance and gap analysis."
+          aside={(
+            <div className="card mt-4 p-4 max-w-md">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-gray-900">Question progress</span>
+                <span className="text-sm font-bold tabular-nums text-brand-700">{progress.answered}/{progress.total}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${progress.pct}%` }} />
+              </div>
+              {savedAt && <p className="mt-2 text-xs text-gray-400">Saved {savedAt.toLocaleTimeString('en-GB')}</p>}
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-              <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${progress.pct}%` }} />
-            </div>
-            {savedAt && <p className="mt-2 text-xs text-gray-400">Saved {savedAt.toLocaleTimeString('en-GB')}</p>}
-          </div>
-        </div>
-
-        <ModuleContract domainKey="cyber_essentials_readiness" workspaceId={wsId} workspaceName={wsName}>
+          )}
+        >
         <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="flex gap-3">
             <p className="text-sm leading-relaxed text-blue-800">

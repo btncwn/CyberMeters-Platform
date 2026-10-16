@@ -188,7 +188,7 @@ export default function GuideAreaPage() {
             </nav>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider mb-3">All eight areas</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider mb-3">All areas</h3>
             <ol className="space-y-1.5">
               {GUIDE_AREAS.map((a, i) => (
                 <li key={a.key}>

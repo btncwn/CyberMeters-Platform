@@ -323,7 +323,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       subject = "Welcome to CyberMeters";
       heading = "Welcome to CyberMeters";
       paras = [
-        "CyberMeters helps you understand all eight Cyber MOT domains from one workspace.",
+        "CyberMeters helps you understand your whole external posture from one workspace.",
         `The Cyber MOT domains are: ${DOMAINS_LINE}`,
         "To get started, add a domain and run your first Cyber MOT.",
       ];

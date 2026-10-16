@@ -1,153 +1,144 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import WorkspaceNav from '../WorkspaceNav'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import WorkspaceNav, { SERVICES, detectServiceKey, subpagesForDomainKey, MODULE_SUBPAGES } from '../WorkspaceNav'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
+import { MODULES } from '../../lib/moduleRegistry'
+import { api } from '../../api'
 
-// Small helper: jsdom reports colours as rgb(), so compare hex → rgb.
+// The 72px module rail: eight icons in founder order, a dark tooltip, the
+// active area on its light ground, and the workspace button with its popover.
+
 function hexToRgb(hex) {
   const n = parseInt(hex.slice(1), 16)
   return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`
 }
 
-// Keep the test hermetic: hovering/clicking nav entries must not actually
-// dynamic-import route modules.
+vi.mock('../../api', () => ({ api: { getWorkspaces: vi.fn() } }))
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
-function renderNav(path = '/ws/email-protection') {
+function renderNav(path = '/ws/email-protection', { wsId = 'ws1', wsName = 'Deneme' } = {}) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <WorkspaceNav wsName="Deneme" />
+      <Routes>
+        <Route path="*" element={<WorkspaceNav wsId={wsId} wsName={wsName} />} />
+      </Routes>
     </MemoryRouter>,
   )
 }
 
-describe('WorkspaceNav (eight-domain sidebar)', () => {
-  it('opens mobile navigation and closes it after changing route or pressing Escape', () => {
-    renderNav()
-    const toggle = screen.getByRole('button', { name: 'Workspace navigation' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    fireEvent.click(toggle)
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    fireEvent.click(screen.getByText('Brand Protection'))
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    fireEvent.click(toggle)
-    fireEvent.keyDown(toggle, { key: 'Escape' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  })
-  it('shows the eight canonical domains in order', () => {
-    renderNav()
-    // Founder order (14 Oct 2026): strongest evidence first, readiness last.
-    const names = ['Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
-    const elements = names.map(name => screen.getByText(name))
-    for (let i = 1; i < elements.length; i++) {
-      expect(elements[i - 1].compareDocumentPosition(elements[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    }
-  })
+const railLinks = () => within(screen.getByRole('navigation', { name: 'Modules' })).getAllByRole('link')
 
-  it('expands only the active domain — no cross-domain sub-item mixing', () => {
-    renderNav('/ws/email-protection')
-    expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
-    // Brand's sub-items must not leak into an Email context.
-    expect(screen.queryByText('Typosquat Candidates')).not.toBeInTheDocument()
-  })
-
-  it('the area name is a link and the chevron is a separate expand/collapse button', () => {
-    renderNav('/ws/email-protection')
-    const link = screen.getByRole('link', { name: 'Email Protection' })
-    expect(link).toHaveAttribute('href', '/ws/email-protection')
-    const toggle = screen.getByRole('button', { name: 'Collapse Email Protection' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
-    // Clicking the name does NOT collapse anything: it only navigates.
-    fireEvent.click(link)
-    expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
-    // The chevron collapses, then reopens.
-    fireEvent.click(toggle)
-    expect(screen.queryByText('DMARC Setup')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Email Protection' }))
-    expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
-  })
-
-  it('switching domain moves the accordion: Brand opens, Email closes', () => {
-    renderNav('/ws/email-protection')
-    fireEvent.click(screen.getByRole('link', { name: 'Brand Protection' }))
-    expect(screen.getByText('Typosquat Candidates')).toBeInTheDocument()
-    expect(screen.queryByText('DMARC Setup')).not.toBeInTheDocument()
-  })
-
-  it('no two visible controls in one navigation group share a destination', () => {
-    // Every service's sub-items (plus its Operations entry) and the
-    // Workspace tools are each one group; one destination appears once.
-    for (const path of ['/assets', '/ws/email-protection', '/ws/certificates', '/ws/brand-monitoring', '/ws/shadow-it']) {
-      const { unmount } = renderNav(path)
-      const hrefs = screen.getAllByRole('link').map(a => a.getAttribute('href'))
-      const seen = new Map()
-      for (const h of hrefs) seen.set(h, (seen.get(h) || 0) + 1)
-      const dupes = [...seen].filter(([, n]) => n > 1).map(([h]) => h)
-      expect(dupes).toEqual([])
-      unmount()
-    }
-  })
-
-  it('sub-items inherit their parent service colour', () => {
-    renderNav('/ws/email-protection')
-    // Derives from the shared palette, so re-theming Email can never silently
-    // desync this assertion from the sidebar again.
-    expect(screen.getByText('DMARC Setup')).toHaveStyle({ color: hexToRgb(SERVICE_COLORS.email.text) })
-  })
+beforeEach(() => {
+  vi.clearAllMocks()
+  api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws1', name: 'Deneme' }, { id: 'ws2', name: 'Other' }] })
 })
 
-// ── Domain identity wash (Layout content-column tint) ─────────────────────────
-import { detectServiceKey } from '../WorkspaceNav'
+describe('WorkspaceNav (module rail)', () => {
+  it('shows the eight canonical domains in order', () => {
+    renderNav()
+    const names = railLinks().map(a => a.getAttribute('aria-label'))
+    expect(names).toEqual([
+      'Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure',
+      'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness',
+    ])
+    // The rail and the module registry agree on order and destinations.
+    expect(SERVICES.map(s => [s.title, s.to])).toEqual(MODULES.map(m => [m.title, m.to]))
+  })
 
-describe('detectServiceKey → domain surface wash', () => {
-  it('maps every canonical domain route to its palette entry', () => {
-    const expectations = {
-      '/ws/email-protection':  'email',
-      '/ws/brand-monitoring':  'brand',
-      '/assets':               'surface',
-      '/scans/new':            'surface',
-      '/ws/certificates/lifecycle': 'certs',
-      '/ws/cyber-essentials':  'cyber_essentials',
-      '/ws/website-security':  'website',
-      '/ws/identity-exposure': 'identity',
-      '/ws/shadow-it':         'shadow_it',
-      '/ws/saas-exposure':     'shadow_it',
-    }
-    for (const [path, key] of Object.entries(expectations)) {
-      expect(detectServiceKey(path), path).toBe(key)
-      expect(SERVICE_COLORS[key].surface, `${key}.surface`).toMatch(/^#[0-9A-F]{6}$/i)
+  it('each icon links to its area and carries a tooltip with the area name', () => {
+    renderNav()
+    for (const [i, a] of railLinks().entries()) {
+      expect(a).toHaveAttribute('href', SERVICES[i].to)
+      expect(a.querySelector('.cm-tip')).toHaveTextContent(SERVICES[i].title)
+      expect(a.querySelector('.cm-tip')).toHaveAttribute('aria-hidden', 'true')
     }
   })
 
-  it('non-domain routes stay neutral — no identity wash on shared surfaces', () => {
-    for (const path of ['/ws/dashboard', '/ws/cases', '/ws/members', '/settings', '/ws/reports']) {
-      expect(detectServiceKey(path), path).toBeNull()
-    }
+  it('marks the active area with aria-current and its own light ground', () => {
+    renderNav('/ws/brand-monitoring')
+    const active = railLinks().filter(a => a.getAttribute('aria-current') === 'page')
+    expect(active.map(a => a.getAttribute('aria-label'))).toEqual(['Brand Protection'])
+    expect(active[0]).toHaveStyle({ backgroundColor: hexToRgb(SERVICE_COLORS.brand.chip), color: hexToRgb(SERVICE_COLORS.brand.text) })
+    const idle = railLinks().find(a => a.getAttribute('aria-label') === 'Email Protection')
+    expect(idle).not.toHaveAttribute('aria-current')
+    expect(idle).toHaveStyle({ color: hexToRgb(SERVICE_COLORS.email.icon) })
+  })
+
+  it('maps every canonical domain route to its palette entry; non-domain routes stay neutral', () => {
+    for (const svc of SERVICES) expect(SERVICE_COLORS[detectServiceKey(svc.to)]).toBeTruthy()
+    expect(detectServiceKey('/scans')).toBe('surface')
+    expect(detectServiceKey('/ws/saas-exposure')).toBe('shadow_it')
+    expect(detectServiceKey('/dashboard')).toBeNull()
+    expect(detectServiceKey('/ws/cases')).toBeNull()
+  })
+
+  it('exposes each area’s sub-pages as absolute tiles (anchors resolve against the area page)', () => {
+    expect(subpagesForDomainKey('email_protection').map(t => t.to)).toEqual([
+      '/ws/email-protection#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail',
+    ])
+    expect(subpagesForDomainKey('attack_surface')[0]).toEqual({ label: 'Timeline', desc: 'What appeared, changed or disappeared', to: '/exposure', anchor: false })
+    expect(subpagesForDomainKey('website_security')).toEqual([])
+    expect(subpagesForDomainKey('nope')).toEqual([])
+    expect(Object.keys(MODULE_SUBPAGES)).toEqual(MODULES.map(m => m.domainKey))
   })
 
   it('every palette entry ships a surface wash lighter than its card tint', () => {
-    // Large-area washes must stay fainter than card tints so white cards pop
-    // and severity colours remain unambiguous. Luminance(surface) > luminance(card).
-    const lum = (hex) => {
-      const n = parseInt(hex.slice(1), 16)
-      return ((n >> 16) & 255) + ((n >> 8) & 255) + (n & 255)
-    }
-    for (const [key, c] of Object.entries(SERVICE_COLORS)) {
-      expect(c.surface, `${key}.surface`).toBeTruthy()
-      expect(lum(c.surface), `${key}: surface must be lighter than card`).toBeGreaterThan(lum(c.card))
-    }
+    const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return ((n >> 16) & 255) + ((n >> 8) & 255) + (n & 255) }
+    for (const c of Object.values(SERVICE_COLORS)) expect(lum(c.surface)).toBeGreaterThan(lum(c.card))
   })
 })
 
+describe('WorkspaceNav — workspace button and popover', () => {
+  it('names the active workspace, lists workspaces on open, and offers manage / members / clear / tools', async () => {
+    renderNav()
+    const b = screen.getByRole('button', { name: 'Workspace: Deneme' })
+    expect(b).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(b)
+    expect(b).toHaveAttribute('aria-expanded', 'true')
+    const menu = screen.getByRole('menu', { name: 'Workspace' })
+    expect(within(menu).getByTestId('active-workspace-name')).toHaveTextContent('Deneme')
+    expect(await within(menu).findByRole('menuitem', { name: /Other/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: /Deneme/ })).toHaveAttribute('aria-current', 'true')
+    expect(within(menu).getByRole('menuitem', { name: 'Manage workspaces' })).toHaveAttribute('href', '/workspaces')
+    expect(within(menu).getByRole('menuitem', { name: 'Members & roles' })).toHaveAttribute('href', '/ws/members')
+    expect(within(menu).getByRole('menuitem', { name: 'Clear selection' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Administration' })).toHaveAttribute('href', '/ws/dashboard')
+    expect(within(menu).getByRole('menuitem', { name: 'Settings' })).toHaveAttribute('href', '/settings')
+    expect(api.getWorkspaces).toHaveBeenCalledTimes(1)
+    // No two visible links in the popover share a destination.
+    const hrefs = within(menu).getAllByRole('menuitem').map(i => i.getAttribute('href')).filter(Boolean)
+    expect(new Set(hrefs).size).toBe(hrefs.length)
+  })
 
-it.each([
-  ['/ws/identity-exposure', 'identity_exposure'], ['/assets', 'attack_surface'],
-  ['/ws/email-protection', 'email_protection'], ['/ws/website-security', 'website_security'],
-  ['/ws/shadow-it', 'shadow_it_unmanaged_technology'], ['/ws/certificates', 'certificates_trust'],
-  ['/ws/brand-monitoring', 'brand_protection'], ['/ws/cyber-essentials', 'cyber_essentials_readiness'],
-])('links %s to its existing operations queue', (path, domain) => {
-  renderNav(path)
-  expect(screen.getByRole('link', { name: 'Operations' })).toHaveAttribute('href', `/ws/cases?domain_key=${domain}`)
+  it('without a workspace the button says so and offers no Clear selection or tools', () => {
+    renderNav('/dashboard', { wsId: null, wsName: '' })
+    const b = screen.getByRole('button', { name: 'Select a workspace' })
+    fireEvent.click(b)
+    const menu = screen.getByRole('menu', { name: 'Workspace' })
+    expect(within(menu).getByTestId('active-workspace-name')).toHaveTextContent('No workspace selected')
+    expect(within(menu).queryByRole('menuitem', { name: 'Clear selection' })).not.toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Administration' })).not.toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Manage workspaces' })).toBeInTheDocument()
+  })
+
+  it('switching writes the workspace and clearing removes it; Escape returns focus to the button', async () => {
+    localStorage.clear()
+    renderNav()
+    const b = screen.getByRole('button', { name: 'Workspace: Deneme' })
+    fireEvent.click(b)
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Other/ }))
+    expect(localStorage.getItem('cybermeters_workspace_id')).toBe('ws2')
+    expect(screen.queryByRole('menu', { name: 'Workspace' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(b)
+
+    fireEvent.click(b)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu', { name: 'Workspace' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(b)
+
+    fireEvent.click(b)
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Clear selection' }))
+    await waitFor(() => expect(localStorage.getItem('cybermeters_workspace_id')).toBeNull())
+  })
 })

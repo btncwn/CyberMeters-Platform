@@ -241,7 +241,7 @@ export default function FreeScanPage() {
                 <span className="fm-kicker">Free Cyber MOT</span>
                 <h1>See what your domain shows the internet — before an attacker does.</h1>
                 <p className="fm-hero__lede">
-                  Five bounded public checks, summarised across the eight Cyber MOT areas.
+                  Five bounded public checks, summarised across your external posture.
                   Deep takeover and asset checks unlock only after account and domain verification.
                 </p>
                 <form className="fm-scan-form" onSubmit={handleScan}>

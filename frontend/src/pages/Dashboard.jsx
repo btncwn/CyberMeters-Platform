@@ -9,6 +9,7 @@ import TeamOnboardingCard  from '../components/TeamOnboardingCard'
 import RecentChangesCard   from '../components/RecentChangesCard'
 import { bandMeta, metaForScore, scoreBand } from '../lib/score-presentation'
 import CyberMotDomains      from '../components/CyberMotDomains'
+import PostureCard          from '../components/overview/PostureCard'
 import SecurityOverview, { requestManagedCases } from '../components/overview/SecurityOverview'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
@@ -419,6 +420,7 @@ export default function Dashboard() {
   const [domainCount,   setDomainCount]   = useState(null)
   // null = unknown (still loading), true/false once resolved
   const [hasWorkspaces, setHasWorkspaces] = useState(null)
+  const [scanInput,     setScanInput]     = useState('')
 
   // Workspace isolation — read from localStorage; re-derive on storage events
   const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => localStorage.getItem('cybermeters_workspace_id'))
@@ -558,31 +560,48 @@ export default function Dashboard() {
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-8">
 
-      {/* Header */}
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            {activeWorkspaceName && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 shadow-card text-xs font-semibold text-gray-700">
-                {activeWorkspaceName}
-              </span>
-            )}
-          </div>
-          <h1 className="page-title">Security overview</h1>
-          <p className="page-subtitle max-w-2xl">Monitor the eight Cyber MOT areas for {activeWorkspaceName || 'the selected workspace'}.</p>
-          <p className="text-xs text-gray-400 mt-1">
-            {latestScan
-              ? `Last assessment: ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
-              : 'No scans in this workspace yet'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
+      {/* Home (founder, 16 Oct 2026): the question, the last assessment, the
+          scan input, then what the latest assessment could establish. */}
+      <section className="text-center pt-4 sm:pt-10 pb-2" aria-labelledby="home-question">
+        <h1 id="home-question" className="cm-hero-title">Where is {activeWorkspaceName || 'your organisation'} exposed today?</h1>
+        <p className="text-[15px] text-gray-500 mt-3">
+          {latestScan
+            ? `Last assessment of ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
+            : 'No assessment has been recorded in this workspace yet.'}
+        </p>
+        <form
+          className="cm-hero-input mt-6"
+          aria-label="Start a scan"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const value = scanInput.trim()
+            navigate(value ? `/scans/new?domain=${encodeURIComponent(value)}` : '/scans/new')
+          }}
+        >
+          <input
+            type="text"
+            inputMode="url"
+            autoComplete="off"
+            value={scanInput}
+            onChange={(e) => setScanInput(e.target.value)}
+            aria-label="Domain to scan"
+            placeholder="Enter a domain to scan, e.g. example.co.uk"
+          />
+          <button type="submit" className="btn-primary rounded-full px-5 py-2">Scan</button>
+        </form>
+        <div className="mt-4 flex justify-center">
+          <button onClick={() => load(true)} disabled={refreshing} className="btn-ghost text-xs">
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
         </div>
-      </div>
+      </section>
+
+      <PostureCard
+        domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
+        request={motRequest}
+        workspaceName={activeWorkspaceName}
+      />
 
       {error && (
         <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
@@ -600,7 +619,7 @@ export default function Dashboard() {
       <div className="space-y-6">
         <CyberMotDomains
           domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
-          subtitle="All eight Cyber MOT areas, each with what the latest scan could establish." />
+          subtitle="Every area, each with what the latest scan could establish." />
         <SecurityOverview
           workspaceName={activeWorkspaceName}
           domains={motDomains.length ? motDomains : report?.cyber_mot_domains}

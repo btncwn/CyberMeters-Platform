@@ -55,7 +55,7 @@ describe('SecurityOverview — one overview for every persona', () => {
     ]
     show({ workspaceName: 'Customer A', domains, signals: { domainCount: 4, hasCompletedScan: true, critical: 1, high: 2 } })
     expect(cards().map(chipOf)).toEqual(['action_required', 'stale', 'provisional', 'evidence_insufficient', 'established', 'established', 'action_required', 'evidence_insufficient'])
-    expect(screen.getByText(/All eight areas for Customer A/)).toBeInTheDocument()
+    expect(screen.getByText(/Every area for Customer A/)).toBeInTheDocument()
     expect(within(cards()[0]).getByText(/3 findings/)).toBeInTheDocument()
     expect(within(cards()[1]).getByText(/this evidence is stale/)).toBeInTheDocument()
     expect(screen.getByText('Review attack surface')).toHaveAttribute('href', '/assets')

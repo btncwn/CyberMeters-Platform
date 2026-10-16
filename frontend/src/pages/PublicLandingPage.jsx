@@ -364,7 +364,7 @@ export default function PublicLandingPage() {
       {/* Eight areas */}
       <section id="areas" aria-labelledby="areas-title" className="scroll-mt-24 py-24 lg:py-[120px]">
         <div className={CONTAINER}>
-          <SectionHeading id="areas-title" center title="Eight areas in one workspace" lead="Start with a bounded, honest external snapshot. The report separates observed issues from missing evidence, so you can decide what needs attention." />
+          <SectionHeading id="areas-title" center title="Your external posture in one workspace" lead="Start with a bounded, honest external snapshot. The report separates observed issues from missing evidence, so you can decide what needs attention." />
           <AreasOverview />
         </div>
       </section>

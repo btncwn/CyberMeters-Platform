@@ -1,23 +1,35 @@
-// ModuleContract — the page contract every one of the eight area pages
-// follows, in this order:
+// ModuleContract — the page contract every area page follows. The area page
+// (founder, 16 Oct 2026) opens with a serif title, the area's description, the
+// backend evidence word and a filter box, then four tabs:
 //
-//   1 Scope → 2 Evidence state → 3 Risk → 4 Findings → 5 Recommended action
-//   → 6 Managed case → 7 Verification → 8 Field Guide
+//   Overview    — the area's sub-page tiles and the full contract, in order:
+//                 1 Scope → 2 Evidence state → 3 Risk → 4 Findings
+//                 → 5 Recommended action → 6 Managed case → 7 Verification
+//                 → 8 Field Guide
+//   Findings    — the page's own findings body (section 4) and the
+//                 recommended action (5)
+//   Cases       — the managed cases (6) and verification (7)
+//   Field Guide — the Field Guide section (8)
 //
-// The page keeps its own findings body (section 4, passed as children); the
-// contract renders the seven framing sections around it from backend values
-// only: the area's resolver row (GET /workspaces/:id/cyber-mot-domains) and
-// its managed cases (GET /workspaces/:id/managed-cases?domain_key=…). The
-// words are the common vocabulary (lib/statusVocabulary.js); nothing here
-// derives a state, and a read that fails or is still pending is shown as that.
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+// The page keeps its own findings body (passed as children); the contract
+// renders the framing sections from backend values only: the area's resolver
+// row (GET /workspaces/:id/cyber-mot-domains) and its managed cases
+// (GET /workspaces/:id/managed-cases?domain_key=…). The words are the common
+// vocabulary (lib/statusVocabulary.js); nothing here derives a state, and a
+// read that fails or is still pending is shown as that. The filter box narrows
+// the tiles and the case list by text; it does not search anything else and
+// its placeholder says so.
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { ChevronRight, Search } from 'lucide-react'
 import { customerEvidenceText } from '../../lib/evidenceStrengthDisplay'
 import { ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL } from '../../lib/caseDisplay'
 import { moduleForDomainKey, moduleTheme, guidePathForDomainKey, casesPathForDomainKey } from '../../lib/moduleRegistry'
 import { domainStatus, caseStatus, summariseCases } from '../../lib/statusVocabulary'
 import StatusChip from '../StatusChip'
 import { requestDomainStates, requestManagedCases, domainsRequestState } from '../overview/SecurityOverview'
+import { subpagesForDomainKey } from '../WorkspaceNav'
+import { moduleIcon } from '../shell/moduleIcons'
 
 export const MODULE_CONTRACT_SECTIONS = Object.freeze([
   { id: 'module-scope',          n: 1, label: 'Scope' },
@@ -29,6 +41,14 @@ export const MODULE_CONTRACT_SECTIONS = Object.freeze([
   { id: 'module-verification',   n: 7, label: 'Verification' },
   { id: 'module-guide',          n: 8, label: 'Field Guide' },
 ])
+
+export const MODULE_TABS = Object.freeze([
+  { id: 'overview', label: 'Overview' },
+  { id: 'findings', label: 'Findings' },
+  { id: 'cases',    label: 'Cases' },
+  { id: 'guide',    label: 'Field Guide' },
+])
+const TAB_IDS = MODULE_TABS.map((t) => t.id)
 
 const SEVERITY_TONE = { critical: 'text-red-700', high: 'text-orange-700', medium: 'text-amber-700', low: 'text-blue-700', info: 'text-gray-600' }
 
@@ -67,6 +87,13 @@ export function useModuleContract(workspaceId, domainKey) {
   return state
 }
 
+/** Case-insensitive text match used by the area filter box. */
+export function matchesFilter(text, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return true
+  return String(text || '').toLowerCase().includes(q)
+}
+
 function SectionHeading({ section, theme }) {
   return (
     <h2 id={`${section.id}-heading`} className="section-title flex items-baseline gap-2">
@@ -87,16 +114,47 @@ function Section({ section, theme, children, className = '' }) {
 
 const S = Object.fromEntries(MODULE_CONTRACT_SECTIONS.map((s) => [s.id, s]))
 
+function SubpageTiles({ domainKey, tiles, theme }) {
+  const Icon = moduleIcon(moduleForDomainKey(domainKey)?.colourKey)
+  if (tiles.length === 0) return null
+  return (
+    <nav aria-label="Pages in this area" data-testid="module-tiles">
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {tiles.map((t) => (
+          <li key={t.to}>
+            <Link to={t.to} className="card card-hover p-4 flex items-center gap-3">
+              <span className="inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0" style={theme ? { backgroundColor: theme.chip, color: theme.text } : undefined}>
+                <Icon className="w-5 h-5" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-semibold text-gray-900">{t.label}</span>
+                {t.desc && <span className="block text-xs text-gray-500 truncate">{t.desc}</span>}
+              </span>
+              <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
 /**
  * ModuleContract
- *   domainKey          — one of the eight canonical keys
+ *   domainKey          — one of the canonical area keys
  *   workspaceId, workspaceName
+ *   description        — the page's one-paragraph description under the title
+ *   actions            — the page's own actions (buttons/links), shown under the filter box
+ *   aside              — an optional page-specific block shown under the header (e.g. questionnaire progress)
  *   recommendedAction  — optional node the page already derives from its own backend data (shown in section 5)
  *   children           — the page's findings body (section 4)
  */
-export default function ModuleContract({ domainKey, workspaceId, workspaceName, recommendedAction = null, children }) {
+export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, recommendedAction = null, children }) {
   const module = moduleForDomainKey(domainKey)
   const theme = moduleTheme(domainKey)
+  const [params, setParams] = useSearchParams()
+  const tab = TAB_IDS.includes(params.get('tab')) ? params.get('tab') : 'overview'
+  const [query, setQuery] = useState('')
   const { domainsRequest, entry, casesRequest, cases } = useModuleContract(workspaceId, domainKey)
   const evidenceStatus = domainStatus(entry, domainsRequest === 'ok' && !entry ? 'error' : domainsRequest)
   const read = domainsRequest === 'ok' && entry
@@ -107,137 +165,235 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   const limitations = read ? (entry.limitations || []).map(customerEvidenceText).filter(Boolean) : []
   const assessed = read ? formatDay(entry.last_assessed_at || entry.freshness) : null
   const open = cases.filter((c) => ['action_required', 'in_progress', 'ready_to_verify', 'recurring'].includes(caseStatus(c)))
-  const shown = (open.length ? open : cases).slice(0, 5)
+  const filteredCases = cases.filter((c) => matchesFilter(`${c.title || ''} ${c.domain || ''} ${c.source_finding_type || ''} ${c.case_type || ''}`, query))
+  const filteredOpen = open.filter((c) => filteredCases.includes(c))
+  const shown = (filteredOpen.length ? filteredOpen : filteredCases).slice(0, tab === 'cases' ? 50 : 5)
+  const tiles = useMemo(() => subpagesForDomainKey(domainKey).filter((t) => matchesFilter(`${t.label} ${t.desc}`, query)), [domainKey, query])
+
+  function selectTab(id) {
+    const next = new URLSearchParams(params)
+    if (id === 'overview') next.delete('tab'); else next.set('tab', id)
+    setParams(next, { replace: true })
+  }
+
+  const scopeSection = (
+    <Section section={S['module-scope']} theme={theme}>
+      <p className="text-sm font-semibold text-gray-900">{module?.title || domainKey}</p>
+      <p className="text-xs text-gray-600 mt-1 leading-relaxed">{workspaceName ? `Workspace: ${workspaceName}.` : 'Selected workspace.'}{' '}{read && entry.description ? customerEvidenceText(entry.description) : ''}</p>
+      {limitations.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs text-gray-500 list-disc pl-4">
+          {limitations.map((l, i) => <li key={i}>{l}</li>)}
+        </ul>
+      )}
+    </Section>
+  )
+  const evidenceSection = (
+    <Section section={S['module-evidence-state']} theme={theme}>
+      <StatusChip status={evidenceStatus} size="md" />
+      <p className="text-xs text-gray-600 mt-2 leading-relaxed">
+        {domainsRequest === 'loading' ? 'Reading the latest assessment…'
+          : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read. Nothing is assumed in the meantime.'
+          : (summary || 'No summary was recorded for this area.')}
+      </p>
+      {read && (
+        <p className="text-xs text-gray-500 mt-1">
+          {entry.freshness_reason || (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.')}
+          {entry.coverage ? ` Coverage: ${entry.coverage}.` : ''}
+        </p>
+      )}
+    </Section>
+  )
+  const riskSection = (
+    <Section section={S['module-risk']} theme={theme}>
+      {read ? (
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <dt className="text-xs text-gray-500">Highest severity</dt>
+          <dd className={`text-sm font-bold ${entry.highest_severity ? 'capitalize' : ''} ${SEVERITY_TONE[String(entry.highest_severity || '').toLowerCase()] || 'text-gray-600'}`}>{entry.highest_severity || 'None recorded'}</dd>
+          <dt className="text-xs text-gray-500">Findings</dt>
+          <dd className="text-sm font-bold tabular-nums text-gray-900">{typeof entry.finding_count === 'number' ? entry.finding_count : '—'}</dd>
+          <dt className="text-xs text-gray-500">Open cases</dt>
+          <dd className="text-sm font-bold tabular-nums text-gray-900">{casesRequest === 'ok' ? caseSummary.open : '—'}</dd>
+        </dl>
+      ) : (
+        <p className="text-xs text-gray-600 leading-relaxed">Risk is stated only from a read assessment. {domainsRequest === 'loading' ? 'Reading…' : 'Not available right now.'}</p>
+      )}
+    </Section>
+  )
+  const findingsSection = (
+    <Section section={S['module-findings']} theme={theme}>
+      {children}
+    </Section>
+  )
+  const recommendedSection = (
+    <Section section={S['module-recommended']} theme={theme}>
+      <div className="card p-5 space-y-2">
+        {recommendedAction}
+        <p className="text-xs text-gray-600 leading-relaxed">
+          {read
+            ? `${entry.recommendation_count ?? 0} recommendation${(entry.recommendation_count ?? 0) === 1 ? '' : 's'} recorded in the latest assessment. Each finding above carries the registry's recommended action, owner type and verification method; an unmapped finding says so rather than inventing one.`
+            : 'Recommended actions come from the canonical remediation registry for each finding; none can be shown until the area has been read.'}
+        </p>
+      </div>
+    </Section>
+  )
+  const casesSection = (
+    <Section section={S['module-cases']} theme={theme}>
+      <div className="card p-5">
+        {casesRequest === 'loading' && <p className="text-xs text-gray-500">Reading managed cases…</p>}
+        {casesRequest === 'error' && <p className="text-xs text-gray-600"><StatusChip status="error" /> <span className="ml-2">Managed cases could not be read.</span></p>}
+        {casesRequest === 'ok' && cases.length === 0 && (
+          <p className="text-xs text-gray-600 leading-relaxed">No managed case exists for this area in this workspace. A case opens when a finding needs ownership, action and verification.</p>
+        )}
+        {casesRequest === 'ok' && cases.length > 0 && filteredCases.length === 0 && (
+          <p className="text-xs text-gray-600 leading-relaxed">No case in this area matches the filter.</p>
+        )}
+        {casesRequest === 'ok' && filteredCases.length > 0 && (
+          <>
+            <p className="text-xs text-gray-600 mb-3">{caseSummary.open} open of {caseSummary.total} case{caseSummary.total === 1 ? '' : 's'}.</p>
+            <ul className="divide-y divide-gray-100">
+              {shown.map((c) => (
+                <li key={c.case_id || c.id} className="flex items-start justify-between gap-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{c.title || c.source_finding_type || c.case_type || 'Case'}</p>
+                    {c.domain && <p className="text-xs text-gray-500 truncate">{c.domain}</p>}
+                  </div>
+                  <StatusChip status={caseStatus(c)} className="shrink-0" />
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <div className="mt-3">
+          <Link to={casesPath} className="text-sm font-semibold text-brand-600 hover:text-brand-700">Open Operations for this area</Link>
+        </div>
+      </div>
+    </Section>
+  )
+  const verificationSection = (
+    <Section section={S['module-verification']} theme={theme}>
+      <div className="card p-5 space-y-2 text-xs text-gray-600 leading-relaxed">
+        {casesRequest === 'ok' && cases.length > 0 ? (
+          <>
+            <p>
+              Of {caseSummary.total} case{caseSummary.total === 1 ? '' : 's'}: {caseSummary.support.automated} can be verified by CyberMeters re-observing the fix,
+              {' '}{caseSummary.support.manual} rest{caseSummary.support.manual === 1 ? 's' : ''} on the customer's word
+              {caseSummary.support.external > 0 ? `, ${caseSummary.support.external} need${caseSummary.support.external === 1 ? 's' : ''} independent third-party evidence` : ''}
+              {caseSummary.support.unsupported > 0 ? `, ${caseSummary.support.unsupported} cannot be verified by any method` : ''}.
+            </p>
+            <ul className="flex flex-wrap gap-2">
+              {(caseSummary.byWord.verified || 0) > 0 && <li><StatusChip status="verified" /> <span className="ml-1">{caseSummary.byWord.verified}</span></li>}
+              {(caseSummary.byWord.attested || 0) > 0 && <li><StatusChip status="attested" /> <span className="ml-1">{caseSummary.byWord.attested}</span></li>}
+              {(caseSummary.byWord.external || 0) > 0 && <li><StatusChip status="external" /> <span className="ml-1">{caseSummary.byWord.external}</span></li>}
+              {(caseSummary.byWord.ready_to_verify || 0) > 0 && <li><StatusChip status="ready_to_verify" /> <span className="ml-1">{caseSummary.byWord.ready_to_verify}</span></li>}
+              {(caseSummary.byWord.recurring || 0) > 0 && <li><StatusChip status="recurring" /> <span className="ml-1">{caseSummary.byWord.recurring}</span></li>}
+            </ul>
+          </>
+        ) : (
+          <p>{casesRequest === 'loading' ? 'Reading managed cases…' : casesRequest === 'error' ? 'Verification status could not be read.' : 'No managed case exists for this area yet, so there is nothing to verify.'}</p>
+        )}
+        <p className="text-gray-500">
+          "Verified" is used only when CyberMeters re-observed the fix itself. A fix the product cannot observe is shown as "{ATTESTED_LABEL}"; one that needs a certification body or auditor is shown as "{EXTERNAL_EVIDENCE_LABEL}".
+        </p>
+      </div>
+    </Section>
+  )
+  const guideSection = (
+    <Section section={S['module-guide']} theme={theme}>
+      <div className="card p-5 flex flex-col sm:flex-row sm:items-center gap-3">
+        <p className="text-xs text-gray-600 leading-relaxed flex-1">What this area covers, what CyberMeters checks and why, how to read these results and what to do next.</p>
+        {guide
+          ? <Link to={guide} className="btn-secondary text-sm shrink-0">Open the Field Guide</Link>
+          : <Link to="/guide" className="btn-secondary text-sm shrink-0">Open the Field Guide</Link>}
+      </div>
+    </Section>
+  )
 
   return (
-    <div className="space-y-8" data-testid="module-contract" data-domain-key={domainKey}>
-      <nav aria-label="On this page" className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-        {MODULE_CONTRACT_SECTIONS.map((s) => (
-          <a key={s.id} href={`#${s.id}`} className="hover:text-gray-900"><span className="tabular-nums">{s.n}</span> {s.label}</a>
-        ))}
-      </nav>
-
-      <div className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Section section={S['module-scope']} theme={theme}>
-          <p className="text-sm font-semibold text-gray-900">{module?.title || domainKey}</p>
-          <p className="text-xs text-gray-600 mt-1 leading-relaxed">{workspaceName ? `Workspace: ${workspaceName}.` : 'Selected workspace.'}{' '}{read && entry.description ? customerEvidenceText(entry.description) : ''}</p>
-          {limitations.length > 0 && (
-            <ul className="mt-2 space-y-1 text-xs text-gray-500 list-disc pl-4">
-              {limitations.map((l, i) => <li key={i}>{l}</li>)}
-            </ul>
-          )}
-        </Section>
-
-        <Section section={S['module-evidence-state']} theme={theme}>
-          <StatusChip status={evidenceStatus} size="md" />
-          <p className="text-xs text-gray-600 mt-2 leading-relaxed">
-            {domainsRequest === 'loading' ? 'Reading the latest assessment…'
-              : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read. Nothing is assumed in the meantime.'
-              : (summary || 'No summary was recorded for this area.')}
-          </p>
-          {read && (
-            <p className="text-xs text-gray-500 mt-1">
-              {entry.freshness_reason || (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.')}
-              {entry.coverage ? ` Coverage: ${entry.coverage}.` : ''}
-            </p>
-          )}
-        </Section>
-
-        <Section section={S['module-risk']} theme={theme}>
-          {read ? (
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-              <dt className="text-xs text-gray-500">Highest severity</dt>
-              <dd className={`text-sm font-bold ${entry.highest_severity ? 'capitalize' : ''} ${SEVERITY_TONE[String(entry.highest_severity || '').toLowerCase()] || 'text-gray-600'}`}>{entry.highest_severity || 'None recorded'}</dd>
-              <dt className="text-xs text-gray-500">Findings</dt>
-              <dd className="text-sm font-bold tabular-nums text-gray-900">{typeof entry.finding_count === 'number' ? entry.finding_count : '—'}</dd>
-              <dt className="text-xs text-gray-500">Open cases</dt>
-              <dd className="text-sm font-bold tabular-nums text-gray-900">{casesRequest === 'ok' ? caseSummary.open : '—'}</dd>
-            </dl>
-          ) : (
-            <p className="text-xs text-gray-600 leading-relaxed">Risk is stated only from a read assessment. {domainsRequest === 'loading' ? 'Reading…' : 'Not available right now.'}</p>
-          )}
-        </Section>
-      </div>
-
-      <Section section={S['module-findings']} theme={theme}>
-        {children}
-      </Section>
-
-      <Section section={S['module-recommended']} theme={theme}>
-        <div className="card p-5 space-y-2">
-          {recommendedAction}
-          <p className="text-xs text-gray-600 leading-relaxed">
-            {read
-              ? `${entry.recommendation_count ?? 0} recommendation${(entry.recommendation_count ?? 0) === 1 ? '' : 's'} recorded in the latest assessment. Each finding above carries the registry's recommended action, owner type and verification method; an unmapped finding says so rather than inventing one.`
-              : 'Recommended actions come from the canonical remediation registry for each finding; none can be shown until the area has been read.'}
-          </p>
-        </div>
-      </Section>
-
-      <Section section={S['module-cases']} theme={theme}>
-        <div className="card p-5">
-          {casesRequest === 'loading' && <p className="text-xs text-gray-500">Reading managed cases…</p>}
-          {casesRequest === 'error' && <p className="text-xs text-gray-600"><StatusChip status="error" /> <span className="ml-2">Managed cases could not be read.</span></p>}
-          {casesRequest === 'ok' && cases.length === 0 && (
-            <p className="text-xs text-gray-600 leading-relaxed">No managed case exists for this area in this workspace. A case opens when a finding needs ownership, action and verification.</p>
-          )}
-          {casesRequest === 'ok' && cases.length > 0 && (
-            <>
-              <p className="text-xs text-gray-600 mb-3">{caseSummary.open} open of {caseSummary.total} case{caseSummary.total === 1 ? '' : 's'}.</p>
-              <ul className="divide-y divide-gray-100">
-                {shown.map((c) => (
-                  <li key={c.case_id || c.id} className="flex items-start justify-between gap-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{c.title || c.source_finding_type || c.case_type || 'Case'}</p>
-                      {c.domain && <p className="text-xs text-gray-500 truncate">{c.domain}</p>}
-                    </div>
-                    <StatusChip status={caseStatus(c)} className="shrink-0" />
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <div className="mt-3">
-            <Link to={casesPath} className="text-sm font-semibold text-brand-600 hover:text-brand-700">Open Operations for this area</Link>
+    <div className="space-y-6" data-testid="module-contract" data-domain-key={domainKey}>
+      <header className="cm-module-head">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="cm-hero-title text-left" style={theme ? { color: theme.text } : undefined}>{module?.title || domainKey}</h1>
+            <p className="text-[15px] text-gray-600 mt-2 max-w-2xl leading-relaxed">{description || module?.fallback}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500" data-testid="module-head-status">
+              <StatusChip status={evidenceStatus} size="md" />
+              <span>
+                {domainsRequest === 'loading' ? 'Reading the latest assessment…'
+                  : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read.'
+                  : (entry.freshness_reason || (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.'))}
+              </span>
+              {workspaceName && <span>· {workspaceName}</span>}
+            </div>
+          </div>
+          <div className="flex flex-col items-stretch lg:items-end gap-3 shrink-0">
+            <label className="cm-area-search">
+              <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Filter pages and cases in this area"
+                placeholder="Filter pages and cases in this area"
+              />
+            </label>
+            {actions && <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div>}
           </div>
         </div>
-      </Section>
-
-      <Section section={S['module-verification']} theme={theme}>
-        <div className="card p-5 space-y-2 text-xs text-gray-600 leading-relaxed">
-          {casesRequest === 'ok' && cases.length > 0 ? (
-            <>
-              <p>
-                Of {caseSummary.total} case{caseSummary.total === 1 ? '' : 's'}: {caseSummary.support.automated} can be verified by CyberMeters re-observing the fix,
-                {' '}{caseSummary.support.manual} rest{caseSummary.support.manual === 1 ? 's' : ''} on the customer's word
-                {caseSummary.support.external > 0 ? `, ${caseSummary.support.external} need${caseSummary.support.external === 1 ? 's' : ''} independent third-party evidence` : ''}
-                {caseSummary.support.unsupported > 0 ? `, ${caseSummary.support.unsupported} cannot be verified by any method` : ''}.
-              </p>
-              <ul className="flex flex-wrap gap-2">
-                {(caseSummary.byWord.verified || 0) > 0 && <li><StatusChip status="verified" /> <span className="ml-1">{caseSummary.byWord.verified}</span></li>}
-                {(caseSummary.byWord.attested || 0) > 0 && <li><StatusChip status="attested" /> <span className="ml-1">{caseSummary.byWord.attested}</span></li>}
-                {(caseSummary.byWord.external || 0) > 0 && <li><StatusChip status="external" /> <span className="ml-1">{caseSummary.byWord.external}</span></li>}
-                {(caseSummary.byWord.ready_to_verify || 0) > 0 && <li><StatusChip status="ready_to_verify" /> <span className="ml-1">{caseSummary.byWord.ready_to_verify}</span></li>}
-                {(caseSummary.byWord.recurring || 0) > 0 && <li><StatusChip status="recurring" /> <span className="ml-1">{caseSummary.byWord.recurring}</span></li>}
-              </ul>
-            </>
-          ) : (
-            <p>{casesRequest === 'loading' ? 'Reading managed cases…' : casesRequest === 'error' ? 'Verification status could not be read.' : 'No managed case exists for this area yet, so there is nothing to verify.'}</p>
-          )}
-          <p className="text-gray-500">
-            "Verified" is used only when CyberMeters re-observed the fix itself. A fix the product cannot observe is shown as "{ATTESTED_LABEL}"; one that needs a certification body or auditor is shown as "{EXTERNAL_EVIDENCE_LABEL}".
-          </p>
+        {aside}
+        <div role="tablist" aria-label="Area sections" className="cm-tabs mt-5">
+          {MODULE_TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`module-tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls="module-tabpanel"
+              tabIndex={tab === t.id ? 0 : -1}
+              onClick={() => selectTab(t.id)}
+              className="cm-tab"
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-      </Section>
+      </header>
 
-      <Section section={S['module-guide']} theme={theme}>
-        <div className="card p-5 flex flex-col sm:flex-row sm:items-center gap-3">
-          <p className="text-xs text-gray-600 leading-relaxed flex-1">What this area covers, what CyberMeters checks and why, how to read these results and what to do next.</p>
-          {guide
-            ? <Link to={guide} className="btn-secondary text-sm shrink-0">Open the Field Guide</Link>
-            : <Link to="/guide" className="btn-secondary text-sm shrink-0">Open the Field Guide</Link>}
-        </div>
-      </Section>
+      <div id="module-tabpanel" role="tabpanel" aria-labelledby={`module-tab-${tab}`} className="space-y-8">
+        {tab === 'overview' && (
+          <>
+            <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} />
+            <nav aria-label="On this page" className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+              {MODULE_CONTRACT_SECTIONS.map((s) => (
+                <a key={s.id} href={`#${s.id}`} className="hover:text-gray-900"><span className="tabular-nums">{s.n}</span> {s.label}</a>
+              ))}
+            </nav>
+            <div className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+              {scopeSection}
+              {evidenceSection}
+              {riskSection}
+            </div>
+            {findingsSection}
+            {recommendedSection}
+            {casesSection}
+            {verificationSection}
+            {guideSection}
+          </>
+        )}
+        {tab === 'findings' && (
+          <>
+            {findingsSection}
+            {recommendedSection}
+          </>
+        )}
+        {tab === 'cases' && (
+          <>
+            {casesSection}
+            {verificationSection}
+          </>
+        )}
+        {tab === 'guide' && guideSection}
+      </div>
     </div>
   )
 }

@@ -29,7 +29,7 @@ export default function FreeCyberMotPreviewGrid({ domains = [] }) {
     <section aria-labelledby="cyber-mot-grid-title">
       <div className="fm-section-heading">
         <div>
-          <span className="fm-kicker">Eight-domain snapshot</span>
+          <span className="fm-kicker">External posture snapshot</span>
           <h2 id="cyber-mot-grid-title">Your external Cyber MOT</h2>
         </div>
         <p>Every card stays visible. Incomplete or gated evidence is never shown as healthy.</p>

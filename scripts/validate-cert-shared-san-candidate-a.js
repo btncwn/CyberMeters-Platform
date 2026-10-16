@@ -582,8 +582,15 @@ const parity = states.map(parityOutputs);
 // Customer-state accuracy moves the resolver, score and snapshot-builder
 // stamps. This certificate-only fixture has no Brand or DMARC finding; only
 // methodology metadata and its PDF rendering change here.
-const GOLDEN_F13 = "4fe03f24a1e0978bec66c1dc413176530c2b81ad028892b3cbcad361fc0b876b";
-const GOLDEN_F14 = "366be2326069c08bfa36c724ad5846010d5c173abb8d6ffb7edc1ee0d39ec717";
+// External-posture wording (16 Oct 2026, rebased onto customer-state accuracy):
+// the customer PDF section heading ("Cyber MOT: External posture") moves F13 and
+// the snapshot summary sentence ("Across your external posture: ...") travels in
+// the resolved states, moving F14. With ONLY pdf.js, report-snapshot.js,
+// dmarc-state.js and lifecycle-email.js reverted to their previous text the
+// previous hashes (4fe03f24... / 366be232...) reproduce exactly; the evidence
+// hash is unchanged and no mutation control is touched.
+const GOLDEN_F13 = "0a5fdba500a70ebc036b45a7fb39465259ad3440931e7eea960405b62718fd12";
+const GOLDEN_F14 = "f76a06f884ceca4ce9d5265237dcc3fd21b49923b61bc546b999b93e5649dc23";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

@@ -604,20 +604,18 @@ export default function BrandMonitoringPage() {
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
 
-      {/* 1 · Hero */}
-      <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
-        <div className="flex-1 min-w-0">
-          <span className="eyebrow" style={{ color: SERVICE_COLORS.brand.text }}>Brand Protection</span>
-          <h1 className="page-title">Brand Protection</h1>
-          <p className="page-subtitle">Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 shrink-0">
-          <button onClick={scrollToQueue} className="btn-primary text-sm">Review suspicious domains</button>
-          <button onClick={() => setEditing(true)} className="btn-secondary text-sm">Update protected brand</button>
-        </div>
-      </div>
-
-      <ModuleContract domainKey="brand_protection" workspaceId={wsId} workspaceName={wsName}>
+      <ModuleContract
+        domainKey="brand_protection"
+        workspaceId={wsId}
+        workspaceName={wsName}
+        description="Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals."
+        actions={(
+          <>
+            <button onClick={scrollToQueue} className="btn-primary text-sm">Review suspicious domains</button>
+            <button onClick={() => setEditing(true)} className="btn-secondary text-sm">Update protected brand</button>
+          </>
+        )}
+      >
       {/* 2 · Protected brand */}
       <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
 

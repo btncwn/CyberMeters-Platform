@@ -25,7 +25,7 @@ let passed = 0, failed = 0;
 const ok = (n, c) => { c ? passed++ : (failed++, console.error("  ✗ " + n)); };
 const txt = (u8) => new TextDecoder().decode(u8);
 const assessmentDomainSection = (text) => {
-  const start = text.indexOf("Eight-Domain Cyber MOT");
+  const start = text.indexOf("Cyber MOT: External posture");
   const end = text.indexOf("Observed Findings", start);
   return start >= 0 ? text.slice(start, end >= 0 ? end : undefined) : "";
 };

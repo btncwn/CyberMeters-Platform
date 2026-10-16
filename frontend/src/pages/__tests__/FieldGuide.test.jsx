@@ -97,7 +97,7 @@ describe('Field Guide pages', () => {
   it('lists the eight areas on the guide home in order', () => {
     renderAt('/guide')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('CyberMeters Field Guide')
-    const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent).filter(t => t !== 'The eight areas')
+    const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent).filter(t => t !== 'The areas')
     expect(headings).toEqual(FOUNDER_ORDER.map(([, , title]) => title))
     expect(screen.getByRole('link', { name: /Email Protection/ })).toHaveAttribute('href', '/guide/email-protection')
   })
