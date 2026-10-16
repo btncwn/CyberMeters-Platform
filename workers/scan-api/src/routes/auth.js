@@ -860,20 +860,33 @@ export async function authRoutes(rctx) {
           // If the local account is unverified / pending, Microsoft OAuth implicitly
           // verifies the email (same address) and activates the account — the user
           // has just proven control of that inbox via their Microsoft identity provider.
-          await env.cybermeters_db
-            .prepare(
-              `UPDATE users
-               SET microsoft_oid    = ?,
-                   tenant_id        = ?,
-                   auth_provider    = 'microsoft',
-                   last_login_at    = datetime('now'),
-                   email_verified     = CASE WHEN email_verified = 0 THEN 1 ELSE email_verified END,
-                   email_verified_at  = CASE WHEN email_verified = 0 THEN datetime('now') ELSE email_verified_at END,
-                   status             = CASE WHEN status = 'pending_verification' THEN 'active' ELSE status END
-               WHERE id = ?`
-            )
-            .bind(msOid, msTid, user.id)
-            .run();
+          // A local signup can reserve someone else's address before its owner
+          // signs in through the trusted tenant. Remove that signup's credentials
+          // and access before auto-verification, within one D1 transaction. The
+          // condition is checked inside the batch, so a concurrently verified
+          // account retains its password, sessions and API tokens.
+          const stillUnverified = "EXISTS (SELECT 1 FROM users WHERE id = ? AND email_verified = 0)";
+          await env.cybermeters_db.batch([
+            env.cybermeters_db
+              .prepare(`DELETE FROM user_sessions WHERE user_id = ? AND ${stillUnverified}`)
+              .bind(user.id, user.id),
+            env.cybermeters_db
+              .prepare(`UPDATE api_tokens SET status = 'revoked'
+                WHERE user_id = ? AND status = 'active' AND ${stillUnverified}`)
+              .bind(user.id, user.id),
+            env.cybermeters_db
+              .prepare(`UPDATE users
+                SET microsoft_oid = ?, tenant_id = ?, auth_provider = 'microsoft',
+                    last_login_at = datetime('now'),
+                    password_hash = CASE WHEN email_verified = 0 THEN NULL ELSE password_hash END,
+                    verification_token = CASE WHEN email_verified = 0 THEN NULL ELSE verification_token END,
+                    verification_token_expires_at = CASE WHEN email_verified = 0 THEN NULL ELSE verification_token_expires_at END,
+                    email_verified_at = CASE WHEN email_verified = 0 THEN datetime('now') ELSE email_verified_at END,
+                    email_verified = CASE WHEN email_verified = 0 THEN 1 ELSE email_verified END,
+                    status = CASE WHEN status = 'pending_verification' THEN 'active' ELSE status END
+                WHERE id = ?`)
+              .bind(msOid, msTid, user.id),
+          ]);
           // Refresh user object so status/email_verified reflect post-update state
           const refreshed = await env.cybermeters_db
             .prepare("SELECT id, email, name, plan, status, mfa_enabled FROM users WHERE id = ? LIMIT 1")

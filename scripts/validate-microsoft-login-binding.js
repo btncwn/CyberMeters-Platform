@@ -270,6 +270,75 @@ const owner = { oid: "oid-owner", email: "owner@example.test", name: "Owner" };
   ok("a suspended account receives no session", result.status === 403 && f.count("SELECT COUNT(*) AS n FROM user_sessions") === 0);
 }
 
+// ── 9. An unverified local signup cannot retain its credentials after SSO ───
+{
+  const f = await fixture();
+  const email = "reserved@example.test";
+  f.seed.user("uReserved", email);
+  f.db.prepare(`UPDATE users SET email_verified = 0, status = 'pending_verification',
+    verification_token = 'pending-token', verification_token_expires_at = datetime('now', '+1 day')
+    WHERE id = 'uReserved'`).run();
+  await f.seed.session("sReserved", "uReserved", "reserved-session");
+  const apiToken = "cm_reserved-token";
+  f.db.prepare(`INSERT INTO api_tokens (id, user_id, name, token_hash, status)
+    VALUES ('tReserved', 'uReserved', 'reserved', ?, 'active')`).run(await mod.hashToken(apiToken));
+  const originalBatch = f.env.cybermeters_db.batch.bind(f.env.cybermeters_db);
+  let linkBatch = null;
+  f.env.cybermeters_db.batch = async (statements) => {
+    const sql = statements.map((statement) => statement.__sql || "");
+    if (sql.some((statement) => statement.includes("SET microsoft_oid"))) linkBatch = sql;
+    return originalBatch(statements);
+  };
+  const before = f.db.prepare("SELECT password_hash FROM users WHERE id = 'uReserved'").get();
+  ok("the reserved account starts with a password and unverified address",
+    Boolean(before.password_hash)
+      && (await f.send("/api/auth/login", { method: "POST", body: { email, password: "Sup3r-secret-pw" } })).status === 403);
+
+  const A = newBrowser();
+  const { callback, otc } = await signIn(f, A, { oid: "oid-reserved", email, name: "Reserved" });
+  const after = f.db.prepare(`SELECT microsoft_oid, password_hash, email_verified, status,
+    verification_token, verification_token_expires_at FROM users WHERE id = 'uReserved'`).get();
+  ok("credential cleanup and account binding share one D1 batch",
+    linkBatch?.length === 3
+      && linkBatch.some((statement) => statement.includes("DELETE FROM user_sessions"))
+      && linkBatch.some((statement) => statement.includes("UPDATE api_tokens"))
+      && linkBatch.some((statement) => statement.includes("UPDATE users")));
+  ok("the identity provider binds the existing account",
+    callback.status === 302 && Boolean(otc) && after.microsoft_oid === "oid-reserved" && after.email_verified === 1 && after.status === "active");
+  ok("the unverified signup's password and verification token are erased",
+    after.password_hash === null && after.verification_token === null && after.verification_token_expires_at === null);
+  ok("the unverified signup's old session and API token are invalidated",
+    f.count("SELECT COUNT(*) AS n FROM user_sessions WHERE user_id = 'uReserved'") === 0
+      && f.db.prepare("SELECT status FROM api_tokens WHERE id = 'tReserved'").get()?.status === "revoked"
+      && (await f.send("/api/auth/me", { token: "reserved-session" })).status === 401
+      && (await f.send("/api/auth/me", { token: apiToken })).status === 401);
+  ok("the original password cannot sign in after SSO verified the address",
+    (await f.send("/api/auth/login", { method: "POST", body: { email, password: "Sup3r-secret-pw" } })).status === 401);
+  ok("the legitimate SSO browser can still finish sign-in",
+    (await exchange(f, otc, [A.verifier])).status === 200);
+}
+
+// ── 10. A previously verified account retains its local credentials ─────────
+{
+  const f = await fixture();
+  const email = "verified@example.test";
+  f.seed.user("uVerified", email);
+  await f.seed.session("sVerified", "uVerified", "verified-session");
+  const apiToken = "cm_verified-token";
+  f.db.prepare(`INSERT INTO api_tokens (id, user_id, name, token_hash, status)
+    VALUES ('tVerified', 'uVerified', 'verified', ?, 'active')`).run(await mod.hashToken(apiToken));
+  const originalHash = f.db.prepare("SELECT password_hash FROM users WHERE id = 'uVerified'").get().password_hash;
+  const { callback } = await signIn(f, newBrowser(), { oid: "oid-verified", email, name: "Verified" });
+  const after = f.db.prepare("SELECT password_hash, email_verified FROM users WHERE id = 'uVerified'").get();
+  ok("verified account keeps its password and sign-in behavior",
+    callback.status === 302 && after.email_verified === 1 && after.password_hash === originalHash
+      && (await f.send("/api/auth/login", { method: "POST", body: { email, password: "Sup3r-secret-pw" } })).status === 200);
+  ok("verified account keeps its prior session and API token",
+    (await f.send("/api/auth/me", { token: "verified-session" })).status === 200
+      && f.db.prepare("SELECT status FROM api_tokens WHERE id = 'tVerified'").get()?.status === "active"
+      && (await f.send("/api/auth/me", { token: apiToken })).status === 200);
+}
+
 console.log(`\nMicrosoft sign-in browser binding: ${passed}/${passed + failed} passed`);
 if (failed) { console.error("microsoft-login-binding validation FAILED"); process.exit(1); }
 console.log("microsoft-login-binding validation passed");
