@@ -12,7 +12,7 @@
 
 **Executors:** Claude CLI (Platform & Data lane) and Codex CLI (Runtime lane)
 
-This is a founder-directed, isolated engineering program. It does not lift the repository's current HOLD, change the canonical pre-beta backlog, or claim that MCP is customer-ready or accepted. An isolated, synthetic staging deployment exists; production customer MCP access remains disabled. The core product launch keeps its existing release gates and priority; MCP acceptance is not a prerequisite and MCP work must not delay it. The target is a customer-ready, read-only beta for the first pilot customers expected in roughly three to four weeks, subject to the remaining gates. All required checks run locally before any push or pull request. GitHub Actions remains enabled as a secondary signal and is not manually rerun.
+This is a founder-directed, isolated engineering program. It does not lift the repository's current HOLD, change the canonical pre-beta backlog, or claim that MCP is customer-ready or accepted. An isolated, synthetic staging deployment exists; production customer MCP access remains disabled. The core product launch keeps its existing release gates and priority; MCP acceptance is not a prerequisite and MCP work must not delay it. The target is a customer-ready, read-only beta for the first pilot customers expected in roughly three to four weeks, subject to the remaining gates. As of 16 October 2026, focused MCP tests, typecheck, and relevant validators run locally; the full validation suite runs in GitHub CI after push. Failed CI checks are fixed and pushed again. Merging requires founder approval.
 
 ## 1. Mission
 
@@ -279,15 +279,15 @@ Each CLI task must include the exact baseline SHA, owned files, forbidden files,
 - no secret/PII/token in logs, metrics, audit metadata, or returned errors; and
 - Worker bundle/dry-run with the exact configuration intended for review.
 
-### Integration gates before any push or PR
+### Integration gates for the MCP pull request
 
-- the repository's relevant auth, authorization-property, tenant-isolation, route/entry-point inventory, OpenAPI/contract, and Worker validation commands;
-- the full local CI-equivalent suite required by `AGENTS.md` for the touched surfaces;
-- an owned-file and generated-artifact check;
-- clean `git diff --check` and clean worktree after commit; and
-- one independent targeted R1 review after tests pass.
+- Before each push, run focused MCP tests, frontend typecheck, and relevant validators for touched surfaces, including auth, tenant isolation, route/entry-point inventory, and Worker contracts where applicable.
+- Check owned files and generated artifacts, and run `git diff --check`.
+- Push the reviewed branch and let GitHub CI run the full validation suite. Fix any red check, repeat the focused local checks, and push again until CI is green.
+- Obtain the independent Claude security review through the pull request; close its findings before customer enablement.
+- Do not merge without founder approval.
 
-GitHub Actions may run after a push but is not accepted as a substitute for the local evidence package.
+The focused local evidence and GitHub CI results are both part of the pull request handoff.
 
 ## 11. Beta benchmark
 

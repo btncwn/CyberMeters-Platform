@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { evaluateMcpAdmission, MCP_DENY } from "../workers/scan-api/src/routes/mcp-authz.js";
 
-const NOW = Date.parse("2026-10-15T12:00:00.000Z");
+const WATERMARK = "2026-10-15T12:00:00.000Z";
+const NOW = Date.parse(WATERMARK);
 const FUTURE = "2026-10-16T12:00:00.000Z";
 const SECRET = "cm_live_SUPERSECRETBEARER";
 
