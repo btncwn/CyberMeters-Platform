@@ -106,18 +106,32 @@ guard(
 );
 
 // ── F-1 Password reset revokes API tokens ─────────────────────────────────────
+// SSO binding also invalidates sessions and tokens. Inspect only the password
+// reset batch so another route cannot satisfy this guard or its mutation test.
+const resetBatch = (s) => {
+  const route = s.indexOf('url.pathname === "/api/auth/reset-password"');
+  const start = s.indexOf("const resetStatements = [", route);
+  const end = s.indexOf("const resetResults = await env.cybermeters_db.batch(resetStatements);", start);
+  return route === -1 || start === -1 || end === -1 ? "" : s.slice(start, end);
+};
+const resetRevoke = "UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active'";
+const resetRevokesApiTokens = (s) => {
+  const batch = resetBatch(s);
+  const sessions = batch.indexOf("DELETE FROM user_sessions WHERE user_id = ? AND ${eligible}");
+  const revoke = batch.indexOf(resetRevoke + " AND ${eligible}");
+  const consume = batch.indexOf("UPDATE password_reset_tokens SET used_at = ?");
+  const revokeBinding = batch.indexOf(".bind(user.id, ...guard)", revoke);
+  return sessions !== -1 && revoke > sessions && consume > revoke
+    && revokeBinding > revoke && revokeBinding < consume;
+};
 guard(
   "F-1 password reset revokes active API tokens in the batch",
   authSrc,
+  resetRevokesApiTokens,
   (s) => {
-    // Revocation statement present AND co-located with the session-invalidation
-    // batch (so it runs atomically as part of the reset, not somewhere unrelated).
-    const revoke = "UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active'";
-    const sess = "DELETE FROM user_sessions WHERE user_id = ?";
-    return s.includes(revoke) && s.includes(sess)
-      && Math.abs(s.indexOf(revoke) - s.indexOf(sess)) < 800;
+    const batch = resetBatch(s);
+    return batch ? s.replace(batch, batch.replace(resetRevoke, "SELECT 1")) : s;
   },
-  (s) => s.replace("UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active'", "SELECT 1"),
 );
 
 // ── Inv-2 Invitation accept refuses soft-deleted workspaces ───────────────────

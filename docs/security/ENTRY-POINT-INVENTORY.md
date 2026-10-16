@@ -140,15 +140,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/auth/microsoft/start` | 649 | public-or-global | public | — |
 | GET | `/api/auth/microsoft/login` | 710 | public-or-global | public | — |
 | GET | `/api/auth/microsoft/callback` | 730 | public-or-global | public | — |
-| POST | `/api/auth/exchange` | 978 | public-or-global | public | — |
-| POST | `/api/auth/forgot-password` | 1093 | public-or-global | public | — |
-| POST | `/api/auth/reset-password` | 1195 | public-or-global | public | — |
-| GET | `/api/auth/mfa/status` | 1351 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/setup` | 1373 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/verify-setup` | 1414 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/challenge` | 1488 | public-or-global | public | — |
-| POST | `/api/auth/mfa/recovery-code` | 1589 | public-or-global | public | — |
-| POST | `/api/auth/mfa/disable` | 1686 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/exchange` | 991 | public-or-global | public | — |
+| POST | `/api/auth/forgot-password` | 1106 | public-or-global | public | — |
+| POST | `/api/auth/reset-password` | 1208 | public-or-global | public | — |
+| GET | `/api/auth/mfa/status` | 1364 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/setup` | 1386 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/verify-setup` | 1427 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/challenge` | 1501 | public-or-global | public | — |
+| POST | `/api/auth/mfa/recovery-code` | 1602 | public-or-global | public | — |
+| POST | `/api/auth/mfa/disable` | 1699 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/billing.js`
 
