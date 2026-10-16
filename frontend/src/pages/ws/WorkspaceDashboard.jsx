@@ -529,6 +529,11 @@ function OnboardingWidget({ wsId, onDone }) {
 
 export default function WorkspaceDashboard() {
   const { wsId, wsName } = useWorkspace()
+  if (!wsId) return <NoWorkspaceSelected />
+  return <WorkspaceDashboardContent key={wsId} wsId={wsId} wsName={wsName} />
+}
+
+function WorkspaceDashboardContent({ wsId, wsName }) {
   const { user } = useAuth()
   const [scorecard, setScorecard] = useState(null)
   const [motDomains, setMotDomains] = useState([])
@@ -541,10 +546,20 @@ export default function WorkspaceDashboard() {
   const [domains,   setDomains]   = useState([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState(null)
+  const requestGeneration = useRef(0)
 
   const load = useCallback(async () => {
-    if (!wsId) { setLoading(false); return }
+    const generation = ++requestGeneration.current
     setLoading(true); setError(null)
+    setScorecard(null)
+    setMotDomains([])
+    setMotRequest('loading')
+    setCases([])
+    setCasesRequest('loading')
+    setTimeline([])
+    setSummary(null)
+    setHealth(null)
+    setDomains([])
     try {
       const [sc, tl, sm, hl, dm, mot, mc] = await Promise.allSettled([
         api.getWorkspaceScorecard(wsId),
@@ -555,30 +570,32 @@ export default function WorkspaceDashboard() {
         api.getCyberMotDomains(wsId),
         requestManagedCases(wsId),
       ])
+      if (requestGeneration.current !== generation) return
       setMotDomains(mot.status === 'fulfilled' ? (mot.value?.cyber_mot_domains ?? []) : [])
       setMotRequest(mot.status === 'fulfilled' && Array.isArray(mot.value?.cyber_mot_domains) ? 'ok' : 'error')
       setCases(mc.status === 'fulfilled' && Array.isArray(mc.value?.cases) ? mc.value.cases : [])
       setCasesRequest(mc.status === 'fulfilled' && Array.isArray(mc.value?.cases) ? 'ok' : 'error')
-      if (sc.status === 'fulfilled') setScorecard(sc.value)
+      setScorecard(sc.status === 'fulfilled' ? sc.value : null)
       setTimeline(tl.status === 'fulfilled' ? (tl.value.timeline || []).slice(-30) : [])
-      if (sm.status === 'fulfilled') setSummary(sm.value)
-      if (hl.status === 'fulfilled') setHealth(hl.value)
-      if (dm.status === 'fulfilled') setDomains(dm.value.domains || [])
+      setSummary(sm.status === 'fulfilled' ? sm.value : null)
+      setHealth(hl.status === 'fulfilled' ? hl.value : null)
+      setDomains(dm.status === 'fulfilled' ? (dm.value.domains || []) : [])
 
       // If scorecard errored but not a hard failure, don't block
       if (sc.status === 'rejected' && tl.status === 'rejected' && sm.status === 'rejected') {
         throw new Error(sc.reason?.message || 'Failed to load dashboard')
       }
     } catch (e) {
-      setError(e.message)
+      if (requestGeneration.current === generation) setError(e.message)
     } finally {
-      setLoading(false)
+      if (requestGeneration.current === generation) setLoading(false)
     }
   }, [wsId])
 
-  useEffect(() => { load() }, [load])
-
-  if (!wsId) return <NoWorkspaceSelected />
+  useEffect(() => {
+    load()
+    return () => { requestGeneration.current += 1 }
+  }, [load])
 
   const sc = scorecard
   const posture = sc?.current_posture

@@ -267,8 +267,10 @@ export default function Dashboard() {
   // Workspace isolation — read from localStorage; re-derive on storage events
   const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => localStorage.getItem('cybermeters_workspace_id'))
   const [activeWorkspaceName, setActiveWorkspaceName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+  const [loadedWorkspaceId,   setLoadedWorkspaceId]   = useState(null)
 
   const reportFetchedForRef = useRef(null) // tracks which scan ID we fetched report for
+  const requestGeneration = useRef(0)
   const navigate = useNavigate()
 
   // Keep workspace state in sync when the nav selector changes it
@@ -276,9 +278,6 @@ export default function Dashboard() {
     function onStorage(e) {
       if (e.key === 'cybermeters_workspace_id') {
         setActiveWorkspaceId(e.newValue)
-        setScans([])
-        setReport(null)
-        reportFetchedForRef.current = null
       }
       if (e.key === 'cybermeters_workspace_name') {
         setActiveWorkspaceName(e.newValue)
@@ -288,11 +287,12 @@ export default function Dashboard() {
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  const loadReport = useCallback(async (scanId) => {
+  const loadReport = useCallback(async (scanId, generation) => {
     if (reportFetchedForRef.current === scanId) return
     reportFetchedForRef.current = scanId
     try {
       const r = await api.getScanReport(scanId)
+      if (requestGeneration.current !== generation) return
       if (r.status === 'completed' && (r.findings?.length > 0 || r.cyber_metrics_score > 0)) {
         setReport(r)
       }
@@ -302,6 +302,7 @@ export default function Dashboard() {
   }, [])
 
   const load = useCallback(async (silent = false) => {
+    const generation = ++requestGeneration.current
     // Pending invite redirect — if user signed up then landed on Dashboard,
     // pick up the stored invite token and send them to the landing page to accept.
     const pendingInvite = localStorage.getItem('cybermeters_pending_invite')
@@ -311,46 +312,51 @@ export default function Dashboard() {
       return
     }
 
-    // Re-read from localStorage on each load — ensures consistency if selector
-    // wrote to localStorage but the storage event hasn't fired yet (same tab).
-    const wsId = localStorage.getItem('cybermeters_workspace_id')
-    const wsName = localStorage.getItem('cybermeters_workspace_name')
-    setActiveWorkspaceId(wsId)
-    setActiveWorkspaceName(wsName)
+    const wsId = activeWorkspaceId
+    setScans([])
+    setReport(null)
+    setMotDomains([])
+    setScorecard(null)
+    setMotRequest('loading')
+    setDomainCount(null)
+    setHasWorkspaces(null)
+    setError(null)
+    setLoadedWorkspaceId(null)
+    reportFetchedForRef.current = null
+    setLoading(true)
+    setRefreshing(silent)
 
     // Security gate — never call global /api/scans when a workspace is set.
     // If no workspace is selected, resolve hasWorkspaces to show the right empty state.
     if (!wsId) {
       try {
         const data = await api.getWorkspaces()
-        setHasWorkspaces((data.workspaces || []).length > 0)
+        if (requestGeneration.current === generation) setHasWorkspaces((data.workspaces || []).length > 0)
       } catch {
         // Fall through — show select-workspace state (neutral)
-        setHasWorkspaces(null)
+        if (requestGeneration.current === generation) setHasWorkspaces(null)
       }
-      setLoading(false)
-      setRefreshing(false)
-      setScans([])
-      setReport(null)
-      setDomainCount(null)
+      if (requestGeneration.current === generation) {
+        setLoadedWorkspaceId(wsId)
+        setLoading(false)
+        setRefreshing(false)
+      }
       return
     }
     // User has a workspace selected — they definitely have workspaces
     setHasWorkspaces(true)
 
-    if (!silent) setLoading(true)
-    else setRefreshing(true)
-    setError(null)
     try {
       const [data, domainsData, scorecardData, motData] = await Promise.all([
         api.getWorkspaceScans(wsId),
-        api.getWorkspaceDomains(wsId).catch(() => ({ domains: [] })),
+        api.getWorkspaceDomains(wsId).catch(() => null),
         api.getWorkspaceScorecard(wsId).catch(() => null), // optional; feeds the recommended next action
         api.getCyberMotDomains(wsId).catch(() => null),    // canonical eight-domain states (server-resolved)
       ])
+      if (requestGeneration.current !== generation) return
       const list = data.scans || []
       setScans(list)
-      setDomainCount((domainsData.domains || []).length)
+      setDomainCount(Array.isArray(domainsData?.domains) ? domainsData.domains.length : null)
       setScorecard(scorecardData)
       // Always eight; the endpoint returns canonical no-scan states when no scan exists.
       setMotDomains(Array.isArray(motData?.cyber_mot_domains) ? motData.cyber_mot_domains : [])
@@ -359,22 +365,31 @@ export default function Dashboard() {
       // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
       if (latestCompleted && reportFetchedForRef.current !== latestCompleted.id) {
-        loadReport(latestCompleted.id)
+        loadReport(latestCompleted.id, generation)
       }
     } catch (e) {
-      setError(e.message)
+      if (requestGeneration.current === generation) {
+        setMotRequest('error')
+        setError(e.message)
+      }
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (requestGeneration.current === generation) {
+        setLoadedWorkspaceId(wsId)
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
-  }, [loadReport, navigate])
+  }, [activeWorkspaceId, loadReport, navigate])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    return () => { requestGeneration.current += 1 }
+  }, [load])
 
   const ins        = deriveInsights(scans, report)
   const latestScan = scans[0] || null
 
-  if (loading) {
+  if (loading || loadedWorkspaceId !== activeWorkspaceId) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Spinner size="lg" />
