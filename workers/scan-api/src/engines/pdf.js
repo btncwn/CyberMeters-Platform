@@ -586,7 +586,7 @@ function sectionOverall(w, snap, { concise = false } = {}) {
   } else overallEvidenceStrength(w, assertions);
   if (o.summary) {
     w.gap(2);
-    evidenceBasisLine(w, "Eight-domain summary basis", o.evidence_grade);
+    evidenceBasisLine(w, "Posture summary basis", o.evidence_grade);
     w.prose(customerBodyText(o.summary), { size: 10 });
   }
   const ec = o.evidence_completeness || {};
@@ -724,7 +724,7 @@ function highestSev(items) {
   return best;
 }
 function sectionDomains(w, snap, { detail = "full" } = {}) {
-  w.heading("Eight-Domain Cyber MOT");
+  w.heading("Cyber MOT: External posture");
   for (const d of reportDomains(snap.domains)) {
     const findings = domainItems(snap, d.domain_key, "finding");
     const observations = domainItems(snap, d.domain_key, "observation");
@@ -1358,7 +1358,7 @@ function sectionEvidenceGradeAppendix(w, snap) {
 
   appendixEvidenceAssertion(w, "Cyber Metrics Score / CyberMeters assessment band", overall.assessment_evidence_grade);
   appendixEvidenceAssertion(w, "Business Risk Indicator", overall.business_risk_indicator?.evidence_grade);
-  appendixEvidenceAssertion(w, "Eight-domain summary", overall.evidence_grade);
+  appendixEvidenceAssertion(w, "Posture summary", overall.evidence_grade);
 
   for (const domain of reportDomains(snap.domains)) {
     appendixEvidenceAssertion(w, `Domain - ${domain.display_name}`, domain.evidence_grade);
@@ -1531,7 +1531,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   const dmarcPresentation = buildDmarcPolicyPresentation(read.dmarcPolicy);
   const entries = [
     ["overview", "1. Assessment overview & priorities"],
-    ["domains", "2. Eight-area coverage"],
+    ["domains", "2. External posture coverage"],
     ["findings", "3. Findings & observations"],
     ["actions", "4. Remediation plan"],
     ["score", "5. Score & qualifications"],
@@ -1754,7 +1754,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
   executiveRelatedChanges(w, relatedChanges);
   ok.forEach((r) => {
     w.newPage();
-    w.display("Eight-Domain Cyber MOT", { size: 19 });
+    w.display("Cyber MOT: External posture", { size: 19 });
     w.prose(r.snapshot.snapshot?.domain || "Website name not recorded", { size: 11, bold: true, width: 84 });
     w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot?.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
     if (r.snapshot.snapshot?.provenance === "reconstructed_on_demand") w.prose("Reconstructed from recorded evidence; historical workflow details may be unavailable.", { size: 8, width: 110 });

@@ -915,7 +915,7 @@ export function composeSnapshot({
   const issues = stateCounts.issue_detected || 0;
   const attention = domainEntries.length - healthy - issues;
   const overallSummary =
-    `Across the eight Cyber MOT domains: ${healthy} assessed healthy, ${issues} with issues detected, ` +
+    `Across your external posture: ${healthy} assessed healthy, ${issues} with issues detected, ` +
     `and ${attention} needing further evidence, customer input or monitoring.`;
   const skippedModules = Array.isArray(scanQuality?.modules_skipped) ? scanQuality.modules_skipped : [];
   const notFullyAssessed = domainEntries
@@ -930,7 +930,7 @@ export function composeSnapshot({
     grade: lowestEvidenceGrade(domainEntries.map((entry) => entry.evidence_grade)),
     source_type: "product_policy",
     basis:
-      "Overall evidence strength is the weakest of the eight domains, so a domain with limited evidence is never hidden by stronger ones.",
+      "Overall evidence strength is the weakest of the areas, so a domain with limited evidence is never hidden by stronger ones.",
     limits: domainEntries
       .filter((entry) => entry.evidence_grade?.grade === "L0")
       .map((entry) => `${entry.display_name}: ${entry.state_reason}`),

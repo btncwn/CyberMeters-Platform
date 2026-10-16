@@ -39,7 +39,7 @@
   --text-xl: 1.3125rem;
   --text-xl--line-height: 1.875rem;
 
-  --font-sans: 'CM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'CM Sans', system-ui, sans-serif;
   --font-cm: 'Computer Modern Serif', Georgia, Cambria, serif;
   --font-mono: 'Computer Modern Typewriter', ui-monospace, monospace;
 
@@ -453,11 +453,10 @@
 @layer base {
   html { scroll-behavior: smooth; }
   body {
-    /* Cooler, slightly deeper canvas so white cards read as deliberate surfaces
-       (Linear/Vanta-style layering) instead of floating on flat white. */
+    /* White canvas; the shell paints its own white-to-sky gradient over it. */
     @apply text-black antialiased;
     background-color: #ffffff;
-    font-family: 'CM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-family: 'CM Sans', system-ui, sans-serif;
   }
   /* Typography (founder, 16 Oct 2026): page and section titles keep the serif;
      every other text — including h3/h4 — is the product sans. */

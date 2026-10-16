@@ -543,7 +543,7 @@ export function projectDmarcSnapshotForCustomer(snapshot, policyEvidence) {
     overall: {
       ...(snapshot.overall || {}),
       summary:
-        `Across the eight Cyber MOT domains: ${healthy} assessed healthy, ` +
+        `Across your external posture: ${healthy} assessed healthy, ` +
         `${issues} with issues detected, and ${attention} needing further ` +
         "evidence, customer input or monitoring.",
       not_fully_assessed: notFullyAssessed,
