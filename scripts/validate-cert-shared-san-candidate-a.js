@@ -579,8 +579,11 @@ const parity = states.map(parityOutputs);
 // goldens move. With ONLY cyber-mot-domains.js reverted the previous hashes
 // (c4e6b4e0… / 5aeea4a3…) reproduce exactly; the evidence hash is unchanged and the
 // PDF label map (pdf.js) and Related Changes rule text move neither golden.
-const GOLDEN_F13 = "ac7c9aabb32fd4e019d1d99a1f8c11d9dd54199e39926fcd1d2d171b3e4710f8";
-const GOLDEN_F14 = "84df1ceb9206aad151f92b4f956533ee212ef4b4e6824451994dea94042202e8";
+// Customer-state accuracy moves the resolver, score and snapshot-builder
+// stamps. This certificate-only fixture has no Brand or DMARC finding; only
+// methodology metadata and its PDF rendering change here.
+const GOLDEN_F13 = "4fe03f24a1e0978bec66c1dc413176530c2b81ad028892b3cbcad361fc0b876b";
+const GOLDEN_F14 = "366be2326069c08bfa36c724ad5846010d5c173abb8d6ffb7edc1ee0d39ec717";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
