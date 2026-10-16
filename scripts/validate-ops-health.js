@@ -28,7 +28,12 @@ apply(path.join(root, "database", "schema.sql"));
 for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((f) => f.endsWith(".sql")).sort()) {
   apply(path.join(root, "database", "migrations", f));
 }
-const realD1 = { prepare: (sql) => ({ first: async () => db.prepare(sql).get() ?? null }) };
+db.prepare(`INSERT INTO operational_events (id, event_type, correlation_id, status, attempts)
+            VALUES ('ops-scheduled-ok', 'scheduled_scan_query', 'scheduled-scan:2026-10-16T08:00', 'ok', 1)`).run();
+const realD1 = { prepare: (sql) => ({
+  first: async () => db.prepare(sql).get() ?? null,
+  bind: (...args) => ({ first: async () => db.prepare(sql).get(...args) ?? null }),
+}) };
 const realHealth = await computeOpsHealth({ cybermeters_db: realD1 });
 ok("real empty schema: healthy", realHealth.healthy === true);
 ok("real empty schema: db reachable", realHealth.dbReachable === true);
@@ -39,6 +44,7 @@ ok("real empty schema: no alert email", formatOpsHealthEmail(realHealth) === nul
 // ── 2. Controlled counts via a mock D1 keyed by table name ───────────────────
 function mockEnv(counts, { throwAll = false } = {}) {
   const pick = (sql) => {
+    if (/scheduled_scan_query/i.test(sql)) return counts.scheduled_scan_query ?? 0;
     if (/FROM scans/i.test(sql)) return counts.stuck_scans ?? 0;
     if (/COALESCE\(error/i.test(sql)) return counts.lifecycle_emails_outcome_unknown ?? 0;
     if (/lifecycle_email_events/i.test(sql)) return counts.failed_lifecycle_emails ?? 0;
@@ -49,7 +55,10 @@ function mockEnv(counts, { throwAll = false } = {}) {
   return { cybermeters_db: { prepare: (sql) => ({ first: async () => {
     if (throwAll) throw new Error("d1 down");
     return { c: pick(sql) };
-  } }) } };
+  }, bind: () => ({ first: async () => {
+    if (throwAll) throw new Error("d1 down");
+    return { status: counts.scheduled_scan_query ? "error" : "ok" };
+  } }) }) } };
 }
 
 // All well below threshold → healthy, silent.
@@ -115,7 +124,7 @@ const partialDown = {
     prepare: (sql) => ({ first: async () => {
       if (/COALESCE\(error/i.test(sql)) throw new Error("outcome query unavailable");
       return { c: 0 };
-    } }),
+    }, bind: () => ({ first: async () => ({ status: "ok" }) }) }),
   },
 };
 const unknownUnreadable = await computeOpsHealth(partialDown);

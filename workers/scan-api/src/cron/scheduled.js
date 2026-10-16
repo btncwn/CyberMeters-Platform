@@ -171,14 +171,35 @@ export async function runScheduled(event, env, ctx, tasks) {
 
   // ── Scheduled scans ────────────────────────────────────────────────────
   let result;
-  try {
-    result = await env.cybermeters_db
-      .prepare(FAIR_DUE_SCHEDULES_SQL)
-      .bind(now)
-      .all();
-  } catch {
-    // Table may not exist yet — nothing to process
-  }
+  const queryCorrelationId = `scheduled-scan:${now.slice(0, 16)}:${crypto.randomUUID()}`;
+  await runCronTask(env, "scheduled_scan_dispatch", async () => {
+    let status = "ok";
+    try {
+      result = await env.cybermeters_db
+        .prepare(FAIR_DUE_SCHEDULES_SQL)
+        .bind(now)
+        .all();
+    } catch (error) {
+      if (/no such table:\s*scheduled_scans\b/i.test(String(error?.message ?? error))) {
+        status = "table_missing";
+      } else {
+        status = "error";
+        const recorded = await persistOperationalEvent(env, {
+          eventType: OPS_EVENT_TYPES.SCHEDULED_SCAN_QUERY,
+          correlationId: queryCorrelationId,
+          status,
+        });
+        if (!recorded.persisted) console.error("[scheduled-scan-query] failure event unavailable");
+        throw error;
+      }
+    }
+    const recorded = await persistOperationalEvent(env, {
+      eventType: OPS_EVENT_TYPES.SCHEDULED_SCAN_QUERY,
+      correlationId: queryCorrelationId,
+      status,
+    });
+    if (!recorded.persisted) throw new Error("scheduled scan query outcome could not be recorded");
+  });
 
   // Run the due scans through a bounded pool so at most SCHEDULED_SCAN_CONCURRENCY
   // full scans fan out at once — the shared 1,000-subrequest budget is never blown

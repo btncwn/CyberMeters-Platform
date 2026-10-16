@@ -11,7 +11,7 @@ import { getEffectiveDomainLimit, getEffectivePlanState } from "../engines/entit
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { canonicalDomainInput, createId, isValidDomain, isValidEmail } from "../lib/util.js";
-import { revokeMcpOAuthWorkspaceConnections } from "./mcp-oauth-purge.js";
+import { drainRevokedMcpOAuthGrantBacklog, prepareMcpOAuthWorkspaceRevocation } from "./mcp-oauth-purge.js";
 import {
   phase5EvidenceReadCoverage,
   projectPhase5ScanRowsForCustomer,
@@ -490,41 +490,40 @@ export async function workspacesCoreRoutes(rctx) {
 
 	        const now = new Date().toISOString();
 
-	        // Soft-delete the workspace
-	        await revokeMcpOAuthWorkspaceConnections(env, workspaceId);
-	        await env.cybermeters_db
-	          .prepare("UPDATE workspaces SET deleted_at = ? WHERE id = ?")
-	          .bind(now, workspaceId)
-	          .run();
-
-	        // Disable all scheduled scans for this workspace
-	        await env.cybermeters_db
-	          .prepare("UPDATE scheduled_scans SET enabled = 0 WHERE workspace_id = ?")
-	          .bind(workspaceId)
-	          .run();
-
-	        // Archive active assets for this workspace (preserve history per Rule 5)
-	        await env.cybermeters_db
-	          .prepare("UPDATE workspace_assets SET status = 'inactive' WHERE workspace_id = ? AND status = 'active'")
-	          .bind(workspaceId)
-	          .run();
-
+	        // The access fence is part of the same D1 transaction as deletion.
+	        // Its queued KV cleanup runs only after that transaction commits.
+	        const oauthRevocation = await prepareMcpOAuthWorkspaceRevocation(env, workspaceId);
 	        // Schedule the hard purge: one pending request per workspace. The
 	        // purge cron only acts DELETION_PURGE_WINDOW_DAYS after created_at,
 	        // so the owner can restore any time before then.
 	        const existingReq = await env.cybermeters_db
 	          .prepare("SELECT id FROM deletion_requests WHERE request_type = 'workspace' AND workspace_id = ? AND status IN ('pending', 'purging') LIMIT 1")
 	          .bind(workspaceId)
-	          .first()
-	          .catch(() => null);
+	          .first();
+	        const db = env.cybermeters_db;
+	        const changes = [
+	          db.prepare("UPDATE workspaces SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+	            .bind(now, workspaceId),
+	          ...(oauthRevocation ? [oauthRevocation] : []),
+	          db.prepare("UPDATE scheduled_scans SET enabled = 0 WHERE workspace_id = ?")
+	            .bind(workspaceId),
+	          db.prepare("UPDATE workspace_assets SET status = 'inactive' WHERE workspace_id = ? AND status = 'active'")
+	            .bind(workspaceId),
+	        ];
 	        if (!existingReq) {
-	          await env.cybermeters_db
-	            .prepare(`INSERT INTO deletion_requests
+	          changes.push(db.prepare(`INSERT INTO deletion_requests
 	                        (id, request_type, user_id, workspace_id, requested_by, status, created_at, updated_at)
 	                      VALUES (?, 'workspace', ?, ?, ?, 'pending', ?, ?)`)
-	            .bind(createId("delreq"), user.id, workspaceId, user.id, now, now)
-	            .run()
-	            .catch(() => {});
+	            .bind(createId("delreq"), user.id, workspaceId, user.id, now, now));
+	        }
+	        const results = await db.batch(changes);
+	        if (Number(results?.[0]?.meta?.changes ?? 0) !== 1) {
+	          return json({ error: "Workspace deletion could not be confirmed; please retry" }, 503);
+	        }
+	        if (oauthRevocation) {
+	          await drainRevokedMcpOAuthGrantBacklog(env).catch((error) => {
+	            console.error("[workspace-delete] OAuth cleanup queued", String(error?.message ?? error));
+	          });
 	        }
 	        const purgeAfter = new Date(Date.now() + DELETION_PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
@@ -551,7 +550,7 @@ export async function workspacesCoreRoutes(rctx) {
 
 	        return json({ deleted: true, workspace_id: workspaceId, deleted_at: now, purge_after: purgeAfter, restorable_until: purgeAfter });
 	      } catch {
-	        return json({ error: "Unable to delete workspace" }, 500);
+	        return json({ error: "Workspace deletion could not be completed; please retry" }, 503);
 	      }
 	    }
 
