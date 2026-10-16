@@ -329,7 +329,8 @@ test('customer lifecycle: signup, onboarding, scan, email protection, billing, d
   await page.getByRole('button', { name: /technical details/i }).click()
   await expect(page.getByText(/DMARC policy is monitoring only/i)).toBeVisible()
 
-  await page.goto('/ws/email-protection')
+  // The page body (the DMARC journey) lives on the Findings tab of the area contract (16 Oct 2026).
+  await page.goto('/ws/email-protection?tab=findings')
   await expect(page.getByText(/DMARC Policy Journey/i)).toBeVisible()
   await expect(page.getByText('You are here · Monitoring')).toBeVisible()
 
