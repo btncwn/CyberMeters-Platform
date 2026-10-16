@@ -78,7 +78,7 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
       evidence: [{ remediation_id: 'web.header.csp', customer_title: 'Strengthen the website content policy' }],
       unknown_signals: [],
     }]))
-    mount()
+    mountOverview()
 
     const title = await screen.findByText('Strengthen the website content policy')
     const helper = screen.getByText('web.header.csp')
