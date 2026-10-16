@@ -71,15 +71,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2588 | preflight | public | — |
-| DELETE | `(none)` | 2594 | unknown | **GAP** | — |
-| GET | `(none)` | 2594 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2594 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2594 | unknown | **GAP** | — |
-| POST | `(none)` | 2594 | unknown | **GAP** | — |
-| PUT | `(none)` | 2594 | unknown | **GAP** | — |
-| GET | `/health` | 2599 | public-or-global | public | — |
-| GET | `/ready` | 2618 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2596 | preflight | public | — |
+| DELETE | `(none)` | 2602 | unknown | **GAP** | — |
+| GET | `(none)` | 2602 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2602 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2602 | unknown | **GAP** | — |
+| POST | `(none)` | 2602 | unknown | **GAP** | — |
+| PUT | `(none)` | 2602 | unknown | **GAP** | — |
+| GET | `/health` | 2607 | public-or-global | public | — |
+| GET | `/ready` | 2626 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -544,7 +544,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 305 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 388 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 | POST | `/^\/api\/workspaces\/([^/` | 477 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/api/account/deleted-workspaces` | 578 | account | ✓ | requireAuth |
-| POST | `/^\/api\/workspaces\/([^/` | 645 | workspace | ✓ | requireAuth |
+| GET | `/api/account/deleted-workspaces` | 577 | account | ✓ | requireAuth |
+| POST | `/^\/api\/workspaces\/([^/` | 644 | workspace | ✓ | requireAuth |
 
 _`*` = workspace-scoping helper (getAccessibleWorkspaceIds / getWorkspaceBillingUserId)._
