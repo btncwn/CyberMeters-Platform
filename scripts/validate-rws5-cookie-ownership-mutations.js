@@ -22,8 +22,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m1-material-severity-admission",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => (SEV_RANK[String(f?.severity || \"\").toLowerCase()] ?? 0) >= 2 && d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => (SEV_RANK[String(f?.severity || \"\").toLowerCase()] ?? 0) >= 2 && d.match(f));",
     expectedFailures: [
       "B3 actionable HSTS finding stays positive-first under required-evidence failure",
       "B3 low HSTS finding owns Website issue state",
@@ -38,8 +38,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m2-domain-match-only-admission",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => d.match(f));",
     expectedFailures: [
       "B3 CAA observation owns no domain issue/count/identity",
       "B3 HSTS preload observation owns no domain issue/count/identity",
@@ -49,8 +49,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m3-score-impact-as-authority",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => Number(f?.score_impact) < 0 && d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => Number(f?.score_impact) < 0 && d.match(f));",
     expectedFailures: [
       "B3 actionable HSTS finding stays positive-first under required-evidence failure",
       "B3 low HSTS finding owns Website issue state",
@@ -67,8 +67,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m4-observation-severity-promotion",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => (isActionableFinding(f) || [\"critical\", \"high\"].includes(String(f?.severity || \"\").toLowerCase())) && d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => (isActionableFinding(f) || [\"critical\", \"high\"].includes(String(f?.severity || \"\").toLowerCase())) && d.match(f));",
     expectedFailures: ["B3 synthetic critical observation owns no domain issue/count/identity"],
   },
   {
