@@ -37,7 +37,16 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
 {
   const comp = read("frontend/src/components/CyberMotDomains.jsx");
   ok("shared presentation component exists and does not import/call the resolver", /export default function CyberMotDomains/.test(comp) && !/from ['"].*cyber-mot-domains/.test(comp) && !/resolveCyberMotDomainStates\(/.test(comp));
-  ok("Main Dashboard renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/Dashboard.jsx")));
+  // Clean app shell (16 Oct 2026): the home screen shows every area through the
+  // PostureCard (all eight from the resolver, the vocabulary word per row, Loading/
+  // Error on a failed read — never a settled word); the eight-card panel stays on
+  // the workspace overview, the scan detail and the executive report.
+  const posture = read("frontend/src/components/overview/PostureCard.jsx");
+  ok("PostureCard renders all eight areas from the registry with the backend word and no resolver logic",
+    /MODULES\.map\(/.test(posture) && /domainStatus\(/.test(posture) && /domainsRequestState\(/.test(posture)
+      && !/from ['"].*cyber-mot-domains/.test(posture) && !/resolveCyberMotDomainStates\(/.test(posture));
+  ok("Main Dashboard renders the PostureCard", /<PostureCard[\s>]/.test(read("frontend/src/pages/Dashboard.jsx")));
+  ok("Workspace overview renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/ws/WorkspaceDashboard.jsx")));
   ok("Scan Detail renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/ScanDetail.jsx")));
   ok("Executive Report UI renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/components/ExecutiveReportV2.jsx")));
   // Dashboard no longer defaults absent evidence to green.

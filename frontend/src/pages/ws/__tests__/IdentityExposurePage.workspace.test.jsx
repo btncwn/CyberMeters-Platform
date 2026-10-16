@@ -5,6 +5,7 @@
 // useWorkspace(). These tests render on the REAL paramless route and prove the
 // API gets the context wsId, never undefined, and is not called before the
 // workspace resolves.
+// The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
@@ -22,7 +23,7 @@ const WS_ID = 'ws_real_identity_1'
 // Rendered on the paramless production route — there is no :workspaceId to read.
 function mount() {
   return render(
-    <MemoryRouter initialEntries={['/ws/identity-exposure']}>
+    <MemoryRouter initialEntries={['/ws/identity-exposure?tab=findings']}>
       <Routes><Route path="/ws/identity-exposure" element={<IdentityExposurePage />} /></Routes>
     </MemoryRouter>,
   )

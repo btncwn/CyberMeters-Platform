@@ -1,6 +1,7 @@
 // ── Shadow IT inventory — workspace comes from context, never a route param ───
 // Regression: read `useParams().workspaceId` on a paramless /ws/* route →
 // undefined → /api/workspaces/undefined/... → 403. Now uses useWorkspace().
+// The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
@@ -17,7 +18,7 @@ const WS_ID = 'ws_real_shadowit_1'
 
 function mount() {
   return render(
-    <MemoryRouter initialEntries={['/ws/shadow-it']}>
+    <MemoryRouter initialEntries={['/ws/shadow-it?tab=findings']}>
       <Routes><Route path="/ws/shadow-it" element={<ShadowItInventoryPage />} /></Routes>
     </MemoryRouter>,
   )

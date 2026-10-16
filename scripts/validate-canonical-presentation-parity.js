@@ -146,9 +146,11 @@ const files = walk(S);
       && /assessment\?\.provisional === false/.test(dash)
       && /assessment\?\.display_rating != null/.test(dash)
       && /riskLevel = latestAssessment\.rating/.test(dash));
-  ok("Dashboard shows a non-authoritative latest result as provisional and unrated",
-    /postureProvisional = !!latest && !postureEstablished/.test(dash)
-      && /<ScoreRing score=\{ins\.score\} riskLevel=\{ins\.riskLevel\} provisional=\{ins\.postureProvisional\}/.test(dash));
+  // Clean app shell (16 Oct 2026): the home screen carries no score ring and no
+  // trend — the only score it shows is the recent-scan row, under the same
+  // authority decision. The provisional projection stays in deriveInsights.
+  ok("Dashboard shows a non-authoritative latest result as provisional, and renders no score ring",
+    /postureProvisional = !!latest && !postureEstablished/.test(dash) && !/<ScoreRing/.test(dash));
   ok("Dashboard trend requires assessment comparability",
     /\.filter\(s => assessedScan\(s\)\.comparable\)/.test(dash));
   ok("Dashboard recent rows use the same authority decision",

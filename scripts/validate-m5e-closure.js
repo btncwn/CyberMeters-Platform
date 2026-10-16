@@ -210,7 +210,14 @@ async function checkEightDomainCompleteness() {
   const registry = getSource("frontend/src/lib/moduleRegistry.js");
   const dashboard = getSource("frontend/src/pages/Dashboard.jsx");
   const workspaceDashboard = getSource("frontend/src/pages/ws/WorkspaceDashboard.jsx");
-  ok("A/G: Dashboard renders the shared SecurityOverview", /<SecurityOverview[\s\n]/.test(dashboard));
+  // Clean app shell (16 Oct 2026): the home screen keeps the shared PostureCard
+  // (every area from the registry) and the shared NextActionCard (one ladder);
+  // the full SecurityOverview with its counts stays on the workspace overview.
+  ok("A/G: Dashboard renders the shared PostureCard and NextActionCard from the overview module",
+    /<PostureCard[\s\n]/.test(dashboard) && /<NextActionCard[\s\n]/.test(dashboard)
+      && /import \{ NextActionCard \} from '\.\.\/components\/overview\/SecurityOverview'/.test(dashboard)
+      && !/<SecurityOverview[\s\n]/.test(dashboard) && !/<CyberMotDomains[\s\n]/.test(dashboard));
+  ok("A/G: PostureCard renders the module registry", /MODULES\.map\(/.test(getSource("frontend/src/components/overview/PostureCard.jsx")));
   ok("A/G: WorkspaceDashboard renders the shared SecurityOverview", /<SecurityOverview[\s\n]/.test(workspaceDashboard));
   for (const label of CANONICAL_LABELS) {
     ok(`A/G: WorkspaceNav exposes ${label}`, nav.includes(label));

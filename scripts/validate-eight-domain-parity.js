@@ -183,12 +183,18 @@ const cleanComplete = () => ({
     /catch[\s\S]{0,300}resolveCyberMotDomainStates\(null\)/.test(dashSrc));
 }
 
-// B3. STATIC — Dashboard.jsx renders <CyberMotDomains UNCONDITIONALLY.
+// B3. STATIC — Dashboard.jsx renders the eight-area PostureCard UNCONDITIONALLY
+// (clean app shell, 16 Oct 2026: the home screen's eight-area surface); the
+// workspace overview still renders <CyberMotDomains unconditionally.
 {
   const jsx = await fs.readFile(path.join(root, "frontend", "src", "pages", "Dashboard.jsx"), "utf8");
-  ok("B3: Dashboard.jsx renders <CyberMotDomains", jsx.includes("<CyberMotDomains"));
+  ok("B3: Dashboard.jsx renders <PostureCard", jsx.includes("<PostureCard"));
   ok("B3: Dashboard.jsx does NOT gate the panel behind report?.cyber_mot_domains &&",
     !jsx.includes("report?.cyber_mot_domains &&"));
+  const ws = await fs.readFile(path.join(root, "frontend", "src", "pages", "ws", "WorkspaceDashboard.jsx"), "utf8");
+  ok("B3: WorkspaceDashboard.jsx renders <CyberMotDomains", ws.includes("<CyberMotDomains"));
+  ok("B3: WorkspaceDashboard.jsx does NOT gate the panel behind report?.cyber_mot_domains &&",
+    !ws.includes("report?.cyber_mot_domains &&"));
 }
 
 // B4. A newer provisional TLS assessment must supply the grid's evidence even

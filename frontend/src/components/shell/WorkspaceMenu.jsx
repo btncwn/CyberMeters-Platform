@@ -1,28 +1,17 @@
 // WorkspaceMenu — the workspace button at the foot of the rail and its
-// popover: the active workspace, the switch list, Manage workspaces, Members
-// & roles, Clear selection, and the workspace tools (every route the old
-// sidebar reached stays reachable). Writes the same localStorage keys the
-// rest of the app reads and fires a `storage` event so the shell follows at
-// once. Closes on Escape and on an outside click; focus returns to the button.
+// popover: the active workspace, the switch list, Manage workspaces and
+// Members & roles (founder, 16 Oct 2026: nothing else lives here — the
+// workspace settings are in the account menu, Related changes under Cases,
+// Scorecard and the executive dashboard under Reports). Writes the same
+// localStorage keys the rest of the app reads and fires a `storage` event so
+// the shell follows at once. Closes on Escape and on an outside click; focus
+// returns to the button.
 import { useEffect, useRef, useState } from 'react'
 import { Building2, Check } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 
 export const WORKSPACE_MENU_ID = 'cm-workspace-menu'
-
-// Secondary workspace/admin destinations — unchanged set, one place.
-export const WORKSPACE_TOOLS = Object.freeze([
-  { to: '/ws/dashboard',           label: 'Administration' },
-  { to: '/ws/scorecard',           label: 'Scorecard' },
-  { to: '/ws/executive-dashboard', label: 'Executive dashboard' },
-  { to: '/ws/cases',               label: 'Operations' },
-  { to: '/ws/related-changes',     label: 'Related changes' },
-  { to: '/ws/audit-log',           label: 'Audit log' },
-  { to: '/ws/alerts',              label: 'Alert channels' },
-  { to: '/ws/retention',           label: 'Usage & retention' },
-  { to: '/settings',               label: 'Settings' },
-])
 
 export default function WorkspaceMenu({ wsId, wsName, placement = 'up' }) {
   const navigate = useNavigate()
@@ -68,15 +57,6 @@ export default function WorkspaceMenu({ wsId, wsName, placement = 'up' }) {
     window.dispatchEvent(new Event('storage'))
     close({ refocus: true })
     navigate('/ws/dashboard')
-  }
-
-  function clear() {
-    localStorage.removeItem('cybermeters_workspace_id')
-    localStorage.removeItem('cybermeters_workspace_name')
-    window.dispatchEvent(new Event('storage'))
-    close({ refocus: true })
-    // The /ws/... pages belong to the workspace just cleared, so leave them.
-    navigate('/workspaces')
   }
 
   const itemClass = 'flex items-center gap-2 px-4 py-2 text-[15px] text-gray-800 hover:bg-gray-50 transition-colors'
@@ -127,18 +107,7 @@ export default function WorkspaceMenu({ wsId, wsName, placement = 'up' }) {
           <div className="border-t border-gray-100 py-1">
             <Link role="menuitem" to="/workspaces" onClick={() => close({ refocus: true })} className={`${itemClass} font-semibold text-brand-700`}>Manage workspaces</Link>
             <Link role="menuitem" to="/ws/members" onClick={() => close({ refocus: true })} className={itemClass}>Members &amp; roles</Link>
-            {wsId && (
-              <button type="button" role="menuitem" onClick={clear} className={`${itemClass} w-full text-left text-gray-600`}>Clear selection</button>
-            )}
           </div>
-          {wsId && (
-            <div className="border-t border-gray-100 py-1">
-              <p className="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Workspace tools</p>
-              {WORKSPACE_TOOLS.map(({ to, label }) => (
-                <Link key={to} role="menuitem" to={to} onClick={() => close({ refocus: true })} className={itemClass}>{label}</Link>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

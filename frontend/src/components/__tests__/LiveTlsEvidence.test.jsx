@@ -126,7 +126,8 @@ describe('Live TLS evidence presentation', () => {
       { domain: 'historic.example.test', issuer: 'Historical issuer', certificate_assurance: assurance, live_tls: null, days_until_expiry: null },
     ] })
     api.getWorkspaceCertificatesTimeline.mockResolvedValue({})
-    render(<MemoryRouter><CertificatesPage /></MemoryRouter>)
+    // The page body lives on the Findings tab of the area contract (16 Oct 2026).
+    render(<MemoryRouter initialEntries={['/ws/certificates?tab=findings']}><CertificatesPage /></MemoryRouter>)
     expect(await screen.findByText(fingerprint)).toBeInTheDocument()
     expect(screen.getByText('Historical log record only')).toBeInTheDocument()
     expect(screen.getByText('Historical issuer')).toBeInTheDocument()

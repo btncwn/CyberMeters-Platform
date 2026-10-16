@@ -2,14 +2,14 @@
 // (founder, 16 Oct 2026) opens with a serif title, the area's description, the
 // backend evidence word and a filter box, then four tabs:
 //
-//   Overview    — the area's sub-page tiles and the full contract, in order:
-//                 1 Scope → 2 Evidence state → 3 Risk → 4 Findings
-//                 → 5 Recommended action → 6 Managed case → 7 Verification
-//                 → 8 Field Guide
-//   Findings    — the page's own findings body (section 4) and the
-//                 recommended action (5)
-//   Cases       — the managed cases (6) and verification (7)
-//   Field Guide — the Field Guide section (8)
+//   Overview    — the area's sub-page tiles and the summary: Scope, Evidence
+//                 state and Risk (founder, 16 Oct 2026: nothing else here)
+//   Findings    — the page's own findings body and the recommended action
+//   Cases       — the managed cases and verification
+//   Field Guide — the Field Guide section
+//
+// The eight contract sections keep their order and ids (MODULE_CONTRACT_SECTIONS);
+// each is reached through exactly one tab.
 //
 // The page keeps its own findings body (passed as children); the contract
 // renders the framing sections from backend values only: the area's resolver
@@ -19,8 +19,8 @@
 // read that fails or is still pending is shown as that. The filter box narrows
 // the tiles and the case list by text; it does not search anything else and
 // its placeholder says so.
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronRight, Search } from 'lucide-react'
 import { customerEvidenceText } from '../../lib/evidenceStrengthDisplay'
 import { ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL } from '../../lib/caseDisplay'
@@ -49,6 +49,19 @@ export const MODULE_TABS = Object.freeze([
   { id: 'guide',    label: 'Field Guide' },
 ])
 const TAB_IDS = MODULE_TABS.map((t) => t.id)
+
+/**
+ * Which tab a URL opens. An explicit `?tab=` wins; otherwise a deep link into the
+ * page body — an anchor (`#dmarc-setup`, the sub-page tiles) or any other query
+ * parameter (`?lifecycle=…`, `?condition=…`, the alert links) — opens Findings,
+ * because that is where the body lives; a bare URL opens Overview.
+ */
+export function tabForLocation(params, hash) {
+  const explicit = params.get('tab')
+  if (TAB_IDS.includes(explicit)) return explicit
+  if (hash || [...params.keys()].some((k) => k !== 'tab')) return 'findings'
+  return 'overview'
+}
 
 const SEVERITY_TONE = { critical: 'text-red-700', high: 'text-orange-700', medium: 'text-amber-700', low: 'text-blue-700', info: 'text-gray-600' }
 
@@ -87,6 +100,23 @@ export function useModuleContract(workspaceId, domainKey) {
   return state
 }
 
+/**
+ * For a page's own "go to" buttons: scroll to the element when it is on the
+ * current tab, otherwise open the Findings tab at that anchor (the body lives
+ * there); the contract then scrolls once it has rendered.
+ */
+export function useAreaAnchor() {
+  const navigate = useNavigate()
+  const { pathname, search } = useLocation()
+  return useCallback((id) => {
+    const el = document.getElementById(id)
+    if (el) { if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
+    const next = new URLSearchParams(search)
+    next.set('tab', 'findings')
+    navigate({ pathname, search: `?${next.toString()}`, hash: `#${id}` })
+  }, [navigate, pathname, search])
+}
+
 /** Case-insensitive text match used by the area filter box. */
 export function matchesFilter(text, query) {
   const q = String(query || '').trim().toLowerCase()
@@ -96,8 +126,7 @@ export function matchesFilter(text, query) {
 
 function SectionHeading({ section, theme }) {
   return (
-    <h2 id={`${section.id}-heading`} className="section-title flex items-baseline gap-2">
-      <span className="text-sm font-bold tabular-nums" style={theme ? { color: theme.text } : undefined}>{section.n}</span>
+    <h2 id={`${section.id}-heading`} className="section-title" style={theme ? { color: theme.text } : undefined}>
       {section.label}
     </h2>
   )
@@ -153,8 +182,15 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   const module = moduleForDomainKey(domainKey)
   const theme = moduleTheme(domainKey)
   const [params, setParams] = useSearchParams()
-  const tab = TAB_IDS.includes(params.get('tab')) ? params.get('tab') : 'overview'
+  const { hash } = useLocation()
+  const tab = tabForLocation(params, hash)
   const [query, setQuery] = useState('')
+  // An anchor in the URL scrolls to its element once the tab that holds it has rendered.
+  useEffect(() => {
+    if (!hash) return
+    const el = document.getElementById(hash.slice(1))
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' })
+  }, [hash, tab])
   const { domainsRequest, entry, casesRequest, cases } = useModuleContract(workspaceId, domainKey)
   const evidenceStatus = domainStatus(entry, domainsRequest === 'ok' && !entry ? 'error' : domainsRequest)
   const read = domainsRequest === 'ok' && entry
@@ -363,21 +399,11 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
         {tab === 'overview' && (
           <>
             <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} />
-            <nav aria-label="On this page" className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-              {MODULE_CONTRACT_SECTIONS.map((s) => (
-                <a key={s.id} href={`#${s.id}`} className="hover:text-gray-900"><span className="tabular-nums">{s.n}</span> {s.label}</a>
-              ))}
-            </nav>
-            <div className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6" data-testid="module-summary">
               {scopeSection}
               {evidenceSection}
               {riskSection}
             </div>
-            {findingsSection}
-            {recommendedSection}
-            {casesSection}
-            {verificationSection}
-            {guideSection}
           </>
         )}
         {tab === 'findings' && (

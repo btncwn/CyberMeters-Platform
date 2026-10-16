@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import WorkspaceNav, { SERVICES, detectServiceKey, subpagesForDomainKey, MODULE_SUBPAGES } from '../WorkspaceNav'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
@@ -90,7 +90,7 @@ describe('WorkspaceNav (module rail)', () => {
 })
 
 describe('WorkspaceNav — workspace button and popover', () => {
-  it('names the active workspace, lists workspaces on open, and offers manage / members / clear / tools', async () => {
+  it('names the active workspace, lists workspaces on open, and offers Manage workspaces and Members & roles only', async () => {
     renderNav()
     const b = screen.getByRole('button', { name: 'Workspace: Deneme' })
     expect(b).toHaveAttribute('aria-expanded', 'false')
@@ -102,27 +102,29 @@ describe('WorkspaceNav — workspace button and popover', () => {
     expect(within(menu).getByRole('menuitem', { name: /Deneme/ })).toHaveAttribute('aria-current', 'true')
     expect(within(menu).getByRole('menuitem', { name: 'Manage workspaces' })).toHaveAttribute('href', '/workspaces')
     expect(within(menu).getByRole('menuitem', { name: 'Members & roles' })).toHaveAttribute('href', '/ws/members')
-    expect(within(menu).getByRole('menuitem', { name: 'Clear selection' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Administration' })).toHaveAttribute('href', '/ws/dashboard')
-    expect(within(menu).getByRole('menuitem', { name: 'Settings' })).toHaveAttribute('href', '/settings')
+    // Founder, 16 Oct 2026: nothing else lives here — no Clear selection, no workspace tools.
+    expect(within(menu).queryByRole('menuitem', { name: 'Clear selection' })).not.toBeInTheDocument()
+    for (const gone of ['Administration', 'Scorecard', 'Executive dashboard', 'Operations', 'Related changes', 'Audit log', 'Alert channels', 'Usage & retention', 'Settings']) {
+      expect(within(menu).queryByRole('menuitem', { name: gone })).not.toBeInTheDocument()
+    }
+    expect(within(menu).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['Deneme', 'Other', 'Manage workspaces', 'Members & roles'])
     expect(api.getWorkspaces).toHaveBeenCalledTimes(1)
     // No two visible links in the popover share a destination.
     const hrefs = within(menu).getAllByRole('menuitem').map(i => i.getAttribute('href')).filter(Boolean)
     expect(new Set(hrefs).size).toBe(hrefs.length)
   })
 
-  it('without a workspace the button says so and offers no Clear selection or tools', () => {
+  it('without a workspace the button says so and still offers Manage workspaces', () => {
     renderNav('/dashboard', { wsId: null, wsName: '' })
     const b = screen.getByRole('button', { name: 'Select a workspace' })
     fireEvent.click(b)
     const menu = screen.getByRole('menu', { name: 'Workspace' })
     expect(within(menu).getByTestId('active-workspace-name')).toHaveTextContent('No workspace selected')
-    expect(within(menu).queryByRole('menuitem', { name: 'Clear selection' })).not.toBeInTheDocument()
-    expect(within(menu).queryByRole('menuitem', { name: 'Administration' })).not.toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Manage workspaces' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Members & roles' })).toBeInTheDocument()
   })
 
-  it('switching writes the workspace and clearing removes it; Escape returns focus to the button', async () => {
+  it('switching writes the workspace; Escape returns focus to the button', async () => {
     localStorage.clear()
     renderNav()
     const b = screen.getByRole('button', { name: 'Workspace: Deneme' })
@@ -136,9 +138,6 @@ describe('WorkspaceNav — workspace button and popover', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu', { name: 'Workspace' })).not.toBeInTheDocument()
     expect(document.activeElement).toBe(b)
-
-    fireEvent.click(b)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Clear selection' }))
-    await waitFor(() => expect(localStorage.getItem('cybermeters_workspace_id')).toBeNull())
+    expect(localStorage.getItem('cybermeters_workspace_id')).toBe('ws2')
   })
 })

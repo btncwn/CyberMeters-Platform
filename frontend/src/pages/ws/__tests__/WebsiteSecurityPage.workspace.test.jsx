@@ -24,7 +24,8 @@ const ITEM = {
   first_seen_at: '2026-07-01T00:00:00Z',
 }
 
-function mount(entry = '/ws/website-security') {
+// The page body lives on the Findings tab of the area contract (16 Oct 2026); a deep link (?condition=) opens it there by itself.
+function mount(entry = '/ws/website-security?tab=findings') {
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <Routes><Route path="/ws/website-security" element={<WebsiteSecurityPage />} /></Routes>

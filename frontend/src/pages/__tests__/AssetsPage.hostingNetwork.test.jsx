@@ -1,3 +1,4 @@
+// The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,7 +42,7 @@ async function renderPage() {
   api.getWorkspaceAssetsTimeline.mockResolvedValue({ timeline: [] })
   api.getManagedCases.mockResolvedValue({ cases: [] })
   api.getWorkspaceAsset.mockResolvedValue({ asset: assets[0], events: [], evidence: null })
-  render(<MemoryRouter><AssetsPage /></MemoryRouter>)
+  render(<MemoryRouter initialEntries={['/assets?tab=findings']}><AssetsPage /></MemoryRouter>)
   await screen.findByText('app.example.com')
 }
 
