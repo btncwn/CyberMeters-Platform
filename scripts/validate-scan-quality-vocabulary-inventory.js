@@ -254,7 +254,8 @@ const EXPECTED = Object.freeze({
     // runtime files; the raw value is always passed through bounded projection.
     // Historical brand-score suppression reads the projected scan quality once
     // more when it constructs an evidence-insufficient assessment.
-    runtime: { occurrence_count: 124, source_file_count: 46, fingerprint: "cc07b652149c73966490c2959d5c92a4be612f6b9bd46badb9ea755a54b237d0" },
+    // Attack Surface evidence adds two direct reads of the recorded scan quality.
+    runtime: { occurrence_count: 126, source_file_count: 47, fingerprint: "8c03047c2cf0fe53ba0cf678cf33bfd1a520187774fe2da406ace3137dc164c6" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
