@@ -403,14 +403,26 @@ async function main() {
       for (const check of checks) ok(check.name, check.pass);
     });
     ok("Date.now is restored after the sequential F4 fixture", Date.now === dateNowBeforeF4);
-    // Fail-CLOSED on store error: drop the rate-limit table; a fresh IP (never
-    // capped) must be DENIED, not allowed through — the failClosed caller denies.
+    // Fail-CLOSED on the login limiter's own store error. Keep the independent
+    // global guard readable so this fixture reaches the login action itself.
     await withRateLimitClock(RATE_LIMIT_EPOCH_MS, async () => {
       const failCall = makeCaller(worker, rlEnv, { fixedIp: "203.0.113.99" });
       const beforeDrop = await failCall("POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
       ok("fresh IP is NOT independently rate-limited before the store fails (isolates the cause)", beforeDrop.status !== 429);
-      rlDb.exec("DROP TABLE api_rate_limits");
-      const afterDrop = await failCall("POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
+      const loginFaultEnv = {
+        ...rlEnv,
+        cybermeters_db: wrapD1(rlEnv.cybermeters_db, (sql, args, bound) => {
+          if (!/api_rate_limits/i.test(sql) || !args.includes("login")) return bound;
+          return new Proxy(bound, {
+            get(target, property) {
+              if (property === "first") return async () => { throw new Error("forced login rate-store failure"); };
+              return forwardMember(target, property);
+            },
+          });
+        }),
+      };
+      const afterDrop = await makeCaller(worker, loginFaultEnv, { fixedIp: "203.0.113.99" })(
+        "POST", "/api/auth/login", null, { email: "login@a.co", password: "wrong-pw" });
       ok("rate-store error → login DENIED (fails CLOSED, not open)", afterDrop.status === 429);
     });
     ok("Date.now is restored after the store-failure fixture", Date.now === dateNowBeforeF4);

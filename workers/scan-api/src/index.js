@@ -1462,10 +1462,10 @@ async function assertWorkspacePurgeProven(env, workspaceId) {
 
 async function claimDeletionRequest(env, req) {
   const sql = req.status === "pending"
-    ? "UPDATE deletion_requests SET status = 'purging', updated_at = datetime('now') WHERE id = ? AND status = 'pending'"
+    ? "UPDATE deletion_requests SET status = 'purging', updated_at = datetime('now') WHERE id = ? AND status = 'pending' AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))"
     // Stale-lease reclaim: a run that crashed mid-purge left the row 'purging'.
     // One cron tick (hourly) must elapse before anyone may take it back.
-    : "UPDATE deletion_requests SET updated_at = datetime('now') WHERE id = ? AND status = 'purging' AND updated_at <= datetime('now','-1 hours')";
+    : "UPDATE deletion_requests SET updated_at = datetime('now') WHERE id = ? AND status = 'purging' AND datetime(updated_at) <= datetime('now','-1 hours') AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))";
   try {
     const res = await env.cybermeters_db.prepare(sql).bind(req.id).run();
     return Number(res?.meta?.changes ?? 0) === 1;
@@ -1510,9 +1510,12 @@ async function processDeletionRequests(env) {
     try { await purgeExpiredMcpOAuthBrowserState(env); }
     catch (error) { console.error("[mcp-oauth-expiry-purge]", String(error?.message ?? error)); }
     const rows = await env.cybermeters_db
-      .prepare(`SELECT id, request_type, user_id, workspace_id, status, created_at
+      .prepare(`SELECT id, request_type, user_id, workspace_id, status, created_at, attempt_count
                 FROM deletion_requests
                 WHERE status IN ('pending', 'purging')
+                  AND datetime(created_at) <= datetime('now','-30 days')
+                  AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))
+                  AND (status = 'pending' OR datetime(updated_at) <= datetime('now','-1 hours'))
                 ORDER BY created_at ASC
                 LIMIT 10`)
       .all();   // R1-02 — a failed read is not "no work due"; it reaches the outer catch.
@@ -1534,13 +1537,18 @@ async function processDeletionRequests(env) {
           await purgeAccountRequest(env, req);
         }
       } catch (e) {
-        // F-009 — ANY error leaves the request 'purging', i.e. RETRYABLE. No
-        // error path may reach 'completed'. The claim is released so the next
-        // tick can re-acquire it rather than waiting out the full lease.
+        // A partial purge stays 'purging' so restore cannot re-expose it.
+        // Move this request out of the eligible queue with bounded backoff;
+        // other due requests keep their place and run on later ticks.
         console.error("[deletion-purge] request", req.id, String(e?.message ?? e));
+        const attempt = Math.max(0, Number(req.attempt_count) || 0) + 1;
+        const waitHours = Math.min(24, 2 ** Math.min(attempt - 1, 5));
+        const nextAttemptAt = new Date(Date.now() + waitHours * 60 * 60 * 1000).toISOString();
         await env.cybermeters_db
-          .prepare("UPDATE deletion_requests SET updated_at = datetime('now','-2 hours') WHERE id = ? AND status = 'purging'")
-          .bind(req.id).run().catch(() => {});
+          .prepare("UPDATE deletion_requests SET attempt_count = attempt_count + 1, next_attempt_at = ?, updated_at = datetime('now') WHERE id = ? AND status = 'purging'")
+          .bind(nextAttemptAt, req.id).run().catch((retryError) => {
+            console.error("[deletion-purge] retry scheduling failed", req.id, String(retryError?.message ?? retryError));
+          });
       }
     }
   } catch (e) {
@@ -2655,8 +2663,8 @@ export default {
     // Coarse per-IP budgets applied to every route below (reads 300/5min,
     // writes 60/5min) so no endpoint is entirely unthrottled. Endpoint-
     // specific limits (signup, login, free-scan, invites, scans) still apply
-    // on top and are stricter. Fail-open and wrapped so the guard can never
-    // take the API down; OPTIONS and /health above are exempt.
+    // on top and are stricter. A storage failure closes this coarse guard;
+    // OPTIONS and /health above are exempt.
     try {
       const globalClientIp = request.headers.get("CF-Connecting-IP") || "unknown";
       const isReadRequest = request.method === "GET" || request.method === "HEAD";
@@ -2664,10 +2672,10 @@ export default {
       const globalLimit = isReadRequest ? 300 : 60;
       const globalRl = await consumeApiRateLimit(env,
         [{ scope: "ip", scope_id: await rateLimitScopeId(globalAction, globalClientIp) }],
-        globalAction, globalLimit, 300);
+        globalAction, globalLimit, 300, { failClosed: true });
       if (globalRl) return json(globalRl.body, globalRl.status);
     } catch {
-      // Rate limiting must never break request handling.
+      return json({ error: "Rate limiting is temporarily unavailable. Please try again shortly.", code: "rate_limit_unavailable" }, 503);
     }
 
     // Shared context for extracted route modules (src/routes/*). The static

@@ -19,6 +19,7 @@
 const OPS_EVENT_TYPES = Object.freeze({
   SCAN_DLQ_OBSERVED:     "scan_dlq_observed",
   CRON_TICK:             "cron_tick",
+  SCHEDULED_SCAN_QUERY:  "scheduled_scan_query",
   ALERT_DELIVERY_FAILED: "alert_delivery_failed",
 });
 
@@ -88,7 +89,7 @@ export async function latestOperationalEvent(env, eventType) {
         `SELECT event_type, correlation_id, status, attempts, created_at
            FROM operational_events
           WHERE event_type = ?
-          ORDER BY created_at DESC
+          ORDER BY created_at DESC, rowid DESC
           LIMIT 1`
       )
       .bind(eventType).first();

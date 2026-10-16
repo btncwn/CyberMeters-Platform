@@ -95,11 +95,11 @@
       "contract": "This is a background writer with no customer read; createNotificationEvent receives each enumerated workspace_id explicitly and isolates the resulting notification row."
     },
     {
-      "fingerprint": "2171d7229a59",
+      "fingerprint": "2553da1b5ff0",
       "file": "workers/scan-api/src/lib/operational-events.js",
       "detector": "global_latest_fallback",
-      "reason": "F-027 intentionally selects the newest platform-health event by type for the internal /ready and deadman freshness checks; it is not a customer or tenant read.",
-      "contract": "The only callers request cron_tick and backup_completed, whose producers write platform-level workspace_id NULL rows. The projection is limited to safe token/count/time columns and computeOperationalHealth reduces it to freshness booleans; no operational-event row is returned through a tenant surface. Changing the callers, event types or projection requires re-review."
+      "reason": "Internal health checks select the newest platform event by type; this is not a customer or tenant read.",
+      "contract": "Callers request cron_tick, backup_completed, or scheduled_scan_query. Their producers write platform-level workspace_id NULL rows. The projection is limited to status, token, count, and time columns; health evaluation reduces these to status and freshness signals. No event row is returned through a tenant surface. Changing the callers, event types, or projection requires re-review."
     },
     {
       "fingerprint": "b5d38a008910",
