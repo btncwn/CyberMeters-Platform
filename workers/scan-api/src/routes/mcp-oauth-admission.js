@@ -1,5 +1,6 @@
 import { getEffectivePlanState, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { drainRevokedMcpOAuthGrantBacklog } from "./mcp-oauth-purge.js";
+import { mcpFounderCanaryAllowsUser, mcpFounderCanaryAllowsWorkspace } from "./mcp-founder-canary.js";
 
 export const MCP_OAUTH_ISSUER = "https://api.cybermeters.com";
 export const MCP_OAUTH_RESOURCE = "https://mcp.cybermeters.com/mcp";
@@ -47,6 +48,7 @@ export function isMcpOAuthClientAllowed(env, clientId) {
   // DCR issues 16-character base64url-alphabet IDs. Treat only this bounded
   // opaque form as registration-backed; every URL-like or malformed ID fails.
   if (!/^https:/i.test(clientId)) return ID_RE.test(clientId);
+  if (env?.MCP_OAUTH_CIMD_ENABLED === "false") return false;
   let parsed;
   try { parsed = new URL(clientId); } catch { return false; }
   if (parsed.protocol !== "https:" || clientId !== parsed.toString() ||
@@ -124,7 +126,7 @@ export async function reconcileMcpOAuthPortfolioSubscription(env, subscriptionRo
 export async function listMcpOAuthGrantedWorkspaces(env, userId, connectionId) {
   if (!env?.cybermeters_db || !validId(userId) || !validId(connectionId)) return null;
   const data = await env.cybermeters_db.prepare(
-    `SELECT selected.workspace_id AS id, w.name, w.deleted_at, wm.role,
+    `SELECT selected.workspace_id AS id, w.name, w.owner_user_id, w.deleted_at, wm.role,
             b.status AS beta_status,
             EXISTS (SELECT 1 FROM deletion_requests d
               WHERE d.request_type = 'workspace' AND d.workspace_id = selected.workspace_id
@@ -140,6 +142,7 @@ export async function listMcpOAuthGrantedWorkspaces(env, userId, connectionId) {
       data.results.length > MAX_CONSENT_WORKSPACES ||
       data.results.some((row) => !validId(row.id) ||
         typeof row.name !== "string" || row.name.length > 256 ||
+        !mcpFounderCanaryAllowsWorkspace(env, userId, row.owner_user_id) ||
         row.deleted_at !== null || row.beta_status !== "enabled" ||
         !ROLES.has(row.role) || Number(row.deleting) !== 0)) return null;
   return data.results.map((row) => ({ id: row.id, name: row.name, role: row.role }));
@@ -173,6 +176,7 @@ export async function admitMcpOAuthToken(env, token, resource = MCP_OAUTH_RESOUR
   if (!env?.cybermeters_db) throw new Error("mcp_oauth_database_unavailable");
   if (!token || typeof token !== "object" ||
       token.audience !== resource || !validId(token.userId) ||
+      !mcpFounderCanaryAllowsUser(env, token.userId) ||
       typeof token.clientId !== "string" || token.clientId.length > 2048 ||
       !isMcpOAuthClientAllowed(env, token.clientId) ||
       !validId(token.props?.connectionId) || token.props.userId !== token.userId ||
@@ -218,7 +222,7 @@ export async function admitMcpOAuthToken(env, token, resource = MCP_OAUTH_RESOUR
     const plan = await getEffectivePlanState(token.userId, env);
     if (!singleWorkspacePlanAllowed(plan)) return null;
     const access = await env.cybermeters_db.prepare(
-      `SELECT wm.role FROM workspaces w
+      `SELECT wm.role, w.owner_user_id FROM workspaces w
          JOIN mcp_beta_workspace_access b ON b.workspace_id = w.id AND b.status = 'enabled'
          JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ?
         WHERE w.id = ? AND w.deleted_at IS NULL
@@ -226,14 +230,16 @@ export async function admitMcpOAuthToken(env, token, resource = MCP_OAUTH_RESOUR
              WHERE d.request_type = 'workspace' AND d.workspace_id = w.id
                AND d.status NOT IN ('completed','cancelled')) LIMIT 1`,
     ).bind(token.userId, connection.workspace_id).first();
-    if (!ROLES.has(access?.role)) return null;
+    if (!ROLES.has(access?.role) ||
+        !mcpFounderCanaryAllowsWorkspace(env, token.userId, access.owner_user_id)) return null;
   }
   return token;
 }
 
 /** Consent may name only live, beta-enrolled memberships. */
 export async function listMcpOAuthConsentWorkspaces(env, userId) {
-  if (!env?.cybermeters_db || !validId(userId)) return null;
+  if (!env?.cybermeters_db || !validId(userId) ||
+      !mcpFounderCanaryAllowsUser(env, userId)) return null;
   const user = await env.cybermeters_db.prepare(
     `SELECT status, email_verified FROM users WHERE id = ?
        AND NOT EXISTS (SELECT 1 FROM deletion_requests d
@@ -245,21 +251,24 @@ export async function listMcpOAuthConsentWorkspaces(env, userId) {
   // entitled plan: authorization would deny the same request at token issue.
   const plan = await getEffectivePlanState(userId, env);
   if (!singleWorkspacePlanAllowed(plan)) return null;
+  const founderCanary = env.MCP_DEPLOYMENT_TIER !== "staging";
   const data = await env.cybermeters_db.prepare(
-    `SELECT w.id, w.name, wm.role FROM workspace_members wm
+    `SELECT w.id, w.name, w.owner_user_id, wm.role FROM workspace_members wm
        JOIN workspaces w ON w.id = wm.workspace_id AND w.deleted_at IS NULL
        JOIN mcp_beta_workspace_access b ON b.workspace_id = w.id AND b.status = 'enabled'
       WHERE wm.user_id = ? AND wm.role IN ('viewer','analyst','admin','owner')
+        ${founderCanary ? "AND w.owner_user_id = ?" : ""}
         AND NOT EXISTS (SELECT 1 FROM deletion_requests d
            WHERE d.request_type = 'workspace' AND d.workspace_id = w.id
              AND d.status NOT IN ('completed','cancelled'))
       ORDER BY w.name ASC, w.id ASC LIMIT ?`,
-  ).bind(userId, MAX_CONSENT_WORKSPACES + 1).all();
+  ).bind(userId, ...(founderCanary ? [userId] : []), MAX_CONSENT_WORKSPACES + 1).all();
   if (!Array.isArray(data?.results) ||
       data.results.length === 0 || data.results.length > MAX_CONSENT_WORKSPACES) return null;
-  const workspaces = data.results.filter((row) => validId(row.id) && ROLES.has(row.role) &&
-    typeof row.name === "string" && row.name.length <= 256);
-  return workspaces.length === data.results.length && workspaces.length > 0 ? workspaces : null;
+  const valid = data.results.every((row) => validId(row.id) && ROLES.has(row.role) &&
+    typeof row.name === "string" && row.name.length <= 256 &&
+    mcpFounderCanaryAllowsWorkspace(env, userId, row.owner_user_id));
+  return valid ? data.results.map(({ id, name, role }) => ({ id, name, role })) : null;
 }
 
 export async function canGrantMcpPortfolio(env, userId) {

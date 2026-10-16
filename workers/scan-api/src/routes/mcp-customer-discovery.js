@@ -4,6 +4,7 @@
 import { visibleFindingSql } from "../engines/finding-identity.js";
 import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 import { boundedReportReads } from "./mcp-projections.js";
+import { mcpCriticalFindingSql } from "./mcp-finding-presentation.js";
 
 const PAGE_SIZE = 10;
 const MAX_RESULT_BYTES = 8_192;
@@ -245,6 +246,7 @@ async function listFindings(env, grant, input, scope) {
         AND wd.verification_status = 'verified'
         AND f.severity IN ('critical', 'high')
         AND ${visibleFindingSql("f", "s")}
+        AND ${mcpCriticalFindingSql("f")}
         AND s.id = (
           SELECT sy.id FROM scans sy
            WHERE sy.workspace_id = s.workspace_id AND sy.domain = s.domain

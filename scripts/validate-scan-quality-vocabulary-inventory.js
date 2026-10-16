@@ -116,6 +116,10 @@ const EXPECTED = Object.freeze({
     // MCP discovery/status add two tenant-scoped query sites with four
     // complete-quality predicates. The portfolio command-centre merge shifts
     // executive-dashboard source positions without changing its predicates.
+    // Founder canary filters historical brand candidates in the two MCP SQL
+    // readers before pagination. A main/head inventory diff confirms the same
+    // 40 quality predicates, 29 sites and 22 sinks with identical quality
+    // operator/status classifications; only those SQL snippets change.
     predicate_occurrences: 40,
     unique_query_sites: 29,
     source_file_count: 18,
@@ -137,9 +141,9 @@ const EXPECTED = Object.freeze({
     // executive-dashboard SQL query site, which moves by that much; the
     // two-tree --dump-current diff shows only line/offset shifts — predicate
     // text, site/sink counts and classification are unchanged.
-    fingerprint: "55c138aff585ff748126211acffb8cc17380683139e3adebce0ee8804039c547",
+    fingerprint: "de919838f28966078e5405476a86d7948d1cf872a95aba9e5695dcedf962c134",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "4d3d7c3e8cb481faceb6a702ab33dc10aef279f02549b089ddb19a48e8ae94eb",
+    resolved_query_sink_fingerprint: "0841be7e83068112aff305a47e8fdee52cd98b042218759ac240cd6eb9773901",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -302,7 +306,9 @@ const EXPECTED = Object.freeze({
   // Two MCP projections select scan_quality under an explicit workspace fence.
   // The same bounded reader's added projection shifts source lines; SQL reads
   // and their count are unchanged.
-  sql_reads: { projection_occurrences: 24, fingerprint: "2dd444ed1525e0a4cfcd7fbbdabb512c08fe1ce39feb9c376cfeb17d305462f5" },
+  // Founder canary shifts MCP route source lines; all 24 projected reads remain
+  // unchanged in content and file, as confirmed by the two-tree inventory diff.
+  sql_reads: { projection_occurrences: 24, fingerprint: "b6ef0a5a72eab7505b81ad23dc4aaff51a7779714ace862d467b5c6d5a387666" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

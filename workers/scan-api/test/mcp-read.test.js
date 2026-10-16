@@ -12,6 +12,8 @@ import {
   projectMcpScanStatus, projectMcpManagedCase, projectMcpPortfolioSummary,
   projectMcpPosture,
 } from "../src/routes/mcp-projections.js";
+import { projectUnvalidatedBrandSnapshotForCustomer } from "../src/engines/brand-candidate-presentation.js";
+import { resolveCyberMotDomainStates } from "../src/engines/cyber-mot-domains.js";
 import { CE_QUESTIONS } from "../src/lib/cyber-essentials.js";
 
 const TOKEN_A = `cm_${"a".repeat(64)}`;
@@ -272,6 +274,65 @@ test("completed Cyber Essentials questionnaire cannot establish posture without 
     assert.equal(corrupt.score_state, "not_assessed");
     assert.ok(corrupt.domains.every((row) => row.state !== "assessed_healthy"));
   } finally { f.close(); }
+});
+
+test("MCP posture withholds assessed state when a historical brand candidate suppresses the customer score", async () => {
+  const workspaceId = "ws_a";
+  const scanId = "scan_complete";
+  const domainId = "domain_a";
+  const canonical = {
+    snapshot: { workspace_id: workspaceId, scan_id: scanId, domain_id: domainId },
+    domains: resolveCyberMotDomainStates(null, { scanId }).map((domain) =>
+      domain.domain_key === "brand_protection"
+        ? { ...domain, state: "assessed_healthy", evidence_grade: { grade: "L1" } }
+        : domain),
+    overall: {
+      assessment: { quality: "complete", authoritative: true,
+        provisional: false, comparable: true },
+      cyber_metrics_score: 82,
+      score_band: "low",
+      summary: "Healthy",
+    },
+  };
+  const customerSnapshot = projectUnvalidatedBrandSnapshotForCustomer(canonical, {
+    modules: { brand_monitoring: { candidates_validated: false } },
+    findings: [{ id: "brand_lookalike", module: "brand_monitoring",
+      finding_type: "vulnerability", severity: "critical" }],
+  });
+  assert.equal(customerSnapshot.overall.cyber_metrics_score, null);
+  assert.equal(customerSnapshot.overall.assessment.authoritative, false);
+
+  const posture = { state: "established", authoritative_scan_id: scanId,
+    authoritative: { display_score: 82 }, latest_provisional: null };
+  const env = { cybermeters_reports: { async get() { throw new Error("unexpected R2 read"); } } };
+  const grant = { workspaceId };
+  const readSnapshot = async (_env, id, options) => {
+    assert.equal(id, scanId);
+    assert.deepEqual(options,
+      { repair: false, allowReconstruction: false, includeSuccessor: false });
+    return { status: "ok", integrity: { verified: true },
+      row: { workspace_id: workspaceId, scan_id: scanId, domain_id: domainId },
+      customerSnapshot: canonical };
+  };
+  const getPosture = async (_env, scope) => {
+    assert.deepEqual(scope, { workspaceId });
+    return posture;
+  };
+  const established = await projectMcpPosture(env, grant, { getPosture, readSnapshot });
+  assert.equal(established.score_state, "assessed");
+  assert.equal(established.domains.find((domain) => domain.domain_key === "brand_protection").state,
+    "assessed_healthy");
+
+  const withheld = await projectMcpPosture(env, grant, { getPosture,
+    readSnapshot: async (...args) => {
+      const read = await readSnapshot(...args);
+      return { ...read, customerSnapshot };
+    } });
+  assert.equal(withheld.source_scan_id, scanId);
+  assert.equal(withheld.score_state, "current_not_assessed");
+  assert.notEqual(withheld.domains.find((domain) => domain.domain_key === "brand_protection").state,
+    "assessed_healthy");
+  assert.equal(withheld.domains.find((domain) => domain.domain_key === "brand_protection").finding_count, 0);
 });
 
 test("one managed case read is scoped to tenant and hides foreign versus missing IDs", async () => {

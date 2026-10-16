@@ -6,6 +6,7 @@ import { consumeApiRateLimit } from "../lib/rate-limit.js";
 import { recordMetric } from "../lib/metrics.js";
 import { getEffectivePlanState, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { listMcpOAuthGrantedWorkspaces, resolveMcpOAuthConfig } from "./mcp-oauth-admission.js";
+import { mcpFounderCanaryAllowsUser, mcpFounderCanaryAllowsWorkspace } from "./mcp-founder-canary.js";
 import {
   projectMcpSummary, projectMcpPosture, projectMcpRecentScans,
   projectMcpScanStatus, projectMcpManagedCases, projectMcpManagedCase,
@@ -83,7 +84,7 @@ function validateInput(read, input) {
 
 async function currentWorkspace(env, userId, workspaceId) {
   const row = await env.cybermeters_db.prepare(
-    `SELECT w.id, w.name, w.deleted_at, m.role, b.status AS beta_status
+    `SELECT w.id, w.name, w.owner_user_id, w.deleted_at, m.role, b.status AS beta_status
        FROM workspaces w
        LEFT JOIN workspace_members m ON m.workspace_id = w.id AND m.user_id = ?
        LEFT JOIN mcp_beta_workspace_access b ON b.workspace_id = w.id
@@ -92,7 +93,8 @@ async function currentWorkspace(env, userId, workspaceId) {
           AND dr.workspace_id = w.id AND dr.status NOT IN ('completed','cancelled')
       ) LIMIT 1`,
   ).bind(userId, workspaceId).first();
-  if (!row || row.deleted_at != null || row.beta_status !== "enabled" ||
+  if (!row || !mcpFounderCanaryAllowsWorkspace(env, userId, row.owner_user_id) ||
+      row.deleted_at != null || row.beta_status !== "enabled" ||
       !ROLES.has(row.role)) throw deny();
   return { id: row.id, name: row.name, role: row.role };
 }
@@ -108,6 +110,7 @@ async function loadCustomerGrant(env, token, resource) {
   if (!props || token.audience !== resource ||
       !hasScopes(token.scope, ["mcp:read"]) ||
       !validId(props.userId) || !validId(props.connectionId) ||
+      !mcpFounderCanaryAllowsUser(env, props.userId) ||
       (props.workspaceId != null && !validId(props.workspaceId)) ||
       typeof props.portfolioRead !== "boolean" ||
       ((props.workspaceId == null) !== props.portfolioRead)) throw deny();

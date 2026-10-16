@@ -217,6 +217,37 @@ test("finding keyset pages return every distinct item without truncating a criti
   } finally { f.close(); }
 });
 
+test("unvalidated historical brand candidates cannot occupy MCP finding pages", async () => {
+  const f = fixture();
+  try {
+    verifyFindingDomain(f);
+    f.sql.prepare("DELETE FROM findings WHERE id='finding_a'").run();
+    for (let i = 0; i < 12; i += 1) {
+      f.sql.prepare("INSERT INTO findings VALUES (?, 'scan_a_complete', 'brand_lookalike_detected', 'critical', ?, '{}')")
+        .run(`brand_${i}`, `Brand lookalike domain detected: candidate-${i}.example`);
+    }
+    f.sql.prepare("INSERT INTO findings VALUES ('legacy_brand', 'scan_a_complete', NULL, 'critical', 'Visually confusable IDN lookalike observed: candidate.example', '{}')").run();
+    for (let i = 0; i < 11; i += 1) {
+      f.sql.prepare("INSERT INTO findings VALUES (?, 'scan_a_complete', 'spf_missing', 'high', ?, '{}')")
+        .run(`verified_${i}`, `SPF issue ${i}`);
+    }
+    const first = await projectMcpFindings(f.env, own, null, { workspaceId: "ws_a" });
+    assert.equal(first.findings.length, 10);
+    assert.equal(first.has_more, true);
+    const second = await projectMcpFindings(f.env, own, null,
+      { workspaceId: "ws_a", cursor: first.next_cursor });
+    assert.equal(second.findings.length, 1);
+    assert.equal(second.has_more, false);
+    const all = [...first.findings, ...second.findings];
+    assert.equal(new Set(all.map((row) => row.finding_id)).size, 11);
+    assert.ok(all.every((row) => row.finding_type === "spf_missing"));
+    const portfolioPage = await projectMcpPortfolioFindings(f.env, portfolio, null, {});
+    assert.equal(portfolioPage.findings.length, 10);
+    assert.ok(portfolioPage.findings.every((row) => row.finding_type === "spf_missing"));
+    assert.equal(first.coverage_state, "not_proven_complete");
+  } finally { f.close(); }
+});
+
 test("portfolio grant comes from server and every current membership is rechecked", async () => {
   const f = fixture();
   try {

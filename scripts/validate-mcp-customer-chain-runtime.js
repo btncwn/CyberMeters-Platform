@@ -103,6 +103,7 @@ export default { async fetch(request, env, ctx) {
       kv_namespaces: [{ binding: 'OAUTH_KV', id: '00000000000000000000000000000122' }],
       vars: { MCP_CUSTOMER_OAUTH_ENABLED: 'true', MCP_CUSTOMER_READ_ENABLED: 'true',
         MCP_DEPLOYMENT_TIER: 'staging', MCP_OAUTH_DCR_ENABLED: 'true',
+        MCP_OAUTH_CIMD_ENABLED: 'false', MCP_OAUTH_DCR_LOOPBACK_ENABLED: 'true',
         TEST_RESOURCE: resource, TEST_ISSUER: origin },
     }));
     const migration = await readFile(join(repo, 'database/migrations/121-mcp-oauth.sql'), 'utf8');
@@ -115,7 +116,7 @@ export default { async fetch(request, env, ctx) {
       'database/migrations/124-mcp-oauth-selected-workspaces.sql'), 'utf8');
     await writeFile(seedPath, `
       CREATE TABLE users(id TEXT PRIMARY KEY, status TEXT, email_verified INTEGER);
-      CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT);
+      CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT, owner_user_id TEXT);
       CREATE TABLE workspace_members(id TEXT PRIMARY KEY, workspace_id TEXT, user_id TEXT, role TEXT);
       CREATE TABLE user_sessions(id TEXT PRIMARY KEY, user_id TEXT, token_hash TEXT, expires_at TEXT);
       CREATE TABLE deletion_requests(id TEXT PRIMARY KEY, request_type TEXT, user_id TEXT,
@@ -134,7 +135,7 @@ export default { async fetch(request, env, ctx) {
         created_at TEXT, updated_at TEXT);
       ${rate}\n${migration}\n${auditRetentionIndex}\n${mcpRateRetentionIndex}\n${selectedWorkspaces}
       INSERT INTO users VALUES ('u1','active',1),('u2','active',1);
-      INSERT INTO workspaces VALUES ('w1','One',NULL),('w2','Two',NULL);
+      INSERT INTO workspaces VALUES ('w1','One',NULL,'u1'),('w2','Two',NULL,'u2');
       INSERT INTO workspace_members VALUES ('wm1','w1','u1','viewer'),('wm2','w2','u2','viewer');
       INSERT INTO user_sessions VALUES ('s1','u1','${hash(sessionA)}','2099-01-01'),
         ('s2','u2','${hash(sessionB)}','2099-01-01');
@@ -182,6 +183,14 @@ export default { async fetch(request, env, ctx) {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
     }
     if (!ready) throw new Error(`Workerd startup timed out: ${log}`);
+    const authorizationMetadata = await fetch(`${origin}/.well-known/oauth-authorization-server`);
+    assert.equal(authorizationMetadata.status, 200);
+    const authorizationDocument = await authorizationMetadata.json();
+    assert.equal(authorizationDocument.issuer, origin);
+    assert.equal(authorizationDocument.authorization_response_iss_parameter_supported, true,
+      'a stable hosted callback requires RFC 9207 issuer identification');
+    assert.equal(authorizationDocument.client_id_metadata_document_supported, false,
+      'the canary must advertise DCR, not the unreviewed metadata-client lane');
 
     const registration = await fetch(`${origin}/oauth/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -224,7 +233,9 @@ export default { async fetch(request, env, ctx) {
         body: new URLSearchParams({ handle, decision: 'approve', context: workspaceId }),
       });
       assert.equal(approved.status, 302, await approved.clone().text());
-      const code = new URL(approved.headers.get('Location')).searchParams.get('code');
+      const redirect = new URL(approved.headers.get('Location'));
+      assert.equal(redirect.searchParams.get('iss'), origin);
+      const code = redirect.searchParams.get('code');
       assert.ok(code);
       const exchanged = await fetch(`${origin}/oauth/token`, {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -313,7 +324,15 @@ export default { async fetch(request, env, ctx) {
   }
 }
 
-main().catch((error) => {
+main().then(async () => {
+  // The existing CI MCP runtime step also enforces the founder-only admission
+  // and data-service tests without changing the protected workflow.
+  await exec(process.execPath, ['--test',
+    'workers/scan-api/test/mcp-oauth-admission.test.js',
+    'workers/scan-api/test/mcp-customer-service.test.js',
+  ], { cwd: repo, timeout: 120000, maxBuffer: 2 * 1024 * 1024 });
+  process.stdout.write('PASS: MCP OAuth and customer-service founder canary tests\n');
+}).catch((error) => {
   process.stderr.write(`FAIL: ${error.stack ?? error}\n`);
   process.exitCode = 1;
 });

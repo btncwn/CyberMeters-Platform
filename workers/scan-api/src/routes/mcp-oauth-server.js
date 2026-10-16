@@ -122,7 +122,7 @@ export function createMcpOAuthAuthorizationServer(env, options = {}) {
   return new OAuthAuthorizationServer({
     issuer, resources: [resource],
     scopesSupported: ["mcp:read", "portfolio:read", "offline_access"],
-    clientIdMetadataDocumentEnabled: true,
+    clientIdMetadataDocumentEnabled: env?.MCP_OAUTH_CIMD_ENABLED !== "false",
     ...(env?.MCP_OAUTH_DCR_ENABLED === "true" ? { clientRegistrationEndpoint: "/oauth/register" } : {}),
     clientRegistrationTTL: 90 * 24 * 60 * 60,
     clientRegistrationCallback: (input) => evaluateMcpDcrRegistration(input, env, options),

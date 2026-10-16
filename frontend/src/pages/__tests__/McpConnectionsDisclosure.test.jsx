@@ -43,4 +43,22 @@ describe('MCP connection disclosure', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('explains invitation-only beta when this account has no eligible workspace', async () => {
+    auth.token = 'test-session'
+    vi.stubEnv('VITE_MCP_BETA_ENABLED', 'true')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({
+      eligible: false, next_offset: null, connections: [],
+    }) })))
+    try {
+      render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
+      expect(await screen.findByText(/MCP beta is available by invitation for selected workspaces/))
+        .toBeInTheDocument()
+      expect(screen.queryByText(/Connect an eligible AI client/)).not.toBeInTheDocument()
+    } finally {
+      auth.token = null
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+    }
+  })
 })
