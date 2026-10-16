@@ -154,6 +154,10 @@ async function main() {
           SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_BUILDER_VERSION, EVIDENCE_GRADES,
           EVIDENCE_SOURCE_TYPES } = snapEngine;
   const { resolveCyberMotDomainStates, CYBER_MOT_RESOLVER_VERSION } = await import(pathToFileURL(srcPath("engines", "cyber-mot-domains.js")).href);
+  const { buildDmarcEvidenceFromDnsResult } = await import(pathToFileURL(srcPath("engines", "email-scan.js")).href);
+  const completeDmarc = buildDmarcEvidenceFromDnsResult({
+    status: "fulfilled", value: { Status: 0, Answer: [{ type: 16, data: "v=DMARC1; p=reject" }] },
+  }).dmarc_state;
   const { CYBER_MOT_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "cyber-mot-state-history.js")).href);
   const { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "business-risk.js")).href);
   const { CYBER_METRICS_SCORE_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "scoring.js")).href);
@@ -249,13 +253,13 @@ async function main() {
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
   ok("current resolver methodology stamp is independently pinned",
-     CYBER_MOT_RESOLVER_VERSION === "2026-10-13.1" &&
-     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-13.1");
+     CYBER_MOT_RESOLVER_VERSION === "2026-10-16.1" &&
+     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-16.1");
   // 2026-10-13.1: outside vulnerability data left the check pack, so no
   // exploited-vulnerability match can move the score (scoring.js).
   ok("the Cyber Metrics score methodology stamp is independently pinned",
-     CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-10-13.1" &&
-     snap1?.methodology?.cyber_metrics_score_methodology_version === "2026-10-13.1");
+     CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-10-16.1" &&
+     snap1?.methodology?.cyber_metrics_score_methodology_version === "2026-10-16.1");
   ok("the snapshot records the check-pack version its scan recorded (none for older reports)",
      snap1?.methodology?.check_pack_version === (report1?.check_pack?.version ?? null));
   ok("snapshot schema version stamped", snap1?.snapshot?.snapshot_schema_version === SNAPSHOT_SCHEMA_VERSION);
@@ -468,6 +472,7 @@ async function main() {
     incomplete: true,
     incomplete_reason: "ct_sources_unavailable",
   };
+  isolatedPartialReport.modules.email_security.dmarc_state = completeDmarc;
   const isolatedPartialSnapshot = composeSnapshot({
     snapshotId: "snap-grade-isolation",
     workspaceId: "ws1",
@@ -495,6 +500,7 @@ async function main() {
 
   const resolvedSpfReport = makeReport("scan_spf_l3", "dom1", "shared.example");
   resolvedSpfReport.modules.email_security = {
+    dmarc_state: completeDmarc,
     spf: {
       present: true,
       resolution_status: "complete",
@@ -754,15 +760,18 @@ async function main() {
     const { projectPhase5SnapshotForCustomer } = await import(
       pathToFileURL(srcPath("engines", "phase5-evidence.js")).href
     );
-    const expectedCustomerSnapshot = projectPhase5SnapshotForCustomer(
-      JSON.parse(put1.body),
-      report1.modules,
+    const { projectUnvalidatedBrandSnapshotForCustomer } = await import(
+      pathToFileURL(srcPath("engines", "brand-candidate-presentation.js")).href
+    );
+    const expectedCustomerSnapshot = projectUnvalidatedBrandSnapshotForCustomer(
+      projectPhase5SnapshotForCustomer(JSON.parse(put1.body), report1.modules), report1,
     );
     ok("route serves the fail-closed customer projection while immutable R2 bytes remain verbatim",
        got.status === 200
        && store.get(put1.key) === put1.body
        && JSON.stringify(got.data?.snapshot) === JSON.stringify(JSON.parse(put1.body))
        && JSON.stringify(got.data?.customer_snapshot) === JSON.stringify(expectedCustomerSnapshot)
+       && got.data?.customer_snapshot?.domains?.find((entry) => entry.domain_key === "brand_protection")?.state === "evidence_insufficient"
        && got.data?.customer_projection_metadata?.checksum_scope === "immutable_snapshot"
        && got.data?.customer_projection_metadata?.customer_projection_applied === true
        && got.data?.customer_projection_metadata?.authoritative_customer_field === "customer_snapshot");
@@ -935,8 +944,8 @@ async function main() {
   ok("new B3 snapshot observation cannot acquire domain issue authority from severity",
      !b3Website?.finding_ids?.includes("csp_weak_policy"));
   ok("new B3 snapshot stamps resolver and score methodologies independently",
-     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-13.1" &&
-     b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-10-13.1");
+     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-16.1" &&
+     b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-10-16.1");
 
   // ── Report ──────────────────────────────────────────────────────────────────
   console.log(`\nM5.c reporting snapshot: ${pass}/${pass + fail} passed`);

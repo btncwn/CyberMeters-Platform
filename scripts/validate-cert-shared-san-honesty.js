@@ -182,7 +182,7 @@ check("PDF_HAS_NO_AFFECTED_READER", !affectedRead.test(pdfSource));
 check("FRONTEND_HAS_NO_AFFECTED_READER", !affectedRead.test(frontendSources));
 check(
   "REPORT_API_TRANSPORTS_MODULE_NULLS",
-  /const customerReport = projectTlsReportForCustomer\(raw\);/.test(scanRouteSource) &&
+  /const customerReport = projectUnvalidatedBrandReportForCustomer\(projectTlsReportForCustomer\(raw\)\);/.test(scanRouteSource) &&
     /const storedModules = projectPhase5EvidenceForCustomer\(customerReport\.modules \?\? \{\}\);/.test(scanRouteSource) &&
     /modules: \{\s*\.\.\.normalisedModules,/s.test(scanRouteSource),
 );

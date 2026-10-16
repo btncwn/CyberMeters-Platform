@@ -22,8 +22,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m1-material-severity-admission",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = findings.filter((f) => (SEV_RANK[String(f?.severity || \"\").toLowerCase()] ?? 0) >= 2 && d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => (SEV_RANK[String(f?.severity || \"\").toLowerCase()] ?? 0) >= 2 && d.match(f));",
     expectedFailures: [
       "B3 actionable HSTS finding stays positive-first under required-evidence failure",
       "B3 low HSTS finding owns Website issue state",
@@ -38,8 +38,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m2-domain-match-only-admission",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = findings.filter((f) => d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => d.match(f));",
     expectedFailures: [
       "B3 CAA observation owns no domain issue/count/identity",
       "B3 HSTS preload observation owns no domain issue/count/identity",
@@ -49,8 +49,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m3-score-impact-as-authority",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = findings.filter((f) => Number(f?.score_impact) < 0 && d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => Number(f?.score_impact) < 0 && d.match(f));",
     expectedFailures: [
       "B3 actionable HSTS finding stays positive-first under required-evidence failure",
       "B3 low HSTS finding owns Website issue state",
@@ -67,8 +67,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m4-observation-severity-promotion",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: "    const domainFindings = findings.filter((f) => isActionableFinding(f) && d.match(f));",
-    replacement: "    const domainFindings = findings.filter((f) => (isActionableFinding(f) || [\"critical\", \"high\"].includes(String(f?.severity || \"\").toLowerCase())) && d.match(f));",
+    anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
+    replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => (isActionableFinding(f) || [\"critical\", \"high\"].includes(String(f?.severity || \"\").toLowerCase())) && d.match(f));",
     expectedFailures: ["B3 synthetic critical observation owns no domain issue/count/identity"],
   },
   {
@@ -95,7 +95,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m7-resolver-version-reused",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-13.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.1";',
     expectedFailures: ["current resolver version preserves the evidence-methodology boundary"],
   },
@@ -337,9 +337,9 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m8-score-methodology-moved",
     file: "workers/scan-api/src/engines/scoring.js",
-    anchor: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-13.1";',
+    anchor: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-16.1";',
     replacement: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-30.1";',
-    expectedFailures: ["score methodology version remains frozen"],
+    expectedFailures: ["score methodology version records the current deduction rule"],
   },
   {
     id: "b1-score-bearing-module-dropped",
@@ -453,7 +453,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "comparable-historical-transition",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-13.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.1";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
       "current resolver version preserves the evidence-methodology boundary",

@@ -87,9 +87,9 @@ import {
 // `2026-10-12.1`: certificate logs are no longer a source. Certificates read only
 // the certificate the live site presents; each domain's monitoring dependency is
 // the signal that actually feeds it. Cross-version trends are incomparable.
-// `2026-10-13.1`: measured TLS findings and incomplete deep-TLS coverage enter
-// Certificates & Trust without rewriting historical scans lacking that module.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-13.1";
+// `2026-10-16.1`: stored DMARC decisions and unvalidated brand candidates no
+// longer yield favourable or definitive conclusions from incomplete evidence.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -423,7 +423,14 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     const requiredInsufficient = required.filter((n) => moduleAttempted(report, n, skippedSet));
     const anyRequiredInsufficient = requiredInsufficient.length > 0;
 
-    const domainFindings = findings.filter((f) => isActionableFinding(f) && d.match(f));
+    const brandUnvalidated = d.domain_key === "brand_protection" &&
+      report?.modules?.brand_monitoring?.candidates_validated === false &&
+      moduleAssessed(report, "brand_monitoring", skippedSet);
+    const brandValidationUnknown = d.domain_key === "brand_protection" &&
+      ![true, false].includes(report?.modules?.brand_monitoring?.candidates_validated) &&
+      (report?.modules?.brand_monitoring != null || findings.some((f) => d.match(f)));
+    const domainFindings = brandUnvalidated || brandValidationUnknown
+      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));
     base.finding_count = domainFindings.length;
     base.evidence_count = assessed.length;
     base.finding_ids = [...new Set(domainFindings.map((f) => f.id).filter(Boolean))].sort();
@@ -434,6 +441,20 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.recommendation_count = domainFindings.filter((f) => f.recommendation).length;
     }
 
+    if (brandUnvalidated) {
+      const count = Array.isArray(report.modules.brand_monitoring.domains)
+        ? report.modules.brand_monitoring.domains.length : 0;
+      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.coverage = "partial";
+      base.summary = `${count} unvalidated lookalike candidate${count === 1 ? "" : "s"} on the watchlist. Registration and activity have not been confirmed.`;
+      return base;
+    }
+    if (brandValidationUnknown) {
+      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.coverage = "degraded";
+      base.summary = "The stored report has no candidate validation decision, so brand protection cannot be confirmed.";
+      return base;
+    }
     // ── Precedence (findings are never hidden; coverage carries the caveat) ──
     if (domainFindings.length > 0) {
       // A real finding always surfaces as issue_detected; coverage metadata tells the
@@ -448,10 +469,8 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     }
     // ── Email Protection: canonical DMARC contribution (ADR-003 §7) ──────────
     // DMARC's enforcement verdict comes from the canonical dmarc_state produced by
-    // deriveDmarcState(), read DIRECTLY from the live email module result. That
-    // property is NON-ENUMERABLE, so it only resolves at snapshot-build time (the
-    // in-memory report); an R2-rehydrated report drops it and this domain falls back
-    // to the module-presence logic below (historical scans are never rewritten).
+    // deriveDmarcState() and retained in the report. Older reports without that
+    // decision cannot establish a healthy email conclusion.
     // Runs only when NO material finding surfaced above, so a real finding is never
     // hidden — this exists to stop a healthy verdict for observed-but-weak DMARC
     // (partial/quarantine/invalid → issue_detected) or unobserved DMARC
@@ -460,6 +479,12 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // monitoring already surfaced as findings above and never reach here.
     if (d.domain_key === "email_protection") {
       const dmarcState = report?.modules?.email_security?.dmarc_state ?? null;
+      if (!dmarcState && moduleAssessed(report, "email_security", skippedSet)) {
+        base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+        base.coverage = "degraded";
+        base.summary = "The stored report has no DMARC decision, so email protection cannot be confirmed healthy.";
+        return base;
+      }
       const dmarcLevel = dmarcState?.enforcement_level ?? null;
       const contribution = dmarcLevel ? DMARC_MOT_CONTRIBUTION[dmarcLevel] : null;
       if (contribution === "issue_detected") {

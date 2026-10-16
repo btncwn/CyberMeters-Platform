@@ -1499,6 +1499,12 @@ jobs:
       - name: Validate DMARC DNS evidence PR-2 (observation status preserved — timeout/servfail never read as absent + mutations)
         run: node scripts/validate-dmarc-dns-evidence-pr2.js
 
+      - name: Validate launch customer-state fixtures
+        run: node scripts/validate-launch-state-accuracy-b.js
+
+      - name: Validate launch customer-state mutation controls
+        run: node scripts/validate-launch-state-accuracy-b-mutations.js
+
       - name: Validate Shadow IT correlation depth (multi-source + alias + evidence union + ownership + monitoring + removal contradiction + case reopen)
         run: node scripts/validate-shadow-it-correlation.js
 

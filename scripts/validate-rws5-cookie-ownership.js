@@ -285,7 +285,7 @@ eq("CSP non-200 response admits no weak-policy result", cspFinding("script-src '
 eq("shared CSP classifier identifies style-only weakness",
   headersContract.classifyCspPolicy("script-src 'self'; style-src 'unsafe-inline'")?.classification, "weak_style_only");
 
-eq("score methodology version remains frozen", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-10-13.1");
+eq("score methodology version records the current deduction rule", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-10-16.1");
 eq("score-bearing module order remains frozen", scoring.SCORE_BEARING_MODULES,
   ["dns", "ssl", "headers", "email_security", "asset_exposure", "subdomains", "subdomain_takeover"]);
 
@@ -461,7 +461,7 @@ for (const [label, row, domainKey] of [
   ok(`B3 ${label} observation owns no domain issue/count/identity`,
     state?.state !== "issue_detected" && state?.finding_count === 0 && JSON.stringify(state?.finding_ids) === "[]");
 }
-eq("current resolver version preserves the evidence-methodology boundary", domains.CYBER_MOT_RESOLVER_VERSION, "2026-10-13.1");
+eq("current resolver version preserves the evidence-methodology boundary", domains.CYBER_MOT_RESOLVER_VERSION, "2026-10-16.1");
 
 // 3. One canonical remediation identity, already Website-owned.
 const cookieEntries = remediation.REMEDIATION_REGISTRY.filter((entry) =>

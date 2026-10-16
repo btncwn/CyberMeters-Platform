@@ -248,7 +248,9 @@ const EXPECTED = Object.freeze({
     // quality reads retained only for fail-closed checks and visible labels.
     // MCP gateway/route reads add eight canonical-quality reads across five
     // runtime files; the raw value is always passed through bounded projection.
-    runtime: { occurrence_count: 123, source_file_count: 46, fingerprint: "ac390593215467e20bcc0e02a3271b8d8bb74773f54f5d32d0c4c36862061d87" },
+    // Historical brand-score suppression reads the projected scan quality once
+    // more when it constructs an evidence-insufficient assessment.
+    runtime: { occurrence_count: 124, source_file_count: 46, fingerprint: "cc07b652149c73966490c2959d5c92a4be612f6b9bd46badb9ea755a54b237d0" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -298,7 +300,9 @@ const EXPECTED = Object.freeze({
   // Hosting networks on asset rows move two attack-surface.js scan reads by 19
   // lines (1202/1215 -> 1221/1234); the 22 SQL reads are unchanged.
   // Two MCP projections select scan_quality under an explicit workspace fence.
-  sql_reads: { projection_occurrences: 24, fingerprint: "045bd2658d968ec5ed589d937fffa9a162df5d071aa954fae434c4ebd8c722ae" },
+  // The same bounded reader's added projection shifts source lines; SQL reads
+  // and their count are unchanged.
+  sql_reads: { projection_occurrences: 24, fingerprint: "2dd444ed1525e0a4cfcd7fbbdabb512c08fe1ce39feb9c376cfeb17d305462f5" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

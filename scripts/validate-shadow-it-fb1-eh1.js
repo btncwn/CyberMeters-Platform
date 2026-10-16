@@ -646,7 +646,10 @@ const CSP_MODULES = { headers: { values: { "content-security-policy": "script-sr
   const noHeaders = vendorRelationship.runVendorRelationshipModule({ technology_detection: { technologies: [], external_scripts: [] } });
   await scanEngine.upsertVendorRelationships("d1", noHeaders, env);
   const afterNoHeaders = vendorRow(fx.db, "Stripe");
-  const cleanEmpty = vendorRelationship.runVendorRelationshipModule({ headers: { values: {} }, technology_detection: { technologies: [], external_scripts: [] } });
+  const cleanEmpty = vendorRelationship.runVendorRelationshipModule({
+    headers: { values: {} }, technology_detection: { technologies: [], external_scripts: [] },
+    subdomain_takeover: { risks: [] }, asset_exposure: { assets: [] }, dns_bruteforce: { items: [] },
+  });
   await scanEngine.upsertVendorRelationships("d1", cleanEmpty, env);
   const afterCleanEmpty = vendorRow(fx.db, "Stripe");
   verdict("F45", seeded?.status === "active" &&

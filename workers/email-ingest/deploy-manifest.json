@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.10.16-shadow-it-detection.bcfb1d849cdd",
-  "closure_sha256": "bcfb1d849cdd393d3576b2718a6f82e4221b2805b5dc1274d38b6b9fe09d440c",
-  "closure_file_count": 100,
-  "scan_api_file_count": 97,
+  "app_version": "2026.10.16-customer-state.7a644cd8f7a7",
+  "closure_sha256": "7a644cd8f7a776d655f9e948017c5e725fb0865fb8edf7027dbdc8a1e559d41d",
+  "closure_file_count": 101,
+  "scan_api_file_count": 98,
   "files": [
     "shared/cyber-essentials-questions.js",
     "shared/exposure/catalog.js",
@@ -23,6 +23,7 @@
     "workers/scan-api/src/engines/attack-surface-customer-presentation.js",
     "workers/scan-api/src/engines/attack-surface-signal-completeness.js",
     "workers/scan-api/src/engines/bounded-coverage.js",
+    "workers/scan-api/src/engines/brand-candidate-presentation.js",
     "workers/scan-api/src/engines/brand-case-machine.js",
     "workers/scan-api/src/engines/brand-logo.js",
     "workers/scan-api/src/engines/brand-typosquat.js",
