@@ -328,25 +328,19 @@ export default function CertificatesPage() {
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
 
-      {/* 1 · Hero / module header */}
-      <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
-        <div className="flex-1 min-w-0">
-          <span className="eyebrow" style={{ color: '#0F689F' }}>Certificates &amp; Trust</span>
-          <h1 className="text-2xl font-bold text-gray-900 leading-tight">Certificates &amp; Trust</h1>
-          <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-            The certificate each website presented when CyberMeters connected: whether it matches the name, when it expires and whether it is trusted.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 shrink-0">
-          <button onClick={scrollToIssues} className="btn-primary text-sm" disabled={!hasData}>
-            Review certificate risks
-          </button>
-          <Link to="/scans/new" className="btn-secondary text-sm">Run scan</Link>
-        </div>
-      </div>
-
-      <TlsAuthorizationSettings key={wsId} workspaceId={wsId} />
-      <ModuleContract domainKey="certificates_trust" workspaceId={wsId} workspaceName={wsName}>
+      <ModuleContract
+        domainKey="certificates_trust"
+        workspaceId={wsId}
+        workspaceName={wsName}
+        description="The certificate each website presented when CyberMeters connected: whether it matches the name, when it expires and whether it is trusted."
+        actions={(
+          <>
+            <button onClick={scrollToIssues} className="btn-primary text-sm" disabled={!hasData}>Review certificate risks</button>
+            <Link to="/scans/new" className="btn-secondary text-sm">Run scan</Link>
+          </>
+        )}
+        aside={<TlsAuthorizationSettings key={wsId} workspaceId={wsId} />}
+      >
 
       {!hasData && !loading ? (
         /* 8 · Empty state */

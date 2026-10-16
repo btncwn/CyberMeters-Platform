@@ -176,12 +176,7 @@ export default function ShadowItInventoryPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-2">
-        <h1 className="text-xl font-semibold text-slate-800">Shadow IT &amp; Unmanaged Technology</h1>
-        <p className="text-sm text-slate-500 mt-1">{SHADOW_IT_SCOPE_NOTE}</p>
-      </div>
-
-      <ModuleContract domainKey="shadow_it_unmanaged_technology" workspaceId={workspaceId} workspaceName={workspaceName}>
+      <ModuleContract domainKey="shadow_it_unmanaged_technology" workspaceId={workspaceId} workspaceName={workspaceName} description={SHADOW_IT_SCOPE_NOTE}>
       <div className="flex flex-wrap items-center gap-2 my-4">
         {['', 'unreviewed', 'approved', 'rejected', 'exception', 'retired'].map((c) => (
           <button

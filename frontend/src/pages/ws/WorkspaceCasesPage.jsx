@@ -24,7 +24,7 @@ export default function WorkspaceCasesPage() {
       <div className="mb-5">
         <h1 className="text-xl font-semibold text-slate-900">Operations</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Evidence, fixes and verification across all eight services{wsName ? ` for ${wsName}` : ''}.
+          Evidence, fixes and verification across your external posture{wsName ? ` for ${wsName}` : ''}.
         </p>
       </div>
       {wsId && (

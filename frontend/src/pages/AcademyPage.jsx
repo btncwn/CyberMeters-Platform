@@ -51,7 +51,7 @@ export default function AcademyPage() {
       <div className="mb-8">
         <h1 className="text-[28px] font-bold text-black">CyberMeters Field Guide</h1>
         <p className="mt-2 text-[17px] text-black max-w-[70ch] leading-relaxed">
-          One guide for each of the eight areas: what it covers, what CyberMeters checks and why, how to read your results, and what to do next. Every area follows the same four steps.
+          One guide for each area of your external posture: what it covers, what CyberMeters checks and why, how to read your results, and what to do next. Every area follows the same four steps.
         </p>
         <div className="relative max-w-md mt-5">
           <label htmlFor="guide-search" className="sr-only">Search the Field Guide</label>
@@ -77,7 +77,7 @@ export default function AcademyPage() {
         </section>
       ) : (
         <section>
-          <h2 className="sr-only">The eight areas</h2>
+          <h2 className="sr-only">The areas</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {GUIDE_AREAS.map((area, i) => <AreaCard key={area.key} area={area} index={i} />)}
           </div>

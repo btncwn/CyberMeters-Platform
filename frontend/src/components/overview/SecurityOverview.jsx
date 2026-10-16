@@ -172,7 +172,7 @@ export default function SecurityOverview({ workspaceName, domains, domainsReques
           <div>
             <h2 id="overview-domains-heading" className="section-title">Your Cyber MOT domains</h2>
             <p className="text-xs text-gray-500 mt-1">
-              All eight areas for {workspaceName || 'the selected workspace'}, each with what the latest assessment could establish.
+              Every area for {workspaceName || 'the selected workspace'}, each with what the latest assessment could establish.
             </p>
           </div>
         </div>

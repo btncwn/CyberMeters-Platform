@@ -80,7 +80,7 @@ describe('ExecutiveReportV2 Evidence-Grade pilot', () => {
     expect(screen.getAllByText('Evidence strength: Limited')).toHaveLength(9)
     expect(text.indexOf('Score basis:')).toBeLessThan(text.indexOf('85'))
     expect(text).toContain('Business Risk Indicator basis:')
-    expect(text).toContain('Eight-domain summary basis:')
+    expect(text).toContain('Posture summary basis:')
     expect(text).not.toContain('Evidence confidence:')
     expect(text).not.toContain('RFC 7208')
     expect(screen.getByText('CyberMeters assessment band')).toBeInTheDocument()

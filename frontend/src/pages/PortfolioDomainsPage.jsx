@@ -210,7 +210,7 @@ export default function PortfolioDomainsPage() {
         <div className="eyebrow">MSP Portfolio</div>
         <h1 className="page-title">Domain state &amp; trend</h1>
         <p className="page-subtitle">
-          Every managed domain across all eight Cyber MOT security domains — what state it is in, what changed, and how current the evidence is.
+          Every managed domain across its external posture — what state it is in, what changed, and how current the evidence is.
         </p>
       </div>
 

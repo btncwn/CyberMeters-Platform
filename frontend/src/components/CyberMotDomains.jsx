@@ -82,7 +82,7 @@ function DomainRow({ d }) {
 // domains: the server-resolved array. Always renders exactly eight domains — if the
 // server data is absent/malformed/failed, resolveDisplayDomains returns the eight
 // canonical domains in a non-healthy "unavailable" state (no domain ever disappears).
-export default function CyberMotDomains({ domains, title = 'Cyber MOT — Eight-Domain Coverage', subtitle = null }) {
+export default function CyberMotDomains({ domains, title = 'Cyber MOT — External posture coverage', subtitle = null }) {
   const list = resolveDisplayDomains(domains)
   return (
     <div className="card p-5">

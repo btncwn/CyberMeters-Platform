@@ -111,7 +111,7 @@ function MaturityRow({ d, workspaceId }) {
 export default function DomainMaturity({
   domains,
   workspaceId = null,
-  title = 'Managed maturity — Eight-Domain Lifecycle',
+  title = 'Managed maturity — External posture lifecycle',
   subtitle = 'How far each domain has travelled through the managed lifecycle — observed, managed, then verified and monitored by CyberMeters. This is not the security score; a clean domain with nothing to manage sits at “Observed”.',
 }) {
   const list = resolveDisplayMaturity(domains)

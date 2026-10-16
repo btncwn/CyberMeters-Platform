@@ -385,7 +385,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
         </div>
         {summary.summary && (
           <div className="mt-4">
-            <EvidenceBasis label="Eight-domain summary basis" assertion={summary.evidence_grade} className="mb-2" />
+            <EvidenceBasis label="Posture summary basis" assertion={summary.evidence_grade} className="mb-2" />
             <p className="text-sm text-gray-600 leading-relaxed">{customerEvidenceText(summary.summary)}</p>
           </div>
         )}

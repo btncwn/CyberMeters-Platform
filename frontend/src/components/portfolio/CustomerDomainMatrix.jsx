@@ -116,7 +116,7 @@ export default function CustomerDomainMatrix({ rows, request = 'ok', portfolioSt
     <section className="mb-8" aria-labelledby="customer-areas-heading" data-testid="customer-domain-matrix">
       <div className="section-head">
         <div>
-          <h2 id="customer-areas-heading" className="section-title">Customers across the eight areas</h2>
+          <h2 id="customer-areas-heading" className="section-title">Customers across their external posture</h2>
           <p className="text-xs text-gray-500 mt-1">
             Each monitored domain with the state and trend its latest assessment recorded, highest priority first.
           </p>
