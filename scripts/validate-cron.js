@@ -19,6 +19,9 @@ const {
 } = await import(
   pathToFileURL(path.join(root, "workers", "scan-api", "src", "cron", "scheduled.js")).href
 );
+const { processScheduledReports } = await import(
+  pathToFileURL(path.join(root, "workers", "scan-api", "src", "index.js")).href
+);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -294,6 +297,54 @@ const seedSchedule = (db, id, owner, dueMs, { lastRunMs = dueMs - 864e5 } = {}) 
   const stamped = db.prepare("SELECT next_run_at FROM scheduled_scans WHERE id = 'runnable'").get().next_run_at;
   ok("unblockable: a schedule the trigger started keeps the next run it was stamped with",
     stamped === new Date(T0 + DISPATCH_TICK_MS + 864e5).toISOString(), stamped);
+}
+
+// A failed user-report query must reach cron telemetry. A failed row must be
+// measured while later rows still run, then mark the task as failed.
+{
+  const now = "2026-01-05T13:30:00.000Z";
+  const queryFailureEnv = { cybermeters_db: { prepare() { return { bind() { return this; },
+    async all() { throw new Error("database_unavailable"); } }; } } };
+  let queryRejected = false;
+  try { await processScheduledReports(now, queryFailureEnv); }
+  catch (e) { queryRejected = e.message === "database_unavailable"; }
+  ok("user reports: selection failure reaches the cron task", queryRejected);
+
+  const generated = [], updates = [], metrics = [], errors = [];
+  const rows = [
+    { id: "sr_fail", workspace_id: "ws_fail", report_type: "weekly_executive", frequency: "weekly" },
+    { id: "sr_ok", workspace_id: "ws_ok", report_type: "weekly_executive", frequency: "weekly" },
+  ];
+  const env = {
+    METRICS: { writeDataPoint(point) { metrics.push(point); } },
+    cybermeters_db: { prepare(sql) {
+      let args = [];
+      return {
+        bind(...values) { args = values; return this; },
+        async all() { return { results: rows }; },
+        async run() { if (/UPDATE scheduled_reports/.test(sql)) updates.push(args); return { meta: { changes: 1 } }; },
+      };
+    } },
+  };
+  const oldError = console.error;
+  let rejected = false;
+  console.error = (...args) => errors.push(args);
+  try {
+    await processScheduledReports(now, env, { generate: async (wsId) => {
+      generated.push(wsId);
+      if (wsId === "ws_fail") throw new Error("fixture_failure");
+      return { claimed: false };
+    } });
+  } catch (e) {
+    rejected = e.message === "scheduled_report_rows_failed:1";
+  } finally {
+    console.error = oldError;
+  }
+  ok("user reports: a failed row does not block the next row", generated.join() === "ws_fail,ws_ok" && updates.length === 1);
+  ok("user reports: failed row emits one metric and an operational log",
+    metrics.filter((p) => p.blobs[0] === "scheduled_report_row_failed").length === 1 &&
+    errors.some((args) => String(args[0]).includes("user-scheduled-report-error")));
+  ok("user reports: row failure marks the cron task failed after other rows", rejected);
 }
 
 // The dispatch ticks between the hours dispatch scheduled scans and nothing else.

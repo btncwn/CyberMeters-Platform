@@ -1819,30 +1819,25 @@ async function purgeAccountRequest(env, req) {
 
 // processScheduledReports — called from scheduled() via ctx.waitUntil().
 // Checks the scheduled_reports table for due rows, generates reports, updates timestamps.
-async function processScheduledReports(now, env) {
-  let rows;
-  try {
-    const r = await env.cybermeters_db
-      .prepare(
-        `SELECT sr.id, sr.workspace_id, sr.report_type, sr.frequency
-         FROM scheduled_reports sr
-         JOIN workspaces w ON w.id = sr.workspace_id AND w.deleted_at IS NULL
-         WHERE sr.enabled = 1
-           AND (sr.next_run_at IS NULL OR sr.next_run_at <= ?)
-         ORDER BY sr.next_run_at ASC
-         LIMIT 20`
-      )
-      .bind(now)
-      .all();
-    rows = r.results ?? [];
-  } catch {
-    // Table may not exist yet
-    return;
-  }
+export async function processScheduledReports(now, env, { generate = generateWorkspaceExecutiveReport } = {}) {
+  const r = await env.cybermeters_db
+    .prepare(
+      `SELECT sr.id, sr.workspace_id, sr.report_type, sr.frequency
+       FROM scheduled_reports sr
+       JOIN workspaces w ON w.id = sr.workspace_id AND w.deleted_at IS NULL
+       WHERE sr.enabled = 1
+         AND (sr.next_run_at IS NULL OR sr.next_run_at <= ?)
+       ORDER BY sr.next_run_at ASC
+       LIMIT 20`
+    )
+    .bind(now)
+    .all();
+  const rows = r.results ?? [];
 
+  let failedRows = 0;
   for (const sr of rows) {
     try {
-      const reportRow = await generateWorkspaceExecutiveReport(sr.workspace_id, env, {
+      const reportRow = await generate(sr.workspace_id, env, {
         report_type: sr.report_type,
       });
 
@@ -1883,9 +1878,17 @@ async function processScheduledReports(now, env) {
       }
 
     } catch {
-      // One workspace failing must not abort others
+      // Continue with other workspaces, but expose each failure to operations.
+      failedRows++;
+      recordMetric(env, "scheduled_report_row_failed", {
+        blobs: [sr.report_type || "unknown"], doubles: [1], indexes: ["user_scheduled_reports"],
+      });
+      console.error("[user-scheduled-report-error]", JSON.stringify({
+        scheduled_report_id: sr.id, workspace_id: sr.workspace_id, reason: "row_failed",
+      }));
     }
   }
+  if (failedRows > 0) throw new Error(`scheduled_report_rows_failed:${failedRows}`);
 }
 
 async function cleanupExpiredReports(nowIso, env) {
