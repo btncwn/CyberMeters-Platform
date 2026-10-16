@@ -16,7 +16,20 @@ export const EXPOSURE_JOB_LIMITS = Object.freeze({
   workspaceRequests:4096, workspaceBytes:128*1024*1024,
   windowMs:60*60*1000, completionMs:15*60*1000, leaseMs:30000,
   attempts:150, failures:3, byteReservation:EXPOSURE_LIMITS.bytes+131072,
+  // Authoritative no-address evidence older than the lifecycle recheck window
+  // (attack-surface-lifecycle RECHECK_OBSERVATION_WINDOW_DAYS) is stale: the
+  // name is planned again rather than skipped on an old answer.
+  noAddressEvidenceMs:30*24*60*60*1000,
 });
+// The lifecycle observation's own vocabulary for "this name has no A/AAAA":
+// NXDOMAIN for both address types (dns_state absent), NOERROR with no address
+// for both (asset-intel DNS_NAME_WITHOUT_ADDRESS), or the probe's strict
+// preflight proof (asset-intel http_not_applicable_no_address). Each is only
+// ever produced from matching authoritative answers for BOTH families.
+const NO_ADDRESS_DNS_REASONS=new Set(['dns_name_without_address','authoritative_a_aaaa_absence']);
+const NO_ADDRESS_HTTP_REASON='http_not_applicable_no_address';
+export const EXPOSURE_INCOMPLETE_REASONS=Object.freeze(['authority_lost','budget_exhausted','checks_not_finished','checks_inconclusive',
+  'checks_blocked','check_budget_exhausted','assets_awaiting_rotation','http_not_applicable_no_address','no_checks_planned']);
 const terminal = state => ['complete','cancelled','budget_exhausted'].includes(state);
 const changed = result => result?.meta?.changes === 1;
 const json = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
@@ -81,12 +94,53 @@ function safeHost(host, domain) {
   return isProbeHostname(host) && (host === domain || host.endsWith('.'+domain));
 }
 
+// HTTP catalog checks are skipped for a name ONLY on current authoritative
+// A/AAAA absence recorded by this asset's latest lifecycle observation. The
+// ip_addresses column is never consulted: an empty or old value is not evidence.
+// A transient failure (unavailable/incomplete/not_assessed) keeps the name
+// planned so the collector attempts it again; an observation that is not the
+// asset's latest, or is older than the recheck window, is stale and ignored.
+export function exposureHostHttpApplicability(asset,now=Date.now()) {
+  if(!asset?.observation_scan_id||asset.observation_scan_id!==asset.last_observation_scan_id)return {applicable:true,reason:'no_current_observation'};
+  const observedMs=Date.parse(asset.observation_at||'');
+  if(!Number.isFinite(observedMs)||now-observedMs>EXPOSURE_JOB_LIMITS.noAddressEvidenceMs||observedMs>now+60000)return {applicable:true,reason:'observation_stale'};
+  const authoritative=asset.dns_state==='absent'||NO_ADDRESS_DNS_REASONS.has(asset.dns_reason)||asset.http_reason===NO_ADDRESS_HTTP_REASON;
+  if(!authoritative)return {applicable:true,reason:'address_evidence_not_authoritative'};
+  return {applicable:false,reason:'authoritative_no_address',evidence:{scan_id:asset.observation_scan_id,observed_at:new Date(observedMs).toISOString(),
+    dns_state:asset.dns_state||null,dns_reason:asset.dns_reason||null,http_reason:asset.http_reason||null}};
+}
+
+// One fixed, customer-safe word for WHY exposure evidence cannot support a
+// conclusion, derived from the job's terminal state and its coverage. A job
+// that finished with inconclusive checks is "finished", not "assessed", and is
+// never confused with a job the scan budget cut off. null means nothing is
+// outstanding. Order states the most decisive cause first.
+export function exposureIncompleteReason(state,coverage,plannedChecks) {
+  if(state==='cancelled')return 'authority_lost';
+  if(state==='budget_exhausted')return 'budget_exhausted';
+  if(state!=='complete')return 'checks_not_finished';
+  if(coverage.uncertain>0)return 'checks_inconclusive';
+  if(coverage.blocked>0)return 'checks_blocked';
+  if(coverage.budget_exhausted>0)return 'check_budget_exhausted';
+  if(coverage.pending>0)return 'checks_not_finished';
+  if(coverage.pending_assets>0)return 'assets_awaiting_rotation';
+  if(coverage.completed===0)return plannedChecks===0&&coverage.not_applicable_hosts>0?'http_not_applicable_no_address':'no_checks_planned';
+  return null;
+}
+
 async function createJob(env, scan, now, dispatch) {
   const db=env.cybermeters_db;
+  // The asset's LATEST lifecycle observation (unique per asset+scan) carries the
+  // DNS/HTTP signal states this planner reads for address applicability.
   const assets=await db.prepare(`SELECT a.hostname,a.first_seen,v.last_attempt_ms,
-    CASE WHEN a.risk_level IN ('critical','high','medium') THEN 1 ELSE 0 END AS has_finding
+    CASE WHEN a.risk_level IN ('critical','high','medium') THEN 1 ELSE 0 END AS has_finding,
+    a.last_observation_scan_id,alo.scan_id AS observation_scan_id,alo.observed_at AS observation_at,alo.dns_state,
+    json_extract(alo.source_detail_json,'$.dns_resolution.reason') AS dns_reason,
+    json_extract(alo.source_detail_json,'$.http_https_service.reason') AS http_reason
     FROM workspace_assets a LEFT JOIN external_exposure_visits v
       ON v.workspace_id=a.workspace_id AND v.domain_id=a.domain_id AND v.hostname=a.hostname
+    LEFT JOIN asset_lifecycle_observations alo
+      ON alo.workspace_id=a.workspace_id AND alo.asset_id=a.id AND alo.scan_id=a.last_observation_scan_id
     WHERE a.workspace_id=? AND a.domain_id=? AND a.status='active' AND (a.hostname=? OR a.hostname LIKE ?)
     ORDER BY COALESCE(NULLIF(v.last_attempt_ms,0),CAST(strftime('%s',a.first_seen) AS INTEGER)*1000,?)
       - CASE WHEN COALESCE(v.last_attempt_ms,0)=0 THEN 3600000 ELSE 0 END
@@ -102,8 +156,17 @@ async function createJob(env, scan, now, dispatch) {
     WHERE workspace_id=? AND domain_id=? AND state IN ('complete','budget_exhausted')
     ORDER BY created_ms DESC,updated_at DESC LIMIT 1`).bind(scan.workspace_id,scan.domain_id).first();
   const previousFindings=unresolvedExposureChecks(json(previous?.plan_json,{}).retest_checks||[],json(previous?.results_json,[]));
-  const candidates=orderExposureAssets(assets.results||[],now).filter(a=>safeHost(a.hostname,scan.domain));
-  const hosts=[scan.domain,...candidates.filter(a=>a.hostname!==scan.domain).slice(0,EXPOSURE_JOB_LIMITS.hosts-1).map(a=>a.hostname)];
+  const candidates=[],notApplicable=[];
+  for(const asset of orderExposureAssets(assets.results||[],now).filter(a=>safeHost(a.hostname,scan.domain))){
+    const verdict=exposureHostHttpApplicability(asset,now);
+    if(verdict.applicable)candidates.push(asset);
+    else notApplicable.push({hostname:asset.hostname,reason:verdict.reason,evidence:verdict.evidence});
+  }
+  // A name with no address frees its slot for the next applicable asset; the
+  // apex is planned unless its own current observation says it has no address.
+  const apexApplicable=!notApplicable.some(h=>h.hostname===scan.domain);
+  const hosts=[...(apexApplicable?[scan.domain]:[]),...candidates.filter(a=>a.hostname!==scan.domain)
+    .slice(0,EXPOSURE_JOB_LIMITS.hosts-(apexApplicable?1:0)).map(a=>a.hostname)];
   const checks=[];
   for(const hostname of hosts){
     const origin=`https://${hostname}`;
@@ -114,7 +177,8 @@ async function createJob(env, scan, now, dispatch) {
   const exposureCheckLimit=env.TLS_ASSESSMENT_MODE==='evidence-v1'?384:EXPOSURE_JOB_LIMITS.checks;
   const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,exposureCheckLimit),hosts,
     exposure_check_limit:exposureCheckLimit,
-    pending_assets:Math.max(0,(assetCount?.total||0)-hosts.filter(host=>candidates.some(a=>a.hostname===host)).length),discovered_hosts:[],
+    pending_assets:Math.max(0,(assetCount?.total||0)-hosts.filter(host=>candidates.some(a=>a.hostname===host)).length-notApplicable.length),
+    hosts_not_applicable:notApplicable,discovered_hosts:[],
     omitted_checks:Math.max(0,checks.length-exposureCheckLimit),catalog_version:'1'};
   if(env.EXPOSURE_SCAN_MODE!=='evidence-v1'){
     plan.content_state='not_requested';plan.checks=[];plan.omitted_checks=0;
@@ -513,7 +577,9 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   const reason=row.state==='cancelled'?'authority_lost':row.state==='budget_exhausted'?'budget_exhausted':'queued';
   const pending=plan.checks.slice(row.cursor).map(c=>({...c,identity:exposureIdentity(c.rule_id,c.url),state:reason,comparable:false,finding:null,reason,observed_at:null}));
   const checks=[...results,...pending];
-  const coverage={completed:0,pending:0,blocked:0,not_applicable:0,budget_exhausted:plan.omitted_checks||0,uncertain:0,pending_assets:plan.pending_assets||0};
+  const notApplicableHosts=(Array.isArray(plan.hosts_not_applicable)?plan.hosts_not_applicable:[]).filter(h=>typeof h?.hostname==='string');
+  const coverage={completed:0,pending:0,blocked:0,not_applicable:0,budget_exhausted:plan.omitted_checks||0,uncertain:0,pending_assets:plan.pending_assets||0,
+    not_applicable_hosts:notApplicableHosts.length};
   for(const check of checks){
     if(check.comparable)coverage.completed++;
     else if(check.state==='blocked')coverage.blocked++;
@@ -522,7 +588,11 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
     else if(check.state==='queued')coverage.pending++;
     else coverage.uncertain++;
   }
+  // job_state says whether the job FINISHED; quality and incomplete_reason say
+  // whether what it observed can support a conclusion. They are different facts.
   return {source:'external_exposure',version:'1',quality:row.state==='complete'&&checks.every(r=>r.comparable)?'complete':'partial',
+    job_state:row.state,incomplete_reason:exposureIncompleteReason(row.state,coverage,checks.length),
+    hosts_not_applicable:notApplicableHosts.map(h=>({hostname:h.hostname,reason:h.reason,observed_at:h.evidence?.observed_at||null})),
     page_discovery:plan.content_state==='complete'?plan.page_discovery:null,
     coverage,checks,hostname_references:{candidates:(plan.discovered_hosts||[]).map(hostname=>({hostname,sources:['exposure_content']}))},costs:{...json(row.costs_json,{}),charged_requests:row.charged_requests,charged_bytes:row.charged_bytes,
       unknown_attempts:row.unknown_attempts,attempts:row.attempts},observed_at:row.updated_at};
