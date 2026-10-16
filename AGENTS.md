@@ -334,13 +334,14 @@ git diff --check
 node --input-type=module --check < workers/scan-api/src/index.js
 node scripts/<relevant-validator>.js
 npm run build
-npm run test:coverage
 npx wrangler deploy --dry-run
 ```
 
 Run focused validators first.
 
-Run the full regression and CI-equivalent gate when shared infrastructure, state machines, tenant isolation, scoring, reporting, cases or core API contracts change.
+The full regression and CI-equivalent gate is required when shared infrastructure, state machines, tenant isolation, scoring, reporting, cases or core API contracts change; GitHub CI runs it.
+
+Local machine vs CI: locally run only the fast, focused checks for the files you changed. Full regression, coverage and mutation harnesses (`*-mutations.js`) run in GitHub CI after push — the repository is public, so CI is free. Do not run them on the Founder's machine; fix a failing CI check and push again.
 
 ## Database
 
@@ -939,7 +940,7 @@ Before implementing any feature:
 11. Define the minimum safe scope.
 12. Implement by extending existing systems.
 13. Run focused validators.
-14. Run the full gate when shared infrastructure changes.
+14. Let GitHub CI run the full gate when shared infrastructure changes (never locally).
 15. Open a focused pull request.
 16. Merge only when CI is green.
 17. Apply migrations through the approved process.

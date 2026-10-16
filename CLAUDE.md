@@ -852,11 +852,11 @@ After implementation:
 2. Run tenant-isolation validation.
 3. Run migration validation where applicable.
 4. Run managed-case and remediation validators where applicable.
-5. Run frontend tests and coverage where applicable.
+5. Run frontend tests where applicable (coverage runs in GitHub CI).
 6. Run frontend build where applicable.
 7. Run Worker syntax check.
 8. Run Wrangler dry-run.
-9. Run full regression when shared systems change.
+9. Let GitHub CI run full regression when shared systems change (never locally).
 10. Run `git diff --check`.
 11. Review the final diff.
 12. Open a focused PR.
@@ -884,7 +884,6 @@ Typical frontend validation:
 ```bash
 cd frontend
 npm run test
-npm run test:coverage
 npm run build
 cd ..
 ```
@@ -908,7 +907,9 @@ git status --short
 
 Run relevant focused `validate-*.js` harnesses.
 
-Run the full CI-equivalent gate when changing:
+Local machine vs CI: locally run only the fast, focused checks for the files you changed. Full regression, coverage and mutation harnesses (`*-mutations.js`) run in GitHub CI after push — the repository is public, so CI is free. Do not run them on the Founder's machine; fix a failing CI check and push again.
+
+GitHub CI runs the full CI-equivalent gate when changing:
 
 - shared state machines;
 - managed cases;
