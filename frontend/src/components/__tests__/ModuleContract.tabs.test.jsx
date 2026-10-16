@@ -1,5 +1,6 @@
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
 import ModuleContract, { MODULE_TABS, matchesFilter, tabForLocation, useAreaAnchor } from '../module/ModuleContract'
 import { api } from '../../api'
 
@@ -38,6 +39,28 @@ beforeEach(() => {
 })
 
 describe('ModuleContract — head and tabs', () => {
+  it('reaches all four tabs with Tab, arrows, Home and End', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const overview = screen.getByRole('tab', { name: 'Overview' })
+    for (let i = 0; i < 30 && document.activeElement !== overview; i++) await user.tab()
+    expect(overview).toHaveFocus()
+
+    for (const name of ['Findings', 'Cases', 'Field Guide', 'Overview']) {
+      await user.keyboard('{ArrowRight}')
+      const target = screen.getByRole('tab', { name })
+      expect(target).toHaveFocus()
+      expect(target).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', target.id)
+    }
+    await user.keyboard('{End}')
+    expect(screen.getByRole('tab', { name: 'Field Guide' })).toHaveFocus()
+    await user.keyboard('{Home}')
+    expect(overview).toHaveFocus()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByRole('tab', { name: 'Field Guide' })).toHaveFocus()
+  })
+
   it('opens on Overview with the serif title, description, backend word, filter box, actions and tiles', async () => {
     renderPage()
     expect(screen.getByRole('heading', { level: 1, name: 'Email Protection' })).toHaveClass('cm-hero-title')

@@ -610,10 +610,10 @@
     position: fixed; left: 0; right: 0; bottom: 0; top: auto; height: auto; width: auto; flex: none;
     flex-direction: row; justify-content: flex-start; gap: 4px; padding: 6px 8px;
     border-right: 0; border-top: 1px solid rgba(16, 24, 40, 0.08); background: rgba(255, 255, 255, 0.96);
-    overflow-x: auto; z-index: 40;
+    overflow: visible; z-index: 40;
   }
-  .cm-rail-list { flex-direction: row; gap: 2px; }
-  .cm-rail-foot { margin-left: auto; }
+  .cm-rail-list { flex-direction: row; gap: 2px; flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+  .cm-rail-foot { margin-left: auto; flex: 0 0 auto; }
   .cm-rail-foot .cm-popover { left: auto; right: 0; width: min(18rem, calc(100vw - 16px)); }
   .cm-rail-item { width: 36px; height: 36px; border-radius: 10px; }
   .cm-tip { display: none; }
