@@ -176,7 +176,24 @@ export default function ShadowItInventoryPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <ModuleContract domainKey="shadow_it_unmanaged_technology" workspaceId={workspaceId} workspaceName={workspaceName} description={SHADOW_IT_SCOPE_NOTE}>
+      <ModuleContract
+        domainKey="shadow_it_unmanaged_technology"
+        workspaceId={workspaceId}
+        workspaceName={workspaceName}
+        description={SHADOW_IT_SCOPE_NOTE}
+        overview={(
+          /* Backend counts per classification — the customer's own record of what is
+             approved, rejected or excepted; observation is never a verdict. */
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" data-testid="shadow-it-classification-counts">
+            {['unreviewed', 'approved', 'rejected', 'exception', 'retired'].map((c) => (
+              <div key={c} className="card p-4">
+                <p className="text-[15px] font-semibold text-gray-900 leading-snug">{classificationMeta(c).label}</p>
+                <p className="text-[14px] font-bold mt-2 leading-none tabular-nums text-gray-800">{loading ? '…' : error ? '—' : (counts[c] ?? 0)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      >
       <div className="flex flex-wrap items-center gap-2 my-4">
         {['', 'unreviewed', 'approved', 'rejected', 'exception', 'retired'].map((c) => (
           <button

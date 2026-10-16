@@ -14,6 +14,8 @@ import AssetEvidence from '../components/AssetEvidence'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { assetSourceLabel } from '../lib/assetSourceLabel'
 import { hostingNetworkRows, hostingNetworkShort, hostingSummaryItems } from '../lib/hostingNetworkDisplay'
+import { useLatestScanReport } from '../lib/useLatestScanReport'
+import AttackSurfaceScanEvidence, { criticalNamesFromReport, criticalPrefixCoverageText } from '../components/AttackSurfaceScanEvidence'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -559,11 +561,19 @@ export default function AssetsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter,   setTypeFilter]   = useState('all')
   const [selectedId,   setSelectedId]   = useState(null)
+  const [refreshTick,  setRefreshTick]  = useState(0)
+  const [scanDomain,   setScanDomain]   = useState('')
+  // The latest scan report: registration, public content, deep TLS, the check
+  // pack's vulnerability-data statement and the critical names the DNS pass found.
+  const latest = useLatestScanReport(workspaceId, { refresh: refreshTick, domain: scanDomain })
+  const criticalNames = criticalNamesFromReport(latest.report)
+  const criticalCoverage = criticalPrefixCoverageText(latest.report)
 
   const load = useCallback(async (silent = false) => {
     if (!workspaceId) { setLoading(false); return }
     if (!silent) setLoading(true); else setRefreshing(true)
     setError(null)
+    setRefreshTick((n) => n + 1)
     try {
       const [sumData, assetsData, timelineData] = await Promise.all([
         api.getWorkspaceAssetsSummary(workspaceId),
@@ -625,6 +635,38 @@ export default function AssetsPage() {
             Refresh
           </button>
         )}
+        overview={loading ? (
+          <div className="flex items-center justify-center min-h-[20vh]"><Spinner size="lg" /></div>
+        ) : (
+          <>
+            {error && (
+              <div className="px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
+                <span className="font-semibold">Error:</span> {error}
+              </div>
+            )}
+            {/* ── Summary cards — the Overview answer, never a list ───────── */}
+            {summary && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-testid="attack-surface-stats">
+                <StatCard icon={Layers}        label="Total assets"     explanation="Everything in this workspace's inventory" value={summary.total_assets} />
+                <StatCard icon={Shield}        label="Seen in latest scan" explanation="Found through DNS or a web service in the latest assessment" value={summary.lifecycle_counts?.observed} />
+                <StatCard icon={Activity}      label="No longer observed" explanation="Not seen for at least 48 hours across repeated scans; not proof it was removed" value={summary.lifecycle_counts?.confirmed_removed} tone="neutral" />
+                <StatCard icon={Server}        label="Subdomains"       explanation="Hostnames mapped under your domains"    value={summary.subdomains} tone="info" />
+                <StatCard icon={Globe}         label="Exposed services" explanation="Internet-facing services to review"     value={summary.exposed_services} warning={(summary.exposed_services ?? 0) > 0} />
+                <StatCard icon={Cloud}         label="Cloud assets"     explanation="Cloud storage and buckets found"        value={summary.cloud_storage_assets} tone="info" />
+                <StatCard icon={AlertTriangle} label="Takeover risks"   explanation="Possible subdomain takeovers"           value={summary.takeover_risks} danger={(summary.takeover_risks ?? 0) > 0} />
+              </div>
+            )}
+
+            {/* Coverage honesty: which signals the latest scan did and did not observe. */}
+            <AttackSurfaceAssurance
+              presentations={assurance}
+              coverage={assuranceCoverage}
+            />
+
+            {/* Open managed cases for this area. */}
+            <ManagedCasesPanel workspaceId={workspaceId} />
+          </>
+        )}
       >
       {/* Error */}
       {error && (
@@ -639,37 +681,14 @@ export default function AssetsPage() {
         </div>
       ) : (
         <>
-          <ManagedCasesPanel workspaceId={workspaceId} />
-
-          <AttackSurfaceAssurance
-            presentations={assurance}
-            coverage={assuranceCoverage}
-          />
-
           <HostnameListPanel key={`hostnames-${workspaceId}`} workspaceId={workspaceId} />
 
           <NetworkAssetsPanel key={workspaceId} workspaceId={workspaceId} />
 
-          {/* TEMPORARY integration mount of the reusable cross-domain CasesQueue.
-              The Attack Surface page is NOT the permanent home for all-domain
-              cases; the queue component is workspace-scoped and standalone, ready
-              to move to its own route/nav in a later IA pass (not this episode). */}
-          <div className="mt-4">
-            <CasesQueue workspaceId={workspaceId} />
-          </div>
-
-          {/* ── Summary cards ─────────────────────────────────────────────── */}
-          {summary && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              <StatCard icon={Layers}        label="Total assets"     explanation="Everything in this workspace's inventory" value={summary.total_assets} />
-              <StatCard icon={Shield}        label="Seen in latest scan" explanation="Found through DNS or a web service in the latest assessment" value={summary.lifecycle_counts?.observed} />
-              <StatCard icon={Activity}      label="No longer observed" explanation="Not seen for at least 48 hours across repeated scans; not proof it was removed" value={summary.lifecycle_counts?.confirmed_removed} tone="neutral" />
-              <StatCard icon={Server}        label="Subdomains"       explanation="Hostnames mapped under your domains"    value={summary.subdomains} tone="info" />
-              <StatCard icon={Globe}         label="Exposed services" explanation="Internet-facing services to review"     value={summary.exposed_services} warning={(summary.exposed_services ?? 0) > 0} />
-              <StatCard icon={Cloud}         label="Cloud assets"     explanation="Cloud storage and buckets found"        value={summary.cloud_storage_assets} tone="info" />
-              <StatCard icon={AlertTriangle} label="Takeover risks"   explanation="Possible subdomain takeovers"           value={summary.takeover_risks} danger={(summary.takeover_risks ?? 0) > 0} />
-            </div>
-          )}
+          {/* What the latest scan recorded for the domain itself: registration,
+              public content and management surfaces, deep TLS and the check
+              pack's vulnerability-data statement. Full detail stays on the scan page. */}
+          <AttackSurfaceScanEvidence latest={latest} selectedDomain={scanDomain} onSelectDomain={setScanDomain} />
 
           <HostingSummary summary={hostingSummary} />
 
@@ -706,6 +725,12 @@ export default function AssetsPage() {
             </span>
           </div>
 
+          {/* The critical-prefix DNS pass (admin, login, portal, vpn…) is the
+              backend's own list; a listed name is tagged in the table below. */}
+          {criticalCoverage && (
+            <p className="text-xs text-gray-500" data-testid="critical-prefix-coverage">{criticalCoverage} A critical name is tagged in the table; the tag records that the name answers in DNS, not that it is exposed.</p>
+          )}
+
           {/* ── Asset table ───────────────────────────────────────────────── */}
           <div className="card p-0 overflow-hidden">
             {filtered.length === 0 ? (
@@ -738,6 +763,9 @@ export default function AssetsPage() {
                           {asset.wildcard_dns === 1 && (
                             <span className="ml-2 text-xs text-amber-500 font-semibold">WILDCARD</span>
                           )}
+                          {criticalNames.has(String(asset.hostname || '').toLowerCase()) && (
+                            <span className="ml-2 inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-orange-700" title="Found by the critical-name DNS pass in the latest scan">Critical name</span>
+                          )}
                         </td>
                         <td><TypeBadge type={asset.asset_type} /></td>
                         <td><StatusPill asset={asset} /></td>
@@ -762,6 +790,14 @@ export default function AssetsPage() {
               </div>
             </div>
             <Timeline rows={timeline} projection={timelineProjection} />
+          </div>
+
+          {/* TEMPORARY integration mount of the reusable cross-domain CasesQueue.
+              The Attack Surface page is NOT the permanent home for all-domain
+              cases; the queue component is workspace-scoped and standalone, ready
+              to move to its own route/nav in a later IA pass (not this episode). */}
+          <div className="mt-4">
+            <CasesQueue workspaceId={workspaceId} />
           </div>
         </>
       )}

@@ -141,8 +141,8 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
             <button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>
           </>
         )}
+        overview={<WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />}
       >
-      <WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />
       <WebsitePagesChecked workspaceId={workspaceId} refresh={refresh} />
       <WebsiteSignInSettings workspaceId={workspaceId} />
       <div className="mb-4"><h2 className="section-title">Tracked findings</h2><p className="mt-1 text-base text-gray-600">Across this workspace. Open a finding for its evidence, managed case and recheck.</p></div>

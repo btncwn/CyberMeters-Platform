@@ -2,9 +2,12 @@
 // (founder, 16 Oct 2026) opens with a serif title, the area's description, the
 // backend evidence word and a filter box, then four tabs:
 //
-//   Overview    — the area's sub-page tiles and the summary: Scope, Evidence
-//                 state and Risk (founder, 16 Oct 2026: nothing else here)
-//   Findings    — the page's own findings body and the recommended action
+//   Overview    — the area's sub-page tiles, the page's own summary blocks
+//                 (statistic cards, coverage honesty, open-case panel — the
+//                 `overview` prop) and the summary: Scope, Evidence state and
+//                 Risk. Lists never live here (Executive, 16 Oct 2026).
+//   Findings    — the page's own findings body (the lists) and the recommended
+//                 action
 //   Cases       — the managed cases and verification
 //   Field Guide — the Field Guide section
 //
@@ -102,17 +105,18 @@ export function useModuleContract(workspaceId, domainKey) {
 
 /**
  * For a page's own "go to" buttons: scroll to the element when it is on the
- * current tab, otherwise open the Findings tab at that anchor (the body lives
- * there); the contract then scrolls once it has rendered.
+ * current tab, otherwise open the tab that holds it at that anchor — Findings
+ * by default (the body lives there), or `{ tab: 'overview' }` for a summary
+ * block; the contract then scrolls once it has rendered.
  */
 export function useAreaAnchor() {
   const navigate = useNavigate()
   const { pathname, search } = useLocation()
-  return useCallback((id) => {
+  return useCallback((id, { tab = 'findings' } = {}) => {
     const el = document.getElementById(id)
     if (el) { if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
     const next = new URLSearchParams(search)
-    next.set('tab', 'findings')
+    next.set('tab', TAB_IDS.includes(tab) ? tab : 'findings')
     navigate({ pathname, search: `?${next.toString()}`, hash: `#${id}` })
   }, [navigate, pathname, search])
 }
@@ -175,10 +179,13 @@ function SubpageTiles({ domainKey, tiles, theme }) {
  *   description        — the page's one-paragraph description under the title
  *   actions            — the page's own actions (buttons/links), shown under the filter box
  *   aside              — an optional page-specific block shown under the header (e.g. questionnaire progress)
+ *   overview           — the page's own summary blocks for the Overview tab: statistic cards,
+ *                        coverage honesty and open-case panels, rendered between the tiles and
+ *                        the Scope/Evidence/Risk summary. Never a list — lists are Findings.
  *   recommendedAction  — optional node the page already derives from its own backend data (shown in section 5)
  *   children           — the page's findings body (section 4)
  */
-export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, recommendedAction = null, children }) {
+export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, recommendedAction = null, children }) {
   const module = moduleForDomainKey(domainKey)
   const theme = moduleTheme(domainKey)
   const [params, setParams] = useSearchParams()
@@ -412,6 +419,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
         {tab === 'overview' && (
           <>
             <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} />
+            {overview && <div className="space-y-6" data-testid="module-overview">{overview}</div>}
             <div className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6" data-testid="module-summary">
               {scopeSection}
               {evidenceSection}

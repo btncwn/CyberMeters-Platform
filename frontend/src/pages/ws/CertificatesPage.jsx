@@ -341,6 +341,48 @@ export default function CertificatesPage() {
           </>
         )}
         aside={<TlsAuthorizationSettings key={wsId} workspaceId={wsId} />}
+        overview={!hasData && !loading ? (
+          /* 8 · Empty state — the same sentence on both tabs */
+          <div className="card p-10 text-center">
+            <p className="text-base font-bold text-gray-900 mb-1">Run a scan to start certificate and trust monitoring</p>
+            <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
+              CyberMeters reads the certificate your website presents when it connects, checks its name, expiry and trust, and says which checks it could not run. Past certificates and certificates on names it did not connect to are not listed.
+            </p>
+            <Link to="/scans/new" className="btn-primary mx-auto inline-flex">Run scan</Link>
+          </div>
+        ) : (
+          <>
+            {/* 2 · Summary cards */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <StatCard icon={Lock}        label="Certificates"      value={certs.length} />
+              <StatCard icon={Clock}       label="Expiring (<30d)"   value={expiringSoon} warning={expiringSoon > 0} />
+              <StatCard icon={XCircle}     label="Expired"           value={expired}      danger={expired > 0} />
+              <StatCard icon={AlertTriangle} label="Name or trust failed" value={checkFailed} danger={checkFailed > 0} />
+              <StatCard icon={ShieldCheck} label="Needs review"      value={needsReview}  warning={needsReview > 0} />
+            </div>
+
+            {/* 3 · Certificate expiry risk buckets */}
+            <div id="cert-expiry" className="card p-6 scroll-mt-20">
+              <h2 className="font-semibold text-gray-900 mb-4">Certificate expiry risk</h2>
+              {hasData ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {BUCKETS.map(b => {
+                    const n = buckets[b.key]
+                    const tone = b.tone === 'bad' ? 'text-red-600' : b.tone === 'warn' ? 'text-amber-600' : b.tone === 'ok' ? 'text-brand-600' : 'text-gray-400'
+                    return (
+                      <div key={b.key} className="rounded-xl border border-gray-200 bg-white p-3 text-center">
+                        <p className="text-xs font-semibold text-gray-700">{b.label}</p>
+                        <p className={`text-lg font-bold mt-1 tabular-nums ${n > 0 ? tone : 'text-gray-300'}`}>{n}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 py-4 text-center">Run a scan to populate certificate expiry monitoring.</p>
+              )}
+            </div>
+          </>
+        )}
       >
 
       {!hasData && !loading ? (
@@ -354,36 +396,6 @@ export default function CertificatesPage() {
         </div>
       ) : (
         <>
-          {/* 2 · Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-            <StatCard icon={Lock}        label="Certificates"      value={certs.length} />
-            <StatCard icon={Clock}       label="Expiring (<30d)"   value={expiringSoon} warning={expiringSoon > 0} />
-            <StatCard icon={XCircle}     label="Expired"           value={expired}      danger={expired > 0} />
-            <StatCard icon={AlertTriangle} label="Name or trust failed" value={checkFailed} danger={checkFailed > 0} />
-            <StatCard icon={ShieldCheck} label="Needs review"      value={needsReview}  warning={needsReview > 0} />
-          </div>
-
-          {/* 3 · Certificate expiry risk buckets */}
-          <div id="cert-expiry" className="card p-6 mb-6 scroll-mt-20">
-            <h2 className="font-semibold text-gray-900 mb-4">Certificate expiry risk</h2>
-            {hasData ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {BUCKETS.map(b => {
-                  const n = buckets[b.key]
-                  const tone = b.tone === 'bad' ? 'text-red-600' : b.tone === 'warn' ? 'text-amber-600' : b.tone === 'ok' ? 'text-brand-600' : 'text-gray-400'
-                  return (
-                    <div key={b.key} className="rounded-xl border border-gray-200 bg-white p-3 text-center">
-                      <p className="text-xs font-semibold text-gray-700">{b.label}</p>
-                      <p className={`text-lg font-bold mt-1 tabular-nums ${n > 0 ? tone : 'text-gray-300'}`}>{n}</p>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400 py-4 text-center">Run a scan to populate certificate expiry monitoring.</p>
-            )}
-          </div>
-
           {/* 5 · Issues / recommended actions */}
           <div id="cert-actions" ref={issuesRef} className="mb-6 scroll-mt-20">
             <div className="flex items-center justify-between mb-3">

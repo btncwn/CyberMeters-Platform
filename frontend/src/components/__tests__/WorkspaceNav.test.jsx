@@ -78,6 +78,13 @@ describe('WorkspaceNav (module rail)', () => {
       '/ws/email-protection#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail',
     ])
     expect(subpagesForDomainKey('attack_surface')[0]).toEqual({ label: 'Timeline', desc: 'What appeared, changed or disappeared', to: '/exposure', anchor: false })
+    // The scan intelligence page is reachable from the Attack Surface area (16 Oct 2026).
+    expect(subpagesForDomainKey('attack_surface').at(-1)).toEqual({ label: 'Intelligence', desc: 'Score history, changes between scans and the remediation plan', to: '/intelligence', anchor: false })
+    expect(detectServiceKey('/intelligence')).toBe('surface')
+    // A summary block that lives on Overview is reached with the tab stated.
+    expect(subpagesForDomainKey('brand_protection').find((t) => t.label === 'Brand Findings').to).toBe('/ws/brand-monitoring?tab=overview#brand-summary')
+    expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Expiry Risk').to).toBe('/ws/certificates?tab=overview#cert-expiry')
+    expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Inventory').to).toBe('/ws/certificates#cert-inventory')
     expect(subpagesForDomainKey('website_security')).toEqual([])
     expect(subpagesForDomainKey('nope')).toEqual([])
     expect(Object.keys(MODULE_SUBPAGES)).toEqual(MODULES.map(m => m.domainKey))

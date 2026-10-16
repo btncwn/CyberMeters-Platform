@@ -11,6 +11,8 @@ vi.mock('../../api', () => ({
     getWorkspaceAssetsSummary: vi.fn(),
     getWorkspaceAssets: vi.fn(),
     getWorkspaceAssetsTimeline: vi.fn(),
+    getWorkspaceScans: vi.fn(),
+    getScanReport: vi.fn(),
   },
 }))
 
@@ -35,7 +37,7 @@ const assets = [
   },
 ]
 
-async function renderPage() {
+async function renderPage(tab = 'findings') {
   api.getWorkspaceAssetsSummary.mockResolvedValue({
     total_assets: 3, active_assets: 2, inactive_assets: 1,
     lifecycle_counts: { observed: 1, not_observed: 0, confirmed_removed: 1, not_assessed: 1 },
@@ -43,8 +45,10 @@ async function renderPage() {
   api.getWorkspaceAssets.mockResolvedValue({ assets })
   api.getWorkspaceAssetsTimeline.mockResolvedValue({ timeline: [] })
   api.getManagedCases.mockResolvedValue({ cases: [] })
-  render(<MemoryRouter initialEntries={['/assets?tab=findings']}><AssetsPage /></MemoryRouter>)
-  await screen.findByText('app.example.com')
+  api.getWorkspaceScans.mockResolvedValue({ scans: [] })
+  render(<MemoryRouter initialEntries={[`/assets?tab=${tab}`]}><AssetsPage /></MemoryRouter>)
+  if (tab === 'findings') await screen.findByText('app.example.com')
+  else await screen.findByTestId('attack-surface-stats')
 }
 
 beforeEach(() => {
@@ -62,11 +66,19 @@ describe('AssetsPage status wording', () => {
     expect(screen.queryByText(/Legacy/)).not.toBeInTheDocument()
   })
 
-  it('counts lifecycle states, not the legacy active flag', async () => {
-    await renderPage()
+  it('counts lifecycle states, not the legacy active flag — on the Overview tab, where the statistic cards live', async () => {
+    await renderPage('overview')
     expect(screen.getByText('Seen in latest scan', { selector: 'p' })).toBeInTheDocument()
     expect(screen.getByText('No longer observed', { selector: 'p' })).toBeInTheDocument()
     expect(screen.queryByText('Active inventory across this workspace')).not.toBeInTheDocument()
+    // Overview carries the summary, never the asset list; Findings the reverse.
+    expect(screen.queryByText('app.example.com')).not.toBeInTheDocument()
+  })
+
+  it('keeps the statistic cards off the Findings tab', async () => {
+    await renderPage()
+    expect(screen.queryByTestId('attack-surface-stats')).not.toBeInTheDocument()
+    expect(screen.getByText('Asset Timeline')).toBeInTheDocument()
   })
 
   it('filters the table by lifecycle state', async () => {

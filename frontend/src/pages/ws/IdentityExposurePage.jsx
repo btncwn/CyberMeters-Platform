@@ -94,6 +94,23 @@ export default function IdentityExposurePage() {
         workspaceName={workspaceName}
         description="Review and own provider relationships and possible identity-facing hostnames for your domains."
         actions={<Link to="/ws/identity-assets" className="btn-secondary inline-flex text-sm">People &amp; evidence →</Link>}
+        overview={(
+          <>
+            {/* Coverage honesty: what this area observes and what it never claims. */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              {IDENTITY_SCOPE_NOTE}
+            </div>
+            {/* Backend counts per classification — the customer's own record, not a verdict. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" data-testid="identity-classification-counts">
+              {CLASS_FILTERS.filter((c) => c !== '').map((c) => (
+                <div key={c} className="card p-4">
+                  <p className="text-[15px] font-semibold text-gray-900 leading-snug">{classificationMeta(c).label}</p>
+                  <p className="text-[14px] font-bold mt-2 leading-none tabular-nums text-gray-800">{loading ? '…' : error ? '—' : (counts[c] ?? 0)}</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       >
       <h2 className="font-semibold text-slate-800 mt-6">Login-surface review</h2>
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 my-3">

@@ -589,8 +589,9 @@ const parity = states.map(parityOutputs);
 // dmarc-state.js and lifecycle-email.js reverted to their previous text the
 // previous hashes (4fe03f24... / 366be232...) reproduce exactly; the evidence
 // hash is unchanged and no mutation control is touched.
-const GOLDEN_F13 = "0a5fdba500a70ebc036b45a7fb39465259ad3440931e7eea960405b62718fd12";
-const GOLDEN_F14 = "f76a06f884ceca4ce9d5265237dcc3fd21b49923b61bc546b999b93e5649dc23";
+// Attack Surface evidence presentation changes the rendered PDF and resolved states.
+const GOLDEN_F13 = "bbbe208b83b9174f133f4b6f9efec56f2ce323f144d2c64e50eb7a31ea220c03";
+const GOLDEN_F14 = "0583c0599376592d88a084e6436fcb85b15de1aa1704325bbbb9e3e3bdb16cdf";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
