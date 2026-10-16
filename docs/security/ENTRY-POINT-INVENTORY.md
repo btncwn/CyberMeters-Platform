@@ -71,41 +71,41 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2599 | preflight | public | — |
-| DELETE | `(none)` | 2605 | unknown | **GAP** | — |
-| GET | `(none)` | 2605 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2605 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2605 | unknown | **GAP** | — |
-| POST | `(none)` | 2605 | unknown | **GAP** | — |
-| PUT | `(none)` | 2605 | unknown | **GAP** | — |
-| GET | `/health` | 2610 | public-or-global | public | — |
-| GET | `/ready` | 2629 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2646 | preflight | public | — |
+| DELETE | `(none)` | 2652 | unknown | **GAP** | — |
+| GET | `(none)` | 2652 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2652 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2652 | unknown | **GAP** | — |
+| POST | `(none)` | 2652 | unknown | **GAP** | — |
+| PUT | `(none)` | 2652 | unknown | **GAP** | — |
+| GET | `/health` | 2657 | public-or-global | public | — |
+| GET | `/ready` | 2676 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/api/account/onboarding-state` | 26 | account | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| POST | `/api/account/bootstrap` | 136 | account | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/account/profile` | 205 | account | ✓ | requireAuth |
-| PATCH | `/api/account/profile` | 256 | account | ✓ | requireAuth |
-| GET | `/api/account/company` | 300 | account | ✓ | requireAuth |
-| PUT | `/api/account/company` | 320 | account | ✓ | requireAuth |
-| GET | `/api/account/report-branding` | 399 | account | ✓ | requireAuth |
-| PUT | `/api/account/report-branding` | 429 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription` | 514 | account | ✓ | requireAuth |
-| GET | `/api/account/usage` | 549 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/limits` | 570 | account | ✓ | requireAuth |
-| GET | `/api/admin/subscriptions` | 595 | admin | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/api/account/api-tokens` | 642 | account | ✓ | requireAuth |
-| POST | `/api/account/api-tokens` | 664 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 735 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 773 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 832 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 882 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 928 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1024 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1060 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/onboarding-state` | 28 | account | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| POST | `/api/account/bootstrap` | 138 | account | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/profile` | 207 | account | ✓ | requireAuth |
+| PATCH | `/api/account/profile` | 258 | account | ✓ | requireAuth |
+| GET | `/api/account/company` | 302 | account | ✓ | requireAuth |
+| PUT | `/api/account/company` | 322 | account | ✓ | requireAuth |
+| GET | `/api/account/report-branding` | 401 | account | ✓ | requireAuth |
+| PUT | `/api/account/report-branding` | 431 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription` | 516 | account | ✓ | requireAuth |
+| GET | `/api/account/usage` | 551 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription/limits` | 572 | account | ✓ | requireAuth |
+| GET | `/api/admin/subscriptions` | 597 | admin | ✓ | isPlatformAdmin, requireAuth |
+| GET | `/api/account/api-tokens` | 644 | account | ✓ | requireAuth |
+| POST | `/api/account/api-tokens` | 666 | account | ✓ | requireAuth, requireWorkspaceAccess |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 737 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 775 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 834 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 884 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 930 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1026 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1086 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 
