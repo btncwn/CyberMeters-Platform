@@ -396,8 +396,23 @@ const VENDOR_RELATIONSHIP_SIGS = [
  *   medium — single specific CSP directive match
  *   low    — csp:any (full-string fallback) only
  */
+// Did the modules this analysis reads actually observe the site? The analysis is
+// pure, so an unreadable site yields an honest-looking "0 vendors"; only a result
+// whose inputs completed may be read as evidence of ABSENCE (used by the upsert
+// to retire suppliers it no longer sees). headers must carry its values and not
+// be incomplete/errored; technology_detection must have observed the origin.
+function relationshipInputsComplete(modules) {
+  const headers = modules?.headers;
+  const tech = modules?.technology_detection;
+  const headersOk = !!headers && typeof headers === "object" && !headers.error && headers.incomplete !== true
+    && !!headers.values && typeof headers.values === "object";
+  const techOk = !!tech && typeof tech === "object" && !tech.error && tech.incomplete !== true;
+  return headersOk && techOk;
+}
+
 export function runVendorRelationshipModule(modules) {
   try {
+    const inputs_complete = relationshipInputsComplete(modules);
     // ── Build signal sets ────────────────────────────────────────────────────
     const rawCsp = (modules?.headers?.values?.["content-security-policy"] || "").toLowerCase();
     const directives = parseCspDirectives(rawCsp);
@@ -493,6 +508,8 @@ export function runVendorRelationshipModule(modules) {
       high_confidence: highConfidenceCount,
       by_category:     byCategory,
       source:          "csp_relationship_analysis",
+      // Absence is evidence only when every input module observed the site.
+      inputs_complete,
       error:           null,
     };
   } catch (err) {
@@ -503,6 +520,7 @@ export function runVendorRelationshipModule(modules) {
       high_confidence: 0,
       by_category:     {},
       source:          "csp_relationship_analysis",
+      inputs_complete: false,
       error:           err?.message ?? "Vendor relationship analysis failed",
     };
   }

@@ -581,7 +581,7 @@ const relatedRules = await import(engineUrl("related-changes-rules.js"));
 const readRepo = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const LATER = "2026-08-10T12:00:00.000Z";
 const relationshipResult = (names) => ({
-  detected: names.length > 0, error: null, total: names.length,
+  detected: names.length > 0, error: null, total: names.length, inputs_complete: true,
   vendors: names.map((name) => ({
     name, category: "payments", risk_level: "medium", confidence: "high",
     source: "csp:script-src", source_signals: ["csp:script-src"],
@@ -617,15 +617,44 @@ const CSP_MODULES = { headers: { values: { "content-security-policy": "script-sr
 {
   const fx = createFixture(); const env = envFor(fx);
   await scanEngine.upsertVendorRelationships("d1", relationshipResult(["Stripe"]), env);
-  await scanEngine.upsertVendorRelationships("d1", { detected: false, error: "csp analysis failed", vendors: [], total: 0 }, env);
+  await scanEngine.upsertVendorRelationships("d1", { detected: false, error: "csp analysis failed", vendors: [], total: 0, inputs_complete: false }, env);
   const afterError = vendorRow(fx.db, "Stripe");
   await scanEngine.upsertVendorRelationships("d1", null, env);
   const afterMissing = vendorRow(fx.db, "Stripe");
-  await scanEngine.upsertVendorRelationships("d1", { detected: false, error: null, vendors: [], total: 0 }, env);
+  await scanEngine.upsertVendorRelationships("d1", { detected: false, error: null, vendors: [], total: 0, inputs_complete: true }, env);
   const afterClean = vendorRow(fx.db, "Stripe");
   verdict("F35", afterError?.status === "active" && afterMissing?.status === "active" && afterClean?.status === "inactive" &&
     afterClean?.last_seen === afterError?.last_seen,
     `error=${afterError?.status} missing=${afterMissing?.status} clean=${afterClean?.status}`);
+  fx.db.close();
+}
+
+// F45: an unreadable site is silence, never a retirement. The analysis is pure, so
+// when headers (or technology_detection) did not observe the site it reports
+// inputs_complete=false with 0 vendors, and the upsert retires nothing; only a
+// result whose inputs completed may retire the suppliers it no longer sees.
+{
+  const fx = createFixture(); const env = envFor(fx);
+  await scanEngine.upsertVendorRelationships("d1", vendorRelationship.runVendorRelationshipModule({ ...CSP_MODULES, technology_detection: { technologies: [], external_scripts: [] } }), env);
+  const seeded = vendorRow(fx.db, "Stripe");
+  const headersFailed = vendorRelationship.runVendorRelationshipModule({ headers: { incomplete: true, incomplete_reason: "origin_not_observed", values: {} }, technology_detection: { technologies: [], external_scripts: [] } });
+  await scanEngine.upsertVendorRelationships("d1", headersFailed, env);
+  const afterHeadersFailed = vendorRow(fx.db, "Stripe");
+  const techFailed = vendorRelationship.runVendorRelationshipModule({ headers: { values: {} }, technology_detection: { error: "Tech module: no response", incomplete: true } });
+  await scanEngine.upsertVendorRelationships("d1", techFailed, env);
+  const afterTechFailed = vendorRow(fx.db, "Stripe");
+  const noHeaders = vendorRelationship.runVendorRelationshipModule({ technology_detection: { technologies: [], external_scripts: [] } });
+  await scanEngine.upsertVendorRelationships("d1", noHeaders, env);
+  const afterNoHeaders = vendorRow(fx.db, "Stripe");
+  const cleanEmpty = vendorRelationship.runVendorRelationshipModule({ headers: { values: {} }, technology_detection: { technologies: [], external_scripts: [] } });
+  await scanEngine.upsertVendorRelationships("d1", cleanEmpty, env);
+  const afterCleanEmpty = vendorRow(fx.db, "Stripe");
+  verdict("F45", seeded?.status === "active" &&
+    headersFailed.inputs_complete === false && headersFailed.vendors.length === 0 && headersFailed.error === null &&
+    techFailed.inputs_complete === false && noHeaders.inputs_complete === false &&
+    afterHeadersFailed?.status === "active" && afterTechFailed?.status === "active" && afterNoHeaders?.status === "active" &&
+    cleanEmpty.inputs_complete === true && afterCleanEmpty?.status === "inactive",
+    `headersFailed=${json({ ic: headersFailed.inputs_complete, n: headersFailed.vendors.length })} after=${afterHeadersFailed?.status}/${afterTechFailed?.status}/${afterNoHeaders?.status} clean=${cleanEmpty.inputs_complete}/${afterCleanEmpty?.status}`);
   fx.db.close();
 }
 

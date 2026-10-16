@@ -158,16 +158,28 @@ const registry = Object.freeze([
   },
   // ── Shadow IT detection fixes (16 Oct 2026) — one mutant per fix, exact kills ──
   {
-    id: "SIT_M18", defect: "vendor-relationship suppliers never retired (no disappearance)", expected: ["F34", "F35"],
+    id: "SIT_M18", defect: "vendor-relationship suppliers never retired (no disappearance)", expected: ["F34", "F35", "F45"],
     changes: [{ target: SE,
       anchor: "             AND source_module = 'vendor_relationship'${detectedNames.length ? ` AND vendor_name NOT IN (${placeholders})` : \"\"}`",
       replacement: "             AND source_module = 'vendor_relationship' AND 0 = 1${detectedNames.length ? ` AND vendor_name NOT IN (${placeholders})` : \"\"}`" }],
   },
   {
-    id: "SIT_M19", defect: "a clean run that detected nothing is skipped (suppliers linger)", expected: ["F35"],
+    id: "SIT_M19", defect: "a clean run that detected nothing is skipped (suppliers linger)", expected: ["F35", "F45"],
     changes: [{ target: SE,
       anchor: "  if (!relModule || relModule.error) return;\n  const vendors = Array.isArray(relModule.vendors) ? relModule.vendors : [];",
       replacement: "  if (!relModule?.detected || !relModule.vendors?.length) return;\n  const vendors = Array.isArray(relModule.vendors) ? relModule.vendors : [];" }],
+  },
+  {
+    id: "SIT_M29", defect: "suppliers retired although the input modules did not observe the site", expected: ["F45"],
+    changes: [{ target: SE,
+      anchor: "    if (relModule.inputs_complete !== true) continue;",
+      replacement: "    if (relModule.inputs_complete === undefined) continue;" }],
+  },
+  {
+    id: "SIT_M30", defect: "analysis reports complete inputs for an unreadable site", expected: ["F45"],
+    changes: [{ target: VR,
+      anchor: "  return headersOk && techOk;",
+      replacement: "  return true;" }],
   },
   {
     id: "SIT_M20", defect: "Catalogue B evidence stored as bare signal names (no hostname)", expected: ["F36", "F37"],

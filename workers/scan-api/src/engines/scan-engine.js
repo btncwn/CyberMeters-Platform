@@ -3446,8 +3446,12 @@ export async function upsertVendorRelationships(domainId, relModule, env) {
     }
 
     // Retire the relationship suppliers this clean run did not see — including
-    // every one of them when it saw none. Only this workspace, only rows this
-    // module owns; last_seen is preserved as the last observation.
+    // every one of them when it saw none. Only when the analysis' input modules
+    // (headers, technology_detection) actually observed the site: the analysis is
+    // pure, so an unreadable site produces an honest-looking "0 vendors" that must
+    // be silence, not a retirement that flaps back next scan. Only this workspace,
+    // only rows this module owns; last_seen is preserved as the last observation.
+    if (relModule.inputs_complete !== true) continue;
     try {
       const placeholders = detectedNames.map(() => "?").join(", ");
       await env.cybermeters_db
