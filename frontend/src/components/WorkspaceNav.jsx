@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { ChevronLeft, ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { api } from '../api'
 import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
 import { SERVICE_COLORS } from '../theme/serviceColors'
@@ -87,8 +88,11 @@ const SERVICES = [
   },
 ]
 
-// Secondary workspace/admin links — tucked into a small footer dropdown so they
-// never dominate the coloured service suite.
+// Secondary workspace/admin links — tucked into the WORKSPACE section at the
+// foot of the sidebar so they never dominate the coloured service suite.
+// Founder decision (16 Oct 2026): switching, managing and clearing the
+// workspace live here too (they left the top bar), under the active
+// workspace's name, so one control appears in one place.
 const WORKSPACE_TOOLS = [
   { to: '/ws/dashboard',           label: 'Administration' },
   { to: '/ws/scorecard',           label: 'Scorecard'    },
@@ -109,11 +113,47 @@ export function detectServiceKey(pathname) {
   return s ? s.key : null
 }
 
-export default function WorkspaceNav({ wsName }) {
+export default function WorkspaceNav({ wsId: wsIdProp, wsName }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const activeKey = detectServiceKey(pathname)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const wsId = wsIdProp ?? localStorage.getItem('cybermeters_workspace_id')
+  const [workspaces, setWorkspaces] = useState(null)   // null = not read yet
+  const [wsLoading, setWsLoading] = useState(false)
+
+  // The workspace list is read once, the first time the section opens.
+  async function toggleTools() {
+    const opening = !toolsOpen
+    setToolsOpen(opening)
+    if (opening && workspaces === null && !wsLoading) {
+      setWsLoading(true)
+      try {
+        const data = await api.getWorkspaces()
+        setWorkspaces(Array.isArray(data?.workspaces) ? data.workspaces : [])
+      } catch { setWorkspaces([]) }
+      finally { setWsLoading(false) }
+    }
+  }
+
+  // Selecting writes the same keys the rest of the app reads and tells Layout
+  // at once (it listens for `storage`), so the rail and pages follow immediately.
+  function selectWorkspace(ws) {
+    localStorage.setItem('cybermeters_workspace_id', ws.id)
+    localStorage.setItem('cybermeters_workspace_name', ws.name)
+    window.dispatchEvent(new Event('storage'))
+    setToolsOpen(false)
+    navigate('/ws/dashboard')
+  }
+
+  function clearWorkspace() {
+    localStorage.removeItem('cybermeters_workspace_id')
+    localStorage.removeItem('cybermeters_workspace_name')
+    window.dispatchEvent(new Event('storage'))
+    setToolsOpen(false)
+    // The /ws/... pages belong to the workspace just cleared, so leave them.
+    navigate('/workspaces')
+  }
   const [hoverKey, setHoverKey] = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const mobileToggle = useRef(null)
@@ -137,20 +177,8 @@ export default function WorkspaceNav({ wsName }) {
       </button>
       <div id="workspace-service-navigation" className={`${mobileOpen ? 'flex' : 'hidden'} lg:flex flex-col flex-1`}>
 
-      {/* Workspace identity */}
-      <div className="px-4 pt-5 pb-4 border-b border-gray-100">
-        <button
-          onClick={() => navigate('/workspaces')}
-          className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors mb-3"
-        >
-          <ChevronLeft className="w-3.5 h-3.5" />
-          All workspaces
-        </button>
-        <p className="text-[20px] font-bold text-gray-900 wrap-break-word">{wsName || 'Workspace'}</p>
-      </div>
-
-      {/* ── Cyber MOT domains ── */}
-      <nav className="flex-1 px-2.5 py-4 space-y-1.5">
+      {/* ── Cyber MOT domains — the sidebar starts here ── */}
+      <nav aria-label="Modules" className="flex-1 px-2.5 py-4 space-y-1.5">
         {SERVICES.map(svc => {
           const active = activeKey === svc.key
           const expanded = expandedKey === svc.key
@@ -225,17 +253,58 @@ export default function WorkspaceNav({ wsName }) {
         })}
       </nav>
 
-      {/* ── Secondary workspace/admin links — small footer dropdown ── */}
-      <div className="px-2.5 py-2.5 border-t border-gray-100">
+      {/* ── WORKSPACE: active workspace, switch / manage / clear, admin links ── */}
+      <section className="px-2.5 py-2.5 border-t border-gray-100" aria-label="Workspace" data-testid="workspace-section">
         <button
-          onClick={() => setToolsOpen(v => !v)}
+          type="button"
+          onClick={toggleTools}
+          aria-expanded={toolsOpen}
+          aria-controls="workspace-section-body"
           className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[15px] font-bold text-coral uppercase tracking-widest hover:bg-coral-50 transition-colors"
         >
           <span className="flex-1 text-left">Workspace</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${toolsOpen ? 'rotate-180' : ''}`} />
         </button>
+        <p className="px-2.5 pb-1 text-[17px] font-semibold text-gray-900 truncate" data-testid="active-workspace-name">
+          {wsName || 'No workspace selected'}
+        </p>
         {toolsOpen && (
-          <div className="mt-1 space-y-0.5">
+          <div id="workspace-section-body" className="mt-1 space-y-0.5">
+            <div className="px-2.5 pt-2 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Switch workspace</div>
+            {wsLoading && <div className="px-2.5 py-1.5 text-[16px] text-gray-400">Loading…</div>}
+            {!wsLoading && Array.isArray(workspaces) && workspaces.length === 0 && (
+              <div className="px-2.5 py-1.5 text-[16px] text-gray-400">No workspaces yet</div>
+            )}
+            {Array.isArray(workspaces) && workspaces.map(ws => (
+              <button
+                key={ws.id}
+                type="button"
+                onClick={() => selectWorkspace(ws)}
+                aria-current={ws.id === wsId ? 'true' : undefined}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[16px] text-left transition-colors ${ws.id === wsId ? 'font-semibold text-gray-900 bg-gray-100' : 'text-gray-700 hover:bg-gray-50'}`}
+              >
+                <span className="flex-1 truncate">{ws.name}</span>
+                {ws.id === wsId && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" aria-hidden="true" />}
+              </button>
+            ))}
+            <NavLink
+              to="/workspaces"
+              end
+              onMouseEnter={() => handlePreload('/workspaces')}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[16px] font-semibold text-brand-700 hover:bg-brand-50 transition-colors"
+            >
+              Manage workspaces
+            </NavLink>
+            {wsId && (
+              <button
+                type="button"
+                onClick={clearWorkspace}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[16px] text-gray-500 hover:bg-gray-50 transition-colors text-left"
+              >
+                Clear selection
+              </button>
+            )}
+            <div className="border-t border-gray-100 my-1" />
             {WORKSPACE_TOOLS.map(({ to, label }) => (
               <NavLink
                 key={to}
@@ -254,7 +323,7 @@ export default function WorkspaceNav({ wsName }) {
             ))}
           </div>
         )}
-      </div>
+      </section>
       </div>
     </aside>
   )

@@ -1,9 +1,10 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useRef } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { ChevronDown, Check, X } from 'lucide-react'
+import { ChevronDown, X } from 'lucide-react'
 import CyberMetersLogo from './CyberMetersLogo'
 import { api, logoutWithToken } from '../api'
+import { MODULES, moduleTheme } from '../lib/moduleRegistry'
 import { TOKEN_KEY } from '../context/authKeys'
 import { useAuth } from '../context/AuthContext'
 import WorkspaceNav, { detectServiceKey } from './WorkspaceNav'
@@ -14,7 +15,7 @@ import NotificationBell from './NotificationBell'
 // Top nav is intentionally lean — high-level destinations only. Service-specific
 // areas live behind Services and the service sidebars; secondary tools (Scans,
 // Schedules) live in the user menu. No routes are removed — everything stays
-// reachable (Workspaces through the workspace selector's "Manage workspaces").
+// reachable (Workspaces through the sidebar's WORKSPACE section).
 // Founder decision (14 Oct 2026): the top bar reads left to right from the
 // deepest amber to the lightest, two items per step, and Settings lives only in
 // the workspace sidebar (a control never appears in three places).
@@ -77,112 +78,92 @@ const MORE_LINKS = [
   { to: '/support',   label: 'Support'   },
 ]
 
-// ── Workspace Selector Dropdown ───────────────────────────────────────────────
+// ── Module menu (logo + wordmark) ────────────────────────────────────────────
+// Founder decision (16 Oct 2026): the brand is the module menu. The logo and
+// the "CyberMeters" wordmark are one button that opens the eight areas in
+// founder order, with the Security overview on top; when no workspace is
+// selected the menu says so first. The workspace selector no longer lives in
+// the top bar — switching, managing and clearing a workspace live in the
+// sidebar's WORKSPACE section — so the main navigation keeps one line at 1440.
+export const MODULE_MENU_ID = 'cm-module-menu'
 
-function WorkspaceSelector() {
-  const navigate = useNavigate()
-  const [open, setOpen]             = useState(false)
-  const [workspaces, setWorkspaces] = useState([])
-  const [loading, setLoading]       = useState(false)
-  const [activeId, setActiveId]     = useState(() => localStorage.getItem('cybermeters_workspace_id'))
-  const [activeName, setActiveName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+function ModuleMenu({ wsId }) {
+  const [open, setOpen] = useState(false)
   const ref = useRef(null)
+  const buttonRef = useRef(null)
 
-  // Close on outside click
+  // Close and hand focus back to the brand button, so a keyboard user lands
+  // where the menu was opened from.
+  function close({ refocus } = {}) {
+    setOpen(false)
+    if (refocus) buttonRef.current?.focus()
+  }
+
   useEffect(() => {
-    function handleClickOutside(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    if (!open) return undefined
+    function onPointerDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) close()
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  // Load workspaces when dropdown opens
-  async function handleOpen() {
-    setOpen(v => !v)
-    if (workspaces.length === 0) {
-      setLoading(true)
-      try {
-        const data = await api.getWorkspaces()
-        setWorkspaces(data.workspaces || [])
-      } catch { /* silent */ }
-      finally { setLoading(false) }
+    function onKeyDown(e) {
+      if (e.key === 'Escape') { e.preventDefault(); close({ refocus: true }) }
     }
-  }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
-  function selectWorkspace(ws) {
-    localStorage.setItem('cybermeters_workspace_id', ws.id)
-    localStorage.setItem('cybermeters_workspace_name', ws.name)
-    setActiveId(ws.id)
-    setActiveName(ws.name)
-    setOpen(false)
-    navigate('/ws/dashboard')
-  }
-
-  function clearWorkspace() {
-    localStorage.removeItem('cybermeters_workspace_id')
-    localStorage.removeItem('cybermeters_workspace_name')
-    setActiveId(null)
-    setActiveName(null)
-    setOpen(false)
-    // The /ws/... pages belong to the workspace just cleared, so leave them.
-    navigate('/workspaces')
-  }
+  const itemClass = 'flex items-center gap-2.5 px-4 py-2 text-[17px] font-medium text-gray-800 hover:bg-gray-50 transition-colors'
 
   return (
-    // min-w-0 down the chain so the selector is the control that gives way on a
-    // phone: the right-hand cluster then fits 390px and nothing pushes the
-    // avatar past the page edge.
-    <div className="relative min-w-0" ref={ref}>
+    <div className="relative shrink-0" ref={ref}>
       <button
-        onClick={handleOpen}
-        className="h-11 w-full min-w-0 flex items-center gap-2 px-3 sm:px-4 rounded-[8px] text-[16px] font-semibold text-white border border-white/30 bg-white/10 hover:bg-white/20 transition-colors"
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={MODULE_MENU_ID}
+        aria-label="CyberMeters modules"
+        className="group rounded-[8px] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-300"
       >
-        <span className="min-w-0 max-w-[88px] sm:max-w-[140px] truncate">{activeName || 'Workspace'}</span>
-        <ChevronDown className={`w-3.5 h-3.5 text-white transition-transform ${open ? 'rotate-180' : ''}`} />
+        <CyberMetersLogo size={44} showWordmark animated darkMode wordmarkColor="#C65B26" wordmarkSize={30} subtitle={false} />
       </button>
 
       {open && (
-        <div className="absolute top-full mt-2 left-0 sm:left-auto sm:right-0 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
-          <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Switch workspace
-          </div>
-
-          {loading && (
-            <div className="px-3 py-2 text-sm text-gray-400">Loading…</div>
+        <div
+          id={MODULE_MENU_ID}
+          role="menu"
+          aria-label="Modules"
+          className="absolute top-full left-0 mt-2 w-[19rem] max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50"
+        >
+          <NavLink role="menuitem" to="/dashboard" onClick={() => close({ refocus: true })} className={`${itemClass} font-semibold text-gray-900`}>
+            Security overview
+          </NavLink>
+          {!wsId && (
+            <NavLink role="menuitem" to="/workspaces" onClick={() => close({ refocus: true })} className={`${itemClass} text-brand-700`}>
+              Select a workspace
+            </NavLink>
           )}
-
-          {!loading && workspaces.length === 0 && (
-            <div className="px-3 py-2 text-sm text-gray-400">No workspaces yet</div>
-          )}
-
-          {workspaces.map(ws => (
-            <button
-              key={ws.id}
-              onClick={() => selectWorkspace(ws)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
-            >
-              <span className="flex-1 truncate">{ws.name}</span>
-              {ws.id === activeId && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
-            </button>
-          ))}
-
-          <div className="border-t border-gray-100 mt-1 pt-1">
-            <button
-              onClick={() => { setOpen(false); navigate('/workspaces') }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 transition-colors text-left font-medium"
-            >
-              Manage workspaces
-            </button>
-            {activeId && (
-              <button
-                onClick={clearWorkspace}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 transition-colors text-left"
+          <div className="border-t border-gray-100 my-1" />
+          {MODULES.map(m => {
+            const t = moduleTheme(m.domainKey)
+            return (
+              <NavLink
+                key={m.domainKey}
+                role="menuitem"
+                to={m.to}
+                data-domain-key={m.domainKey}
+                onClick={() => close({ refocus: true })}
+                className={itemClass}
               >
-                Clear selection
-              </button>
-            )}
-          </div>
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={t ? { backgroundColor: t.icon } : undefined} aria-hidden="true" />
+                <span className="min-w-0">{m.title}</span>
+              </NavLink>
+            )
+          })}
         </div>
       )}
     </div>
@@ -407,8 +388,8 @@ function UpgradePromptModal() {
 export default function Layout() {
   const navigate = useNavigate()
   // Persistent workspace service rail: read the active workspace straight from
-  // localStorage (the same lightweight pattern WorkspaceSelector already uses in
-  // this header) — deliberately NOT the useWorkspace() hook, so Layout never
+  // localStorage (the sidebar's WORKSPACE section writes it and fires a
+  // `storage` event) — deliberately NOT the useWorkspace() hook, so Layout never
   // triggers its own workspaces fetch / bootstrap on every route.
   const [wsId, setWsId]     = useState(() => localStorage.getItem('cybermeters_workspace_id'))
   const [wsName, setWsName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
@@ -438,26 +419,23 @@ export default function Layout() {
       {/* Top bar: deep navy, darkest at the brand and lighter towards the
           right; brand and navigation in the amber steps of the wordmark. */}
       <header className="cm-topbar sticky top-0 z-50">
-        <div className="w-full px-4 sm:px-6 lg:px-10 min-h-[96px] lg:min-h-[144px] flex flex-wrap items-center gap-x-6 gap-y-2 lg:gap-x-11 py-3 lg:py-0">
+        {/* At lg+ the brand, the nav and the account cluster share one row:
+            the nav keeps its content width (no shrinking into the bell) and
+            the row's spacing is sized so the six-item direct menu fits 1440. */}
+        <div className="w-full px-4 sm:px-6 lg:px-8 min-h-[96px] lg:min-h-[144px] flex flex-wrap items-center gap-x-6 gap-y-2 lg:gap-x-8 py-3 lg:py-0">
 
-          {/* Logo */}
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="shrink-0 group"
-            aria-label="CyberMeters security overview"
-          >
-            <CyberMetersLogo size={44} showWordmark animated darkMode wordmarkColor="#C65B26" wordmarkSize={30} subtitle={false} />
-          </button>
+          {/* Brand = module menu */}
+          <ModuleMenu wsId={wsId} />
 
           {/* Nav: on wide screens it sits beside the brand; on phones it takes
               its own row under the brand and the account controls. */}
-          <nav aria-label="Main navigation" className="order-3 lg:order-0 w-full lg:w-auto lg:flex-1 min-w-0 flex flex-wrap items-center gap-x-5 lg:gap-x-8 gap-y-1">
+          <nav aria-label="Main navigation" className="order-3 lg:order-0 w-full lg:w-auto lg:flex-none min-w-0 flex flex-wrap lg:flex-nowrap items-center gap-x-5 lg:gap-x-6 gap-y-1">
             {nav.map(({ to, label }, index) => (
               <NavLink
                 key={to}
                 to={to}
                 style={{ color: navColorAt(index) }}
-                className={({ isActive }) => `cm-topbar-link${isActive ? ' cm-topbar-link-active' : ''}`}
+                className={({ isActive }) => `cm-topbar-link whitespace-nowrap${isActive ? ' cm-topbar-link-active' : ''}`}
               >
                 <span>{label}</span>
               </NavLink>
@@ -466,8 +444,6 @@ export default function Layout() {
 
           {/* Right */}
           <div className="ml-auto min-w-0 flex items-center gap-2 sm:gap-3">
-            <WorkspaceSelector />
-
             <NotificationBell />
 
             <button
@@ -493,7 +469,7 @@ export default function Layout() {
         <div className="flex flex-col lg:flex-row">
           {wsId && (
             <SafeBoundary>
-              <WorkspaceNav wsName={wsName} />
+              <WorkspaceNav wsId={wsId} wsName={wsName} />
             </SafeBoundary>
           )}
           <div
