@@ -212,6 +212,18 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
     setParams(next, { replace: true })
   }
 
+  function onTabKeyDown(event, currentId) {
+    const index = TAB_IDS.indexOf(currentId)
+    const target = event.key === 'ArrowRight' ? (index + 1) % TAB_IDS.length
+      : event.key === 'ArrowLeft' ? (index - 1 + TAB_IDS.length) % TAB_IDS.length
+        : event.key === 'Home' ? 0
+          : event.key === 'End' ? TAB_IDS.length - 1 : -1
+    if (target < 0) return
+    event.preventDefault()
+    selectTab(TAB_IDS[target])
+    event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[target]?.focus()
+  }
+
   const scopeSection = (
     <Section section={S['module-scope']} theme={theme}>
       <p className="text-sm font-semibold text-gray-900">{module?.title || domainKey}</p>
@@ -387,6 +399,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
               aria-controls="module-tabpanel"
               tabIndex={tab === t.id ? 0 : -1}
               onClick={() => selectTab(t.id)}
+              onKeyDown={event => onTabKeyDown(event, t.id)}
               className="cm-tab"
             >
               {t.label}
@@ -395,7 +408,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
         </div>
       </header>
 
-      <div id="module-tabpanel" role="tabpanel" aria-labelledby={`module-tab-${tab}`} className="space-y-8">
+      <div id="module-tabpanel" role="tabpanel" aria-labelledby={`module-tab-${tab}`} tabIndex={0} className="space-y-8">
         {tab === 'overview' && (
           <>
             <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} />
