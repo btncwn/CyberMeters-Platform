@@ -141,6 +141,14 @@ const failed = await postWebhook(evt("evt_3", "invoice.payment_failed", { id: "i
 ok("payment_failed accepted", failed.status >= 200 && failed.status < 300);
 ok("payment_failed → subscription_status past_due", rowStatus()?.subscription_status === "past_due");
 ok("payment_failed → legacy status in lockstep (past_due)", rowStatus()?.status === "past_due");
+const pastDueBeforeCheckout = rowStatus();
+const latePastDueCheckout = await postWebhook(evt("evt_3_late_checkout", "checkout.session.completed", {
+  id: "cs_late_past_due", customer: CUS, subscription: SUB,
+  metadata: { ...meta, plan: "starter" }, payment_status: "paid",
+}));
+ok("late paid checkout after payment failure accepted", latePastDueCheckout.status === 200);
+ok("late paid checkout does not restore past-due entitlement or stale plan",
+  JSON.stringify(rowStatus()) === JSON.stringify(pastDueBeforeCheckout));
 
 // ── invoice.payment_succeeded → past_due cleared, both columns together ──────
 const succeeded = await postWebhook(evt("evt_3b", "invoice.payment_succeeded", { id: "in_2", customer: CUS, subscription: SUB }));
@@ -158,6 +166,102 @@ ok("deleted accepted", deleted.status >= 200 && deleted.status < 300);
 ok("deleted → subscription_status canceled", rowStatus()?.subscription_status === "canceled");
 ok("deleted → legacy status in lockstep (canceled)", rowStatus()?.status === "canceled");
 ok("deleted retains the row (historical record)", rowStatus() !== undefined);
+const canceledBeforeCheckout = rowStatus();
+const lateCanceledCheckout = await postWebhook(evt("evt_5_late_checkout", "checkout.session.completed", {
+  id: "cs_late_canceled", customer: CUS, subscription: SUB,
+  metadata: { ...meta, plan: "starter" }, payment_status: "paid",
+}));
+ok("late paid checkout after deletion accepted", lateCanceledCheckout.status === 200);
+ok("late paid checkout cannot reactivate deleted subscription or change its plan",
+  JSON.stringify(rowStatus()) === JSON.stringify(canceledBeforeCheckout));
+
+// Provider deliveries can arrive out of order: a deletion may be processed
+// before any local subscription row exists. Its durable marker must still keep
+// the later, paid checkout and subscription.created from granting access.
+const deletedFirstMeta = { user_id: "usr_deleted_first", workspace_id: "ws_deleted_first", plan: "business", interval: "monthly" };
+const deletedFirst = await postWebhook(evt("evt_deleted_first", "customer.subscription.deleted", {
+  id: "sub_deleted_first", customer: "cus_deleted_first", metadata: deletedFirstMeta, status: "canceled",
+}));
+ok("deleted-first event accepted without a local subscription row", deletedFirst.status === 200);
+ok("deleted-first event writes a durable cancellation marker",
+  db.prepare("SELECT event_type, status FROM stripe_processed_events WHERE id = 'stripe_canceled_subscription:sub_deleted_first'").get()?.status === "completed");
+const lateDeletedFirstCheckout = await postWebhook(evt("evt_deleted_first_checkout", "checkout.session.completed", {
+  id: "cs_deleted_first", customer: "cus_deleted_first", subscription: "sub_deleted_first",
+  metadata: deletedFirstMeta, payment_status: "paid",
+}));
+ok("late paid checkout after deleted-first accepted", lateDeletedFirstCheckout.status === 200);
+ok("late paid checkout after deleted-first grants no subscription row",
+  db.prepare("SELECT COUNT(*) AS n FROM subscriptions WHERE owner_user_id = ?").get(deletedFirstMeta.user_id).n === 0);
+const lateDeletedFirstCreated = await postWebhook(evt("evt_deleted_first_created", "customer.subscription.created", {
+  id: "sub_deleted_first", customer: "cus_deleted_first", metadata: deletedFirstMeta, status: "active",
+  items: { data: [{ price: { id: "price_bm" } }] },
+}));
+ok("late subscription.created after deleted-first accepted", lateDeletedFirstCreated.status === 200);
+ok("late subscription.created after deleted-first grants no subscription row",
+  db.prepare("SELECT COUNT(*) AS n FROM subscriptions WHERE owner_user_id = ?").get(deletedFirstMeta.user_id).n === 0);
+
+// The cancellation marker is required state. A storage failure must make the
+// webhook retryable rather than acknowledge an unprotected deletion.
+const realD1 = env.cybermeters_db;
+env.cybermeters_db = { ...realD1, prepare(sql) {
+  if (sql.includes("INSERT INTO stripe_processed_events") && sql.includes("subscription_canceled")) {
+    return { bind() { return { async run() { throw new Error("controlled cancellation marker failure"); } }; } };
+  }
+  return realD1.prepare(sql);
+} };
+let markerFailure;
+try {
+  markerFailure = await postWebhook(evt("evt_marker_failure", "customer.subscription.deleted", {
+    id: "sub_marker_failure", customer: "cus_marker_failure", status: "canceled",
+  }));
+} finally {
+  env.cybermeters_db = realD1;
+}
+ok("cancellation marker failure returns retryable error", markerFailure.status === 500);
+ok("cancellation marker failure does not mark webhook complete",
+  db.prepare("SELECT status FROM stripe_processed_events WHERE id = 'evt_marker_failure'").get()?.status === "failed");
+
+// The same customer may pay for a replacement subscription. An old deletion
+// must not use the customer/owner fallback to cancel that newer active row.
+db.prepare(`INSERT INTO subscriptions
+  (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_customer_id, stripe_subscription_id)
+  VALUES ('row_replacement', 'usr_replacement', 'ws_replacement', 'starter', 'active', 'active', 'cus_replacement', 'sub_replacement_new')`).run();
+const replacementBeforeOldDeletion = db.prepare("SELECT * FROM subscriptions WHERE id = 'row_replacement'").get();
+const oldDeletion = await postWebhook(evt("evt_old_subscription_deleted", "customer.subscription.deleted", {
+  id: "sub_replacement_old", customer: "cus_replacement", status: "canceled",
+  metadata: { user_id: "usr_replacement", workspace_id: "ws_replacement" },
+}));
+ok("old subscription deletion accepted", oldDeletion.status === 200);
+ok("old subscription deletion leaves newer subscription byte-equivalent",
+  JSON.stringify(db.prepare("SELECT * FROM subscriptions WHERE id = 'row_replacement'").get())
+    === JSON.stringify(replacementBeforeOldDeletion));
+
+// A completed checkout with pending or unknown payment must not turn an
+// existing trial row into paid access. Subscription events set its later state.
+const unpaidMeta = { user_id: "usr_unpaid", workspace_id: "ws_unpaid", plan: "business", interval: "monthly" };
+db.prepare(`INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status)
+  VALUES ('row_unpaid_trial', ?, ?, 'free', 'trialing', 'trialing')`)
+  .run(unpaidMeta.user_id, unpaidMeta.workspace_id);
+for (const [eventId, paymentStatus] of [["evt_unpaid", "unpaid"], ["evt_unknown_payment", undefined]]) {
+  const checkout = await postWebhook(evt(eventId, "checkout.session.completed", {
+    id: eventId, customer: "cus_unpaid", subscription: "sub_unpaid",
+    metadata: unpaidMeta, payment_status: paymentStatus,
+  }));
+  ok(`${eventId} checkout accepted`, checkout.status === 200);
+  const row = db.prepare("SELECT plan, status, subscription_status, stripe_subscription_id FROM subscriptions WHERE id = 'row_unpaid_trial'").get();
+  ok(`${eventId} does not grant paid access`, row?.plan === "free" && row?.status === "trialing"
+    && row?.subscription_status === "trialing" && row?.stripe_subscription_id === null);
+}
+const noPaymentRequired = await postWebhook(evt("evt_no_payment_required", "checkout.session.completed", {
+  id: "cs_no_payment_required", customer: "cus_no_payment_required", subscription: "sub_no_payment_required",
+  metadata: { user_id: "usr_no_payment_required", workspace_id: "ws_no_payment_required", plan: "starter", interval: "monthly" },
+  payment_status: "no_payment_required",
+}));
+ok("no-payment-required checkout accepted", noPaymentRequired.status === 200);
+const noPaymentRequiredRow = db.prepare("SELECT plan, status, subscription_status FROM subscriptions WHERE stripe_subscription_id = 'sub_no_payment_required'").get();
+ok("no-payment-required checkout can activate a new subscription",
+  noPaymentRequiredRow?.plan === "starter" && noPaymentRequiredRow?.status === "active"
+    && noPaymentRequiredRow?.subscription_status === "active");
 
 // ── Unknown price fails CLOSED — the metadata plan claim never wins ──────────
 const UID2 = "usr_stripe2", WS2 = "ws_stripe2", CUS2 = "cus_2", SUB2 = "sub_2";

@@ -382,6 +382,18 @@ export function normalizeStripeSubscriptionStatus(status) {
   return value || "incomplete";
 }
 
+function canceledSubscriptionMarkerId(stripeSubscriptionId) {
+  return `stripe_canceled_subscription:${stripeSubscriptionId}`;
+}
+
+async function hasCanceledSubscriptionMarker(env, stripeSubscriptionId) {
+  if (!stripeSubscriptionId) return false;
+  return Boolean(await env.cybermeters_db
+    .prepare("SELECT 1 FROM stripe_processed_events WHERE id = ? AND event_type = 'subscription_canceled' AND status = 'completed' LIMIT 1")
+    .bind(canceledSubscriptionMarkerId(stripeSubscriptionId))
+    .first());
+}
+
 // Most specific identity first. A Stripe subscription id names exactly one
 // billing lineage and a Stripe customer id is UNIQUE across rows, so either
 // identifies the row Stripe is describing. The owner is only a fallback: an
@@ -429,6 +441,7 @@ async function upsertStripeSubscriptionState(env, state) {
   const workspaceId = state.workspace_id || null;
   const stripeCustomerId = state.stripe_customer_id || null;
   const stripeSubscriptionId = state.stripe_subscription_id || null;
+  const cancellationMarkerId = state.cancellation_marker_id || null;
   const rowId = await findSubscriptionRowId(env, {
     ownerUserId,
     stripeSubscriptionId,
@@ -481,7 +494,12 @@ async function upsertStripeSubscriptionState(env, state) {
                ) THEN ?
                ELSE workspace_id END,
              updated_at = datetime('now')
-         WHERE id = ?`
+         WHERE id = ?
+           AND (? = 0 OR stripe_subscription_id IS NULL OR stripe_subscription_id <> ?)
+           AND NOT EXISTS (
+             SELECT 1 FROM stripe_processed_events
+              WHERE id = ? AND event_type = 'subscription_canceled' AND status = 'completed'
+           )`
       )
       .bind(
         state.plan === null ? null : normalizePlan(state.plan),
@@ -501,7 +519,10 @@ async function upsertStripeSubscriptionState(env, state) {
         // Entitlement is resolved per owner, so the row's workspace never
         // changes what the customer gets.
         workspaceId, workspaceId, workspaceId,
-        rowId
+        rowId,
+        state.preserve_existing_subscription_state ? 1 : 0,
+        stripeSubscriptionId,
+        cancellationMarkerId
       )
       .run();
     return rowId;
@@ -556,7 +577,12 @@ async function upsertStripeSubscriptionState(env, state) {
                current_period_end = COALESCE(?, current_period_end),
                cancel_at_period_end = COALESCE(?, cancel_at_period_end),
                updated_at = datetime('now')
-           WHERE id = ?`
+           WHERE id = ?
+             AND (? = 0 OR stripe_subscription_id IS NULL OR stripe_subscription_id <> ?)
+             AND NOT EXISTS (
+               SELECT 1 FROM stripe_processed_events
+                WHERE id = ? AND event_type = 'subscription_canceled' AND status = 'completed'
+             )`
         )
         .bind(
           state.plan === null ? null : normalizePlan(state.plan),
@@ -570,7 +596,10 @@ async function upsertStripeSubscriptionState(env, state) {
           state.current_period_start || null,
           state.current_period_end || null,
           cancelAtPeriodEndUpd,
-          trialRow.id
+          trialRow.id,
+          state.preserve_existing_subscription_state ? 1 : 0,
+          stripeSubscriptionId,
+          cancellationMarkerId
         )
         .run();
       return trialRow.id;
@@ -581,14 +610,18 @@ async function upsertStripeSubscriptionState(env, state) {
   const cancelAtPeriodEndInsert = state.cancel_at_period_end != null
     ? (state.cancel_at_period_end ? 1 : 0)
     : 0;
-  await env.cybermeters_db
+  const insertResult = await env.cybermeters_db
     .prepare(
       `INSERT INTO subscriptions
          (id, owner_user_id, workspace_id, plan, billing_interval, subscription_status, status,
           stripe_customer_id, stripe_subscription_id, stripe_price_id,
           current_period_start, current_period_end, cancel_at_period_end,
           created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now')
+        WHERE NOT EXISTS (
+          SELECT 1 FROM stripe_processed_events
+           WHERE id = ? AND event_type = 'subscription_canceled' AND status = 'completed'
+        )`
     )
     .bind(
       id,
@@ -603,10 +636,11 @@ async function upsertStripeSubscriptionState(env, state) {
       state.stripe_price_id || null,
       state.current_period_start || null,
       state.current_period_end || null,
-      cancelAtPeriodEndInsert
+      cancelAtPeriodEndInsert,
+      cancellationMarkerId
     )
     .run();
-  return id;
+  return Number(insertResult?.meta?.changes ?? insertResult?.changes ?? 0) === 1 ? id : null;
 }
 
 export async function handleCheckoutSessionCompleted(env, session) {
@@ -617,6 +651,22 @@ export async function handleCheckoutSessionCompleted(env, session) {
   const billingInterval = normalizeBillingInterval(metadata.interval);
   const stripeCustomerId = getStripeObjectId(session?.customer);
   const stripeSubscriptionId = getStripeObjectId(session?.subscription);
+
+  // A completed checkout can still have an unpaid asynchronous payment. Only
+  // a settled subscription checkout may activate a plan; subscription events
+  // own the lifecycle when payment is pending or the subscription id is absent.
+  if (!stripeSubscriptionId || !["paid", "no_payment_required"].includes(session?.payment_status)) {
+    return null;
+  }
+  if (await hasCanceledSubscriptionMarker(env, stripeSubscriptionId)) return null;
+
+  // Subscription events may arrive before checkout (including cancellation).
+  // The checkout session is older evidence and must not overwrite their state.
+  const existingSubscription = await env.cybermeters_db
+    .prepare("SELECT id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
+    .bind(stripeSubscriptionId)
+    .first();
+  if (existingSubscription?.id) return existingSubscription.id;
 
   if (!workspaceId) {
     console.warn("[stripe_webhook_workspace_unresolved] checkout.session.completed: workspace_id missing from session metadata", {
@@ -632,12 +682,15 @@ export async function handleCheckoutSessionCompleted(env, session) {
     plan,
     billing_interval: billingInterval,
     subscription_status: "active",
+    preserve_existing_subscription_state: true,
+    cancellation_marker_id: canceledSubscriptionMarkerId(stripeSubscriptionId),
     stripe_customer_id: stripeCustomerId,
     stripe_subscription_id: stripeSubscriptionId,
   });
 }
 
 export async function handleStripeSubscriptionUpsert(env, subscription) {
+  if (await hasCanceledSubscriptionMarker(env, subscription?.id)) return null;
   const metadata = subscription?.metadata || {};
   const price = getStripeSubscriptionPrice(subscription, env);
   const priceId = price?.id || null;
@@ -705,6 +758,7 @@ export async function handleStripeSubscriptionUpsert(env, subscription) {
     plan,
     billing_interval: billingInterval,
     subscription_status: normalizeStripeSubscriptionStatus(subscription?.status),
+    cancellation_marker_id: subscription?.id ? canceledSubscriptionMarkerId(subscription.id) : null,
     stripe_customer_id: getStripeObjectId(subscription?.customer),
     stripe_subscription_id: subscription?.id || null,
     stripe_price_id: priceId,
@@ -715,12 +769,31 @@ export async function handleStripeSubscriptionUpsert(env, subscription) {
 }
 
 export async function handleStripeSubscriptionDeleted(env, subscription) {
+  // A deletion may arrive before either checkout or subscription.created. The
+  // processed-events table has no retention sweep; a deterministic marker
+  // prevents later deliveries for this subscription from granting access.
+  if (subscription?.id) {
+    await env.cybermeters_db
+      .prepare(`INSERT INTO stripe_processed_events (id, event_type, status, processed_at)
+                VALUES (?, 'subscription_canceled', 'completed', datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                  event_type = 'subscription_canceled', status = 'completed', processed_at = datetime('now')`)
+      .bind(canceledSubscriptionMarkerId(subscription.id))
+      .run();
+  }
   const metadata = subscription?.metadata || {};
-  const rowId = await findSubscriptionRowId(env, {
-    ownerUserId: metadata.user_id || null,
-    stripeSubscriptionId: subscription?.id || null,
-    stripeCustomerId: getStripeObjectId(subscription?.customer),
-  });
+  // An explicit subscription id identifies one lifecycle. A former subscription
+  // may share its customer or owner with a newer active row; never cancel the
+  // newer row through those fallbacks when the explicit id is unknown.
+  const rowId = subscription?.id
+    ? (await env.cybermeters_db
+      .prepare("SELECT id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
+      .bind(subscription.id)
+      .first())?.id ?? null
+    : await findSubscriptionRowId(env, {
+      ownerUserId: metadata.user_id || null,
+      stripeCustomerId: getStripeObjectId(subscription?.customer),
+    });
 
   if (!rowId) return null;
   // Legacy `status` written in lockstep with subscription_status (see
