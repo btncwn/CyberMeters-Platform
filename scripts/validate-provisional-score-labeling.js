@@ -36,9 +36,9 @@ function eq(name, actual, expected) {
 }
 
 const fixtures = [
-  ['Blackbull-like partial 100', 100, 'partial'],
-  ['CyberMeters-like degraded 85', 85, 'degraded'],
-  ['Sheshire-like partial 85', 85, 'partial'],
+  ['Partial high score', 100, 'partial'],
+  ['Degraded medium score', 85, 'degraded'],
+  ['Partial medium score', 85, 'partial'],
 ]
 for (const [label, score, quality] of fixtures) {
   const result = resolveAssessmentPresentation({ score, scanQuality: quality, status: 'completed' })
@@ -157,9 +157,9 @@ ok('shared renderer fails missing or malformed state to a dash',
 ok('Executive Report and PDF retain canonical provisional wording parity',
   /provisional:\s*assessment\.provisional \?\? null/.test(executiveReport) &&
     /Provisional Score/.test(pdf))
-ok('Cyber Metrics Score algorithm and methodology identity remain unchanged',
+ok('Cyber Metrics Score algorithm and methodology identity match this release',
   /score \+= f\.score_impact;/.test(scoring) &&
-    /CYBER_METRICS_SCORE_METHODOLOGY_VERSION\s*=\s*"2026-10-13\.1"/.test(scoring))
+    /CYBER_METRICS_SCORE_METHODOLOGY_VERSION\s*=\s*"2026-10-16\.1"/.test(scoring))
 
 console.log(`\nprovisional-score-labeling: ${passed} passed, ${failed} failed (${passed + failed} total)`)
 if (failed) {
