@@ -49,6 +49,8 @@ function mockEnv(counts, { throwAll = false } = {}) {
     if (/COALESCE\(error/i.test(sql)) return counts.lifecycle_emails_outcome_unknown ?? 0;
     if (/lifecycle_email_events/i.test(sql)) return counts.failed_lifecycle_emails ?? 0;
     if (/asset_alert_records/i.test(sql)) return counts.failed_asset_alerts ?? 0;
+    if (/request_type = 'account'/i.test(sql)) return counts.pending_account_deletions ?? 0;
+    if (/status LIKE 'blocked_%'/i.test(sql)) return counts.blocked_deletions ?? 0;
     if (/deletion_requests/i.test(sql)) return counts.overdue_deletions ?? 0;
     return 0;
   };
@@ -132,6 +134,50 @@ const unreadableSignal = unknownUnreadable.signals.find((signal) => signal.key =
 ok("outcome unknown: query failure remains skipped", unreadableSignal?.skipped === true && unreadableSignal?.count === null);
 ok("outcome unknown: query failure fails aggregate closed", unknownUnreadable.dbReachable === true && unknownUnreadable.healthy === false);
 ok("outcome unknown: query failure is visible in email", formatOpsHealthEmail(unknownUnreadable)?.text.includes("query unavailable"));
+
+// Account requests and blocked purges must be visible immediately to the next
+// heartbeat; the latter cannot silently sit outside the old overdue predicate.
+db.prepare("INSERT INTO users(id,email) VALUES ('ops-deletion-user','ops-deletion@example.test')").run();
+db.prepare("INSERT INTO deletion_requests(id,request_type,user_id,requested_by,status) VALUES ('ops-pending','account','ops-deletion-user','ops-deletion-user','pending')").run();
+db.prepare("INSERT INTO deletion_requests(id,request_type,user_id,requested_by,status) VALUES ('ops-blocked','workspace','ops-deletion-user','ops-deletion-user','blocked_residual_data')").run();
+const deletionHealth = await computeOpsHealth({ cybermeters_db: realD1 });
+ok("new account request is an operator health breach",
+   deletionHealth.signals.find((s) => s.key === "pending_account_deletions")?.count === 1 &&
+   deletionHealth.signals.find((s) => s.key === "pending_account_deletions")?.breached === true);
+ok("blocked purge is an operator health breach",
+   deletionHealth.signals.find((s) => s.key === "blocked_deletions")?.count === 1 &&
+   deletionHealth.signals.find((s) => s.key === "blocked_deletions")?.breached === true);
+const deletionMail = formatOpsHealthEmail(deletionHealth, { version: "test" });
+ok("operator email names both deletion conditions",
+   deletionMail?.text.includes("Account deletion requests pending processing") &&
+   deletionMail?.text.includes("Deletion requests blocked from completion"));
+
+// An unreadable deletion signal must not turn a genuinely unknown state into
+// a reassuring healthy result. The email must identify the failed query.
+for (const [key, marker, label] of [
+  ["pending_account_deletions", "request_type = 'account'", "Account deletion requests pending processing"],
+  ["blocked_deletions", "status LIKE 'blocked_%'", "Deletion requests blocked from completion"],
+]) {
+  for (const mode of ["throw", "invalid_count"]) {
+    const env = {
+      cybermeters_db: {
+        prepare: (sql) => ({ first: async () => {
+          if (sql.includes(marker)) {
+            if (mode === "throw") throw new Error("deletion query unavailable");
+            return { c: "not-a-number" };
+          }
+          return { c: 0 };
+        } }),
+      },
+    };
+    const health = await computeOpsHealth(env);
+    const signal = health.signals.find((s) => s.key === key);
+    ok(`${key} ${mode}: signal skipped`, signal?.skipped === true && signal?.count === null);
+    ok(`${key} ${mode}: aggregate fails closed`, health.dbReachable === true && health.healthy === false);
+    ok(`${key} ${mode}: operator email names unreadable query`,
+       formatOpsHealthEmail(health)?.text.includes(`${label}: query unavailable`));
+  }
+}
 
 // ── 4. Database unreachable → every query skipped → unhealthy + DB alarm ─────
 const down = await computeOpsHealth(mockEnv({}, { throwAll: true }));

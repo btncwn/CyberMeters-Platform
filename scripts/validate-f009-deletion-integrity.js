@@ -10,10 +10,10 @@
 //
 // Asserted contract:
 //   A. no error path may reach `completed` — a blocked purge stays retryable
-//   B. the permanence email may NEVER precede proof of deletion
+//   B. an account completion email may NEVER precede identity anonymization
 //   C. an R2 delete failure may NOT delete the pointer row
 //   D. wrong-predicate tables must actually purge
-//   E. completion requires zero governed rows + FK check clean + parent absent
+//   E. completion requires zero governed rows, clean FKs, and no login identity
 //
 import fs from "node:fs";
 import path from "node:path";
@@ -122,6 +122,7 @@ function makeEnv(db) {
     OAUTH_KV: oauthKv, MCP_OAUTH_PURGE_API: oauthPurgeApi,
     RESEND_API_KEY: "re_stub_key", HELLO_EMAIL_FROM: "hello@cybermeters.com",
     ALERT_EMAIL_FROM: "alerts@cybermeters.com", APP_VERSION: "test",
+    ALERT_EMAIL_TO: "ops@example.test",
     ALLOWED_ORIGIN: "https://app.cybermeters.com", FRONTEND_URL: "https://app.cybermeters.com",
     MFA_ENCRYPTION_KEY: "k", STRIPE_WEBHOOK_SECRET: "w", STRIPE_SECRET_KEY: "s", STRIPE_PRICE_MAP: "{}",
     ADMIN_EMAILS: "",
@@ -140,11 +141,12 @@ function seedAccount(db) {
   const push = (e) => { if (e) errs.push(e); };
   push(run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('u1','gone@example.com','U','free','active',1)"));
   push(run(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('dr1','account','u1',NULL,'u1','pending', ${OLD})`));
-  // FK edges the account purge does NOT cover, or covers with a WRONG predicate:
+  // Account-owned and foreign-workspace references exercise both outcomes:
   push(run("INSERT INTO domains (id,user_id,domain) VALUES ('d1','u1','gone.example.com')"));
   push(run("INSERT INTO customer_profiles (id,owner_user_id,company_name) VALUES ('cp1','u1','Gone Ltd')")); // wrong predicate: user_id
   push(run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('uOther','other@example.com','Other','free','active',1)"));
   push(run("INSERT INTO workspaces (id,name,owner_user_id) VALUES ('wsOther','Other tenant','uOther')"));
+  push(run("INSERT INTO workspace_members (id,workspace_id,user_id,role) VALUES ('memberOther','wsOther','u1','viewer')"));
   push(run("INSERT INTO mcp_beta_workspace_access(workspace_id,status,enrolled_by) VALUES ('wsOther','enabled','u1')"));
   return errs;
 }
@@ -169,19 +171,19 @@ async function main() {
   await processDeletionRequests(env);
 
   const req  = db.prepare("SELECT status FROM deletion_requests WHERE id='dr1'").get();
-  const user = db.prepare("SELECT id FROM users WHERE id='u1'").get();
+  const user = db.prepare("SELECT id,email,status FROM users WHERE id='u1'").get();
   const dom  = db.prepare("SELECT COUNT(*) c FROM domains WHERE user_id='u1'").get().c;
   const prof = db.prepare("SELECT COUNT(*) c FROM customer_profiles WHERE owner_user_id='u1'").get().c;
   const fk   = db.prepare("PRAGMA foreign_key_check").all();
   const emailSent = sentEmails.length > 0;
 
   section = "A-no-completed-on-surviving-rows";
-  ok(`request is NOT 'completed' while data survives (status=${req?.status})`,
-     !(req?.status === "completed" && (user || dom > 0 || prof > 0)));
+  ok(`request is NOT 'completed' while personal data survives (status=${req?.status})`,
+     !(req?.status === "completed" && (user?.email === "gone@example.com" || dom > 0 || prof > 0)));
 
   section = "B-email-never-precedes-proof";
-  ok(`permanence email NOT sent while the user row survives (email=${emailSent}, user=${!!user})`,
-     !(emailSent && !!user));
+  ok(`completion email NOT sent while login identity survives (email=${emailSent}, identity=${user?.email})`,
+     !(emailSent && user?.email === "gone@example.com"));
 
   section = "D-wrong-predicates";
   // customer_profiles WAS in the purge list with a wrong predicate (user_id vs
@@ -190,30 +192,47 @@ async function main() {
   ok(`customer_profiles purged (survivors=${prof})`, prof === 0);
 
   section = "F-residuals-declared-not-hidden";
-  // `domains` is NOT purged here, deliberately: whether a departing user's rows
-  // are ERASED or ANONYMISED is a founder/legal decision this lane must not make.
-  // What the contract DOES require is that survival is DECLARED — named in the
-  // audit trail — never silently ignored. Asserting "domains purged" would
-  // pre-judge the very decision that is being escalated.
+  // An isolated account domain can be removed. The foreign workspace's member
+  // and beta enrolment must survive and be declared, so completion stays blocked.
   const blockedEvent = db.prepare(
     "SELECT metadata_json AS metadata FROM audit_events WHERE event_type='account_purge_blocked_residual_data' ORDER BY rowid DESC LIMIT 1"
   ).get();
   let declared = [];
   try { declared = JSON.parse(blockedEvent?.metadata ?? "{}").residual_edges ?? []; } catch { declared = []; }
   ok("a blocked purge records an audit event naming the surviving edges", declared.length > 0);
-  ok(`surviving domains rows are DECLARED in that event (survivors=${dom})`,
-     dom === 0 || declared.some((e) => e.table === "domains"));
-  ok("the retained deletion_requests self-FK is declared as the structural blocker",
-     declared.some((e) => e.table === "deletion_requests"));
+  ok("isolated account domain is removed", dom === 0);
+  ok("own account request is retained but is not a residual blocker",
+     !declared.some((e) => e.table === "deletion_requests"));
+  ok("foreign workspace membership survives and blocks completion",
+     db.prepare("SELECT COUNT(*) c FROM workspace_members WHERE workspace_id='wsOther' AND user_id='u1'").get().c === 1 &&
+     declared.some((e) => e.table === "workspace_members"));
   ok("another tenant's MCP beta enrolment is preserved and declared as a residual FK",
      db.prepare("SELECT COUNT(*) c FROM mcp_beta_workspace_access WHERE workspace_id='wsOther' AND enrolled_by='u1'").get().c === 1 &&
      declared.some((e) => e.table === "mcp_beta_workspace_access" && e.column === "enrolled_by"));
 
   section = "E-completion-requires-proof";
-  ok(`if completed, the parent user row is ABSENT (status=${req?.status}, user=${!!user})`,
-     req?.status !== "completed" || !user);
+  ok(`if completed, the retained user row is anonymized (status=${req?.status})`,
+     req?.status !== "completed" || (user?.status === "suspended" && user.email !== "gone@example.com"));
   ok(`if completed, foreign_key_check is clean (${fk.length} violations)`,
      req?.status !== "completed" || fk.length === 0);
+
+  section = "F-foreign-domain-isolation";
+  {
+    const sharedDb = buildDb(); const sharedEnv = makeEnv(sharedDb);
+    sharedDb.prepare("INSERT INTO users(id,email,email_verified) VALUES ('departing','departing@example.test',1)").run();
+    sharedDb.prepare("INSERT INTO users(id,email,email_verified) VALUES ('foreignOwner','foreign@example.test',1)").run();
+    sharedDb.prepare("INSERT INTO workspaces(id,name,owner_user_id) VALUES ('foreignWs','Foreign','foreignOwner')").run();
+    sharedDb.prepare("INSERT INTO domains(id,user_id,domain) VALUES ('sharedDomain','departing','shared.example.test')").run();
+    sharedDb.prepare("INSERT INTO workspace_domains(workspace_id,domain_id) VALUES ('foreignWs','sharedDomain')").run();
+    sharedDb.prepare(`INSERT INTO deletion_requests(id,request_type,user_id,requested_by,status,created_at) VALUES ('sharedReq','account','departing','departing','pending',${OLD})`).run();
+    await processDeletionRequests(sharedEnv);
+    ok("foreign workspace's linked domain survives account purge",
+       sharedDb.prepare("SELECT COUNT(*) c FROM domains WHERE id='sharedDomain'").get().c === 1 &&
+       sharedDb.prepare("SELECT COUNT(*) c FROM workspace_domains WHERE workspace_id='foreignWs' AND domain_id='sharedDomain'").get().c === 1);
+    ok("foreign domain reference blocks completion and retains login identity",
+       sharedDb.prepare("SELECT status FROM deletion_requests WHERE id='sharedReq'").get().status === "blocked_residual_data" &&
+       sharedDb.prepare("SELECT email FROM users WHERE id='departing'").get().email === "departing@example.test");
+  }
 
   // ── C. R2 failure must not orphan the object by deleting its pointer ──────
   section = "C-r2-verified-before-pointer";
@@ -274,12 +293,18 @@ async function main() {
     // is not merely unreachable code behind a permanent block.
     const db4 = buildDb(); const env4 = makeEnv(db4);
     const run = (sql, ...a) => { try { db4.prepare(sql).run(...a); } catch { /* variance */ } };
-    run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('u4','bye@example.com','Bye','free','active',1)");
+    run("INSERT INTO users (id,email,name,plan,status,email_verified,password_hash,totp_secret,mfa_enabled,mfa_recovery_codes_hash_json,auth_provider,microsoft_oid,tenant_id,verification_token) VALUES ('u4','bye@example.com','Bye','free','active',1,'secret-hash','encrypted-mfa',1,'[\"recovery\"]','microsoft','external-id','tenant-id','verify-token')");
     const seedErr4 = (() => { try {
-      db4.prepare(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('dr4','account','u4',NULL,'u4','pending', ${OLD})`).run();
+      db4.prepare(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,reason,created_at) VALUES ('dr4','account','u4',NULL,'u4','pending','private reason', ${OLD})`).run();
       return null;
     } catch (e) { return e.message; } })();
     ok(`account control seeded (${seedErr4 ?? "no error"})`, seedErr4 === null);
+    run("INSERT INTO domains(id,user_id,domain) VALUES ('dom4','u4','owned.example.test')");
+    run("INSERT INTO workspaces(id,name,owner_user_id,deleted_at) VALUES ('owned4','Owned workspace','u4',datetime('now','-60 days'))");
+    run("INSERT INTO workspace_domains(workspace_id,domain_id) VALUES ('owned4','dom4')");
+    run("INSERT INTO scans(id,domain_id,workspace_id,domain,status) VALUES ('scan4','dom4','owned4','owned.example.test','completed')");
+    run("INSERT INTO subscription_accounts(id,owner_user_id,plan,status,billing_email) VALUES ('finance4','u4','starter','canceled','billing@example.test')");
+    run("INSERT INTO subscriptions(id,owner_user_id,plan,status,subscription_status) VALUES ('subscription4','u4','starter','canceled','canceled')");
     run("INSERT INTO user_sessions(id,user_id,token_hash,expires_at) VALUES ('sess4','u4','hash4',datetime('now','+1 day'))");
     run("INSERT INTO mcp_oauth_login_intents(id_hash,authorization_url,expires_at) VALUES ('intent4','https://api.cybermeters.com/authorize?client_id=test',datetime('now','+1 day'))");
     run("INSERT INTO mcp_oauth_browser_sessions(cookie_hash,intent_hash,user_id,web_session_id,expires_at) VALUES ('cookie4','intent4','u4','sess4',datetime('now','+1 day'))");
@@ -291,19 +316,69 @@ async function main() {
        db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_browser_sessions WHERE user_id='u4'").get().c === 1 &&
        db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE user_id='u4'").get().c === 1);
     sentEmails.length = 0;
-    await processDeletionRequests(env4);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await processDeletionRequests(env4);
+      if (db4.prepare("SELECT status FROM deletion_requests WHERE id='dr4'").get().status === "completed") break;
+      db4.prepare("UPDATE deletion_requests SET updated_at = datetime('now','-2 hours') WHERE id='dr4'").run();
+    }
     const r4 = db4.prepare("SELECT status FROM deletion_requests WHERE id='dr4'").get();
-    ok(`account purge reaches a DECIDED terminal state, never a silent completed-with-survivors (status=${r4?.status})`,
-       r4?.status === "completed" || r4?.status === "blocked_residual_data");
-    const u4 = db4.prepare("SELECT id FROM users WHERE id='u4'").get();
-    ok("account email is sent only if the user row is truly gone",
-       sentEmails.length === 0 || !u4);
+    ok(`single-user account purge completes (status=${r4?.status})`, r4?.status === "completed");
+    const u4 = db4.prepare("SELECT * FROM users WHERE id='u4'").get();
+    ok("retained account row has no login identity or secret",
+       u4?.status === "suspended" && /^deleted_[\w-]+@deleted\.invalid$/.test(u4.email) &&
+       u4.name === null && u4.password_hash === null && u4.totp_secret === null &&
+       u4.mfa_enabled === 0 && u4.mfa_recovery_codes_hash_json === null &&
+       u4.auth_provider === null && u4.microsoft_oid === null && u4.tenant_id === null &&
+       u4.verification_token === null && u4.email_verified === 0);
+    ok("isolated account domain is removed before completion",
+       db4.prepare("SELECT COUNT(*) c FROM domains WHERE id='dom4'").get().c === 0 &&
+       db4.prepare("SELECT COUNT(*) c FROM workspaces WHERE id='owned4'").get().c === 0 &&
+       db4.prepare("SELECT COUNT(*) c FROM scans WHERE id='scan4'").get().c === 0);
+    ok("finance and subscription records remain linked to pseudonymous user",
+       db4.prepare("SELECT COUNT(*) c FROM subscription_accounts WHERE id='finance4' AND owner_user_id='u4'").get().c === 1 &&
+       db4.prepare("SELECT COUNT(*) c FROM subscriptions WHERE id='subscription4' AND owner_user_id='u4'").get().c === 1);
+    ok("account deletion request is retained without free-text reason",
+       db4.prepare("SELECT reason,status FROM deletion_requests WHERE id='dr4'").get().reason === null && r4.status === "completed");
+    ok("completion email accurately describes anonymization and retained records",
+       sentEmails.length === 1 && sentEmails[0].body.includes("anonymized") &&
+       !sentEmails[0].body.includes("all associated data have now been permanently removed"));
     ok("MCP account sessions and portfolio grants are purged before user/session parent rows",
        db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_browser_sessions WHERE user_id='u4'").get().c === 0 &&
        db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE user_id='u4'").get().c === 0 &&
        db4.prepare("SELECT COUNT(*) c FROM user_sessions WHERE user_id='u4'").get().c === 0);
     ok("account OAuth KV grant and token are removed",
        !env4.OAUTH_KV.rows.has("grant:u4:g4") && !env4.OAUTH_KV.rows.has("token:u4:g4:t4"));
+  }
+
+  section = "G-account-request-admission";
+  {
+    const { accountRoutes } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "account.js")).href);
+    const requestDb = buildDb(); const requestEnv = makeEnv(requestDb);
+    requestDb.prepare("INSERT INTO users(id,email,status,email_verified) VALUES ('requester','requester@example.test','active',1)").run();
+    requestDb.prepare("INSERT INTO subscriptions(id,owner_user_id,plan,status,subscription_status) VALUES ('active-sub','requester','starter','active','active')").run();
+    const callRequest = () => accountRoutes({
+      request: new Request("https://api.cybermeters.com/api/account/delete-request", { method: "POST" }),
+      url: new URL("https://api.cybermeters.com/api/account/delete-request"),
+      env: requestEnv,
+      json: (body, status = 200) => Response.json(body, { status }),
+      requireAuth: async () => ({ id: "requester", email: "requester@example.test" }),
+    });
+    sentEmails.length = 0;
+    const denied = await callRequest();
+    ok("active subscription rejects deletion request with 409", denied?.status === 409);
+    ok("rejected request creates no deletion row or operator email",
+       requestDb.prepare("SELECT COUNT(*) c FROM deletion_requests WHERE user_id='requester'").get().c === 0 && sentEmails.length === 0);
+
+    requestDb.prepare("UPDATE subscriptions SET status='canceled',subscription_status='canceled' WHERE id='active-sub'").run();
+    const accepted = await callRequest();
+    ok("canceled subscription permits a pending account request", accepted?.status === 202 &&
+       requestDb.prepare("SELECT COUNT(*) c FROM deletion_requests WHERE user_id='requester' AND status='pending'").get().c === 1);
+    ok("new account request sends exactly one operator alert",
+       sentEmails.length === 1 && sentEmails[0].body.includes("ops@example.test") &&
+       sentEmails[0].body.includes("Check whether manual review is needed"));
+    const duplicate = await callRequest();
+    ok("repeat request is idempotent and sends no duplicate alert",
+       duplicate?.status === 200 && sentEmails.length === 1);
   }
 
   section = "H-mcp-oauth-expiry";

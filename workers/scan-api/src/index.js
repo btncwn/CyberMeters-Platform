@@ -1056,6 +1056,7 @@ async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, eng
 // which the owner can restore; after the window the hourly cron hard-deletes
 // D1 rows and R2 report objects in bounded chunks. audit_events, subscriptions
 // and the deletion_requests row itself are retained (audit + accounting).
+// Account completion keeps only a pseudonymous user row for these references.
 const DELETION_PURGE_WINDOW_DAYS = 30;
 const PURGE_R2_BATCH = 25; // max R2 deletes per cron run — respects subrequest limits
 
@@ -1369,23 +1370,18 @@ const ACCOUNT_PURGE_TABLES = [
   { table: "customer_profiles",     column: "owner_user_id" },
 ];
 
-// F-009 — FK edges into users(id) that the account purge does NOT remove.
-// Completion must PROVE these are empty; it may never assume it. Each is either
-// retained by policy or belongs to a workspace this user does not own, so
-// deleting it here would destroy another tenant's data or an accounting record.
-// Whether these should be ERASED or ANONYMISED is a founder/legal decision and
-// is deliberately NOT decided in code — see the audit event emitted below.
+// FK edges into users(id) that the account purge does NOT remove. These may
+// belong to another workspace, so their presence blocks completion. Accounting
+// records and this account's own request are retained against the anonymized
+// user row and are deliberately not residual blockers.
 const ACCOUNT_RESIDUAL_FK_EDGES = [
   { table: "network_targets",             column: "authorized_by" },
   { table: "network_scans",               column: "requested_by" },
   { table: "domains",                     column: "user_id" },
   { table: "workspace_members",           column: "user_id" },
-  { table: "subscription_accounts",       column: "owner_user_id" },
   { table: "workspace_invitations",       column: "invited_by" },
   { table: "portfolio_risk_snapshots",    column: "owner_id" },
   { table: "report_schedules",            column: "created_by" },
-  { table: "deletion_requests",           column: "requested_by" },
-  { table: "deletion_requests",           column: "user_id" },
   { table: "workspace_retention_settings",column: "updated_by" },
   { table: "msp_branding_profiles",       column: "owner_user_id" },
   // Enrolment of another owner's workspace is retained with that workspace.
@@ -1570,8 +1566,8 @@ async function completeDeletionRequest(env, requestId, status = "completed") {
 /**
  * opsHealthHeartbeat — daily self-check. Runs the read-only ops-health signals
  * (stuck scans, undelivered email/alert backlogs, overdue deletion purges) and
- * emails ops (ALERT_EMAIL_TO) ONLY when a threshold is breached, so a healthy
- * system stays silent. Records a metric every run for trend visibility. Never
+ * emails ops (ALERT_EMAIL_TO) on a breach or unreadable critical signal, so a
+ * healthy system stays silent. Records a metric every run for trend visibility. Never
  * throws — wrapped by runCronTask, but defensive here too.
  */
 async function opsHealthHeartbeat(env) {
@@ -1720,7 +1716,7 @@ async function purgeAccountRequest(env, req) {
   // first (protects the customer from losing paid access by accident).
   const activeSub = await env.cybermeters_db
     .prepare(`SELECT id FROM subscriptions WHERE owner_user_id = ?
-              AND LOWER(COALESCE(subscription_status, '')) IN ('active', 'trialing', 'past_due') LIMIT 1`)
+              AND LOWER(COALESCE(NULLIF(TRIM(subscription_status), ''), status, '')) IN ('active', 'trialing', 'past_due') LIMIT 1`)
     .bind(req.user_id).first();
   if (activeSub) {
     await createAuditEvent(env, {
@@ -1749,10 +1745,8 @@ async function purgeAccountRequest(env, req) {
     return; // more work (this or other workspaces) — continue next run
   }
 
-  // F-009 — the farewell email used to be sent HERE, before a single row was
-  // deleted, and every DELETE below swallowed its error. The message says the
-  // account "has been permanently removed"; it may never precede the proof that
-  // it was. The email now sends only after the checks below all pass.
+  // Capture a verified recipient before removing identity fields. Any customer
+  // notification follows the proved anonymization and completed status.
   const recipient = user.email_verified && isValidEmail(String(user.email || "").toLowerCase())
     ? String(user.email).toLowerCase() : null;
 
@@ -1770,22 +1764,48 @@ async function purgeAccountRequest(env, req) {
       if (!/no such table/i.test(String(e?.message ?? e))) throw e;
     }
   }
-  await env.cybermeters_db
-    .prepare("DELETE FROM workspace_members WHERE user_id = ?").bind(req.user_id).run();
 
-  // PROOF BEFORE CLAIM. Any surviving FK edge into users(id) means the account
-  // is not erased, whatever the status column says.
+  // Domain rows are legacy account-owned data. A remaining workspace link can
+  // belong to another tenant, so remove only isolated rows. Any FK child that
+  // still references a domain makes that row remain for manual review.
+  const domainRows = await env.cybermeters_db.prepare(
+    `SELECT d.id FROM domains d WHERE d.user_id = ?
+       AND NOT EXISTS (SELECT 1 FROM workspace_domains wd WHERE wd.domain_id = d.id)
+       ORDER BY d.id LIMIT ?`,
+  ).bind(req.user_id, PURGE_R2_BATCH).all();
+  let removedDomains = 0;
+  for (const domain of domainRows?.results || []) {
+    try {
+      const result = await env.cybermeters_db.prepare(
+        `DELETE FROM domains WHERE id = ? AND user_id = ?
+           AND NOT EXISTS (SELECT 1 FROM workspace_domains WHERE domain_id = ?)`,
+      ).bind(domain.id, req.user_id, domain.id).run();
+      removedDomains += Number(result?.meta?.changes ?? 0);
+    } catch (error) {
+      if (!/FOREIGN KEY constraint failed/i.test(String(error?.message ?? error))) throw error;
+    }
+  }
+  if ((domainRows?.results || []).length === PURGE_R2_BATCH && removedDomains > 0) return;
+
+  // PROOF BEFORE CLAIM. Rows attached to a different workspace stay untouched;
+  // removing their membership or data here would cross the tenant boundary.
   const residual = await countResidualRows(env, ACCOUNT_RESIDUAL_FK_EDGES, req.user_id);
+  // The current account request is the retained receipt, not a blocker. Any
+  // other request involving this user needs review before account completion.
+  const otherRequests = await env.cybermeters_db.prepare(
+    `SELECT COUNT(*) AS c FROM deletion_requests
+       WHERE id != ? AND (user_id = ? OR requested_by = ?)`,
+  ).bind(req.id, req.user_id, req.user_id).first();
+  if (Number(otherRequests?.c ?? 0) > 0) {
+    residual.push({ table: "deletion_requests", column: "other_request", rows: Number(otherRequests.c) });
+  }
   if (residual.length > 0) {
-    // NOT a failure to retry — retrying cannot clear it. These rows are either
-    // retained by policy (deletion_requests, subscription accounting) or belong
-    // to a workspace this user does not own, where deleting them would destroy
-    // ANOTHER tenant's data. Erasure vs anonymisation is a founder/legal
-    // decision and is deliberately NOT made in code.
+    // NOT a failure to retry — another tenant's rows or legacy references
+    // require manual review before this request may claim completion.
     await createAuditEvent(env, {
       user_id: req.user_id, event_type: "account_purge_blocked_residual_data",
       entity_type: "user", entity_id: req.user_id,
-      description: "Account purge cannot claim completion: rows referencing this user survive by policy or by shared ownership",
+      description: "Account purge cannot claim completion: workspace or legacy rows still reference this user",
       metadata: { request_id: req.id, residual_edges: residual },
     });   // R1-02 — this audit event IS the declaration of what survived; a
           // blocked state must never be recorded without its explanation.
@@ -1793,28 +1813,55 @@ async function purgeAccountRequest(env, req) {
     return; // no 'completed', and NO permanence email
   }
 
-  await env.cybermeters_db
-    .prepare("DELETE FROM users WHERE id = ?").bind(req.user_id).run();
+  // Keep the pseudonymous FK anchor required by finance and the request
+  // ledger. Revoke every login factor and replace the unique, required email
+  // with a non-deliverable random placeholder. Suspended status also denies
+  // any late session or SSO result that races with cleanup.
+  const anonymousEmail = `deleted_${crypto.randomUUID()}@deleted.invalid`;
+  await env.cybermeters_db.prepare(
+    `UPDATE users SET email = ?, name = NULL, plan = 'free', status = 'suspended',
+       password_hash = NULL, last_login_at = NULL,
+       email_verified = 0, email_verified_at = NULL,
+       verification_token = NULL, verification_token_expires_at = NULL,
+       totp_secret = NULL, mfa_enabled = 0, mfa_enabled_at = NULL,
+       mfa_recovery_codes_hash_json = NULL, mfa_last_verified_at = NULL,
+       auth_provider = NULL, microsoft_oid = NULL, tenant_id = NULL
+     WHERE id = ?`,
+  ).bind(anonymousEmail, req.user_id).run();
 
-  const userStill = await env.cybermeters_db
-    .prepare("SELECT id FROM users WHERE id = ? LIMIT 1").bind(req.user_id).first();
-  if (userStill) throw new Error(`user row survived deletion: ${req.user_id}`);
+  await env.cybermeters_db.prepare(
+    "UPDATE deletion_requests SET reason = NULL WHERE id = ? AND request_type = 'account' AND user_id = ? AND requested_by = ?",
+  ).bind(req.id, req.user_id, req.user_id).run();
+
+  const anonymous = await env.cybermeters_db.prepare(
+    `SELECT email, name, status, password_hash, verification_token,
+            totp_secret, mfa_enabled, mfa_recovery_codes_hash_json,
+            auth_provider, microsoft_oid, tenant_id
+       FROM users WHERE id = ? LIMIT 1`,
+  ).bind(req.user_id).first();
+  if (!anonymous || anonymous.email !== anonymousEmail || anonymous.status !== "suspended" ||
+      anonymous.name !== null || anonymous.password_hash !== null ||
+      anonymous.verification_token !== null || anonymous.totp_secret !== null ||
+      Number(anonymous.mfa_enabled) !== 0 || anonymous.mfa_recovery_codes_hash_json !== null ||
+      anonymous.auth_provider !== null || anonymous.microsoft_oid !== null || anonymous.tenant_id !== null) {
+    throw new Error(`account identity anonymization unproven: ${req.user_id}`);
+  }
 
   // R1-03 — the same production FK proof gates the account path.
   await assertForeignKeyCheckClean(env);
 
-  if (recipient) {
-    const text = `Your CyberMeters account has been deleted\n\nYour account and all associated data have now been permanently removed, as requested.\n\nThank you for trying CyberMeters.\n\nCyberMeters`;
-    const html = `<p>Your account and all associated data have now been permanently removed, as requested.</p><p>Thank you for trying CyberMeters.</p><p>CyberMeters</p>`;
-    await sendCustomerEmail("Your CyberMeters account has been deleted", text, html, env, "HELLO_EMAIL_FROM", [recipient]).catch(() => {});
-  }
-
   await createAuditEvent(env, {
     user_id: req.user_id, event_type: "account_purged", entity_type: "user", entity_id: req.user_id,
-    description: `Account permanently deleted after the ${DELETION_PURGE_WINDOW_DAYS}-day window`,
+    description: `Account access disabled and identity anonymized after the ${DELETION_PURGE_WINDOW_DAYS}-day window`,
     metadata: { request_id: req.id },
   }).catch(() => {});
   await completeDeletionRequest(env, req.id, "completed");
+
+  if (recipient) {
+    const text = `Your CyberMeters account deletion request has been processed\n\nYour login access has been disabled and your account identity has been anonymized. Financial and audit records may be retained where required.\n\nCyberMeters`;
+    const html = `<p>Your login access has been disabled and your account identity has been anonymized. Financial and audit records may be retained where required.</p><p>CyberMeters</p>`;
+    await sendCustomerEmail("Your CyberMeters account deletion request has been processed", text, html, env, "HELLO_EMAIL_FROM", [recipient]).catch(() => {});
+  }
 }
 
 // processScheduledReports — called from scheduled() via ctx.waitUntil().

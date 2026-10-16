@@ -230,25 +230,27 @@ function AccountDeletionSection() {
   return (
     <SectionCard
       title="Request account deletion"
-      subtitle="Permanently remove your account and all associated data."
+      subtitle="Submit a request to close your account and remove eligible data."
     >
       <div className="space-y-3 mb-5">
         <StatusBanner type="warning">
-          Deleting your account is permanent and cannot be undone. All your workspaces, domains,
-          scans, reports, and billing history will be scheduled for deletion.
+          Completed account deletion cannot be undone. Eligible workspace data is removed after required checks;
+          financial and audit records may be retained where required.
         </StatusBanner>
 
         <p className="text-sm text-gray-500 leading-relaxed">
-          Submitting this request notifies our team. Your account will not be deleted immediately —
-          you will receive an email confirmation once the deletion is processed, typically within 30 days.
-          Active subscriptions should be cancelled before requesting deletion.
+          Submitting this request alerts our team. Your account is not deleted immediately.
+          Processing may begin after the 30-day restoration window and completes only if required
+          checks pass; some cases need manual review. Cancel any active subscription before
+          requesting deletion. Keep your reference number and contact support if you need an update.
         </p>
       </div>
 
       {submitted ? (
         <StatusBanner type="success">
           Your account deletion request has been received{requestId ? ` (ref: ${requestId})` : ''}.
-          Our team will process it and contact you by email.
+          Processing has not completed. It may begin after the 30-day restoration window, subject
+          to required checks; some requests need manual review.
         </StatusBanner>
       ) : (
         <>
@@ -272,7 +274,7 @@ function AccountDeletionSection() {
         onClose={() => setModalOpen(false)}
         onConfirm={handleConfirm}
         title="Delete your account?"
-        description="This action is irreversible. All your data, workspaces, domains, scans, and reports will be permanently deleted. Cancel your subscription first."
+        description="This submits a request; no data is deleted immediately. Processing after the 30-day restoration window depends on required checks. Cancel any active subscription first."
         confirmWord="DELETE"
         confirmLabel="Request deletion"
         dangerous
@@ -411,7 +413,7 @@ function DataRetentionSection() {
     { label: 'Audit logs',              value: 'Retained for 2 years' },
     { label: 'Billing records',         value: 'Retained for 7 years (legal obligation)' },
     { label: 'Exported data files',     value: 'Not stored — delivered directly to your browser' },
-    { label: 'Deleted account data',    value: 'Purged within 30 days of confirmed deletion' },
+    { label: 'Account deletion requests', value: 'Eligible requests enter processing after the 30-day restoration window; financial and audit records may be retained' },
   ]
 
   return (
