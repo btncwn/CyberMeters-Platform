@@ -256,7 +256,7 @@ const plain = pdfPlainText(pdf)
 const normalizedPlain = plain.replace(/\s+/g, ' ')
 
 const priorityStart = plain.indexOf('Priority Actions (3)')
-const domainsStart = plain.indexOf('Eight-Domain Cyber MOT')
+const domainsStart = plain.indexOf('Cyber MOT: External posture')
 const recommendedStart = plain.indexOf('Recommended Actions (4)')
 const assessmentScoreStart = plain.indexOf('Assessment Score')
 const priorityBlock = plain.slice(priorityStart, domainsStart)
@@ -383,7 +383,7 @@ ok('oversized title uses a bounded continuation heading without losing the evide
 const reverseActions = structuredClone(snapshot)
 reverseActions.remediation_actions.reverse()
 const reversedPlain = pdfPlainText(buildScanReportPdf({}, { snapshot: reverseActions }))
-const reversedPriority = reversedPlain.slice(reversedPlain.indexOf('Priority Actions (3)'), reversedPlain.indexOf('Eight-Domain Cyber MOT'))
+const reversedPriority = reversedPlain.slice(reversedPlain.indexOf('Priority Actions (3)'), reversedPlain.indexOf('Cyber MOT: External posture'))
 ok('priority preview sorts recorded urgency before selecting three actions',
   reversedPriority.indexOf('First action') < reversedPriority.indexOf('Second action') &&
   reversedPriority.includes('Third action') && !reversedPriority.includes('Fourth action'))
@@ -436,7 +436,7 @@ const explicitSeverityPlain = pdfPlainText(buildScanReportPdf(
 ))
 ok('explicit finding severity remains visible once in Findings without duplicated domain narrative',
   explicitSeverityPlain.split('[MEDIUM] Explicit severity finding').length - 1 === 1 &&
-  !explicitSeverityPlain.slice(explicitSeverityPlain.indexOf('Eight-Domain Cyber MOT'), explicitSeverityPlain.indexOf('Observed Findings')).includes('Explicit severity finding'))
+  !explicitSeverityPlain.slice(explicitSeverityPlain.indexOf('Cyber MOT: External posture'), explicitSeverityPlain.indexOf('Observed Findings')).includes('Explicit severity finding'))
 
 const emptySnapshot = structuredClone(snapshot)
 emptySnapshot.remediation_actions = []
