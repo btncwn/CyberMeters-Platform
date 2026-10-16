@@ -3,12 +3,20 @@
 import { RULES_BY_ID, EXPOSURE_CATALOG_VERSION, exposurePresentation, EXPOSURE_INDICATORS } from '../../../../shared/exposure/catalog.js';
 import { safeExposureUrl } from '../../../../shared/exposure/redaction.js';
 import { findingRemediation } from './remediation-registry.js';
+import { EXPOSURE_INCOMPLETE_REASONS } from './exposure-jobs.js';
 
 export const EXPOSURE_FINDING_PREFIX = 'external_exposure_';
 const KEY = /^external_exposure_([a-z][a-z0-9-]+)__([a-f0-9]{64})$/;
 const SAFE_INDICATORS = new Set(EXPOSURE_INDICATORS);
 const COST_KEYS = ['requests', 'redirects', 'retries', 'bytes_wire', 'bytes_decoded', 'duration_ms', 'charged_requests', 'charged_bytes', 'unknown_attempts', 'attempts'];
 const COVERAGE_KEYS = ['completed', 'pending', 'blocked', 'not_applicable', 'budget_exhausted', 'uncertain'];
+const INCOMPLETE_REASONS = new Set(EXPOSURE_INCOMPLETE_REASONS);
+const JOB_STATES = new Set(['pending', 'running', 'complete', 'cancelled', 'budget_exhausted']);
+const HOST_RE = /^[a-z0-9.-]{1,253}$/i;
+// A reason this projection does not recognise is still a reason: dropping it to
+// null would make the report say the checks never finished. Fail closed to a
+// generic incomplete marker instead of inventing or erasing one.
+const carriedIncompleteReason = (value) => value == null ? null : INCOMPLETE_REASONS.has(value) ? value : 'coverage_incomplete';
 const validIdentity = (identity) => typeof identity === 'string' && /^[a-f0-9]{64}$/.test(identity);
 export const exposureFindingType = (ruleId) => `${EXPOSURE_FINDING_PREFIX}${ruleId}`;
 export function exposureRuleForCondition(key) {
@@ -36,6 +44,7 @@ export function evaluateExposureCondition(key, module) {
 export function externalExposureModule(receipt) {
   if (!receipt || receipt.source !== 'external_exposure') return {
     source: 'external_exposure', version: EXPOSURE_CATALOG_VERSION, quality: 'not_recorded',
+    job_state: null, incomplete_reason: null, hosts_not_applicable: [],
     coverage: null, checks: [], findings: [], costs: null, observed_at: null,
   };
   const projectHit = (hit) => hit ? {
@@ -53,7 +62,14 @@ export function externalExposureModule(receipt) {
   const module = {
     source: 'external_exposure', version: EXPOSURE_CATALOG_VERSION,
     quality: receipt.quality === 'complete' ? 'complete' : 'partial',
-    coverage: receipt.coverage ? Object.fromEntries([...COVERAGE_KEYS, 'pending_assets'].map(key => [key, Number.isInteger(receipt.coverage[key]) && receipt.coverage[key] >= 0 ? receipt.coverage[key] : null])) : null,
+    // "finished" (job_state) and "assessed" (quality + incomplete_reason) are
+    // separate facts; the domain resolver reads incomplete_reason verbatim.
+    job_state: JOB_STATES.has(receipt.job_state) ? receipt.job_state : null,
+    incomplete_reason: carriedIncompleteReason(receipt.incomplete_reason),
+    hosts_not_applicable: (Array.isArray(receipt.hosts_not_applicable) ? receipt.hosts_not_applicable : [])
+      .filter(host => typeof host?.hostname === 'string' && HOST_RE.test(host.hostname) && host.reason === 'authoritative_no_address')
+      .map(host => ({ hostname: host.hostname, reason: host.reason, observed_at: Number.isFinite(Date.parse(host.observed_at)) ? new Date(host.observed_at).toISOString() : null })),
+    coverage: receipt.coverage ? Object.fromEntries([...COVERAGE_KEYS, 'pending_assets', 'not_applicable_hosts'].map(key => [key, Number.isInteger(receipt.coverage[key]) && receipt.coverage[key] >= 0 ? receipt.coverage[key] : null])) : null,
     checks, findings: [],
     costs: receipt.costs ? Object.fromEntries(COST_KEYS.map(key => [key, Number.isFinite(receipt.costs[key]) && receipt.costs[key] >= 0 ? receipt.costs[key] : null])) : null,
     observed_at: Number.isFinite(Date.parse(receipt.observed_at)) ? new Date(receipt.observed_at).toISOString() : null,

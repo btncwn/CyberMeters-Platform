@@ -144,6 +144,9 @@ jobs:
       - name: Validate exposure finding lifecycle and honest retests
         run: node scripts/validate-exposure-lifecycle.js
 
+      - name: Validate exposure incomplete reason (finished ≠ assessed; no-address names not planned)
+        run: node scripts/validate-exposure-incomplete-reason.js
+
       - name: Validate deep TLS request and receipt contracts
         run: node scripts/validate-deep-tls-contract.js
 
@@ -699,6 +702,9 @@ jobs:
 
       - name: Validate I11A website completeness mutations
         run: node scripts/validate-i11a-website-completeness-mutations.js
+
+      - name: Validate exposure incomplete-reason mutations
+        run: node scripts/validate-exposure-incomplete-reason-mutations.js
 
       - name: Validate Identity producer and evidence-carrier truth
         run: node scripts/validate-identity-producer-truth.js
