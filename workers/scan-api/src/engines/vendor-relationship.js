@@ -396,8 +396,23 @@ const VENDOR_RELATIONSHIP_SIGS = [
  *   medium — single specific CSP directive match
  *   low    — csp:any (full-string fallback) only
  */
+// Did the modules this analysis reads actually observe the site? The analysis is
+// pure, so an unreadable site yields an honest-looking "0 vendors"; only a result
+// whose inputs completed may be read as evidence of ABSENCE (used by the upsert
+// to retire suppliers it no longer sees). headers must carry its values and not
+// be incomplete/errored; technology_detection must have observed the origin.
+function relationshipInputsComplete(modules) {
+  const headers = modules?.headers;
+  const tech = modules?.technology_detection;
+  const headersOk = !!headers && typeof headers === "object" && !headers.error && headers.incomplete !== true
+    && !!headers.values && typeof headers.values === "object";
+  const techOk = !!tech && typeof tech === "object" && !tech.error && tech.incomplete !== true;
+  return headersOk && techOk;
+}
+
 export function runVendorRelationshipModule(modules) {
   try {
+    const inputs_complete = relationshipInputsComplete(modules);
     // ── Build signal sets ────────────────────────────────────────────────────
     const rawCsp = (modules?.headers?.values?.["content-security-policy"] || "").toLowerCase();
     const directives = parseCspDirectives(rawCsp);
@@ -420,25 +435,26 @@ export function runVendorRelationshipModule(modules) {
     }
 
     // ── Signal tester ────────────────────────────────────────────────────────
-    function testSignal(signal) {
+    // Returns the FIRST hostname that satisfied the signal (or null): the hostname is
+    // the evidence a customer can act on, so it is kept as `{ source, detail }` the
+    // same way vendor_risk evidence is — the Shadow IT correlator reads `detail` as
+    // an observed hostname and the alert evidence summary shows it.
+    function matchSignal(signal) {
+      const firstMatch = (hosts) => hosts.find((h) => signal.test(h)) ?? null;
       if (signal.source.startsWith("csp:")) {
         const directive = signal.source.slice(4);
         if (directive === "any") {
           for (const hosts of Object.values(directives)) {
-            if (hosts.some(h => signal.test(h))) return true;
+            const hit = firstMatch(hosts);
+            if (hit) return hit;
           }
-          return false;
+          return null;
         }
-        const hosts = directives[directive] || [];
-        return hosts.some(h => signal.test(h));
+        return firstMatch(directives[directive] || []);
       }
-      if (signal.source === "cname") {
-        return cnames.some(h => signal.test(h));
-      }
-      if (signal.source === "script") {
-        return scriptHosts.some(h => signal.test(h));
-      }
-      return false;
+      if (signal.source === "cname") return firstMatch(cnames);
+      if (signal.source === "script") return firstMatch(scriptHosts);
+      return null;
     }
 
     // ── Match signatures ─────────────────────────────────────────────────────
@@ -446,8 +462,12 @@ export function runVendorRelationshipModule(modules) {
 
     for (const sig of VENDOR_RELATIONSHIP_SIGS) {
       const matchedSources = [];
+      const evidence = [];
       for (const check of sig.signals) {
-        if (testSignal(check)) matchedSources.push(check.source);
+        const detail = matchSignal(check);
+        if (detail === null) continue;
+        matchedSources.push(check.source);
+        evidence.push({ source: check.source, detail: String(detail).slice(0, 200) });
       }
       if (matchedSources.length === 0) continue;
 
@@ -455,7 +475,6 @@ export function runVendorRelationshipModule(modules) {
       const hasCname       = matchedSources.includes("cname");
       const hasScript      = matchedSources.includes("script");
       const specificDirs   = matchedSources.filter(s => s.startsWith("csp:") && s !== "csp:any");
-      const hasAnyOnly     = matchedSources.every(s => s === "csp:any");
 
       let confidence;
       if (hasCname || specificDirs.length >= 2) confidence = "high";
@@ -469,6 +488,9 @@ export function runVendorRelationshipModule(modules) {
         confidence,
         source:         matchedSources[0],
         source_signals: matchedSources,
+        // Structured evidence (Catalogue B): one { source, detail } per matched
+        // signal, detail = the observed hostname. Same shape as vendor_risk.
+        evidence,
       });
     }
 
@@ -486,6 +508,8 @@ export function runVendorRelationshipModule(modules) {
       high_confidence: highConfidenceCount,
       by_category:     byCategory,
       source:          "csp_relationship_analysis",
+      // Absence is evidence only when every input module observed the site.
+      inputs_complete,
       error:           null,
     };
   } catch (err) {
@@ -496,6 +520,7 @@ export function runVendorRelationshipModule(modules) {
       high_confidence: 0,
       by_category:     {},
       source:          "csp_relationship_analysis",
+      inputs_complete: false,
       error:           err?.message ?? "Vendor relationship analysis failed",
     };
   }

@@ -14,6 +14,13 @@ const INV = "workers/scan-api/src/engines/shadow-it-inventory.js";
 const DISC = "workers/scan-api/src/engines/discovery-scan.js";
 const RELATED = "workers/scan-api/src/engines/related-changes-adapter.js";
 const SNAPSHOT = "workers/scan-api/src/engines/report-snapshot.js";
+const SE = "workers/scan-api/src/engines/scan-engine.js";
+const VS = "workers/scan-api/src/engines/vendor-signatures.js";
+const VR = "workers/scan-api/src/engines/vendor-relationship.js";
+const SPF = "workers/scan-api/src/engines/spf-resolver.js";
+const EA = "workers/scan-api/src/engines/email-analysis.js";
+const CMD = "workers/scan-api/src/engines/cyber-mot-domains.js";
+const RCR = "workers/scan-api/src/engines/related-changes-rules.js";
 
 const registry = Object.freeze([
   {
@@ -125,7 +132,8 @@ const registry = Object.freeze([
       replacement: '      const anchorHost = hostnames.find(Boolean) || "https://login.microsoftonline.com";' }],
   },
   {
-    id: "SIT_M14", defect: "bounded prune widened to blanket clearing", expected: ["F14", "F18", "F28"],
+    // F37 joined (16 Oct 2026): a blanket prune also erases the Catalogue B hostnames.
+    id: "SIT_M14", defect: "bounded prune widened to blanket clearing", expected: ["F14", "F18", "F28", "F37"],
     changes: [{ target: INV,
       anchor: '    const removable = SAAS_CATALOGUE_URL_SET.has(hostname) && !observed.has(hostname);',
       replacement: '    const removable = true;' }],
@@ -147,6 +155,85 @@ const registry = Object.freeze([
     changes: [{ target: SNAPSHOT,
       anchor: 'export const SNAPSHOT_BUILDER_VERSION = "2026-10-13.1";',
       replacement: 'export const SNAPSHOT_BUILDER_VERSION = "2026-10-13.1";\n// MUTANT: catalogue_hostname_prune entered the immutable report tier.' }],
+  },
+  // ── Shadow IT detection fixes (16 Oct 2026) — one mutant per fix, exact kills ──
+  {
+    id: "SIT_M18", defect: "vendor-relationship suppliers never retired (no disappearance)", expected: ["F34", "F35", "F45"],
+    changes: [{ target: SE,
+      anchor: "             AND source_module = 'vendor_relationship'${detectedNames.length ? ` AND vendor_name NOT IN (${placeholders})` : \"\"}`",
+      replacement: "             AND source_module = 'vendor_relationship' AND 0 = 1${detectedNames.length ? ` AND vendor_name NOT IN (${placeholders})` : \"\"}`" }],
+  },
+  {
+    id: "SIT_M19", defect: "a clean run that detected nothing is skipped (suppliers linger)", expected: ["F35", "F45"],
+    changes: [{ target: SE,
+      anchor: "  if (!relModule || relModule.error) return;\n  const vendors = Array.isArray(relModule.vendors) ? relModule.vendors : [];",
+      replacement: "  if (!relModule?.detected || !relModule.vendors?.length) return;\n  const vendors = Array.isArray(relModule.vendors) ? relModule.vendors : [];" }],
+  },
+  {
+    id: "SIT_M29", defect: "suppliers retired although the input modules did not observe the site", expected: ["F45"],
+    changes: [{ target: SE,
+      anchor: "    if (relModule.inputs_complete !== true) continue;",
+      replacement: "    if (relModule.inputs_complete === undefined) continue;" }],
+  },
+  {
+    id: "SIT_M30", defect: "analysis reports complete inputs for an unreadable site", expected: ["F45"],
+    changes: [{ target: VR,
+      anchor: "  return headersOk && techOk;",
+      replacement: "  return true;" }],
+  },
+  {
+    id: "SIT_M20", defect: "Catalogue B evidence stored as bare signal names (no hostname)", expected: ["F36", "F37"],
+    changes: [{ target: VR,
+      anchor: "        evidence.push({ source: check.source, detail: String(detail).slice(0, 200) });",
+      replacement: "        evidence.push(check.source);" }],
+  },
+  {
+    id: "SIT_M21", defect: "lifecycle alert hostname read from a column the row does not have", expected: ["F38"],
+    changes: [{ target: INV,
+      anchor: "        hostname: shadowItAlertHostname(it),",
+      replacement: "        hostname: it.primary_hostname || null," }],
+  },
+  {
+    id: "SIT_M22", defect: "Shadow IT limitation regresses to 'not yet configured'", expected: ["F39"],
+    changes: [{ target: CMD,
+      anchor: "Externally observed technology only: items are shown as observed. Whether a technology is approved, rejected or excepted is the customer's own record in the Shadow IT inventory, not an external verdict.",
+      replacement: "Externally observed technology only. Approved-inventory comparison is not yet configured, so items are shown as observed, not authorised or unauthorised." }],
+  },
+  {
+    id: "SIT_M23", defect: "Related Changes rule regresses to 'Unapproved technology'", expected: ["F40"],
+    changes: [{ target: RCR,
+      anchor: '    title: "Observed technology with a new host or a certificate signal",',
+      replacement: '    title: "Unapproved technology with a new host or a certificate signal",' }],
+  },
+  {
+    id: "SIT_M24", defect: "root TXT verification tokens ignored", expected: ["F41"],
+    changes: [{ target: VS,
+      anchor: "      if (value) signals.txt.push(value);",
+      replacement: "      if (value && false) signals.txt.push(value);" }],
+  },
+  {
+    id: "SIT_M25", defect: "SPF include tree not fed to vendor attribution", expected: ["F42"],
+    changes: [{ target: VS,
+      anchor: "      if (target) signals.spf.push(String(target).toLowerCase());",
+      replacement: "      if (target && false) signals.spf.push(String(target).toLowerCase());" }],
+  },
+  {
+    id: "SIT_M26", defect: "resolver forgets the include targets it walked", expected: ["F43"],
+    changes: [{ target: SPF,
+      anchor: "        state.visited.add(target);\n        state.includeTargets.add(target);",
+      replacement: "        state.visited.add(target);" }],
+  },
+  {
+    id: "SIT_M27", defect: "only the first DKIM selector is collected", expected: ["F44"],
+    changes: [{ target: EA,
+      anchor: "      if (valid.length > 0) found.push(selectors[i]);",
+      replacement: "      if (valid.length > 0 && found.length === 0) found.push(selectors[i]);" }],
+  },
+  {
+    id: "SIT_M28", defect: "vendor attribution reads only the primary DKIM selector", expected: ["F44"],
+    changes: [{ target: VS,
+      anchor: "    for (const sel of [...(Array.isArray(dkimModule.selectors_found) ? dkimModule.selectors_found : []), dkimModule.selector]) {",
+      replacement: "    for (const sel of [dkimModule.selector]) {" }],
   },
 ]);
 

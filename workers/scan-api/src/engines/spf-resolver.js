@@ -220,6 +220,7 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
     unresolved: [],            // { mechanism, reason } — TRULY unresolvable (ptr/exists/macro) → forces `partial`
     nonAuthorising: [],        // { mechanism, reason } — fully resolved -/~/? evidence (does NOT force partial)
     visited: new Set(),        // include/redirect targets → cycle guard
+    includeTargets: new Set(), // every include/redirect domain the walk fetched (additive evidence)
     tempError: false,
     permError: null,           // first permerror reason (string)
   };
@@ -232,6 +233,9 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
         : null,
     unresolved_mechanisms: state.unresolved,
     non_authorising_mechanisms: state.nonAuthorising,
+    // The include tree as hostnames (sorted), so a consumer can attribute an
+    // authorisation to the service behind a nested include without re-walking it.
+    resolved_include_targets: [...state.includeTargets].sort(),
     lookup_count: state.lookupCount,
     void_lookup_count: state.voidCount,
     resolved_at: nowIso,
@@ -368,6 +372,7 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
         if (target.includes("%{")) { state.unresolved.push({ mechanism: mech.raw, reason: "macro-expanded include not statically resolvable" }); continue; }
         if (state.visited.has(target)) { state.permError = "include_cycle_detected"; return; }
         state.visited.add(target);
+        state.includeTargets.add(target);
         const inc = await fetchSpf(target);
         if (inc.status === "temperror") { state.tempError = true; return; }
         if (inc.count === 0) { if (!chargeVoid()) return; state.permError = "included_domain_no_spf"; return; }
@@ -399,6 +404,7 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
       if (target.includes("%{")) { state.unresolved.push({ mechanism: `redirect=${redirectTarget}`, reason: "macro-expanded redirect not statically resolvable" }); return; }
       if (state.visited.has(target)) { state.permError = "redirect_cycle_detected"; return; }
       state.visited.add(target);
+      state.includeTargets.add(target);
       const red = await fetchSpf(target);
       if (red.status === "temperror") { state.tempError = true; return; }
       if (red.count === 0) { if (!chargeVoid()) return; state.permError = "redirect_domain_no_spf"; return; }

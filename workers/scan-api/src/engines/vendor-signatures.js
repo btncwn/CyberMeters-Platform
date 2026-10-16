@@ -11,7 +11,10 @@
 //   spf    → SPF record string (include:/redirect: tokens)
 //   mx     → MX host values
 //   ns     → nameserver host values
-//   dkim   → DKIM selector name
+//   dkim   → DKIM selector name (every selector found, not only the first)
+//   txt    → root TXT records already fetched by the DNS module: SaaS domain
+//            verification tokens (google-site-verification=…, MS=ms…, …). No
+//            extra DNS query — the records travel on modules.dns.txt_records.
 //   csp    → Content-Security-Policy header value
 //   server → Server header value (from headers or tech_detection)
 //   cname  → CNAME targets (takeover risks + exposure probe + bruteforce items)
@@ -56,6 +59,7 @@ export const VENDOR_SIGNATURES = [
       { source: "cname",  test: (v) => /amazonaws\.com|cloudfront\.net/.test(v) },
       { source: "spf",    test: (v) => /amazonses\.com/.test(v) },
       { source: "mx",     test: (v) => /amazonses\.com/.test(v) },
+      { source: "txt",    test: (v) => /^amazonses:/.test(v) },
     ],
   },
   { name: "Azure",          category: "cloud",          risk_level: "low",
@@ -89,6 +93,7 @@ export const VENDOR_SIGNATURES = [
       { source: "spf",    test: (v) => /spf\.protection\.outlook\.com/.test(v) },
       { source: "mx",     test: (v) => /\.protection\.outlook\.com/.test(v) },
       { source: "dkim",   test: (v) => /^selector[12]$/.test(v) },
+      { source: "txt",    test: (v) => /^ms=ms\d+/.test(v) },
       { source: "csp",    test: (v) => /outlook\.com|office365\.com|microsoft\.com/.test(v) },
     ],
   },
@@ -97,6 +102,7 @@ export const VENDOR_SIGNATURES = [
       { source: "spf",    test: (v) => /_spf\.google\.com/.test(v) },
       { source: "mx",     test: (v) => /aspmx\.l\.google\.com|smtp\.google\.com|googlemail\.com/.test(v) },
       { source: "dkim",   test: (v) => /^google$/.test(v) },
+      { source: "txt",    test: (v) => /^google-site-verification=/.test(v) },
     ],
   },
   { name: "Zoho Mail",      category: "email_identity", risk_level: "low",
@@ -178,6 +184,7 @@ export const VENDOR_SIGNATURES = [
   { name: "Atlassian",      category: "saas",           risk_level: "medium",
     signals: [
       { source: "spf",    test: (v) => /atlassian\.com/.test(v) },
+      { source: "txt",    test: (v) => /^atlassian-domain-verification=|^status-page-domain-verification=/.test(v) },
       { source: "cname",  test: (v) => /atlassian\.com|atlassian\.net/.test(v) },
       { source: "mx",     test: (v) => /atlassian\.com/.test(v) },
     ],
@@ -185,6 +192,7 @@ export const VENDOR_SIGNATURES = [
   { name: "HubSpot",        category: "saas",           risk_level: "medium",
     signals: [
       { source: "spf",    test: (v) => /hubspot\.com/.test(v) },
+      { source: "txt",    test: (v) => /^hubspot-developer-verification=/.test(v) },
       { source: "cname",  test: (v) => /hubspotpagebuilder\.com|hs-sites\.com|hsforms\.net|hubspot\.net/.test(v) },
       { source: "csp",    test: (v) => /hubspot\.com/.test(v) },
     ],
@@ -192,6 +200,7 @@ export const VENDOR_SIGNATURES = [
   { name: "Salesforce",     category: "saas",           risk_level: "medium",
     signals: [
       { source: "spf",    test: (v) => /salesforce\.com/.test(v) },
+      { source: "txt",    test: (v) => /^pardot_?\w*=|^pardot\d*_/.test(v) },
       { source: "cname",  test: (v) => /salesforce\.com|force\.com/.test(v) },
       { source: "csp",    test: (v) => /salesforce\.com/.test(v) },
     ],
@@ -218,11 +227,13 @@ export const VENDOR_SIGNATURES = [
     signals: [
       { source: "spf",    test: (v) => /mailgun\.org/.test(v) },
       { source: "mx",     test: (v) => /mailgun\.org/.test(v) },
+      { source: "txt",    test: (v) => /^mailgun-verification=/.test(v) },
     ],
   },
   { name: "Brevo",          category: "saas",           risk_level: "low",
     signals: [
       { source: "spf",    test: (v) => /sendinblue\.com|brevo\.com/.test(v) },
+      { source: "txt",    test: (v) => /^brevo-code:|^sendinblue-code:/.test(v) },
     ],
   },
   { name: "Klaviyo",        category: "saas",           risk_level: "low",
@@ -234,6 +245,7 @@ export const VENDOR_SIGNATURES = [
   { name: "Stripe",         category: "saas",           risk_level: "medium",
     signals: [
       { source: "csp",    test: (v) => /stripe\.com|js\.stripe\.com/.test(v) },
+      { source: "txt",    test: (v) => /^stripe-verification=/.test(v) },
     ],
   },
   { name: "PayPal",         category: "saas",           risk_level: "medium",
@@ -249,6 +261,7 @@ export const VENDOR_SIGNATURES = [
       { source: "cname",  test: (v) => /zendesk\.com/.test(v) },
       { source: "mx",     test: (v) => /mail\.zendesk\.com/.test(v) },
       { source: "server", test: (v) => /zendesk/.test(v) },
+      { source: "txt",    test: (v) => /^zendesk-verification=/.test(v) },
     ],
   },
   { name: "Intercom",       category: "support",        risk_level: "medium",
@@ -269,6 +282,7 @@ export const VENDOR_SIGNATURES = [
     signals: [
       { source: "cname",  test: (v) => /myshopify\.com|shops\.myshopify\.com/.test(v) },
       { source: "server", test: (v) => /shopify/.test(v) },
+      { source: "txt",    test: (v) => /^shopify-verification=/.test(v) },
     ],
   },
   { name: "Squarespace",    category: "ecommerce",      risk_level: "medium",
@@ -281,6 +295,94 @@ export const VENDOR_SIGNATURES = [
     signals: [
       { source: "cname",  test: (v) => /webflow\.io|proxy\.webflow\.com/.test(v) },
     ],
+  },
+
+  // ── SaaS domain-verification tokens (root TXT, already fetched by the DNS module) ──
+  // Each token is the service's own published verification string. Observing one
+  // is evidence the organisation registered this domain with that service — an
+  // observation of a relationship, never a statement about how it is used.
+  { name: "Meta Business",       category: "saas",           risk_level: "low",
+    signals: [
+      { source: "txt",    test: (v) => /^facebook-domain-verification=|^workplace-domain-verification=/.test(v) },
+    ],
+  },
+  { name: "Apple Business",      category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^apple-domain-verification=/.test(v) } ],
+  },
+  { name: "DocuSign",            category: "saas",           risk_level: "medium",
+    signals: [ { source: "txt", test: (v) => /^docusign=/.test(v) } ],
+  },
+  { name: "Adobe",               category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^adobe-idp-site-verification=|^adobe-sign-verification=/.test(v) } ],
+  },
+  { name: "Dropbox",             category: "saas",           risk_level: "medium",
+    signals: [ { source: "txt", test: (v) => /^dropbox-domain-verify=/.test(v) } ],
+  },
+  { name: "Zoom",                category: "collaboration",  risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^zoom_verify_|^zoom-domain-verification=/.test(v) } ],
+  },
+  { name: "Slack",               category: "collaboration",  risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^slack-domain-verification=/.test(v) } ],
+  },
+  { name: "Miro",                category: "collaboration",  risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^miro-verification=/.test(v) } ],
+  },
+  { name: "Notion",              category: "collaboration",  risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^notion-domain-verification=/.test(v) } ],
+  },
+  { name: "Canva",               category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^canva-site-verification=/.test(v) } ],
+  },
+  { name: "Cisco Webex",         category: "collaboration",  risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^webexdomainverification\.|^cisco-ci-domain-verification=/.test(v) } ],
+  },
+  { name: "GoTo (LogMeIn)",      category: "saas",           risk_level: "medium",
+    signals: [ { source: "txt", test: (v) => /^logmein-verification-code=/.test(v) } ],
+  },
+  { name: "GlobalSign",          category: "infrastructure", risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^_?globalsign-domain-verification=/.test(v) } ],
+  },
+  { name: "MongoDB Atlas",       category: "cloud",          risk_level: "medium",
+    signals: [ { source: "txt", test: (v) => /^mongodb-site-verification=/.test(v) } ],
+  },
+  { name: "Twilio",              category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^twilio-domain-verification=/.test(v) } ],
+  },
+  { name: "Postman",             category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^postman-domain-verification=/.test(v) } ],
+  },
+  { name: "OpenAI",              category: "saas",           risk_level: "medium",
+    signals: [ { source: "txt", test: (v) => /^openai-domain-verification=/.test(v) } ],
+  },
+  { name: "OneTrust",            category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^onetrust-domain-verification=/.test(v) } ],
+  },
+  { name: "KnowBe4",             category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^knowbe4-site-verification=/.test(v) } ],
+  },
+  { name: "Wrike",               category: "collaboration",  risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^wrike-verification=/.test(v) } ],
+  },
+  { name: "Pinterest Business",  category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^pinterest-site-verification=/.test(v) } ],
+  },
+  { name: "Yandex",              category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^yandex-verification=/.test(v) } ],
+  },
+  { name: "Smartsheet",          category: "collaboration",  risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^smartsheet-site-validation=/.test(v) } ],
+  },
+  { name: "Citrix",              category: "saas",           risk_level: "medium",
+    signals: [ { source: "txt", test: (v) => /^citrix-verification-code=/.test(v) } ],
+  },
+  { name: "1Password",           category: "saas",           risk_level: "medium",
+    signals: [ { source: "txt", test: (v) => /^1password-site-verification=/.test(v) } ],
+  },
+  { name: "Have I Been Pwned",   category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^have-i-been-pwned-verification=/.test(v) } ],
+  },
+  { name: "Segment",             category: "saas",           risk_level: "low",
+    signals: [ { source: "txt", test: (v) => /^segment-site-verification=/.test(v) } ],
   },
 ];
 
@@ -307,6 +409,7 @@ export function detectVendorsFromModules(modules) {
       mx:     [],
       ns:     [],
       dkim:   [],
+      txt:    [],
       csp:    [],
       server: [],
       cname:  [],
@@ -319,6 +422,15 @@ export function detectVendorsFromModules(modules) {
       modules?.email_security_intelligence?.spf?.record || ""
     ).toLowerCase();
     if (spfRecord) signals.spf.push(spfRecord);
+    // The SPF include tree the resolver already walked (include:/redirect= targets,
+    // nested): a service authorised through an intermediary's include is still a
+    // service the domain sends through. Read, never re-resolved.
+    for (const target of (
+      modules?.email_security?.spf?.resolved_include_targets ||
+      modules?.email_security_intelligence?.spf?.resolved_include_targets || []
+    )) {
+      if (target) signals.spf.push(String(target).toLowerCase());
+    }
 
     // MX records
     for (const mx of (modules?.dns?.mx_records || [])) {
@@ -330,12 +442,19 @@ export function detectVendorsFromModules(modules) {
       if (ns) signals.ns.push(ns.toLowerCase());
     }
 
-    // DKIM selector
-    const dkimSel = (
-      modules?.email_security?.dkim?.selector ||
-      modules?.email_security_intelligence?.dkim?.selector || ""
-    ).toLowerCase();
-    if (dkimSel) signals.dkim.push(dkimSel);
+    // DKIM selectors — every selector that answered with a key, plus the primary.
+    const dkimModule = modules?.email_security?.dkim || modules?.email_security_intelligence?.dkim || {};
+    for (const sel of [...(Array.isArray(dkimModule.selectors_found) ? dkimModule.selectors_found : []), dkimModule.selector]) {
+      const value = String(sel || "").toLowerCase();
+      if (value && !signals.dkim.includes(value)) signals.dkim.push(value);
+    }
+
+    // Root TXT records (already fetched by the DNS module — no additional query):
+    // SaaS domain-verification tokens, compared lower-cased.
+    for (const rec of (modules?.dns?.txt_records || [])) {
+      const value = String(rec?.value ?? rec ?? "").trim().toLowerCase();
+      if (value) signals.txt.push(value);
+    }
 
     // CSP header
     const csp = (modules?.headers?.values?.["content-security-policy"] || "").toLowerCase();

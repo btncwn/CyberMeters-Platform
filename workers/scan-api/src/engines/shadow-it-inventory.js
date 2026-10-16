@@ -48,6 +48,16 @@ function safeJson(v, fallback = null) { try { return v == null ? fallback : JSON
 // outcomes; failed/incomplete are explicitly non-evidence and can never be
 // converted into disappearance.
 export const SHADOW_IT_READ_OUTCOMES = Object.freeze(["ok", "empty", "failed", "incomplete"]);
+
+// The hostname a lifecycle alert names for an inventory item: the first observed
+// hostname the row actually holds (observed_hostnames_json, after the bounded
+// catalogue prune). The inventory row has no primary_hostname column, so the
+// alert used to carry none; a value that does not exist is never invented.
+export function shadowItAlertHostname(item) {
+  const hosts = parseJson(item?.observed_hostnames_json, []) || [];
+  const first = hosts.find((h) => typeof h === "string" && h.trim());
+  return first ? String(first).trim().slice(0, 300) : null;
+}
 const ABSENCE_ADMISSIBLE_OUTCOMES = new Set(["ok", "empty"]);
 const SHADOW_IT_SOURCE_TABLES = new Set([
   "workspace_vendors", "workspace_assets", "identity_assets",
@@ -545,7 +555,12 @@ function daysBetween(from, to) {
 const EVIDENCE_SOURCE_LABELS = Object.freeze({
   "csp:script-src": "Content-Security-Policy (script-src)",
   "csp:connect-src": "Content-Security-Policy (connect-src)",
+  "csp:frame-src": "Content-Security-Policy (frame-src)",
+  "csp:img-src": "Content-Security-Policy (img-src)",
+  "csp:font-src": "Content-Security-Policy (font-src)",
+  "csp:any": "Content-Security-Policy",
   csp: "Content-Security-Policy",
+  txt: "TXT DNS record (service verification token)",
   script: "page script reference",
   cname: "DNS CNAME record",
   spf: "SPF DNS record",
@@ -822,7 +837,7 @@ export async function evaluateShadowItMonitoring(env, workspaceId, {
       await emitLifecycleAlert(env, {
         workspace_id: workspaceId, domain_key: "shadow_it_unmanaged_technology",
         record_id: it.id, entity: it.canonical_technology_key,
-        hostname: it.primary_hostname || null,
+        hostname: shadowItAlertHostname(it),
         recurrence: recurrence_type,
         // Same finding type the linked case is opened under (linkShadowItCase),
         // so the alert and the case resolve to the SAME canonical remediation.

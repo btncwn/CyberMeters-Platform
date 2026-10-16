@@ -95,6 +95,14 @@ export async function runDnsModule(domain, opts = {}) {
   const aaaaRecords = pick(aaaaRes);
   const nsRecords   = pick(nsRes);
   const mxRecords   = pick(mxRes);
+  // Root TXT answers were already fetched for the SPF cross-check (Cloudflare, with
+  // Google as the fallback resolver). Exposed as records so later pure modules
+  // (vendor signatures: SaaS verification tokens) can read them without another
+  // DNS query. Quoted-string framing is removed; values are otherwise verbatim.
+  const txtAnswers  = pick(cloudflareTxtBaseRes).length ? pick(cloudflareTxtBaseRes) : pick(googleTxtBaseRes);
+  const txtRecords  = txtAnswers
+    .map((r) => ({ value: String(r?.data ?? "").trim().replace(/^"|"$/g, "").replace(/"\s*"/g, ""), ttl: r?.TTL }))
+    .filter((r) => r.value);
 
   // ── CAA Record Analysis ─────────────────────────────────────────────────
   let caa;
@@ -198,6 +206,7 @@ export async function runDnsModule(domain, opts = {}) {
     a_records:    aRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     aaaa_records: aaaaRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     mx_records:   mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    txt_records:  txtRecords,
     caa,
     dnssec,
     operational_resilience: operationalResilience,

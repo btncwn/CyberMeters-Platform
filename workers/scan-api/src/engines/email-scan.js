@@ -7,7 +7,7 @@ import {
   deriveDmarcState,
   deriveDmarcStateFromPolicyEvidence,
 } from "./dmarc-state.js";
-import { DKIM_PROVIDER_SELECTORS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
+import { DKIM_PROVIDER_SELECTORS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, findAllDkimInResults, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from "./spf-resolver.js";
 import { markDeadlineDeferred } from "./scan-budget.js";
 
@@ -164,6 +164,7 @@ export async function runEmailModule(domain, opts = {}) {
 
   // Check phase 1 DKIM results
   let dkimSelector = findDkimInResults(DKIM_SELECTORS, dkimPhase1);
+  const dkimSelectorsFound = findAllDkimInResults(DKIM_SELECTORS, dkimPhase1);
   const dkimSettled = [...dkimPhase1];   // A1: track every probe outcome for observation status
 
   // Phase 2 — provider-specific additional selectors (only if provider known and
@@ -180,6 +181,7 @@ export async function runEmailModule(domain, opts = {}) {
       );
       dkimSettled.push(...phase2Results);
       dkimSelector = findDkimInResults(phase2Selectors, phase2Results);
+      dkimSelectorsFound.push(...findAllDkimInResults(phase2Selectors, phase2Results));
     }
   }
   // A1 evidence status — a failed SPF/DKIM probe must not collapse into "missing".
@@ -215,6 +217,8 @@ export async function runEmailModule(domain, opts = {}) {
     selector:         dkimSelector,
     provider:         emailProvider,
     selectors_probed: [...DKIM_SELECTORS, ...phase2Selectors],
+    // Additive: every selector that answered with a key (selector = the first).
+    selectors_found:  [...new Set(dkimSelectorsFound)],
   };
   const bimiAnswers = bimiRes.status === "fulfilled" ? (bimiRes.value.Answer || []) : [];
   const bimiRecord = bimiAnswers
@@ -248,6 +252,9 @@ export async function runEmailModule(domain, opts = {}) {
       resolution_status: spfAuthorization?.resolution_status ?? null,
       resolved_pass_authorisations: spfAuthorization?.resolved_pass_authorisations ?? null,
       unresolved_mechanisms: spfAuthorization?.unresolved_mechanisms ?? [],
+      // Additive: the include/redirect domains the resolver walked (no extra
+      // lookup — the walk already fetched them), for vendor attribution.
+      resolved_include_targets: spfAuthorization?.resolved_include_targets ?? [],
       lookup_count: spfAuthorization?.lookup_count ?? null,
       void_lookup_count: spfAuthorization?.void_lookup_count ?? null,
       resolved_at: spfAuthorization?.resolved_at ?? null,
