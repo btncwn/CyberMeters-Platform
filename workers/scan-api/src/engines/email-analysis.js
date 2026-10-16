@@ -97,6 +97,22 @@ export function findDkimInResults(selectors, settledResults) {
   return null;
 }
 
+// Every probed selector whose TXT answer carries a DKIM key — a domain commonly
+// publishes several (one per sending service), and each one is a vendor signal.
+export function findAllDkimInResults(selectors, settledResults) {
+  const found = [];
+  for (let i = 0; i < selectors.length; i++) {
+    const r = settledResults[i];
+    if (r?.status === "fulfilled" && r.value.Answer?.length > 0) {
+      const valid = r.value.Answer.filter(
+        (a) => a.data?.includes("v=DKIM1") || a.data?.includes("p=")
+      );
+      if (valid.length > 0) found.push(selectors[i]);
+    }
+  }
+  return found;
+}
+
 export function normalizeDnsTxtValue(record) {
   return String(record || "").trim().replace(/^"|"$/g, "").replace(/"\s*"/g, "");
 }

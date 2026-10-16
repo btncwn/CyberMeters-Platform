@@ -45,7 +45,7 @@ export const RULE_LABELS = {
   identity_with_cert: 'Possible identity-facing hostname with a certificate signal',
   email_config_with_host_or_cert: 'Email-authentication change with a new host or a certificate signal',
   new_sender_with_email_config: 'New sending source with an email-authentication change',
-  shadow_it_with_host_or_cert: 'Unapproved technology with a new host or a certificate signal',
+  shadow_it_with_host_or_cert: 'Observed technology with a new host or a certificate signal',
 };
 
 // R1 P2 CLASS FIX: every map lookup in this file is OWN-property only. Plain
@@ -187,7 +187,7 @@ export const PRODUCER_FAMILY_LABELS = {
   identity: 'Login / identity surface',
   email_config: 'Email authentication',
   sender: 'Sending source',
-  shadow_it: 'Unapproved technology',
+  shadow_it: 'Observed technology',
 };
 
 /**
@@ -238,7 +238,7 @@ export const EVENT_TYPE_LABELS = {
   brand_candidate_active_dns: 'Lookalike candidate resolving in DNS',
   brand_candidate_active_http: 'Lookalike candidate responding over HTTPS',
   brand_campaign_linked: 'Linked brand campaign observed',
-  shadow_it_observed: 'Unapproved technology observed',
+  shadow_it_observed: 'Technology observed',
 };
 
 /**

@@ -572,8 +572,15 @@ const parity = states.map(parityOutputs);
 // the executive PDF (EXECUTIVE_AREAS). Only F13's rendered PDF bytes change:
 // with only those two lists reverted the previous F13 hash (abf6af86…)
 // reproduces exactly, and F14 and the evidence hash are unchanged.
-const GOLDEN_F13 = "c4e6b4e00fb96fd2a3adbabf5cfaef0e9d2234eeff55037292861fa38b883be2";
-const GOLDEN_F14 = "5aeea4a328eb5b188614d08c7e6330f01f044966979e339c7187de2cae615f66";
+// Shadow IT detection fixes (16 Oct 2026): the Shadow IT limitation sentence in
+// cyber-mot-domains.js changed to observation language ("the customer's own record
+// in the Shadow IT inventory, not an external verdict"). That sentence travels in
+// the resolved domain states (F14) and is printed in the customer PDF (F13), so both
+// goldens move. With ONLY cyber-mot-domains.js reverted the previous hashes
+// (c4e6b4e0… / 5aeea4a3…) reproduce exactly; the evidence hash is unchanged and the
+// PDF label map (pdf.js) and Related Changes rule text move neither golden.
+const GOLDEN_F13 = "ac7c9aabb32fd4e019d1d99a1f8c11d9dd54199e39926fcd1d2d171b3e4710f8";
+const GOLDEN_F14 = "84df1ceb9206aad151f92b4f956533ee212ef4b4e6824451994dea94042202e8";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

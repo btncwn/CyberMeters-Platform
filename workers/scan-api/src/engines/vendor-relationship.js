@@ -420,25 +420,26 @@ export function runVendorRelationshipModule(modules) {
     }
 
     // ── Signal tester ────────────────────────────────────────────────────────
-    function testSignal(signal) {
+    // Returns the FIRST hostname that satisfied the signal (or null): the hostname is
+    // the evidence a customer can act on, so it is kept as `{ source, detail }` the
+    // same way vendor_risk evidence is — the Shadow IT correlator reads `detail` as
+    // an observed hostname and the alert evidence summary shows it.
+    function matchSignal(signal) {
+      const firstMatch = (hosts) => hosts.find((h) => signal.test(h)) ?? null;
       if (signal.source.startsWith("csp:")) {
         const directive = signal.source.slice(4);
         if (directive === "any") {
           for (const hosts of Object.values(directives)) {
-            if (hosts.some(h => signal.test(h))) return true;
+            const hit = firstMatch(hosts);
+            if (hit) return hit;
           }
-          return false;
+          return null;
         }
-        const hosts = directives[directive] || [];
-        return hosts.some(h => signal.test(h));
+        return firstMatch(directives[directive] || []);
       }
-      if (signal.source === "cname") {
-        return cnames.some(h => signal.test(h));
-      }
-      if (signal.source === "script") {
-        return scriptHosts.some(h => signal.test(h));
-      }
-      return false;
+      if (signal.source === "cname") return firstMatch(cnames);
+      if (signal.source === "script") return firstMatch(scriptHosts);
+      return null;
     }
 
     // ── Match signatures ─────────────────────────────────────────────────────
@@ -446,8 +447,12 @@ export function runVendorRelationshipModule(modules) {
 
     for (const sig of VENDOR_RELATIONSHIP_SIGS) {
       const matchedSources = [];
+      const evidence = [];
       for (const check of sig.signals) {
-        if (testSignal(check)) matchedSources.push(check.source);
+        const detail = matchSignal(check);
+        if (detail === null) continue;
+        matchedSources.push(check.source);
+        evidence.push({ source: check.source, detail: String(detail).slice(0, 200) });
       }
       if (matchedSources.length === 0) continue;
 
@@ -455,7 +460,6 @@ export function runVendorRelationshipModule(modules) {
       const hasCname       = matchedSources.includes("cname");
       const hasScript      = matchedSources.includes("script");
       const specificDirs   = matchedSources.filter(s => s.startsWith("csp:") && s !== "csp:any");
-      const hasAnyOnly     = matchedSources.every(s => s === "csp:any");
 
       let confidence;
       if (hasCname || specificDirs.length >= 2) confidence = "high";
@@ -469,6 +473,9 @@ export function runVendorRelationshipModule(modules) {
         confidence,
         source:         matchedSources[0],
         source_signals: matchedSources,
+        // Structured evidence (Catalogue B): one { source, detail } per matched
+        // signal, detail = the observed hostname. Same shape as vendor_risk.
+        evidence,
       });
     }
 

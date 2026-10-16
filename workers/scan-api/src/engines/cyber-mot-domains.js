@@ -230,7 +230,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     monitoring_degradation_message: "Technology observation coverage was incomplete this run.",
     match: () => false, // observation-only; not attributed authoritative findings this episode
     maturity: "M0", managed_status: "monitoring",
-    limitations: ["Externally observed technology only. Approved-inventory comparison is not yet configured, so items are shown as observed, not authorised or unauthorised. No internal-network, endpoint, CASB or EDR visibility."],
+    limitations: ["Externally observed technology only: items are shown as observed. Whether a technology is approved, rejected or excepted is the customer's own record in the Shadow IT inventory, not an external verdict. No internal-network, endpoint, CASB or EDR visibility."],
   },
 ]);
 

@@ -1080,7 +1080,7 @@ const RELATED_CHANGE_LABELS = {
   identity_with_cert: "Possible identity-facing hostname with a certificate signal",
   email_config_with_host_or_cert: "Email-authentication change with a new host or a certificate signal",
   new_sender_with_email_config: "New sending source with an email-authentication change",
-  shadow_it_with_host_or_cert: "Unapproved technology with a new host or a certificate signal",
+  shadow_it_with_host_or_cert: "Observed technology with a new host or a certificate signal",
 };
 
 // M6 B1 Related Changes summary. Frozen into the snapshot (related_changes_json) and

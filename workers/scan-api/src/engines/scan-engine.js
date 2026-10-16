@@ -3384,7 +3384,14 @@ export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, en
 }
 
 export async function upsertVendorRelationships(domainId, relModule, env) {
-  if (!relModule?.detected || !relModule.vendors?.length) return;
+  // The module must have EXECUTED for its result to say anything about absence:
+  // no result, or a result with an error, is silence (nothing is retired). A result
+  // that ran clean and detected nothing is evidence — the suppliers it no longer sees
+  // are retired below, exactly as vendor_risk suppliers are, so vendor_relationship
+  // rows enter the same disappearance flow (the Shadow IT correlator reads only
+  // status = 'active' rows and records the absence through its own evaluator).
+  if (!relModule || relModule.error) return;
+  const vendors = Array.isArray(relModule.vendors) ? relModule.vendors : [];
 
   let wsRows;
   try {
@@ -3397,12 +3404,19 @@ export async function upsertVendorRelationships(domainId, relModule, env) {
   if (wsRows.length === 0) return;
 
   const now = new Date().toISOString();
+  const detectedNames = vendors.map((v) => v.name).filter(Boolean);
 
   for (const { workspace_id } of wsRows) {
-    for (const v of relModule.vendors) {
+    for (const v of vendors) {
       try {
         const id           = createId("vendor");
-        const evidenceJson = JSON.stringify(v.source_signals || []);
+        // Structured { source, detail } evidence (Catalogue B carries the observed
+        // hostname as detail); an older module result that only has signal names is
+        // kept as objects with no detail rather than as bare strings.
+        const evidenceEntries = Array.isArray(v.evidence) && v.evidence.length
+          ? v.evidence
+          : (v.source_signals || []).map((source) => ({ source, detail: null }));
+        const evidenceJson = JSON.stringify(evidenceEntries);
 
         await env.cybermeters_db
           .prepare(
@@ -3430,6 +3444,22 @@ export async function upsertVendorRelationships(domainId, relModule, env) {
           .run();
       } catch { /* non-fatal per-vendor */ }
     }
+
+    // Retire the relationship suppliers this clean run did not see — including
+    // every one of them when it saw none. Only this workspace, only rows this
+    // module owns; last_seen is preserved as the last observation.
+    try {
+      const placeholders = detectedNames.map(() => "?").join(", ");
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE workspace_vendors
+           SET status = 'inactive', updated_at = ?
+           WHERE workspace_id = ? AND status = 'active'
+             AND source_module = 'vendor_relationship'${detectedNames.length ? ` AND vendor_name NOT IN (${placeholders})` : ""}`
+        )
+        .bind(now, workspace_id, ...detectedNames)
+        .run();
+    } catch { /* non-fatal */ }
   }
 }
 

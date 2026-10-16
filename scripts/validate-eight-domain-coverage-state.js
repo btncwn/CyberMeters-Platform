@@ -281,7 +281,10 @@ const cleanComplete = () => ({
   ok("19: shadow IT is monitoring_only with observed count, never unauthorised",
     s.state === CYBER_MOT_STATES.MONITORING_ONLY && s.evidence_count > 0 &&
     !/unauthoris|unauthoriz|internal.network|endpoint|casb|edr/i.test(s.summary + " " + s.description) &&
-    /approved-inventory comparison is not yet configured/i.test(s.limitations.join(" ")));
+    // Observation language (16 Oct 2026): the inventory exists; approval is the
+    // customer's own record, never an external verdict — and never "not yet configured".
+    /customer's own record in the Shadow IT inventory, not an external verdict/i.test(s.limitations.join(" ")) &&
+    !/not yet configured|unapproved/i.test(s.limitations.join(" ")));
 }
 
 // 20. Zero findings → all eight still render.

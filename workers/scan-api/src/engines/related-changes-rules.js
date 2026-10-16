@@ -82,8 +82,8 @@ export const RELATED_CHANGE_RULES = Object.freeze([
   },
   {
     id: "shadow_it_with_host_or_cert",
-    title: "Unapproved technology with a new host or a certificate signal",
-    summary: "Unapproved technology (from independent provenance) and a new host or a certificate signal were observed on the same registrable domain in the same period.",
+    title: "Observed technology with a new host or a certificate signal",
+    summary: "An externally observed technology (from independent provenance) and a new host or a certificate signal were observed on the same registrable domain in the same period.",
     requires: [F.SHADOW_IT, [F.ASSET, F.CERT]],
   },
 ]);
