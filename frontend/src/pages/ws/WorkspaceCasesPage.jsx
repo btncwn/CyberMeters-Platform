@@ -1,18 +1,19 @@
-// Managed Cases — the canonical home for the cross-domain case queue. Additive:
-// it gives the universal CasesQueue a proper route (no longer only a temporary
-// embed) and every row links to the canonical Case Detail surface. Bespoke
-// domain panels are unchanged and reachable from each case's detail view.
+// Operations — the canonical home for one workspace's managed cases, in the
+// four working lanes (Triage · In progress / waiting · Ready to verify ·
+// Closed). Workspace-scoped: the MSP picks the customer first. Every row links
+// to the canonical Case Detail surface, where the backend's
+// available_transitions drive every change through the universal validator.
 import { useSearchParams } from 'react-router-dom'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
-import CasesQueue from '../../components/CasesQueue'
+import OperationsBoard from '../../components/operations/OperationsBoard'
 
 export default function WorkspaceCasesPage() {
-  const { wsId, loading } = useWorkspace()
+  const { wsId, wsName, loading } = useWorkspace()
   const [params, setParams] = useSearchParams()
-  const changeDomain = (domain) => {
+  const setParam = (key, value) => {
     const next = new URLSearchParams(params)
-    if (domain) next.set('domain_key', domain); else next.delete('domain_key')
+    if (value) next.set(key, value); else next.delete(key)
     setParams(next, { replace: true })
   }
 
@@ -23,10 +24,19 @@ export default function WorkspaceCasesPage() {
       <div className="mb-5">
         <h1 className="text-xl font-semibold text-slate-900">Operations</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Evidence, fixes and verification across all eight services.
+          Evidence, fixes and verification across all eight services{wsName ? ` for ${wsName}` : ''}.
         </p>
       </div>
-      {wsId && <CasesQueue key={wsId} workspaceId={wsId} domainKey={params.get('domain_key') || ''} onDomainChange={changeDomain} />}
+      {wsId && (
+        <OperationsBoard
+          key={wsId}
+          workspaceId={wsId}
+          domainKey={params.get('domain_key') || ''}
+          onDomainChange={(domain) => setParam('domain_key', domain)}
+          view={params.get('view') || ''}
+          onViewChange={(view) => setParam('view', view)}
+        />
+      )}
     </div>
   )
 }
