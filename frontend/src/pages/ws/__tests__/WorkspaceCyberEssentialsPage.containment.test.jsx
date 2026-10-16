@@ -1,3 +1,4 @@
+// The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -51,7 +52,7 @@ function controls(items = []) {
 }
 
 function mount() {
-  return render(<MemoryRouter><WorkspaceCyberEssentialsPage /></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={['/ws/cyber-essentials?tab=findings']}><WorkspaceCyberEssentialsPage /></MemoryRouter>)
 }
 
 beforeEach(() => {

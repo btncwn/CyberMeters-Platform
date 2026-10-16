@@ -71,16 +71,17 @@ describe('Dashboard TLS quality honesty', () => {
     expect(result.trend.map(point => point.value)).toEqual([82])
   })
 
-  it('shows the latest score as provisional and unrated throughout the live dashboard', async () => {
+  it('never shows a provisional result as rated: no score ring, and the recent-scan row says provisional', async () => {
     render(<MemoryRouter><Dashboard /></MemoryRouter>)
-    expect(await screen.findByText('Provisional Score')).toBeInTheDocument()
-    expect(screen.getByText('Unrated')).toBeInTheDocument()
-    expect(screen.getByText('Some checks or required evidence are incomplete. This score is provisional.')).toBeInTheDocument()
-    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
-    const recent = within(screen.getByText('Recent Scans').closest('.card'))
+    const recent = within((await screen.findByText('Recent Scans', {}, { timeout: 5000 })).closest('.card'))
     expect(recent.getByText('100 provisional')).toBeInTheDocument()
     expect(recent.getByText('Partial results')).toBeInTheDocument()
-    expect(screen.getByText('Cyber Metrics Score across fully assessed scans')).toBeInTheDocument()
+    // The home screen (16 Oct 2026) carries no score ring, no trend and no rating word.
+    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
+    expect(screen.queryByText('Provisional Score')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cyber Metrics Score')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Score Trend/)).not.toBeInTheDocument()
+    expect(screen.queryByText('/100')).not.toBeInTheDocument()
   })
 
   it('renders completed-but-provisional monitoring evidence without a clean rating', async () => {
@@ -88,12 +89,10 @@ describe('Dashboard TLS quality honesty', () => {
     api.getScanReport.mockResolvedValue({ status: 'completed', scan_id: 'monitoring-provisional',
       cyber_metrics_score: 100, findings: [], cyber_mot_domains: [] })
     render(<MemoryRouter><Dashboard /></MemoryRouter>)
-    expect(await screen.findByText('Provisional Score')).toBeInTheDocument()
-    expect(screen.getByText('Unrated')).toBeInTheDocument()
-    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
-    const recent = within(screen.getByText('Recent Scans').closest('.card'))
+    const recent = within((await screen.findByText('Recent Scans', {}, { timeout: 5000 })).closest('.card'))
     expect(recent.getAllByText('100 provisional')).toHaveLength(2)
     expect(recent.getByText('Provisional result')).toBeInTheDocument()
-    expect(screen.getByText("The latest scan's coverage was incomplete — this is not a clean bill of health.")).toBeInTheDocument()
+    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
+    expect(screen.queryByText('Good')).not.toBeInTheDocument()
   })
 })

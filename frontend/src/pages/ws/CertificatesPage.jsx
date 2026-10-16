@@ -9,7 +9,7 @@ import {
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
-import ModuleContract from '../../components/module/ModuleContract'
+import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
@@ -261,6 +261,7 @@ export default function CertificatesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
   const issuesRef = useRef(null)
+  const goToAnchor = useAreaAnchor()
 
   const load = useCallback(async () => {
     if (!wsId) { setLoading(false); return }
@@ -312,7 +313,7 @@ export default function CertificatesPage() {
   if (anomalies.length > 0) actions.push({ severity: 'medium', title: 'Certificate change needs review', body: `${anomalies.length} certificate change${anomalies.length === 1 ? ' was' : 's were'} seen between scans in issuer, SAN or parallel-certificate evidence.` })
   if (needsReview > 0)  actions.push({ severity: 'medium', title: 'Certificate evidence needs review', body: `${needsReview} certificate${needsReview === 1 ? '' : 's'} are flagged high or critical risk and should be reviewed.` })
 
-  const scrollToIssues = () => issuesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const scrollToIssues = () => goToAnchor('cert-actions')
 
   // Trust-posture tile states (cert tiles use real data; transport tiles point
   // to Email Protection, which owns MTA-STS / TLS-RPT / redirect checks).

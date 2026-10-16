@@ -142,7 +142,7 @@ describe('Layout top bar — shape', () => {
     expect(within(h).getByRole('button', { name: 'Notifications' })).toBeInTheDocument()
   })
 
-  it('the account button shows the initial and opens Field Guide, Billing, Account & security and Sign out', async () => {
+  it('the account button shows the initial and opens Field Guide, Billing, Account & security, Settings and Sign out', async () => {
     renderLayout({ features: DIRECT_FEATURES })
     const b = within(header()).getByRole('button', { name: 'Account menu' })
     expect(b).toHaveTextContent('T')
@@ -153,10 +153,26 @@ describe('Layout top bar — shape', () => {
     expect(within(menu).getByText('Taylor Owner')).toBeInTheDocument()
     expect(within(menu).getByText('Professional plan')).toBeInTheDocument()
     const items = within(menu).getAllByRole('menuitem')
-    expect(items.map(i => i.textContent)).toEqual(['Field Guide', 'Billing', 'Account & security', 'Sign out'])
+    // No workspace selected: only the account Settings entry in the Settings group.
+    expect(items.map(i => i.textContent)).toEqual(['Field Guide', 'Billing', 'Account & security', 'Settings', 'Sign out'])
     expect(items[0]).toHaveAttribute('href', '/guide')
     expect(items[1]).toHaveAttribute('href', '/billing')
     expect(items[2]).toHaveAttribute('href', '/account')
+    expect(items[3]).toHaveAttribute('href', '/settings')
+  })
+
+  it('with a workspace selected the Settings group carries the workspace settings that left the workspace popover', () => {
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' } })
+    fireEvent.click(within(header()).getByRole('button', { name: 'Account menu' }))
+    const group = within(screen.getByTestId('profile-settings-group'))
+    const items = group.getAllByRole('menuitem')
+    expect(items.map(i => [i.textContent, i.getAttribute('href')])).toEqual([
+      ['Administration', '/ws/dashboard'], ['Alert channels', '/ws/alerts'], ['Audit log', '/ws/audit-log'], ['Usage & retention', '/ws/retention'], ['Settings', '/settings'],
+    ])
+    // Scorecard, the executive dashboard, Operations and Related changes live under Reports and Cases, not here.
+    for (const gone of ['Scorecard', 'Executive dashboard', 'Operations', 'Related changes']) {
+      expect(screen.queryByRole('menuitem', { name: gone })).not.toBeInTheDocument()
+    }
   })
 
   it('the account menu closes on Escape (focus back on the button) and on an outside click', () => {
@@ -191,9 +207,14 @@ describe('Layout top bar — shape', () => {
     expect(await screen.findByTestId('login')).toBeInTheDocument()
   })
 
-  it('renders the module rail, the globe and a skip link; every top-bar label is at least 15px', () => {
+  it('renders the module rail as the first column, the globe behind the content column, and a skip link', () => {
     renderLayout({ features: DIRECT_FEATURES })
-    expect(screen.getByRole('navigation', { name: 'Modules' })).toBeInTheDocument()
+    const rail = screen.getByRole('navigation', { name: 'Modules' })
+    const column = screen.getByRole('banner').parentElement
+    expect(column.className.split(' ')).toContain('cm-shell-column')
+    // Rail before the column, globe after it: the column paints above the globe.
+    expect(rail.compareDocumentPosition(column) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(column.compareDocumentPosition(screen.getByTestId('shell-globe')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByTestId('shell-globe')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByText('Skip to content')).toHaveAttribute('href', '#main')
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main')

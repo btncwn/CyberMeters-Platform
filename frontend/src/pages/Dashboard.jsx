@@ -3,14 +3,14 @@ import { Link, useNavigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
-import OnboardingProgress  from '../components/OnboardingProgress'
-import FirstResultsGuide   from '../components/FirstResultsGuide'
-import TeamOnboardingCard  from '../components/TeamOnboardingCard'
-import RecentChangesCard   from '../components/RecentChangesCard'
-import { bandMeta, metaForScore, scoreBand } from '../lib/score-presentation'
-import CyberMotDomains      from '../components/CyberMotDomains'
 import PostureCard          from '../components/overview/PostureCard'
-import SecurityOverview, { requestManagedCases } from '../components/overview/SecurityOverview'
+import { NextActionCard } from '../components/overview/SecurityOverview'
+
+// The home screen (founder, 16 Oct 2026): the question, the last assessment,
+// the scan input, the "Your external posture" card (every area with the
+// backend's word), the recommended next action and the recent scans — nothing
+// else. The score and its trend live in Reports; the eight-area overview with
+// its counts lives on the workspace overview (/ws/dashboard).
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -158,162 +158,6 @@ function buildStatusFindings(scans, failed, active, domains) {
   return out
 }
 
-/* ─── Score Ring ───────────────────────────────────────────────────────── */
-
-const RISK_COLOR = {
-  excellent: '#00876A', good: '#00876A', moderate: '#F59E0B',
-  high: '#F97316', critical: '#EF4444',
-}
-const RISK_TEXT_CLS = {
-  excellent: 'text-brand-600', good: 'text-brand-600', moderate: 'text-amber-500',
-  high: 'text-orange-500', critical: 'text-red-500',
-}
-// Security Rating labels — posture quality (never used for finding severity)
-const RISK_LABEL = {
-  excellent: 'Excellent',
-  good:      'Good',
-  moderate:  'Moderate',
-  high:      bandMeta('high').label,
-  critical:  'Critical',
-}
-
-function ScoreRing({ score, riskLevel, provisional = false }) {
-  const r    = 88
-  const circ = 2 * Math.PI * r
-
-  // M5.e: backend rating first; otherwise the CANONICAL mirror bands — never a
-  // local 3-band ladder that disagrees with every other surface.
-  const sMeta  = metaForScore(score)
-  const color  = provisional ? '#B45309' : riskLevel ? (RISK_COLOR[riskLevel] || '#E5E7EB') : score === null ? '#E5E7EB' : sMeta.color
-  const fill   = score !== null ? circ * (score / 100) : 0
-  const valCls = provisional ? 'text-amber-700' : riskLevel ? (RISK_TEXT_CLS[riskLevel] || 'text-gray-300') : score === null ? 'text-gray-300' : sMeta.text
-  const label  = provisional ? 'Unrated' : riskLevel ? (RISK_LABEL[riskLevel] || 'Unknown') : score === null ? 'No data yet' : sMeta.label
-
-  return (
-    <div className="flex flex-col items-center select-none">
-      <div className="relative w-52 h-52">
-        <svg viewBox="0 0 200 200" className="w-full h-full -rotate-90">
-          <circle cx="100" cy="100" r={r} fill="none" stroke="#F3F4F6" strokeWidth="14" />
-          {score !== null && (
-            <circle
-              cx="100" cy="100" r={r} fill="none"
-              stroke={color} strokeWidth="14" strokeLinecap="round"
-              strokeDasharray={`${fill} ${circ - fill}`}
-            />
-          )}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          {score !== null
-            ? <><span className={`text-5xl font-bold ${valCls}`}>{score}</span><span className="text-xs text-gray-300 font-semibold mt-1 uppercase tracking-widest">/100</span></>
-            : <span className="text-gray-300 text-sm font-medium">No data</span>
-          }
-        </div>
-      </div>
-      <div className={`text-base font-bold mt-1 ${valCls}`}>{label}</div>
-    </div>
-  )
-}
-
-/* ─── Exposure Card ────────────────────────────────────────────────────── */
-
-const EXPOSURE_STYLES = {
-  red:    { bg: 'bg-red-50',    icon: 'text-red-500',    val: 'text-red-700'    },
-  orange: { bg: 'bg-orange-50', icon: 'text-orange-500', val: 'text-orange-700' },
-  amber:  { bg: 'bg-amber-50',  icon: 'text-amber-500',  val: 'text-amber-700'  },
-  brand:  { bg: 'bg-brand-50',  icon: 'text-brand-600',  val: 'text-brand-700'  },
-}
-
-function ExposureCard({ label, value, color }) {
-  const s = EXPOSURE_STYLES[color]
-  return (
-    <div className="card p-5">
-      {/* Label leads on top; the number sits below and is smaller. */}
-      <div className="flex items-center gap-3">
-        <p className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</p>
-      </div>
-      <p className={`text-[14px] font-bold mt-2.5 tabular-nums ${s.val}`}>{value}</p>
-    </div>
-  )
-}
-
-/* ─── Security Health ──────────────────────────────────────────────────── */
-
-const HEALTH_CFG = {
-  good:    { dot: 'bg-brand-500',  pill: 'bg-brand-50 text-brand-700 border-brand-100',  lbl: 'Good'    },
-  warning: { dot: 'bg-amber-500',  pill: 'bg-amber-50 text-amber-700 border-amber-100',  lbl: 'Warning' },
-  danger:  { dot: 'bg-red-500',    pill: 'bg-red-50 text-red-700 border-red-100',         lbl: 'At Risk' },
-  unknown: { dot: 'bg-gray-300',   pill: 'bg-gray-100 text-gray-500 border-gray-200',    lbl: 'Unknown' },
-}
-
-function HealthPill({ label, status }) {
-  const cfg = HEALTH_CFG[status] || HEALTH_CFG.unknown
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${cfg.pill}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-        {cfg.lbl}
-      </div>
-      <span className="text-xs text-gray-500 font-medium text-center">{label}</span>
-    </div>
-  )
-}
-
-/* ─── Trend Chart ──────────────────────────────────────────────────────── */
-
-function TrendChart({ points }) {
-  if (!points || points.length < 2) {
-    return (
-      <div className="h-36 flex flex-col items-center justify-center gap-2 text-gray-300 text-sm">
-        Run more scans to see trend data
-      </div>
-    )
-  }
-  const W = 600, H = 130, PX = 24, PY = 16
-  const vals = points.map(p => p.value)
-  const min  = Math.max(0, Math.min(...vals) - 8)
-  const max  = Math.min(100, Math.max(...vals) + 8)
-  const xStep = (W - PX * 2) / (points.length - 1)
-  const coords = points.map((p, i) => ({
-    x: PX + i * xStep,
-    y: PY + (1 - (p.value - min) / Math.max(1, max - min)) * (H - PY * 2),
-  }))
-  const pathD = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x},${c.y}`).join(' ')
-  const areaD = `${pathD} L${coords[coords.length-1].x},${H} L${coords[0].x},${H}Z`
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 130 }}>
-      <defs>
-        <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#00876A" stopOpacity="0.12" />
-          <stop offset="100%" stopColor="#00876A" stopOpacity="0"    />
-        </linearGradient>
-      </defs>
-      {[0, 0.33, 0.66, 1].map(t => (
-        <line key={t} x1={PX} y1={PY + t*(H-PY*2)} x2={W-PX} y2={PY + t*(H-PY*2)} stroke="#F3F4F6" strokeWidth="1" />
-      ))}
-      <path d={areaD} fill="url(#trendGrad)" />
-      <path d={pathD} fill="none" stroke="#00876A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      {coords.map((c, i) => (
-        <circle key={i} cx={c.x} cy={c.y} r="4" fill="#00876A" stroke="white" strokeWidth="2" />
-      ))}
-      {points.map((p, i) => (
-        <text key={i} x={coords[i].x} y={H - 1} textAnchor="middle" fontSize="11" fill="#9CA3AF" fontFamily="'Computer Modern Text',Georgia,serif">
-          {p.label}
-        </text>
-      ))}
-    </svg>
-  )
-}
-
-/* ─── Risk Badge ───────────────────────────────────────────────────────── */
-
-function RiskBadge({ risk }) {
-  if (risk === 'critical') return <span className="badge-critical">Critical</span>
-  if (risk === 'high')     return <span className="badge-high">High</span>
-  if (risk === 'medium')   return <span className="badge-medium">Medium</span>
-  return <span className="badge-low">Low</span>
-}
-
 /* ─── No-workspace / create-workspace states ───────────────────────────── */
 
 /**
@@ -412,8 +256,6 @@ export default function Dashboard() {
   const [motDomains,    setMotDomains]    = useState([])   // server-resolved eight-domain states (always 8)
   const [scorecard,     setScorecard]     = useState(null)
   const [motRequest,    setMotRequest]    = useState('loading') // how the eight-domain read went
-  const [cases,         setCases]         = useState([])
-  const [casesRequest,  setCasesRequest]  = useState('loading')
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
   const [refreshing,    setRefreshing]    = useState(false)
@@ -500,12 +342,11 @@ export default function Dashboard() {
     else setRefreshing(true)
     setError(null)
     try {
-      const [data, domainsData, scorecardData, motData, casesData] = await Promise.all([
+      const [data, domainsData, scorecardData, motData] = await Promise.all([
         api.getWorkspaceScans(wsId),
         api.getWorkspaceDomains(wsId).catch(() => ({ domains: [] })),
-        api.getWorkspaceScorecard(wsId).catch(() => null), // optional; powers service KPIs
+        api.getWorkspaceScorecard(wsId).catch(() => null), // optional; feeds the recommended next action
         api.getCyberMotDomains(wsId).catch(() => null),    // canonical eight-domain states (server-resolved)
-        requestManagedCases(wsId).catch(() => null),       // managed cases, shown per area by the overview
       ])
       const list = data.scans || []
       setScans(list)
@@ -514,8 +355,6 @@ export default function Dashboard() {
       // Always eight; the endpoint returns canonical no-scan states when no scan exists.
       setMotDomains(Array.isArray(motData?.cyber_mot_domains) ? motData.cyber_mot_domains : [])
       setMotRequest(Array.isArray(motData?.cyber_mot_domains) ? 'ok' : 'error')
-      setCases(Array.isArray(casesData?.cases) ? casesData.cases : [])
-      setCasesRequest(Array.isArray(casesData?.cases) ? 'ok' : 'error')
 
       // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
@@ -549,13 +388,7 @@ export default function Dashboard() {
     return <SelectWorkspaceState />
   }
 
-  const hasDomain        = domainCount !== null && domainCount > 0
   const hasCompletedScan = ins.completed.length > 0
-  // Show onboarding progress until all 4 steps are done AND dismissed
-  const showProgress = true // OnboardingProgress manages its own dismissed state
-  const showGuide    = hasCompletedScan // FirstResultsGuide manages its own dismissed state
-  // Show team onboarding card for users who joined via invitation (flag set by InvitationLandingPage)
-  const showTeamOnboarding = localStorage.getItem('cybermeters_joined_via_invite') === 'true'
 
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-8">
@@ -609,262 +442,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Eight-domain overview — the shared component set ──
-          CyberMotDomains: backend-owned states for ALL EIGHT domains (canonical
-          no-scan states before any scan); missing evidence is never shown as
-          healthy and no domain silently disappears.
-          SecurityOverview: the one overview for direct and MSP-selected
-          customers — per-area status words from the backend, counts as
-          observations, the recommended next action and the posture overview. */}
-      <div className="space-y-6">
-        <CyberMotDomains
-          domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
-          subtitle="Every area, each with what the latest scan could establish." />
-        <SecurityOverview
-          workspaceName={activeWorkspaceName}
-          domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
-          domainsRequest={motRequest}
-          cases={cases}
-          casesRequest={casesRequest}
-          signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0 }}
-        />
-      </div>
-
-      {/* ── Recent changes (Exposure Timeline habit hook — self-hides when empty) ── */}
-      <RecentChangesCard workspaceId={activeWorkspaceId} />
-
-      {/* ── Team onboarding card — shown once after joining via invitation ── */}
-      {showTeamOnboarding && <TeamOnboardingCard />}
-
-      {/* ── Onboarding progress tracker ── */}
-      <OnboardingProgress
-        hasWorkspace={true}
-        hasDomain={hasDomain}
-        hasCompletedScan={hasCompletedScan}
-      />
-
-      {/* ── Domain setup nudge (replaces generic progress bar when 0 domains) ── */}
-      {domainCount === 0 && (
-        <div className="card p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-brand-100 bg-brand-50/40">
-          <div className="flex items-start gap-3">
-            <div>
-              <p className="text-sm font-bold text-gray-900">Add your first domain</p>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Add and verify a domain to generate your cyber risk assessment. Try{' '}
-                <span className="font-mono text-xs text-gray-700">example.com</span> or{' '}
-                <span className="font-mono text-xs text-gray-700">company.co.uk</span>.
-              </p>
-            </div>
-          </div>
-          <Link to="/ws/dashboard" className="btn-primary shrink-0">
-            Add Domain
-          </Link>
-        </div>
-      )}
-
-      {/* ── 1. Cyber Metrics Score — focused hero ── */}
-      <div className="card-md overflow-hidden">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-8 px-8 py-8">
-          {/* Score ring */}
-          <div className="flex flex-col items-center gap-3 lg:min-w-[240px]">
-            <span className="eyebrow">{ins.postureProvisional && ins.score != null ? 'Provisional Score' : 'Cyber Metrics Score'}</span>
-            <ScoreRing score={ins.score} riskLevel={ins.riskLevel} provisional={ins.postureProvisional} />
-            {ins.postureProvisional && (
-              <p className="text-xs text-amber-700 text-center leading-relaxed max-w-[200px] font-medium">
-                {ins.score != null
-                  ? 'Some checks or required evidence are incomplete. This score is provisional.'
-                  : 'Some checks or required evidence are incomplete, so no score is shown for this scan.'}
-              </p>
-            )}
-          </div>
-
-          {/* Posture statement + actions */}
-          <div className="flex-1 lg:border-l border-gray-200 lg:pl-8">
-            <p className="text-[15px] text-gray-700 leading-relaxed max-w-lg">
-              {ins.postureProvisional
-                ? 'The current assessment is provisional because checks or required evidence are incomplete. Review the report and re-run the Cyber MOT.'
-                : ins.score === null
-                ? 'Run your first Cyber MOT to generate your Cyber Metrics Score and reveal your external security posture.'
-                : ['excellent', 'good'].includes(scoreBand(ins.score))
-                  ? 'No serious issue was found in what the latest complete scan checked. Keep monitoring to catch new exposure as it appears.'
-                  : scoreBand(ins.score) === 'moderate'
-                    ? `Moderate exposure detected. ${ins.findings.length} issue${ins.findings.length !== 1 ? 's' : ''} require attention to strengthen your posture.`
-                    : 'Serious exposures detected. Prioritise the findings below — immediate action is recommended.'}
-            </p>
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              {report ? (
-                <Link to={`/scans/${report.scan_id}`} className="btn-primary">
-                  View Executive Report
-                </Link>
-              ) : (
-                <Link to="/scans/new" className="btn-primary">
-                  Run your first Cyber MOT
-                </Link>
-              )}
-              <Link to="/scans" className="btn-secondary">View all scans</Link>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── KPI tiles ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Scans',     value: scans.length,         sub: 'all time' },
-          { label: 'Completed',       value: ins.completed.length, sub: ins.partialCompleted > 0 ? `${ins.partialCompleted} with partial results` : 'finished runs' },
-          { label: 'Active Scans',    value: ins.active,           sub: 'currently running' },
-          { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains' },
-        ].map(({ label, value, sub }) => (
-          <div key={label} className="stat-tile">
-            {/* Text on top: label leads. */}
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</span>
-            </div>
-            <span className="text-xs text-gray-500">{sub}</span>
-            {/* Number at the bottom, smaller than the label — it supports. */}
-            <span className="text-[14px] font-bold text-gray-800 tabular-nums">{value}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* ── 2. Exposure Overview ── */}
-      <section>
-        <div className="section-head">
-          <div>
-            <span className="eyebrow">Risk at a glance</span>
-            <h2 className="section-title mt-1.5">Exposure Overview</h2>
-          </div>
-          <Link to="/scans" className="btn-ghost text-xs">View all</Link>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <ExposureCard label="Critical Findings"  value={ins.criticalCount}         color="red"    />
-          <ExposureCard label="High Risk Findings"  value={ins.highCount}             color="orange" />
-          <ExposureCard label="Domains Tracked"     value={ins.domains.length}        color="amber"  />
-          <ExposureCard label="Scans In Progress"   value={ins.active}                color="brand"  />
-        </div>
-      </section>
-
-      {/* ── 3. Security Health + 5. Top Findings ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-
-        {/* Security Health */}
-        <div className="lg:col-span-2 card p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-base font-bold text-gray-900">Security Health</h2>
-            {report && (
-              <span className="text-xs text-gray-400 font-medium">{report.domain}</span>
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-x-4 gap-y-6">
-            {ins.healthCategories.map(({ label, status }) => (
-              <HealthPill key={label} label={label} status={status} />
-            ))}
-          </div>
-          {scans.length === 0 && (
-            <div className="mt-6 pt-5 border-t border-gray-100 text-center">
-              <p className="text-xs text-gray-400 mb-3">Health indicators appear after your first completed scan.</p>
-              <Link to="/scans/new" className="btn-primary text-xs px-4 py-2">Start a scan</Link>
-            </div>
-          )}
-        </div>
-
-        {/* Top Findings */}
-        <div className="lg:col-span-3 card overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <h2 className="text-base font-bold text-gray-900">Top Findings</h2>
-            {report && (
-              <Link to={`/scans/${report.scan_id}`} className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
-                Executive Report
-              </Link>
-            )}
-          </div>
-          {ins.findings.length === 0 ? (
-            ins.postureEstablished ? (
-              <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
-                <p className="text-sm font-semibold text-gray-900">No findings</p>
-                <p className="text-xs text-gray-400">Nothing was found in what the latest complete scan checked. That is not proof of no risk.</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
-                <p className="text-sm font-semibold text-gray-900">No findings recorded</p>
-                <p className="text-xs text-gray-400">The latest scan's coverage was incomplete — this is not a clean bill of health.</p>
-              </div>
-            )
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {ins.findings.map((f, i) => (
-                <li
-                  key={f.id}
-                  onClick={() => f.scanId ? navigate(`/scans/${f.scanId}`) : navigate('/scans')}
-                  className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                >
-                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5 ${
-                    f.risk === 'critical' ? 'bg-red-500'    :
-                    f.risk === 'high'     ? 'bg-orange-500' :
-                    f.risk === 'medium'   ? 'bg-amber-400'  : 'bg-blue-400'
-                  }`}>{i + 1}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">{f.title}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{f.detail}</p>
-                  </div>
-                  <RiskBadge risk={f.risk} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-
-      {/* ── 4. Exposure Trend ── */}
-      <div className="card p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-base font-bold text-gray-900">Score Trend</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {ins.trend.length > 0
-                ? 'Cyber Metrics Score across fully assessed scans'
-                : 'Score history will appear after fully assessed scans'}
-            </p>
-          </div>
-          <span className="flex items-center gap-1.5 text-xs text-brand-600 font-semibold">
-            Last {ins.trend.length} scans
-          </span>
-        </div>
-        <TrendChart points={ins.trend} />
-      </div>
-
-      {/* ── 6. Recommended Actions ── */}
-      {ins.actions.length > 0 && (
-        <section>
-          <div className="section-head">
-            <div>
-              <span className="eyebrow">Next steps</span>
-              <h2 className="section-title mt-1.5">Recommended Actions</h2>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {ins.actions.slice(0, 3).map((action, i) => (
-              <div key={action.id} className="card p-5 flex flex-col gap-4 hover:shadow-card-md transition-shadow">
-                <div className="flex items-start gap-3">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5 ${
-                    i === 0 ? 'bg-red-500' : i === 1 ? 'bg-amber-500' : 'bg-brand-600'
-                  }`}>{action.priority}</div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">{action.title}</p>
-                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">{action.desc}</p>
-                  </div>
-                </div>
-                <Link to={action.href} className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors">
-                  {action.cta}
-                </Link>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── First Results Guide — shown after first completed scan, dismissible ── */}
-      {showGuide && <FirstResultsGuide />}
+      {/* The next thing to do, from real signals only — the same ladder the
+          workspace overview uses (one component, one place). */}
+      <NextActionCard signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0 }} />
 
       {/* Recent Scans (compact) */}
       {scans.length > 0 && (

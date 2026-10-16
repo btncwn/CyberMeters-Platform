@@ -13,10 +13,11 @@ import UpgradePromptModal from './shell/UpgradePromptModal'
 
 // The app shell (founder, 16 Oct 2026): a white top bar — logo, serif
 // wordmark and the main menu as pills on the left, the bell and the account
-// button on the right — a 72px module rail on the left with the workspace
-// button at its foot, a white-to-sky canvas, and a small turning globe in the
-// bottom-right corner. Field Guide and Billing live in the account menu; the
-// scan starts from the home screen, so the top bar carries no scan button.
+// button on the right — a 72px module rail on the left (full window height,
+// the workspace button at its foot), a white-to-sky canvas, and a small
+// turning globe in the bottom-right corner behind the content. Field Guide,
+// Billing and the workspace settings live in the account menu; the scan starts
+// from the home screen, so the top bar carries no scan button.
 //
 // Two menus, chosen by ENTITLEMENT (the `features` list the API publishes on
 // /account/usage), never by workspace or domain count. Until usage has loaded
@@ -89,33 +90,37 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="cm-app cm-shell min-h-screen flex flex-col">
+    <div className="cm-app cm-shell min-h-screen flex">
       <a href="#main" className="cm-skip-link">Skip to content</a>
       <UpgradePromptModal />
 
-      <header className="cm-topbar sticky top-0 z-40">
-        <div className="cm-topbar-inner">
-          <Link to="/dashboard" aria-label="CyberMeters home" className="cm-brand shrink-0 order-1">
-            <CyberMetersLogo size={34} showWordmark animated wordmarkSize={24} subtitle={false} />
-          </Link>
-          <nav aria-label="Main navigation" className="cm-pills sm:ml-3">
-            {nav.map(({ to, label }) => (
-              <NavLink key={to} to={to} className={({ isActive }) => `cm-pill${isActive ? ' cm-pill-active' : ''}`}>
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0 order-2 sm:order-0 sm:ml-auto">
-            <NotificationBell />
-            <ProfileMenu roleLabel={roleLabelFor(user)} />
-          </div>
-        </div>
-      </header>
+      {/* The rail is the first column and runs the full height of the window
+          (sticky, 100vh): its ground is never cut off above the footer. Below
+          lg it becomes a fixed bottom bar and the column takes the whole width. */}
+      <SafeBoundary>
+        <WorkspaceNav wsId={wsId} wsName={wsName} />
+      </SafeBoundary>
 
-      <div className="cm-shell-body flex-1 flex">
-        <SafeBoundary>
-          <WorkspaceNav wsId={wsId} wsName={wsName} />
-        </SafeBoundary>
+      <div className="cm-shell-column flex-1 min-w-0 flex flex-col">
+        <header className="cm-topbar sticky top-0 z-40">
+          <div className="cm-topbar-inner">
+            <Link to="/dashboard" aria-label="CyberMeters home" className="cm-brand shrink-0 order-1">
+              <CyberMetersLogo size={34} showWordmark animated wordmarkSize={24} subtitle={false} />
+            </Link>
+            <nav aria-label="Main navigation" className="cm-pills sm:ml-3">
+              {nav.map(({ to, label }) => (
+                <NavLink key={to} to={to} className={({ isActive }) => `cm-pill${isActive ? ' cm-pill-active' : ''}`}>
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0 order-2 sm:order-0 sm:ml-auto">
+              <NotificationBell />
+              <ProfileMenu roleLabel={roleLabelFor(user)} workspaceId={wsId} />
+            </div>
+          </div>
+        </header>
+
         <main
           id="main"
           className="cm-main flex-1 min-w-0"
@@ -128,21 +133,22 @@ export default function Layout() {
         >
           <Outlet />
         </main>
+
+        <footer className="cm-footer">
+          <span>© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
+          <div className="flex flex-wrap items-center gap-4">
+            <NavLink to="/pricing" className="hover:text-gray-700">Pricing</NavLink>
+            <NavLink to="/terms"   className="hover:text-gray-700">Terms</NavLink>
+            <NavLink to="/privacy" className="hover:text-gray-700">Privacy</NavLink>
+            <NavLink to="/dpa"     className="hover:text-gray-700">DPA</NavLink>
+            <NavLink to="/cookies" className="hover:text-gray-700">Cookies</NavLink>
+            <NavLink to="/support" className="hover:text-gray-700">Support</NavLink>
+          </div>
+        </footer>
       </div>
 
+      {/* Decorative, behind the content: the column sits above it. */}
       <Globe className="hidden lg:block" />
-
-      <footer className="cm-footer">
-        <span>© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
-        <div className="flex flex-wrap items-center gap-4">
-          <NavLink to="/pricing" className="hover:text-gray-700">Pricing</NavLink>
-          <NavLink to="/terms"   className="hover:text-gray-700">Terms</NavLink>
-          <NavLink to="/privacy" className="hover:text-gray-700">Privacy</NavLink>
-          <NavLink to="/dpa"     className="hover:text-gray-700">DPA</NavLink>
-          <NavLink to="/cookies" className="hover:text-gray-700">Cookies</NavLink>
-          <NavLink to="/support" className="hover:text-gray-700">Support</NavLink>
-        </div>
-      </footer>
     </div>
   )
 }

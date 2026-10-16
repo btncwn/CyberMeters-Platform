@@ -402,6 +402,13 @@ function WorkspaceReports({ wsId, wsName }) {
             {completedCount > 0 && ` · ${completedCount} report${completedCount !== 1 ? 's' : ''} ready`}
             {pendingCount > 0 && ` · ${pendingCount} generating…`}
           </p>
+          {/* Also under Reports (founder, 16 Oct 2026): the scorecard and the
+              executive dashboard moved here from the workspace popover; routes
+              and their entitlement checks are unchanged. */}
+          <nav aria-label="Also under Reports" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <Link to="/ws/scorecard" className="font-semibold text-brand-600 hover:text-brand-700">Scorecard</Link>
+            <Link to="/ws/executive-dashboard" className="font-semibold text-brand-600 hover:text-brand-700">Executive dashboard</Link>
+          </nav>
         </div>
 
         {/* Generate button + type picker */}

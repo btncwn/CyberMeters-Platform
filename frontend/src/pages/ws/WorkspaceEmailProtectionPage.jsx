@@ -7,7 +7,7 @@ import CloudflareDnsChanges from '../../components/CloudflareDnsChanges'
 import { api, BASE } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
-import ModuleContract from '../../components/module/ModuleContract'
+import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Managed DMARC / Email Protection Experience v1
@@ -3384,6 +3384,7 @@ export default function WorkspaceEmailProtectionPage() {
   const [selectedDomain, setSelectedDomain] = useState(null)
   const [report, setReport]     = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
+  const goToAnchor = useAreaAnchor()
   const [summaryRows, setSummaryRows] = useState([])
 
   // DMARC Sender Intelligence (new endpoints, keyed by selected domain)
@@ -3550,8 +3551,8 @@ export default function WorkspaceEmailProtectionPage() {
 
   const hasReports = dmarc && ((dmarc.traffic?.total_messages || 0) > 0 || (dmarc.senders?.total || 0) > 0)
 
-  const gotoSetup   = () => document.getElementById('dmarc-setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  const gotoSenders = () => document.getElementById('sender-inventory')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const gotoSetup   = () => goToAnchor('dmarc-setup')
+  const gotoSenders = () => goToAnchor('sender-inventory')
 
   // Migration 088's history (mig 088). Workspace-scoped, not per-domain: a hosted record
   // and a sender both live under the workspace, and the server owns the filtering.
@@ -3640,7 +3641,7 @@ export default function WorkspaceEmailProtectionPage() {
               dmarc?.dmarc_policy_presentation ||
               report?.dmarc_policy_presentation
             }
-            onGoto={(target) => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            onGoto={goToAnchor}
           />
 
           <DmarcPolicyEvidenceCard
@@ -3699,7 +3700,7 @@ export default function WorkspaceEmailProtectionPage() {
             readiness={dmarc?.readiness}
             senders={senderData?.senders}
             actions={actions}
-            onGoto={(target) => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            onGoto={goToAnchor}
           />
 
           <ZoneHeader n="3" title="Senders, setup & validation" hint="Who sends as you, connect reporting, and check any message instantly." />

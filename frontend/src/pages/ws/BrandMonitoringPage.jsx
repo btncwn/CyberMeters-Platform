@@ -6,7 +6,7 @@ import {
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
-import ModuleContract from '../../components/module/ModuleContract'
+import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
@@ -443,6 +443,7 @@ export default function BrandMonitoringPage() {
   const [filter, setFilter]         = useState('')
   const [toast, setToast]           = useState(null)
   const queueRef = useRef(null)
+  const goToAnchor = useAreaAnchor()
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(() => setToast(null), 3500) }
 
@@ -599,7 +600,7 @@ export default function BrandMonitoringPage() {
   }, [metrics])
 
   if (!wsId) return <NoWorkspaceSelected />
-  const scrollToQueue = () => queueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const scrollToQueue = () => goToAnchor('typosquats')
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>

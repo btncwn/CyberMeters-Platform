@@ -16,6 +16,7 @@
 // its honesty. It takes no position on backend state-machine semantics, and it
 // deliberately does not touch the ws=<workspace_UUID> URL-parameter observation
 // (I11C-OBS-01), which is a separate, non-gating item.
+// The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -96,7 +97,7 @@ function respond({ actions = BACKEND_ACTIONS, items = [item()], can_manage = tru
 
 function mount() {
   return render(
-    <MemoryRouter initialEntries={['/ws/shadow-it']}>
+    <MemoryRouter initialEntries={['/ws/shadow-it?tab=findings']}>
       <Routes><Route path="/ws/shadow-it" element={<ShadowItInventoryPage />} /></Routes>
     </MemoryRouter>,
   )

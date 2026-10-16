@@ -80,6 +80,20 @@ export function recommendedNextAction({ domainCount, hasCompletedScan, scorecard
   return { text: 'Connect Email Protection to measure impersonation exposure and receive DMARC reports.', cta: 'Open Email Protection', to: '/ws/email-protection' }
 }
 
+/** The "Recommended next action" strip — one component for the home screen and the workspace overview. */
+export function NextActionCard({ signals = {} }) {
+  const rec = recommendedNextAction(signals)
+  return (
+    <div className="card p-5 border-brand-100 bg-brand-50/40 flex flex-col sm:flex-row sm:items-center gap-4" data-testid="next-action">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next action</p>
+        <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{rec.text}</p>
+      </div>
+      <Link to={rec.to} className="btn-primary text-sm shrink-0">{rec.cta}</Link>
+    </div>
+  )
+}
+
 const KPI_TONE = { bad: 'text-red-700', warn: 'text-amber-700', '': 'text-gray-800' }
 
 function ModuleCard({ module, entry, request, caseSummary, casesRequest, observations }) {
@@ -152,7 +166,6 @@ export default function SecurityOverview({ workspaceName, domains, domainsReques
   const caseList = casesRequest === 'ok' && Array.isArray(cases) ? cases : []
   const casesState = casesRequest === 'ok' && !Array.isArray(cases) ? 'error' : casesRequest
   const casesByKey = new Map(MODULES.map((m) => [m.domainKey, summariseCases(caseList.filter((c) => c?.domain_key === m.domainKey))]))
-  const rec = recommendedNextAction(signals)
   const sc = signals.scorecard
   const brand = sc?.brand_risks
   const cr = sc?.certificate_risks?.risk_level
@@ -191,13 +204,7 @@ export default function SecurityOverview({ workspaceName, domains, domainsReques
         </div>
       </section>
 
-      <div className="card p-5 border-brand-100 bg-brand-50/40 flex flex-col sm:flex-row sm:items-center gap-4">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next action</p>
-          <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{rec.text}</p>
-        </div>
-        <Link to={rec.to} className="btn-primary text-sm shrink-0">{rec.cta}</Link>
-      </div>
+      <NextActionCard signals={signals} />
 
       <div className="card p-5">
         <h3 className="section-title mb-3">Posture overview</h3>

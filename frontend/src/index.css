@@ -552,8 +552,11 @@
   padding: 12px 0; gap: 8px;
   background: rgba(255, 255, 255, 0.7);
   border-right: 1px solid rgba(16, 24, 40, 0.08);
-  position: sticky; top: 64px; height: calc(100vh - 64px); align-self: flex-start;
+  position: sticky; top: 0; height: 100vh; align-self: flex-start; z-index: 2;
 }
+/* The content column paints above the globe; its own ground is transparent so
+   the sky shows through between the cards. */
+.cm-shell-column { position: relative; z-index: 1; }
 .cm-rail-list { display: flex; flex-direction: column; align-items: center; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .cm-rail-foot { display: flex; flex-direction: column; align-items: center; }
 .cm-rail-item {
@@ -571,7 +574,7 @@
 }
 .cm-rail-item:hover > .cm-tip, .cm-rail-item:focus-visible > .cm-tip { opacity: 1; }
 .cm-main { padding-bottom: 24px; }
-.cm-globe { position: fixed; right: 20px; bottom: 20px; opacity: 0.55; pointer-events: none; z-index: 5; }
+.cm-globe { position: fixed; right: 20px; bottom: 20px; opacity: 0.55; pointer-events: none; z-index: 0; }
 .cm-footer {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 24px; font-size: 14px; color: #6b7280; border-top: 1px solid rgba(16, 24, 40, 0.06);
@@ -602,6 +605,7 @@
 .cm-tab:hover { color: #111827; }
 .cm-tab[aria-selected="true"] { color: #0b1220; border-bottom-color: var(--domain-accent, #0b1220); }
 @media (max-width: 1023.98px) {
+  .cm-globe { display: none; }
   .cm-rail {
     position: fixed; left: 0; right: 0; bottom: 0; top: auto; height: auto; width: auto; flex: none;
     flex-direction: row; justify-content: flex-start; gap: 4px; padding: 6px 8px;
