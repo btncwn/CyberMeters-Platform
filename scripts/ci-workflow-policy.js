@@ -18,9 +18,9 @@ export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d5
 // availability, subdomain sensitive-name, nine pure discovery validators and
 // the Microsoft sign-in browser binding validator; the password screening
 // validator is renamed for the local list. Prior assignments remain.
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 414;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "7c9080a25168852a837959ffdb8d1b4138b2fb95de209bc1581e58bdb2f093ad";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "5a1c6a4efe6bd661a024c5d4030955f06d1ba3e05d176ea0c91c993a26432e1e";
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 416;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "9ebeafb3262d50e3d5d005a0cdaf23d4e5120e9dbeea75fc26ea4b7d1589dd8c";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "e2509115dcfd65c9923423d16147903dc8767bf67a029b7e2a003927ab478140";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -70,7 +70,7 @@ const EXECUTABLE_VALIDATOR_JOB_IDS = Object.freeze([
 export const EXPECTED_SHARD_COUNTS = Object.freeze({
   validate_runtime_security: 106,
   validate_report_cx: 86,
-  validate_data_migrations: 105,
+  validate_data_migrations: 107,
   validate_frontend_build: 89,
   validate_integration_assurance: 27,
   validate_f004_recovery_mutations: 1,
