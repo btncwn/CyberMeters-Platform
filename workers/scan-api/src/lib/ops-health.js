@@ -2,13 +2,14 @@
 // Read-only checks for the classes of failure that don't surface as a single
 // request error but accumulate silently: stuck scans, a backlog of undelivered
 // emails, deletion purges that never completed. The daily cron heartbeat
-// (opsHealthHeartbeat) runs these and emails ops ONLY when something is breached,
-// so a healthy system stays quiet. Real-time 5xx/error-rate alerting is a
+// (opsHealthHeartbeat) runs these and emails ops on breaches or unreadable
+// critical signals, so a healthy system stays quiet. Real-time 5xx/error-rate alerting is a
 // separate concern handled by Cloudflare Notification rules (see
 // docs/MONITORING.md) fed by the http_5xx metric and [request-error] logs.
 //
 // Every check is independent and defensive: a query that throws (e.g. a table
-// that doesn't exist yet) yields a skipped signal, never a false alarm.
+// that doesn't exist yet) yields a skipped signal. Safety-critical unreadable
+// signals make the aggregate unhealthy rather than reporting a false zero.
 //
 // F-027 EXTENDS this file (additive): the /ready operational booleans + deadman
 // verdict below reuse the operational_events ledger. The existing daily heartbeat
@@ -23,6 +24,8 @@ export const OPS_THRESHOLDS = {
   lifecycle_emails_outcome_unknown: 1, // any stale provider-ambiguous lifecycle outcome
   failed_asset_alerts: 10,    // undelivered asset-change alerts
   overdue_deletions: 1,       // any deletion request past the 30-day window + buffer
+  pending_account_deletions: 1, // a new account request needs operator visibility
+  blocked_deletions: 1,       // a blocked purge needs operator intervention
   scheduled_scan_query: 1,    // failed or unavailable scheduled-scan admission
 };
 
@@ -77,6 +80,16 @@ export async function computeOpsHealth(env) {
       sql: "SELECT COUNT(*) c FROM deletion_requests WHERE status IN ('pending','purging') AND created_at < datetime('now','-35 days')",
     },
     {
+      key: "pending_account_deletions",
+      label: "Account deletion requests pending processing",
+      sql: "SELECT COUNT(*) c FROM deletion_requests WHERE request_type = 'account' AND status IN ('pending','purging')",
+    },
+    {
+      key: "blocked_deletions",
+      label: "Deletion requests blocked from completion",
+      sql: "SELECT COUNT(*) c FROM deletion_requests WHERE status LIKE 'blocked_%'",
+    },
+    {
       key: "scheduled_scan_query",
       label: "Scheduled scan admission query failures (last 24h)",
       sql: "SELECT COUNT(*) c FROM operational_events WHERE event_type = 'scheduled_scan_query' AND status IN ('error','table_missing') AND datetime(created_at) >= datetime('now','-24 hours')",
@@ -99,9 +112,13 @@ export async function computeOpsHealth(env) {
 
   // D1 reachability: if every signal was skipped, the database is likely down.
   const dbReachable = signals.some((s) => !s.skipped);
-  const outcomeUnknownReadable = signals.find((s) => s.key === "lifecycle_emails_outcome_unknown")?.skipped === false;
-  const scheduledQueryReadable = signals.find((s) => s.key === "scheduled_scan_query")?.skipped === false;
-  const healthy = dbReachable && outcomeUnknownReadable && scheduledQueryReadable && signals.every((s) => !s.breached);
+  const criticalSignalsReadable = [
+    "lifecycle_emails_outcome_unknown",
+    "scheduled_scan_query",
+    "pending_account_deletions",
+    "blocked_deletions",
+  ].every((key) => signals.find((s) => s.key === key)?.skipped === false);
+  const healthy = dbReachable && criticalSignalsReadable && signals.every((s) => !s.breached);
 
   return { healthy, dbReachable, signals };
 }

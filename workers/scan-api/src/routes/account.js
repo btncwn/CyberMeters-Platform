@@ -13,6 +13,8 @@ import { getEntitlementUsage, getPlanContext, getPlanLimits, getUpgradeRecommend
 import { auditApiTokenSessionRouteDenied } from "../engines/subscription-state.js";
 import { generateApiToken, hashToken } from "../lib/auth-crypto.js";
 import { createAuditEvent } from "../lib/events.js";
+import { sendAlertEmail } from "../engines/alerts.js";
+import { recordAlertDeliveryOutcome } from "../lib/operational-events.js";
 import { createId, isValidEmail } from "../lib/util.js";
 
 export async function accountRoutes(rctx) {
@@ -1026,6 +1028,15 @@ export async function accountRoutes(rctx) {
 	      if (!user) return json({ error: "Unauthorized" }, 401);
 	      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
 	      try {
+	        // Match the purge gate: do not accept a request that cannot proceed
+	        // while a paid subscription, trial, or payment grace is still open.
+	        const activeSub = await env.cybermeters_db
+	          .prepare(`SELECT id FROM subscriptions WHERE owner_user_id = ?
+	                    AND LOWER(COALESCE(NULLIF(TRIM(subscription_status), ''), status, ''))
+	                        IN ('active', 'trialing', 'past_due') LIMIT 1`)
+	          .bind(user.id).first();
+	        if (activeSub) return json({ error: "Cancel your active subscription before requesting account deletion." }, 409);
+
 	        const existing = await env.cybermeters_db
 	          .prepare("SELECT id, created_at FROM deletion_requests WHERE request_type = 'account' AND user_id = ? AND status = 'pending' LIMIT 1")
 	          .bind(user.id)
@@ -1050,6 +1061,21 @@ export async function accountRoutes(rctx) {
 	          description: "Account deletion requested",
 	          metadata: { request_id: requestId },
 	        }).catch(() => {});
+	        // The daily ops-health signal remains a durable fallback if this
+	        // immediate operator notification cannot be delivered.
+	        let alertResult;
+	        try {
+	          alertResult = await sendAlertEmail(
+	            "CyberMeters account deletion request",
+            `An account deletion request was submitted. Check whether manual review is needed. Reference: ${requestId}.`,
+            `<p>An account deletion request was submitted. Check whether manual review is needed. Reference: ${requestId}.</p>`,
+	            env,
+	          );
+	        } catch {
+	          alertResult = { sent: false, reason: "sender_threw" };
+	        }
+	        const outcome = await recordAlertDeliveryOutcome(env, alertResult, `account_deletion:${requestId}`);
+	        if (outcome.recorded) console.error("[account-deletion-alert]", outcome.reason);
 	        return json({ request_id: requestId, status: "pending", message: "Account deletion request received." }, 202);
 	      } catch {
 	        return json({ error: "Unable to create deletion request" }, 500);
