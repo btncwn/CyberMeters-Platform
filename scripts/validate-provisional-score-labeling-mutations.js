@@ -26,12 +26,12 @@ const EXPECTED_ASSERTIONS = 57
 const SUMMARY_PREFIX = 'provisional-score-labeling:'
 
 const A = Object.freeze({
-  blackState: 'Blackbull-like partial 100: state is explicitly provisional',
-  blackFlag: 'Blackbull-like partial 100: provisional flag is true',
-  cyberState: 'CyberMeters-like degraded 85: state is explicitly provisional',
-  cyberFlag: 'CyberMeters-like degraded 85: provisional flag is true',
-  sheshireState: 'Sheshire-like partial 85: state is explicitly provisional',
-  sheshireFlag: 'Sheshire-like partial 85: provisional flag is true',
+  partialHighState: 'Partial high score: state is explicitly provisional',
+  partialHighFlag: 'Partial high score: provisional flag is true',
+  degradedMediumState: 'Degraded medium score: state is explicitly provisional',
+  degradedMediumFlag: 'Degraded medium score: provisional flag is true',
+  partialMediumState: 'Partial medium score: state is explicitly provisional',
+  partialMediumFlag: 'Partial medium score: provisional flag is true',
   monitoringState: 'complete execution plus incomplete monitoring remains provisional',
   establishedState: 'complete evidence owns the established state',
   missingValue: 'missing score remains null, never zero',
@@ -57,7 +57,7 @@ const A = Object.freeze({
   pageCanonical: 'WorkspaceDetailPage passes backend canonical state to the shared score renderer',
   sharedContract: 'shared renderer delegates to the explicit-state frontend contract',
   overall: 'workspace overall Cyber Score remains backend-owned with no domain-row fallback',
-  algorithm: 'Cyber Metrics Score algorithm and methodology identity remain unchanged',
+  algorithm: 'Cyber Metrics Score algorithm and methodology identity match this release',
 })
 
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex')
@@ -112,19 +112,19 @@ const mutants = [
   {
     name: 'backend removes provisional flag', file: 'assessment',
     anchor: '    provisional:    !complete,', replacement: '    provisional:    false,',
-    expected: [A.blackFlag, A.cyberFlag, A.sheshireFlag, A.frontendProvisionalValue, A.frontendProvisionalState],
+    expected: [A.partialHighFlag, A.degradedMediumFlag, A.partialMediumFlag, A.frontendProvisionalValue, A.frontendProvisionalState],
   },
   {
     name: 'score 100 is forced established', file: 'assessment',
     anchor: '  const state = !hasScore\n    ? ASSESSMENT_PRESENTATION_STATES.NOT_ESTABLISHED',
     replacement: '  const state = score === 100 && hasScore\n    ? ASSESSMENT_PRESENTATION_STATES.ESTABLISHED\n    : !hasScore\n      ? ASSESSMENT_PRESENTATION_STATES.NOT_ESTABLISHED',
-    expected: [A.blackState, A.monitoringState, A.frontendProvisionalValue, A.frontendProvisionalState],
+    expected: [A.partialHighState, A.monitoringState, A.frontendProvisionalValue, A.frontendProvisionalState],
   },
   {
     name: 'incomplete evidence is treated established', file: 'assessment',
     anchor: '      : ASSESSMENT_PRESENTATION_STATES.PROVISIONAL;',
     replacement: '      : ASSESSMENT_PRESENTATION_STATES.ESTABLISHED;',
-    expected: [A.blackState, A.cyberState, A.sheshireState, A.monitoringState, A.frontendProvisionalValue, A.frontendProvisionalState],
+    expected: [A.partialHighState, A.degradedMediumState, A.partialMediumState, A.monitoringState, A.frontendProvisionalValue, A.frontendProvisionalState],
   },
   {
     name: 'established evidence is forced provisional', file: 'assessment',

@@ -109,7 +109,8 @@ function completeReport({ website = "issue", email = "healthy" } = {}) {
     scan_quality: { status: "complete", modules_skipped: [] },
     completed_at: "2026-07-17T10:00:00Z", created_at: "2026-07-17T09:00:00Z",
     modules: {
-      email_security: { ok: true }, email_security_intelligence: { ok: true },
+      email_security: { ok: true, dmarc_state: { enforcement_level: "reject_enforced" } },
+      email_security_intelligence: { ok: true },
       headers: email === "healthy" ? { ok: true } : { ok: true },
       ssl: { ok: true, https_available: true, https_probe_executed: true },
       dns: { ok: true },

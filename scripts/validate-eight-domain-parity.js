@@ -41,7 +41,8 @@ const cleanComplete = () => ({
   scan_id: "scan_parity", completed_at: "2026-07-14T10:00:00Z",
   scan_quality: { status: "complete", warnings: [], modules_skipped: [] },
   modules: {
-    email_security: {}, dns: {},
+    email_security: { dmarc_state: { enforcement_level: "reject_enforced" } }, dns: {},
+    brand_monitoring: { candidates_validated: true, candidates: [] },
     ssl: { https_available: true, https_probe_executed: true },
     headers: {},
     subdomains: { count: 2 }, admin_surface_detection: {}, cloud_storage_discovery: {},
@@ -324,7 +325,9 @@ for (const key of SCAN_DOMAINS) {
       `got ${JSON.stringify(state)}`);
 
     const incomplete = withRequired();
-    incomplete.modules[required[0]] = { incomplete: true, incomplete_reason: "focused_incomplete" };
+    incomplete.modules[required[0]] = {
+      ...incomplete.modules[required[0]], incomplete: true, incomplete_reason: "focused_incomplete",
+    };
     incomplete.findings = [row];
     const caveated = byKey(resolveCyberMotDomainStates(incomplete), key);
     ok(`C ${key}: actionable finding stays positive-first under required-evidence failure`,

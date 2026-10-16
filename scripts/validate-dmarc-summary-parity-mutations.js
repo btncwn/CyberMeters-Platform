@@ -128,11 +128,11 @@ const MUTANTS = Object.freeze([
     "DMARC-PARITY-COMPOSED-SUMMARY",
   ], (source) => replaceOnce(
     source,
-    `  const reportForCustomer = projectDmarcReportForCustomer(
+    `  const reportForCustomer = projectUnvalidatedBrandReportForCustomer(projectDmarcReportForCustomer(
     projectTlsReportForCustomer(report ?? {}),
     dmarcPolicyEvidence,
-  );`,
-    "  const reportForCustomer = projectTlsReportForCustomer(report ?? {});",
+  ));`,
+    "  const reportForCustomer = projectUnvalidatedBrandReportForCustomer(projectTlsReportForCustomer(report ?? {}));",
   )),
   M("technical view bypasses canonical DMARC assessment", presentationFile, [
     "DMARC-PARITY-SNAPSHOT-SUMMARY-TECHNICAL-PARITY",
