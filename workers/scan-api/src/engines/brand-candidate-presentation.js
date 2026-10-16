@@ -9,13 +9,13 @@ function unvalidatedBrandFinding(finding) {
 }
 
 export function hasUnvalidatedBrandFinding(report) {
-  return report?.modules?.brand_monitoring?.candidates_validated === false &&
-    Array.isArray(report.findings) && report.findings.some((finding) =>
+  return report?.modules?.brand_monitoring?.candidates_validated !== true &&
+    Array.isArray(report?.findings) && report.findings.some((finding) =>
       unvalidatedBrandFinding(finding) && finding?.finding_type !== "observation");
 }
 
 export function projectUnvalidatedBrandReportForCustomer(report) {
-  if (report?.modules?.brand_monitoring?.candidates_validated !== false) return report;
+  if (!report || report?.modules?.brand_monitoring?.candidates_validated === true) return report;
   return {
     ...report,
     findings: (Array.isArray(report.findings) ? report.findings : []).map((finding) =>
@@ -37,8 +37,9 @@ export function projectUnvalidatedBrandReportForCustomer(report) {
 }
 
 export function projectUnvalidatedBrandSnapshotForCustomer(snapshot, sourceReport) {
-  const sourceUnavailable = !sourceReport;
-  if (!sourceUnavailable && sourceReport?.modules?.brand_monitoring?.candidates_validated !== false) return snapshot;
+  const candidateValidation = sourceReport?.modules?.brand_monitoring?.candidates_validated;
+  const sourceUnavailable = candidateValidation !== true && candidateValidation !== false;
+  if (candidateValidation === true) return snapshot;
   const brand = sourceUnavailable
     ? (snapshot?.domains || []).some((entry) => entry.domain_key === "brand_protection")
       ? { state: "evidence_insufficient", summary: "Brand evidence is unavailable for this report." }
@@ -89,7 +90,7 @@ export function projectUnvalidatedBrandSnapshotForCustomer(snapshot, sourceRepor
       summary: snapshot?.overall?.summary == null ? null
         : `Across the eight Cyber MOT domains: ${healthy} assessed healthy, ${issues} with issues detected, and ${attention} needing further evidence, customer input or monitoring.`,
       not_fully_assessed: notFullyAssessed,
-      ...(sourceUnavailable || hasUnvalidatedBrandFinding(sourceReport) ? {
+      ...((!sourceReport || (sourceUnavailable && converted.length > 0) || hasUnvalidatedBrandFinding(sourceReport)) ? {
         cyber_metrics_score: null,
         score_band: null,
         assessment: snapshot?.overall?.assessment

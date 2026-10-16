@@ -77,6 +77,7 @@ ok("MSP portfolio keeps the not-proof-of-abuse boundary",
 
 const scored = computeScore({
   brand_monitoring: {
+    candidates_validated: true,
     domains: [{
       candidate_domain: candidate.candidate_domain,
       unicode_domain: candidate.unicode_domain,
@@ -109,7 +110,7 @@ const modules = {
   ssl: {},
   subdomains: { count: 1 },
   certificate_intelligence: { total_certificates: 1 },
-  brand_monitoring: { domains: [] },
+  brand_monitoring: { candidates_validated: true, domains: [] },
   identity_discovery: { high_risk_count: 0 },
   technology_detection: { count: 0 },
   saas_exposure: { count: 0 },

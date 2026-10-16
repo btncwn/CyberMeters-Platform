@@ -760,15 +760,18 @@ async function main() {
     const { projectPhase5SnapshotForCustomer } = await import(
       pathToFileURL(srcPath("engines", "phase5-evidence.js")).href
     );
-    const expectedCustomerSnapshot = projectPhase5SnapshotForCustomer(
-      JSON.parse(put1.body),
-      report1.modules,
+    const { projectUnvalidatedBrandSnapshotForCustomer } = await import(
+      pathToFileURL(srcPath("engines", "brand-candidate-presentation.js")).href
+    );
+    const expectedCustomerSnapshot = projectUnvalidatedBrandSnapshotForCustomer(
+      projectPhase5SnapshotForCustomer(JSON.parse(put1.body), report1.modules), report1,
     );
     ok("route serves the fail-closed customer projection while immutable R2 bytes remain verbatim",
        got.status === 200
        && store.get(put1.key) === put1.body
        && JSON.stringify(got.data?.snapshot) === JSON.stringify(JSON.parse(put1.body))
        && JSON.stringify(got.data?.customer_snapshot) === JSON.stringify(expectedCustomerSnapshot)
+       && got.data?.customer_snapshot?.domains?.find((entry) => entry.domain_key === "brand_protection")?.state === "evidence_insufficient"
        && got.data?.customer_projection_metadata?.checksum_scope === "immutable_snapshot"
        && got.data?.customer_projection_metadata?.customer_projection_applied === true
        && got.data?.customer_projection_metadata?.authoritative_customer_field === "customer_snapshot");

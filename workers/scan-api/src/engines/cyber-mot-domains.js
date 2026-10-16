@@ -426,7 +426,11 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     const brandUnvalidated = d.domain_key === "brand_protection" &&
       report?.modules?.brand_monitoring?.candidates_validated === false &&
       moduleAssessed(report, "brand_monitoring", skippedSet);
-    const domainFindings = brandUnvalidated ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));
+    const brandValidationUnknown = d.domain_key === "brand_protection" &&
+      ![true, false].includes(report?.modules?.brand_monitoring?.candidates_validated) &&
+      (report?.modules?.brand_monitoring != null || findings.some((f) => d.match(f)));
+    const domainFindings = brandUnvalidated || brandValidationUnknown
+      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));
     base.finding_count = domainFindings.length;
     base.evidence_count = assessed.length;
     base.finding_ids = [...new Set(domainFindings.map((f) => f.id).filter(Boolean))].sort();
@@ -443,6 +447,12 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.state = CYBER_MOT_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.summary = `${count} unvalidated lookalike candidate${count === 1 ? "" : "s"} on the watchlist. Registration and activity have not been confirmed.`;
+      return base;
+    }
+    if (brandValidationUnknown) {
+      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.coverage = "degraded";
+      base.summary = "The stored report has no candidate validation decision, so brand protection cannot be confirmed.";
       return base;
     }
     // ── Precedence (findings are never hidden; coverage carries the caveat) ──

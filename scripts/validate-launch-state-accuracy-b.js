@@ -90,6 +90,9 @@ const legacyCandidateFinding = { id: "brand_lookalike_detected", module: "brand_
 check("CM-P1-006 old candidate finding cannot assert threat",
   domainState(reportWith({ brand_monitoring: unvalidated }, [legacyCandidateFinding]), "brand_protection") === "provisional");
 const oldCandidateReport = reportWith({ brand_monitoring: unvalidated }, [legacyCandidateFinding]);
+const unknownCandidateReport = reportWith({ brand_monitoring: { domains: [candidate] } }, [legacyCandidateFinding]);
+check("CM-P1-006 missing candidate validation is insufficient",
+  domainState(unknownCandidateReport, "brand_protection") === "evidence_insufficient");
 oldCandidateReport.cyber_metrics_score = 70;
 oldCandidateReport.risk_level = "moderate";
 oldCandidateReport.monitoring_states = {
@@ -112,6 +115,8 @@ check("CM-P1-006 raw report candidate presented as observation",
   presentedCandidate.findings[0]?.severity === "info" &&
   /watchlist/i.test(presentedCandidate.findings[0]?.title || "") &&
   oldCandidateReport.findings[0]?.finding_type === "finding");
+check("CM-P1-006 old report without validation decision is an observation",
+  projectUnvalidatedBrandReportForCustomer(unknownCandidateReport).findings[0]?.finding_type === "observation");
 const newCandidateSnapshot = snapshot(oldCandidateReport);
 check("CM-P1-006 new snapshot has no candidate threat or action",
   !newCandidateSnapshot.observed_findings.some((item) => /^brand_/.test(item.finding_id || "")) &&
@@ -148,6 +153,13 @@ check("CM-P1-006 unavailable source cannot publish old candidate threat",
   missingSourceSnapshot.remediation_actions.length === 0 &&
   missingSourceSnapshot.overall.cyber_metrics_score === null &&
   missingSourceSnapshot.overall.assessment?.state === "not_established");
+for (const incompleteSource of [{}, { modules: {} }, { modules: { brand_monitoring: {} } }]) {
+  const projected = projectUnvalidatedBrandSnapshotForCustomer(frozenLegacySnapshot, incompleteSource);
+  check("CM-P1-006 incomplete source cannot publish old candidate threat",
+    projected.domains[0]?.state === "evidence_insufficient" &&
+    projected.observed_findings.length === 0 && projected.remediation_actions.length === 0 &&
+    projected.overall.cyber_metrics_score === null);
+}
 const publishableModules = {
   cve_intelligence: { technologies_checked: ["fixture"], lookup_statuses: { fixture: { status: "complete" } },
     results: { fixture: [] }, total_cves: 0, critical_count: 0, high_count: 0, source: "fixture", cve_coverage: "complete" },
@@ -163,6 +175,7 @@ async function historicalCustomerRow(source) {
 }
 const historicalClean = await historicalCustomerRow(cleanScoreReport);
 const historicalCandidate = await historicalCustomerRow(oldCandidateReport);
+const historicalUnknown = await historicalCustomerRow(unknownCandidateReport);
 check("CM-P1-006 complete historical row can publish score",
   historicalClean.score === 70 && historicalClean.rating === "moderate");
 check("CM-P1-006 historical candidate score withheld across scan rows",
@@ -170,6 +183,9 @@ check("CM-P1-006 historical candidate score withheld across scan rows",
   historicalCandidate.assessment?.display_score === null &&
   historicalCandidate.assessment?.state === "not_established" &&
   historicalCandidate.phase5_evidence?.brand_score_unreliable === true);
+check("CM-P1-006 historical row without validation withholds score",
+  historicalUnknown.score === null && historicalUnknown.rating === null &&
+  historicalUnknown.phase5_evidence?.brand_score_unreliable === true);
 check("CM-P1-006 validated high-risk candidate still surfaces",
   domainState(reportWith({ brand_monitoring: { ...unvalidated, candidates_validated: true } }, [legacyCandidateFinding]), "brand_protection") === "issue_detected");
 check("CM-P1-006 failed candidate module is evidence insufficient",
