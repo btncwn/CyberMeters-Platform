@@ -388,7 +388,7 @@ async function main() {
   // the sender. Its canonical replacement is deliberately not a scheduled task:
   // sender evaluation runs in dmarc-ingest.js when new receiver evidence arrives,
   // so it cannot fire without new evidence and has nothing to schedule.
-  const expectedTasks = ["scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
+  const expectedTasks = ["scheduled_scan_dispatch", "scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
     "alert_delivery_retry", "brand_takedown_followup", "brand_dns_enrichment",
     "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry",
     "mcp_revoked_grant_cleanup",

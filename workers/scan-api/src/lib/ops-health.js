@@ -23,6 +23,7 @@ export const OPS_THRESHOLDS = {
   lifecycle_emails_outcome_unknown: 1, // any stale provider-ambiguous lifecycle outcome
   failed_asset_alerts: 10,    // undelivered asset-change alerts
   overdue_deletions: 1,       // any deletion request past the 30-day window + buffer
+  scheduled_scan_query: 1,    // failed or unavailable scheduled-scan admission
 };
 
 async function count(env, sql) {
@@ -75,6 +76,11 @@ export async function computeOpsHealth(env) {
       label: "Deletion requests overdue for purge (>35d)",
       sql: "SELECT COUNT(*) c FROM deletion_requests WHERE status IN ('pending','purging') AND created_at < datetime('now','-35 days')",
     },
+    {
+      key: "scheduled_scan_query",
+      label: "Scheduled scan admission query failures (last 24h)",
+      sql: "SELECT COUNT(*) c FROM operational_events WHERE event_type = 'scheduled_scan_query' AND status IN ('error','table_missing') AND datetime(created_at) >= datetime('now','-24 hours')",
+    },
   ];
 
   const signals = [];
@@ -94,7 +100,8 @@ export async function computeOpsHealth(env) {
   // D1 reachability: if every signal was skipped, the database is likely down.
   const dbReachable = signals.some((s) => !s.skipped);
   const outcomeUnknownReadable = signals.find((s) => s.key === "lifecycle_emails_outcome_unknown")?.skipped === false;
-  const healthy = dbReachable && outcomeUnknownReadable && signals.every((s) => !s.breached);
+  const scheduledQueryReadable = signals.find((s) => s.key === "scheduled_scan_query")?.skipped === false;
+  const healthy = dbReachable && outcomeUnknownReadable && scheduledQueryReadable && signals.every((s) => !s.breached);
 
   return { healthy, dbReachable, signals };
 }

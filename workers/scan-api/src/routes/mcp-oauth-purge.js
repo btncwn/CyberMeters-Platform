@@ -155,7 +155,20 @@ export async function revokeMcpOAuthUserConnections(env, userId) {
 async function revokeWorkspaceConnections(env, workspaceId, userId = null) {
   if (!env?.cybermeters_db || !USER_RE.test(workspaceId ?? "") ||
       (userId !== null && !USER_RE.test(userId))) throw new Error("mcp_oauth_revoke_unavailable");
-  if (!(await hasTable(env, "mcp_oauth_connections"))) return { revoked: 0 };
+  const statement = await prepareMcpOAuthWorkspaceRevocation(env, workspaceId, userId);
+  if (!statement) return { revoked: 0 };
+  const result = await statement.run();
+  await drainRevokedMcpOAuthGrantBacklog(env).catch(() => {});
+  return { revoked: Number(result?.meta?.changes ?? result?.changes ?? 0) };
+}
+
+// The delete-request route puts this prepared fence in the same D1 batch as
+// soft deletion and the purge request. The revocation trigger queues KV cleanup;
+// the caller drains it only after that batch commits.
+export async function prepareMcpOAuthWorkspaceRevocation(env, workspaceId, userId = null) {
+  if (!env?.cybermeters_db || !USER_RE.test(workspaceId ?? "") ||
+      (userId !== null && !USER_RE.test(userId))) throw new Error("mcp_oauth_revoke_unavailable");
+  if (!(await hasTable(env, "mcp_oauth_connections"))) return null;
   const selectedTable = await hasTable(env, "mcp_oauth_connection_workspaces");
   const predicate = selectedTable ? `workspace_id = ? OR EXISTS (
     SELECT 1 FROM mcp_oauth_connection_workspaces selected
@@ -165,13 +178,11 @@ async function revokeWorkspaceConnections(env, workspaceId, userId = null) {
     ...(userId === null ? [] : [userId])];
   // One D1 statement fences every affected connection, regardless of count.
   // Migration 124's trigger makes each status change a durable cleanup item.
-  const result = await env.cybermeters_db.prepare(
+  return env.cybermeters_db.prepare(
     `UPDATE mcp_oauth_connections SET status = 'revoked',
       revoked_at = COALESCE(revoked_at, datetime('now'))
       WHERE (${predicate})${userFilter} AND status = 'active'`,
-  ).bind(...bound).run();
-  await drainRevokedMcpOAuthGrantBacklog(env).catch(() => {});
-  return { revoked: Number(result?.meta?.changes ?? result?.changes ?? 0) };
+  ).bind(...bound);
 }
 
 export async function revokeMcpOAuthUserWorkspaceConnections(env, userId, workspaceId) {

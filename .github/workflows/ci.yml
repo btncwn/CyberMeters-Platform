@@ -1242,6 +1242,12 @@ jobs:
       - name: Validate F-009 deletion integrity mutations (completed-on-error / email-before-proof / pointer-before-object)
         run: node scripts/validate-f009-deletion-integrity-mutations.js
 
+      - name: Validate launch reliability fixtures (deletion, cron, purge, global limit)
+        run: node scripts/validate-launch-reliability-a.js
+
+      - name: Validate launch reliability mutation controls
+        run: node scripts/validate-launch-reliability-a-mutations.js
+
       - name: Validate F-004 recovery instrumentation (provider adapter + source identity + proof binding)
         run: node scripts/validate-f004-recovery-instrumentation.js
 
