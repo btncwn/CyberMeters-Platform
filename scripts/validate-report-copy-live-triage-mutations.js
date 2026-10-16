@@ -60,7 +60,7 @@ const mutants = [
     to:   "  const skipped = [];\n  if (skipped) return skipped;\n  for (const key of SCORE_BEARING_MODULES) {",
     mustContain: "FAIL D3 isolation: complete evidence + skipped score-bearing module STILL nulls the score" },
   { id: "TRIAGE-M7-D3-methodology-not-bumped", file: "workers/scan-api/src/engines/scoring.js",
-    from: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-13.1";',
+    from: 'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-16.1";',
     to:   'export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-08-23.1";',
     mustContain: "FAIL D3: methodology stamp remains newer than the pre-D3 contract" },
   { id: "TRIAGE-M8-D4-hosted-shortcircuit-removed", file: "workers/scan-api/src/engines/dmarcbis-resolver.js",

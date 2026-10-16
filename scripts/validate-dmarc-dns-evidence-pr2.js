@@ -222,8 +222,9 @@ ok("exports DMARC observation enum", baselineMod.DMARC_OBSERVATION_STATUS?.UNAVA
 ok("exports DNS evidence builder", typeof baselineMod.buildDmarcEvidenceFromDnsResult === "function");
 ok("email scan imports the shared canonical DMARC state resolvers",
   /import \{[\s\S]*deriveDmarcState,[\s\S]*deriveDmarcStateFromPolicyEvidence,[\s\S]*\} from "\.\/dmarc-state\.js";/.test(source));
-ok("runEmailModule attaches non-enumerable canonical dmarc_state evidence", /Object\.defineProperty\(result, "dmarc_state"/.test(source));
-ok("PR-2 does not JSON-serialize dmarc_state through normal details", !/dmarc_state: dmarcEvidence\.dmarc_state/.test(source));
+ok("runEmailModule retains canonical dmarc_state in the stored module",
+  /Object\.defineProperty\(result, "dmarc_state", \{\s*value: dmarcEvidence\.dmarc_state,\s*enumerable: true,/.test(source));
+ok("DMARC decision is an explicit module field", !/dmarc_state: dmarcEvidence\.dmarc_state/.test(source));
 
 runFixtures(baselineMod);
 

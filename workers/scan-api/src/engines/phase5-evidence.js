@@ -19,6 +19,7 @@ import { isResolverVersionAtLeast, FIRST_HONEST_RESOLVER_VERSION } from "./cyber
 // read projection and the live producer deciding serviceability the same way.
 import { classifyServiceability, maySupportDefectConclusion } from "../lib/serviceability.js";
 import { isNotInCheckPack } from "./check-pack.js";
+import { hasUnvalidatedBrandFinding } from "./brand-candidate-presentation.js";
 
 export const PHASE5_EVIDENCE_MODULES = Object.freeze({
   cve: "cve_intelligence",
@@ -788,6 +789,7 @@ async function readStoredPhase5Modules(env, scanId) {
       // monitoring contract into resolveAssessmentPresentation. Carry it
       // through the bounded read adapter so list rows reuse the same decision.
       monitoring_states: report.monitoring_states ?? null,
+      brand_score_unreliable: hasUnvalidatedBrandFinding(report),
     };
   } catch {
     return {
@@ -986,14 +988,23 @@ export async function projectPhase5ScanRowsForCustomer(env, rows = []) {
       modules: outcome.modules,
       monitoringStates: outcome.monitoring_states,
     });
+    const brandScoreUnreliable = outcome.brand_score_unreliable === true;
     return {
       ...row,
-      score: customer.score,
-      rating: customer.risk_level,
+      score: brandScoreUnreliable ? null : customer.score,
+      rating: brandScoreUnreliable ? null : customer.risk_level,
       scan_quality: customer.scan_quality,
-      assessment: customer.assessment,
+      assessment: brandScoreUnreliable
+        ? resolveAssessmentPresentation({
+            score: null,
+            scanQuality: customer.scan_quality,
+            status: "completed",
+            suppressionReason: "unvalidated_brand_candidate",
+          })
+        : customer.assessment,
       phase5_evidence: {
         ...customer.evidence,
+        brand_score_unreliable: brandScoreUnreliable,
         evidence_read_state: outcome.state,
         evidence_read_reason: outcome.reason,
       },

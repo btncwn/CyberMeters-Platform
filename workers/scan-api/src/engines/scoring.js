@@ -658,12 +658,9 @@ export function computeScore(modules, domain) {
       },
     });
   } else {
-    // Canonical DMARC state (ADR-003). `dmarc_state` is NON-ENUMERABLE on the
-    // live email module result — read it directly from the source object here.
-    // A spread/JSON copy drops it, which would silently fall back to legacy and
-    // re-penalise an UNAVAILABLE lookup as a missing record. When it is absent
-    // (pre-ADR reports / R2 reconstruction) we fall back to the legacy raw read,
-    // so historical scans are never rewritten. Scoring only expresses two DMARC
+    // Canonical DMARC state is retained in the report so live and stored reads
+    // use the same decision. Historical reports without the field still use the
+    // legacy raw read. Scoring only expresses two DMARC
     // findings; the full nine-rung ladder (invalid/quarantine/partials as issues,
     // reject as healthy) is the Cyber MOT authority (cyber-mot-domains.js).
     const dmarcState = modules.email_security?.dmarc_state;
@@ -1150,6 +1147,7 @@ export function computeScore(modules, domain) {
     : runTyposquatModule(domain);
   let brandScoreDeduction = 0;
   for (const c of (brandMod?.domains || [])) {
+    if (brandMod?.candidates_validated === false) continue;
     if (!['high', 'critical'].includes(c.risk_level)) continue;
     const isIdn = c.variant_type === 'homoglyph_idn' ||
       c.idn_homograph?.is_homograph === true ||
@@ -1258,7 +1256,8 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
 // databases or exploited-vulnerability catalogues, so no such match can move
 // the score. Scores persisted under earlier stamps keep the deduction they
 // were finalised with; read-time projection never recomputes it.
-export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-13.1";
+// 2026-10-16.1 — unvalidated lookalike candidates no longer deduct points.
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-16.1";
 
 // The modules whose findings move computeScore(). If any of these was skipped or
 // never ran, the customer score is a conclusion over an incomplete assessment and

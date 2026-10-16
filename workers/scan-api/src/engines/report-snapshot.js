@@ -28,6 +28,11 @@
 // exposed as completed.
 
 import { resolveCyberMotDomainStates, CYBER_MOT_RESOLVER_VERSION } from "./cyber-mot-domains.js";
+import {
+  hasUnvalidatedBrandFinding,
+  projectUnvalidatedBrandReportForCustomer,
+  projectUnvalidatedBrandSnapshotForCustomer,
+} from "./brand-candidate-presentation.js";
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } from "./business-risk.js";
 import { CYBER_METRICS_SCORE_METHODOLOGY_VERSION } from "./scoring.js";
@@ -63,7 +68,7 @@ import {
 } from "./dmarc-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-10-13.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-10-16.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -589,10 +594,10 @@ export function composeSnapshot({
   builtAt,
   reconstruction = false, // strict historical reconstruction (founder policy)
 }) {
-  const reportForCustomer = projectDmarcReportForCustomer(
+  const reportForCustomer = projectUnvalidatedBrandReportForCustomer(projectDmarcReportForCustomer(
     projectTlsReportForCustomer(report ?? {}),
     dmarcPolicyEvidence,
-  );
+  ));
   const assessedAt = report?.completed_at || null;
   const scanQuality = report?.scan_quality ?? null;
   const qualityStatus = scanQuality?.status ?? null;
@@ -620,8 +625,9 @@ export function composeSnapshot({
   // Canonical producers — verbatim, never second-guessed.
   const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });
   const businessRisk = deriveScanBusinessRisk(reportForCustomer);
+  const brandScoreUnreliable = hasUnvalidatedBrandFinding(report);
   const baseAssessment = resolveAssessmentPresentation({
-    score: report?.cyber_metrics_score ?? null,
+    score: brandScoreUnreliable ? null : (report?.cyber_metrics_score ?? null),
     scanQuality: qualityStatus,
     status: "completed",
     monitoringStates,
@@ -633,8 +639,8 @@ export function composeSnapshot({
   // Phase-5 evidence or a skipped score-bearing module) replaces it with the
   // single canonical NULL decision and its exact cause.
   const phase5Projection = resolvePhase5HistoricalCustomerProjection({
-    score: report?.cyber_metrics_score ?? null,
-    riskLevel: report?.risk_level ?? report?.rating ?? null,
+    score: brandScoreUnreliable ? null : (report?.cyber_metrics_score ?? null),
+    riskLevel: brandScoreUnreliable ? null : (report?.risk_level ?? report?.rating ?? null),
     assessment: baseAssessment,
     scanQuality: qualityStatus,
     modules: report?.modules || {},
@@ -687,7 +693,7 @@ export function composeSnapshot({
   // ── Findings / observations (taxonomy: "Observed Findings" by default) ────
   const unmappedTypes = new Set();
   const itemFor = (f) => {
-    const rem = findingRemediation(f);
+    const rem = f.unvalidated_brand_candidate ? null : findingRemediation(f);
     if (!rem && f.finding_type !== "observation" && f.id) unmappedTypes.add(f.id);
     const method = rem?.verification_method ?? null;
     const support = rem ? verificationSupportForMethod(method) : null;
@@ -1487,6 +1493,7 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
   // band and clean narrative are withheld unless the referenced scan report
   // explicitly proves all required Phase-5 evidence publishable.
   let sourceModules = {};
+  let sourceReport = null;
   try {
     // This key comes only from the checksum-verified, scan/workspace-scoped
     // immutable snapshot above; no request-controlled key reaches R2.
@@ -1494,7 +1501,7 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
     const sourceObject = sourceReportKey
       ? await env.cybermeters_reports.get(sourceReportKey)
       : null;
-    const sourceReport = sourceObject ? await sourceObject.json() : null;
+    sourceReport = sourceObject ? await sourceObject.json() : null;
     sourceModules =
       sourceReport?.modules && typeof sourceReport.modules === "object"
         ? sourceReport.modules
@@ -1503,10 +1510,10 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
     sourceModules = {};
   }
   const customerModules = projectPhase5EvidenceForCustomer(sourceModules);
-  const customerSnapshot = projectDmarcSnapshotForCustomer(
+  const customerSnapshot = projectUnvalidatedBrandSnapshotForCustomer(projectDmarcSnapshotForCustomer(
     projectPhase5SnapshotForCustomer(snapshot, sourceModules),
     dmarcPolicy.evidence,
-  );
+  ), sourceReport);
   const customerProjectionMetadata = Object.freeze({
     checksum_scope: "immutable_snapshot",
     customer_projection_applied: true,

@@ -111,6 +111,7 @@ export function deadlineDeferredEmailModuleResult() {
       resolved_at: null,
     },
     dmarc: { present: null, policy: null, record: null, record_count: null },
+    dmarc_state: buildDmarcEvidenceFromDnsResult({ status: "not_yet_assessed" }).dmarc_state,
     dkim: { present: null, selector: null, provider: null, selectors_probed: [] },
     spf_detail: null,
     dmarc_detail: null,
@@ -270,7 +271,7 @@ export async function runEmailModule(domain, opts = {}) {
   };
   Object.defineProperty(result, "dmarc_state", {
     value: dmarcEvidence.dmarc_state,
-    enumerable: false,
+    enumerable: true,
     configurable: true,
   });
   Object.defineProperty(result, "_bimi_record", {
@@ -355,7 +356,7 @@ export function applyDmarcbisEmailCompatibilityProjection(
       : canonicalPolicyState;
   Object.defineProperty(result, "dmarc_state", {
     value: compatibilityState,
-    enumerable: false,
+    enumerable: true,
     configurable: true,
   });
   Object.defineProperty(result, "dmarc_policy_evidence", {

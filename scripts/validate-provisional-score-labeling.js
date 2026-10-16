@@ -46,7 +46,7 @@ for (const [label, score, quality] of fixtures) {
   eq(`${label}: state is explicitly provisional`, result.state, 'provisional')
   eq(`${label}: provisional flag is true`, result.provisional, true)
   eq(`${label}: no final rating is published`, result.display_rating, null)
-  eq(`${label}: methodology identity is explicit`, result.methodology_version, '2026-10-13.1')
+  eq(`${label}: methodology identity is explicit`, result.methodology_version, '2026-10-16.1')
 }
 
 const monitoringIncomplete = resolveAssessmentPresentation({

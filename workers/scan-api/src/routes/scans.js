@@ -12,6 +12,7 @@
 // registry is the canonical remediation source of truth).
 import { getEffectivePlan } from "../engines/entitlements.js";
 import { buildExecutiveReportV2 } from "../engines/executive-report.js";
+import { projectUnvalidatedBrandReportForCustomer } from "../engines/brand-candidate-presentation.js";
 import { applyEvidenceQuality, normalizeFindingSchema } from "../engines/findings.js";
 import { buildScanReportPdf } from "../engines/pdf.js";
 import { buildRelatedChangesSummary } from "../engines/related-changes.js";
@@ -769,7 +770,7 @@ export async function scanRoutes(rctx) {
         return json(mapped.body, mapped.status);
       }
       const raw = await obj.json();
-      const customerReport = projectTlsReportForCustomer(raw);
+      const customerReport = projectUnvalidatedBrandReportForCustomer(projectTlsReportForCustomer(raw));
 
       // Normalise modules — ensure every module key is present even for reports
       // stored before a module was introduced (backward-compatible defaults).
@@ -812,7 +813,7 @@ export async function scanRoutes(rctx) {
           risk_level: raw.risk_level ?? null,
           assessment: null,
           cyber_mot_domains: [],
-          findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
+          findings: reportFindings.map((f) => ({ ...f, remediation: f.unvalidated_brand_candidate ? null : findingRemediation(f) })),
           recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
           scan_quality: projectTlsScanQualityForCustomer(
             raw.scan_quality ?? buildScanQuality(normalisedModules), normalisedModules.tls_assessment,
@@ -868,7 +869,7 @@ export async function scanRoutes(rctx) {
           risk_level: overall.score_band ?? null,
           assessment,
           cyber_mot_domains: snap.domains || [],
-          findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
+          findings: reportFindings.map((f) => ({ ...f, remediation: f.unvalidated_brand_candidate ? null : findingRemediation(f) })),
           recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
           scan_quality: projectTlsScanQualityForCustomer(
             raw.scan_quality ?? buildScanQuality(normalisedModules), normalisedModules.tls_assessment,

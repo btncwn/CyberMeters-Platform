@@ -407,10 +407,20 @@ function relationshipInputsComplete(modules) {
   const headersOk = !!headers && typeof headers === "object" && !headers.error && headers.incomplete !== true
     && !!headers.values && typeof headers.values === "object";
   const techOk = !!tech && typeof tech === "object" && !tech.error && tech.incomplete !== true;
-  return headersOk && techOk;
+  const cnameSourcesOk = ["subdomain_takeover", "asset_exposure", "dns_bruteforce"]
+    .every((name) => {
+      const source = modules?.[name];
+      return !!source && typeof source === "object" && !source.error &&
+        source.incomplete !== true && source.skipped !== true &&
+        (name !== "dns_bruteforce" ||
+          !(source.not_asked > 0 || source.lookup_failed > 0)) &&
+        (name !== "asset_exposure" ||
+          !(source.probe_coverage?.cap_reached === true || source.probe_coverage?.dropped_count > 0));
+    });
+  return headersOk && techOk && cnameSourcesOk;
 }
 
-export function runVendorRelationshipModule(modules) {
+export function runVendorRelationshipModule(modules, signatures = VENDOR_RELATIONSHIP_SIGS) {
   try {
     const inputs_complete = relationshipInputsComplete(modules);
     // ── Build signal sets ────────────────────────────────────────────────────
@@ -427,11 +437,17 @@ export function runVendorRelationshipModule(modules) {
     for (const risk of (modules?.subdomain_takeover?.risks || [])) {
       if (risk?.cname) cnames.push(risk.cname.toLowerCase());
     }
+    for (const observation of (modules?.subdomain_takeover?.cname_observations || [])) {
+      if (observation?.cname) cnames.push(observation.cname.toLowerCase());
+    }
     for (const asset of (modules?.asset_exposure?.assets || [])) {
       if (asset?.cname) cnames.push(asset.cname.toLowerCase());
     }
     for (const item of (modules?.dns_bruteforce?.items || [])) {
       if (item?.cname) cnames.push(item.cname.toLowerCase());
+      for (const hop of (item?.dns?.cname_chain || [])) {
+        if (hop?.target) cnames.push(hop.target.toLowerCase());
+      }
     }
 
     // ── Signal tester ────────────────────────────────────────────────────────
@@ -460,7 +476,7 @@ export function runVendorRelationshipModule(modules) {
     // ── Match signatures ─────────────────────────────────────────────────────
     const vendors = [];
 
-    for (const sig of VENDOR_RELATIONSHIP_SIGS) {
+    for (const sig of signatures) {
       const matchedSources = [];
       const evidence = [];
       for (const check of sig.signals) {
