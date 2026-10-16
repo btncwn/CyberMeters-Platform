@@ -613,26 +613,31 @@ export default function BrandMonitoringPage() {
         actions={(
           <>
             <button onClick={scrollToQueue} className="btn-primary text-sm">Review suspicious domains</button>
-            <button onClick={() => setEditing(true)} className="btn-secondary text-sm">Update protected brand</button>
+            <button onClick={() => { setEditing(true); goToAnchor('protected-brand', { tab: 'overview' }) }} className="btn-secondary text-sm">Update protected brand</button>
+          </>
+        )}
+        overview={(
+          <>
+            {/* 2 · Protected brand — the profile the checks run against */}
+            <div id="protected-brand" className="scroll-mt-20">
+              <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
+            </div>
+
+            {/* 3 · Risk overview (label-led, numbers below & smaller) */}
+            <div id="brand-summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 scroll-mt-20">
+              <StatCard icon={Globe}       label="Lookalike candidates" explanation="Domains resembling your brand"        value={metrics.lookalike} />
+              <StatCard icon={Globe}       label="Active DNS"           explanation={
+                metrics.uncheckedDns > 0
+                  ? `${metrics.uncheckedDns} not yet checked${metrics.inactiveDns > 0 ? ` · ${metrics.inactiveDns} inactive` : ''}`
+                  : (metrics.inactiveDns > 0 ? `${metrics.inactiveDns} checked, not resolving` : 'Candidates currently resolving')
+              } value={metrics.activeDns} tone={metrics.activeDns > 0 ? 'info' : undefined} />
+              <StatCard icon={ShieldAlert} label="High-risk candidates" explanation="May need immediate review"            value={metrics.highRisk}   danger={metrics.highRisk > 0} />
+              <StatCard icon={Eye}         label="Suspicious"           explanation="Flagged for impersonation risk"       value={metrics.suspicious} warning={metrics.suspicious > 0} />
+              <StatCard icon={Search}      label="Unreviewed"           explanation="Awaiting your classification"         value={metrics.unreviewed} warning={metrics.unreviewed > 0} />
+            </div>
           </>
         )}
       >
-      {/* 2 · Protected brand */}
-      <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
-
-      {/* 3 · Risk overview (label-led, numbers below & smaller) */}
-      <div id="brand-summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6 scroll-mt-20">
-        <StatCard icon={Globe}       label="Lookalike candidates" explanation="Domains resembling your brand"        value={metrics.lookalike} />
-        <StatCard icon={Globe}       label="Active DNS"           explanation={
-          metrics.uncheckedDns > 0
-            ? `${metrics.uncheckedDns} not yet checked${metrics.inactiveDns > 0 ? ` · ${metrics.inactiveDns} inactive` : ''}`
-            : (metrics.inactiveDns > 0 ? `${metrics.inactiveDns} checked, not resolving` : 'Candidates currently resolving')
-        } value={metrics.activeDns} tone={metrics.activeDns > 0 ? 'info' : undefined} />
-        <StatCard icon={ShieldAlert} label="High-risk candidates" explanation="May need immediate review"            value={metrics.highRisk}   danger={metrics.highRisk > 0} />
-        <StatCard icon={Eye}         label="Suspicious"           explanation="Flagged for impersonation risk"       value={metrics.suspicious} warning={metrics.suspicious > 0} />
-        <StatCard icon={Search}      label="Unreviewed"           explanation="Awaiting your classification"         value={metrics.unreviewed} warning={metrics.unreviewed > 0} />
-      </div>
-
       {/* 4 · Recommended actions */}
       {actions.length > 0 && (
         <section className="mb-6">

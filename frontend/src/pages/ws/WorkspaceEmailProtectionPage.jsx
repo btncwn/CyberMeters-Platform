@@ -3604,6 +3604,70 @@ export default function WorkspaceEmailProtectionPage() {
         workspaceName={wsName}
         description={selectedDomain ? `Monitor DMARC alignment, sender authentication and report ingestion for ${selectedDomain}.` : 'Monitor DMARC alignment, sender authentication and report ingestion for your domains.'}
         actions={headerActions}
+        overview={
+          // The posture summary — the same guards as the body, so Overview never
+          // shows a hero for a domain whose email module did not run.
+          domainScans.length === 0 ? (
+            <EmptyCard
+              title="No email authentication guidance yet"
+              body="Run a scan on a domain in this workspace to generate DMARC, SPF, DKIM and BIMI guidance."
+              action={<Link to="/scans/new" className="btn-primary">Run a scan</Link>}
+            />
+          ) : reportLoading ? (
+            <EmptyCard title="Loading email posture…" body="Fetching the latest scan report for this domain." />
+          ) : !es ? (
+            <EmptyCard title="Email guidance unavailable"
+              body="The latest scan for this domain did not return email-security data. Try re-running the scan." />
+          ) : moduleErrored ? (
+            <EmptyCard title="Email module did not complete"
+              body="The email-security module reported an error on the last scan. Re-run the scan to try again." />
+          ) : notApplicable ? (
+            <EmptyCard title="Email guidance not applicable for this domain"
+              body={es.applicability?.reason ? `${es.applicability.reason}. This domain is not expected to send mail, so email-authentication findings are not raised.` : 'This domain is not expected to send mail, so email guidance does not apply.'} />
+          ) : (
+            <>
+              <ZoneHeader n="1" title="Your email posture" hint="Can attackers spoof this domain — and what is the business impact?" />
+
+              {/* 0·hero — compliance % + policy + business exposure in one glance */}
+              <EmailPostureHero
+                wsId={wsId}
+                domain={selectedDomain}
+                dmarc={dmarc}
+                policyJourney={es?.policy_journey}
+                dmarcPresentation={
+                  dmarc?.dmarc_policy_presentation ||
+                  report?.dmarc_policy_presentation
+                }
+                onGoto={goToAnchor}
+              />
+
+              <DmarcPolicyEvidenceCard
+                presentation={
+                  dmarc?.dmarc_policy_presentation ||
+                  report?.dmarc_policy_presentation
+                }
+                showTechnical
+              />
+
+              {/* 0. Connection status, checklist, ingestion + metrics — the customer answer */}
+              <EmailProtectionOverview
+                wsId={wsId}
+                domain={selectedDomain}
+                dmarcDetail={es?.dmarc_detail}
+                dmarc={dmarc}
+                senderData={senderData}
+                onGotoSetup={gotoSetup}
+                onGotoSenders={gotoSenders}
+              />
+
+              {/* 0b. BEC Exposure Score (backend source of truth; higher = worse) */}
+              <BecExposure wsId={wsId} domain={selectedDomain} />
+
+              {/* 0c. DMARC report ingestion status (reports_received vs DNS verified) */}
+              <DmarcIngestionStatus wsId={wsId} domain={selectedDomain} onGotoSetup={gotoSetup} onGotoSenders={gotoSenders} />
+            </>
+          )
+        }
       >
       <CloudflareDnsChanges workspaceId={wsId} onDomainChange={setSelectedDomain} />
 
@@ -3629,46 +3693,9 @@ export default function WorkspaceEmailProtectionPage() {
         <div className="space-y-6">
           {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
 
-          <ZoneHeader n="1" title="Your email posture" hint="Can attackers spoof this domain — and what is the business impact?" />
-
-          {/* 0·hero — compliance % + policy + business exposure in one glance */}
-          <EmailPostureHero
-            wsId={wsId}
-            domain={selectedDomain}
-            dmarc={dmarc}
-            policyJourney={es?.policy_journey}
-            dmarcPresentation={
-              dmarc?.dmarc_policy_presentation ||
-              report?.dmarc_policy_presentation
-            }
-            onGoto={goToAnchor}
-          />
-
-          <DmarcPolicyEvidenceCard
-            presentation={
-              dmarc?.dmarc_policy_presentation ||
-              report?.dmarc_policy_presentation
-            }
-            showTechnical
-          />
-
-          {/* 0. Connection status, checklist, ingestion + metrics — the customer answer */}
-          <EmailProtectionOverview
-            wsId={wsId}
-            domain={selectedDomain}
-            dmarcDetail={es?.dmarc_detail}
-            dmarc={dmarc}
-            senderData={senderData}
-            onGotoSetup={gotoSetup}
-            onGotoSenders={gotoSenders}
-          />
-
-          {/* 0b. BEC Exposure Score (backend source of truth; higher = worse) */}
-          <BecExposure wsId={wsId} domain={selectedDomain} />
-
-          {/* 0c. DMARC report ingestion status (reports_received vs DNS verified) */}
-          <DmarcIngestionStatus wsId={wsId} domain={selectedDomain} onGotoSetup={gotoSetup} onGotoSenders={gotoSenders} />
-
+          {/* The posture hero, evidence card, connection overview, BEC exposure and
+              ingestion status are the Overview tab's summary; the journey, senders,
+              setup and detail lists stay here. */}
           <ZoneHeader n="2" title="Requested-policy journey" hint="Where you are, and the evidence to review before requesting stronger receiver handling." />
 
           {/* 1. DMARC journey */}

@@ -82,6 +82,28 @@ describe('ModuleContract — head and tabs', () => {
     expect(screen.getByTestId('module-tiles')).toBeInTheDocument()
   })
 
+  it('renders the page\'s overview blocks on Overview only, between the tiles and the summary card', () => {
+    renderPage('/ws/email-protection', { overview: <div data-testid="page-overview">seven statistic cards</div> })
+    const panel = screen.getByRole('tabpanel')
+    const order = [...panel.querySelectorAll('[data-testid]')].map((el) => el.dataset.testid)
+    expect(order.indexOf('module-tiles')).toBeLessThan(order.indexOf('module-overview'))
+    expect(order.indexOf('module-overview')).toBeLessThan(order.indexOf('module-summary'))
+    expect(within(screen.getByTestId('module-overview')).getByTestId('page-overview')).toBeInTheDocument()
+    expect(screen.queryByTestId('body')).not.toBeInTheDocument()
+    // The summary card's three headings are still the only level-2 headings on Overview.
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['Scope', 'Evidence state', 'Risk'])
+    fireEvent.click(screen.getByRole('tab', { name: 'Findings' }))
+    expect(screen.queryByTestId('page-overview')).not.toBeInTheDocument()
+    expect(screen.getByTestId('body')).toBeInTheDocument()
+  })
+
+  it('an explicit ?tab=overview with an anchor stays on Overview (a summary block can be a tile target)', () => {
+    expect(tabForLocation(new URLSearchParams('tab=overview'), '#brand-summary')).toBe('overview')
+    renderPage('/ws/email-protection?tab=overview#x', { overview: <div id="x">anchored summary</div> })
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('anchored summary')).toBeInTheDocument()
+  })
+
   it('an unknown ?tab= is Overview', () => {
     renderPage('/ws/email-protection?tab=nonsense')
     expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
@@ -133,6 +155,27 @@ describe('ModuleContract — head and tabs', () => {
     scrolled.length = 0
     fireEvent.click(screen.getByRole('button', { name: 'Go to setup' }))
     expect(scrolled).toEqual(['setup-block'])
+  })
+
+  it('useAreaAnchor can open an Overview summary block from another tab', () => {
+    const scrolled = []
+    Element.prototype.scrollIntoView = function () { scrolled.push(this.id) }
+    function Page() {
+      const go = useAreaAnchor()
+      return (
+        <ModuleContract domainKey="email_protection" workspaceId="ws1" workspaceName="Customer A"
+          actions={<button type="button" onClick={() => go('stats', { tab: 'overview' })}>Go to stats</button>}
+          overview={<p id="stats">statistic cards</p>}>
+          <p>body</p>
+        </ModuleContract>
+      )
+    }
+    render(<MemoryRouter initialEntries={['/ws/email-protection?tab=cases']}><Routes><Route path="*" element={<Page />} /></Routes></MemoryRouter>)
+    expect(screen.getByRole('tab', { name: 'Cases' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Go to stats' }))
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('statistic cards')).toBeInTheDocument()
+    expect(scrolled).toContain('stats')
   })
 
   it('the filter box narrows the tiles and the case list, and says so when nothing matches', async () => {

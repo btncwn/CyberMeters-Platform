@@ -11,6 +11,8 @@ vi.mock('../../api', () => ({
     getWorkspaceAssetsSummary: vi.fn(),
     getWorkspaceAssets: vi.fn(),
     getWorkspaceAssetsTimeline: vi.fn(),
+    getWorkspaceScans: vi.fn(),
+    getScanReport: vi.fn(),
   },
 }))
 
@@ -43,6 +45,7 @@ async function renderPage(projection) {
   api.getWorkspaceAssets.mockResolvedValue({ assets: [] })
   api.getWorkspaceAssetsTimeline.mockResolvedValue(timelineResponse(projection))
   api.getManagedCases.mockResolvedValue({ cases: [] })
+  api.getWorkspaceScans.mockResolvedValue({ scans: [] })
   render(<MemoryRouter initialEntries={['/assets?tab=findings']}><AssetsPage /></MemoryRouter>)
   await screen.findByText('Asset Timeline')
   return screen.getByText('2026-08-07').closest('tr')

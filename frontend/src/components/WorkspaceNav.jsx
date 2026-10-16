@@ -14,7 +14,9 @@ import WorkspaceMenu from './shell/WorkspaceMenu'
 // ── Canonical Cyber MOT domains — the areas on the rail ─────────────────────
 // Founder order (14 Oct): strongest evidence first, down to the readiness area.
 // `items` are the area's sub-pages (route or in-page anchor), shown as tiles on
-// the area page; the area name itself opens its overview.
+// the area page; the area name itself opens its overview. An anchor opens the
+// Findings tab unless `tab: 'overview'` says the block is a summary that lives
+// on Overview (statistic cards, coverage honesty).
 export const SERVICES = [
   {
     key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
@@ -28,13 +30,17 @@ export const SERVICES = [
   {
     key: 'surface', domainKey: 'attack_surface', title: 'Attack Surface', to: '/assets',
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
-      || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules'),
+      || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules') || p.startsWith('/intelligence'),
     items: [
       { to: '/exposure',          label: 'Timeline',       desc: 'What appeared, changed or disappeared' },
       { to: '/scans',             label: 'Scans',          desc: 'Every assessment run and its result' },
       { to: '/schedules',         label: 'Schedules',      desc: 'When the next assessments run' },
       { to: '/ws/admin-surfaces', label: 'Admin Surfaces', desc: 'Login and admin pages reachable from outside' },
       { to: '/ws/cloud-assets',   label: 'Cloud Assets',   desc: 'Storage and cloud endpoints observed' },
+      // The scan-level intelligence page was reachable from nowhere. It carries the
+      // score history, what changed between scans and the remediation plan, and it
+      // states the check pack's position on outside vulnerability data.
+      { to: '/intelligence',      label: 'Intelligence',   desc: 'Score history, changes between scans and the remediation plan' },
     ],
   },
   {
@@ -61,7 +67,7 @@ export const SERVICES = [
     items: [
       { to: '/ws/certificates/lifecycle', label: 'Managed Lifecycle', desc: 'Renewals, replacements and follow-up' },
       { hash: '#cert-inventory', label: 'Inventory',           desc: 'Certificates observed on your hostnames' },
-      { hash: '#cert-expiry',    label: 'Expiry Risk',         desc: 'What expires soon' },
+      { hash: '#cert-expiry',    label: 'Expiry Risk',         desc: 'What expires soon', tab: 'overview' },
       { hash: '#cert-actions',   label: 'Recommended Actions', desc: 'What to do, from the registry' },
       { hash: '#cert-trust',     label: 'Trust Posture',       desc: 'What the trust path shows' },
     ],
@@ -71,7 +77,7 @@ export const SERVICES = [
     match: p => p.startsWith('/ws/brand-monitoring'),
     items: [
       { hash: '#typosquats',        label: 'Typosquat Candidates', desc: 'Lookalike domains observed' },
-      { hash: '#brand-summary',     label: 'Brand Findings',       desc: 'What the brand checks established' },
+      { hash: '#brand-summary',     label: 'Brand Findings',       desc: 'What the brand checks established', tab: 'overview' },
     ],
   },
   {
@@ -88,14 +94,18 @@ export function detectServiceKey(pathname) {
   return s ? s.key : null
 }
 
-/** The sub-page tiles of one area, each with an absolute `to` (anchors resolve against the area page). */
+/**
+ * The sub-page tiles of one area, each with an absolute `to` (anchors resolve
+ * against the area page; an Overview anchor carries `?tab=overview` so the
+ * contract opens the tab that holds it).
+ */
 export function subpagesForDomainKey(domainKey) {
   const svc = SERVICES.find((s) => s.domainKey === domainKey)
   if (!svc) return []
   return svc.items.map((item) => ({
     label: item.label,
     desc: item.desc || '',
-    to: item.to || `${svc.to}${item.hash}`,
+    to: item.to || `${svc.to}${item.tab === 'overview' ? '?tab=overview' : ''}${item.hash}`,
     anchor: Boolean(item.hash),
   }))
 }

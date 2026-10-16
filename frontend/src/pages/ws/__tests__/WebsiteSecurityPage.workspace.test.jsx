@@ -57,15 +57,20 @@ describe('WebsiteSecurityPage — workspace resolution', () => {
     expect(await screen.findByText(/No website security conditions recorded yet/i)).toBeInTheDocument()
   })
 
-  it('keeps recorded checks visible when this workspace has no tracked findings', async () => {
+  it('keeps recorded checks visible on Overview when this workspace has no tracked findings', async () => {
     useWorkspace.mockReturnValue({ wsId: WS_ID, wsName: 'CyberMeters', loading: false })
     api.getWebsiteSecurityConditions.mockResolvedValue({ items: [], pagination: { total: 0 } })
     api.getWorkspaceScans.mockResolvedValue({ scans: [{ id: 'latest', domain: 'example.com', status: 'completed', created_at: '2026-10-10T10:00:00Z' }] })
     api.getScanReport.mockResolvedValue({ scan_id: 'latest', modules: { ssl: { https_available: true, https_probe_executed: true } } })
-    mount()
+    const view = mount()
     expect(await screen.findByText(/No website security conditions recorded yet/i)).toBeInTheDocument()
+    // The scan overview (coverage honesty) is the Overview tab's summary, not a Findings list.
+    expect(screen.queryByText('Response observed')).not.toBeInTheDocument()
+    view.unmount()
+    mount('/ws/website-security')
     expect(await screen.findByText('Response observed')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View latest scan evidence' })).toHaveAttribute('href', '/scans/latest?view=technical#website-evidence')
+    expect(screen.queryByText(/No website security conditions recorded yet/i)).not.toBeInTheDocument()
   })
 
   it('renders the generic failure state on a backend 403', async () => {

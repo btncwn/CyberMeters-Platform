@@ -627,6 +627,15 @@ export default function WorkspaceCyberEssentialsPage() {
               {savedAt && <p className="mt-2 text-xs text-gray-400">Saved {savedAt.toLocaleTimeString('en-GB')}</p>}
             </div>
           )}
+          overview={(
+            <>
+              {/* The readiness indicator and which controls external evidence can
+                  and cannot see — the summary; the questionnaire, control cards,
+                  gaps and recommendations are the Findings body. */}
+              <ResultSummary readiness={readiness} />
+              <ExternallyObservedControls data={controls} error={controlsError} />
+            </>
+          )}
         >
         <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="flex gap-3">
@@ -682,10 +691,6 @@ export default function WorkspaceCyberEssentialsPage() {
           </section>
 
           <section className="space-y-6">
-            <ResultSummary readiness={readiness} />
-
-            <ExternallyObservedControls data={controls} error={controlsError} />
-
             {selfControls.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {selfControls.map(control => (

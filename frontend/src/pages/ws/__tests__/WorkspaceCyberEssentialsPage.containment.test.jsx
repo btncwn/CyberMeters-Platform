@@ -54,6 +54,12 @@ function controls(items = []) {
 function mount() {
   return render(<MemoryRouter initialEntries={['/ws/cyber-essentials?tab=findings']}><WorkspaceCyberEssentialsPage /></MemoryRouter>)
 }
+// The readiness result and the externally observed controls are the area's
+// Overview summary (16 Oct 2026); the questionnaire, control cards and gaps are
+// the Findings body.
+function mountOverview() {
+  return render(<MemoryRouter initialEntries={['/ws/cyber-essentials']}><WorkspaceCyberEssentialsPage /></MemoryRouter>)
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -67,11 +73,14 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
     // Deliberately no containment_reason: this proves the pre-existing false-healthy
     // class independently of multi-domain containment.
     api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness())
-    mount()
+    const view = mount()
 
+    expect(await screen.findByText(/Priority gaps will appear when current external evidence is available/i)).toBeInTheDocument()
+    expect(screen.queryByText(/No major readiness gaps found/i)).not.toBeInTheDocument()
+    view.unmount()
+    mountOverview()
     expect((await screen.findAllByText(/Readiness cannot currently be assessed for this workspace/i)).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText(/No major readiness gaps found/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Priority gaps will appear when current external evidence is available/i)).toBeInTheDocument()
   })
 
   it('contained live and durable control cards show not assessed and never present recorded ready as current', async () => {
@@ -106,9 +115,16 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
       recorded_readiness_reason: 'historical-stale-ready',
       recorded_evidence: [{ remediation_id: 'historical-non-external' }],
     }]))
-    mount()
+    const view = mount()
 
-    await waitFor(() => expect(screen.getAllByText(/Not assessed/i).length).toBeGreaterThanOrEqual(2))
+    await waitFor(() => expect(screen.getAllByText(/Not assessed/i).length).toBeGreaterThanOrEqual(1))
+    expect(screen.queryByText(/historical-only/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/historical-non-external/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/historical-stale-ready/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/workspace_multi_domain_not_aggregatable/i)).not.toBeInTheDocument()
+    view.unmount()
+    mountOverview()
+    await waitFor(() => expect(screen.getAllByText(/Not assessed/i).length).toBeGreaterThanOrEqual(1))
     expect(screen.queryByText(/Externally aligned/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Checked by Cyber MOT/i)).not.toBeInTheDocument()
     expect(screen.getAllByText(/Not visible externally/i).length).toBeGreaterThanOrEqual(1)
@@ -137,10 +153,14 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
       evidence: [],
       unknown_signals: [],
     }]))
-    mount()
+    const view = mount()
 
     expect(await screen.findByText(/No major readiness gaps found/i)).toBeInTheDocument()
-    expect(screen.getByText(/Externally aligned/i)).toBeInTheDocument()
+    // The self-assessment control card (Findings) carries the evidence word.
     expect(screen.getByText(/Checked by Cyber MOT/i)).toBeInTheDocument()
+    view.unmount()
+    mountOverview()
+    // The externally observed controls (Overview) carry the readiness state.
+    expect(await screen.findByText(/Externally aligned/i)).toBeInTheDocument()
   })
 })
