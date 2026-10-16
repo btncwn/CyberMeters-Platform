@@ -112,7 +112,7 @@ function makeDb({ dedupe = false } = {}) {
 }
 
 // ── Section C: per-endpoint inbound rate limit (the added bounded control) ─────
-function makeInboundDb() {
+function makeInboundDb({ deletedWorkspace = false } = {}) {
   const audits = [];
   const endpoint = { id: "ep1", workspace_id: "wsA", domain: "victim.example", domain_id: "d1",
     address_local: "cmrua_abcd1234", status: "active", is_active: 1 };
@@ -124,7 +124,10 @@ function makeInboundDb() {
                  : /INSERT INTO dmarc_aggregate_reports/.test(sql) ? "ingest" : "other";
       return { bind(...a) { args = a; return this; },
         async run() { if (kind === "audit") audits.push(args); return { meta: { changes: 1 } }; },
-        async first() { return kind === "endpoint" ? endpoint : null; }, async all() { return { results: [] }; } };
+        async first() {
+          if (kind !== "endpoint") return null;
+          return deletedWorkspace && /w\.deleted_at IS NULL/.test(sql) ? null : endpoint;
+        }, async all() { return { results: [] }; } };
     },
     async batch(s) { const o = []; for (const x of s) o.push(await x.run()); return o; },
   };
@@ -149,6 +152,14 @@ const env = { RUA_INBOUND_DOMAIN: "reports.cybermeters.com", cybermeters_db: nul
   await handleInboundEmail(msg, { ...env, cybermeters_db: db }, {}, {
     consumeApiRateLimit: async () => null, rateLimitScopeId: async (p, v) => `${p}_${v}` });
   ok("C fail-open limiter lets processing proceed", msg._rawRead() === true);
+}
+// A soft-deleted workspace must not receive a report even if its endpoint row remains.
+{
+  const db = makeInboundDb({ deletedWorkspace: true }); const msg = makeMsg();
+  await handleInboundEmail(msg, { ...env, cybermeters_db: db }, {}, {
+    consumeApiRateLimit: async () => null, rateLimitScopeId: async (p, v) => `${p}_${v}` });
+  ok("C deleted-workspace endpoint is treated as absent", db.audits.some((a) => a.some((x) => String(x).includes("endpoint_not_found"))));
+  ok("C deleted-workspace report body is never read", msg._rawRead() === false);
 }
 
 // ── Section D: absence-of-authority + self-proving guards ─────────────────────

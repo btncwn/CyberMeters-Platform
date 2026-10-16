@@ -1798,7 +1798,7 @@ function _ruaMessage(to, mime) {
   return { to, rawSize: bytes.length, raw: new Response(bytes).body };
 }
 
-function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at = null } = {}) {
+function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at = null, deletedWorkspace = false } = {}) {
   const endpoint = {
     id: "endpoint-1", workspace_id: "workspace-1", domain_id: "domain-1",
     domain: "example.com", address_local: "cmrua_abc123def456", status, revoked_at,
@@ -1817,9 +1817,9 @@ function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at =
           _sql: sql, _bindings: [],
           bind(...bindings) { this._bindings = bindings; return this; },
           async first() {
-            if (/FROM dmarc_ingest_endpoints WHERE address_local/.test(this._sql)) {
+            if (/FROM dmarc_ingest_endpoints e\s+JOIN workspaces w ON w\.id = e\.workspace_id AND w\.deleted_at IS NULL\s+WHERE e\.address_local/.test(this._sql)) {
               state.endpointLookups++;
-              return this._bindings[0] === endpoint.address_local ? endpoint : null;
+              return !deletedWorkspace && this._bindings[0] === endpoint.address_local ? endpoint : null;
             }
             if (/FROM aggregate_report_ingest_claims/.test(this._sql)) {
               return state.claimState
@@ -2108,6 +2108,16 @@ results.push(await asyncSecurityContract("rua_catchall_valid_localpart_still_ing
     state.senderInserts === 2 && state.senderMessages === 260 && state.lastInboundUpdates === 1 &&
     ingested?.metadata?.source === "inbound_email" && received?.metadata?.source === "inbound_email" &&
     received.metadata.message_count === 260;
+}));
+
+results.push(await asyncSecurityContract("rua_catchall_deleted_workspace_safe_drop", async () => {
+  const { env, state, endpoint } = _ruaHandlerHarness({ deletedWorkspace: true });
+  const mime = await _buildRuaMime(dmarcMixedXml);
+  await scanner.emailHandler(_ruaMessage(`${endpoint.address_local}@reports.cybermeters.com`, mime), env, {});
+  const drop = state.audits.find((audit) => audit.event_type === "dmarc_inbound_email_dropped");
+  return state.endpointLookups === 1 && state.reportInserts === 0 && state.recordInserts === 0 &&
+    state.senderInserts === 0 && state.lastInboundUpdates === 0 &&
+    drop?.metadata?.reason === "endpoint_not_found";
 }));
 
 results.push(await asyncSecurityContract("rua_catchall_wrong_domain_safe_drop", async () => {

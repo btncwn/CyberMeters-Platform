@@ -1170,7 +1170,9 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
     if (!localpart) { await drop(null, "endpoint_not_found", recipient); return; }
 
     const endpoint = await env.cybermeters_db
-      .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE address_local = ? LIMIT 1`)
+      .prepare(`SELECT e.* FROM dmarc_ingest_endpoints e
+                JOIN workspaces w ON w.id = e.workspace_id AND w.deleted_at IS NULL
+                WHERE e.address_local = ? LIMIT 1`)
       .bind(localpart).first();
     activeEndpoint = endpoint;
     if (!ingestEndpointIsActive(endpoint)) {
