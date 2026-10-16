@@ -2,9 +2,11 @@
 // Launch reliability fixtures: failed deletion enqueue, scheduled-query errors,
 // purge head-of-line blocking, and global rate-limit storage failure.
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { splitStatements, isToleratedStatement } from "./lib/migration-apply-tolerated.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = (...parts) => pathToFileURL(path.join(root, "workers/scan-api/src", ...parts)).href;
@@ -21,10 +23,16 @@ function ok(name, condition) {
 }
 function dbFixture() {
   const db = new DatabaseSync(":memory:");
-  const apply = (file) => { try { db.exec(fs.readFileSync(file, "utf8")); } catch { /* existing migration convergence */ } };
-  apply(path.join(root, "database/schema.sql"));
+  db.exec(fs.readFileSync(path.join(root, "database/schema.sql"), "utf8"));
   for (const file of fs.readdirSync(path.join(root, "database/migrations")).filter((f) => f.endsWith(".sql")).sort()) {
-    apply(path.join(root, "database/migrations", file));
+    const raw = fs.readFileSync(path.join(root, "database/migrations", file), "utf8");
+    const fileSha = crypto.createHash("sha256").update(raw).digest("hex");
+    for (const statement of splitStatements(raw)) {
+      try { db.exec(statement); }
+      catch (error) {
+        if (!isToleratedStatement(file, fileSha, statement, error.message)) throw error;
+      }
+    }
   }
   db.exec("PRAGMA foreign_keys = ON");
   return db;
