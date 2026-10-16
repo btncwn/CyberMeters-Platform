@@ -122,9 +122,9 @@ export default function McpConnectionsPage() {
         <p className="font-semibold text-gray-900">Connect an eligible AI client</p>
         <p className="text-gray-600">In a compatible AI client, add a remote MCP server with this URL:</p>
         <code className="block break-all rounded bg-gray-50 p-3">{MCP_ENDPOINT}</code>
-        <p className="text-xs text-gray-500">Claude, OpenAI, and Gemini products have different account, administrator, and regional eligibility. Your client must support remote MCP and OAuth. CyberMeters will ask you to review its read permission before access begins.</p>
+        <p className="text-xs text-gray-500">Client availability depends on your account and region. Your client must support remote MCP and OAuth. CyberMeters will ask you to review its read permission before access begins.</p>
       </div> : !loading && !error &&
-        <p className="text-sm text-gray-600">New MCP connections are not available for this account yet.</p>}
+        <p className="text-sm text-gray-600">MCP beta is available by invitation for selected workspaces. No eligible workspace is available for this account yet.</p>}
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       {loading ? <p className="text-sm text-gray-500">Loading connections…</p> :
         connections.length === 0 ? <p className="text-sm text-gray-500">No MCP connections yet.</p> :

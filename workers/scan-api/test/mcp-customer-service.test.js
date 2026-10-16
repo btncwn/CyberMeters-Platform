@@ -3,6 +3,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { callMcpCustomerRead, MCP_CUSTOMER_RESOURCE } from "../src/routes/mcp-customer-service.js";
 
+const TEST_RESOURCE = "https://mcp-staging.cybermeters.com/mcp";
 const BEARER = `user_a:${"b".repeat(16)}:${"a".repeat(32)}`;
 const denied = (promise) => assert.rejects(promise, (error) =>
   error.message === "mcp_customer_unavailable" && !JSON.stringify(error).includes(BEARER));
@@ -48,9 +49,10 @@ function fixture() {
     sql.prepare("INSERT INTO mcp_beta_workspace_access VALUES (?,'enabled')").run(ws);
   }
   sql.prepare("INSERT INTO mcp_oauth_connections VALUES ('conn_a','user_a','client_a',?,'ws_a',0,'[\"mcp:read\"]','active',NULL)")
-    .run(MCP_CUSTOMER_RESOURCE);
+    .run(TEST_RESOURCE);
   const env = {
     MCP_CUSTOMER_READ_ENABLED: "true", MCP_CUSTOMER_OAUTH_ENABLED: "true",
+    MCP_DEPLOYMENT_TIER: "staging",
     cybermeters_db: { prepare(statement) { return { bind(...values) {
       const prepared = sql.prepare(statement);
       return {
@@ -61,7 +63,7 @@ function fixture() {
     } }; } },
   };
   const audit = [];
-  const token = (props = {}) => ({ audience: MCP_CUSTOMER_RESOURCE,
+  const token = (props = {}) => ({ audience: TEST_RESOURCE,
     scope: ["mcp:read"], expiresAt: Math.floor(Date.now() / 1000) + 600,
     props: { userId: "user_a", connectionId: "conn_a", workspaceId: "ws_a",
       portfolioRead: false, ...props } });
@@ -106,6 +108,49 @@ test("workspace-bound customer token selects only its bound workspace and record
   } finally { f.close(); }
 });
 
+test("production founder canary rejects another member and an ownership transfer at the data service", async () => {
+  const f = fixture();
+  try {
+    delete f.env.MCP_DEPLOYMENT_TIER;
+    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER }, f.opts()));
+    f.env.MCP_DEPLOYMENT_TIER = "production";
+    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER }, f.opts()));
+    f.env.MCP_FOUNDER_CANARY_USER_ID = "user_a";
+    f.sql.prepare("UPDATE mcp_oauth_connections SET resource = ? WHERE id = 'conn_a'")
+      .run(MCP_CUSTOMER_RESOURCE);
+    const productionToken = (props = {}) => ({ ...f.token(props), audience: MCP_CUSTOMER_RESOURCE });
+    const productionOpts = (overrides = {}) => f.opts({
+      validateToken: async () => productionToken(), ...overrides,
+    });
+    const own = await callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER },
+      productionOpts());
+    assert.equal(own.workspace_id, "ws_a");
+    f.sql.prepare(`INSERT INTO subscriptions
+      (id, workspace_id, owner_user_id, plan, status, subscription_status,
+       current_period_end, created_at, updated_at)
+      VALUES ('sub_b','ws_b','user_b','business','active','active',
+       '2099-01-01T00:00:00Z','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`).run();
+    f.sql.prepare(`INSERT INTO mcp_oauth_connections
+      VALUES ('conn_b','user_b','client_a',?,'ws_b',0,'["mcp:read"]','active',NULL)`)
+      .run(MCP_CUSTOMER_RESOURCE);
+    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER },
+      productionOpts({ validateToken: async () => productionToken({
+        userId: "user_b", connectionId: "conn_b", workspaceId: "ws_b",
+      }) })));
+    f.sql.prepare("INSERT INTO workspace_members VALUES ('ws_a','user_b','viewer')").run();
+    f.sql.prepare(`INSERT INTO mcp_oauth_connections
+      VALUES ('conn_member','user_b','client_a',?,'ws_a',0,'["mcp:read"]','active',NULL)`)
+      .run(MCP_CUSTOMER_RESOURCE);
+    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER },
+      productionOpts({ validateToken: async () => productionToken({
+        userId: "user_b", connectionId: "conn_member", workspaceId: "ws_a",
+      }) })));
+    f.sql.prepare("UPDATE workspaces SET owner_user_id='user_b' WHERE id='ws_a'").run();
+    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER },
+      productionOpts()));
+  } finally { f.close(); }
+});
+
 test("revocation, membership removal, beta pause, bad scope, and audit outage deny", async () => {
   const f = fixture();
   try {
@@ -132,7 +177,7 @@ test("portfolio access is server-derived, enrolled, paginated, and scope-bound",
   try {
     f.sql.prepare("INSERT INTO workspace_members VALUES ('ws_b','user_a','analyst')").run();
     f.sql.prepare("INSERT INTO mcp_oauth_connections VALUES ('conn_portfolio','user_a','client_a',?,NULL,1,'[\"mcp:read\",\"portfolio:read\"]','active',NULL)")
-      .run(MCP_CUSTOMER_RESOURCE);
+      .run(TEST_RESOURCE);
     f.sql.prepare("INSERT INTO mcp_oauth_connection_workspaces VALUES ('conn_portfolio','ws_a'),('conn_portfolio','ws_b')").run();
     const ptoken = f.token({ connectionId: "conn_portfolio", workspaceId: null, portfolioRead: true });
     ptoken.scope = ["mcp:read", "portfolio:read"];
@@ -160,7 +205,7 @@ test("portfolio reads share one atomic connection budget across workspaces", asy
   try {
     f.sql.prepare("INSERT INTO workspace_members VALUES ('ws_b','user_a','analyst')").run();
     f.sql.prepare("INSERT INTO mcp_oauth_connections VALUES ('conn_portfolio','user_a','client_a',?,NULL,1,'[\"mcp:read\",\"portfolio:read\"]','active',NULL)")
-      .run(MCP_CUSTOMER_RESOURCE);
+      .run(TEST_RESOURCE);
     f.sql.prepare("INSERT INTO mcp_oauth_connection_workspaces VALUES ('conn_portfolio','ws_a'),('conn_portfolio','ws_b')").run();
     const token = f.token({ connectionId: "conn_portfolio", workspaceId: null, portfolioRead: true });
     token.scope = ["mcp:read", "portfolio:read"];
@@ -246,7 +291,7 @@ test("portfolio summary dispatches canonical summaries for only selected workspa
     f.sql.prepare("INSERT INTO workspace_members VALUES ('ws_c','user_a','viewer')").run();
     f.sql.prepare("INSERT INTO mcp_beta_workspace_access VALUES ('ws_c','enabled')").run();
     f.sql.prepare("INSERT INTO mcp_oauth_connections VALUES ('conn_portfolio','user_a','client_a',?,NULL,1,'[\"mcp:read\",\"portfolio:read\"]','active',NULL)")
-      .run(MCP_CUSTOMER_RESOURCE);
+      .run(TEST_RESOURCE);
     f.sql.prepare("INSERT INTO mcp_oauth_connection_workspaces VALUES ('conn_portfolio','ws_a'),('conn_portfolio','ws_b')").run();
     const ptoken = f.token({ connectionId: "conn_portfolio", workspaceId: null, portfolioRead: true });
     ptoken.scope = ["mcp:read", "portfolio:read"];
@@ -329,18 +374,19 @@ test("pending account or workspace deletion blocks every new customer read", asy
   } finally { f.close(); }
 });
 
-test("staging tier requires the distinct staging audience", async () => {
+test("production tier requires the distinct production audience and founder identity", async () => {
   const f = fixture();
   try {
-    f.env.MCP_DEPLOYMENT_TIER = "staging";
+    f.env.MCP_DEPLOYMENT_TIER = "production";
+    f.env.MCP_FOUNDER_CANARY_USER_ID = "user_a";
     await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary",
       { bearer: BEARER }, f.opts()));
-    const staging = "https://mcp-staging.cybermeters.com/mcp";
-    f.sql.prepare("UPDATE mcp_oauth_connections SET resource = ? WHERE id = 'conn_a'").run(staging);
+    f.sql.prepare("UPDATE mcp_oauth_connections SET resource = ? WHERE id = 'conn_a'")
+      .run(MCP_CUSTOMER_RESOURCE);
     const result = await callMcpCustomerRead(f.env, "getWorkspaceSummary",
       { bearer: BEARER }, f.opts({ validateToken: async (_env, resource) => {
-        assert.equal(resource, staging);
-        return { ...f.token(), audience: staging };
+        assert.equal(resource, MCP_CUSTOMER_RESOURCE);
+        return { ...f.token(), audience: MCP_CUSTOMER_RESOURCE };
       } }));
     assert.equal(result.workspace_id, "ws_a");
   } finally { f.close(); }

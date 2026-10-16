@@ -31,7 +31,7 @@ function fixture() {
   sqlite.exec("PRAGMA foreign_keys = ON");
   sqlite.exec(`
     CREATE TABLE users(id TEXT PRIMARY KEY, status TEXT, email_verified INTEGER);
-    CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT);
+    CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT, owner_user_id TEXT);
     CREATE TABLE workspace_members(id TEXT PRIMARY KEY, workspace_id TEXT, user_id TEXT, role TEXT);
     CREATE TABLE user_sessions(id TEXT PRIMARY KEY, user_id TEXT, token_hash TEXT, expires_at TEXT);
     CREATE TABLE deletion_requests(id TEXT PRIMARY KEY, request_type TEXT, user_id TEXT,
@@ -49,7 +49,7 @@ function fixture() {
   sqlite.exec(readFileSync(rate, "utf8"));
   sqlite.exec(`
     INSERT INTO users VALUES ('u1','active',1),('u2','active',1);
-    INSERT INTO workspaces VALUES ('w1','One',NULL),('w2','Two',NULL);
+    INSERT INTO workspaces VALUES ('w1','One',NULL,'u1'),('w2','Two',NULL,'u2');
     INSERT INTO workspace_members VALUES ('wm1','w1','u1','viewer'),('wm2','w2','u2','owner');
     INSERT INTO mcp_beta_workspace_access(workspace_id,status) VALUES ('w1','enabled'),('w2','enabled');
     INSERT INTO mcp_oauth_connections
@@ -69,7 +69,7 @@ function fixture() {
       }; } };
     },
   };
-  return { sqlite, env: { cybermeters_db: db } };
+  return { sqlite, env: { cybermeters_db: db, MCP_DEPLOYMENT_TIER: "staging" } };
 }
 
 function token(overrides = {}) {
@@ -98,6 +98,65 @@ test("OAuth token is bound to active connection, user, membership, beta and audi
   sqlite.exec("UPDATE mcp_beta_workspace_access SET status = 'enabled' WHERE workspace_id = 'w1'");
   sqlite.exec("UPDATE mcp_oauth_connections SET status = 'revoked' WHERE id = 'c1'");
   assert.equal(await admitMcpOAuthToken(env, token()), null);
+});
+
+test("production founder canary requires its owner secret and current workspace ownership", async () => {
+  const { sqlite, env } = fixture();
+  delete env.MCP_DEPLOYMENT_TIER;
+  assert.equal(await listMcpOAuthConsentWorkspaces(env, "u1"), null,
+    "missing deployment tier must retain the founder fence");
+  assert.equal(await admitMcpOAuthToken(env, token()), null);
+  env.MCP_DEPLOYMENT_TIER = "production";
+  assert.equal(await listMcpOAuthConsentWorkspaces(env, "u1"), null);
+  assert.equal(await admitMcpOAuthToken(env, token()), null);
+  env.MCP_FOUNDER_CANARY_USER_ID = "u1";
+  assert.deepEqual((await listMcpOAuthConsentWorkspaces(env, "u1")).map((row) => row.id), ["w1"]);
+  assert.ok(await admitMcpOAuthToken(env, token()));
+  sqlite.exec(`INSERT INTO subscriptions(id,workspace_id,owner_user_id,plan,status,
+    subscription_status,trial_end,created_at) VALUES
+    ('trial_u2','w2','u2','professional','trialing','trialing','2099-01-01','2026-01-01');
+    INSERT INTO mcp_oauth_connections
+      (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+      VALUES ('c_u2','u2','client','https://mcp.cybermeters.com/mcp','w2',0,
+        '["mcp:read"]');`);
+  const otherToken = token({ userId: "u2", props: {
+    userId: "u2", connectionId: "c_u2", workspaceId: "w2", portfolioRead: false,
+  } });
+  assert.equal(await listMcpOAuthConsentWorkspaces(env, "u2"), null);
+  assert.equal(await admitMcpOAuthToken(env, otherToken), null);
+  sqlite.exec("INSERT INTO workspace_members VALUES ('wm_extra','w1','u2','viewer')");
+  assert.equal(await listMcpOAuthConsentWorkspaces(env, "u2"), null);
+  sqlite.exec(`INSERT INTO mcp_oauth_connections
+    (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+    VALUES ('c_member','u2','client','https://mcp.cybermeters.com/mcp','w1',0,
+      '["mcp:read"]')`);
+  assert.equal(await admitMcpOAuthToken(env, token({ userId: "u2", props: {
+    userId: "u2", connectionId: "c_member", workspaceId: "w1", portfolioRead: false,
+  } })), null);
+  sqlite.exec("UPDATE workspaces SET owner_user_id='u2' WHERE id='w1'");
+  assert.equal(await listMcpOAuthConsentWorkspaces(env, "u1"), null);
+  assert.equal(await admitMcpOAuthToken(env, token()), null);
+});
+
+test("production founder portfolio grant fails after a selected workspace changes owner", async () => {
+  const { sqlite, env } = fixture();
+  env.MCP_DEPLOYMENT_TIER = "production";
+  env.MCP_FOUNDER_CANARY_USER_ID = "u1";
+  sqlite.exec(`INSERT INTO subscriptions(id,owner_user_id,plan,status,subscription_status,
+    current_period_end,created_at) VALUES
+    ('paid_u1','u1','business','active','active','2099-01-01','2026-01-01');
+    INSERT INTO mcp_oauth_connections
+      (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+      VALUES ('c2','u1','client','https://mcp.cybermeters.com/mcp',NULL,1,
+        '["mcp:read","portfolio:read"]');
+    INSERT INTO mcp_oauth_connection_workspaces VALUES ('c2','w1');`);
+  const selected = token({
+    props: { userId: "u1", connectionId: "c2", workspaceId: null, portfolioRead: true },
+    scope: ["mcp:read", "portfolio:read"],
+  });
+  assert.ok(await admitMcpOAuthToken(env, selected));
+  sqlite.exec("UPDATE workspaces SET owner_user_id='u2' WHERE id='w1'");
+  assert.equal(await admitMcpOAuthToken(env, selected), null);
 });
 
 test("single-workspace OAuth read denies when current plan state cannot be resolved", async () => {
@@ -483,7 +542,7 @@ test("DCR accepts bounded loopback, rejects hosted callbacks unless explicitly a
     method: "POST", headers: { "Content-Type": "application/json",
       "CF-Connecting-IP": "203.0.113.6" }, body: "{}",
   });
-  const metadata = { client_name: "Gemini CLI", redirect_uris: ["http://localhost:7777/oauth/callback"],
+  const metadata = { client_name: "Local Client", redirect_uris: ["http://localhost:7777/oauth/callback"],
     token_endpoint_auth_method: "none",
     grant_types: ["authorization_code"], response_types: ["code"] };
   assert.equal(await evaluateMcpDcrRegistration({ request, clientMetadata: metadata }, env), undefined);
@@ -506,6 +565,14 @@ test("DCR accepts bounded loopback, rejects hosted callbacks unless explicitly a
   sqlite.exec("DELETE FROM api_rate_limits WHERE action = 'mcp_dcr_register'");
   assert.equal(await evaluateMcpDcrRegistration({ request, clientMetadata: {
     ...metadata, redirect_uris: ["https://example.com/callback"] } }, env), undefined);
+  env.MCP_OAUTH_DCR_LOOPBACK_ENABLED = "false";
+  assert.equal((await evaluateMcpDcrRegistration({ request, clientMetadata: metadata }, env)).status, 400);
+  sqlite.exec("DELETE FROM api_rate_limits WHERE action = 'mcp_dcr_register'");
+  assert.equal(await evaluateMcpDcrRegistration({ request, clientMetadata: {
+    ...metadata, redirect_uris: ["https://example.com/callback"] } }, env), undefined);
+  env.MCP_OAUTH_CIMD_ENABLED = "false";
+  env.MCP_OAUTH_CIMD_ALLOWED_CLIENT_IDS = '["https://client.example/oauth/metadata.json"]';
+  assert.equal(isMcpOAuthClientAllowed(env, "https://client.example/oauth/metadata.json"), false);
 });
 
 test("validated OAuth budgets limit each IP before shared emergency capacity", async () => {

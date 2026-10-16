@@ -28,6 +28,8 @@
     "workers/scan-api/src/routes/mcp-customer-service.js",
     "workers/scan-api/src/routes/mcp-customer-status.js",
     "workers/scan-api/src/routes/mcp-entrypoint.js",
+    "workers/scan-api/src/routes/mcp-finding-presentation.js",
+    "workers/scan-api/src/routes/mcp-founder-canary.js",
     "workers/scan-api/src/routes/mcp-oauth-admission.js",
     "workers/scan-api/src/routes/mcp-oauth-browser.js",
     "workers/scan-api/src/routes/mcp-oauth-dcr.js",

@@ -106,9 +106,8 @@ function invalidBearerResponse() {
   });
 }
 
-// The deployed default has no route and no enablement variable in Wrangler.
-// Even if either is added later, both the explicit flag and named RPC binding
-// are required; the MCP handler still accepts only local requests.
+// A production route may exist while the Worker remains closed. Customer
+// access requires the explicit flag, private RPC, and both edge rate bindings.
 export default {
   async fetch(request, env, ctx) {
     const internal = env?.MCP_INTERNAL_ENABLED === 'true';

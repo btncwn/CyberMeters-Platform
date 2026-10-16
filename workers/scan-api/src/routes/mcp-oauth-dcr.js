@@ -64,7 +64,8 @@ export async function evaluateMcpDcrRegistration({ clientMetadata, request }, en
   }
   const hosted = configuredHostedRedirects(env);
   if (clientMetadata.redirect_uris.some((uri) =>
-    !isMcpDcrLoopbackRedirect(uri) && !(hosted.has(uri) && isSafeHostedRedirect(uri))) ||
+    !(env?.MCP_OAUTH_DCR_LOOPBACK_ENABLED !== "false" && isMcpDcrLoopbackRedirect(uri)) &&
+    !(hosted.has(uri) && isSafeHostedRedirect(uri))) ||
       new Set(clientMetadata.redirect_uris).size !== clientMetadata.redirect_uris.length ||
       !Array.isArray(clientMetadata.grant_types) ||
       !clientMetadata.grant_types.includes("authorization_code") ||

@@ -177,6 +177,21 @@ test("foreign tenant and unverified shared link cannot resolve finding", async (
   } finally { f.close(); }
 });
 
+test("historical unvalidated brand candidate cannot be explained as a finding", async () => {
+  const f = fixture();
+  try {
+    f.sql.prepare("INSERT INTO findings VALUES ('brand_old','scan_a','brand_lookalike_detected','critical','Brand lookalike domain detected: candidate.example','{}')").run();
+    f.sql.prepare("INSERT INTO findings VALUES ('brand_legacy','scan_a',NULL,'critical','Visually confusable IDN lookalike observed: candidate.example','{}')").run();
+    let snapshotReads = 0;
+    const readSnapshot = async () => { snapshotReads += 1; return verifiedRead(); };
+    for (const findingId of ["brand_old", "brand_legacy"]) {
+      await rejectProjection(projectMcpFindingExplanation(f.env, grantA, null,
+        { workspaceId: "ws_a", findingId }, { readSnapshot }));
+    }
+    assert.equal(snapshotReads, 0);
+  } finally { f.close(); }
+});
+
 test("snapshot failure and unmatched frozen finding remain explicit", async () => {
   const f = fixture();
   try {

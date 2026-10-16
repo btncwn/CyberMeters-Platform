@@ -6,6 +6,7 @@ import { readScanReportSnapshot, verificationCeiling } from "../engines/report-s
 import { resolveRemediation } from "../engines/remediation-registry.js";
 import { buildCertificateLifecycleAssurance } from "../engines/certificate-customer-presentation.js";
 import { boundedReportReads } from "./mcp-projections.js";
+import { mcpCriticalFindingSql } from "./mcp-finding-presentation.js";
 
 const PAGE_SIZE = 10;
 const MAX_RESULT_BYTES = 20_000;
@@ -158,6 +159,7 @@ export async function projectMcpFindingExplanation(env, grant, _facts, input = {
       WHERE f.id = ? AND s.workspace_id = ? AND s.status = 'completed'
         AND s.scan_quality = 'complete' AND wd.verification_status = 'verified'
         AND ${visibleFindingSql("f", "s")}
+        AND ${mcpCriticalFindingSql("f")}
         AND s.id = (
           SELECT latest.id FROM scans latest
            WHERE latest.workspace_id = s.workspace_id AND latest.domain = s.domain

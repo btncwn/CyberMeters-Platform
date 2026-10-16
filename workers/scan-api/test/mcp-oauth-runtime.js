@@ -112,7 +112,7 @@ export default { async fetch(request, env, ctx) {
     const sessionB = "b".repeat(64);
     await writeFile(seedPath, `
       CREATE TABLE users(id TEXT PRIMARY KEY, status TEXT, email_verified INTEGER);
-      CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT);
+      CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT, owner_user_id TEXT);
       CREATE TABLE workspace_members(id TEXT PRIMARY KEY, workspace_id TEXT, user_id TEXT, role TEXT);
       CREATE TABLE user_sessions(id TEXT PRIMARY KEY, user_id TEXT, token_hash TEXT, expires_at TEXT);
       CREATE TABLE subscriptions(id TEXT PRIMARY KEY, owner_user_id TEXT, workspace_id TEXT,
@@ -126,7 +126,7 @@ export default { async fetch(request, env, ctx) {
         description TEXT, metadata_json TEXT, created_at TEXT);
       ${rate}\n${migration}\n${auditRetentionIndex}\n${mcpRateRetentionIndex}\n${selectedWorkspacesMigration}
       INSERT INTO users VALUES ('u1','active',1),('u2','active',1);
-      INSERT INTO workspaces VALUES ('w1','One',NULL),('w2','Two',NULL),('w3','Three',NULL);
+      INSERT INTO workspaces VALUES ('w1','One',NULL,'u1'),('w2','Two',NULL,'u2'),('w3','Three',NULL,'u1');
       INSERT INTO workspace_members VALUES ('wm1','w1','u1','viewer'),('wm2','w2','u2','viewer'),
         ('wm3','w3','u1','viewer');
       INSERT INTO subscriptions(id,owner_user_id,workspace_id,plan,status,

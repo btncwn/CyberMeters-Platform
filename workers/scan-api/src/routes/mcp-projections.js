@@ -145,11 +145,11 @@ function scoreState(posture) {
   return posture?.state === "established" ? "assessed" : "not_assessed";
 }
 
-async function verifiedPostureSnapshot(env, workspaceId, scanId) {
+async function verifiedPostureSnapshot(env, workspaceId, scanId, readSnapshot = readScanReportSnapshot) {
   if (!SAFE_ID_RE.test(scanId)) throw new Error("invalid_projection");
   let read;
   try {
-    read = await readScanReportSnapshot(env, scanId, {
+    read = await readSnapshot(env, scanId, {
       repair: false, allowReconstruction: false, includeSuccessor: false,
     });
   } catch {
@@ -169,6 +169,17 @@ async function verifiedPostureSnapshot(env, workspaceId, scanId) {
     return null;
   }
   return read.customerSnapshot;
+}
+
+function authoritativeSnapshotScore(snapshot, posture) {
+  if (scoreState(posture) !== "assessed") return null;
+  const assessment = snapshot?.overall?.assessment;
+  const snapshotScore = safeScore(snapshot?.overall?.cyber_metrics_score);
+  if (assessment?.quality !== "complete" || assessment.authoritative !== true ||
+      assessment.provisional === true || assessment.comparable !== true ||
+      snapshotScore === null ||
+      snapshotScore !== safeScore(posture?.authoritative?.display_score)) return null;
+  return snapshotScore;
 }
 
 function projectScan(row) {
@@ -224,15 +235,10 @@ export async function projectMcpSummary(env, grant, facts) {
     ? await verifiedPostureSnapshot(reports.env, workspaceId, posture.authoritative_scan_id)
     : null;
   reports.assertWithinBudget();
-  const assessment = snapshot?.overall?.assessment;
-  const snapshotScore = safeScore(snapshot?.overall?.cyber_metrics_score);
-  const established = state === "assessed" && assessment?.quality === "complete" &&
-    assessment.authoritative === true && assessment.provisional !== true &&
-    assessment.comparable === true && snapshotScore !== null &&
-    snapshotScore === safeScore(posture?.authoritative?.display_score);
+  const score = authoritativeSnapshotScore(snapshot, posture);
+  const established = score !== null;
   const latestAt = safeDate(latest?.created_at);
   if (established && latestAt === null) throw new Error("invalid_projection");
-  const score = established ? snapshotScore : null;
   const presentedState = established ? "assessed" :
     state === "latest_incomplete" ? "latest_incomplete" :
     latestAt !== null ? "current_not_assessed" : "not_assessed";
@@ -292,24 +298,30 @@ export async function projectMcpPortfolioSummary(env, grant, facts, input = {}) 
   return value;
 }
 
-export async function projectMcpPosture(env, grant) {
+export async function projectMcpPosture(env, grant, {
+  getPosture = getCurrentPosturePresentation,
+  readSnapshot = readScanReportSnapshot,
+} = {}) {
   const workspaceId = grant.workspaceId;
   const reports = boundedReportReads(env);
-  const posture = await getCurrentPosturePresentation(reports.env, { workspaceId });
+  const posture = await getPosture(reports.env, { workspaceId });
   reports.assertWithinBudget();
   const sourceScanId = posture?.latest_provisional_scan_id ?? posture?.authoritative_scan_id ?? null;
   // The snapshot freezes resolver decisions, including the Cyber Essentials
   // context from scan finalisation. Never re-resolve from mutable raw R2 JSON.
   const snapshot = sourceScanId
-    ? await verifiedPostureSnapshot(reports.env, workspaceId, sourceScanId)
+    ? await verifiedPostureSnapshot(reports.env, workspaceId, sourceScanId, readSnapshot)
     : null;
   reports.assertWithinBudget();
   const resolved = snapshot?.domains ?? resolveCyberMotDomainStates(null, { scanId: null });
   if (!Array.isArray(resolved) || resolved.length !== 8) throw new Error("invalid_projection");
+  const state = scoreState(posture);
+  const established = authoritativeSnapshotScore(snapshot, posture) !== null;
   return {
     workspace_id: workspaceId,
     source_scan_id: snapshot ? sourceScanId : null,
-    score_state: snapshot ? scoreState(posture) : "not_assessed",
+    score_state: !snapshot ? "not_assessed" : established ? "assessed" :
+      state === "latest_incomplete" ? "latest_incomplete" : "current_not_assessed",
     domains: resolved.map((domain) => {
       if (!DOMAIN_KEYS.has(domain.domain_key)) throw new Error("invalid_projection");
       return {
