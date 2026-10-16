@@ -388,7 +388,7 @@ export async function brandRoutes(rctx) {
 
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-      // refresh requires analyst+; plain read requires viewer
+      // Refresh requires domain:add (admin+); plain read requires viewer.
       const minPerm = isRefresh ? "domain:add" : "workspace:read";
       const access = await requireWorkspaceRole(user, wsId, minPerm, env);
       if (!access) return json({ error: "Forbidden" }, 403);

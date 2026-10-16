@@ -88,7 +88,7 @@ function evidenceBadges(c) {
 const CLASSIFY_OPTIONS = [
   { value: 'owned',           label: 'Mark as owned' },
   { value: 'suspicious',      label: 'Mark suspicious' },
-  { value: 'monitor',         label: 'Monitor' },
+  { value: 'monitoring',      label: 'Monitor' },
   { value: 'confirmed_abuse', label: 'Confirm abuse' },
   { value: 'false_positive',  label: 'False positive' },
   { value: 'ignored',         label: 'Ignore' },
@@ -101,7 +101,7 @@ function classMeta(c) {
     case 'false_positive':  return { label: 'False positive', tone: 'closed' }
     case 'suspicious':      return { label: 'Suspicious',    tone: 'warn' }
     case 'confirmed_abuse': return { label: 'Confirmed abuse', tone: 'bad' }
-    case 'monitor':         return { label: 'Monitoring',    tone: 'info' }
+    case 'monitoring':      return { label: 'Monitoring',    tone: 'info' }
     default:                return { label: 'Needs review',  tone: 'review' }
   }
 }
@@ -116,6 +116,15 @@ function isClosed(c) {
 }
 function isHighRisk(c) {
   return ['high', 'critical'].includes(c.risk_level) && !isClosed(c)
+}
+function suggestedNextStep(c) {
+  if (isClosed(c)) return 'No further action is requested for this classification.'
+  if (c.action_required === true) {
+    if (c.classification === 'confirmed_abuse') return 'Escalate and consider takedown.'
+    return 'Review this risk and decide whether to escalate.'
+  }
+  if (isUnreviewed(c)) return 'Review and classify this domain.'
+  return 'Continue monitoring this domain.'
 }
 const CHIP = {
   closed: 'bg-gray-50 text-gray-500 border-gray-200',
@@ -208,7 +217,7 @@ function CandidateRow({ c, busy, onClassify }) {
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-xs text-gray-400">Suggested next step:</span>
-              <span className="text-xs text-gray-700">{c.action_required || (isUnreviewed(c) ? 'Review and classify this domain.' : classMeta(c).label === 'Confirmed abuse' ? 'Escalate and consider takedown.' : 'No action needed.')}</span>
+              <span className="text-xs text-gray-700">{suggestedNextStep(c)}</span>
             </div>
             <div className="flex flex-wrap gap-2 pt-1">
               {CLASSIFY_OPTIONS.map(o => (
@@ -365,7 +374,7 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
       <div className="space-y-3">
         {cases.map((c) => {
           const status = String(c.status || '').replace(/_/g, ' ')
-          const bundleReady = c.evidence?.bundle
+          const bundle = c.evidence?.bundle
           return (
             <div key={c.id} id={`case-${c.id}`} className="rounded-xl border border-gray-200 p-4 scroll-mt-20">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
@@ -391,10 +400,29 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
                       <span>Evidence-linked campaign <span className="mono">{c.campaign_id}</span></span>
                     )}
                   </div>
-                  {bundleReady && (
-                    <div className="mt-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600">
-                      <p className="font-semibold text-gray-800">Evidence bundle ready</p>
-                      <p className="mt-1">DNS, registrar/provider contacts and abuse indicators are prepared for takedown submission.</p>
+                  {(bundle || c.due_at || c.recommended_actions?.length > 0) && (
+                    <div className="mt-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600 space-y-2">
+                      {bundle && <>
+                        <p className="font-semibold text-gray-800">Evidence bundle</p>
+                        <dl className="grid gap-2 sm:grid-cols-2">
+                          <div><dt>Captured</dt><dd className="text-gray-800">{fmtDate(c.evidence?.latest_evidence_bundle?.captured_at || bundle.evidence_captured_at) || 'Not recorded'}</dd></div>
+                          <div><dt>Registrar</dt><dd className="text-gray-800">{bundle.rdap_snapshot?.registrar || 'Not recorded'}</dd></div>
+                          <div><dt>DNS A</dt><dd className="mono break-all text-gray-800">{Array.isArray(bundle.dns_snapshot?.A) ? (bundle.dns_snapshot.A.join(', ') || 'None observed') : 'Not checked'}</dd></div>
+                          <div><dt>DNS MX</dt><dd className="mono break-all text-gray-800">{Array.isArray(bundle.dns_snapshot?.MX) ? (bundle.dns_snapshot.MX.join(', ') || 'None observed') : 'Not checked'}</dd></div>
+                        </dl>
+                        <div>
+                          <p className="font-medium text-gray-700">Abuse contacts</p>
+                          {bundle.recipients?.length ? (
+                            <ul className="list-disc pl-4">{bundle.recipients.map((r, i) => <li key={i} className="break-all">{r.role || r.type || 'Contact'}: {r.contact || 'Unknown'}</li>)}</ul>
+                          ) : <p>None recorded</p>}
+                        </div>
+                      </>}
+                      {c.due_at && <p><span className="font-medium text-gray-700">Due:</span> {fmtDate(c.due_at) || 'Not recorded'}</p>}
+                      {!!c.recommended_actions?.length && (
+                        <div><p className="font-medium text-gray-700">Recommended actions</p>
+                          <ul className="list-disc pl-4">{c.recommended_actions.map((a, i) => <li key={i}>{typeof a === 'string' ? a : (a.title || a.action || 'Review case')}</li>)}</ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -430,7 +458,7 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
 }
 
 export default function BrandMonitoringPage() {
-  const { wsId, wsName } = useWorkspace()
+  const { wsId, wsName, workspaces } = useWorkspace()
   const [profile, setProfile]       = useState(null)
   const [summary, setSummary]       = useState(null)
   const [candidates, setCandidates] = useState([])
@@ -440,6 +468,8 @@ export default function BrandMonitoringPage() {
   const [editing, setEditing]       = useState(false)
   const [saving, setSaving]         = useState(false)
   const [busyId, setBusyId]         = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState(null)
   const [filter, setFilter]         = useState('')
   const [toast, setToast]           = useState(null)
   const queueRef = useRef(null)
@@ -509,6 +539,20 @@ export default function BrandMonitoringPage() {
       if (e.status === 403) showToast('err', 'You need workspace management permission to classify brand risks.')
       else showToast('err', e.message || 'Could not update classification.')
     } finally { setBusyId(null) }
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      await api.refreshBrandMonitoring(wsId)
+      await load()
+      showToast('ok', 'DNS check completed.')
+    } catch (e) {
+      setRefreshError(e.status === 429 ? 'DNS checks are temporarily rate limited. Please try again later.'
+        : e.status === 403 ? 'You need domain management permission to check DNS.'
+          : (e.message || 'Could not check DNS right now. Please try again.'))
+    } finally { setRefreshing(false) }
   }
 
   async function handleCaseReview(caseRow, classification) {
@@ -658,6 +702,14 @@ export default function BrandMonitoringPage() {
 
       {/* 5 · Investigation queue */}
       <section ref={queueRef} id="typosquats" className="card overflow-hidden scroll-mt-20">
+        {['admin', 'owner'].includes(workspaces?.find(w => w.id === wsId)?.role) && (
+          <div className="px-5 pt-4 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={handleRefresh} disabled={refreshing} className="btn-secondary text-xs disabled:opacity-50">
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? 'Checking DNS…' : 'Check DNS now'}
+            </button>
+            {refreshError && <p role="alert" className="text-xs text-red-700">{refreshError}</p>}
+          </div>
+        )}
         <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="section-title">Suspicious domain queue</h2>
