@@ -89,7 +89,12 @@ import {
 // the signal that actually feeds it. Cross-version trends are incomparable.
 // `2026-10-16.1`: stored DMARC decisions and unvalidated brand candidates no
 // longer yield favourable or definitive conclusions from incomplete evidence.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.1";
+// `2026-10-16.2`: Attack Surface declares the public-content exposure checks and
+// the deep TLS assessment as relevant evidence (evidence_count only; `required`
+// and the precedence ladder are unchanged, and every finding keeps its domain).
+// Outside vulnerability data is not a resolver input: the check pack removed
+// it (2026-10-13), so no exploited-vulnerability module can ever own a state.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.2";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -167,7 +172,12 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     domain_key: "attack_surface",
     display_name: "Attack Surface",
     description: "Internet-facing subdomains, exposed admin surfaces, takeover risk and cloud exposure.",
-    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns"],
+    // Relevant evidence. `external_exposure` (public content and management
+    // surfaces) and `tls_assessment` (deep TLS on the recorded endpoints) count
+    // towards evidence_count when assessed; their findings keep their own
+    // domain attribution (Website Security, Certificates & Trust). No outside
+    // vulnerability-data module is listed: the check pack does not use one.
+    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns", "external_exposure", "tls_assessment"],
     required: ["subdomains", "dns"],
     monitoring_signals: ["attack_surface"],
     monitoring_degradation_message: "Attack-surface and subdomain discovery coverage was incomplete this run.",

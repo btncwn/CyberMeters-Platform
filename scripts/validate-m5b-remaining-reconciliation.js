@@ -263,7 +263,7 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
 // version MUST have moved or every customer's CE would "improve"/"deteriorate" on deploy day.
 {
   eq("the Cyber MOT resolver version includes the B1 evidence-attribution boundary",
-    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-10-16.1");
+    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-10-16.2");
   const hist = await import(eng("cyber-mot-state-history.js"));
   const mk = (v, state) => ({ resolver_version: v, scan_quality: "complete", state, assessed_at: "2026-07-16T00:00:00Z" });
   const cross = hist.resolveDomainTrend(mk("2026-07-16.2", "assessed_healthy"), mk("2026-07-16.1", "issue_detected"));
@@ -447,6 +447,97 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
   eq("Boundary Protection can still reach ready (recovery reachable)", gr.state, "ready");
 }
 
+// ════ D4 — ATTACK SURFACE EVIDENCE INPUTS (16 October 2026) ═════════════════
+// Attack Surface declares the public-content exposure checks and the deep TLS
+// assessment as RELEVANT evidence (evidence_count), not REQUIRED evidence: a
+// scan that did not run them can still be assessed on its required DNS and
+// subdomain evidence. No outside vulnerability-data module is an input — the
+// check pack removed it (2026-10-13) — so no exploited-vulnerability record can
+// own a state. An admin-interface finding owns issue_detected on its own.
+{
+  const { healthyMonitoringStates } = await import(pathToFileURL(path.join(root, "scripts", "lib", "monitoring-fixture.mjs")).href);
+  const byKey = (rows, key) => rows.find((r) => r.domain_key === key);
+  const attack = motDomains.CYBER_MOT_DOMAINS.find((d) => d.domain_key === "attack_surface");
+  eq("attack_surface declares exactly its relevant evidence modules",
+    attack.modules, ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns", "external_exposure", "tls_assessment"]);
+  eq("attack_surface required evidence is unchanged by the declaration", attack.required, ["subdomains", "dns"]);
+  ok("no canonical domain lists an outside vulnerability-data module as evidence",
+    motDomains.CYBER_MOT_DOMAINS.every((d) => !(d.modules || []).some((m) => /cve|kev|exploit|vulnerab/i.test(m))),
+    JSON.stringify(motDomains.CYBER_MOT_DOMAINS.map((d) => d.modules)));
+
+  const exposureComplete = () => ({
+    source: "external_exposure", quality: "complete", job_state: "finished", incomplete_reason: null,
+    coverage: { completed: 3, pending: 0, blocked: 0, not_applicable: 0, budget_exhausted: 0, uncertain: 0, pending_assets: 0, not_applicable_hosts: 0 },
+    checks: [], findings: [],
+  });
+  const tlsComplete = () => ({ source: "tls_assessment", quality: "complete", coverage: { planned: 2, completed: 2 }, endpoints: [] });
+  const report = (over = {}) => ({
+    scan_id: "scan_d4", completed_at: "2026-10-16T10:00:00Z",
+    scan_quality: { status: "complete", warnings: [], modules_skipped: [] },
+    monitoring_states: healthyMonitoringStates(),
+    findings: [],
+    ...over,
+    modules: {
+      email_security: { dmarc_state: { enforcement_level: "reject_enforced" } }, dns: {},
+      brand_monitoring: { candidates_validated: true, candidates: [] },
+      ssl: { https_available: true, https_probe_executed: true }, headers: {},
+      subdomains: { count: 2 }, admin_surface_detection: {}, cloud_storage_discovery: {},
+      certificate_intelligence: {}, identity_discovery: {},
+      external_exposure: exposureComplete(), tls_assessment: tlsComplete(),
+      ...(over.modules || {}),
+    },
+  });
+  const resolve = (r) => byKey(motDomains.resolveCyberMotDomainStates(r), "attack_surface");
+
+  const full = resolve(report());
+  eq("D4 complete scan with exposure + TLS assessed: Attack Surface is healthy", full.state, motDomains.CYBER_MOT_STATES.ASSESSED_HEALTHY);
+  eq("D4 complete scan counts the six relevant modules as evidence", full.evidence_count, 6);
+
+  const legacy = report();
+  delete legacy.modules.external_exposure; delete legacy.modules.tls_assessment;
+  const legacyRow = resolve(legacy);
+  eq("D4 a stored report without those modules keeps its state (not required)", legacyRow.state, motDomains.CYBER_MOT_STATES.ASSESSED_HEALTHY);
+  eq("D4 ...and counts only the evidence it holds", legacyRow.evidence_count, 4);
+
+  const partialExposure = report({ modules: { external_exposure: { ...exposureComplete(), quality: "partial", coverage: { ...exposureComplete().coverage, pending_assets: 1 } } } });
+  const partialRow = resolve(partialExposure);
+  eq("D4 unfinished exposure coverage does not block the required-evidence verdict", partialRow.state, motDomains.CYBER_MOT_STATES.ASSESSED_HEALTHY);
+  eq("D4 ...but is not counted as assessed evidence", partialRow.evidence_count, 5);
+
+  const admin = resolve(report({ findings: [
+    { id: "admin_surface_high", module: "admin_surface_detection", severity: "high", finding_type: "finding", score_impact: 0, title: "High-Risk Admin Interface Exposed", affected_hosts: ["vpn.example.test"], recommendation: "Restrict access." },
+  ] }));
+  eq("D4 an exposed admin interface owns Attack Surface issue_detected", admin.state, motDomains.CYBER_MOT_STATES.ISSUE_DETECTED);
+  eq("D4 ...with the finding counted and identified", [admin.finding_count, admin.finding_ids], [1, ["admin_surface_high"]]);
+  eq("D4 ...and the highest severity carried", admin.highest_severity, "high");
+  const probe = resolve(report({ findings: [
+    { id: "asset_exposure_admin_interface", module: "asset_exposure", severity: "high", finding_type: "finding", score_impact: -8, title: "Admin interface reachable" },
+  ] }));
+  eq("D4 a probed admin interface owns Attack Surface issue_detected", probe.state, motDomains.CYBER_MOT_STATES.ISSUE_DETECTED);
+
+  // A module shaped like an exploited-vulnerability record — even with counts —
+  // is not evidence and cannot move the state or the count.
+  const kevShaped = report({ modules: {
+    known_exploited_vulnerabilities: { outcome: "not_in_check_pack", executed: false, matched: 5, matches: [{ cve_id: "CVE-2099-0001" }], findings: [] },
+    cve_intelligence: { outcome: "not_in_check_pack", executed: false, critical_count: 2, high_count: 3, findings: [] },
+  } });
+  const kevRow = resolve(kevShaped);
+  eq("D4 an exploited-vulnerability record is not Attack Surface evidence", kevRow.evidence_count, 6);
+  eq("D4 ...and cannot own a state", kevRow.state, motDomains.CYBER_MOT_STATES.ASSESSED_HEALTHY);
+  eq("D4 ...nor a finding", [kevRow.finding_count, kevRow.finding_ids], [0, []]);
+
+  // Findings keep their own domain: an exposure finding is Website Security's,
+  // a TLS finding is Certificates & Trust's, even though both modules are now
+  // Attack Surface evidence.
+  const owned = motDomains.resolveCyberMotDomainStates(report({ findings: [
+    { id: "external_exposure_env-config", module: "external_exposure", severity: "high", finding_type: "finding", score_impact: 0, title: "Sensitive environment configuration is public" },
+    { id: "tls_legacy_protocol", module: "tls_assessment", severity: "high", finding_type: "finding", score_impact: 0, title: "TLS 1.0 accepted" },
+  ] }));
+  eq("D4 exposure finding stays with Website Security", [byKey(owned, "website_security").finding_count, byKey(owned, "attack_surface").finding_count], [1, 0]);
+  eq("D4 TLS finding stays with Certificates & Trust", byKey(owned, "certificates_trust").finding_ids, ["tls_legacy_protocol"]);
+  eq("D4 Attack Surface stays healthy when only other domains' findings exist", byKey(owned, "attack_surface").state, motDomains.CYBER_MOT_STATES.ASSESSED_HEALTHY);
+}
+
 // ════ MUTATIONS ══════════════════════════════════════════════════════════════
 if (!process.argv.includes("--no-mutate")) {
   const CE = srcPath("engines", "ce-readiness.js");
@@ -481,8 +572,23 @@ if (!process.argv.includes("--no-mutate")) {
     { file: CE, name: "missing methodology metadata is treated as comparable",
       from: "  if (A.ver == null || B.ver == null || A.rev == null || B.rev == null) return false;", to: "" },
     { file: MOT, name: "the resolver version loses the B1 evidence-attribution boundary",
-      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.1";',
+      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.2";',
       to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.1";' },
+    { file: MOT, name: "D4: Attack Surface drops the exposure and TLS evidence modules",
+      from: '    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns", "external_exposure", "tls_assessment"],',
+      to: '    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns"],' },
+    { file: MOT, name: "D4: an outside vulnerability-data module becomes Attack Surface evidence",
+      from: '    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns", "external_exposure", "tls_assessment"],',
+      to: '    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns", "external_exposure", "tls_assessment", "known_exploited_vulnerabilities"],' },
+    { file: MOT, name: "D4: the exposure and TLS modules are promoted to required evidence",
+      from: '    required: ["subdomains", "dns"],\n    monitoring_signals: ["attack_surface"],',
+      to: '    required: ["subdomains", "dns", "external_exposure", "tls_assessment"],\n    monitoring_signals: ["attack_surface"],' },
+    { file: MOT, name: "D4: Attack Surface stops owning admin-interface findings",
+      from: '    match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),',
+      to: '    match: (f) => /^(asset_|subdomain_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),' },
+    { file: MOT, name: "D4: the resolver version is not minted for the evidence declaration",
+      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.2";',
+      to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.1";' },
     { file: MODEL, name: "`external` maps to automated again",
       from: '  if (method === "external") return "external";', to: "" },
     { file: MODEL, name: "external verification is accepted from a customer attestation",
