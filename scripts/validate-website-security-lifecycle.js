@@ -97,6 +97,10 @@ db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('ws1','u1',
 db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('m1','ws1','u1','owner')").run();
 db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('ws2','u1','Other')").run();
 db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('m2','ws2','u1','owner')").run();
+db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsCsp','u1','CSP test')").run();
+db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mCsp','wsCsp','u1','owner')").run();
+db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('d_csp','u1','csp.example.com')").run();
+db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('wsCsp','d_csp')").run();
 db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsDead','u1','Dead')").run();
 db.prepare("UPDATE workspaces SET deleted_at = datetime('now') WHERE id = 'wsDead'").run();
 
@@ -183,7 +187,7 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   }
 
   // Every recurrence the evaluator can emit MUST be graded, or it fails closed.
-  for (const key of ["ssl_not_available", "ssl_no_http_redirect", "header_missing_strict_transport_security", "header_malformed_content_security_policy",
+  for (const key of ["ssl_not_available", "ssl_no_http_redirect", "header_missing_strict_transport_security", "header_malformed_content_security_policy", "csp_weak_policy",
     "https_signin_form_cross_origin", "https_signin_form_insecure", "https_signin_no_hsts", "https_signin_cookie_no_secure"]) {
     const spec = websiteConditionSpec(key);
     ok(`${key}: maps to an actionable recurrence`, Boolean(spec?.recurrence));
@@ -202,6 +206,20 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   }
   ok("recovery/baseline/unknown are not in the alertable vocabulary",
      WS_NON_ALERTABLE_EVENT_TYPES.every((t) => t !== MONITORING_CHANGED));
+}
+
+// A weak CSP is produced by scoring.js. It must enter the managed condition
+// lifecycle and open a case after the initial domain baseline has been set.
+{
+  const opts = { domainId: "d_csp", domain: "csp.example.com" };
+  await run("wsCsp", [], { ...opts, scan: "csp_baseline" });
+  await run("wsCsp", [{ id: "csp_weak_policy", module: "headers", severity: "medium", title: "Weak CSP Policy" }],
+    { ...opts, scan: "csp_observed" });
+  const rec = condFor("wsCsp", "csp_weak_policy");
+  ok("csp_weak_policy creates a Website Security condition", Boolean(rec));
+  eq("csp_weak_policy has the browser protection recurrence", rec?.recurrence_type, "browser_protection_malformed");
+  ok("csp_weak_policy opens a managed case", Boolean(rec?.linked_case_id &&
+    db.prepare("SELECT id FROM managed_cases WHERE id = ? AND workspace_id = ?").get(rec.linked_case_id, "wsCsp")));
 }
 
 // ── 2. THE FLOOD GUARD — a 14-month backlog stays silent on day one ─────────
@@ -490,6 +508,11 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
       from: "} else if (gate.canVerify(spec.module)) {",
       to: "} else if (true) {",
     },
+    {
+      id: "website-lifecycle-weak-csp-mapping",
+      from: '  csp_weak_policy:    { recurrence: "browser_protection_malformed", module: "headers" },',
+      to: '  // Weak CSP mapping removed by mutation.',
+    },
   ];
   const missingAnchorId = "website-lifecycle-anchor-missing-probe";
   registerMutants([
@@ -554,6 +577,18 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
      mutRec.monitoring_status, "no_longer_observed");
   ok("MUTANT (b): and writes a fabricated recovery event",
      db.prepare("SELECT * FROM website_security_events WHERE record_id=? AND event_type=?").all(mutRec.id, WS_EVENT_RESOLVED).length > 0);
+
+  const mC = await importMutant(websiteLifecyclePath, mutations[2].id);
+  eq("MUTANT (c): deleting the weak CSP mapping loses the actionable condition", mC.websiteConditionSpec("csp_weak_policy"), null);
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsMutC','u1','MutC')").run();
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mC','wsMutC','u1','owner')").run();
+  await mC.evaluateWebsiteSecurityForScan(env, {
+    workspace_id: "wsMutC", domain_id: "dC", domain: "mut-c.example.com", scan_id: "sC",
+    findings: [{ id: "csp_weak_policy", module: "headers", severity: "medium", title: "Weak CSP Policy" }],
+    modules: MODULES_OK, scanQuality: QUALITY_OK,
+  });
+  eq("MUTANT (c): weak CSP is absent from the managed condition table",
+     condFor("wsMutC", "csp_weak_policy"), undefined);
 
   const surfaceAfter = mutationSurface();
   eq("mutations leave the whole-source fingerprint unchanged", surfaceAfter.source, surfaceBefore.source);

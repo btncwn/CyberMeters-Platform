@@ -441,7 +441,10 @@ function ExternallyObservedControls({ data, error }) {
                   <p className="text-xs font-medium text-gray-600">What we observed</p>
                   <ul className="mt-1 space-y-0.5">
                     {c.evidence.map((e, i) => (
-                      <li key={i} className="font-mono text-xs text-gray-600">{e.remediation_id}{e.reason ? ` — ${e.reason}` : ''}</li>
+                      <li key={i} className="text-xs text-gray-700">
+                        <span className="block">{e.customer_title || 'Observed control finding'}</span>
+                        {e.remediation_id && <span className="block font-mono text-[11px] text-gray-500">{e.remediation_id}</span>}
+                      </li>
                     ))}
                   </ul>
                 </div>

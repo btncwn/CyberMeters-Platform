@@ -30,7 +30,8 @@ const cleanComplete = () => ({
     headers: {},
     subdomains: { count: 3 }, admin_surface_detection: {}, cloud_storage_discovery: {},
     certificate_intelligence: {}, identity_discovery: {},
-    saas_exposure: { count: 2 }, technology_detection: { count: 5 },
+    saas_exposure: { observed_total: 2 }, third_party_assets: { count: 3 },
+    technology_detection: { technologies: ["service-a", "service-b", "service-c", "service-d", "service-e"] },
   },
   monitoring_states: healthyMonitoring(),
   findings: [],
@@ -285,6 +286,12 @@ const cleanComplete = () => ({
     // customer's own record, never an external verdict — and never "not yet configured".
     /customer's own record in the Shadow IT inventory, not an external verdict/i.test(s.limitations.join(" ")) &&
     !/not yet configured|unapproved/i.test(s.limitations.join(" ")));
+  ok("19: Shadow IT counts the canonical SaaS, third-party and technology fields",
+    s.evidence_count === 10 &&
+    s.summary === "10 externally observed technologies/services; compare against your approved inventory in Shadow IT.");
+  ok("19: Shadow IT coverage names the actual third-party assets producer",
+    CYBER_MOT_DOMAINS.find((d) => d.domain_key === "shadow_it_unmanaged_technology")?.modules.includes("third_party_assets") &&
+    !CYBER_MOT_DOMAINS.find((d) => d.domain_key === "shadow_it_unmanaged_technology")?.modules.includes("third_party_discovery"));
 }
 
 // 20. Zero findings → all eight still render.

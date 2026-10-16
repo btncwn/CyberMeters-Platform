@@ -235,7 +235,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     domain_key: "shadow_it_unmanaged_technology",
     display_name: "Shadow IT & Unmanaged Technology",
     description: "Externally visible SaaS, cloud services, email senders and internet-facing technologies that may sit outside the known technology inventory.",
-    modules: ["saas_exposure", "third_party_discovery", "technology_detection", "cloud_storage_discovery", "vendor_relationships"],
+    modules: ["saas_exposure", "third_party_assets", "technology_detection", "cloud_storage_discovery", "vendor_relationships"],
     monitoring_signals: ["technology_visibility"],
     monitoring_degradation_message: "Technology observation coverage was incomplete this run.",
     match: () => false, // observation-only; not attributed authoritative findings this episode
@@ -396,20 +396,20 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       return base;
     }
 
-    // ── Shadow IT (8) — externally-observed monitoring only, no inventory yet ──
+    // ── Shadow IT (8) — externally observed monitoring ───────────────────────
     if (d.domain_key === "shadow_it_unmanaged_technology") {
       const observed = d.modules.reduce((n, name) => {
         const m = report.modules?.[name];
         if (!m || m.error) return n;
-        const c = m.count ?? m.total ?? (Array.isArray(m.items) ? m.items.length : (Array.isArray(m.assets) ? m.assets.length : 0));
+        const c = name === "saas_exposure" ? m.observed_total
+          : name === "technology_detection" ? m.technologies?.length
+            : m.count ?? m.total ?? (Array.isArray(m.items) ? m.items.length : (Array.isArray(m.assets) ? m.assets.length : 0));
         return n + (Number.isFinite(c) ? c : 0);
       }, 0);
       base.evidence_count = observed;
       base.state = CYBER_MOT_STATES.MONITORING_ONLY;
       base.coverage = signalCoverageLimited ? "degraded" : (provisional ? quality : "complete");
-      base.summary = observed > 0
-        ? `${observed} externally observed ${observed === 1 ? "technology/service" : "technologies/services"} (approved-inventory comparison not yet configured).`
-        : "Externally observed technology monitoring active (approved-inventory comparison not yet configured).";
+      base.summary = `${observed} externally observed technologies/services; compare against your approved inventory in Shadow IT.`;
       if (signalCoverageLimited) {
         base.summary += ` ${signalCoverageMessage}`;
       }

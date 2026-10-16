@@ -71,6 +71,7 @@ export const WS_NON_ALERTABLE_EVENT_TYPES = Object.freeze([
 const WS_CONDITIONS = Object.freeze({
   ssl_not_available:   { recurrence: "transport_not_available",       module: "ssl" },
   ssl_no_http_redirect:{ recurrence: "insecure_redirect",             module: "ssl" },
+  csp_weak_policy:    { recurrence: "browser_protection_malformed", module: "headers" },
   ...Object.fromEntries(COOKIE_FINDING_TYPES.map((conditionKey) => [conditionKey, {
     recurrence: "browser_protection_missing",
     module: "domain_security_enrichment",
