@@ -41,6 +41,11 @@ binding = "cybermeters_db"
 database_name = "cybermeters-db"
 database_id = "fd6792cb-441a-44a7-8ca2-9a0b411ec706"
 
+# Dedicated production OAuth grant state; never reuse the staging namespace.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "62fcb811784b48af85305c96ae493319"
+
 [[r2_buckets]]
 binding = "cybermeters_reports"
 bucket_name = "cybermeters-reports"
@@ -106,6 +111,16 @@ max_retries = 5
 # RESEND_API_KEY must be set as a Wrangler secret (never committed):
 #   wrangler secret put RESEND_API_KEY
 [vars]
+# Founder canary starts closed. Hosted redirect allowlists are supplied as
+# production secrets only after review; missing redirect or founder identity
+# values deny authorization. Neither value belongs in the public repository.
+MCP_DEPLOYMENT_TIER = "production"
+MCP_CUSTOMER_OAUTH_ENABLED = "false"
+MCP_CUSTOMER_READ_ENABLED = "false"
+MCP_OAUTH_DCR_ENABLED = "false"
+# The initial canary accepts reviewed hosted callbacks through DCR only.
+MCP_OAUTH_CIMD_ENABLED = "false"
+MCP_OAUTH_DCR_LOOPBACK_ENABLED = "false"
 # Requires migration 119; set to disabled for rollback. Continuations still drain.
 EXPOSURE_SCAN_MODE = "evidence-v1"
 # Supported TLS checks only; Heartbleed, ROBOT and CCS remain unexecutable.

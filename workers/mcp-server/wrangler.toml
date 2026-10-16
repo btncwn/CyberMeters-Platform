@@ -5,6 +5,16 @@ compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 workers_dev = false
 preview_urls = false
 
+# Production host for the customer MCP endpoint and resource metadata.
+# Access stays closed until the explicit customer flag is enabled.
+[[routes]]
+pattern = "mcp.cybermeters.com"
+custom_domain = true
+
+[vars]
+MCP_DEPLOYMENT_TIER = "production"
+MCP_CUSTOMER_ENABLED = "false"
+
 [observability]
 enabled = true
 
@@ -28,16 +38,16 @@ namespace_id = "320032"
 limit = 1000
 period = 60
 
-# Local/dev MCP-03 RPC contract. No enablement variable or public route is set.
-# The backend must export the named McpReadService WorkerEntrypoint.
+# Private RPC contracts. The named backend entrypoints are the only customer
+# data path; the public host remains closed while MCP_CUSTOMER_ENABLED=false.
 [[services]]
 binding = "MCP_BACKEND"
 service = "cybermeters-platform"
 entrypoint = "McpReadService"
 remote = false
 
-# Customer path remains disabled until OAuth KV, staging hostname, and release
-# gates are provisioned. These bindings do not grant data or public routing.
+# OAuth and customer reads remain closed until the separate production KV,
+# backend flags, and release gates are provisioned.
 [[services]]
 binding = "MCP_AUTH"
 service = "cybermeters-platform"
