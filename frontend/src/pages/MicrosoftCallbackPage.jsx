@@ -24,6 +24,7 @@ import CyberMetersLogo from '../components/CyberMetersLogo'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
 import { forgetMicrosoftLoginVerifier, microsoftLoginVerifiers } from '../lib/microsoftLoginBinding'
+import { takeMicrosoftMcpContinuation } from '../lib/mcpLoginContinuation'
 
 export default function MicrosoftCallbackPage() {
   const [searchParams]  = useSearchParams()
@@ -57,11 +58,17 @@ export default function MicrosoftCallbackPage() {
     api.exchangeOAuthCode(otc, verifiers)
       .then(async data => {
         await forgetMicrosoftLoginVerifier(data?.binding).catch(() => {})
+        const mcpDestination = takeMicrosoftMcpContinuation(data?.binding)
         // MFA-enabled account: the backend issued a second-factor challenge instead
         // of a session. Hand the challenge to the login page, which renders the
         // existing MFA step (authenticator code + recovery code) to complete it.
         if (data.mfa_required && data.challenge_token) {
-          navigate('/login', { replace: true, state: { mfaChallengeToken: data.challenge_token } })
+          navigate('/login', { replace: true, state: {
+            mfaChallengeToken: data.challenge_token,
+            ...(mcpDestination ? { from: {
+              pathname: '/mcp/connect', search: mcpDestination.slice('/mcp/connect'.length),
+            } } : {}),
+          } })
           return
         }
         if (!data.token || !data.id || !data.email) {
@@ -85,7 +92,7 @@ export default function MicrosoftCallbackPage() {
         } catch {
           // Workspace check failed — fall through to the services launcher.
         }
-        navigate('/services', { replace: true })
+        navigate(mcpDestination || '/services', { replace: true })
       })
       .catch(() => {
         setError('Sign-in could not be completed in this browser. Please sign in again.')

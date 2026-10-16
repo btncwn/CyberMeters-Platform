@@ -62,8 +62,11 @@ const EXPECTED = Object.freeze({
     // Dashboard presentation now requires the projected assessment authority
     // and comparability. Stored scan_quality alone cannot establish a rating;
     // the removed direct comparisons leave this integrated inventory at 53.
-    comparison_occurrences: 53,
-    source_file_count: 24,
+    // MCP read projections add four fail-closed comparisons in two route files:
+    // null/unknown quality is never presented as complete. The pre-existing
+    // runtime comparison sites remain unchanged.
+    comparison_occurrences: 57,
+    source_file_count: 26,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -101,7 +104,7 @@ const EXPECTED = Object.freeze({
     // pinned, so real additions/removals still fail while line-only edits do not.
     // TLS release: the historical customer projector consumes effective
     // quality, and the aggregate now checks the projected complete state.
-    fingerprint: "5ee4e49f2e1046e41e14233afbc07ccd5b18b60bd42e305f18740450d8ebb58e",
+    fingerprint: "caec8b9e087453b6ed4aa6af680cc648949aa91bc924b99571b0827e95ce356d",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -110,9 +113,12 @@ const EXPECTED = Object.freeze({
     // workspace's last scan with scan_quality = 'complete' as the change
     // baseline, so a partial scan is skipped rather than blocking the next
     // comparison. The two-tree --dump-current diff shows no other SQL delta.
-    predicate_occurrences: 36,
-    unique_query_sites: 27,
-    source_file_count: 16,
+    // MCP discovery/status add two tenant-scoped query sites with four
+    // complete-quality predicates. The portfolio command-centre merge shifts
+    // executive-dashboard source positions without changing its predicates.
+    predicate_occurrences: 40,
+    unique_query_sites: 29,
+    source_file_count: 18,
     // The QA-benchmark admin gate shifts workspace-insights.js source lines;
     // all 35 predicate snippets and 26 query sites remain unchanged.
     // A single-source CT read in historical-scan.js moved its one static/query-sink
@@ -131,9 +137,9 @@ const EXPECTED = Object.freeze({
     // executive-dashboard SQL query site, which moves by that much; the
     // two-tree --dump-current diff shows only line/offset shifts — predicate
     // text, site/sink counts and classification are unchanged.
-    fingerprint: "87e8b134b95fe187d8aa267e9ec2689298ca6f36a7426c7b91d724dc47b5ed1a",
-    resolved_query_sink_count: 20,
-    resolved_query_sink_fingerprint: "c70c8709637ae77b95a447d131c2347e1957b01c95c53f3e6c1c04e38f4d1268",
+    fingerprint: "55c138aff585ff748126211acffb8cc17380683139e3adebce0ee8804039c547",
+    resolved_query_sink_count: 22,
+    resolved_query_sink_fingerprint: "4d3d7c3e8cb481faceb6a702ab33dc10aef279f02549b089ddb19a48e8ae94eb",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -189,7 +195,8 @@ const EXPECTED = Object.freeze({
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
   // TLS quality: the new quality projector joins the runtime set, 33 -> 34.
-  runtime_source_file_count: 34,
+  // MCP discovery, status, and projection routes join the governed runtime set.
+  runtime_source_file_count: 37,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -239,7 +246,9 @@ const EXPECTED = Object.freeze({
     // which shows a completed partial scan as "Partial results".
     // Dashboard now uses the backend assessment for finality, with direct
     // quality reads retained only for fail-closed checks and visible labels.
-    runtime: { occurrence_count: 115, source_file_count: 41, fingerprint: "7e8d6593af17d8629a960a8d715eaa3bcf8d2bae55ae99ecee0c6121f7ce1bba" },
+    // MCP gateway/route reads add eight canonical-quality reads across five
+    // runtime files; the raw value is always passed through bounded projection.
+    runtime: { occurrence_count: 123, source_file_count: 46, fingerprint: "ac390593215467e20bcc0e02a3271b8d8bb74773f54f5d32d0c4c36862061d87" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -270,7 +279,8 @@ const EXPECTED = Object.freeze({
     // Queued-scan authority: 115 -> 116, the read behind that one assertion.
     // Load lab: 116 -> 118 across 36 -> 37 files — scripts/lab/load-lab.mjs reads
     // each finished scan's recorded quality to report how many were partial.
-    governance: { occurrence_count: 121, source_file_count: 38, fingerprint: "8e808944cb3583c217e6011b17b54c2b144efc65f0d183fc9bf8feb31a08a2e6" },
+    // Two MCP read assertions add governed direct reads in two test files.
+    governance: { occurrence_count: 123, source_file_count: 40, fingerprint: "817ccf07228bee1d3566d91dba92eaefcea8f7f45e771e2fbf496c5a9cfd1a4d" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -287,7 +297,8 @@ const EXPECTED = Object.freeze({
   // TLS report projection adds route source lines; the 22 SQL reads are unchanged.
   // Hosting networks on asset rows move two attack-surface.js scan reads by 19
   // lines (1202/1215 -> 1221/1234); the 22 SQL reads are unchanged.
-  sql_reads: { projection_occurrences: 22, fingerprint: "1ee3456957adbbeb934e1d6f3a4072a5f6c002a3bb150e4ef46d2935aea20284" },
+  // Two MCP projections select scan_quality under an explicit workspace fence.
+  sql_reads: { projection_occurrences: 24, fingerprint: "045bd2658d968ec5ed589d937fffa9a162df5d071aa954fae434c4ebd8c722ae" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

@@ -1826,16 +1826,41 @@ jobs:
         if: ${{ needs.ci_scope.outputs.decision != 'SAFE_DOCS_ONLY' }}
         run: node scripts/validate-scan-quality-vocabulary-mutations.js
 
-      # ── SBOM (CycloneDX) — supply-chain inventory for both workspaces ──────
-      # node_modules for both are installed above, so the trees are accurate.
+      # ── SBOM (CycloneDX) — supply-chain inventory for all shipped workspaces ──
+      # The API and frontend trees are installed above; install the separate
+      # MCP gateway here so its committed dependency inventory is checked too.
       # Uploaded as a build artifact per commit; committed snapshots in sbom/
       # are the point-in-time reference for the Trust Center.
+      - name: Install MCP gateway dependencies for supply-chain inventory
+        run: npm ci --prefix workers/mcp-server --ignore-scripts
+
+      # Branch pushes do not trigger this workflow. These checks remain wired
+      # for a later PR/main run, after the local-first MCP gate has passed.
+      - name: Validate MCP admission and private service contract
+        run: node scripts/validate-mcp-admission.js
+
+      - name: Validate MCP customer service contract
+        run: node scripts/validate-mcp-service.js
+
+      - name: Validate MCP private two-Worker runtime
+        run: node scripts/validate-mcp-rpc-runtime.js
+
+      - name: Validate MCP OAuth resource runtime
+        run: node scripts/validate-mcp-oauth-resource-runtime.js
+
+      - name: Validate MCP customer OAuth to gateway runtime
+        run: node scripts/validate-mcp-customer-chain-runtime.js
+
+      - name: Validate isolated MCP staging configuration
+        run: node scripts/validate-mcp-staging-config.js
+
       - name: Generate SBOMs (CycloneDX)
         run: |
           mkdir -p sbom
           ( cd workers/scan-api && npx --yes @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors --output-format JSON --output-file ../../sbom/scan-api.cdx.json )
+          ( cd workers/mcp-server && npx --yes @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors --output-format JSON --output-file ../../sbom/mcp-server.cdx.json )
           ( cd frontend && npx --yes @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors --output-format JSON --output-file ../sbom/frontend.cdx.json )
-          node -e "for(const f of ['sbom/scan-api.cdx.json','sbom/frontend.cdx.json']){const d=require('./'+f);const n=(d.components||[]).length;console.log(f,n,'components, spec',d.specVersion);if(n===0)throw new Error('empty SBOM: '+f)}"
+          node -e "for(const f of ['sbom/scan-api.cdx.json','sbom/mcp-server.cdx.json','sbom/frontend.cdx.json']){const d=require('./'+f);const n=(d.components||[]).length;console.log(f,n,'components, spec',d.specVersion);if(n===0)throw new Error('empty SBOM: '+f)}"
 
       - name: SBOM drift (the committed snapshots must list what the lockfiles ship)
         run: node scripts/validate-sbom-drift.js

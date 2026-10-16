@@ -73,6 +73,50 @@
   ],
   "resource_classes": [
     {
+      "class": "mcp_customer_connections",
+      "domain": "auth",
+      "tables": [
+        "mcp_beta_workspace_access",
+        "mcp_oauth_browser_sessions",
+        "mcp_oauth_connection_workspaces",
+        "mcp_oauth_connections",
+        "mcp_oauth_login_intents",
+        "mcp_oauth_refresh_uses"
+      ],
+      "ownership": {
+        "mcp_beta_workspace_access": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "mcp_oauth_browser_sessions": {
+          "model": "user",
+          "column": "user_id"
+        },
+        "mcp_oauth_connection_workspaces": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "mcp_oauth_connections": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "mcp_oauth_login_intents": {
+          "model": "infra",
+          "column": null
+        },
+        "mcp_oauth_refresh_uses": {
+          "model": "via_mcp_connection",
+          "column": "connection_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Beta enrollment is workspace-scoped; OAuth sessions are user-scoped; selected portfolio rows and refresh-use hashes inherit their live connection. Pre-consent login intents contain no tenant grant and expire by one-time hash. Dedicated two-tenant workerd, IDOR, revocation, purge and token-replay coverage runs in the MCP local gate (validate-mcp-customer-chain-runtime, validate-mcp-rpc-runtime, mcp-oauth-admission and validate-purge-completeness)."
+      }
+    },
+    {
       "class": "identity_workforce_response",
       "domain": "identity",
       "tables": [
@@ -1227,6 +1271,12 @@
     "lifecycle_email_events": "deletion_lifecycle",
     "managed_case_events": "managed_cases",
     "managed_cases": "managed_cases",
+    "mcp_beta_workspace_access": "mcp_customer_connections",
+    "mcp_oauth_browser_sessions": "mcp_customer_connections",
+    "mcp_oauth_connection_workspaces": "mcp_customer_connections",
+    "mcp_oauth_connections": "mcp_customer_connections",
+    "mcp_oauth_login_intents": "mcp_customer_connections",
+    "mcp_oauth_refresh_uses": "mcp_customer_connections",
     "mfa_challenges": "auth_sessions",
     "msp_branding_profiles": "report_branding",
     "network_assets": "network_assets",
@@ -1288,12 +1338,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 111,
-    "classified": 111,
-    "tenant_owned_tables": 107,
+    "schema_tables": 117,
+    "classified": 117,
+    "tenant_owned_tables": 113,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 39,
+    "resource_classes": 40,
     "classes_with_dynamic_coverage": 17
   }
 }

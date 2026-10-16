@@ -13,7 +13,11 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 
-const WORKSPACES = { "sbom/scan-api.cdx.json": "workers/scan-api", "sbom/frontend.cdx.json": "frontend" };
+const WORKSPACES = {
+  "sbom/scan-api.cdx.json": "workers/scan-api",
+  "sbom/mcp-server.cdx.json": "workers/mcp-server",
+  "sbom/frontend.cdx.json": "frontend",
+};
 
 function platformRestricted(workspace) {
   const lock = JSON.parse(fs.readFileSync(`${workspace}/package-lock.json`, "utf8"));

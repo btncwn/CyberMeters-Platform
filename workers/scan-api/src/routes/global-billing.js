@@ -13,6 +13,7 @@ import { auditApiTokenSessionRouteDenied, getPublicBillingPlans } from "../engin
 import { ingestDmarcReport, ingestEndpointIsActive } from "../lib/dmarc-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
+import { reconcileMcpOAuthPortfolioSubscription } from "./mcp-oauth-admission.js";
 
 export async function globalBillingRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -264,6 +265,7 @@ export async function globalBillingRoutes(rctx) {
       }
 
       try {
+        let mcpEntitlementRowId = null;
         switch (eventType) {
 
           // ── checkout.session.completed ────────────────────────────────────
@@ -309,6 +311,7 @@ export async function globalBillingRoutes(rctx) {
           // so getEffectivePlan() reads the correct plan and expiry.
           case "customer.subscription.created": {
             const rowId = await handleStripeSubscriptionUpsert(env, obj);
+            mcpEntitlementRowId = rowId;
             const metadata = obj?.metadata || {};
             const price = getStripeSubscriptionPrice(obj, env);
             await createAuditEvent(env, {
@@ -358,6 +361,7 @@ export async function globalBillingRoutes(rctx) {
                 : null;
             } catch { /* audit metadata lookup only */ }
             const rowId = await handleStripeSubscriptionUpsert(env, obj);
+            mcpEntitlementRowId = rowId;
             const price = getStripeSubscriptionPrice(obj, env);
             const newPlan = getPlanFromStripePriceId(env, price?.id || null, metadata.plan);
             const previousPlan = previousSubscription?.plan ? normalizePlan(previousSubscription.plan) : null;
@@ -399,6 +403,7 @@ export async function globalBillingRoutes(rctx) {
           // Row is never deleted — historical record is preserved.
           case "customer.subscription.deleted": {
             const rowId = await handleStripeSubscriptionDeleted(env, obj);
+            mcpEntitlementRowId = rowId;
             const metadata = obj?.metadata || {};
             await createAuditEvent(env, {
               user_id:     metadata.user_id || null,
@@ -429,6 +434,7 @@ export async function globalBillingRoutes(rctx) {
           // status after Stripe collects payment.
           case "invoice.payment_failed": {
             const rowId = await handleStripeInvoicePaymentFailed(env, obj);
+            mcpEntitlementRowId = rowId;
             await createAuditEvent(env, {
               user_id:     null,
               event_type:  "subscription_payment_failed",
@@ -491,6 +497,7 @@ export async function globalBillingRoutes(rctx) {
           // clears the payment failure state.
           case "invoice.payment_succeeded": {
             const rowId = await handleStripeInvoicePaymentSucceeded(env, obj);
+            mcpEntitlementRowId = rowId;
             await createAuditEvent(env, {
               user_id:     null,
               event_type:  "subscription_payment_succeeded",
@@ -518,6 +525,11 @@ export async function globalBillingRoutes(rctx) {
           // All other Stripe events are acknowledged and silently ignored.
           default:
             break;
+        }
+        // Reconcile after the canonical subscription write, before recording
+        // webhook completion. A failed D1 fence makes Stripe retry the event.
+        if (mcpEntitlementRowId) {
+          await reconcileMcpOAuthPortfolioSubscription(env, mcpEntitlementRowId);
         }
       } catch (e) {
         // Side effects failed — mark the claim 'failed' so the next Stripe retry

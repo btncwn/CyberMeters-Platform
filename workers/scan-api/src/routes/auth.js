@@ -17,6 +17,7 @@ import { newPasswordRejection } from "../lib/common-passwords.js";
 import { browserBindingChallenges, isBrowserBindingChallenge } from "../lib/oauth-browser-binding.js";
 import { generateTotpSecret, verifyTotp } from "../lib/totp.js";
 import { createId, isValidEmail } from "../lib/util.js";
+import { revokeMcpOAuthUserGrantsForPurge } from "./mcp-oauth-purge.js";
 
 export async function authRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -1270,7 +1271,10 @@ export async function authRoutes(rctx) {
           WHERE id = ? AND user_id = ? AND used_at IS NULL
           AND julianday(expires_at) > julianday(?))`;
         const guard = [tokenRow.id, user.id, checkedAt];
-        const resetResults = await env.cybermeters_db.batch([
+        const mcpConnectionsExist = Boolean(await env.cybermeters_db.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mcp_oauth_connections' LIMIT 1",
+        ).first());
+        const resetStatements = [
           env.cybermeters_db
             .prepare(`UPDATE users SET password_hash = ? WHERE id = ? AND ${eligible}`)
             .bind(newHash, user.id, ...guard),
@@ -1286,13 +1290,26 @@ export async function authRoutes(rctx) {
           env.cybermeters_db
             .prepare(`UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active' AND ${eligible}`)
             .bind(user.id, ...guard),
+          ...(mcpConnectionsExist ? [env.cybermeters_db
+            .prepare(`UPDATE mcp_oauth_connections SET status = 'revoked',
+                revoked_at = COALESCE(revoked_at, datetime('now'))
+              WHERE user_id = ? AND status = 'active' AND ${eligible}`)
+            .bind(user.id, ...guard)] : []),
           env.cybermeters_db
             .prepare(`UPDATE password_reset_tokens SET used_at = ?
               WHERE id = ? AND user_id = ? AND used_at IS NULL AND julianday(expires_at) > julianday(?)`)
             .bind(checkedAt, ...guard),
-        ]);
-        if (resetResults[3]?.meta?.changes !== 1) {
+        ];
+        const resetResults = await env.cybermeters_db.batch(resetStatements);
+        if (resetResults.at(-1)?.meta?.changes !== 1) {
           return json({ error: "Reset link is invalid, expired, or has already been used." }, 400);
+        }
+        if (mcpConnectionsExist && env.OAUTH_KV) {
+          // D1 admission is already fenced by the atomic reset batch. KV
+          // cleanup removes provider refresh grants as well.
+          await revokeMcpOAuthUserGrantsForPurge(env, user.id).catch(() => {
+            console.error("mcp_oauth_password_reset_kv_revoke_unavailable");
+          });
         }
 
         await createAuditEvent(env, {
@@ -1709,9 +1726,11 @@ export async function authRoutes(rctx) {
           return json({ error: "Verification failed. Provide a valid TOTP code or current password." }, 403);
         }
 
-        // Clear all MFA fields
-        await env.cybermeters_db
-          .prepare(
+        // Clear MFA and fence all MCP connections atomically in D1.
+        const mcpConnectionsExist = Boolean(await env.cybermeters_db.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mcp_oauth_connections' LIMIT 1",
+        ).first());
+        const disableMfa = env.cybermeters_db.prepare(
             `UPDATE users
              SET mfa_enabled = 0,
                  mfa_enabled_at = NULL,
@@ -1719,9 +1738,19 @@ export async function authRoutes(rctx) {
                  mfa_recovery_codes_hash_json = NULL,
                  mfa_last_verified_at = NULL
              WHERE id = ?`
-          )
-          .bind(user.id)
-          .run();
+          ).bind(user.id);
+        const disableStatements = [disableMfa];
+        if (mcpConnectionsExist) disableStatements.push(env.cybermeters_db.prepare(
+          `UPDATE mcp_oauth_connections SET status = 'revoked',
+             revoked_at = COALESCE(revoked_at, datetime('now'))
+           WHERE user_id = ? AND status = 'active'`,
+        ).bind(user.id));
+        await env.cybermeters_db.batch(disableStatements);
+        if (mcpConnectionsExist && env.OAUTH_KV) {
+          await revokeMcpOAuthUserGrantsForPurge(env, user.id).catch(() => {
+            console.error("mcp_oauth_mfa_disable_kv_revoke_unavailable");
+          });
+        }
 
         await createAuditEvent(env, {
           user_id:     user.id,

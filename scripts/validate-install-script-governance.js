@@ -12,6 +12,7 @@ import {
   sha256,
   validateInstalledRoot,
   validateRepositoryPolicy,
+  validateRawWorkflowInstallInvocations,
   validateRootLock,
 } from "./security/install-script-governance.js";
 
@@ -37,10 +38,10 @@ ok(
   baselineErrors.length === 0,
   baselineErrors.join(" | "),
 );
-ok("package-root count is pinned", policy.package_roots.length === 3);
+ok("package-root count is pinned", policy.package_roots.length === 4);
 const markers = policy.package_roots.flatMap((root) =>
   root.install_script_markers.map((marker) => ({ root: root.root, ...marker })));
-ok("lock install-script marker count is pinned", markers.length === 6);
+ok("lock install-script marker count is pinned", markers.length === 11);
 ok(
   "approved lifecycle-script count is pinned",
   markers.filter((marker) => marker.disposition === "approved").length === 3,
@@ -58,10 +59,22 @@ for (const [name, mutate] of [
   ["must fail: package lock identity drift", (candidate) => { candidate.package_roots[0].lockfile_sha256 = "0".repeat(64); }],
   ["must fail: lifecycle command drift", (candidate) => { candidate.package_roots[0].install_script_markers[0].lifecycle_command = "node changed.js"; }],
   ["must fail: workflow install mapping drift", (candidate) => { candidate.workflow_install_invocations[0].root = "frontend"; }],
+  ["must fail: MCP raw workflow exception drift", (candidate) => { candidate.raw_workflow_install_exception.command = "npm ci --prefix workers/mcp-server"; }],
 ]) {
   const candidate = structuredClone(policy);
   mutate(candidate);
   ok(name, validateRepositoryPolicy(candidate).length > 0);
+}
+
+const approvedRawInstall = policy.raw_workflow_install_exception;
+ok("approved MCP CI install is the only raw workflow install", validateRawWorkflowInstallInvocations([approvedRawInstall], policy).length === 0);
+for (const [name, invocations] of [
+  ["must fail: another raw workflow install", [approvedRawInstall, { ...approvedRawInstall, step_name: "Install other", command: "npm ci --prefix frontend --ignore-scripts" }]],
+  ["must fail: MCP raw install without ignore-scripts", [{ ...approvedRawInstall, command: "npm ci --prefix workers/mcp-server" }]],
+  ["must fail: MCP raw install in another workflow", [{ ...approvedRawInstall, file: ".github/workflows/other.yml" }]],
+  ["must fail: MCP raw install with a changed step name", [{ ...approvedRawInstall, step_name: "Install arbitrary" }]],
+]) {
+  ok(name, validateRawWorkflowInstallInvocations(invocations, policy).length > 0);
 }
 
 const frontendPolicy = policy.package_roots.find((root) => root.root === "frontend");
@@ -127,6 +140,13 @@ try {
     () => runApprovedLifecycleScripts(fixture, fixturePolicy),
   );
   ok("must fail control: the unapproved lifecycle script did not execute", !fs.existsSync(markerPath));
+
+  const pinnedButNeverExecuted = { ...deniedMarker, disposition: "deny_install_lifecycle" };
+  ok(
+    "a manifest-pinned install script may remain disabled",
+    validateInstalledRoot(fixture, { root: "fixture", install_script_markers: [pinnedButNeverExecuted] }).length === 0,
+  );
+  ok("disabled lifecycle script was not executed", !fs.existsSync(markerPath));
 
   const approvedMarker = {
     ...deniedMarker,

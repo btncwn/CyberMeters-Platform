@@ -55,6 +55,10 @@
       "class": "external_api",
       "reason": "Public alias of /api/billing/plans for API clients; screens use /api/billing/plans."
     },
+    "re:^\\/api\\/mcp\\/oauth\\/connections\\/(mcpconn_[a-f0-9-]{36})$": {
+      "class": "external_api",
+      "reason": "Connection revocation is available to API clients. The Connections screen also builds this URL with an encoded ID; the static route matcher cannot pair that dynamic call with this strict ID pattern."
+    },
     "exact:/api/stripe/webhook": {
       "class": "webhook",
       "reason": "Stripe webhook (alias)."

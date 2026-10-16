@@ -23,6 +23,19 @@
     "workers/scan-api/src/routes/identity-public-secrets.js",
     "workers/scan-api/src/routes/identity-workforce.js",
     "workers/scan-api/src/routes/managed-cases.js",
+    "workers/scan-api/src/routes/mcp-authz.js",
+    "workers/scan-api/src/routes/mcp-customer-discovery.js",
+    "workers/scan-api/src/routes/mcp-customer-service.js",
+    "workers/scan-api/src/routes/mcp-customer-status.js",
+    "workers/scan-api/src/routes/mcp-entrypoint.js",
+    "workers/scan-api/src/routes/mcp-oauth-admission.js",
+    "workers/scan-api/src/routes/mcp-oauth-browser.js",
+    "workers/scan-api/src/routes/mcp-oauth-dcr.js",
+    "workers/scan-api/src/routes/mcp-oauth-entrypoint.js",
+    "workers/scan-api/src/routes/mcp-oauth-purge.js",
+    "workers/scan-api/src/routes/mcp-oauth-server.js",
+    "workers/scan-api/src/routes/mcp-projections.js",
+    "workers/scan-api/src/routes/mcp-service.js",
     "workers/scan-api/src/routes/network-assets.js",
     "workers/scan-api/src/routes/portfolio.js",
     "workers/scan-api/src/routes/related-changes.js",
@@ -43,9 +56,9 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 293,
+    "total": 301,
     "authed": 262,
-    "public_unauthed": 31,
+    "public_unauthed": 39,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -53,15 +66,15 @@
         "authed": 1
       },
       "preflight": {
-        "total": 1,
+        "total": 3,
         "authed": 0
       },
       "unknown": {
-        "total": 74,
+        "total": 79,
         "authed": 65
       },
       "public-or-global": {
-        "total": 39,
+        "total": 40,
         "authed": 20
       },
       "account": {
@@ -2602,6 +2615,94 @@
       ],
       "scope_helpers": [],
       "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "OPTIONS",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/mcp-oauth-browser.js",
+      "scope": "preflight",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "CORS preflight — no body, no tenant data"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/oauth/connections",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/mcp-oauth-server.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/mcp-oauth-server.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/mcp-oauth-server.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/mcp-oauth-server.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "OPTIONS",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/mcp-oauth-server.js",
+      "scope": "preflight",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "CORS preflight — no body, no tenant data"
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/mcp-oauth-server.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/mcp-oauth-server.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
       "public_reason": null
     },
     {

@@ -22,6 +22,8 @@ const ForgotPasswordPage        = lazy(() => import('./pages/ForgotPasswordPage'
 const ResetPasswordPage         = lazy(() => import('./pages/ResetPasswordPage'))
 const MicrosoftCallbackPage     = lazy(() => import('./pages/MicrosoftCallbackPage'))
 const EmailVerificationPage     = lazy(() => import('./pages/EmailVerificationPage'))
+const McpConnectPage            = lazy(() => import('./pages/McpConnectPage'))
+const McpConnectionsPage        = lazy(() => import('./pages/McpConnectionsPage'))
 const PricingPage               = lazy(() => import('./pages/PricingPage'))
 const PublicLandingPage         = lazy(() => import('./pages/PublicLandingPage'))
 const CheckoutSuccessPage       = lazy(() => import('./pages/CheckoutSuccessPage'))
@@ -129,7 +131,7 @@ function AppHostRedirect() {
 }
 
 // App-host paths reachable from marketing pages or typed by users.
-const APP_HOST_PATHS = ['/login', '/signup', '/free-scan', '/pricing', '/dashboard', '/forgot-password', '/reset-password', '/verify-email']
+const APP_HOST_PATHS = ['/login', '/signup', '/free-scan', '/pricing', '/dashboard', '/forgot-password', '/reset-password', '/verify-email', '/mcp/connect', '/account/mcp']
 
 function AppRoutes() {
   if (isMarketingHost()) {
@@ -183,6 +185,7 @@ function AppRoutes() {
         {/* Pull-request previews have no marketing host; show the public page here. */}
         {isPreviewHost() && <Route path="/landing" element={<PublicLandingPage />} />}
         <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
+        <Route path="/mcp/connect" element={<ProtectedRoute><McpConnectPage /></ProtectedRoute>} />
 
         {/* ── Protected app ───────────────────────────────────────────── */}
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -207,6 +210,7 @@ function AppRoutes() {
           <Route path="accuracy"                element={<AccuracyPage />} />
           <Route path="settings"                element={<SettingsPage />} />
           <Route path="account"                 element={<AccountPage />} />
+          <Route path="account/mcp"             element={<McpConnectionsPage />} />
           <Route path="account/security"        element={<SecurityPage />} />
           <Route path="account/privacy"         element={<AccountPrivacyPage />} />
           <Route path="billing"                 element={<SubscriptionPage />} />

@@ -98,9 +98,11 @@ ok("every variable in .env.example is actually read by the frontend",
    unused.length === 0,
    `documented but unused (delete it, or it becomes folklore): ${unused.join(", ")}`);
 
-// ── 4. The one variable's shape — the README got this wrong ──────────────────
+// ── 4. Public variable shapes — the API URL's path matters ───────────────────
 ok("VITE_API_BASE_URL is documented", declared.has("VITE_API_BASE_URL"));
 const base = declared.get("VITE_API_BASE_URL") || "";
+ok("MCP beta example is disabled by default",
+   declared.get("VITE_MCP_BETA_ENABLED") === "false");
 ok("the VITE_API_BASE_URL example ends in /api (the API serves /api/*; requests append a bare path)",
    /\/api$/.test(base), `example value was: ${JSON.stringify(base)}`);
 ok("the VITE_API_BASE_URL example is an https URL", /^https:\/\//.test(base), base);
@@ -314,10 +316,13 @@ ok("the template contains no AWS key id", !/AKIA[0-9A-Z]{16}/.test(example));
 ok("the template contains no private key block", !/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(example));
 ok("the template warns against putting secrets in VITE_* values", /NEVER put a secret/i.test(example));
 
-// A value that looks like a credential rather than a URL.
+// Public Vite values have a narrow, documented shape; reject credentials.
 for (const [k, v] of declared) {
-  ok(`${k}: the example value is a placeholder URL, not a credential`,
-     v === "" || /^https?:\/\//.test(v),
+  const valid = k === "VITE_MCP_BETA_ENABLED"
+    ? /^(?:true|false)$/.test(v)
+    : v === "" || /^https?:\/\//.test(v);
+  ok(`${k}: the example value has a documented public shape, not a credential`,
+     valid,
      `value was: ${JSON.stringify(v)}`);
 }
 

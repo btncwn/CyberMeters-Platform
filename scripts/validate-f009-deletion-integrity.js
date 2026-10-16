@@ -84,8 +84,42 @@ const r2 = {
 };
 
 function makeEnv(db) {
+  const kvRows = new Map();
+  const oauthKv = {
+    rows: kvRows,
+    failDelete: false,
+    async list({ prefix = "", limit = 1000, cursor } = {}) {
+      const keys = [...kvRows.keys()].filter((key) => key.startsWith(prefix)).sort();
+      const start = cursor ? Number(cursor) : 0;
+      const end = Math.min(keys.length, start + limit);
+      return { keys: keys.slice(start, end).map((name) => ({ name })),
+        list_complete: end >= keys.length, cursor: end < keys.length ? String(end) : undefined };
+    },
+    async get(key, options) { const value = kvRows.get(key); return value === undefined ? null :
+      options?.type === "json" ? structuredClone(value) : JSON.stringify(value); },
+    async delete(key) { if (this.failDelete) throw new Error("injected OAuth KV failure"); kvRows.delete(key); },
+  };
+  const oauthPurgeApi = {
+    async listUserGrants(userId, { limit = 50, cursor } = {}) {
+      const prefix = `grant:${userId}:`;
+      const keys = [...kvRows.keys()].filter((key) => key.startsWith(prefix) &&
+        !key.slice(prefix.length).includes(":")).sort();
+      const start = cursor ? Number(cursor) : 0;
+      const end = Math.min(keys.length, start + limit);
+      return { items: keys.slice(start, end).map((key) => kvRows.get(key)),
+        cursor: end < keys.length ? String(end) : undefined };
+    },
+    async revokeGrant(grantId, userId) {
+      for (const key of [...kvRows.keys()]) {
+        if (key === `grant:${userId}:${grantId}` || key.startsWith(`token:${userId}:${grantId}:`)) {
+          await oauthKv.delete(key);
+        }
+      }
+    },
+  };
   return {
     cybermeters_db: makeD1(db), cybermeters_reports: r2,
+    OAUTH_KV: oauthKv, MCP_OAUTH_PURGE_API: oauthPurgeApi,
     RESEND_API_KEY: "re_stub_key", HELLO_EMAIL_FROM: "hello@cybermeters.com",
     ALERT_EMAIL_FROM: "alerts@cybermeters.com", APP_VERSION: "test",
     ALLOWED_ORIGIN: "https://app.cybermeters.com", FRONTEND_URL: "https://app.cybermeters.com",
@@ -109,6 +143,9 @@ function seedAccount(db) {
   // FK edges the account purge does NOT cover, or covers with a WRONG predicate:
   push(run("INSERT INTO domains (id,user_id,domain) VALUES ('d1','u1','gone.example.com')"));
   push(run("INSERT INTO customer_profiles (id,owner_user_id,company_name) VALUES ('cp1','u1','Gone Ltd')")); // wrong predicate: user_id
+  push(run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('uOther','other@example.com','Other','free','active',1)"));
+  push(run("INSERT INTO workspaces (id,name,owner_user_id) VALUES ('wsOther','Other tenant','uOther')"));
+  push(run("INSERT INTO mcp_beta_workspace_access(workspace_id,status,enrolled_by) VALUES ('wsOther','enabled','u1')"));
   return errs;
 }
 
@@ -168,6 +205,9 @@ async function main() {
      dom === 0 || declared.some((e) => e.table === "domains"));
   ok("the retained deletion_requests self-FK is declared as the structural blocker",
      declared.some((e) => e.table === "deletion_requests"));
+  ok("another tenant's MCP beta enrolment is preserved and declared as a residual FK",
+     db.prepare("SELECT COUNT(*) c FROM mcp_beta_workspace_access WHERE workspace_id='wsOther' AND enrolled_by='u1'").get().c === 1 &&
+     declared.some((e) => e.table === "mcp_beta_workspace_access" && e.column === "enrolled_by"));
 
   section = "E-completion-requires-proof";
   ok(`if completed, the parent user row is ABSENT (status=${req?.status}, user=${!!user})`,
@@ -203,12 +243,29 @@ async function main() {
     run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('u3','ok@example.com','OK','free','active',1)");
     run("INSERT INTO workspaces (id,name,owner_user_id,deleted_at) VALUES ('ws3','Clean','u3', datetime('now','-60 days'))");
     run(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('dr3','workspace','u3','ws3','u3','pending', ${OLD})`);
+    run("INSERT INTO mcp_beta_workspace_access(workspace_id,status,enrolled_by) VALUES ('ws3','enabled','u3')");
+    const conn3 = "mcpconn_33333333-3333-4333-8333-333333333333";
+    run(`INSERT INTO mcp_oauth_connections(id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes) VALUES ('${conn3}','u3','test-client','https://api.cybermeters.com/mcp','ws3',0,'[\"mcp:read\"]')`);
+    env3.OAUTH_KV.rows.set("grant:u3:g3", { id: "g3", userId: "u3", metadata: { connectionId: conn3 } });
+    env3.OAUTH_KV.rows.set("token:u3:g3:t3", { props: { userId: "u3" } });
+    ok("MCP workspace fixture has an enrolled workspace and bound grant",
+       db3.prepare("SELECT COUNT(*) c FROM mcp_beta_workspace_access WHERE workspace_id='ws3'").get().c === 1 &&
+       db3.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE workspace_id='ws3'").get().c === 1);
     sentEmails.length = 0;
+    await processDeletionRequests(env3);
+    // KV grant revocation is its own bounded chunk. The next hourly claim
+    // removes remaining D1 rows and the parent workspace.
+    db3.prepare("UPDATE deletion_requests SET updated_at = datetime('now','-2 hours') WHERE id='dr3'").run();
     await processDeletionRequests(env3);
     const r3 = db3.prepare("SELECT status FROM deletion_requests WHERE id='dr3'").get();
     const ws3 = db3.prepare("SELECT id FROM workspaces WHERE id='ws3'").get();
     ok(`a clean workspace purge DOES complete (status=${r3?.status})`, r3?.status === "completed");
     ok("the workspace row is actually gone", !ws3);
+    ok("MCP workspace rows are gone before parent deletion",
+       db3.prepare("SELECT COUNT(*) c FROM mcp_beta_workspace_access WHERE workspace_id='ws3'").get().c === 0 &&
+       db3.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE workspace_id='ws3'").get().c === 0);
+    ok("workspace OAuth KV grant and token are removed before D1 deletion",
+       !env3.OAUTH_KV.rows.has("grant:u3:g3") && !env3.OAUTH_KV.rows.has("token:u3:g3:t3"));
     ok("the permanence email IS sent once deletion is proven", sentEmails.length > 0);
   }
   {
@@ -223,6 +280,16 @@ async function main() {
       return null;
     } catch (e) { return e.message; } })();
     ok(`account control seeded (${seedErr4 ?? "no error"})`, seedErr4 === null);
+    run("INSERT INTO user_sessions(id,user_id,token_hash,expires_at) VALUES ('sess4','u4','hash4',datetime('now','+1 day'))");
+    run("INSERT INTO mcp_oauth_login_intents(id_hash,authorization_url,expires_at) VALUES ('intent4','https://api.cybermeters.com/authorize?client_id=test',datetime('now','+1 day'))");
+    run("INSERT INTO mcp_oauth_browser_sessions(cookie_hash,intent_hash,user_id,web_session_id,expires_at) VALUES ('cookie4','intent4','u4','sess4',datetime('now','+1 day'))");
+    const conn4 = "mcpconn_44444444-4444-4444-8444-444444444444";
+    run(`INSERT INTO mcp_oauth_connections(id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes) VALUES ('${conn4}','u4','test-client','https://api.cybermeters.com/mcp',NULL,1,'[\"mcp:read\",\"portfolio:read\"]')`);
+    env4.OAUTH_KV.rows.set("grant:u4:g4", { id: "g4", userId: "u4", metadata: { connectionId: conn4 } });
+    env4.OAUTH_KV.rows.set("token:u4:g4:t4", { props: { userId: "u4" } });
+    ok("MCP account fixture has browser session and portfolio grant",
+       db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_browser_sessions WHERE user_id='u4'").get().c === 1 &&
+       db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE user_id='u4'").get().c === 1);
     sentEmails.length = 0;
     await processDeletionRequests(env4);
     const r4 = db4.prepare("SELECT status FROM deletion_requests WHERE id='dr4'").get();
@@ -231,6 +298,64 @@ async function main() {
     const u4 = db4.prepare("SELECT id FROM users WHERE id='u4'").get();
     ok("account email is sent only if the user row is truly gone",
        sentEmails.length === 0 || !u4);
+    ok("MCP account sessions and portfolio grants are purged before user/session parent rows",
+       db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_browser_sessions WHERE user_id='u4'").get().c === 0 &&
+       db4.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE user_id='u4'").get().c === 0 &&
+       db4.prepare("SELECT COUNT(*) c FROM user_sessions WHERE user_id='u4'").get().c === 0);
+    ok("account OAuth KV grant and token are removed",
+       !env4.OAUTH_KV.rows.has("grant:u4:g4") && !env4.OAUTH_KV.rows.has("token:u4:g4:t4"));
+  }
+
+  section = "H-mcp-oauth-expiry";
+  {
+    const db5 = buildDb(); const env5 = makeEnv(db5);
+    db5.prepare("INSERT INTO users(id,email,name,plan,status,email_verified) VALUES ('u5','ttl@example.com','TTL','free','active',1)").run();
+    db5.prepare("INSERT INTO user_sessions(id,user_id,token_hash,expires_at) VALUES ('sess5','u5','hash5',datetime('now','+1 day'))").run();
+    db5.prepare("INSERT INTO mcp_oauth_login_intents(id_hash,authorization_url,expires_at) VALUES ('expired5','https://api.cybermeters.com/authorize?state=expired',datetime('now','-1 minute'))").run();
+    db5.prepare("INSERT INTO mcp_oauth_browser_sessions(cookie_hash,intent_hash,user_id,web_session_id,expires_at) VALUES ('cookie5','expired5','u5','sess5',datetime('now','+5 minutes'))").run();
+    db5.prepare("INSERT INTO mcp_oauth_login_intents(id_hash,authorization_url,expires_at) VALUES ('live5','https://api.cybermeters.com/authorize?state=live',datetime('now','+5 minutes'))").run();
+    await processDeletionRequests(env5);
+    ok("expired OAuth intent and linked browser state are removed even when browser timer is later",
+       db5.prepare("SELECT COUNT(*) c FROM mcp_oauth_login_intents WHERE id_hash='expired5'").get().c === 0 &&
+       db5.prepare("SELECT COUNT(*) c FROM mcp_oauth_browser_sessions WHERE intent_hash='expired5'").get().c === 0);
+    ok("unexpired OAuth intent survives expiry sweep",
+       db5.prepare("SELECT COUNT(*) c FROM mcp_oauth_login_intents WHERE id_hash='live5'").get().c === 1);
+    ok("OAuth expiry sweep leaves unrelated user session intact",
+       db5.prepare("SELECT COUNT(*) c FROM user_sessions WHERE id='sess5'").get().c === 1);
+  }
+
+  section = "I-mcp-oauth-kv-fail-closed";
+  {
+    const db6 = buildDb(); const env6 = makeEnv(db6);
+    const conn6 = "mcpconn_66666666-6666-4666-8666-666666666666";
+    db6.prepare("INSERT INTO users(id,email,name,plan,status,email_verified) VALUES ('u6','kv@example.com','KV','free','active',1)").run();
+    db6.prepare("INSERT INTO workspaces(id,name,owner_user_id,deleted_at) VALUES ('ws6','KV','u6',datetime('now','-60 days'))").run();
+    db6.prepare(`INSERT INTO deletion_requests(id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('dr6','workspace','u6','ws6','u6','pending',${OLD})`).run();
+    db6.prepare("INSERT INTO mcp_oauth_connections(id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes) VALUES (?,?,?,?,?,0,?)")
+      .run(conn6, "u6", "test-client", "https://api.cybermeters.com/mcp", "ws6", '["mcp:read"]');
+    env6.OAUTH_KV.rows.set("grant:u6:g6", { id: "g6", userId: "u6", metadata: { connectionId: conn6 } });
+    env6.OAUTH_KV.rows.set("token:u6:g6:t6", { userId: "u6" });
+    env6.OAUTH_KV.failDelete = true;
+    await processDeletionRequests(env6);
+    ok("KV deletion failure leaves workspace and D1 connection retryable",
+       db6.prepare("SELECT status FROM deletion_requests WHERE id='dr6'").get().status === "purging" &&
+       db6.prepare("SELECT COUNT(*) c FROM workspaces WHERE id='ws6'").get().c === 1 &&
+       db6.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE id=?").get(conn6).c === 1);
+    ok("failed KV revoke leaves grant for the next retry", env6.OAUTH_KV.rows.has("grant:u6:g6"));
+  }
+  {
+    const db7 = buildDb(); const env7 = makeEnv(db7);
+    const conn7 = "mcpconn_77777777-7777-4777-8777-777777777777";
+    db7.prepare("INSERT INTO users(id,email,name,plan,status,email_verified) VALUES ('u7','missingkv@example.com','KV','free','active',1)").run();
+    db7.prepare("INSERT INTO workspaces(id,name,owner_user_id,deleted_at) VALUES ('ws7','KV','u7',datetime('now','-60 days'))").run();
+    db7.prepare(`INSERT INTO deletion_requests(id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('dr7','workspace','u7','ws7','u7','pending',${OLD})`).run();
+    db7.prepare("INSERT INTO mcp_oauth_connections(id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes) VALUES (?,?,?,?,?,0,?)")
+      .run(conn7, "u7", "test-client", "https://api.cybermeters.com/mcp", "ws7", '["mcp:read"]');
+    delete env7.OAUTH_KV;
+    await processDeletionRequests(env7);
+    ok("missing KV binding cannot complete workspace purge with MCP connection",
+       db7.prepare("SELECT status FROM deletion_requests WHERE id='dr7'").get().status === "purging" &&
+       db7.prepare("SELECT COUNT(*) c FROM mcp_oauth_connections WHERE id=?").get(conn7).c === 1);
   }
 
   // ── R1 NEGATIVE CONTROLS — the four load-bearing findings ────────────────

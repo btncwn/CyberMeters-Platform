@@ -1160,6 +1160,9 @@ const WORKSPACE_PURGE_TABLES = [
   "operational_events",
   "alert_deliveries", "alert_activation", "notification_events", "notification_preferences",
   "report_schedule_runs", "report_schedules", "scheduled_reports",
+  // MCP OAuth grants and beta enrolment both FK the workspace (mig 121).
+  // A workspace deletion removes its bound connections before the parent row.
+  "mcp_oauth_connections", "mcp_beta_workspace_access",
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
   "lifecycle_email_events", "scheduled_scans", "workspace_domains",
   "finding_waivers", "api_tokens", "workspace_alert_channels",
@@ -1284,6 +1287,48 @@ async function purgeWorkspaceData(env, workspaceId) {
     return { done: false };
   }
 
+  // A D1 connection row fences access immediately, while OAuth KV may still
+  // hold refresh grants and encrypted user/connection props. Revoke a bounded
+  // set of this workspace's grants BEFORE deleting those D1 rows. Missing KV
+  // or an incomplete revoke keeps the purge retryable; other workspaces and
+  // portfolio connections are not touched here.
+  let mcpConnections;
+  try {
+    mcpConnections = await env.cybermeters_db.prepare(
+      `SELECT c.id, c.user_id FROM mcp_oauth_connections c
+        WHERE c.workspace_id = ? OR EXISTS (
+          SELECT 1 FROM mcp_oauth_connection_workspaces selected
+           WHERE selected.connection_id = c.id AND selected.workspace_id = ?)
+        ORDER BY c.id LIMIT 1`,
+    ).bind(workspaceId, workspaceId).all();
+  } catch (error) {
+    if (!/no such table/i.test(String(error?.message ?? error))) throw error;
+    try {
+      mcpConnections = await env.cybermeters_db.prepare(
+        `SELECT id, user_id FROM mcp_oauth_connections
+          WHERE workspace_id = ? ORDER BY id LIMIT 1`,
+      ).bind(workspaceId).all(); // database before migration 124
+    } catch (legacyError) {
+      if (!/no such table/i.test(String(legacyError?.message ?? legacyError))) throw legacyError;
+      mcpConnections = { results: [] }; // database before migration 121
+    }
+  }
+  if (!Array.isArray(mcpConnections?.results)) throw new Error("MCP grant enumeration unavailable");
+  if (mcpConnections.results.length > 0) {
+    const { revokeMcpOAuthConnectionGrantsForPurge } = await import("./routes/mcp-oauth-purge.js");
+    for (const connection of mcpConnections.results) {
+      await env.cybermeters_db.prepare(
+        `UPDATE mcp_oauth_connections SET status = 'revoked',
+          revoked_at = COALESCE(revoked_at, datetime('now')) WHERE id = ?`,
+      ).bind(connection.id).run();
+      await revokeMcpOAuthConnectionGrantsForPurge(env, connection.user_id, connection.id);
+      await env.cybermeters_db.prepare(
+        "DELETE FROM mcp_oauth_connections WHERE id = ? AND user_id = ?",
+      ).bind(connection.id, connection.user_id).run();
+    }
+    return { done: false };
+  }
+
   // 3. Remaining workspace-scoped D1 rows. Per-table statements (not batch)
   // so a table missing in an older database cannot abort the purge.
   for (const table of WORKSPACE_PURGE_TABLES) {
@@ -1313,6 +1358,10 @@ async function purgeWorkspaceData(env, workspaceId) {
 //     invented predicate.
 //   • customer_profiles keys on owner_user_id, not user_id.
 const ACCOUNT_PURGE_TABLES = [
+  // Browser sessions FK both users and user_sessions; delete them first.
+  { table: "mcp_oauth_browser_sessions", column: "user_id" },
+  // Portfolio grants have no workspace_id and must be removed by user_id.
+  { table: "mcp_oauth_connections",      column: "user_id" },
   { table: "user_sessions",         column: "user_id" },
   { table: "password_reset_tokens", column: "user_id" },
   { table: "api_tokens",            column: "user_id" },
@@ -1339,6 +1388,8 @@ const ACCOUNT_RESIDUAL_FK_EDGES = [
   { table: "deletion_requests",           column: "user_id" },
   { table: "workspace_retention_settings",column: "updated_by" },
   { table: "msp_branding_profiles",       column: "owner_user_id" },
+  // Enrolment of another owner's workspace is retained with that workspace.
+  { table: "mcp_beta_workspace_access",  column: "enrolled_by" },
 ];
 
 // F-009 — count survivors across a set of {table, column} edges. A table that
@@ -1424,8 +1475,40 @@ async function claimDeletionRequest(env, req) {
   }
 }
 
+// OAuth authorization URLs can contain a client's redirect URI and opaque
+// state. An abandoned consent flow has no user FK, so account purge alone
+// cannot find it. Delete expired browser children first, then expired intents,
+// in bounded hourly chunks. A child whose intent expired is unusable even if
+// its own ten-minute timer has not yet elapsed.
+async function purgeExpiredMcpOAuthBrowserState(env) {
+  const db = env.cybermeters_db;
+  try {
+    await db.prepare(`DELETE FROM mcp_oauth_browser_sessions WHERE rowid IN (
+      SELECT b.rowid FROM mcp_oauth_browser_sessions b
+       WHERE b.consumed_at IS NOT NULL OR unixepoch(b.expires_at) <= unixepoch('now')
+          OR EXISTS (SELECT 1 FROM mcp_oauth_login_intents i
+                      WHERE i.id_hash = b.intent_hash
+                        AND unixepoch(i.expires_at) <= unixepoch('now'))
+       LIMIT 1000
+    )`).run();
+    await db.prepare(`DELETE FROM mcp_oauth_login_intents WHERE rowid IN (
+      SELECT i.rowid FROM mcp_oauth_login_intents i
+       WHERE unixepoch(i.expires_at) <= unixepoch('now')
+         AND NOT EXISTS (SELECT 1 FROM mcp_oauth_browser_sessions b
+                          WHERE b.intent_hash = i.id_hash)
+       LIMIT 1000
+    )`).run();
+  } catch (error) {
+    if (!/no such table/i.test(String(error?.message ?? error))) throw error;
+  }
+}
+
 async function processDeletionRequests(env) {
   try {
+    // Independent retention sweep; a failure is visible and retryable on the
+    // next cron, while governed account/workspace deletion still proceeds.
+    try { await purgeExpiredMcpOAuthBrowserState(env); }
+    catch (error) { console.error("[mcp-oauth-expiry-purge]", String(error?.message ?? error)); }
     const rows = await env.cybermeters_db
       .prepare(`SELECT id, request_type, user_id, workspace_id, status, created_at
                 FROM deletion_requests
@@ -1615,7 +1698,15 @@ async function purgeAccountRequest(env, req) {
     .prepare("SELECT id, email, email_verified FROM users WHERE id = ? LIMIT 1")
     .bind(req.user_id).first();
   // R1-02 — a failed read is not an absent user.
-  if (!user) return completeDeletionRequest(env, req.id, "completed");
+  if (!user) {
+    // A prior interrupted hard purge may have removed D1 first. The retained
+    // request still names the user, allowing a final KV sweep before completion.
+    if (env.OAUTH_KV) {
+      const { revokeMcpOAuthUserGrantsForPurge } = await import("./routes/mcp-oauth-purge.js");
+      await revokeMcpOAuthUserGrantsForPurge(env, req.user_id);
+    }
+    return completeDeletionRequest(env, req.id, "completed");
+  }
 
   // Never delete a paying account: an active subscription must be cancelled
   // first (protects the customer from losing paid access by accident).
@@ -1639,8 +1730,13 @@ async function purgeAccountRequest(env, req) {
   if (owned) {
     const { done } = await purgeWorkspaceData(env, owned.id);
     if (done) {
+      await assertWorkspacePurgeProven(env, owned.id);
       await env.cybermeters_db
-        .prepare("DELETE FROM workspaces WHERE id = ?").bind(owned.id).run().catch(() => {});
+        .prepare("DELETE FROM workspaces WHERE id = ?").bind(owned.id).run();
+      const stillOwned = await env.cybermeters_db
+        .prepare("SELECT id FROM workspaces WHERE id = ? LIMIT 1").bind(owned.id).first();
+      if (stillOwned) throw new Error(`owned workspace row survived deletion: ${owned.id}`);
+      await assertForeignKeyCheckClean(env);
     }
     return; // more work (this or other workspaces) — continue next run
   }
@@ -1651,6 +1747,12 @@ async function purgeAccountRequest(env, req) {
   // it was. The email now sends only after the checks below all pass.
   const recipient = user.email_verified && isValidEmail(String(user.email || "").toLowerCase())
     ? String(user.email).toLowerCase() : null;
+
+  // Revoke all of this account's MCP KV grants before removing portfolio and
+  // shared-workspace connection rows. With no KV binding, only a proven zero
+  // D1 connection count may proceed (legacy databases without MCP grants).
+  const { revokeMcpOAuthUserGrantsForPurge } = await import("./routes/mcp-oauth-purge.js");
+  await revokeMcpOAuthUserGrantsForPurge(env, req.user_id);
 
   for (const { table, column } of ACCOUNT_PURGE_TABLES) {
     try {
@@ -2416,6 +2518,25 @@ function isMaintenanceBypass(request, env) {
   return request.headers.get("X-Maintenance-Bypass") === token;
 }
 
+// Hosted MCP OAuth tests need the staging app's password login and session
+// check while the rest of the staging API stays in maintenance. This switch is
+// inert by default and cannot open a route on the production API hostname.
+const STAGING_MCP_AUTH_ORIGIN = "https://api-staging.cybermeters.com";
+const STAGING_MCP_AUTH_ROUTES = new Set([
+  "POST /api/auth/login",
+  "GET /api/auth/me",
+  "POST /api/auth/logout",
+]);
+function isStagingMcpAuthMaintenanceAllowed(request, env) {
+  if (!isMaintenanceMode(env) || env?.MCP_DEPLOYMENT_TIER !== "staging" ||
+      env?.MCP_STAGING_AUTH_TEST_ENABLED !== "true") return false;
+  try {
+    const url = new URL(request.url);
+    return url.origin === STAGING_MCP_AUTH_ORIGIN && !url.search &&
+      STAGING_MCP_AUTH_ROUTES.has(`${request.method} ${url.pathname}`);
+  } catch { return false; }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -2449,6 +2570,18 @@ export default {
     const contentLength = Number(request.headers.get("Content-Length") || 0);
     if (Number.isFinite(contentLength) && contentLength > 1024 * 1024) {
       return json({ error: "Request body is too large" }, 413);
+    }
+
+    // OAuth endpoints have their own exact-origin CORS, strict body limits,
+    // and fail-closed gate. Lazy loading keeps ordinary API requests and Node
+    // test harnesses independent of the Worker-only OAuth runtime.
+    if (url.pathname === "/authorize" ||
+        url.pathname === "/.well-known/oauth-authorization-server" ||
+        ["/oauth/token", "/oauth/register",
+          "/api/mcp/oauth/browser-session", "/api/mcp/oauth/connections"].includes(url.pathname) ||
+        url.pathname.startsWith("/api/mcp/oauth/connections/")) {
+      const { handleMcpOAuthRequest } = await import("./routes/mcp-oauth-server.js");
+      return handleMcpOAuthRequest(request, env, ctx);
     }
 
     // ── OPTIONS preflight ───────────────────────────────────────────────
@@ -2501,13 +2634,14 @@ export default {
     }
 
     // ── Maintenance mode ────────────────────────────────────────────────
-    // When MAINTENANCE_MODE is on, every API route returns a clean 503 so
-    // customers see a friendly "back shortly" message instead of half-broken
-    // behaviour during a planned window. /health and /ready above are exempt so
-    // monitoring keeps working, and a bypass token lets the founder smoke-test
-    // the deploy before lifting the flag. Fail-safe: an unset/garbled var reads
-    // as OFF, so this can never accidentally take the API down.
-    if (isMaintenanceMode(env) && !isMaintenanceBypass(request, env)) {
+    // When MAINTENANCE_MODE is on, API routes return a clean 503 so customers
+    // see a friendly "back shortly" message during a planned window. /health
+    // and /ready remain available for monitoring. A separate explicit staging
+    // test gate permits only password login, session check, and logout on the
+    // staging host; the founder bypass token still permits a smoke test.
+    // Fail-safe: an unset/garbled maintenance var reads as OFF.
+    if (isMaintenanceMode(env) && !isMaintenanceBypass(request, env) &&
+        !isStagingMcpAuthMaintenanceAllowed(request, env)) {
       return Response.json(
         normalizeApiResponseData({
           error: "maintenance",
@@ -2861,6 +2995,7 @@ export {
   ACCOUNT_PURGE_TABLES,
   isMaintenanceMode,
   isMaintenanceBypass,
+  isStagingMcpAuthMaintenanceAllowed,
   _cloudflareRouteFailure,
   alertChannelToApi,
   analyzeSpfChain,

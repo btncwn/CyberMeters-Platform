@@ -3034,7 +3034,10 @@ results.push(securityContract("purge_covers_all_scan_fk_tables", () => {
 results.push(securityContract("purge_covers_all_workspace_fk_tables", () => {
   // Intentionally retained (not purged): deletion_requests is the purge's own
   // tracking table and does not block workspace deletion.
-  const EXCEPTIONS = new Set(["deletion_requests"]);
+  // Selected MCP portfolio rows are removed through their parent connection
+  // after revocation; migration 124 cascades the relation. The dedicated
+  // purge-completeness gate seeds and checks that path.
+  const EXCEPTIONS = new Set(["deletion_requests", "mcp_oauth_connection_workspaces"]);
   // Snapshots are purged directly, after their R2 object is deleted; the
   // real purge-completeness suite exercises that separate path.
   const covered = new Set([...scanner.WORKSPACE_PURGE_TABLES, "scan_report_snapshots"]);

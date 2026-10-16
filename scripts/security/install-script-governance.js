@@ -12,6 +12,11 @@ export const INSTALL_EVENTS = Object.freeze(["preinstall", "install", "postinsta
 const EXPECTED_NPMRC = "ignore-scripts=true\n";
 const SKIP_DIRECTORIES = new Set([".git", ".wrangler", "coverage", "dist", "node_modules", "test-results"]);
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const APPROVED_RAW_WORKFLOW_INSTALL = Object.freeze({
+  file: ".github/workflows/ci.yml",
+  step_name: "Install MCP gateway dependencies for supply-chain inventory",
+  command: "npm ci --prefix workers/mcp-server --ignore-scripts",
+});
 
 export const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const readJson = (filename) => JSON.parse(fs.readFileSync(filename, "utf8"));
@@ -194,7 +199,7 @@ function validatePolicyShape(policy) {
     if (!SHA256_RE.test(rootPolicy.package_json_sha256 || "")) errors.push("invalid package hash: " + rootPolicy.root);
     if (!SHA256_RE.test(rootPolicy.lockfile_sha256 || "")) errors.push("invalid lock hash: " + rootPolicy.root);
     for (const marker of rootPolicy.install_script_markers || []) {
-      if (!["approved", "deny_no_install_lifecycle"].includes(marker.disposition)) {
+      if (!["approved", "deny_no_install_lifecycle", "deny_install_lifecycle"].includes(marker.disposition)) {
         errors.push("invalid disposition: " + rootPolicy.root + "/" + marker.package_path);
       }
       if (!SHA256_RE.test(marker.package_json_sha256 || "")) errors.push("invalid package manifest hash: " + marker.package_path);
@@ -208,7 +213,16 @@ function validatePolicyShape(policy) {
       }
     }
   }
+  if (stableJson(policy?.raw_workflow_install_exception) !== stableJson(APPROVED_RAW_WORKFLOW_INSTALL)) {
+    errors.push("raw workflow install exception must be the one approved MCP command");
+  }
   return errors;
+}
+
+export function validateRawWorkflowInstallInvocations(raw, policy) {
+  const expected = [policy.raw_workflow_install_exception];
+  return stableJson(raw) === stableJson(expected) ? [] : ["raw npm install invocation found outside approved MCP CI command: " +
+    raw.map((item) => item.file + ":" + item.step_name + ":" + item.command).join(" | ")];
 }
 
 export function validateRepositoryPolicy(policy, repoRoot = REPO_ROOT) {
@@ -255,10 +269,7 @@ export function validateRepositoryPolicy(policy, repoRoot = REPO_ROOT) {
     .map(({ file, step_name, root, command }) => ({ file, step_name, command, root }))
     .sort((a, b) => stableJson(a).localeCompare(stableJson(b)));
   if (stableJson(actualWorkflow) !== stableJson(expectedWorkflow)) errors.push("workflow install invocation map drift");
-  if (workflow.raw.length) {
-    errors.push("raw npm install invocation found: " + workflow.raw
-      .map((item) => item.file + ":" + item.command).join(" | "));
-  }
+  errors.push(...validateRawWorkflowInstallInvocations(workflow.raw, policy));
 
   const installer = policy.installer || {};
   try {
@@ -366,7 +377,9 @@ export function validateInstalledRoot(rootAbs, rootPolicy) {
   for (const item of installedLifecycle) {
     const approval = approvals.get(item.packagePath);
     if (!approval) {
-      errors.push((item.packagePath || "<package-root>") + ": unapproved install lifecycle script");
+      const denied = (rootPolicy.install_script_markers || []).find((marker) =>
+        marker.package_path === item.packagePath && marker.disposition === "deny_install_lifecycle");
+      if (!denied) errors.push((item.packagePath || "<package-root>") + ": unapproved install lifecycle script");
       continue;
     }
     if (stableJson(item.lifecycle) !== stableJson({ [approval.lifecycle_event]: approval.lifecycle_command })) {

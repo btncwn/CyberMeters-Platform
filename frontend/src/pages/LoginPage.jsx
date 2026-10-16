@@ -4,6 +4,10 @@ import AuthShell from '../components/AuthShell'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
 import { startMicrosoftSignIn } from '../lib/microsoftLoginBinding'
+import {
+  clearMicrosoftMcpContinuation, mcpLoginDestination,
+  safeLoginDestination, saveMicrosoftMcpContinuation,
+} from '../lib/mcpLoginContinuation'
 
 // The API sends a failed Microsoft sign-in back here with ?ms_error. Its text is
 // never echoed: a link could carry any wording.
@@ -20,8 +24,7 @@ export default function LoginPage() {
   // If ProtectedRoute redirected here with a real destination, return there after
   // login; otherwise land on the Services launcher. /login is never a useful
   // destination, so it falls through to /services (prevents redirect loops).
-  const rawFrom = location.state?.from?.pathname
-  const from = (rawFrom && rawFrom !== '/login') ? rawFrom : '/services'
+  const from = safeLoginDestination(location.state?.from)
 
   // ── Step 1: password ──
   const [email,    setEmail]    = useState('')
@@ -34,7 +37,21 @@ export default function LoginPage() {
   async function handleMicrosoftSignIn() {
     setError(null)
     try {
-      await startMicrosoftSignIn({ start: api.startMicrosoftSignIn })
+      const mcpDestination = mcpLoginDestination(location.state?.from)
+      if (!mcpDestination) {
+        clearMicrosoftMcpContinuation()
+        await startMicrosoftSignIn({ start: api.startMicrosoftSignIn })
+      } else {
+        await startMicrosoftSignIn({
+          start: async challenge => {
+            const response = await api.startMicrosoftSignIn(challenge)
+            // The challenge is matched to the browser-bound OTC exchange on
+            // return. A storage failure stops the redirect before leaving.
+            saveMicrosoftMcpContinuation(challenge, mcpDestination)
+            return response
+          },
+        })
+      }
     } catch (err) {
       setError(err?.status
         ? 'Microsoft sign-in could not be started. Please try again.'
@@ -134,6 +151,7 @@ export default function LoginPage() {
 
   // After a successful login, redirect new users (no workspaces) to onboarding.
   async function navigateAfterLogin(token, user) {
+    clearMicrosoftMcpContinuation()
     login(token, user)
     try {
       const wsData = await api.getWorkspaces()

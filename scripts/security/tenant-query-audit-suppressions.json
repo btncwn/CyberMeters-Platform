@@ -247,6 +247,13 @@
       "detector": "body_workspace_trust",
       "reason": "Reviewed 2026-10-13: this strict inequality rejects a forged Queue workspace identity; it never assigns or authorizes the execution workspace.",
       "contract": "The persisted exposure job selected by scan_id supplies the workspace/domain. A mismatched message acknowledges before terminal resume, lease acquisition, probe or writes. Subsequent claims and receipt writes atomically recheck the persisted queued scan, verified domain link and live workspace. validate-exposure-queue.js proves a foreign workspace cannot read the receipt or mutate a pending job, charge budget, call the collector or enqueue a continuation."
+    },
+    {
+      "fingerprint": "7b2ac3d47ec1",
+      "file": "workers/scan-api/src/routes/mcp-oauth-purge.js",
+      "detector": "global_latest_fallback",
+      "reason": "Reviewed 2026-10-16: MCP grant cleanup intentionally selects one revoked connection from the durable global backlog. It is internal maintenance and returns no customer data.",
+      "contract": "Only rows with status revoked and kv_cleanup_pending = 1 qualify; D1 admission already rejects their tokens. The selected id and user_id are used solely for a bounded provider grant revocation, then that same id is marked clean. Cron and lifecycle callers receive only processed/pending counts, never the selected identity or another tenant's data. Hard purge keeps the D1 row until provider cleanup succeeds."
     }
   ]
 }

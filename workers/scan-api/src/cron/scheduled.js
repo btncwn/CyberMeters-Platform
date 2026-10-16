@@ -6,6 +6,9 @@
 import { recordMetric } from "../lib/metrics.js";
 import { persistOperationalEvent, OPS_EVENT_TYPES } from "../lib/operational-events.js";
 import { isScheduledQueueDispatchMode } from "../engines/scan-dispatch.js";
+import { cleanupExpiredAuditEvents } from "./audit-retention.js";
+import { cleanupExpiredMcpRateLimits } from "./mcp-rate-retention.js";
+import { drainRevokedMcpOAuthGrantBacklog, purgeExpiredMcpOAuthRefreshUses } from "../routes/mcp-oauth-purge.js";
 
 // Scheduled-scan burst controls. Each full scan fans out ~80-250 subrequests,
 // and every due scan in a tick shares the ONE Worker invocation's 1,000-
@@ -187,6 +190,11 @@ export async function runScheduled(event, env, ctx, tasks) {
   }
   if (dispatchOnly) return;
 
+  // One revoked MCP grant per hourly tick. D1 already rejects its tokens;
+  // this bounded retry removes provider KV state after transient failures.
+  ctx.waitUntil(runCronTask(env, "mcp_revoked_grant_cleanup",
+    () => drainRevokedMcpOAuthGrantBacklog(env)));
+
   // ── Scheduled executive reports ────────────────────────────────────────
   // Weekly on Mondays, monthly on the 1st of the month.
   // generateScheduledReports is a no-op on all other days.
@@ -267,6 +275,9 @@ export async function runScheduled(event, env, ctx, tasks) {
   if (new Date(now).getUTCHours() === 2) {
     ctx.waitUntil(runCronTask(env, "report_retention", () => tasks.cleanupExpiredReports(now, env)));
     ctx.waitUntil(runCronTask(env, "public_api_rate_limit_retention", () => cleanupExpiredPublicApiRateLimits(env, now)));
+    ctx.waitUntil(runCronTask(env, "audit_retention", () => cleanupExpiredAuditEvents(env, now)));
+    ctx.waitUntil(runCronTask(env, "mcp_rate_retention", () => cleanupExpiredMcpRateLimits(env, now)));
+    ctx.waitUntil(runCronTask(env, "mcp_refresh_replay_retention", () => purgeExpiredMcpOAuthRefreshUses(env, now)));
   }
 
   // ── Ops-health heartbeat ─────────────────────────────────────────────

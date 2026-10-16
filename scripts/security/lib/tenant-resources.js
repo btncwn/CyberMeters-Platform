@@ -12,6 +12,7 @@
 //   • via_scan      — table carries scan_id, tenancy inherited from scans.workspace_id
 //   • via_domain    — table carries domain_id, tenancy via workspace_domains
 //   • via_subscription — table carries subscription_id, tenancy via subscriptions
+//   • via_mcp_connection — refresh-use record inherits the OAuth connection's tenant
 //   • infra         — global infrastructure, holds NO tenant data
 //   • identity_root — the users table itself
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,6 +126,9 @@ export function deriveOwnership(table, cols) {
   if (cols.has("owner_user_id")) return { model: "account", column: "owner_user_id" };
   if (cols.has("owner_id")) return { model: "account", column: "owner_id" };
   if (cols.has("subscription_id")) return { model: "via_subscription", column: "subscription_id" };
+  if (table === "mcp_oauth_refresh_uses" && cols.has("connection_id")) {
+    return { model: "via_mcp_connection", column: "connection_id" };
+  }
   if (cols.has("scan_id")) return { model: "via_scan", column: "scan_id" };
   if (cols.has("domain_id")) return { model: "via_domain", column: "domain_id" };
   if (cols.has("user_id")) return { model: "user", column: "user_id" };
@@ -136,6 +140,7 @@ export const INFRA_TABLES = new Set([
   "api_rate_limits",        // rate-limit counters keyed by scope/ip
   "oauth_states",           // OAuth CSRF state token, pre-auth
   "stripe_processed_events",// Stripe webhook idempotency ledger (global)
+  "mcp_oauth_login_intents", // Opaque pre-consent OAuth state; no user/workspace grant exists yet
 ]);
 
 // The 12 canonical tenant-isolation invariants (mission Phase 2).
@@ -163,6 +168,7 @@ export const INVARIANTS = [
 // / validate-tenant-isolation-extended). `property` = exercised by the property-based
 // authz suite. Classes with neither carry a `coverage_note` explaining why.
 export const RESOURCE_CLASSES = [
+  { class: "mcp_customer_connections", domain: "auth", tables: ["mcp_beta_workspace_access", "mcp_oauth_browser_sessions", "mcp_oauth_connection_workspaces", "mcp_oauth_connections", "mcp_oauth_login_intents", "mcp_oauth_refresh_uses"], harness: false, property: false, coverage_note: "Beta enrollment is workspace-scoped; OAuth sessions are user-scoped; selected portfolio rows and refresh-use hashes inherit their live connection. Pre-consent login intents contain no tenant grant and expire by one-time hash. Dedicated two-tenant workerd, IDOR, revocation, purge and token-replay coverage runs in the MCP local gate (validate-mcp-customer-chain-runtime, validate-mcp-rpc-runtime, mcp-oauth-admission and validate-purge-completeness)." },
   { class: "identity_workforce_response", domain: "identity", tables: ["identity_workforce_accounts", "identity_response_actions"], harness: false, property: false, coverage_note: "Dedicated production-router controls in validate-identity-workforce.js cover tenant and role boundaries, immutable targets, one-attempt claims, uncertain outcomes, secret exclusion and purge; provider contracts are tested separately without live calls." },
   { class: "identity_public_sources", domain: "identity", tables: ["identity_public_source_checks"], harness: false, property: false, coverage_note: "Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation." },
   { class: "dns_provider_remediation", domain: "email", tables: ["dns_provider_connections", "dns_provider_changes"], harness: false, property: false, coverage_note: "Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness." },
