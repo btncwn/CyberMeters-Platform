@@ -397,8 +397,10 @@ async function main() {
   // Time-gated tasks must mirror src/cron/scheduled.js exactly, or this exact
   // name-set match fails whenever CI happens to run in the relevant window
   // (retention 02:00 UTC; ops-health 08:00 UTC; weekly digest Mon 08:00 UTC).
+  // The 02:00 block runs TWO retention tasks since 14 Oct 2026: report
+  // retention and public-API rate-limit retention (scheduled.js, same gate).
   const nowD = new Date();
-  if (nowD.getUTCHours() === 2) expectedTasks.push("report_retention");
+  if (nowD.getUTCHours() === 2) expectedTasks.push("report_retention", "public_api_rate_limit_retention");
   if (nowD.getUTCHours() === 4) expectedTasks.push("brand_http_enrichment");
   if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat");
   if (nowD.getUTCDay() === 1 && nowD.getUTCHours() === 8) expectedTasks.push("weekly_digest");
