@@ -269,9 +269,9 @@ export async function globalBillingRoutes(rctx) {
         switch (eventType) {
 
           // ── checkout.session.completed ────────────────────────────────────
-          // Customer completed Stripe-hosted checkout. Writes stripe_customer_id
-          // and stripe_subscription_id into subscriptions. getEffectivePlan()
-          // will return the new plan once subscription_status = 'active'.
+          // A settled subscription checkout binds its Stripe ids and may
+          // activate a new subscription. Pending payments and later lifecycle
+          // events leave entitlement state to subscription events.
           // current_period_end is absent on the session object — it arrives
           // seconds later via customer.subscription.created.
           case "checkout.session.completed": {

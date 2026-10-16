@@ -329,7 +329,7 @@ async function main() {
     id: "evt_pipeline_resubscribed",
     type: "checkout.session.completed",
     data: { object: {
-      id: "cs_test_resub", customer: "cus_pipeline_test", subscription: "sub_resub_1",
+      id: "cs_test_resub", customer: "cus_pipeline_test", subscription: "sub_resub_1", payment_status: "paid",
       client_reference_id: "userA",
       metadata: { user_id: "userA", workspace_id: "ws1", plan: "professional", interval: "monthly" },
     } },

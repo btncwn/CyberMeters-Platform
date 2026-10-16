@@ -109,7 +109,7 @@ async function deliver(event, { badSignature = false } = {}) {
   }), env, ctx);
   return { status: res.status, data: await res.json() };
 }
-const completed = { id: "paid-completion", type: "checkout.session.completed", data: { object: { id: "cs-buyer", metadata: freshMetadata, customer: "cus-buyer", subscription: "sub-buyer" } } };
+const completed = { id: "paid-completion", type: "checkout.session.completed", data: { object: { id: "cs-buyer", metadata: freshMetadata, customer: "cus-buyer", subscription: "sub-buyer", payment_status: "paid" } } };
 check("bad signature refused", (await deliver(completed, { badSignature: true })).status, 400);
 check("bad signature changes no subscription", db.prepare("SELECT COUNT(*) n FROM subscriptions WHERE owner_user_id='buyer'").get().n, 0);
 check("matching completion accepted", (await deliver(completed)).status, 200);
@@ -175,7 +175,7 @@ seed.workspace("hist-new", "history", "hist-new");
 db.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, trial_start, trial_end, created_at, updated_at) VALUES ('sub-row-trial','history','hist-new','professional','trialing','trialing','2026-07-06 14:11:10','2026-07-20 14:11:10','2026-07-06 14:11:10','2026-07-06 14:11:10')").run();
 db.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_customer_id, created_at, updated_at) VALUES ('sub-row-hist','history','hist-old','business','canceled','canceled','cus-hist','2026-06-23 10:15:57','2026-10-08 20:30:39')").run();
 const histMeta = { user_id: "history", workspace_id: "hist-new", plan: "starter", interval: "monthly" };
-const histCompleted = await deliver({ id: "hist-completion", type: "checkout.session.completed", data: { object: { id: "cs-hist", metadata: histMeta, customer: "cus-hist", subscription: "sub-hist" } } });
+const histCompleted = await deliver({ id: "hist-completion", type: "checkout.session.completed", data: { object: { id: "cs-hist", metadata: histMeta, customer: "cus-hist", subscription: "sub-hist", payment_status: "paid" } } });
 check("completion for a customer on a historical row is applied", histCompleted.status, 200);
 check("the row that holds the customer is the one activated",
   { ...db.prepare("SELECT id, workspace_id, subscription_status, stripe_subscription_id FROM subscriptions WHERE stripe_customer_id='cus-hist'").get() },

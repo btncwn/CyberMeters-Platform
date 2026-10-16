@@ -109,10 +109,10 @@ async function run() {
 
   // 3. duplicate after success is a no-op (deduped, no re-apply)
   { const db = makeDb(); await deliver(db, evt({ id: "e3", type: "checkout.session.completed",
-      data: { object: { id: "cs_1", metadata: { user_id: "u1", workspace_id: "w1", plan: "starter" }, customer: "cus_1", subscription: "sub_1" } } }));
+      data: { object: { id: "cs_1", metadata: { user_id: "u1", workspace_id: "w1", plan: "starter" }, customer: "cus_1", subscription: "sub_1", payment_status: "paid" } } }));
     const after1 = db.sideEffects();
     const r2 = await deliver(db, evt({ id: "e3", type: "checkout.session.completed",
-      data: { object: { id: "cs_1", metadata: { user_id: "u1", workspace_id: "w1", plan: "starter" }, customer: "cus_1", subscription: "sub_1" } } }));
+      data: { object: { id: "cs_1", metadata: { user_id: "u1", workspace_id: "w1", plan: "starter" }, customer: "cus_1", subscription: "sub_1", payment_status: "paid" } } }));
     ok("3 duplicate after success deduped 200", r2.status === 200 && r2.data?.deduped === true);
     ok("3 duplicate ran NO further side effects", db.sideEffects() === after1);
     ok("3 side effects DID run on first delivery", after1 > 0); }
@@ -120,7 +120,7 @@ async function run() {
   // 4. side-effect failure → 'failed' + 500 → retry re-runs → 'completed' (no permanent drift)
   { const db = makeDb(); db.armFail();
     const body = evt({ id: "e4", type: "checkout.session.completed",
-      data: { object: { id: "cs", metadata: { user_id: "u1", workspace_id: "w1", plan: "starter" }, customer: "cus", subscription: "sub" } } });
+      data: { object: { id: "cs", metadata: { user_id: "u1", workspace_id: "w1", plan: "starter" }, customer: "cus", subscription: "sub", payment_status: "paid" } } });
     const r1 = await deliver(db, body);
     ok("4 side-effect failure returns 500", r1.status === 500);
     ok("4 marker left 'failed' (retryable)", db.events.get("e4")?.status === "failed");
