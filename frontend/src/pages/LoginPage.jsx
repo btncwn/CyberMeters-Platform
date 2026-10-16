@@ -63,6 +63,7 @@ export default function LoginPage() {
   const [verificationRequired, setVerificationRequired] = useState(false)
   const [resendLoading,        setResendLoading]        = useState(false)
   const [resendDone,           setResendDone]           = useState(false)
+  const [resendError,          setResendError]          = useState(false)
 
   // ── Step 2: MFA challenge ──
   // A Microsoft SSO sign-in for an MFA-enabled account redirects here with the
@@ -78,11 +79,12 @@ export default function LoginPage() {
   async function handleResendVerification() {
     if (resendLoading || resendDone) return
     setResendLoading(true)
+    setResendError(false)
     try {
       await api.resendVerification(email.trim().toLowerCase())
       setResendDone(true)
     } catch {
-      setResendDone(true) // always show success — server is silent
+      setResendError(true)
     } finally {
       setResendLoading(false)
     }
@@ -94,6 +96,7 @@ export default function LoginPage() {
     setError(null)
     setVerificationRequired(false)
     setResendDone(false)
+    setResendError(false)
     setLoading(true)
     try {
       const data = await api.authLogin(email.trim().toLowerCase(), password)
@@ -200,7 +203,7 @@ export default function LoginPage() {
                   Please check your inbox and click the verification link before signing in.
                 </p>
                 {resendDone ? (
-                  <span className="text-xs text-green-600 font-medium">Verification email resent!</span>
+                  <span className="text-xs text-green-600 font-medium">If that address has an unverified account, a new link is on its way.</span>
                 ) : (
                   <button
                     type="button"
@@ -211,6 +214,7 @@ export default function LoginPage() {
                     {resendLoading ? 'Sending…' : 'Resend verification email'}
                   </button>
                 )}
+                {resendError && <p role="alert" className="text-xs text-red-700 mt-2">Could not send the link right now. Please try again.</p>}
               </div>
             )}
 

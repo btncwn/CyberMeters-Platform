@@ -7,31 +7,35 @@ import { persistSignupDomainParam, sanitizeDomainParam } from '../utils/signupDo
 function ResendLink({ email }) {
   const [sent,    setSent]    = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState(false)
 
   async function handleResend() {
     if (loading || sent) return
     setLoading(true)
+    setError(false)
     try {
       await api.resendVerification(email)
       setSent(true)
     } catch {
-      // Silent — resend always succeeds server-side
-      setSent(true)
+      setError(true)
     } finally {
       setLoading(false)
     }
   }
 
-  if (sent) return <span className="text-green-600 font-medium">Email resent!</span>
+  if (sent) return <span className="text-green-600 font-medium">If that address has an unverified account, a new link is on its way.</span>
   return (
-    <button
-      type="button"
-      onClick={handleResend}
-      disabled={loading}
-      className="text-brand-600 font-medium hover:underline disabled:opacity-50"
-    >
-      {loading ? 'Sending…' : 'Resend verification email'}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleResend}
+        disabled={loading}
+        className="text-brand-600 font-medium hover:underline disabled:opacity-50"
+      >
+        {loading ? 'Sending…' : 'Resend verification email'}
+      </button>
+      {error && <span role="alert" className="block mt-2 text-red-600">Could not send the link right now. Please try again.</span>}
+    </>
   )
 }
 

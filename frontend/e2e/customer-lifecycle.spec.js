@@ -204,7 +204,7 @@ async function installApiMock(page, state) {
     }
 
     if (method === 'GET' && path === `/scans/${scan.id}`) {
-      return route.fulfill(json({ scan }))
+      return route.fulfill(json({ scan, report_availability: { status: 'report_ready' } }))
     }
 
     if (method === 'GET' && path === `/scans/${scan.id}/report`) {

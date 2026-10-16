@@ -38,6 +38,7 @@ export default function EmailVerificationPage() {
   const [resendEmail,   setResendEmail]   = useState('')
   const [resendLoading, setResendLoading] = useState(false)
   const [resendDone,    setResendDone]    = useState(false)
+  const [resendError,   setResendError]   = useState(false)
   const [countdown,     setCountdown]     = useState(3)
 
   // Auto-redirect to /login 3 seconds after successful verification.
@@ -60,11 +61,12 @@ export default function EmailVerificationPage() {
     e.preventDefault()
     if (resendLoading || resendDone || !resendEmail.trim()) return
     setResendLoading(true)
+    setResendError(false)
     try {
       await api.resendVerification(resendEmail.trim().toLowerCase())
       setResendDone(true)
     } catch {
-      setResendDone(true) // always show success — server is silent on unknown emails
+      setResendError(true)
     } finally {
       setResendLoading(false)
     }
@@ -123,6 +125,7 @@ export default function EmailVerificationPage() {
                 >
                   {resendLoading ? 'Sending…' : 'Resend verification email'}
                 </button>
+                {resendError && <p role="alert" className="text-xs text-red-700">Could not send the link right now. Please try again.</p>}
               </form>
             )}
 
