@@ -111,21 +111,21 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^/` | 498 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 526 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 536 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 563 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 592 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 617 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 739 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 991 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 1099 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1462 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1755 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1860 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 1992 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 2137 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 2239 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 500 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 528 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 538 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 565 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 594 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 619 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 741 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 993 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 1101 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1464 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1770 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 1875 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 2007 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 2152 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 2254 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/auth.js`
 
