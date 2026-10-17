@@ -22,8 +22,8 @@ import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleCon
 
 const SEVERITY = {
   critical: { label: 'Critical', pill: 'bg-red-50 text-red-700 border-red-100',       dot: 'bg-red-500',    rank: 0 },
-  high:     { label: 'High',     pill: 'bg-orange-50 text-orange-700 border-orange-100', dot: 'bg-orange-500', rank: 1 },
-  medium:   { label: 'Medium',   pill: 'bg-amber-50 text-amber-700 border-amber-100',  dot: 'bg-amber-500',  rank: 2 },
+  high:     { label: 'High',     pill: 'bg-red-50 text-red-600 border-red-100', dot: 'bg-red-500', rank: 1 },
+  medium:   { label: 'Medium',   pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',  dot: 'bg-brand-700',  rank: 2 },
   low:      { label: 'Low',      pill: 'bg-blue-50 text-blue-700 border-blue-100',     dot: 'bg-blue-500',   rank: 3 },
   info:     { label: 'Info',     pill: 'bg-gray-100 text-gray-600 border-gray-200',    dot: 'bg-gray-400',   rank: 4 },
 }
@@ -31,7 +31,7 @@ const sevCfg = (s) => SEVERITY[s] || SEVERITY.info
 
 const CONFIDENCE = {
   high:   'bg-brand-50 text-brand-700 border-brand-100',
-  medium: 'bg-amber-50 text-amber-700 border-amber-100',
+  medium: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   low:    'bg-gray-100 text-gray-500 border-gray-200',
 }
 
@@ -104,7 +104,7 @@ function DmarcJourney({ journey }) {
               <div key={s.stage} className="flex items-center flex-1 last:flex-none">
                 <div className="flex flex-col items-center">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${
-                    current ? 'bg-brand-600 border-brand-600 text-white ring-4 ring-brand-100'
+                    current ? 'bg-brand-200 border-brand-200 text-brand-900 ring-4 ring-brand-100'
                     : done ? 'bg-brand-50 border-brand-300 text-brand-700'
                     : 'bg-white border-gray-200 text-gray-300'
                   }`}>
@@ -125,10 +125,10 @@ function DmarcJourney({ journey }) {
 
       {/* Current stage detail */}
       <div className="px-6 pb-6 pt-3">
-        <div className={`rounded-xl border p-4 ${isReject ? 'border-brand-100 bg-brand-50/50' : 'border-amber-100 bg-amber-50/40'}`}>
+        <div className={`rounded-xl border p-4 ${isReject ? 'border-brand-100 bg-brand-50/50' : 'border-[1.5px] border-brand-700 bg-transparent'}`}>
           <div className="flex items-center gap-2 mb-2">
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
-              isReject ? 'bg-brand-600 text-white' : 'bg-amber-500 text-white'}`}>
+              isReject ? 'bg-brand-200 text-brand-900' : 'bg-brand-700 text-white'}`}>
               You are here · {journey.label || JOURNEY_STAGES[currentIdx].label}
             </span>
           </div>
@@ -157,7 +157,7 @@ function statusPill(kind) {
   // kind: 'good' | 'warn' | 'bad' | 'info' | 'na'
   const map = {
     good: 'bg-brand-50 text-brand-700 border-brand-100',
-    warn: 'bg-amber-50 text-amber-700 border-amber-100',
+    warn: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     bad:  'bg-red-50 text-red-700 border-red-100',
     info: 'bg-blue-50 text-blue-700 border-blue-100',
     na:   'bg-gray-100 text-gray-500 border-gray-200',
@@ -207,7 +207,7 @@ function Warnings({ items }) {
   return (
     <div className="mt-1 space-y-1.5">
       {safe.map((w, i) => (
-        <p key={i} className="flex items-start gap-1.5 text-xs text-amber-700 leading-relaxed">
+        <p key={i} className="flex items-start gap-1.5 text-xs text-brand-700 leading-relaxed">
           {w}
         </p>
       ))}
@@ -326,7 +326,7 @@ function DmarcCard({ dmarc, detail }) {
       <KV k="Alignment" v={`DKIM ${align(detail?.adkim)} · SPF ${align(detail?.aspf)}`} />
       {detail?.rua?.length > 0 && <KV k="Aggregate reports (rua)" v={detail.rua.join(', ')} mono />}
       {detail?.ruf?.length > 0 && <KV k="Forensic reports (ruf)" v={detail.ruf.join(', ')} mono />}
-      {present && detail?.rua?.length === 0 && <KV k="Aggregate reports (rua)" v={<span className="text-amber-700">None configured</span>} />}
+      {present && detail?.rua?.length === 0 && <KV k="Aggregate reports (rua)" v={<span className="text-brand-700">None configured</span>} />}
       {detail?.raw && <DnsValue value={detail.raw} />}
       <Warnings items={detail?.warnings} />
     </AuthCard>
@@ -363,11 +363,11 @@ function BimiCard({ readiness }) {
       <KV k="Record" v={found ? 'Published' : 'None'} />
       {readiness.logo_url && <KV k="Logo URL" v={readiness.logo_url} mono />}
       {readiness.certificate_url ? <KV k="Certificate URL" v={readiness.certificate_url} mono />
-        : found && <KV k="Certificate URL" v={<span className="text-amber-700">Not listed</span>} />}
+        : found && <KV k="Certificate URL" v={<span className="text-brand-700">Not listed</span>} />}
       {readiness.blockers?.length > 0 && (
-        <div className="rounded-lg bg-amber-50 border border-amber-100 p-2.5 space-y-1">
-          <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Readiness blockers</p>
-          {readiness.blockers.map((b, i) => <p key={i} className="text-xs text-amber-800 leading-relaxed">{b}</p>)}
+        <div className="rounded-lg bg-transparent border border-[1.5px] border-brand-700 p-2.5 space-y-1">
+          <p className="text-xs font-bold text-brand-700 uppercase tracking-wide">Readiness blockers</p>
+          {readiness.blockers.map((b, i) => <p key={i} className="text-xs text-brand-700 leading-relaxed">{b}</p>)}
         </div>
       )}
       <Warnings items={readiness.warnings} />
@@ -438,8 +438,8 @@ function ActionCard({ action }) {
             </div>
           )}
           {action.caution && (
-            <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 border border-amber-100 p-2.5">
-              <p className="text-xs text-amber-800 leading-relaxed">{action.caution}</p>
+            <div className="flex items-start gap-1.5 rounded-lg bg-transparent border border-[1.5px] border-brand-700 p-2.5">
+              <p className="text-xs text-brand-700 leading-relaxed">{action.caution}</p>
             </div>
           )}
         </div>
@@ -535,7 +535,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
             <div key={m.key} className={isCurrent ? 'bg-brand-50/30' : ''}>
               <div className="flex items-start gap-3 px-5 py-3.5">
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                  isCurrent ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-400 border border-gray-200'
+                  isCurrent ? 'bg-brand-200 text-brand-900' : 'bg-gray-100 text-gray-400 border border-gray-200'
                 }`}>{i + 1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -645,7 +645,7 @@ const STAGE_LABEL = {
   full_enforcement: 'Rejection requested',
 }
 
-const BEC_DOT = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-amber-700', low: 'text-brand-700', minimal: 'text-brand-700' }
+const BEC_DOT = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-brand-700', low: 'text-brand-700', minimal: 'text-brand-700' }
 function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
   if (!rows || rows.length < 2) return null
   const cell = (ok) => ok === true ? <span className="text-xs font-semibold text-brand-700">Yes</span>
@@ -653,7 +653,7 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
     : <span className="text-gray-300 text-xs">·</span>
   const compCell = (c) => c == null
     ? <span className="text-gray-300 text-xs">not measured</span>
-    : <span className={`text-xs font-bold tabular-nums ${c >= 95 ? 'text-brand-700' : c >= 80 ? 'text-amber-600' : 'text-red-700'}`}>{c}%</span>
+    : <span className={`text-xs font-bold tabular-nums ${c >= 95 ? 'text-brand-700' : c >= 80 ? 'text-brand-700' : 'text-red-700'}`}>{c}%</span>
   const becCell = (b) => !b
     ? <span className="text-gray-300 text-xs">·</span>
     : <span className={`text-xs font-bold ${BEC_DOT[String(b).toLowerCase()] || 'text-gray-500'}`}>{titleCase(b)}</span>
@@ -690,7 +690,7 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
                 <td className="text-center">{cell(r.spf)}</td>
                 <td className="text-center">{cell(r.dkim)}</td>
                 <td className="text-center">{cell(r.bimi)}</td>
-                <td className="text-center"><span className={`text-xs font-bold ${r.openActions > 0 ? 'text-orange-600' : 'text-gray-400'}`}>{r.openActions}</span></td>
+                <td className="text-center"><span className={`text-xs font-bold ${r.openActions > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.openActions}</span></td>
                 <td><span className="text-xs text-gray-400">{r.lastScan ? fmtDate(r.lastScan) : '—'}</span></td>
               </tr>
             ))}
@@ -729,7 +729,7 @@ const COMPLETED = new Set(['completed'])
 
 const CLASSIFY = {
   trusted:    { label: 'Trusted',    pill: 'bg-brand-50 text-brand-700 border-brand-100' },
-  suspicious: { label: 'Suspicious', pill: 'bg-amber-50 text-amber-700 border-amber-100' },
+  suspicious: { label: 'Suspicious', pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
   threat:     { label: 'Threat',     pill: 'bg-red-50 text-red-700 border-red-100' },
   ignored:    { label: 'Ignored',    pill: 'bg-gray-100 text-gray-500 border-gray-200' },
   unknown:    { label: 'Unknown',    pill: 'bg-blue-50 text-blue-700 border-blue-100' },
@@ -739,15 +739,15 @@ const AUTO_CLASSIFY = {
   likely_authorised: { label: 'Likely authorised', pill: 'bg-blue-50 text-blue-700 border-blue-100' },
   forwarder:         { label: 'Forwarder',         pill: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
   mailing_list:      { label: 'Mailing list',      pill: 'bg-purple-50 text-purple-700 border-purple-100' },
-  misconfigured:     { label: 'Misconfigured',     pill: 'bg-amber-50 text-amber-700 border-amber-100' },
+  misconfigured:     { label: 'Misconfigured',     pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
   unknown:           { label: 'Unknown',           pill: 'bg-gray-100 text-gray-500 border-gray-200' },
-  suspicious:        { label: 'Suspicious',        pill: 'bg-orange-50 text-orange-700 border-orange-100' },
+  suspicious:        { label: 'Suspicious',        pill: 'bg-red-50 text-red-600 border-red-100' },
   unauthorised:      { label: 'Unauthorised',      pill: 'bg-red-50 text-red-700 border-red-100' },
 }
 const RISK = {
   critical: 'bg-red-50 text-red-700 border-red-100',
-  high:     'bg-orange-50 text-orange-700 border-orange-100',
-  medium:   'bg-amber-50 text-amber-700 border-amber-100',
+  high:     'bg-red-50 text-red-600 border-red-100',
+  medium:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   low:      'bg-gray-100 text-gray-500 border-gray-200',
 }
 const RISK_RANK = { critical: 0, high: 1, medium: 2, low: 3 }
@@ -762,15 +762,15 @@ function EnforcementReadiness({ readiness }) {
   ]
   const currentIdx = readiness.ready_for_reject ? 2 : readiness.ready_for_quarantine ? 1 : 0
   const confPill = readiness.confidence === 'high' ? 'bg-brand-50 text-brand-700 border-brand-100'
-    : readiness.confidence === 'medium' ? 'bg-amber-50 text-amber-700 border-amber-100'
+    : readiness.confidence === 'medium' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
     : 'bg-gray-100 text-gray-500 border-gray-200'
   const hasScore = typeof readiness.score === 'number'
-  const statusPill = readiness.status === 'ready' ? 'bg-green-50 text-green-700 border-green-200'
-    : readiness.status === 'approaching' ? 'bg-amber-50 text-amber-700 border-amber-200'
+  const statusPill = readiness.status === 'ready' ? 'bg-brand-200 text-brand-900 border-brand-200'
+    : readiness.status === 'approaching' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
     : 'bg-gray-100 text-gray-600 border-gray-200'
   const statusLabel = readiness.status === 'ready' ? 'Ready' : readiness.status === 'approaching' ? 'Approaching' : 'Not ready'
-  const checkTone = (st) => st === 'pass' ? { dot: 'bg-green-500', txt: 'text-gray-700' }
-    : st === 'warn' ? { dot: 'bg-amber-400', txt: 'text-gray-700' }
+  const checkTone = (st) => st === 'pass' ? { dot: 'bg-brand-700', txt: 'text-gray-700' }
+    : st === 'warn' ? { dot: 'bg-brand-700', txt: 'text-gray-700' }
     : { dot: 'bg-red-500', txt: 'text-gray-800' }
   return (
     <section className="card-md overflow-hidden">
@@ -797,7 +797,7 @@ function EnforcementReadiness({ readiness }) {
               <div key={s.key} className="flex items-center flex-1 last:flex-none">
                 <div className="flex flex-col items-center">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
-                    current ? 'bg-brand-600 border-brand-600 text-white ring-4 ring-brand-100'
+                    current ? 'bg-brand-200 border-brand-200 text-brand-900 ring-4 ring-brand-100'
                     : done ? 'bg-brand-50 border-brand-300 text-brand-700'
                     : 'bg-white border-gray-200 text-gray-300'}`}>
                     {i + 1}
@@ -830,7 +830,7 @@ function EnforcementReadiness({ readiness }) {
         </div>
       )}
       <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+        <div className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent p-4">
           {readiness.explanation && <p className="text-sm text-gray-700 leading-relaxed mb-3">{readiness.explanation}</p>}
           {readiness.blockers?.length > 0 && (
             <div className="mb-3">
@@ -904,7 +904,7 @@ function ChangeReviewQueue({ wsId }) {
           <span className="eyebrow">Managed change review</span>
           <h2 className="section-title leading-tight">Policy changes awaiting approval</h2>
         </div>
-        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border bg-amber-50 text-amber-700 border-amber-200">
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border bg-transparent text-brand-700 border-[1.5px] border-brand-700">
           {queue.length} pending
         </span>
       </div>
@@ -962,7 +962,7 @@ function DmarcSummaryPanel({ summary }) {
   const br = summary.business_risk || {}
   const dispTotal = Math.max(1, (d.none || 0) + (d.quarantine || 0) + (d.reject || 0))
   const brTone = br.level === 'high' ? 'bg-red-50 text-red-700 border-red-100'
-    : br.level === 'medium' ? 'bg-amber-50 text-amber-700 border-amber-100'
+    : br.level === 'medium' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
     : 'bg-brand-50 text-brand-700 border-brand-100'
   const tile = (label, value, sub, tone) => (
     <div className="stat-tile">
@@ -981,8 +981,8 @@ function DmarcSummaryPanel({ summary }) {
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {tile('Total messages', (t.total_messages ?? 0).toLocaleString(), 'observed')}
-        {tile('Aligned', (t.aligned_messages ?? 0).toLocaleString(), 'passed SPF/DKIM', 'text-brand-600')}
-        {tile('Failed', (t.failed_messages ?? 0).toLocaleString(), 'failed alignment', (t.failed_messages ?? 0) > 0 ? 'text-orange-600' : '')}
+        {tile('Aligned', (t.aligned_messages ?? 0).toLocaleString(), 'passed SPF/DKIM', 'text-brand-700')}
+        {tile('Failed', (t.failed_messages ?? 0).toLocaleString(), 'failed alignment', (t.failed_messages ?? 0) > 0 ? 'text-red-600' : '')}
         {tile('Pass rate', `${t.pass_rate ?? 0}%`, 'aligned share')}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -993,7 +993,7 @@ function DmarcSummaryPanel({ summary }) {
             {[
               ['Trusted', s.trusted, 'bg-brand-500'],
               ['Unknown', s.unknown, 'bg-blue-400'],
-              ['Suspicious', s.suspicious, 'bg-amber-500'],
+              ['Suspicious', s.suspicious, 'bg-brand-700'],
               ['Threat', s.threat, 'bg-red-500'],
             ].map(([label, n, dot]) => (
               <div key={label} className="flex items-center justify-between">
@@ -1008,12 +1008,12 @@ function DmarcSummaryPanel({ summary }) {
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-3">Disposition</p>
           <div className="flex h-2.5 rounded-full overflow-hidden mb-3 border border-gray-100">
             <div style={{ width: `${(d.none || 0) / dispTotal * 100}%` }} className="bg-gray-300" />
-            <div style={{ width: `${(d.quarantine || 0) / dispTotal * 100}%` }} className="bg-amber-400" />
+            <div style={{ width: `${(d.quarantine || 0) / dispTotal * 100}%` }} className="bg-brand-700" />
             <div style={{ width: `${(d.reject || 0) / dispTotal * 100}%` }} className="bg-red-500" />
           </div>
           <div className="space-y-1.5 text-sm">
             <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-gray-300" />None</span><span className="font-semibold">{(d.none ?? 0).toLocaleString()}</span></div>
-            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-amber-400" />Quarantine</span><span className="font-semibold">{(d.quarantine ?? 0).toLocaleString()}</span></div>
+            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-brand-700" />Quarantine</span><span className="font-semibold">{(d.quarantine ?? 0).toLocaleString()}</span></div>
             <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-red-500" />Reject</span><span className="font-semibold">{(d.reject ?? 0).toLocaleString()}</span></div>
           </div>
         </div>
@@ -1045,8 +1045,8 @@ function SenderRow({ sender, onClassify, classifying }) {
           {sender.provider_confidence && <span className="block text-xs text-gray-400">{sender.provider_confidence} confidence</span>}
         </td>
         <td className="text-right"><span className="text-sm font-semibold text-gray-900">{(sender.total_messages ?? 0).toLocaleString()}</span></td>
-        <td className="text-right"><span className={`text-sm font-semibold ${(sender.pass_rate ?? 0) < 90 ? 'text-orange-600' : 'text-gray-900'}`}>{sender.pass_rate ?? 0}%</span></td>
-        <td className="text-right"><span className={`text-sm ${(sender.failed_messages ?? 0) > 0 ? 'text-orange-600 font-semibold' : 'text-gray-400'}`}>{(sender.failed_messages ?? 0).toLocaleString()}</span></td>
+        <td className="text-right"><span className={`text-sm font-semibold ${(sender.pass_rate ?? 0) < 90 ? 'text-red-600' : 'text-gray-900'}`}>{sender.pass_rate ?? 0}%</span></td>
+        <td className="text-right"><span className={`text-sm ${(sender.failed_messages ?? 0) > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{(sender.failed_messages ?? 0).toLocaleString()}</span></td>
         <td><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border capitalize ${riskCls}`}>{sender.risk_level || 'low'}</span></td>
         <td><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${cls.pill}`}>{cls.label}</span></td>
         <td className="text-right"><ChevronDown className={`w-4 h-4 text-gray-300 inline transition-transform ${open ? 'rotate-180' : ''}`} /></td>
@@ -1165,7 +1165,7 @@ function EmailLifecycleHistory({ data, error }) {
               <span className="font-mono text-xs text-gray-400">{e.created_at?.slice(0, 16).replace('T', ' ')}</span>
               <span className="text-sm text-gray-800">{EMAIL_EVENT_LABEL[e.event_type] || String(e.event_type).replace(/_/g, ' ')}</span>
               {e.recurrence_type && (
-                <span className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                <span className="rounded-full border border-[1.5px] border-brand-700 bg-transparent px-2 py-0.5 text-xs text-brand-700">
                   {String(e.recurrence_type).replace(/_/g, ' ')}
                 </span>
               )}
@@ -1222,7 +1222,7 @@ function SenderInventory({ data, onClassify, classifyingId, loading }) {
           {SENDER_FILTERS.map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                filter === f ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>
+                filter === f ? 'bg-brand-200 text-brand-900' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>
               {f}
             </button>
           ))}
@@ -1271,7 +1271,7 @@ function SenderInventory({ data, onClassify, classifyingId, loading }) {
 // inbox, as point-tools require). Headers are parsed server-side and discarded.
 const VS_TONE = {
   authenticated_aligned: { label: 'Authenticated & aligned', cls: 'bg-brand-50 border-brand-200 text-brand-800' },
-  passes_not_aligned:    { label: 'Passes, but not aligned', cls: 'bg-amber-50 border-amber-200 text-amber-800' },
+  passes_not_aligned:    { label: 'Passes, but not aligned', cls: 'bg-transparent border-[1.5px] border-brand-700 text-brand-700' },
   fails:                 { label: 'Fails authentication',     cls: 'bg-red-50 border-red-200 text-red-800' },
   unparseable:           { label: 'Could not read headers',   cls: 'bg-gray-50 border-gray-200 text-gray-600' },
 }
@@ -1391,9 +1391,9 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
           {error && <span className="text-sm text-red-600">{error}</span>}
         </div>
         {result && (
-          <div className={`rounded-xl border p-4 ${result.imported ? 'border-brand-100 bg-brand-50/50' : result.duplicate ? 'border-amber-100 bg-amber-50/40' : 'border-gray-200 bg-gray-50'}`}>
+          <div className={`rounded-xl border p-4 ${result.imported ? 'border-brand-100 bg-brand-50/50' : result.duplicate ? 'border-[1.5px] border-brand-700 bg-transparent' : 'border-gray-200 bg-gray-50'}`}>
             {result.duplicate ? (
-              <p className="text-sm text-amber-800">This report was already imported and was not counted again.</p>
+              <p className="text-sm text-brand-700">This report was already imported and was not counted again.</p>
             ) : result.imported ? (
               <div className="flex items-start gap-2">
                 <p className="text-sm text-gray-700">
@@ -1445,7 +1445,7 @@ function DmarcReportHistory({ wsId, domain }) {
   const reports = data?.reports || []
   const totals  = data?.totals
   const visible = showAll ? reports : reports.slice(0, 10)
-  const passCls = (p) => p == null ? 'text-gray-400' : p >= 95 ? 'text-brand-700' : p >= 80 ? 'text-amber-700' : 'text-red-700'
+  const passCls = (p) => p == null ? 'text-gray-400' : p >= 95 ? 'text-brand-700' : p >= 80 ? 'text-brand-700' : 'text-red-700'
 
   return (
     <section className="card overflow-hidden">
@@ -1599,10 +1599,10 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
             {/* Mode A — Inbound RUA (recommended) */}
             <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-brand-600 text-white text-xs font-semibold">Recommended</span>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-brand-200 text-brand-900 text-xs font-semibold">Recommended</span>
                 <h3 className="text-sm font-semibold text-gray-800">Inbound RUA address</h3>
                 <span className={`ml-auto inline-flex items-center gap-1.5 text-xs font-medium ${
-                  fullyConnected ? 'text-brand-700' : reportsReceived ? 'text-amber-700' : 'text-gray-500'
+                  fullyConnected ? 'text-brand-700' : reportsReceived ? 'text-brand-700' : 'text-gray-500'
                 }`}>
                   {fullyConnected
                     ? 'Connected'
@@ -1617,7 +1617,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                 {ruaValue && <CopyButton value={ruaValue} label="Copy" />}
               </div>
               {reportsReceived && !dnsVerified && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-900 flex items-start gap-1.5">
+                <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-2.5 text-xs text-brand-700 flex items-start gap-1.5">
                   Reports are arriving, but your DMARC record does not yet include the CyberMeters reporting address. Add the value above to finish setup.
                 </div>
               )}
@@ -1655,10 +1655,10 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                     POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? parseServerDate(endpoint.last_signed_upload_at).toLocaleString() : 'never'}</b>.
                   </p>
                   {rawToken && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
-                      <p className="text-sm text-amber-900">Copy this token now — it is shown only once and cannot be retrieved later.</p>
+                    <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-3 space-y-2">
+                      <p className="text-sm text-brand-700">Copy this token now — it is shown only once and cannot be retrieved later.</p>
                       <div className="flex items-center gap-2">
-                        <code className="mono text-xs flex-1 break-all bg-white border border-amber-200 rounded-lg px-3 py-2">{rawToken}</code>
+                        <code className="mono text-xs flex-1 break-all bg-white border border-[1.5px] border-brand-700 rounded-lg px-3 py-2">{rawToken}</code>
                         <CopyButton value={rawToken} label="Copy" />
                       </div>
                     </div>
@@ -1723,7 +1723,7 @@ function WizardStepper({ steps, completed, current }) {
         const done = !!completed[i], isCurrent = i === current
         return (
           <li key={label} className="flex items-center gap-2">
-            <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${done ? 'bg-brand-600 text-white' : isCurrent ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-300' : 'bg-gray-100 text-gray-400'}`}>
+            <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${done ? 'bg-brand-200 text-brand-900' : isCurrent ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-300' : 'bg-gray-100 text-gray-400'}`}>
               {i + 1}
             </span>
             <span className={`text-xs ${isCurrent ? 'font-semibold text-gray-800' : done ? 'text-gray-600' : 'text-gray-500'}`}>{label}</span>
@@ -1756,7 +1756,7 @@ function TlsRptHealthCard({ wsId, domain }) {
 
   if (!data) return null // self-hide while loading or when no reports yet
   const rate = data.success_rate
-  const rateCls = rate == null ? 'text-gray-400' : rate >= 99 ? 'text-brand-700' : rate >= 95 ? 'text-amber-600' : 'text-red-600'
+  const rateCls = rate == null ? 'text-gray-400' : rate >= 99 ? 'text-brand-700' : rate >= 95 ? 'text-brand-700' : 'text-red-600'
   return (
     <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1831,7 +1831,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
         {rec && meta && (
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
             meta.kind === 'good' ? 'bg-brand-50 text-brand-700 border-brand-200'
-            : meta.kind === 'warn' ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : meta.kind === 'warn' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
             : meta.kind === 'bad' ? 'bg-red-50 text-red-700 border-red-200'
             : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
             {meta.label}
@@ -1948,7 +1948,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
         {rec && (
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
             complete ? 'bg-brand-50 text-brand-700 border-brand-200'
-            : rec.review_required ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : rec.review_required ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
             : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
             {complete ? 'MTA-STS active in testing mode' : rec.review_required ? 'Review needed' : meta?.label || 'Not checked'}
           </span>
@@ -1983,7 +1983,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
           </div>
 
           {rec.review_required && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-3 text-xs text-brand-700">
               {rec.mx_drift?.message || 'Your mail servers changed. Review and republish the MTA-STS policy before changing the DNS policy ID.'}
             </div>
           )}
@@ -2097,7 +2097,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
         {rec && meta && (
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
             meta.kind === 'good' ? 'bg-brand-50 text-brand-700 border-brand-200'
-            : meta.kind === 'warn' ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : meta.kind === 'warn' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
             : meta.kind === 'bad' ? 'bg-red-50 text-red-700 border-red-200'
             : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
             {meta.label}
@@ -2106,8 +2106,8 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
       </div>
 
       {rec?.issue && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-          <p className="text-xs text-amber-800 leading-relaxed">
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-[1.5px] border-brand-700 bg-transparent px-3 py-2">
+          <p className="text-xs text-brand-700 leading-relaxed">
             {rec.issue === 'config_error'
               ? 'Publishing is delayed on our side — no action needed from you. We’ve been notified and will complete setup automatically.'
               : 'Finishing setup — publishing your managed record can take a few minutes. This will clear on its own.'}
@@ -2178,9 +2178,9 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
           )}
 
           {rec.status === 'connected' && automationSuspended && (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-sm font-bold text-amber-900">Managed policy automation is suspended</p>
-              <p className="mt-1 text-xs leading-relaxed text-amber-800">
+            <div className="mt-4 rounded-xl border border-[1.5px] border-brand-700 bg-transparent px-4 py-3">
+              <p className="text-sm font-bold text-brand-700">Managed policy automation is suspended</p>
+              <p className="mt-1 text-xs leading-relaxed text-brand-700">
                 Automatic policy advancement and rollback from inbound DMARC (RUA) reports are suspended. Governed manual changes remain available below and require your explicit action.
               </p>
             </div>
@@ -2200,7 +2200,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                     <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">7-day compliance</p>
                     <p className={`text-2xl font-black tabular-nums leading-none mt-1 ${
                       ramp.compliance.pass_rate == null ? 'text-gray-300'
-                      : ramp.compliance.pass_rate >= 97 ? 'text-brand-700' : 'text-amber-600'}`}>
+                      : ramp.compliance.pass_rate >= 97 ? 'text-brand-700' : 'text-brand-700'}`}>
                       {ramp.compliance.pass_rate != null ? `${ramp.compliance.pass_rate}%` : '—'}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
@@ -2217,19 +2217,19 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                   const state = i === rec.policy_step.index ? 'current' : i < rec.policy_step.index ? 'done' : 'future'
                   return (
                     <div key={label} className={`flex-1 min-w-[92px] rounded-xl border px-3 py-2.5 text-center ${
-                      state === 'current' ? 'bg-brand-600 border-brand-600 text-white shadow-xs ring-2 ring-brand-200'
+                      state === 'current' ? 'bg-brand-200 border-brand-200 text-brand-900 shadow-xs ring-2 ring-brand-200'
                       : state === 'done' ? 'bg-brand-50 border-brand-200 text-brand-700'
                       : 'bg-white border-gray-200 text-gray-400'}`}>
                       <p className="text-[14px] font-bold leading-tight">{label}</p>
                       {state === 'current' && <p className="text-xs font-semibold text-brand-100 mt-0.5">You are here</p>}
-                      {state === 'done' && <p className="text-xs text-brand-600 mt-0.5">✓ passed</p>}
+                      {state === 'done' && <p className="text-xs text-brand-700 mt-0.5">✓ passed</p>}
                     </div>
                   )
                 })}
               </div>
 
               {rec.change_pending && (
-                <p className="text-sm text-amber-700 font-medium bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
+                <p className="text-sm text-brand-700 font-medium bg-transparent border border-[1.5px] border-brand-700 rounded-lg px-3.5 py-2.5">
                   A change is being confirmed — controls unlock automatically once it settles.
                 </p>
               )}
@@ -2268,7 +2268,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                       )}
                       {rec.impact_assessment && !rec.impact_assessment.insufficient_data && (
                         <div className={`rounded-xl border px-4 py-3 ${
-                          rec.impact_assessment.rollbackRecommended ? 'border-amber-200 bg-amber-50' : 'border-brand-100 bg-brand-50/40'}`}>
+                          rec.impact_assessment.rollbackRecommended ? 'border-[1.5px] border-brand-700 bg-transparent' : 'border-brand-100 bg-brand-50/40'}`}>
                           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Post-change monitor</p>
                           <p className="text-sm text-gray-700 mt-1 leading-relaxed">
                             Legitimate failed-mail rate changed by {rec.impact_assessment.delta?.legitimate_failed_rate_increase ?? 0} percentage points after the last change.
@@ -2298,7 +2298,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                         Advance to {rec.next_step.label}
                       </button>
                       {ramp?.readiness && !ramp.readiness.ready && (
-                        <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
+                        <div className="flex items-start gap-2 text-sm text-brand-700 bg-transparent border border-[1.5px] border-brand-700 rounded-lg px-3.5 py-2.5">
                           <span><span className="font-semibold">Safety interlock:</span> {ramp.readiness.reasons[0]}</span>
                         </div>
                       )}
@@ -2320,7 +2320,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                         checked={rec.autopilot}
                         disabled={Boolean(busy)}
                         onChange={(e) => act('autopilot', () => api.setHostedDmarcAutopilot(wsId, domain, e.target.checked), { reloadAll: true })}
-                        className="mt-0.5 w-4 h-4 rounded-sm border-gray-300 text-brand-600"
+                        className="mt-0.5 w-4 h-4 rounded-sm border-gray-300 text-brand-700"
                       />
                       <span>
                         <span className="block text-sm font-bold text-gray-900">Self-Driving DMARC</span>
@@ -2485,7 +2485,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
             Connected
           </span>
         ) : needsDnsAction ? (
-          <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-800">
+          <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-transparent border border-[1.5px] border-brand-700 text-xs font-semibold text-brand-700">
             Receiving reports · DNS not verified
           </span>
         ) : null}
@@ -2515,8 +2515,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
 
             {/* Action-required banner — reports arriving but DNS not verified */}
             {needsDnsAction && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex gap-2.5">
-                <p className="text-sm text-amber-900">
+              <div className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent p-4 flex gap-2.5">
+                <p className="text-sm text-brand-700">
                   {dnsKnown
                     ? 'Reports have been received, but your current DNS record does not include the CyberMeters reporting address yet. Add the recommended value below to complete setup.'
                     : 'Reports have been received. We couldn’t read your DNS record on the last scan to confirm the reporting address — add the recommended value below, then re-check after your next scan.'}
@@ -2542,7 +2542,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
             <div className="space-y-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">2 · Copy the DNS record</p>
               {present && existingRaw && !already && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 flex gap-2">
+                <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-3 text-sm text-brand-700 flex gap-2">
                   <span>You already have a DMARC record. <b>Do not delete it.</b> Just add the CyberMeters reporting address to the existing <code className="mono">rua=</code> tag — the value below already includes both.</span>
                 </div>
               )}
@@ -2559,8 +2559,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
 
             {/* Step 3 — verify (auto-derived; button re-checks current data) */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">3 · Verify setup{dnsVerified && <span className="ml-1.5 text-brand-600 normal-case font-medium">· verified</span>}</p>
-              <div className={`rounded-lg border p-3 text-sm flex gap-2 ${vm.kind === 'good' ? 'border-brand-100 bg-brand-50/50 text-brand-800' : vm.kind === 'warn' ? 'border-amber-200 bg-amber-50/50 text-amber-900' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">3 · Verify setup{dnsVerified && <span className="ml-1.5 text-brand-700 normal-case font-medium">· verified</span>}</p>
+              <div className={`rounded-lg border p-3 text-sm flex gap-2 ${vm.kind === 'good' ? 'border-brand-100 bg-brand-50/50 text-brand-800' : vm.kind === 'warn' ? 'border-[1.5px] border-brand-700 bg-transparent text-brand-700' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
                 <span>{vm.text}</span>
               </div>
               <button onClick={verifyDns} disabled={checking} className="btn-secondary text-sm disabled:opacity-50">
@@ -2582,8 +2582,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
                   </p>
                 </div>
               ) : receiving ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-1.5">
-                  <p className="text-sm text-amber-900">Reports are arriving, but DNS is not verified yet.</p>
+                <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-3 space-y-1.5">
+                  <p className="text-sm text-brand-700">Reports are arriving, but DNS is not verified yet.</p>
                   <p className="text-xs text-gray-600">
                     Last report received: <b className="text-gray-700">{fmt(endpoint.last_inbound_at)}</b>. Add the recommended value above to your DMARC record to finish setup — this becomes <b>Connected</b> once your record includes the CyberMeters address.
                   </p>
@@ -2612,8 +2612,8 @@ function epFmt(t) { return t ? parseServerDate(t).toLocaleString() : null }
 
 function EpStatusChecklist({ items }) {
   const ICON = {
-    done:    { cls: 'text-brand-600',  txt: 'Done' },
-    needs:   { cls: 'text-amber-500',  txt: 'Needs action' },
+    done:    { cls: 'text-brand-700',  txt: 'Done' },
+    needs:   { cls: 'text-brand-700',  txt: 'Needs action' },
     waiting: { cls: 'text-gray-400',   txt: 'Waiting' },
     unknown: { cls: 'text-gray-300',   txt: 'Unknown' },
   }
@@ -2822,7 +2822,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
     ? ['quarantine', 'reject'].includes(effectiveRequestedPolicy)
     : ['partial_enforcement', 'full_enforcement'].includes(stage)
   const cCol = !hasCompliance ? 'text-gray-400' : passRate >= 95 ? 'text-brand-700'
-    : passRate >= 80 ? 'text-amber-600' : 'text-red-700'
+    : passRate >= 80 ? 'text-brand-700' : 'text-red-700'
   const sev = bec ? becSev(bec.exposure_level) : null
 
   const next = staleScan ? { label: `Re-scan ${domain}`, rescan: true }
@@ -2835,7 +2835,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
   const pill = (txt, tone) => (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${
       tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
-      : tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : tone === 'warn' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
       : tone === 'bad' ? 'bg-red-50 text-red-700 border-red-200'
       : 'bg-gray-50 text-gray-500 border-gray-200'}`}>{txt}</span>
   )
@@ -2976,7 +2976,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
   }[state]
   const PANEL = {
     ok:   'border-brand-100 bg-brand-50/50',
-    warn: 'border-amber-200 bg-amber-50/50',
+    warn: 'border-[1.5px] border-brand-700 bg-transparent',
     info: 'border-blue-100 bg-blue-50/40',
     na:   'border-gray-200 bg-gray-50',
   }[STATE.tone]
@@ -3030,7 +3030,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
           </div>
         </div>
         {vr && (
-          <div className={`mt-3 rounded-lg border p-2.5 text-sm flex items-center gap-2 ${vr.ok ? 'border-brand-100 bg-brand-50/60 text-brand-800' : 'border-amber-200 bg-amber-50/50 text-amber-900'}`}>
+          <div className={`mt-3 rounded-lg border p-2.5 text-sm flex items-center gap-2 ${vr.ok ? 'border-brand-100 bg-brand-50/60 text-brand-800' : 'border-[1.5px] border-brand-700 bg-transparent text-brand-700'}`}>
             {vr.text}
           </div>
         )}
@@ -3057,14 +3057,14 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
 const BEC_SEV = {
   critical: { text: 'text-red-700',   chip: 'bg-red-50 text-red-700 border-red-200',     accent: 'accent-danger' },
   high:     { text: 'text-red-700',   chip: 'bg-red-50 text-red-700 border-red-200',     accent: 'accent-danger' },
-  medium:   { text: 'text-amber-700', chip: 'bg-amber-50 text-amber-700 border-amber-200', accent: 'accent-warning' },
+  medium:   { text: 'text-brand-700', chip: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700', accent: 'accent-warning' },
   low:      { text: 'text-brand-700', chip: 'bg-brand-50 text-brand-700 border-brand-100', accent: '' },
   minimal:  { text: 'text-brand-700', chip: 'bg-brand-50 text-brand-700 border-brand-100', accent: '' },
 }
 const becSev = (l) => BEC_SEV[String(l || '').toLowerCase()] || BEC_SEV.medium
 const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
 const becChipCls = (tone) => tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
-  : tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200'
+  : tone === 'warn' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' : 'bg-gray-50 text-gray-600 border-gray-200'
 
 function becEvidenceChips(ev) {
   if (!ev || typeof ev !== 'object') return []
@@ -3268,7 +3268,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
          msg: 'Your DMARC record includes the CyberMeters reporting address. Reports may take 24–48 hours to arrive depending on mail volume and receivers.',
          next: 'No action needed — reports will appear automatically.', cta: 'Review setup', act: onGotoSetup },
   }[state]
-  const PANEL = { ok: 'border-brand-100 bg-brand-50/50', warn: 'border-amber-200 bg-amber-50/50', info: 'border-blue-100 bg-blue-50/40', na: 'border-gray-200 bg-gray-50' }[STATE.tone]
+  const PANEL = { ok: 'border-brand-100 bg-brand-50/50', warn: 'border-[1.5px] border-brand-700 bg-transparent', info: 'border-blue-100 bg-blue-50/40', na: 'border-gray-200 bg-gray-50' }[STATE.tone]
   const dnsLabel = dnsVerified === true ? 'Verified' : dnsVerified === false ? 'Not verified' : 'Unknown'
 
   const tiles = [
@@ -3311,7 +3311,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
               {tiles.map(t => (
                 <div key={t.label} className="rounded-xl border border-gray-200 bg-white px-3 py-2.5">
                   <p className="text-xs font-semibold text-gray-700 leading-snug">{t.label}</p>
-                  <p className={`text-[14px] font-bold mt-1 tabular-nums ${t.tone === 'warn' ? 'text-amber-700' : t.tone === 'ok' ? 'text-brand-700' : t.tone === 'na' ? 'text-gray-400' : 'text-gray-800'}`}>
+                  <p className={`text-[14px] font-bold mt-1 tabular-nums ${t.tone === 'warn' ? 'text-brand-700' : t.tone === 'ok' ? 'text-brand-700' : t.tone === 'na' ? 'text-gray-400' : 'text-gray-800'}`}>
                     {typeof t.value === 'number' ? t.value.toLocaleString() : t.value}
                   </p>
                 </div>
@@ -3336,7 +3336,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
                   {senderSummary.map(s => (
                     <div key={s.label} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
                       <p className="text-xs font-semibold text-gray-700 leading-snug">{s.label} senders</p>
-                      <p className={`text-[14px] font-bold mt-1 tabular-nums ${s.tone === 'warn' ? 'text-amber-700' : 'text-gray-800'}`}>{s.value}</p>
+                      <p className={`text-[14px] font-bold mt-1 tabular-nums ${s.tone === 'warn' ? 'text-brand-700' : 'text-gray-800'}`}>{s.value}</p>
                     </div>
                   ))}
                 </div>

@@ -15,9 +15,9 @@ function fmt(ts) {
 }
 
 const OUTCOME_TONE = {
-  fixed: 'text-green-800',
+  fixed: 'text-brand-700',
   still_present: 'text-red-700',
-  waiting: 'text-amber-800',
+  waiting: 'text-brand-700',
 }
 
 function Fact({ term, children }) {
@@ -109,7 +109,7 @@ export default function CaseGuidance({ guidance }) {
                   <li key={item.label} className="text-sm text-slate-700">
                     {item.label}
                     {item.case_id && (
-                      <>{' '}<Link className="text-brand-600 hover:underline" to={`/ws/cases/${encodeURIComponent(item.case_id)}`}>Open that case</Link></>
+                      <>{' '}<Link className="text-brand-700 hover:underline" to={`/ws/cases/${encodeURIComponent(item.case_id)}`}>Open that case</Link></>
                     )}
                   </li>
                 ))}

@@ -18,7 +18,7 @@ function AreaCard({ area, index }) {
       <div className="h-2" style={{ backgroundColor: colours.icon }} aria-hidden="true" />
       <div className="p-5 flex flex-col gap-2 flex-1">
         <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: colours.text }}>Area {index + 1}</p>
-        <h2 className="text-[19px] font-bold text-black leading-snug group-hover:text-brand-700 transition-colors">{area.title}</h2>
+        <h2 className="text-[19px] font-bold text-black leading-snug group-hover:text-brand-800 transition-colors">{area.title}</h2>
         <p className="text-[16px] text-black leading-relaxed">{area.summary}</p>
         <span className="mt-auto pt-2 text-[15px] font-semibold text-brand-700">Open guide →</span>
       </div>
@@ -34,7 +34,7 @@ function ArticleResult({ article }) {
       className="group flex flex-col bg-white rounded-xl border border-gray-200 hover:border-brand-200 hover:shadow-xs transition-all p-4 gap-1.5"
     >
       {area && <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: SERVICE_COLORS[area.colourKey].text }}>{area.title}</span>}
-      <p className="text-[16px] font-bold text-black group-hover:text-brand-700 leading-snug">{article.title}</p>
+      <p className="text-[16px] font-bold text-black group-hover:text-brand-800 leading-snug">{article.title}</p>
       <p className="text-xs text-black leading-relaxed line-clamp-2">{article.summary}</p>
       <span className="text-xs text-gray-600 mt-auto pt-1">{article.readTime} min read</span>
     </Link>

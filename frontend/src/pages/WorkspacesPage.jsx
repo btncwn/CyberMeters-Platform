@@ -225,7 +225,7 @@ export default function WorkspacesPage() {
               {/* Name */}
               <div className="flex items-start gap-3 mb-4">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-gray-900 truncate group-hover:text-brand-700 transition-colors text-base">
+                  <h3 className="font-semibold text-gray-900 truncate group-hover:text-brand-800 transition-colors text-base">
                     {ws.name}
                   </h3>
                   <p className="text-xs text-gray-400 mt-0.5">
@@ -235,7 +235,7 @@ export default function WorkspacesPage() {
               </div>
 
               {/* Footer CTA */}
-              <div className="flex items-center text-xs font-semibold text-brand-600 group-hover:text-brand-700 transition-colors">
+              <div className="flex items-center text-xs font-semibold text-brand-700 group-hover:text-brand-800 transition-colors">
                 View domains &amp; scores
               </div>
             </button>

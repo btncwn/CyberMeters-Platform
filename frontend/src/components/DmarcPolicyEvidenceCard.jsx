@@ -12,7 +12,7 @@ const TONE = {
     shell: 'border-brand-100 bg-brand-50/30',
   },
   warn: {
-    shell: 'border-amber-200 bg-amber-50/40',
+    shell: 'border-[1.5px] border-brand-700 bg-transparent',
   },
   neutral: {
     shell: 'border-slate-200 bg-slate-50',
@@ -25,7 +25,7 @@ function TagValue({ value }) {
     <span className={`rounded-md border px-2 py-1 font-mono text-xs ${
       value.valid
         ? 'border-slate-200 bg-white text-slate-700'
-        : 'border-amber-200 bg-amber-50 text-amber-800'
+        : 'border-[1.5px] border-brand-700 bg-transparent text-brand-700'
     }`}>
       {value.tag}={value.raw ?? 'not recorded'}
     </span>
@@ -171,10 +171,10 @@ export default function DmarcPolicyEvidenceCard({
               <p className="text-xs leading-relaxed text-slate-600">{policy.inheritance_message}</p>
             )}
             {policy.testing_message && (
-              <p className="text-xs leading-relaxed text-amber-800">{policy.testing_message}</p>
+              <p className="text-xs leading-relaxed text-brand-700">{policy.testing_message}</p>
             )}
             {presentation.legacy_pct?.message && (
-              <p className="text-xs leading-relaxed text-amber-800">
+              <p className="text-xs leading-relaxed text-brand-700">
                 {presentation.legacy_pct.message}
               </p>
             )}
@@ -213,7 +213,7 @@ export default function DmarcPolicyEvidenceCard({
           {presentation.monitoring?.message && (
             <p className={`mt-2 flex items-start gap-1.5 text-xs leading-relaxed ${
               presentation.monitoring.state === 'monitoring_degraded'
-                ? 'text-amber-800'
+                ? 'text-brand-700'
                 : 'text-slate-500'
             }`}>
               {presentation.monitoring.message}

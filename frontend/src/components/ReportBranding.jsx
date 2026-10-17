@@ -105,7 +105,7 @@ function ProfileEditor({ profile, logo, disabled, onSave, onCancel }) {
   }}>
     <h3 className="font-semibold text-sm">{profile ? 'Edit agency profile' : 'New agency profile'}</h3>
     <label className="label block">Agency name<input className="input mt-1" value={name} onChange={e => setName(e.target.value)} maxLength={120} disabled={disabled} required /></label>
-    <label className="label block">Accent colour<input className="input mt-1 max-w-xs" placeholder="#00876A" value={accent} onChange={e => setAccent(e.target.value)} maxLength={7} disabled={disabled} pattern="#[0-9a-fA-F]{6}" /></label>
+    <label className="label block">Accent colour<input className="input mt-1 max-w-xs" placeholder="#117362" value={accent} onChange={e => setAccent(e.target.value)} maxLength={7} disabled={disabled} pattern="#[0-9a-fA-F]{6}" /></label>
     <LogoInput value={draftLogo} saved={logo} hasSaved={!!profile?.logo_sha256} onChange={setLogo} disabled={disabled || reading} onReading={setReading} />
     {(profile?.logo_sha256 || draftLogo) && draftLogo !== null && <button type="button" className="text-xs text-red-700 underline" disabled={disabled || reading} onClick={() => setLogo(null)}>Remove logo on save</button>}
     {draftLogo === null && <p className="text-xs text-gray-500">Logo will be removed when you save.</p>}
@@ -157,7 +157,7 @@ function AgencyBranding() {
           <button type="button" className="text-xs text-red-700 underline" disabled={disabled} onClick={() => { setEditor(null); setDeleting(profile) }}>Delete {profile.name}</button>
         </div>
       </li>)}</ul>
-      {deleting && <div className="rounded-xl border border-amber-200 p-3 space-y-2"><p className="text-sm">Delete “{deleting.name}”? New reports will use the next available branding. Saved PDF branding is retained.</p><div className="flex flex-wrap gap-2"><button type="button" className="btn-secondary" disabled={disabled} onClick={() => state.perform(signal => api.deleteBrandingProfile(deleting.id, { signal }), 'Agency profile deleted.')}>Confirm profile deletion</button><button className="btn-secondary" disabled={disabled} type="button" onClick={() => setDeleting(null)}>Cancel deletion</button></div></div>}
+      {deleting && <div className="rounded-xl border border-[1.5px] border-brand-700 p-3 space-y-2"><p className="text-sm">Delete “{deleting.name}”? New reports will use the next available branding. Saved PDF branding is retained.</p><div className="flex flex-wrap gap-2"><button type="button" className="btn-secondary" disabled={disabled} onClick={() => state.perform(signal => api.deleteBrandingProfile(deleting.id, { signal }), 'Agency profile deleted.')}>Confirm profile deletion</button><button className="btn-secondary" disabled={disabled} type="button" onClick={() => setDeleting(null)}>Cancel deletion</button></div></div>}
       {available && !editor && <button type="button" className="btn-primary" disabled={disabled} onClick={() => { setDetailError(''); setDeleting(null); setEditor({ profile: null, logo: null }) }}>Add agency profile</button>}
       {detailLoading && <p role="status" className="text-sm text-gray-500">Loading agency profile…</p>}
       {detailError && <p role="alert" className="text-sm text-red-700">{detailError}</p>}

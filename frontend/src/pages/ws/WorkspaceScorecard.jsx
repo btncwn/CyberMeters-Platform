@@ -10,9 +10,9 @@ import { bandMeta } from '../../lib/score-presentation'
 // ── RatingBadge — posture rating (score-derived, distinct from finding severity) ──
 const RATING_CFG = {
   excellent: { label: bandMeta('excellent').label, cls: 'bg-brand-50 text-brand-700 border-brand-100'  },
-  good:      { label: bandMeta('good').label,      cls: 'bg-green-50 text-green-700 border-green-100'  },
-  moderate:  { label: bandMeta('moderate').label,  cls: 'bg-amber-50 text-amber-700 border-amber-100'  },
-  high:      { label: bandMeta('high').label,      cls: 'bg-orange-50 text-orange-700 border-orange-100' },
+  good:      { label: bandMeta('good').label,      cls: 'bg-brand-200 text-brand-900 border-brand-200'  },
+  moderate:  { label: bandMeta('moderate').label,  cls: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'  },
+  high:      { label: bandMeta('high').label,      cls: 'bg-red-50 text-red-600 border-red-100' },
   critical:  { label: bandMeta('critical').label,  cls: 'bg-red-50 text-red-700 border-red-100'        },
 }
 function RatingBadge({ rating }) {
@@ -29,9 +29,9 @@ function RatingBadge({ rating }) {
 
 function statusColors(status) {
   return {
-    good:     { ring: 'ring-brand-200',  bg: 'bg-brand-50',  text: 'text-brand-700',  bar: '#00876A' },
+    good:     { ring: 'ring-brand-200',  bg: 'bg-brand-50',  text: 'text-brand-700',  bar: '#117362' },
     fair:     { ring: 'ring-blue-200',   bg: 'bg-blue-50',   text: 'text-blue-700',   bar: '#3B82F6' },
-    warning:  { ring: 'ring-amber-200',  bg: 'bg-amber-50',  text: 'text-amber-700',  bar: '#F59E0B' },
+    warning:  { ring: 'ring-brand-200',  bg: 'bg-transparent',  text: 'text-brand-700',  bar: '#45e3c7' },
     critical: { ring: 'ring-red-200',    bg: 'bg-red-50',    text: 'text-red-700',    bar: '#EF4444' },
     unknown:  { ring: 'ring-gray-200',   bg: 'bg-gray-50',   text: 'text-gray-500',   bar: '#D1D5DB' },
   }[status] ?? { ring: 'ring-gray-200', bg: 'bg-gray-50', text: 'text-gray-500', bar: '#D1D5DB' }
@@ -52,7 +52,7 @@ function SummaryBlock({ label, items, accent }) {
   if (!items?.length) return null
   const colors = {
     good:    { dot: 'bg-brand-500', text: 'text-gray-700' },
-    warning: { dot: 'bg-amber-400', text: 'text-amber-800' },
+    warning: { dot: 'bg-brand-700', text: 'text-brand-700' },
     urgent:  { dot: 'bg-red-500',   text: 'text-red-700'  },
   }[accent] ?? { dot: 'bg-gray-400', text: 'text-gray-600' }
 
@@ -124,7 +124,7 @@ export default function WorkspaceScorecard() {
           {sc?.security_score != null && (
             <div className="card px-5 py-3 text-center">
               <p className="label mb-1">Overall Score</p>
-              <p className="text-3xl font-black text-brand-600">{sc.security_score}</p>
+              <p className="text-3xl font-black text-brand-700">{sc.security_score}</p>
             </div>
           )}
           {sc?.risk_rating && (
@@ -182,7 +182,7 @@ export default function WorkspaceScorecard() {
           <div className="space-y-3">
             {report.recommendations.map((r, i) => (
               <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50">
-                <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                <span className="w-6 h-6 rounded-full bg-brand-200 text-brand-900 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                   {r.priority}
                 </span>
                 <div>

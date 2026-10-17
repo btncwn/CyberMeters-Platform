@@ -100,7 +100,7 @@ export default function WorkspaceMenu({ wsId, wsName, placement = 'up' }) {
                 className={`${itemClass} w-full text-left ${ws.id === wsId ? 'font-semibold bg-gray-50' : ''}`}
               >
                 <span className="flex-1 truncate">{ws.name}</span>
-                {ws.id === wsId && <Check className="w-4 h-4 text-brand-600 shrink-0" aria-hidden="true" />}
+                {ws.id === wsId && <Check className="w-4 h-4 text-brand-700 shrink-0" aria-hidden="true" />}
               </button>
             ))}
           </div>

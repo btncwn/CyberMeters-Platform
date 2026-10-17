@@ -281,7 +281,7 @@ export default function NewScan() {
 
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
-      <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors mb-6 font-medium">
+      <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-800 transition-colors mb-6 font-medium">
         Back to Dashboard
       </Link>
 
@@ -330,9 +330,9 @@ export default function NewScan() {
                         Enter the root domain only — no https://, paths, or ports
                       </p>
                     ) : hint?.tone === 'error' ? (
-                      <p className="text-amber-600 text-xs font-medium">⚠ {hint.text}</p>
+                      <p className="text-brand-700 text-xs font-medium">⚠ {hint.text}</p>
                     ) : hint?.tone === 'success' ? (
-                      <p className="text-brand-600 text-xs font-semibold flex items-center gap-1">
+                      <p className="text-brand-700 text-xs font-semibold flex items-center gap-1">
                         {hint.text}
                       </p>
                     ) : (
@@ -379,7 +379,7 @@ export default function NewScan() {
                           </div>
                         </div>
                         {checkNote && (
-                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 leading-relaxed">
+                          <p className="text-xs text-brand-700 bg-transparent border border-[1.5px] border-brand-700 rounded-md px-3 py-2 leading-relaxed">
                             {checkNote}
                           </p>
                         )}
@@ -448,7 +448,7 @@ export default function NewScan() {
                   key={d}
                   type="button"
                   onClick={() => setDomain(d)}
-                  className="w-full text-left mono text-xs text-brand-600 hover:text-brand-800 hover:bg-brand-50 px-3 py-2 rounded-lg transition-colors"
+                  className="w-full text-left mono text-xs text-brand-700 hover:text-brand-800 hover:bg-brand-50 px-3 py-2 rounded-lg transition-colors"
                 >
                   {d}
                 </button>

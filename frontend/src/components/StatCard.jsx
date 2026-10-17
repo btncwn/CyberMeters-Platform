@@ -31,12 +31,12 @@ export default function StatCard({
 }) {
   const t = danger ? 'danger' : warning ? 'warning' : (tone || 'default')
   const T = {
-    default: { icon: 'text-brand-600', value: 'text-gray-800',  accent: '' },
+    default: { icon: 'text-brand-700', value: 'text-gray-800',  accent: '' },
     danger:  { icon: 'text-red-600',   value: 'text-red-700',   accent: 'accent-danger' },
-    warning: { icon: 'text-amber-600', value: 'text-amber-700', accent: 'accent-warning' },
+    warning: { icon: 'text-brand-700', value: 'text-brand-700', accent: 'accent-warning' },
     info:    { icon: 'text-blue-600',  value: 'text-gray-800',  accent: 'accent-info' },
     neutral: { icon: 'text-gray-400',  value: 'text-gray-700',  accent: '' },
-  }[t] || { icon: 'text-brand-600', value: 'text-gray-800', accent: '' }
+  }[t] || { icon: 'text-brand-700', value: 'text-gray-800', accent: '' }
 
   return (
     <div className={`card p-5 ${T.accent}`}>

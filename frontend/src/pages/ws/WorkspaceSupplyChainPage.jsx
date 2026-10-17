@@ -11,15 +11,15 @@ import { PlanGate } from '../../components/PlanUsageCard'
 
 function concentrationColor(level) {
   if (level === 'critical') return 'text-red-700 bg-red-50 border-red-200'
-  if (level === 'high')     return 'text-orange-700 bg-orange-50 border-orange-200'
-  if (level === 'medium')   return 'text-amber-700 bg-amber-50 border-amber-200'
+  if (level === 'high')     return 'text-red-600 bg-red-50 border-red-100'
+  if (level === 'medium')   return 'text-brand-700 bg-transparent border-[1.5px] border-brand-700'
   return 'text-brand-700 bg-brand-50 border-brand-100'
 }
 
 function scoreColor(score) {
-  if (score >= 75) return '#00876A'
+  if (score >= 75) return '#117362'
   if (score >= 55) return '#22C55E'
-  if (score >= 35) return '#F59E0B'
+  if (score >= 35) return '#45e3c7'
   return '#EF4444'
 }
 
@@ -51,7 +51,7 @@ function ScoreRing({ score, label, size = 80 }) {
 function ConfidencePill({ level }) {
   const cls =
     level === 'high'   ? 'bg-brand-50 text-brand-700 border border-brand-100' :
-    level === 'medium' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
+    level === 'medium' ? 'bg-transparent text-brand-700 border border-[1.5px] border-brand-700' :
     'bg-gray-100 text-gray-500 border border-gray-200'
   return (
     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}>
@@ -88,7 +88,7 @@ function CriticalVendorsTable({ vendors }) {
               <td className="py-2">
                 <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
                   v.tier === 1 ? 'bg-red-50 text-red-700' :
-                  v.tier === 2 ? 'bg-amber-50 text-amber-700' :
+                  v.tier === 2 ? 'bg-transparent text-brand-700' :
                   'bg-gray-100 text-gray-500'
                 }`}>T{v.tier}</span>
               </td>
@@ -105,7 +105,7 @@ function CriticalVendorsTable({ vendors }) {
 function CascadingRiskList({ risks }) {
   if (!risks?.length) {
     return (
-      <div className="text-sm text-brand-600 py-2">
+      <div className="text-sm text-brand-700 py-2">
         No cascading risk scenarios detected.
       </div>
     )
@@ -144,7 +144,7 @@ function ConcentrationSection({ concentration }) {
                 <div className="flex items-center gap-2">
                   <span className={`w-5 h-5 rounded text-xs font-bold flex items-center justify-center ${
                     p.tier === 1 ? 'bg-red-50 text-red-700' :
-                    p.tier === 2 ? 'bg-amber-50 text-amber-700' :
+                    p.tier === 2 ? 'bg-transparent text-brand-700' :
                     'bg-gray-100 text-gray-500'
                   }`}>T{p.tier}</span>
                   <span className="font-medium text-gray-800">{p.name}</span>
@@ -360,9 +360,9 @@ export default function WorkspaceSupplyChainPage() {
                   </div>
                 </div>
               ) : data.asm_maturity ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-sm font-semibold text-amber-800">ASM maturity unavailable</p>
-                  <p className="text-xs text-amber-700 mt-1">{data.asm_maturity.state_reason}</p>
+                <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-4">
+                  <p className="text-sm font-semibold text-brand-700">ASM maturity unavailable</p>
+                  <p className="text-xs text-brand-700 mt-1">{data.asm_maturity.state_reason}</p>
                   <p className="text-xs text-gray-600 mt-3">
                     Scan cadence, vendor visibility and asset visibility remain observed
                     {Number.isFinite(data.asm_maturity.observed_subtotal)

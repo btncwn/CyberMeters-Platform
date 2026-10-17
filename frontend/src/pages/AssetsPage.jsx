@@ -47,7 +47,7 @@ function RiskBadge({ level }) {
 function StatusPill({ asset }) {
   const label = asset?.lifecycle_state_label || 'Not assessed'
   const cls = asset?.lifecycle_state === 'observed'
-    ? 'bg-green-100 text-green-700'
+    ? 'bg-brand-200 text-brand-900'
     : 'bg-gray-100 text-gray-600'
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
@@ -59,7 +59,7 @@ function StatusPill({ asset }) {
 const TYPE_META = {
   root_domain:      { label: 'Root Domain',      cls: 'bg-brand-50 text-brand-700'   },
   subdomain:        { label: 'Subdomain',         cls: 'bg-blue-50 text-blue-700'     },
-  exposed_service:  { label: 'Exposed Service',   cls: 'bg-amber-50 text-amber-700'   },
+  exposed_service:  { label: 'Exposed Service',   cls: 'bg-transparent text-brand-700'   },
   cloud_storage:    { label: 'Cloud Storage',     cls: 'bg-purple-50 text-purple-700' },
 }
 
@@ -74,13 +74,13 @@ function TypeBadge({ type }) {
 
 const CASE_STATUS_META = {
   open: { label: 'Open', cls: 'bg-red-50 text-red-700 border-red-100' },
-  triage: { label: 'Triage', cls: 'bg-amber-50 text-amber-700 border-amber-100' },
+  triage: { label: 'Triage', cls: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
   owner_assigned: { label: 'Owner assigned', cls: 'bg-blue-50 text-blue-700 border-blue-100' },
   remediation_in_progress: { label: 'In progress', cls: 'bg-blue-50 text-blue-700 border-blue-100' },
   verification_requested: { label: 'Verification requested', cls: 'bg-purple-50 text-purple-700 border-purple-100' },
   verifying: { label: 'Verifying', cls: 'bg-purple-50 text-purple-700 border-purple-100' },
-  verification_failed: { label: 'Fix not verified', cls: 'bg-amber-50 text-amber-700 border-amber-100' },
-  resolved: { label: 'Resolved', cls: 'bg-green-50 text-green-700 border-green-100' },
+  verification_failed: { label: 'Fix not verified', cls: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
+  resolved: { label: 'Resolved', cls: 'bg-brand-200 text-brand-900 border-brand-200' },
   reopened: { label: 'Reopened', cls: 'bg-red-50 text-red-700 border-red-100' },
   risk_accepted: { label: 'Risk accepted', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
   false_positive: { label: 'False positive', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
@@ -226,9 +226,9 @@ function ManagedCasesPanel({ workspaceId }) {
                   <p className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">CyberMeters re-checks the affected host on each complete scan and closes the case only when the problem is gone.</p>
                 )}
                 {item.status === 'resolved' && (
-                  <p className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700">Verified resolved by CyberMeters.</p>
+                  <p className="rounded-lg bg-brand-200 px-3 py-2 text-xs text-brand-900">Verified resolved by CyberMeters.</p>
                 )}
-                <Link to={`/ws/cases/${encodeURIComponent(item.id)}`} className="block text-xs text-brand-600 hover:underline">
+                <Link to={`/ws/cases/${encodeURIComponent(item.id)}`} className="block text-xs text-brand-700 hover:underline">
                   What to do, and what the last re-check found
                 </Link>
               </div>
@@ -242,7 +242,7 @@ function ManagedCasesPanel({ workspaceId }) {
 
 // ── Summary card ───────────────────────────────────────────────────────────────
 
-function SummaryCard({ icon: Icon, label, value, iconCls = 'text-brand-600', bgCls = 'bg-brand-50' }) {
+function SummaryCard({ icon: Icon, label, value, iconCls = 'text-brand-700', bgCls = 'bg-brand-50' }) {
   return (
     <div className="card p-4 flex items-center gap-3">
       <div className={`w-9 h-9 rounded-xl ${bgCls} flex items-center justify-center shrink-0`}>
@@ -533,7 +533,7 @@ function FilterBtn({ active, onClick, children }) {
     <button
       onClick={onClick}
       className={active
-        ? 'px-3 py-1 rounded-lg text-xs font-semibold bg-brand-600 text-white transition-colors'
+        ? 'px-3 py-1 rounded-lg text-xs font-semibold bg-brand-200 text-brand-900 transition-colors'
         : 'px-3 py-1 rounded-lg text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-brand-300 transition-colors'
       }
     >
@@ -761,10 +761,10 @@ export default function AssetsPage() {
                         <td>
                           <span className="mono text-xs font-medium text-gray-800">{asset.hostname}</span>
                           {asset.wildcard_dns === 1 && (
-                            <span className="ml-2 text-xs text-amber-500 font-semibold">WILDCARD</span>
+                            <span className="ml-2 text-xs text-brand-700 font-semibold">WILDCARD</span>
                           )}
                           {criticalNames.has(String(asset.hostname || '').toLowerCase()) && (
-                            <span className="ml-2 inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-orange-700" title="Found by the critical-name DNS pass in the latest scan">Critical name</span>
+                            <span className="ml-2 inline-flex items-center rounded-full border border-red-100 bg-red-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-600" title="Found by the critical-name DNS pass in the latest scan">Critical name</span>
                           )}
                         </td>
                         <td><TypeBadge type={asset.asset_type} /></td>

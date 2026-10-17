@@ -16,7 +16,7 @@ const COLUMNS = [
     render: (v, row) => (
       <div>
         <a href={v} target="_blank" rel="noopener noreferrer"
-           className="font-medium text-brand-600 hover:underline text-sm flex items-center gap-1 truncate max-w-xs">
+           className="font-medium text-brand-700 hover:underline text-sm flex items-center gap-1 truncate max-w-xs">
           {v}
         </a>
         {row.title && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{row.title}</p>}
@@ -112,13 +112,13 @@ export default function AdminSurfacesPage() {
         <span className="text-xs text-gray-500 font-medium mr-1">Pin severity:</span>
         <button
           onClick={() => setPinSeverity('')}
-          className={pinSeverity === '' ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white' : 'px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 border border-gray-200'}
+          className={pinSeverity === '' ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-200 text-brand-900' : 'px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 border border-gray-200'}
         >All</button>
         {SEVERITIES.map(sev => (
           <button
             key={sev}
             onClick={() => setPinSeverity(sev === pinSeverity ? '' : sev)}
-            className={pinSeverity === sev ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white' : 'px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 border border-gray-200 capitalize'}
+            className={pinSeverity === sev ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-200 text-brand-900' : 'px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 border border-gray-200 capitalize'}
           >
             {sev}
           </button>

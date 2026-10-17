@@ -48,10 +48,10 @@ function durationSeconds(start, end) {
 // ── Risk level config ────────────────────────────────────────────────────────
 
 const RISK_CFG = {
-  excellent: { color: '#00876A', cls: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
-  good:      { color: '#00876A', cls: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good'      },
-  moderate:  { color: '#F59E0B', cls: 'text-amber-500', pill: 'bg-amber-50 text-amber-700 border-amber-100', label: 'Moderate'  },
-  high:      { color: '#F97316', cls: 'text-orange-500',pill: 'bg-orange-50 text-orange-700 border-orange-100',label: bandMeta('high').label },
+  excellent: { color: '#117362', cls: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
+  good:      { color: '#117362', cls: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good'      },
+  moderate:  { color: '#45e3c7', cls: 'text-brand-700', pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700', label: 'Moderate'  },
+  high:      { color: '#f87171', cls: 'text-red-600',pill: 'bg-red-50 text-red-600 border-red-100',label: bandMeta('high').label },
   critical:  { color: '#EF4444', cls: 'text-red-500',   pill: 'bg-red-50 text-red-700 border-red-100',       label: 'Critical'  },
   unknown:   { color: '#D1D5DB', cls: 'text-gray-400',  pill: 'bg-gray-100 text-gray-500 border-gray-200',   label: 'Unknown'   },
 }
@@ -61,8 +61,8 @@ const RISK_CFG = {
 const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
 const SEV_STYLE = {
   critical: 'bg-red-500 text-white',
-  high:     'bg-orange-500 text-white',
-  medium:   'bg-amber-400 text-white',
+  high:     'bg-red-500 text-white',
+  medium:   'bg-brand-700 text-white',
   low:      'bg-blue-400 text-white',
   info:     'bg-gray-300 text-gray-700',
 }
@@ -146,18 +146,18 @@ function ScoreRing({ score, riskLevel }) {
 // ≥90 verified (green), ≥80 strong (emerald), ≥70 probable (amber), <70 weak (gray)
 function confidenceStyle(n) {
   if (n == null) return 'bg-gray-100 text-gray-500 border-gray-200'
-  if (n >= 90)   return 'bg-green-50 text-green-700 border-green-100'
-  if (n >= 80)   return 'bg-emerald-50 text-emerald-700 border-emerald-100'
-  if (n >= 70)   return 'bg-amber-50 text-amber-700 border-amber-100'
+  if (n >= 90)   return 'bg-brand-200 text-brand-900 border-brand-200'
+  if (n >= 80)   return 'bg-brand-200 text-brand-900 border-brand-200'
+  if (n >= 70)   return 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
   return 'bg-gray-100 text-gray-500 border-gray-200'
 }
 
 // Sprint 9E.2: CSS class map for validation_quality and evidence_quality fields.
 // excellent → green, good → emerald, partial → amber, weak/missing → gray
 const QUALITY_STYLE = {
-  excellent: 'bg-green-50 text-green-700 border-green-100',
-  good:      'bg-emerald-50 text-emerald-700 border-emerald-100',
-  partial:   'bg-amber-50 text-amber-700 border-amber-100',
+  excellent: 'bg-brand-200 text-brand-900 border-brand-200',
+  good:      'bg-brand-200 text-brand-900 border-brand-200',
+  partial:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   weak:      'bg-gray-100 text-gray-500 border-gray-200',
   missing:   'bg-gray-100 text-gray-400 border-gray-200',
 }
@@ -423,7 +423,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {academySlug && (
               <Link
                 to={`/guide/${academySlug}`}
-                className="flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800 transition-colors"
+                className="flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 transition-colors"
               >
                 Learn more
               </Link>
@@ -433,7 +433,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {hasRem && (
               <button
                 onClick={() => setRemOpen(o => !o)}
-                className={`flex items-center gap-1 text-xs font-semibold transition-colors ${remOpen ? 'text-brand-700' : 'text-gray-500 hover:text-brand-700'}`}
+                className={`flex items-center gap-1 text-xs font-semibold transition-colors ${remOpen ? 'text-brand-700' : 'text-gray-500 hover:text-brand-800'}`}
               >
                 {remOpen ? 'Hide remediation' : 'How to fix'}
               </button>
@@ -453,7 +453,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
             {hasEvidence && (
               <button
                 onClick={() => setOpen(o => !o)}
-                className="flex items-center gap-1 text-xs text-brand-600 font-semibold hover:text-brand-800 transition-colors ml-auto"
+                className="flex items-center gap-1 text-xs text-brand-700 font-semibold hover:text-brand-800 transition-colors ml-auto"
               >
                 {open ? 'Hide evidence' : 'Show evidence'}
               </button>
@@ -491,10 +491,10 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
 
           {/* Phase 6 — Low confidence warning: always visible, not inside panel */}
           {isLowConf && (
-            <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+            <div className="mt-2 flex items-start gap-2 rounded-lg bg-transparent border border-[1.5px] border-brand-700 px-3 py-2">
               <div>
-                <p className="text-xs font-bold text-amber-700">Needs Verification</p>
-                <p className="text-xs text-amber-600 leading-relaxed mt-0.5">
+                <p className="text-xs font-bold text-brand-700">Needs Verification</p>
+                <p className="text-xs text-brand-700 leading-relaxed mt-0.5">
                   This finding is based on a weak signal and should be manually verified before remediation decisions are made.
                 </p>
               </div>
@@ -520,8 +520,8 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
 // scan_quality. Shown beside the run status, never folded into it.
 const CHECKS_COMPLETION = {
   complete: { label: 'All completed', cls: 'text-gray-700' },
-  partial:  { label: 'Some did not complete', cls: 'text-amber-800' },
-  degraded: { label: 'Some did not complete', cls: 'text-amber-800' },
+  partial:  { label: 'Some did not complete', cls: 'text-brand-700' },
+  degraded: { label: 'Some did not complete', cls: 'text-brand-700' },
 }
 
 function ChecksCompletion({ quality }) {
@@ -611,7 +611,7 @@ function RecommendationsPanel({ recommendations }) {
     <ul className="divide-y divide-gray-50">
       {recommendations.map((r, i) => (
         <li key={i} className="flex items-start gap-4 px-6 py-4">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5 bg-brand-600">
+          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-brand-900 shrink-0 mt-0.5 bg-brand-200">
             {r.priority || i + 1}
           </div>
           <div className="flex-1 min-w-0">
@@ -688,7 +688,7 @@ function SslPanel({ ssl }) {
       <CheckRow label="HTTPS available"              value={ssl.https_available}       trueLabel="Available"    falseLabel="Not available" />
       <CheckRow label="HTTP redirects to HTTPS"      value={ssl.http_redirects_to_https} trueLabel="Redirects" falseLabel="No redirect" />
       {ssl.www_fallback_used && (
-        <div className="px-6 py-3 text-xs text-amber-600 bg-amber-50">
+        <div className="px-6 py-3 text-xs text-brand-700 bg-transparent">
           HTTPS only available via www. subdomain — bare domain did not respond.
         </div>
       )}
@@ -753,7 +753,7 @@ function EmailPanel({ email, dmarcPresentation = null }) {
 
   const dmarcPolicyColor =
     dmarc?.policy === 'reject'      ? 'text-brand-700 bg-brand-50 border-brand-100' :
-    dmarc?.policy === 'quarantine'  ? 'text-amber-700 bg-amber-50 border-amber-100' :
+    dmarc?.policy === 'quarantine'  ? 'text-brand-700 bg-transparent border-[1.5px] border-brand-700' :
     dmarc?.policy === 'none'        ? 'text-red-700 bg-red-50 border-red-100'       :
     'text-gray-500 bg-gray-100 border-gray-200'
 
@@ -823,7 +823,7 @@ function EmailPanel({ email, dmarcPresentation = null }) {
           <span className="text-sm text-gray-700 font-medium">DKIM Signing</span>
           {dkim?.present
             ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">Detected</span>
-            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">Not detected</span>
+            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-transparent border border-[1.5px] border-brand-700 px-2 py-0.5 rounded-full">Not detected</span>
           }
         </div>
         {dkim?.selector && (
@@ -851,7 +851,7 @@ function EmailPanel({ email, dmarcPresentation = null }) {
                   action.severity === 'critical' || action.severity === 'high'
                     ? 'bg-red-50 text-red-700 border-red-100'
                     : action.severity === 'medium'
-                      ? 'bg-amber-50 text-amber-700 border-amber-100'
+                      ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
                       : 'bg-gray-50 text-gray-600 border-gray-200'
                 }`}>
                   {action.protocol}
@@ -863,7 +863,7 @@ function EmailPanel({ email, dmarcPresentation = null }) {
                   <CopyButton text={action.copyable_value} />
                 </div>
               )}
-              {action.caution && <p className="text-xs text-amber-700 mt-2 leading-relaxed">{action.caution}</p>}
+              {action.caution && <p className="text-xs text-brand-700 mt-2 leading-relaxed">{action.caution}</p>}
             </div>
           ))}
         </div>
@@ -882,7 +882,7 @@ function ChangeList({ title, items, total, renderItem, tone }) {
   const toneStyle = {
     bad:     'bg-red-50 text-red-700',
     good:    'bg-brand-50 text-brand-700',
-    neutral: 'bg-amber-50 text-amber-700',
+    neutral: 'bg-transparent text-brand-700',
   }[tone] || 'bg-gray-100 text-gray-600'
 
   const overflow = (total ?? items.length) - items.length
@@ -951,7 +951,7 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
     ? (delta > 0 ? `+${delta}` : String(delta))
     : null
   const deltaColor =
-    delta > 0  ? 'text-brand-600' :
+    delta > 0  ? 'text-brand-700' :
     delta < 0  ? 'text-red-500'   : 'text-gray-400'
 
   // Additive history field: older stored reports may not carry it. Absence is
@@ -1042,15 +1042,15 @@ function BusinessRiskCard({ businessRisk }) {
   const { score, band, summary, categories = {}, top_business_risks: topRisks = [] } = businessRisk
 
   const bandColor =
-    score >= 90 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+    score >= 90 ? 'text-brand-900 bg-brand-200 border-brand-200' :
     score >= 70 ? 'text-blue-700   bg-blue-50   border-blue-200'   :
-    score >= 40 ? 'text-amber-700  bg-amber-50  border-amber-100'  :
+    score >= 40 ? 'text-brand-700  bg-transparent  border-[1.5px] border-brand-700'  :
                   'text-red-700    bg-red-50    border-red-200'
 
   const scoreColor =
-    score >= 90 ? 'text-emerald-600' :
+    score >= 90 ? 'text-brand-700' :
     score >= 70 ? 'text-blue-600'   :
-    score >= 40 ? 'text-amber-600'  :
+    score >= 40 ? 'text-brand-700'  :
                   'text-red-600'
 
   const CAT_LABELS = {
@@ -1093,8 +1093,8 @@ function BusinessRiskCard({ businessRisk }) {
         {catEntries.map(({ key, label, score: catScore }) => {
           if (catScore === null) return null
           const pct = Math.max(0, Math.min(100, catScore))
-          const bar = catScore >= 80 ? 'bg-emerald-500' : catScore >= 60 ? 'bg-blue-500' : catScore >= 40 ? 'bg-amber-500' : 'bg-red-500'
-          const txt = catScore >= 80 ? 'text-emerald-700' : catScore >= 60 ? 'text-blue-700' : catScore >= 40 ? 'text-amber-700' : 'text-red-600'
+          const bar = catScore >= 80 ? 'bg-brand-700' : catScore >= 60 ? 'bg-blue-500' : catScore >= 40 ? 'bg-brand-700' : 'bg-red-500'
+          const txt = catScore >= 80 ? 'text-brand-700' : catScore >= 60 ? 'text-blue-700' : catScore >= 40 ? 'text-brand-700' : 'text-red-600'
           return (
             <div key={key}>
               <div className="flex justify-between items-center mb-0.5">
@@ -1115,7 +1115,7 @@ function BusinessRiskCard({ businessRisk }) {
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Top Risks</p>
           {topRisks.slice(0, 3).map((r, i) => {
             const sev = r.severity ?? 'medium'
-            const dot = sev === 'critical' ? 'bg-red-500' : sev === 'high' ? 'bg-orange-500' : 'bg-amber-400'
+            const dot = sev === 'critical' ? 'bg-red-500' : sev === 'high' ? 'bg-red-500' : 'bg-brand-700'
             return (
               <div key={i} className="flex items-start gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${dot} shrink-0 mt-1.5`} />
@@ -1184,7 +1184,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       </div>
 
       {showQualityWarning && (
-        <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+        <div className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent px-4 py-3 flex items-start gap-3 text-sm text-brand-700">
           <div>
             <p className="font-semibold">Scan coverage {scan_quality.status}</p>
             {skippedModules.length > 0 && (
@@ -1579,7 +1579,7 @@ export default function ScanDetail() {
 
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
-      <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors font-medium">
+      <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-800 transition-colors font-medium">
         Back to Scans
       </Link>
 
@@ -1622,9 +1622,9 @@ export default function ScanDetail() {
 
           {/* Active banner */}
           {isActive && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl text-sm">
+            <div className="flex items-center gap-3 px-4 py-3 bg-transparent border border-[1.5px] border-brand-700 rounded-xl text-sm">
               <Spinner size="sm" />
-              <span className="text-amber-800 font-medium">
+              <span className="text-brand-700 font-medium">
                 Scan is {scan.status} — auto-refreshing every {POLL_MS / 1000}s
               </span>
             </div>
@@ -1752,14 +1752,14 @@ export default function ScanDetail() {
               <div className="card overflow-hidden">
                 <SectionHeader title="Scan Information" />
                 <div>
-                  <KV label="Scan ID"   value={<span className="mono text-xs text-brand-600">{scan.id}</span>} />
+                  <KV label="Scan ID"   value={<span className="mono text-xs text-brand-700">{scan.id}</span>} />
                   <KV label="Domain"    value={scan.domain} />
                   {/* The run finishing and its checks all completing are two facts. */}
                   <KV label="Status"    value={<StatusBadge status={scan.status} />} />
                   {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} />} />}
                   <KV label={assessment?.provisional === true && assessmentScore !== null ? 'Provisional Score' : 'Score'} value={
                     assessmentScore !== null
-                      ? <span className={`font-bold ${assessment?.provisional === true ? 'text-gray-700' : 'text-brand-600'}`}>{assessmentScore} / 100</span>
+                      ? <span className={`font-bold ${assessment?.provisional === true ? 'text-gray-700' : 'text-brand-700'}`}>{assessmentScore} / 100</span>
                       : '—'
                   } />
                   <KV label={assessmentBandLabel({
@@ -1772,7 +1772,7 @@ export default function ScanDetail() {
                     </span>
                   } />
                   {assessmentScore === null && assessmentReason && (
-                    <div className="mx-6 my-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900" role="note">
+                    <div className="mx-6 my-3 rounded-lg border border-[1.5px] border-brand-700 bg-transparent px-3 py-2 text-xs leading-relaxed text-brand-700" role="note">
                       {assessmentReason}
                     </div>
                   )}

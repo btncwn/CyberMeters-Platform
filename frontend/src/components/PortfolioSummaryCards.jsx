@@ -4,7 +4,7 @@ import { api } from '../api'
 import { PORTFOLIO_MATURITY_STATE_TEXT, attentionReasons, portfolioMaturityRows } from '../lib/portfolioMaturityDisplay'
 
 const TONE = {
-  green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  green: 'bg-brand-200 text-brand-900 border-brand-200',
   indigo: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   blue: 'bg-blue-50 text-blue-700 border-blue-200',
   gray: 'bg-gray-50 text-gray-600 border-gray-200',
@@ -31,7 +31,7 @@ export function PortfolioExecutiveSummary() {
     <section className="card p-6 mb-8" aria-label="Portfolio summary">
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-sm font-semibold text-gray-900">Portfolio summary</h2>
-        {data?.partial_failure && <span className="text-xs rounded-sm px-2 py-0.5 bg-amber-50 text-amber-800">Partial</span>}
+        {data?.partial_failure && <span className="text-xs rounded-sm px-2 py-0.5 bg-transparent text-brand-700">Partial</span>}
       </div>
       {loading && <p className="text-sm text-gray-500">Loading…</p>}
       {!loading && error && <p role="alert" className="text-sm text-red-700">The portfolio summary could not be loaded.</p>}
@@ -77,7 +77,7 @@ export function PortfolioMaturity() {
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-gray-900">{r.name}</div>
                 <div className="text-xs text-gray-500">{r.coverage}</div>
-                {r.notes.length > 0 && <div className="text-xs text-amber-800 mt-0.5">{r.notes.join(' · ')}</div>}
+                {r.notes.length > 0 && <div className="text-xs text-brand-700 mt-0.5">{r.notes.join(' · ')}</div>}
               </div>
               <span className={`text-xs font-medium px-2 py-0.5 rounded-md border ${TONE[r.tone] || TONE.gray}`}>{r.label}</span>
             </li>

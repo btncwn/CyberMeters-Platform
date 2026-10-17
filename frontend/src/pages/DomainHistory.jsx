@@ -55,7 +55,7 @@ export default function DomainHistory() {
 
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
-      <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors font-medium">
+      <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-800 transition-colors font-medium">
         Back to Scans
       </Link>
 
@@ -84,7 +84,7 @@ export default function DomainHistory() {
             <p className="text-sm font-semibold text-gray-700 mt-1">Total Scans</p>
           </div>
           <div className="card p-5">
-            <p className="text-3xl font-bold text-green-700">{completed}</p>
+            <p className="text-3xl font-bold text-brand-700">{completed}</p>
             <p className="text-sm font-semibold text-gray-700 mt-1">Completed</p>
           </div>
           <div className="card p-5">

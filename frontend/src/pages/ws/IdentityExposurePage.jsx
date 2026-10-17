@@ -206,7 +206,7 @@ export default function IdentityExposurePage() {
                     <div className="text-xs text-slate-400">{identityClaimMeta(it.identity_claim).label}</div>
                     <div className="text-xs text-slate-400">{confidenceDetailLabel(it.confidence_detail)} · reachability {it.identity_claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</div>
                     {it.linked_case_id && (
-                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
+                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-brand-700 hover:underline">
                         Open case →
                       </Link>
                     )}
@@ -222,7 +222,7 @@ export default function IdentityExposurePage() {
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={riskMeta(it.risk_status)} />
-                    {it.recurrence_type && <div className="text-xs text-amber-600 mt-0.5">{it.recurrence_type.replace(/_/g, ' ')}</div>}
+                    {it.recurrence_type && <div className="text-xs text-brand-700 mt-0.5">{it.recurrence_type.replace(/_/g, ' ')}</div>}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={classificationMeta(it.customer_classification)} />
@@ -237,7 +237,7 @@ export default function IdentityExposurePage() {
                   <td className="py-2 px-3">
                     <Pill meta={verificationMeta(it.verification_status)} />
                     {isAwaitingVerification(it) && (
-                      <div className="text-xs text-amber-600 mt-0.5">Recorded by you â not yet verified</div>
+                      <div className="text-xs text-brand-700 mt-0.5">Recorded by you â not yet verified</div>
                     )}
                     {it.verified_at && <div className="text-xs text-slate-300 mt-0.5">Verified by CyberMeters {it.verified_at.slice(0, 10)}</div>}
                   </td>
@@ -250,12 +250,12 @@ export default function IdentityExposurePage() {
                         aria-controls={`identity-history-${it.identity_exposure_id}`}
                         onClick={() => setExpandedId(expandedId === it.identity_exposure_id ? null : it.identity_exposure_id)}
                       >History</button>
-                      {can(it, 'classify_expected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_expected')} className="text-xs rounded-sm border border-green-200 text-green-700 px-2 py-0.5">Expected</button>}
+                      {can(it, 'classify_expected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_expected')} className="text-xs rounded-sm border border-brand-200 text-brand-700 px-2 py-0.5">Expected</button>}
                       {can(it, 'classify_unexpected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_unexpected')} className="text-xs rounded-sm border border-red-200 text-red-700 px-2 py-0.5">Unexpected</button>}
                       {can(it, 'assign_identity_owner') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'assign_identity_owner')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
                       {can(it, 'record_surface_removed') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_surface_removed')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Record removed</button>}
                       {can(it, 'request_verification') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded-sm border border-blue-200 text-blue-700 px-2 py-0.5">Verify</button>}
-                      {can(it, 'record_exception') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded-sm border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
+                      {can(it, 'record_exception') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded-sm border border-[1.5px] border-brand-700 text-brand-700 px-2 py-0.5">Exception</button>}
                       {can(it, 'retire') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'retire')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
                     </div>
                   </td>

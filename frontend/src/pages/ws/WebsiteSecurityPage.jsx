@@ -34,7 +34,7 @@ function ConditionRow({ item, expanded, onToggle, detail, detailError }) {
   return (
     <div id={item.id} className="border-b border-gray-100 last:border-0">
       <button type="button" onClick={onToggle} aria-expanded={expanded}
-              className="flex w-full items-start gap-3 px-5 py-5 text-left hover:bg-gray-50 focus-visible:outline-brand-600">
+              className="flex w-full items-start gap-3 px-5 py-5 text-left hover:bg-gray-50 focus-visible:outline-brand-700">
         <div className="min-w-0 flex-1">
           <p className="text-base font-semibold leading-relaxed text-gray-900 wrap-break-word">{conditionLabel(item)}</p>
           <p className="mt-1 text-sm text-gray-600 break-all">{item.domain}</p>

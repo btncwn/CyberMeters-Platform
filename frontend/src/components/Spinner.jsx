@@ -2,7 +2,7 @@ export default function Spinner({ size = 'md', className = '' }) {
   const dim = size === 'sm' ? 'w-4 h-4' : size === 'lg' ? 'w-8 h-8' : 'w-5 h-5'
   return (
     <svg
-      className={`animate-spin text-brand-600 ${dim} ${className}`}
+      className={`animate-spin text-brand-700 ${dim} ${className}`}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"

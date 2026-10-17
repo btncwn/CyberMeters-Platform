@@ -11,7 +11,7 @@ import { api } from '../api'
 import { parseServerDate } from '../utils/dates'
 
 const TONE = {
-  green:  'bg-emerald-50 text-emerald-700 border-emerald-200',
+  green:  'bg-brand-200 text-brand-900 border-brand-200',
   indigo: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   blue:   'bg-blue-50 text-blue-700 border-blue-200',
   gray:   'bg-gray-50 text-gray-600 border-gray-200',
@@ -22,9 +22,9 @@ const TONE = {
 function Flags({ flags }) {
   if (!flags) return null
   const chips = []
-  if (flags.attested) chips.push({ text: ATTESTED_LABEL, cls: 'bg-amber-50 text-amber-700 border-amber-200' })
+  if (flags.attested) chips.push({ text: ATTESTED_LABEL, cls: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' })
   if (flags.regressed) chips.push({ text: 'Recurred', cls: 'bg-red-50 text-red-700 border-red-200' })
-  if (flags.has_unmanaged_issue) chips.push({ text: 'Unmanaged issue', cls: 'bg-amber-50 text-amber-700 border-amber-200' })
+  if (flags.has_unmanaged_issue) chips.push({ text: 'Unmanaged issue', cls: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' })
   if (!chips.length) return null
   return (
     <div className="flex flex-wrap gap-1 mt-1 justify-end">
@@ -63,7 +63,7 @@ function MaturityHistory({ workspaceId, d }) {
           <span className={r.changed ? 'font-medium text-gray-900' : ''}>{r.label}</span>
           {r.reason && <span className="text-gray-500"> — {r.reason}</span>}
           {r.regressed && <span className="ml-1 text-red-700">(recurred)</span>}
-          {r.attested && <span className="ml-1 text-amber-700">({ATTESTED_LABEL})</span>}
+          {r.attested && <span className="ml-1 text-brand-700">({ATTESTED_LABEL})</span>}
         </li>
       ))}
     </ol>

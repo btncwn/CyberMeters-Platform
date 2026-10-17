@@ -194,7 +194,7 @@ export function OutsideVulnerabilityDataCard({ cve, kev, checkPack }) {
       ) : (
         <p className="mt-2 text-sm text-gray-600">No outside vulnerability data is recorded for this scan.</p>
       )}
-      <Link className="mt-3 inline-block text-sm font-semibold text-brand-600 hover:text-brand-700" to="/intelligence">Open the intelligence page</Link>
+      <Link className="mt-3 inline-block text-sm font-semibold text-brand-700 hover:text-brand-800" to="/intelligence">Open the intelligence page</Link>
     </section>
   )
 }
@@ -229,12 +229,12 @@ export default function AttackSurfaceScanEvidence({ latest, selectedDomain = '',
                   <span className="font-semibold text-gray-900 break-all">{scan.domain}</span>
                   <span>Latest scan: {date(scan.created_at)} · {words(scan.status)}</span>
                   <span className={`rounded-full border px-3 py-1 text-xs ${toneClass(quality.tone)}`}>{quality.label}</span>
-                  <Link className="ml-auto text-sm font-semibold text-brand-600 hover:text-brand-700" to={`/scans/${encodeURIComponent(scan.id)}?view=technical`}>Open the scan report</Link>
+                  <Link className="ml-auto text-sm font-semibold text-brand-700 hover:text-brand-800" to={`/scans/${encodeURIComponent(scan.id)}?view=technical`}>Open the scan report</Link>
                 </div>
               )}
         {reportPending && <p className="mt-3 text-sm text-gray-600">Loading recorded checks…</p>}
-        {reportError && <p role="alert" className="mt-3 text-sm text-amber-800">The latest report could not be loaded. Its checks are not confirmed here.</p>}
-        {scan && !['completed', 'partial'].includes(scan.status) && <p className="mt-3 text-sm text-amber-800">The latest scan has not produced a completed assessment. Earlier results have not been substituted.</p>}
+        {reportError && <p role="alert" className="mt-3 text-sm text-brand-700">The latest report could not be loaded. Its checks are not confirmed here.</p>}
+        {scan && !['completed', 'partial'].includes(scan.status) && <p className="mt-3 text-sm text-brand-700">The latest scan has not produced a completed assessment. Earlier results have not been substituted.</p>}
         {boundedHistory && <p className="mt-3 text-xs text-gray-500">Domain selection uses this workspace's 20 most recent scan records. <Link className="underline" to="/scans">View scan history</Link></p>}
       </div>
       {report && (

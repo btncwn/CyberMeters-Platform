@@ -48,7 +48,7 @@ function AssuranceProjection({ presentation }) {
       </div>
 
       {presentation.historical_notice && (
-        <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+        <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent px-3 py-2 text-xs leading-relaxed text-brand-700">
           {presentation.historical_notice}
         </div>
       )}
@@ -131,7 +131,7 @@ export default function AttackSurfaceAssurance({ presentations, coverage = null 
     : (presentations ? [presentations] : [])
   if (rows.length === 0) {
     return (
-      <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+      <div className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent px-4 py-3 text-xs text-brand-700">
         <div className="flex items-center gap-2 font-semibold">
           Attack Surface evidence was not recorded
         </div>
@@ -142,7 +142,7 @@ export default function AttackSurfaceAssurance({ presentations, coverage = null 
   return (
     <div className="space-y-3">
       {coverage?.truncated && (
-        <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
+        <div className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent px-4 py-3 text-xs leading-relaxed text-brand-700">
           <div className="flex items-center gap-2 font-semibold">
             Partial lifecycle evidence
           </div>

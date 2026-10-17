@@ -16,8 +16,8 @@ import { BASE } from '../api'
 const ROOT = (BASE || '').replace(/\/api\/?$/, '')
 
 const STATE = {
-  operational: { label: 'All systems operational', cls: 'text-green-700', dot: 'bg-green-500' },
-  degraded:    { label: 'Partial service disruption', cls: 'text-amber-700', dot: 'bg-amber-500' },
+  operational: { label: 'All systems operational', cls: 'text-brand-700', dot: 'bg-brand-700' },
+  degraded:    { label: 'Partial service disruption', cls: 'text-brand-700', dot: 'bg-brand-700' },
   maintenance: { label: 'Scheduled maintenance', cls: 'text-brand-700', dot: 'bg-brand-500' },
   unknown:     { label: 'Unable to reach the service', cls: 'text-gray-600', dot: 'bg-gray-400' },
 }
@@ -29,8 +29,8 @@ function Component({ name, ok }) {
       {ok === null
         ? <span className="text-xs font-semibold text-gray-400">Unknown</span>
         : ok
-          ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-600"><span className="w-2 h-2 rounded-full bg-green-500" />Operational</span>
-          : <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600"><span className="w-2 h-2 rounded-full bg-amber-500" />Degraded</span>}
+          ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700"><span className="w-2 h-2 rounded-full bg-brand-700" />Operational</span>
+          : <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700"><span className="w-2 h-2 rounded-full bg-brand-700" />Degraded</span>}
     </div>
   )
 }
@@ -105,7 +105,7 @@ export default function StatusPage() {
             <button
               onClick={check}
               disabled={loading}
-              className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:border-brand-300 hover:text-brand-700 transition-colors disabled:opacity-50"
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:border-brand-300 hover:text-brand-800 transition-colors disabled:opacity-50"
             >
               {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               Refresh
@@ -126,7 +126,7 @@ export default function StatusPage() {
 
         <p className="mt-4 text-center text-xs text-gray-400">
           Real-time health check. For incident history and disclosure, see our{' '}
-          <Link to="/trust" className="text-brand-600 hover:underline">Trust &amp; Security</Link> page.
+          <Link to="/trust" className="text-brand-700 hover:underline">Trust &amp; Security</Link> page.
         </p>
       </main>
       <PublicSiteFooter />

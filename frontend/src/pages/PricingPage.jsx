@@ -145,7 +145,7 @@ export default function PricingPage() {
 
       <main className="max-w-6xl mx-auto px-6 py-12">
         <div className="max-w-2xl mb-8">
-          <p className="text-xs font-bold uppercase tracking-widest text-brand-600 mb-3">Pricing</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-brand-700 mb-3">Pricing</p>
           <h1 className="text-4xl font-bold text-gray-900 tracking-tight">Choose the plan that matches your security workflow.</h1>
           <p className="text-gray-500 mt-4">
             Every paid plan is the full Cyber MOT — your whole external posture, alerts, managed cases,
@@ -183,9 +183,9 @@ export default function PricingPage() {
         )}
 
         {loadError && !loading && (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-6 py-8 text-center">
-            <p className="text-sm font-semibold text-amber-800 mb-1">Live pricing is temporarily unavailable</p>
-            <p className="text-sm text-amber-700 mb-4">
+          <div className="rounded-2xl border border-[1.5px] border-brand-700 bg-transparent px-6 py-8 text-center">
+            <p className="text-sm font-semibold text-brand-700 mb-1">Live pricing is temporarily unavailable</p>
+            <p className="text-sm text-brand-700 mb-4">
               We only show prices confirmed by our billing system, so nothing is displayed right now.
               Please try again in a moment.
             </p>
@@ -207,7 +207,7 @@ export default function PricingPage() {
                 }`}
               >
                 {plan.key === 'professional' && (
-                  <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow-xs">
+                  <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-200 px-3 py-1 text-xs font-semibold text-brand-900 shadow-xs">
                     Most popular
                   </span>
                 )}

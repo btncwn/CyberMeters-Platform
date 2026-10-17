@@ -19,8 +19,8 @@ function expiryStatus(daysLeft) {
   if (daysLeft == null) return { label: 'Unknown', cls: 'text-gray-400' }
   if (daysLeft < 0)  return { label: 'Expired',        cls: 'text-red-600 font-semibold' }
   if (daysLeft < 14) return { label: `${daysLeft}d left`, cls: 'text-red-500 font-semibold' }
-  if (daysLeft < 30) return { label: `${daysLeft}d left`, cls: 'text-amber-500 font-semibold' }
-  return { label: `${daysLeft}d left`, cls: 'text-brand-600' }
+  if (daysLeft < 30) return { label: `${daysLeft}d left`, cls: 'text-brand-700 font-semibold' }
+  return { label: `${daysLeft}d left`, cls: 'text-brand-700' }
 }
 
 function trustPathState(row) {
@@ -63,7 +63,7 @@ function HttpsChip({ row }) {
   const cls = s.tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
     : s.tone === 'bad' ? 'bg-red-50 text-red-600 border-red-100'
     : s.tone === 'info' ? 'bg-blue-50 text-blue-700 border-blue-100'
-    : s.tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-100'
+    : s.tone === 'warn' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
     : 'bg-gray-50 text-gray-500 border-gray-200'
   return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cls}`}>{s.label}</span>
 }
@@ -113,8 +113,8 @@ function bucketCounts(certs) {
 function ActionCard({ severity, title, body }) {
   const cfg = {
     critical: { bar: 'bg-red-500',   chip: 'bg-red-50 text-red-700 border-red-100' },
-    high:     { bar: 'bg-amber-500', chip: 'bg-amber-50 text-amber-700 border-amber-100' },
-    medium:   { bar: 'bg-amber-400', chip: 'bg-amber-50 text-amber-700 border-amber-100' },
+    high:     { bar: 'bg-brand-700', chip: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
+    medium:   { bar: 'bg-brand-700', chip: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
   }[severity] || { bar: 'bg-gray-300', chip: 'bg-gray-50 text-gray-600 border-gray-200' }
   return (
     <div className="card p-4 flex gap-3">
@@ -131,7 +131,7 @@ function ActionCard({ severity, title, body }) {
 }
 
 function TrustTile({ label, status, tone, hint, to }) {
-  const cls = tone === 'ok' ? 'text-brand-600' : tone === 'bad' ? 'text-red-500' : tone === 'warn' ? 'text-amber-500' : tone === 'info' ? 'text-blue-600' : 'text-gray-400'
+  const cls = tone === 'ok' ? 'text-brand-700' : tone === 'bad' ? 'text-red-500' : tone === 'warn' ? 'text-brand-700' : tone === 'info' ? 'text-blue-600' : 'text-gray-400'
   const inner = (
     <div className="card p-4 h-full hover:shadow-card-md transition-shadow">
       <div className="mb-1.5">
@@ -147,7 +147,7 @@ function TrustTile({ label, status, tone, hint, to }) {
 function FindingPill({ finding }) {
   const cls = finding.severity === 'critical' ? 'bg-red-100 text-red-800 border-red-200'
     : finding.severity === 'high' ? 'bg-red-50 text-red-700 border-red-100'
-    : finding.severity === 'medium' ? 'bg-amber-50 text-amber-700 border-amber-100'
+    : finding.severity === 'medium' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
     : finding.severity === 'low' ? 'bg-blue-50 text-blue-700 border-blue-100'
     : 'bg-gray-50 text-gray-600 border-gray-200'
   return (
@@ -368,7 +368,7 @@ export default function CertificatesPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   {BUCKETS.map(b => {
                     const n = buckets[b.key]
-                    const tone = b.tone === 'bad' ? 'text-red-600' : b.tone === 'warn' ? 'text-amber-600' : b.tone === 'ok' ? 'text-brand-600' : 'text-gray-400'
+                    const tone = b.tone === 'bad' ? 'text-red-600' : b.tone === 'warn' ? 'text-brand-700' : b.tone === 'ok' ? 'text-brand-700' : 'text-gray-400'
                     return (
                       <div key={b.key} className="rounded-xl border border-gray-200 bg-white p-3 text-center">
                         <p className="text-xs font-semibold text-gray-700">{b.label}</p>
@@ -479,15 +479,15 @@ export default function CertificatesPage() {
                 <AreaChart data={chartData} margin={{ top: 4, right: 0, left: -28, bottom: 0 }}>
                   <defs>
                     <linearGradient id="certGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#00876A" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#00876A" stopOpacity={0}   />
+                      <stop offset="5%"  stopColor="#117362" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#117362" stopOpacity={0}   />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="day" tick={{ fontSize: 13, fill: '#94a3b8' }} />
                   <YAxis tick={{ fontSize: 13, fill: '#94a3b8' }} allowDecimals={false} />
                   <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8 }} />
-                  <Area type="monotone" dataKey="events" stroke="#00876A" strokeWidth={2} fill="url(#certGrad)" name="Events" />
+                  <Area type="monotone" dataKey="events" stroke="#117362" strokeWidth={2} fill="url(#certGrad)" name="Events" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

@@ -38,7 +38,7 @@ function fmt(str) {
 function HealthBadge({ status }) {
   const cfg = {
     healthy: 'bg-brand-50 text-brand-700 border-brand-100',
-    warning: 'bg-amber-50 text-amber-700 border-amber-100',
+    warning: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     stale:   'bg-red-50 text-red-700 border-red-100',
   }[status] ?? 'bg-gray-50 text-gray-500 border-gray-100'
   return (
@@ -69,7 +69,7 @@ function CopyButton({ text }) {
     <button
       onClick={copy}
       title="Copy to clipboard"
-      className="ml-1.5 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition-colors"
+      className="ml-1.5 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-brand-800 transition-colors"
     >
       {copied ? 'Copied' : 'Copy'}
     </button>
@@ -87,13 +87,13 @@ function WizardStep({ n, label, active, done }) {
   return (
     <div className="flex items-center gap-1.5">
       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-        done   ? 'bg-brand-500 text-white' :
-        active ? 'bg-brand-600 text-white' :
+        done   ? 'bg-brand-500 text-brand-900' :
+        active ? 'bg-brand-200 text-brand-900' :
                  'bg-gray-100 text-gray-400'
       }`}>
         {n}
       </div>
-      <span className={`text-xs font-medium hidden sm:block ${active ? 'text-gray-900' : done ? 'text-brand-600' : 'text-gray-400'}`}>
+      <span className={`text-xs font-medium hidden sm:block ${active ? 'text-gray-900' : done ? 'text-brand-700' : 'text-gray-400'}`}>
         {label}
       </span>
     </div>
@@ -195,15 +195,15 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
   const currentStep = activeDomain ? (instructions ? step : 2) : 1
 
   return (
-    <div className="card border-amber-100 mb-6 overflow-hidden">
+    <div className="card border-[1.5px] border-brand-700 mb-6 overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center justify-between px-6 py-4 border-b border-amber-100 hover:bg-amber-50/40 transition-colors text-left"
+        className="w-full flex items-center justify-between px-6 py-4 border-b border-[1.5px] border-brand-700 hover:bg-brand-50 transition-colors text-left"
       >
         <div>
           <p className="font-semibold text-gray-900 text-sm">Domain Ownership Verification</p>
-          <p className="text-xs text-amber-600">
+          <p className="text-xs text-brand-700">
             {actionable.length} domain{actionable.length !== 1 ? 's' : ''} require verification
           </p>
         </div>
@@ -249,7 +249,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={e => { e.stopPropagation(); selectDomain(d); }}
-                      className="text-xs text-brand-600 hover:underline"
+                      className="text-xs text-brand-700 hover:underline"
                     >
                       {isActive ? 'Selected' : 'Verify here →'}
                     </button>
@@ -377,7 +377,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                       dnsResult.matches
                         ? 'bg-brand-50 border-brand-100 text-brand-700'
                         : dnsResult.found
-                        ? 'bg-amber-50 border-amber-100 text-amber-700'
+                        ? 'bg-transparent border-[1.5px] border-brand-700 text-brand-700'
                         : 'bg-gray-50 border-gray-100 text-gray-500'
                     }`}>
                       <div>
@@ -502,7 +502,7 @@ function OnboardingWidget({ wsId, onDone }) {
       {!importing && (
         <button
           onClick={() => { setShowBulk(v => !v); setSingleDomain(''); setBulkText('') }}
-          className="text-xs text-brand-600 hover:underline mt-1"
+          className="text-xs text-brand-700 hover:underline mt-1"
         >
           {showBulk ? '← Single domain' : 'Import multiple domains'}
         </button>
@@ -781,7 +781,7 @@ function WorkspaceDashboardContent({ wsId, wsName }) {
                         <XAxis dataKey="day" tick={{ fontSize: 13, fill: '#94a3b8' }} tickFormatter={fmt} />
                         <YAxis tick={{ fontSize: 13, fill: '#94a3b8' }} width={28} />
                         <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                        <Area type="monotone" dataKey="asset_count" stroke="#00876A" fill="#e6f4f1" strokeWidth={2} />
+                        <Area type="monotone" dataKey="asset_count" stroke="#117362" fill="#e6f4f1" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -805,7 +805,7 @@ function WorkspaceDashboardContent({ wsId, wsName }) {
 
                   <div className="card p-5">
                     <div className="flex items-center gap-2 mb-3">
-                      <div className="w-2 h-2 rounded-full bg-amber-400" />
+                      <div className="w-2 h-2 rounded-full bg-brand-700" />
                       <h3 className="font-semibold text-gray-900 text-sm">Attention Required</h3>
                     </div>
                     {sc.executive_summary.attention_required.length === 0

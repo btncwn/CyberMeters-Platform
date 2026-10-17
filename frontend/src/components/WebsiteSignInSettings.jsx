@@ -16,7 +16,7 @@ function fmt(value) {
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null
 }
 
-const TONE = { ok: 'bg-green-50 text-green-800', warn: 'bg-amber-50 text-amber-800', muted: 'bg-gray-100 text-gray-700' }
+const TONE = { ok: 'bg-brand-200 text-brand-900', warn: 'bg-transparent text-brand-700', muted: 'bg-gray-100 text-gray-700' }
 
 function OutcomePanel({ outcome, detail, when }) {
   const meta = signInOutcomeMeta(outcome)
@@ -278,7 +278,7 @@ export default function WebsiteSignInSettings({ workspaceId }) {
                 </div>
               )}
             </div>
-            {p?.status === 'paused' && <p className="mt-2 text-sm text-amber-800">{PAUSED_REASON_TEXT[p.paused_reason] || 'Paused.'}</p>}
+            {p?.status === 'paused' && <p className="mt-2 text-sm text-brand-700">{PAUSED_REASON_TEXT[p.paused_reason] || 'Paused.'}</p>}
             {notes[d.domain] && <p className="mt-2 text-sm text-gray-700" role="status">{notes[d.domain]}</p>}
             {p && shown && <OutcomePanel outcome={shown.outcome} detail={shown.detail} when={shown.when} />}
             {p && <SignedInPages latest={d.latest_scan} />}

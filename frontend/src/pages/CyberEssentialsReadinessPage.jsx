@@ -24,7 +24,7 @@ const EVIDENCE_LABELS = {
   cyber_mot_disagrees: {
     label: 'Cyber MOT disagrees ⚠',
     helper: 'Your answer suggests this area is in place, but CyberMeters found external evidence that may conflict with it. Review this before applying for Cyber Essentials.',
-    className: 'bg-amber-50 text-amber-700 border-amber-100',
+    className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   },
   not_externally_checked: {
     label: 'Not externally checked',
@@ -44,7 +44,7 @@ const STATUS_COPY = {
     title: 'Some gaps to fix',
     body: 'You have several areas that may need attention before applying for Cyber Essentials. Start with the gaps marked by Cyber MOT evidence, then review the self-declared controls with your IT provider or internal owner.',
     cta: 'View fix list',
-    className: 'bg-amber-50 text-amber-800 border-amber-100',
+    className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   },
   needs_attention: {
     title: 'Needs attention',
@@ -203,11 +203,11 @@ function Header() {
 
 function DisclaimerBox({ compact = false }) {
   return (
-    <div className="rounded-2xl border border-amber-100 bg-amber-50 p-5">
+    <div className="rounded-2xl border border-[1.5px] border-brand-700 bg-transparent p-5">
       <div className="flex items-start gap-3">
         <div>
-          <h2 className="text-sm font-bold text-amber-950">Readiness, not certification</h2>
-          <p className={`mt-1 text-sm leading-relaxed text-amber-800 ${compact ? 'max-w-3xl' : ''}`}>
+          <h2 className="text-sm font-bold text-brand-700">Readiness, not certification</h2>
+          <p className={`mt-1 text-sm leading-relaxed text-brand-700 ${compact ? 'max-w-3xl' : ''}`}>
             CyberMeters helps you prepare for Cyber Essentials by highlighting likely gaps and areas to review. It does not issue Cyber Essentials certification. Formal certification is handled through IASME and approved Certification Bodies.
           </p>
         </div>
@@ -274,7 +274,7 @@ function ProgressBar({ answered, total }) {
         <span className="text-sm font-bold tabular-nums text-brand-700">{answered}/{total}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-        <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full bg-brand-200 transition-all" style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
@@ -436,7 +436,7 @@ function ControlResultCard({ control }) {
   const statusClass = control.status === 'strong'
     ? 'bg-brand-50 text-brand-700 border-brand-100'
     : control.status === 'partial'
-      ? 'bg-amber-50 text-amber-700 border-amber-100'
+      ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
       : 'bg-red-50 text-red-700 border-red-100'
 
   return (

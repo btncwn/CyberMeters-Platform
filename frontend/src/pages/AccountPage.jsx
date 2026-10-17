@@ -25,7 +25,7 @@ const PLAN_CFG = {
   free:         { label: 'Free',         bg: 'bg-gray-100',    text: 'text-gray-600',    border: 'border-gray-200'   },
   starter:      { label: 'Starter',      bg: 'bg-blue-50',     text: 'text-blue-700',    border: 'border-blue-200'   },
   professional: { label: 'Professional', bg: 'bg-brand-50',    text: 'text-brand-700',   border: 'border-brand-200'  },
-  enterprise:   { label: 'Enterprise',   bg: 'bg-amber-50',    text: 'text-amber-700',   border: 'border-amber-200'  },
+  enterprise:   { label: 'Enterprise',   bg: 'bg-transparent',    text: 'text-brand-700',   border: 'border-[1.5px] border-brand-700'  },
 }
 
 
@@ -100,12 +100,12 @@ function UsageBar({ label, used, limit, note }) {
   const pct   = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
   const near  = pct >= 80
   const full  = pct >= 100
-  const color = full ? 'bg-red-500' : near ? 'bg-amber-400' : 'bg-brand-500'
+  const color = full ? 'bg-red-500' : near ? 'bg-brand-700' : 'bg-brand-500'
   return (
     <div className="mb-3 last:mb-0">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-gray-600">{label}</span>
-        <span className={`text-xs font-semibold ${full ? 'text-red-600' : near ? 'text-amber-600' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold ${full ? 'text-red-600' : near ? 'text-brand-700' : 'text-gray-500'}`}>
           {used} / {limit >= 999 ? '∞' : limit}
           {note && <span className="ml-1 font-normal text-gray-400">{note}</span>}
         </span>
@@ -163,7 +163,7 @@ function PlanLimitsCard({ planLimits }) {
 
       {plan === 'free' || plan === 'starter' ? (
         <div className="mt-4 pt-4 border-t border-gray-50">
-          <p className="text-xs text-brand-600 font-medium">Upgrade for higher limits →</p>
+          <p className="text-xs text-brand-700 font-medium">Upgrade for higher limits →</p>
           <p className="text-xs text-gray-400 mt-0.5">Billing available in an upcoming release.</p>
         </div>
       ) : null}
@@ -524,8 +524,8 @@ export default function AccountPage() {
                   </div>
                 )}
                 {saveOk && (
-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100 mb-4">
-                    <p className="text-xs text-green-700">Profile saved successfully.</p>
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-brand-200 border border-brand-200 mb-4">
+                    <p className="text-xs text-brand-700">Profile saved successfully.</p>
                   </div>
                 )}
 
@@ -594,7 +594,7 @@ export default function AccountPage() {
 
                 <div className="mt-5 p-4 rounded-xl bg-brand-50 border border-brand-100">
                   <p className="text-xs font-semibold text-brand-700 mb-2">Upgrade your plan</p>
-                  <p className="text-xs text-brand-600 leading-relaxed">
+                  <p className="text-xs text-brand-700 leading-relaxed">
                     Unlock unlimited domains, advanced reporting, and MSP portfolio features.
                   </p>
                   <p className="text-xs text-brand-400 mt-2">Billing available in an upcoming release.</p>
@@ -604,8 +604,8 @@ export default function AccountPage() {
               {/* ── Two-Factor Authentication ─────────────────────────── */}
               <Section title="Two-Factor Authentication">
                 {mfaSuccess && (
-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100 mb-4">
-                    <p className="text-xs text-green-700">{mfaSuccess}</p>
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-brand-200 border border-brand-200 mb-4">
+                    <p className="text-xs text-brand-700">{mfaSuccess}</p>
                   </div>
                 )}
                 {mfaError && (
@@ -626,7 +626,7 @@ export default function AccountPage() {
                             : 'Not enabled'}
                         </p>
                       </div>
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${mfaStatus?.mfa_enabled ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${mfaStatus?.mfa_enabled ? 'bg-brand-200 text-brand-900' : 'bg-gray-100 text-gray-500'}`}>
                         {mfaStatus?.mfa_enabled ? 'Active' : 'Off'}
                       </span>
                     </div>
@@ -674,7 +674,7 @@ export default function AccountPage() {
                           title="Copy secret"
                           aria-label="Copy secret"
                         >
-                          {copiedSecret ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                          {copiedSecret ? <CheckCircle className="w-4 h-4 text-brand-700" /> : <Copy className="w-4 h-4" />}
                         </button>
                       </div>
                       <p className="text-xs text-gray-400 mt-1">Issuer: CyberMeters · Algorithm: SHA-1 · Digits: 6 · Period: 30s</p>
@@ -712,9 +712,9 @@ export default function AccountPage() {
                 {/* Recovery codes — shown once after successful enable */}
                 {mfaStep === 'codes' && mfaRecoveryCodes && (
                   <div className="space-y-4">
-                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
-                      <p className="text-xs font-semibold text-amber-800 mb-1">Save your recovery codes</p>
-                      <p className="text-xs text-amber-700">Each code can be used once if you lose access to your authenticator. Store them securely — they will not be shown again.</p>
+                    <div className="p-3 rounded-xl bg-transparent border border-[1.5px] border-brand-700">
+                      <p className="text-xs font-semibold text-brand-700 mb-1">Save your recovery codes</p>
+                      <p className="text-xs text-brand-700">Each code can be used once if you lose access to your authenticator. Store them securely — they will not be shown again.</p>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
                       {mfaRecoveryCodes.map((code, i) => (
@@ -723,8 +723,8 @@ export default function AccountPage() {
                         </code>
                       ))}
                     </div>
-                    <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100">
-                      <p className="text-xs text-green-700 font-medium">MFA is now active on your account.</p>
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-brand-200 border border-brand-200">
+                      <p className="text-xs text-brand-700 font-medium">MFA is now active on your account.</p>
                     </div>
                     <button type="button" onClick={mfaReset} className="w-full btn-primary justify-center">
                       Done
@@ -825,9 +825,9 @@ export default function AccountPage() {
                   </div>
 
                   {newToken && (
-                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
-                      <p className="text-xs font-semibold text-amber-800 mb-1">Store this token now. It will never be shown again.</p>
-                      <code className="block text-xs text-amber-900 break-all bg-white/60 rounded-lg p-2">{newToken}</code>
+                    <div className="p-3 rounded-xl bg-transparent border border-[1.5px] border-brand-700">
+                      <p className="text-xs font-semibold text-brand-700 mb-1">Store this token now. It will never be shown again.</p>
+                      <code className="block text-xs text-brand-700 break-all bg-white/60 rounded-lg p-2">{newToken}</code>
                     </div>
                   )}
 
@@ -856,7 +856,7 @@ export default function AccountPage() {
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className={`text-xs font-semibold uppercase ${token.status === 'active' ? 'text-green-600' : 'text-gray-400'}`}>
+                              <span className={`text-xs font-semibold uppercase ${token.status === 'active' ? 'text-brand-700' : 'text-gray-400'}`}>
                                 {token.status}
                               </span>
                               {token.status === 'active' && (

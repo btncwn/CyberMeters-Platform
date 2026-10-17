@@ -14,9 +14,9 @@
 // Tones. Slate is the "we do not know" tone: never green, never red. Amber means "we
 // looked and could not finish", which is a different thing from both.
 export const DOMAIN_TONE = Object.freeze({
-  healthy:  'bg-emerald-50 text-emerald-700 border-emerald-200',
+  healthy:  'bg-brand-200 text-brand-900 border-brand-200',
   issue:    'bg-red-50 text-red-700 border-red-200',
-  caution:  'bg-amber-50 text-amber-700 border-amber-200',
+  caution:  'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   info:     'bg-blue-50 text-blue-700 border-blue-200',
   unknown:  'bg-slate-100 text-slate-600 border-slate-200',
 })

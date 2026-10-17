@@ -183,7 +183,7 @@ export default function PortfolioDomainsPage() {
   )
 
   if (loading && !data) {
-    return <div className="p-6 flex items-center justify-center min-h-64"><div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-brand-600" /></div>
+    return <div className="p-6 flex items-center justify-center min-h-64"><div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-brand-700" /></div>
   }
   if (error?.error === 'plan_feature_required') {
     return <div className="p-6 max-w-(--breakpoint-xl) mx-auto"><PlanGate error={error}>{null}</PlanGate></div>
@@ -219,8 +219,8 @@ export default function PortfolioDomainsPage() {
       {summary && (
         <>
           {summary.coverage_note && (
-            <div className="card p-4 mb-4 border border-amber-100 bg-amber-50 flex items-start gap-2">
-              <div className="text-xs text-amber-800">{summary.coverage_note}</div>
+            <div className="card p-4 mb-4 border border-[1.5px] border-brand-700 bg-transparent flex items-start gap-2">
+              <div className="text-xs text-brand-700">{summary.coverage_note}</div>
             </div>
           )}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
@@ -318,7 +318,7 @@ export default function PortfolioDomainsPage() {
                     <td className="text-gray-600">{d.assessed_healthy}</td>
                     <td className={d.unknown ? 'text-slate-600 font-semibold' : 'text-gray-400'}>{d.unknown}</td>
                     <td className={d.worsening ? 'text-red-600 font-semibold' : 'text-gray-400'}>{d.worsening}</td>
-                    <td className={d.stale ? 'text-amber-600 font-semibold' : 'text-gray-400'}>{d.stale}</td>
+                    <td className={d.stale ? 'text-brand-700 font-semibold' : 'text-gray-400'}>{d.stale}</td>
                     <td className="text-gray-600">{d.open_cases}</td>
                   </tr>
                 ))}

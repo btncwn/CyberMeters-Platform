@@ -20,7 +20,7 @@ import { api } from '../api'
 // ── Role display helpers ─────────────────────────────────────────────────────
 
 const ROLE_CFG = {
-  owner:   { label: 'Owner',   bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200' },
+  owner:   { label: 'Owner',   bg: 'bg-transparent',  text: 'text-brand-700',  border: 'border-[1.5px] border-brand-700' },
   admin:   { label: 'Admin',   bg: 'bg-brand-50',  text: 'text-brand-700',  border: 'border-brand-200' },
   analyst: { label: 'Analyst', bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200'  },
   viewer:  { label: 'Viewer',  bg: 'bg-gray-50',   text: 'text-gray-600',   border: 'border-gray-200'  },
@@ -261,9 +261,9 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
               <p className="text-xs text-red-500 mt-1">{addError}</p>
             )}
             {inviteLink && (
-              <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
-                <p className="text-xs font-semibold text-amber-800 mb-1">Invitation email sent. You can also copy this link now to share it directly — it will not be shown again.</p>
-                <code className="block text-xs text-amber-900 break-all bg-white/60 rounded-lg p-2">{inviteLink}</code>
+              <div className="p-3 rounded-xl bg-transparent border border-[1.5px] border-brand-700">
+                <p className="text-xs font-semibold text-brand-700 mb-1">Invitation email sent. You can also copy this link now to share it directly — it will not be shown again.</p>
+                <code className="block text-xs text-brand-700 break-all bg-white/60 rounded-lg p-2">{inviteLink}</code>
               </div>
             )}
           </form>

@@ -80,7 +80,7 @@ function AddScheduleForm({ onCreated }) {
           />
         </div>
         {domain !== '' && !valid && (
-          <p className="text-amber-600 text-xs mt-1.5 font-medium">
+          <p className="text-brand-700 text-xs mt-1.5 font-medium">
             ⚠ Enter a valid domain (e.g. example.com)
           </p>
         )}

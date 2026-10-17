@@ -6,13 +6,13 @@ const STATE_STYLE = {
   not_observed: 'border-slate-200 bg-slate-50 text-slate-600',
   unknown: 'border-violet-200 bg-violet-50 text-violet-800',
   unavailable: 'border-gray-200 bg-gray-50 text-gray-600',
-  incomplete: 'border-amber-200 bg-amber-50 text-amber-800',
+  incomplete: 'border-[1.5px] border-brand-700 bg-transparent text-brand-700',
 }
 
 // Name match, expiry and trust are checks with a backend-owned outcome: passed,
 // failed or not checked. A check that did not run never reads as passed.
 const CHECK_STYLE = {
-  passed: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  passed: 'border-brand-200 bg-brand-200 text-brand-900',
   failed: 'border-red-200 bg-red-50 text-red-800',
   not_checked: 'border-gray-200 bg-gray-50 text-gray-600',
 }
@@ -119,7 +119,7 @@ export default function CertificateAssuranceSummary({
           <h3 className="text-sm font-bold text-slate-900">{title}</h3>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">{presentation.scope_note}</p>
           {presentation.historical_notice && (
-            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            <p className="mt-2 rounded-lg border border-[1.5px] border-brand-700 bg-transparent px-3 py-2 text-xs leading-relaxed text-brand-700">
               {presentation.historical_notice}
             </p>
           )}

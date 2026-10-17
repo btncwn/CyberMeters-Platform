@@ -8,13 +8,13 @@ const COLOR_CLASSES = {
   brand:  { badge: 'bg-brand-50 text-brand-700' },
   blue:   { badge: 'bg-blue-50 text-blue-700' },
   indigo: { badge: 'bg-indigo-50 text-indigo-700' },
-  green:  { badge: 'bg-emerald-50 text-emerald-700' },
+  green:  { badge: 'bg-brand-200 text-brand-900' },
   purple: { badge: 'bg-purple-50 text-purple-700' },
   red:    { badge: 'bg-red-50 text-red-700' },
   cyan:   { badge: 'bg-cyan-50 text-cyan-700' },
-  amber:  { badge: 'bg-amber-50 text-amber-700' },
+  amber:  { badge: 'bg-transparent text-brand-700' },
   pink:   { badge: 'bg-pink-50 text-pink-700' },
-  orange: { badge: 'bg-orange-50 text-orange-700' },
+  orange: { badge: 'bg-red-50 text-red-600' },
   rose:   { badge: 'bg-rose-50 text-rose-700' },
 }
 
@@ -41,8 +41,8 @@ function Block({ block }) {
             <div className="px-4 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-2">
               <div className="flex gap-1.5">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-                <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                <div className="w-2.5 h-2.5 rounded-full bg-brand-700" />
+                <div className="w-2.5 h-2.5 rounded-full bg-brand-700" />
               </div>
               <span className="text-xs font-medium text-gray-400 ml-1 uppercase tracking-wide">{block.lang}</span>
             </div>
@@ -58,8 +58,8 @@ function Block({ block }) {
     case 'callout': {
       const variants = {
         info:    { bg: 'bg-blue-50 border-blue-100',   text: 'text-blue-900' },
-        warning: { bg: 'bg-amber-50 border-amber-100', text: 'text-amber-900' },
-        success: { bg: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-900' },
+        warning: { bg: 'bg-transparent border-[1.5px] border-brand-700', text: 'text-brand-700' },
+        success: { bg: 'bg-brand-200 border-brand-200', text: 'text-brand-900' },
       }
       const v = variants[block.variant] || variants.info
       return (
@@ -80,7 +80,7 @@ function Section({ section, index }) {
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-2">
-        <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
+        <span className="w-6 h-6 rounded-full bg-brand-200 text-brand-900 text-xs font-bold flex items-center justify-center shrink-0">
           {index + 1}
         </span>
         <h2 className="text-base font-bold text-gray-900">{section.heading}</h2>
@@ -102,7 +102,7 @@ function RelatedCard({ article }) {
       className="group flex items-start gap-3 p-3.5 bg-white rounded-xl border border-gray-100 hover:border-brand-200 hover:shadow-xs transition-all"
     >
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-gray-800 group-hover:text-brand-600 transition-colors leading-snug line-clamp-2">
+        <p className="text-sm font-semibold text-gray-800 group-hover:text-brand-800 transition-colors leading-snug line-clamp-2">
           {article.title}
         </p>
         <div className="flex items-center gap-1 mt-1">
@@ -121,7 +121,7 @@ function TableOfContents({ sections }) {
         <a
           key={i}
           href={`#section-${i}`}
-          className="flex items-center gap-2 text-[14px] text-gray-500 hover:text-brand-600 transition-colors py-0.5"
+          className="flex items-center gap-2 text-[14px] text-gray-500 hover:text-brand-800 transition-colors py-0.5"
         >
           <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-xs font-bold flex items-center justify-center shrink-0">
             {i + 1}
@@ -163,12 +163,12 @@ export default function AcademyArticlePage() {
 
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-xs text-gray-400 mb-6">
-        <Link to="/guide" className="hover:text-brand-600 flex items-center gap-1 transition-colors">
+        <Link to="/guide" className="hover:text-brand-800 flex items-center gap-1 transition-colors">
           Field Guide
         </Link>
         <span aria-hidden="true">/</span>
         {area && (
-          <Link to={`/guide/${area.key}`} className="hover:text-brand-600 transition-colors">
+          <Link to={`/guide/${area.key}`} className="hover:text-brand-800 transition-colors">
             {area.title}
           </Link>
         )}
@@ -188,7 +188,7 @@ export default function AcademyArticlePage() {
                 {catMeta?.label}
               </span>
               {article.featured && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-transparent text-brand-700">
                   Featured
                 </span>
               )}
@@ -221,7 +221,7 @@ export default function AcademyArticlePage() {
           <div className="mt-10 pt-6 border-t border-gray-100">
             <Link
               to={area ? `/guide/${area.key}` : '/guide'}
-              className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-brand-600 transition-colors"
+              className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-brand-800 transition-colors"
             >
               {area ? `Back to ${area.title}` : 'Back to Field Guide'}
             </Link>

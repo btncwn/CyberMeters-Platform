@@ -14,7 +14,7 @@ import { bandMeta, metaForScore } from '../../lib/score-presentation'
 
 const SEV_COLORS = {
   critical: '#EF4444',
-  high:     '#F97316',
+  high:     '#f87171',
   medium:   '#EAB308',
   low:      '#22C55E',
   info:     '#6B7280',
@@ -86,9 +86,9 @@ function ScoreTrendChart({ trend }) {
         <Line
           type="monotone"
           dataKey="score"
-          stroke="#00876A"
+          stroke="#117362"
           strokeWidth={2}
-          dot={{ r: 3, fill: '#00876A' }}
+          dot={{ r: 3, fill: '#117362' }}
           activeDot={{ r: 5 }}
         />
       </LineChart>
@@ -146,9 +146,9 @@ function SevBadge({ severity }) {
   const s = severity?.toLowerCase()
   const cls = {
     critical: 'bg-red-100 text-red-700',
-    high:     'bg-orange-100 text-orange-700',
+    high:     'bg-red-50 text-red-600',
     medium:   'bg-yellow-100 text-yellow-700',
-    low:      'bg-green-100 text-green-700',
+    low:      'bg-brand-200 text-brand-900',
     info:     'bg-gray-100 text-gray-600',
   }[s] ?? 'bg-gray-100 text-gray-500'
   return (
@@ -194,7 +194,7 @@ function TopRisksTable({ risks }) {
 
 function ChangesWidget({ changes }) {
   const { score_current, score_previous, score_delta, score_direction, new_assets_7d } = changes ?? {}
-  const deltaColor = score_direction === 'up' ? 'text-green-600'
+  const deltaColor = score_direction === 'up' ? 'text-brand-700'
     : score_direction === 'down' ? 'text-red-500' : 'text-gray-400'
 
   return (
@@ -226,7 +226,7 @@ function ChangesWidget({ changes }) {
 function RemBucket({ label, items, accent }) {
   const accentCls = {
     red:    { dot: 'bg-red-500',    text: 'text-red-700',    label: 'bg-red-50 text-red-700 border-red-100' },
-    amber:  { dot: 'bg-amber-400',  text: 'text-amber-700',  label: 'bg-amber-50 text-amber-700 border-amber-100' },
+    amber:  { dot: 'bg-brand-700',  text: 'text-brand-700',  label: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
     blue:   { dot: 'bg-blue-400',   text: 'text-blue-700',   label: 'bg-blue-50 text-blue-700 border-blue-100' },
   }[accent]
 
@@ -353,7 +353,7 @@ export default function WorkspaceExecutiveDashboard() {
           label="High Findings"
           value={s.high_findings ?? 0}
           sub="Last 30 days"
-          color={s.high_findings > 0 ? 'text-orange-700' : 'text-gray-500'}
+          color={s.high_findings > 0 ? 'text-red-600' : 'text-gray-500'}
         />
       </div>
 

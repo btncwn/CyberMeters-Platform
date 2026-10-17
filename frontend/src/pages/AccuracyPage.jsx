@@ -4,7 +4,7 @@ import { api } from '../api'
 import StatCard from '../components/StatCard'
 
 function MetricBar({ label, value, tone = 'brand', note = null }) {
-  const color = tone === 'amber' ? 'bg-amber-500' : tone === 'red' ? 'bg-red-500' : 'bg-brand-500'
+  const color = tone === 'amber' ? 'bg-brand-700' : tone === 'red' ? 'bg-red-500' : 'bg-brand-500'
   const pct = Math.max(0, Math.min(100, Number(value || 0)))
   return (
     <div>
@@ -24,7 +24,7 @@ function AccuracyScoreBadge({ score }) {
   if (score == null) return null
   const color = score >= 80 ? 'text-brand-700 bg-brand-50 border-brand-200'
     : score >= 60 ? 'text-blue-700 bg-blue-50 border-blue-200'
-    : score >= 40 ? 'text-amber-700 bg-amber-50 border-amber-200'
+    : score >= 40 ? 'text-brand-700 bg-transparent border-[1.5px] border-brand-700'
     : 'text-red-700 bg-red-50 border-red-200'
   const label = score >= 80 ? 'High' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'Low'
   return (

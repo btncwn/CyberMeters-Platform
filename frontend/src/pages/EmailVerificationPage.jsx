@@ -102,7 +102,7 @@ export default function EmailVerificationPage() {
             </p>
 
             {resendDone ? (
-              <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-100 rounded-xl text-sm text-green-700 text-left mb-4">
+              <div className="flex items-center gap-2 px-4 py-3 bg-brand-200 border border-brand-200 rounded-xl text-sm text-brand-900 text-left mb-4">
                 If that address has an unverified account, a new link is on its way.
               </div>
             ) : (
@@ -129,7 +129,7 @@ export default function EmailVerificationPage() {
               </form>
             )}
 
-            <Link to="/login" className="text-sm text-brand-600 font-semibold hover:underline">
+            <Link to="/login" className="text-sm text-brand-700 font-semibold hover:underline">
               Back to sign in
             </Link>
           </>

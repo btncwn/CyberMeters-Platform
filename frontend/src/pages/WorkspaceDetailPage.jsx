@@ -27,7 +27,7 @@ function formatDate(str) {
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value, sub, iconColor = 'text-brand-600', iconBg = 'bg-brand-50' }) {
+function StatCard({ icon: Icon, label, value, sub, iconColor = 'text-brand-700', iconBg = 'bg-brand-50' }) {
   return (
     <div className="card p-5">
       <div className="flex items-start gap-3">
@@ -470,7 +470,7 @@ export default function WorkspaceDetailPage() {
 
       {/* Retained-history notice — zero currently-monitored domains. */}
       {noCurrentMonitoring && hasRetainedHistory && (
-        <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-800">
+        <div className="flex items-start gap-3 px-4 py-3 bg-transparent border border-[1.5px] border-brand-700 rounded-xl text-sm text-brand-700">
           <span>
             No domains are currently monitored in this workspace. Historical scan and asset evidence
             is retained below — it reflects past activity, not current monitoring.
@@ -484,7 +484,7 @@ export default function WorkspaceDetailPage() {
           icon={Globe}
           label="Total Domains"
           value={stats?.total_domains ?? 0}
-          iconColor="text-brand-600"
+          iconColor="text-brand-700"
           iconBg="bg-brand-50"
         />
         <StatCard
@@ -508,8 +508,8 @@ export default function WorkspaceDetailPage() {
           label={noCurrentMonitoring ? 'Last Scan (historical)' : 'Latest Scan'}
           value={stats?.latest_scan ? stats.latest_scan.domain : '—'}
           sub={stats?.latest_scan ? formatDate(stats.latest_scan.created_at) + (noCurrentMonitoring ? ' · historical' : '') : 'None yet'}
-          iconColor="text-amber-600"
-          iconBg="bg-amber-50"
+          iconColor="text-brand-700"
+          iconBg="bg-transparent"
         />
       </div>
 
@@ -524,7 +524,7 @@ export default function WorkspaceDetailPage() {
             </div>
             <Link
               to="/assets"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 hover:text-brand-800 transition-colors"
             >
               View Assets
             </Link>
@@ -559,7 +559,7 @@ export default function WorkspaceDetailPage() {
               {domains.length} domain{domains.length !== 1 ? 's' : ''} in this workspace
             </p>
           </div>
-          <button onClick={() => setShowAdd(true)} className="btn-ghost text-brand-600">
+          <button onClick={() => setShowAdd(true)} className="btn-ghost text-brand-700">
             Add Domain
           </button>
         </div>

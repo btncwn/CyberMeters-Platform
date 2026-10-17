@@ -7,9 +7,9 @@
 // be shown to a customer as an active subscription.
 
 const TONES = {
-  positive: { dot: 'bg-green-500', text: 'text-green-700', pill: 'bg-green-50 text-green-700 border-green-100' },
+  positive: { dot: 'bg-brand-700', text: 'text-brand-900', pill: 'bg-brand-200 text-brand-900 border-brand-200' },
   info:     { dot: 'bg-blue-400',  text: 'text-blue-700',  pill: 'bg-blue-50 text-blue-700 border-blue-100' },
-  warning:  { dot: 'bg-amber-400', text: 'text-amber-700', pill: 'bg-amber-50 text-amber-700 border-amber-100' },
+  warning:  { dot: 'bg-brand-700', text: 'text-brand-700', pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
   negative: { dot: 'bg-red-400',   text: 'text-red-700',   pill: 'bg-red-50 text-red-700 border-red-100' },
   neutral:  { dot: 'bg-gray-300',  text: 'text-gray-600',  pill: 'bg-gray-50 text-gray-600 border-gray-100' },
 }

@@ -160,7 +160,7 @@ function DomainDns({ workspaceId, domain, actions, workspaceCanApply }) {
       <p className="text-sm text-gray-700">{data.connection ? <>Connected zone: <b>{data.connection.zone_name}</b></> : 'No Cloudflare connection saved for this domain.'}</p>
       <button type="button" onClick={() => { setChange(null); setApproved(false); load() }} disabled={busy} className="text-xs underline text-brand-700">Refresh connection and history</button>
     </div>
-    {!canApply && <p className="text-sm text-amber-800">{data.reason === 'plan_required' ? 'Applying a new DNS correction requires an eligible paid plan or trial. Preview, status checks and undo remain available.' : 'Applying new DNS changes is currently unavailable. You can still check saved changes and use guided setup.'}</p>}
+    {!canApply && <p className="text-sm text-brand-700">{data.reason === 'plan_required' ? 'Applying a new DNS correction requires an eligible paid plan or trial. Preview, status checks and undo remain available.' : 'Applying new DNS changes is currently unavailable. You can still check saved changes and use guided setup.'}</p>}
     {!data.connection ? <form onSubmit={connect} className="space-y-3" autoComplete="off">
       <ol className="list-decimal pl-5 space-y-1 text-xs text-gray-600">
         <li>Open <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" className="underline text-brand-700">Cloudflare API tokens</a>, choose Create Token, then the Edit zone DNS template.</li>
@@ -189,7 +189,7 @@ function DomainDns({ workspaceId, domain, actions, workspaceCanApply }) {
           {mailMode && <label className="flex gap-2 text-sm text-gray-600"><input type="checkbox" checked={sendersConfirmed} onChange={event => { setSendersConfirmed(event.target.checked); setChange(null); setApproved(false) }} disabled={busy} /><span>{mailMode === 'no_mail' ? 'I confirm this domain sends no email. The proposed -all record denies all senders.' : 'I confirm these are the authorised mail senders and I have reviewed the policy for other senders.'}</span></label>}
         </>}
         {actionId && actionId !== 'spf_publish' && <p className="text-xs text-gray-600">{actionId === 'dmarc_reporting' ? 'Adds only your CyberMeters reporting address to the existing DMARC record. Its policy is preserved.' : 'Creates TLS reporting only when the record is missing, using your active reporting address.'}</p>}
-        {actionId && actionId !== 'spf_publish' && data.reporting_ready !== true && <p className="text-sm text-amber-800">Activate DMARC reporting below before previewing this correction.</p>}
+        {actionId && actionId !== 'spf_publish' && data.reporting_ready !== true && <p className="text-sm text-brand-700">Activate DMARC reporting below before previewing this correction.</p>}
         <button type="submit" className="btn-primary" disabled={busy || !previewReady}>Preview exact DNS change</button>
       </form>
     </>}
@@ -214,5 +214,5 @@ function DomainDns({ workspaceId, domain, actions, workspaceCanApply }) {
 }
 
 function Record({ title, records }) {
-  return <div className="min-w-0"><h4 className="text-sm font-semibold text-gray-700">{title}</h4>{!Array.isArray(records) ? <p className="text-xs text-amber-800">Record evidence unavailable</p> : records.length === 0 ? <p className="text-xs text-gray-500">No matching record</p> : records.map((record, index) => <div key={record.id || index} className="text-xs bg-gray-50 rounded-sm p-2 mt-1"><p className="break-all">{record.type} · {record.name}</p><pre className="whitespace-pre-wrap break-all mt-1">{record.content}</pre><p className="text-gray-500 mt-1">TTL: {record.ttl ?? 'Not recorded'}</p></div>)}</div>
+  return <div className="min-w-0"><h4 className="text-sm font-semibold text-gray-700">{title}</h4>{!Array.isArray(records) ? <p className="text-xs text-brand-700">Record evidence unavailable</p> : records.length === 0 ? <p className="text-xs text-gray-500">No matching record</p> : records.map((record, index) => <div key={record.id || index} className="text-xs bg-gray-50 rounded-sm p-2 mt-1"><p className="break-all">{record.type} · {record.name}</p><pre className="whitespace-pre-wrap break-all mt-1">{record.content}</pre><p className="text-gray-500 mt-1">TTL: {record.ttl ?? 'Not recorded'}</p></div>)}</div>
 }

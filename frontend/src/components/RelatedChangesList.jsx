@@ -176,7 +176,7 @@ export default function RelatedChangesList({ workspaceId }) {
                     {recurrenceCopy(rc.recurrence) && (
                       <span className="text-xs text-slate-400">· {recurrenceCopy(rc.recurrence)}</span>
                     )}
-                    {rc.linked_case_id && <span className="text-xs text-brand-600">· Linked to a case</span>}
+                    {rc.linked_case_id && <span className="text-xs text-brand-700">· Linked to a case</span>}
                     <span className="text-xs text-slate-400 ml-auto">Last seen {shortDate(rc.last_seen)}</span>
                   </div>
                 </button>

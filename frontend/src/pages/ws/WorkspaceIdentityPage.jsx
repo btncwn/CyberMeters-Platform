@@ -195,8 +195,8 @@ export default function WorkspaceIdentityPage() {
                 onClick={() => setSearch(p === search ? '' : p)}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                   search === p
-                    ? 'bg-brand-600 text-white border-brand-600'
-                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-brand-50 hover:border-brand-300 hover:text-brand-700'
+                    ? 'bg-brand-200 text-brand-900 border-brand-200'
+                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-brand-50 hover:border-brand-300 hover:text-brand-800'
                 }`}
               >
                 {p}

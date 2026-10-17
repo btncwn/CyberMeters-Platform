@@ -42,7 +42,7 @@ const SUPPORT_EXPLAINER = {
 
 const CARD = 'rounded-xl border border-slate-200 bg-white p-5'
 const SUPPORT_TONE = {
-  green: 'bg-green-50 text-green-800 border-green-200',
+  green: 'bg-brand-200 text-brand-900 border-brand-200',
   blue:  'bg-blue-50 text-blue-800 border-blue-200',
   slate: 'bg-slate-50 text-slate-700 border-slate-200',
 }
@@ -179,8 +179,8 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
           <p className="text-base font-medium text-slate-800">{selected.label}</p>
 
           {selected.requires_owner && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
-              <p className="text-sm text-amber-800">Assign an owner in the Owner section above before moving this case to Assigned.</p>
+            <div className="flex items-start gap-2 rounded-md border border-[1.5px] border-brand-700 bg-transparent p-3">
+              <p className="text-sm text-brand-700">Assign an owner in the Owner section above before moving this case to Assigned.</p>
             </div>
           )}
 
@@ -236,7 +236,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
               type="button"
               onClick={submitForm}
               disabled={!canSubmit}
-              className="inline-flex items-center rounded-lg bg-brand-600 px-4 min-h-[40px] text-sm font-semibold text-white hover:bg-brand-700 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center rounded-lg bg-brand-200 px-4 min-h-[40px] text-sm font-semibold text-brand-900 hover:bg-brand-300 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy ? 'Working…' : 'Confirm'}
             </button>
@@ -341,7 +341,7 @@ export default function WorkspaceCaseDetailPage() {
               <div>
                 <dt className="text-xs text-slate-400">Source scan</dt>
                 <dd className="text-slate-700 mt-0.5">
-                  {c.source_scan_id ? <Link className="text-brand-600 hover:underline font-mono text-xs" to={`/scans/${c.source_scan_id}`}>{c.source_scan_id}</Link> : '—'}
+                  {c.source_scan_id ? <Link className="text-brand-700 hover:underline font-mono text-xs" to={`/scans/${c.source_scan_id}`}>{c.source_scan_id}</Link> : '—'}
                 </dd>
               </div>
               {/* Backend-owned provenance classification (ASM traceability). The
@@ -365,7 +365,7 @@ export default function WorkspaceCaseDetailPage() {
 
           {c.verification_support === 'automated' && c.domain && (
             <div className="flex flex-wrap items-center gap-3">
-              <Link className="rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+              <Link className="rounded-lg bg-brand-200 px-4 py-2.5 text-sm font-semibold text-brand-900 hover:bg-brand-300"
                     to={`/scans/new?domain=${encodeURIComponent(c.domain)}`}>
                 Recheck domain
               </Link>

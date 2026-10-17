@@ -92,7 +92,7 @@ export default function LiveTlsEvidence({ evidence, assessment, showEndpoints = 
     <summary className="cursor-pointer text-sm font-semibold text-gray-800">Live TLS evidence — {collected ? 'certificate observed' : 'not fully observed'}</summary>
     <div className="mt-3 space-y-4">
       <p className="text-xs text-gray-500">These observations describe the recorded connection. They do not establish that every endpoint or the whole service is secure.</p>
-      {evidence.all_planned_endpoints_observed === false && <p className="text-sm text-amber-800">Endpoint coverage is incomplete. Unmeasured endpoints remain unknown.</p>}
+      {evidence.all_planned_endpoints_observed === false && <p className="text-sm text-brand-700">Endpoint coverage is incomplete. Unmeasured endpoints remain unknown.</p>}
       {evidence.all_planned_endpoints_observed === true && endpoints.length > 0 && <p className="text-sm text-gray-600">All planned endpoints were observed in this run.</p>}
       {!collected ? <p className="text-sm text-gray-600">A complete live certificate was not recorded, so the certificate currently served is unknown.</p> : <>
         <dl className="grid gap-3 sm:grid-cols-2">

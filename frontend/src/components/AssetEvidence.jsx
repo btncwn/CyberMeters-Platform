@@ -110,7 +110,7 @@ function DnsAnswer({ dns }) {
           Alias of <span className="mono break-all">{dns.alias_chain.join(' then ')}</span>
         </p>
       )}
-      {dns.uncertain && <p className="text-xs text-amber-700">{dns.uncertain}</p>}
+      {dns.uncertain && <p className="text-xs text-brand-700">{dns.uncertain}</p>}
     </div>
   )
 }

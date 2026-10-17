@@ -32,7 +32,7 @@ export default function ResetPasswordPage() {
         </div>
         <p className="mt-5 text-sm text-gray-500">
           Remember your password?{' '}
-          <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+          <Link to="/login" className="text-brand-700 font-semibold hover:underline">
             Sign in
           </Link>
         </p>
@@ -150,7 +150,7 @@ export default function ResetPasswordPage() {
 
       <p className="mt-5 text-sm text-gray-500">
         Remember your password?{' '}
-        <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+        <Link to="/login" className="text-brand-700 font-semibold hover:underline">
           Sign in
         </Link>
       </p>

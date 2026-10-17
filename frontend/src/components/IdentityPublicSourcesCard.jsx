@@ -46,7 +46,7 @@ export default function IdentityPublicSourcesCard({ workspaceId }) {
       <p className="text-sm font-medium break-all">{check.result.source_url}</p>
       <p className="text-xs text-gray-500 mt-1">{new Date(check.created_at).toLocaleString()} · {check.result.coverage === 'partial' ? 'Partial check' : 'Bounded check'}</p>
       <p className="text-sm mt-2">{check.result.findings.length ? `${check.result.findings.length} key candidate(s) need review` : check.result.state === 'unavailable' ? 'Source could not be assessed' : 'No supported key pattern observed in the files checked'}</p>
-      {check.result.findings.map((finding, index) => <div key={finding.fingerprint + ':' + index} className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm">
+      {check.result.findings.map((finding, index) => <div key={finding.fingerprint + ':' + index} className="mt-3 rounded-lg bg-transparent border border-[1.5px] border-brand-700 p-3 text-sm">
         <p className="font-semibold">{finding.label} — candidate</p>
         <p className="font-mono my-1">{finding.masked_evidence}</p>
         <p className="text-xs break-all">{finding.source_url} · line {finding.line}</p>

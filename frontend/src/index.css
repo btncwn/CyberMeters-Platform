@@ -17,16 +17,22 @@
   --color-coral-600: #c2503a;
   --color-coral: #d9634a;
 
-  --color-brand-50: #e6f4f1;
-  --color-brand-100: #c1e4da;
-  --color-brand-200: #97d3c2;
-  --color-brand-300: #6dc2aa;
-  --color-brand-400: #4db596;
-  --color-brand-500: #2ea989;
-  --color-brand-600: #00876a;
-  --color-brand-700: #006a53;
-  --color-brand-800: #004d3c;
-  --color-brand-900: #003328;
+  /* Brand scale (founder, 17 Oct 2026): the aqua family. 200 is THE brand
+     colour (#a9f2e5) — the ground of every filled button and every
+     "assessed / completed" chip, always with 900 (#081f1c) text. 700
+     (#117362, 5.75:1 on white) is the ink for links, icons and the hollow
+     "provisional / evidence insufficient / customer input required / stale"
+     chips: 1.5px 700 border, 700 text, transparent ground. The two never mix. */
+  --color-brand-50: #e9fcf8;
+  --color-brand-100: #caf7ef;
+  --color-brand-200: #a9f2e5;
+  --color-brand-300: #7aebd7;
+  --color-brand-400: #45e3c7;
+  --color-brand-500: #1fccad;
+  --color-brand-600: #16927c;
+  --color-brand-700: #117362;
+  --color-brand-800: #0d5447;
+  --color-brand-900: #081f1c;
 
   --text-xs: 0.875rem;
   --text-xs--line-height: 1.25rem;
@@ -55,7 +61,7 @@
     0 4px 10px -3px rgba(16, 24, 40, 0.07);
   --shadow-btn: 0 1px 2px 0 rgba(16, 24, 40, 0.08);
   --shadow-btn-brand:
-    0 2px 5px -1px rgba(0, 135, 106, 0.35), 0 1px 2px 0 rgba(0, 135, 106, 0.2);
+    0 2px 5px -1px rgba(31, 204, 173, 0.35), 0 1px 2px 0 rgba(31, 204, 173, 0.2);
   --shadow-header:
     0 1px 0 0 rgba(16, 24, 40, 0.06), 0 4px 16px -8px rgba(16, 24, 40, 0.1);
 
@@ -137,7 +143,7 @@
 @utility eyebrow {
   /* Premium typographic system — headings lead, numbers support. Section titles
      are deliberately stronger so product meaning reads before raw figures. */
-  @apply text-[13px] font-bold text-brand-600 uppercase tracking-[0.14em];
+  @apply text-[13px] font-bold text-brand-700 uppercase tracking-[0.14em];
 }
 
 @utility page-title {
@@ -179,12 +185,12 @@
 
 @utility accent-danger {
   /* Restrained semantic accents for risk surfaces — a quiet left rule, never a
-     loud filled block. Green = healthy/primary, amber = warning, red = critical. */
+     loud filled block. Aqua ink = needs review, red = critical. */
   @apply border-l-2 border-red-400;
 }
 
 @utility accent-warning {
-  @apply border-l-2 border-amber-400;
+  @apply border-l-2 border-brand-700;
 }
 
 @utility accent-info {
@@ -218,43 +224,42 @@
   /* Reusable status-pill eyebrow (landing signature, also used on auth + app). */
   @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-100
            text-[13px] font-semibold uppercase tracking-[0.13em] text-brand-800;
-  background: rgba(231, 242, 238, 0.7);
+  background: rgba(233, 252, 248, 0.7);
   font-family: 'Computer Modern Typewriter', ui-monospace, monospace;
   & .pill-dot {
-    @apply w-[7px] h-[7px] rounded-full bg-brand-600;
+    @apply w-[7px] h-[7px] rounded-full bg-brand-700;
   }
 }
 
 @utility pill-dot {
   .pill-eyebrow & {
-    @apply w-[7px] h-[7px] rounded-full bg-brand-600;
+    @apply w-[7px] h-[7px] rounded-full bg-brand-700;
   }
 }
 
 @utility btn-amber {
-  /* Public call-to-action: the warm amber of the brand mark, deep orange at
-     the left running to amber at the right. Dark text keeps 4.5:1 on both. */
+  /* Legacy name kept for the public landing page markup (outside this
+     change). It is the same filled aqua call-to-action as btn-primary: the
+     warm amber gradient is gone. */
   @apply inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 select-none;
-  color: #1b2333;
-  background: linear-gradient(90deg, #d6792d 0%, #e29535 100%);
-  box-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.08) inset,
-    0 8px 20px -10px rgba(214, 121, 45, 0.7);
-  &:hover {
-    background: linear-gradient(90deg, #c96f27 0%, #d88b2f 100%);
-  }
-  &:active {
-    background: linear-gradient(90deg, #bd6723 0%, #cb822b 100%);
-  }
+  color: rgba(8, 31, 28, 0.9);
+  background: #a9f2e5;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset, 0 8px 20px -10px rgba(31, 204, 173, 0.6);
+  &:hover { background: #8fe9d9; }
+  &:active { background: #7aebd7; }
 }
 
 @utility btn-primary {
-  /* Buttons */
+  /* Filled button (founder, 17 Oct 2026): the brand aqua ground with dark
+     ink at 90% — never white text on this light ground. */
   @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
-           bg-brand-600 hover:bg-brand-700 active:bg-brand-800
-           text-white font-semibold text-sm rounded-xl
+           font-semibold text-sm rounded-xl
            shadow-btn-brand hover:-translate-y-px active:translate-y-0
            transition-all duration-150 select-none;
+  color: rgba(8, 31, 28, 0.9);
+  background-color: #a9f2e5;
+  &:hover { background-color: #8fe9d9; }
+  &:active { background-color: #7aebd7; }
 }
 
 @utility btn-secondary {
@@ -309,8 +314,13 @@
 }
 
 @utility cm-avatar {
-  @apply inline-flex items-center justify-center w-9 h-9 rounded-full bg-gray-900 text-white text-[15px] font-semibold select-none;
-  &:hover { background-color: #1f2937; }
+  /* The account initial (founder, 17 Oct 2026): a sky gradient with deep
+     blue ink — no navy, no dark ground. */
+  @apply inline-flex items-center justify-center w-9 h-9 rounded-full text-[15px] font-semibold select-none;
+  background: linear-gradient(160deg, #cfe8ff 0%, #8ec5ff 100%);
+  color: #0b3b6b;
+  box-shadow: inset 0 0 0 1px rgba(11, 59, 107, 0.12);
+  &:hover { box-shadow: inset 0 0 0 1px rgba(11, 59, 107, 0.12), 0 0 0 4px rgba(16, 24, 40, 0.06); }
 }
 
 @utility cm-popover {
@@ -318,10 +328,23 @@
 }
 
 @utility text-amber-brand {
-  background-image: linear-gradient(90deg, #d6792d 0%, #e29535 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  /* Legacy name: brand-coloured text is now the solid aqua ink. */
+  color: #117362;
+}
+
+@utility cm-filled {
+  /* "Assessed / completed / verified": the filled chip. */
+  background-color: #a9f2e5;
+  color: #081f1c;
+  border: 1.5px solid #a9f2e5;
+}
+
+@utility cm-hollow {
+  /* "Provisional / evidence insufficient / customer input required / stale":
+     the hollow chip. Never filled. */
+  background-color: transparent;
+  color: #117362;
+  border: 1.5px solid #117362;
 }
 
 @utility badge-critical {
@@ -331,13 +354,16 @@
 }
 
 @utility badge-high {
+  /* High severity: the lighter red. Red stays for critical and high; the
+     orange step is gone. */
   @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-           bg-orange-50 text-orange-700 text-xs font-semibold border border-orange-100;
+           bg-red-50 text-red-600 text-xs font-semibold border border-red-100;
 }
 
 @utility badge-medium {
+  /* Medium severity: the hollow aqua chip, never a filled one. */
   @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-           bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-100;
+           bg-transparent text-brand-700 text-xs font-semibold border-[1.5px] border-brand-700;
 }
 
 @utility badge-low {
@@ -461,7 +487,7 @@
   /* Typography (founder, 16 Oct 2026): page and section titles keep the serif;
      every other text — including h3/h4 — is the product sans. */
   h1, h2 { font-family: 'Computer Modern Serif', Georgia, Cambria, serif; }
-  ::selection { background-color: rgba(0,135,106,.18); }
+  ::selection { background-color: rgba(31,204,173,.25); }
   /* Product type floor (founder, 14 Oct): inside the app a page title is at
      least 24px, a section title at least 18px, and no heading is ever smaller
      than the body text. The public website sets its own sizes. */
@@ -490,7 +516,7 @@
   select:focus-visible,
   textarea:focus-visible,
   summary:focus-visible {
-    outline: 2px solid #00876A;
+    outline: 2px solid #117362;
     outline-offset: 2px;
     border-radius: 6px;
   }
@@ -524,9 +550,10 @@
   transform-box: fill-box;
   transform-origin: center;
   animation: cmNeedleSwing 13s ease-in-out infinite;
-  /* Subtle warm amber glow — matches mid-gradient and signals "live" state */
-  filter: drop-shadow(0 0 3px rgba(235, 197, 71, 0.8))
-          drop-shadow(0 0 6px rgba(255, 159, 67, 0.4));
+  /* Subtle aqua glow — the brand colour signals the "live" state. The needle's
+     own gradient is unchanged. */
+  filter: drop-shadow(0 0 3px rgba(169, 242, 229, 0.9))
+          drop-shadow(0 0 6px rgba(31, 204, 173, 0.45));
 }
 
 @keyframes cmNeedleSwing {

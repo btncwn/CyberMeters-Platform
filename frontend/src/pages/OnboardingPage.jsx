@@ -49,7 +49,7 @@ function StepCard({ number, title, done, active, children }) {
     >
       <div className="flex items-start gap-4">
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-          done ? 'bg-brand-50 text-brand-600' : active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500'
+          done ? 'bg-brand-50 text-brand-700' : active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500'
         }`}>
           <span className="text-sm font-bold">{number}</span>
         </div>
@@ -338,7 +338,7 @@ export default function OnboardingPage() {
           </p>
         </div>
         <div className="text-right">
-          <p className="text-3xl font-bold text-brand-600">{completion}%</p>
+          <p className="text-3xl font-bold text-brand-700">{completion}%</p>
           <p className="text-xs text-gray-500 font-medium">complete</p>
         </div>
       </div>
@@ -430,7 +430,7 @@ export default function OnboardingPage() {
               </dl>
             )}
             {verifyResult && !verifyResult.success ? (
-              <p role="status" className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3">
+              <p role="status" className="text-sm text-brand-700 bg-transparent border border-[1.5px] border-brand-700 rounded-xl p-3">
                 {verifyResult.message || 'Verification is not complete yet. DNS changes can take time to propagate.'}
               </p>
             ) : (verificationInstructions || selectedDomain?.verification_token) ? (
@@ -480,8 +480,8 @@ export default function OnboardingPage() {
           <div className="space-y-4">
             {/* A finished run is not the same as checks that all completed: a
                 partial first scan says so instead of reading as a clean result. */}
-            <div className={`rounded-xl border p-4 ${reportReady ? 'border-brand-100 bg-brand-50' : 'border-amber-100 bg-amber-50'}`}>
-              <p className={`text-sm font-semibold ${reportReady ? 'text-brand-800' : 'text-amber-800'}`}>
+            <div className={`rounded-xl border p-4 ${reportReady ? 'border-brand-100 bg-brand-50' : 'border-[1.5px] border-brand-700 bg-transparent'}`}>
+              <p className={`text-sm font-semibold ${reportReady ? 'text-brand-800' : 'text-brand-700'}`}>
                 {!scanFinished
                   ? 'Your first check has started.'
                   : reportStatus === 'report_preparing'
@@ -494,7 +494,7 @@ export default function OnboardingPage() {
                     ? 'Your first results are ready, but some checks did not complete.'
                     : 'Your first results are ready.'}
               </p>
-              <p className={`text-xs mt-1 ${reportReady ? 'text-brand-700' : 'text-amber-800'}`}>
+              <p className={`text-xs mt-1 ${reportReady ? 'text-brand-700' : 'text-brand-700'}`}>
                 {!scanFinished
                   ? 'Results fill in as each area finishes.'
                   : !reportReady

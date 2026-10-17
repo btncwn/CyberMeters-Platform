@@ -34,7 +34,7 @@ function formatDate(str) {
 const ROLE_COLORS = {
   owner:   'bg-brand-100 text-brand-800',
   admin:   'bg-purple-100 text-purple-700',
-  analyst: 'bg-amber-100 text-amber-700',
+  analyst: 'bg-transparent text-brand-700',
   viewer:  'bg-gray-100 text-gray-600',
 }
 
@@ -423,7 +423,7 @@ export default function WorkspaceMembersPage() {
                         <td className="px-6 py-4 text-xs hidden sm:table-cell">
                           <span className={`flex items-center gap-1 ${
                             parseServerDate(inv.expires_at) < new Date(Date.now() + 24 * 3600000)
-                              ? 'text-amber-600' : 'text-gray-400'
+                              ? 'text-brand-700' : 'text-gray-400'
                           }`}>
                             {formatDate(inv.expires_at)}
                           </span>
@@ -449,7 +449,7 @@ export default function WorkspaceMembersPage() {
 
           {/* Read-only notice for non-admins */}
           {callerRole && !isAdminPlus(callerRole) && (
-            <div className="card p-4 flex items-start gap-3 border-amber-100 bg-amber-50/40">
+            <div className="card p-4 flex items-start gap-3 border-[1.5px] border-brand-700 bg-transparent">
               <div>
                 <p className="text-sm font-semibold text-gray-900">Read-only view</p>
                 <p className="text-xs text-gray-500 mt-0.5">

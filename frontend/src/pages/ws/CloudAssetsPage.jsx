@@ -16,7 +16,7 @@ const COLUMNS = [
       <p className="font-medium text-gray-900 truncate max-w-xs">{row.hostname || v}</p>
       {row.url && (
         <a href={row.url} target="_blank" rel="noopener noreferrer"
-           className="text-xs text-brand-600 hover:underline flex items-center gap-1 mt-0.5">
+           className="text-xs text-brand-700 hover:underline flex items-center gap-1 mt-0.5">
           {row.url}
         </a>
       )}
@@ -86,7 +86,7 @@ export default function CloudAssetsPage() {
               <XAxis type="number" tick={{ fontSize: 13, fill: '#94a3b8' }} />
               <YAxis dataKey="provider" type="category" width={100} tick={{ fontSize: 13, fill: '#64748b' }} />
               <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8 }} />
-              <Bar dataKey="count" fill="#00876A" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="count" fill="#117362" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

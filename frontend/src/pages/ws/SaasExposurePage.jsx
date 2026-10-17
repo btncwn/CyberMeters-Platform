@@ -9,7 +9,7 @@ import StatCard from '../../components/StatCard'
 function ExposureCard({ exp }) {
   const isHigh = exp.risk_level === 'high' || exp.risk_level === 'critical'
   return (
-    <div className={`card p-5 ${isHigh ? 'border-orange-100' : ''}`}>
+    <div className={`card p-5 ${isHigh ? 'border-red-100' : ''}`}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <p className="font-semibold text-gray-900">{exp.name}</p>
@@ -23,7 +23,7 @@ function ExposureCard({ exp }) {
       <div className="space-y-1">
         {exp.tenant_url && (
           <a href={exp.tenant_url} target="_blank" rel="noopener noreferrer"
-             className="flex items-center gap-1.5 text-xs text-brand-600 hover:underline truncate">
+             className="flex items-center gap-1.5 text-xs text-brand-700 hover:underline truncate">
             Tenant: {exp.tenant_url}
           </a>
         )}

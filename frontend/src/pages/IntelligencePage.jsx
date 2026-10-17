@@ -25,60 +25,60 @@ const SEV_BADGE = {
 
 const SEV_DOT = {
   critical: 'bg-red-500',
-  high:     'bg-orange-500',
-  medium:   'bg-amber-400',
+  high:     'bg-red-500',
+  medium:   'bg-brand-700',
   low:      'bg-blue-400',
 }
 
 const RISK_LEVEL_STYLE = {
   Critical:  { pill: 'bg-red-50 text-red-700 border-red-100',           dot: 'bg-red-500'    },
-  High:      { pill: 'bg-orange-50 text-orange-700 border-orange-100',  dot: 'bg-orange-500' },
-  Moderate:  { pill: 'bg-amber-50 text-amber-700 border-amber-100',     dot: 'bg-amber-400'  },
+  High:      { pill: 'bg-red-50 text-red-600 border-red-100',  dot: 'bg-red-500' },
+  Moderate:  { pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',     dot: 'bg-brand-700'  },
   Low:       { pill: 'bg-brand-50 text-brand-700 border-brand-100',     dot: 'bg-brand-500'  },
   Excellent: { pill: 'bg-brand-50 text-brand-700 border-brand-100',     dot: 'bg-brand-500'  },
 }
 
 const BIZ_RISK_STYLE = {
-  Low:      { text: 'text-brand-600', bg: 'bg-brand-50 text-brand-700 border-brand-100' },
-  Moderate: { text: 'text-amber-600', bg: 'bg-amber-50 text-amber-700 border-amber-100' },
-  High:     { text: 'text-orange-600', bg: 'bg-orange-50 text-orange-700 border-orange-100' },
+  Low:      { text: 'text-brand-700', bg: 'bg-brand-50 text-brand-700 border-brand-100' },
+  Moderate: { text: 'text-brand-700', bg: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
+  High:     { text: 'text-red-600', bg: 'bg-red-50 text-red-600 border-red-100' },
   Critical: { text: 'text-red-600',   bg: 'bg-red-50 text-red-700 border-red-100'       },
 }
 
 const EMAIL_SCORE_STYLE = {
-  EXCELLENT: { color: '#00876A', label: 'Excellent', cls: 'text-brand-600' },
-  GOOD:      { color: '#00876A', label: 'Good',      cls: 'text-brand-600' },
-  FAIR:      { color: '#F59E0B', label: 'Fair',      cls: 'text-amber-500' },
-  POOR:      { color: '#F97316', label: 'Poor',      cls: 'text-orange-500' },
+  EXCELLENT: { color: '#117362', label: 'Excellent', cls: 'text-brand-700' },
+  GOOD:      { color: '#117362', label: 'Good',      cls: 'text-brand-700' },
+  FAIR:      { color: '#45e3c7', label: 'Fair',      cls: 'text-brand-700' },
+  POOR:      { color: '#f87171', label: 'Poor',      cls: 'text-red-600' },
   CRITICAL:  { color: '#EF4444', label: 'Critical',  cls: 'text-red-500'   },
 }
 
 const DMARC_STATUS_STYLE = {
   FULLY_PROTECTED:   'bg-brand-50 text-brand-700 border-brand-100',
-  PARTIAL_PROTECTED: 'bg-amber-50 text-amber-700 border-amber-100',
-  REPORTING_ONLY:    'bg-orange-50 text-orange-700 border-orange-100',
+  PARTIAL_PROTECTED: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
+  REPORTING_ONLY:    'bg-red-50 text-red-600 border-red-100',
   MISSING:           'bg-red-50 text-red-700 border-red-100',
   ERROR:             'bg-gray-100 text-gray-500 border-gray-200',
 }
 
 const SPF_STATUS_STYLE = {
   PASS:    'bg-brand-50 text-brand-700 border-brand-100',
-  SOFTFAIL:'bg-amber-50 text-amber-700 border-amber-100',
-  PARTIAL: 'bg-amber-50 text-amber-700 border-amber-100',
+  SOFTFAIL:'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
+  PARTIAL: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   FAIL:    'bg-red-50 text-red-700 border-red-100',
   MISSING: 'bg-red-50 text-red-700 border-red-100',
 }
 
 const P_COLOR = {
   p1: { bg: 'bg-red-50',    border: 'border-red-100',    text: 'text-red-700',    badge: 'bg-red-500 text-white'    },
-  p2: { bg: 'bg-orange-50', border: 'border-orange-100', text: 'text-orange-700', badge: 'bg-orange-500 text-white' },
+  p2: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-600', badge: 'bg-red-500 text-white' },
   p3: { bg: 'bg-gray-50',   border: 'border-gray-200',   text: 'text-gray-600',   badge: 'bg-gray-400 text-white'   },
 }
 
 const CVE_SEV_STYLE = {
   CRITICAL: 'bg-red-100 text-red-700',
-  HIGH:     'bg-orange-100 text-orange-700',
-  MEDIUM:   'bg-amber-100 text-amber-700',
+  HIGH:     'bg-red-50 text-red-600',
+  MEDIUM:   'bg-transparent text-brand-700',
   LOW:      'bg-blue-100 text-blue-700',
   UNKNOWN:  'bg-gray-100 text-gray-500',
 }
@@ -155,7 +155,7 @@ function ScoreRing({ score, status, size = 'md' }) {
 
 function ScoreBar({ label, value, max }) {
   const pct   = max > 0 ? Math.round((value / max) * 100) : 0
-  const color = pct >= 80 ? '#00876A' : pct >= 50 ? '#F59E0B' : '#EF4444'
+  const color = pct >= 80 ? '#117362' : pct >= 50 ? '#45e3c7' : '#EF4444'
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-gray-500 w-16 text-right shrink-0">{label}</span>
@@ -244,8 +244,8 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
       label:   'Business Risk',
       value:   bizRisk || '—',
       sub:     'Email exposure',
-      color:   bizStyle.text?.replace('text-', '') === 'brand-600' ? '#00876A'
-               : bizStyle.text?.includes('amber')  ? '#D97706'
+      color:   bizStyle.text?.replace('text-', '') === 'brand-700' ? '#117362'
+               : bizStyle.text?.includes('amber')  ? '#117362'
                : bizStyle.text?.includes('orange') ? '#EA580C'
                : bizStyle.text?.includes('red')    ? '#DC2626'
                : '#9CA3AF',
@@ -262,7 +262,7 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
       label:   'P1 Actions',
       value:   p1Count == null ? '—' : String(p1Count),
       sub:     'Immediate',
-      color:   p1Count == null ? '#9CA3AF' : (p1Count > 0 ? '#DC2626' : '#00876A'),
+      color:   p1Count == null ? '#9CA3AF' : (p1Count > 0 ? '#DC2626' : '#117362'),
     },
     // A scan whose check pack does not use outside vulnerability data has no
     // CVE / KEV figure to show; the tile appears only for scans that did.
@@ -270,7 +270,7 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
       label:   'CVE / KEV',
       value:   cveTotal == null ? '—' : String(cveTotal),
       sub:     kevCount == null ? 'Assessment incomplete' : (kevCount > 0 ? `+${kevCount} in CISA KEV` : 'High+ severity'),
-      color:   cveTotal == null ? '#9CA3AF' : (cveTotal > 0 ? (cveCrit > 0 ? '#DC2626' : '#EA580C') : '#00876A'),
+      color:   cveTotal == null ? '#9CA3AF' : (cveTotal > 0 ? (cveCrit > 0 ? '#DC2626' : '#EA580C') : '#117362'),
       kevBadge: kevCount > 0,
       kevCount,
     }]),
@@ -367,10 +367,10 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
     { label: 'New Findings', items: changes.new_findings, tone: 'text-red-700 bg-red-50' },
     { label: 'Resolved Findings', items: changes.resolved_findings, tone: 'text-brand-700 bg-brand-50' },
     { label: 'Not re-observed', items: notReobservedFindings, tone: 'text-slate-700 bg-slate-100' },
-    { label: 'New Subdomains', items: changes.new_subdomains, tone: 'text-amber-700 bg-amber-50' },
+    { label: 'New Subdomains', items: changes.new_subdomains, tone: 'text-brand-700 bg-transparent' },
     { label: 'Removed Subdomains', items: changes.removed_subdomains, tone: 'text-brand-700 bg-brand-50' },
     { label: 'New Takeover Risks', items: changes.new_takeover_risks, tone: 'text-red-700 bg-red-50' },
-    { label: 'New Exposed Assets', items: changes.new_exposed_assets, tone: 'text-amber-700 bg-amber-50' },
+    { label: 'New Exposed Assets', items: changes.new_exposed_assets, tone: 'text-brand-700 bg-transparent' },
   ]
   const inventoryComplete = changeGroups.every(group => Array.isArray(group.items))
   const visibleGroups = changeGroups
@@ -397,7 +397,7 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
             <span className="text-gray-300">→</span>
             <span className="font-bold text-gray-900">{currentScore}</span>
             {scoreDelta != null && (
-              <span className={`font-bold ${scoreDelta > 0 ? 'text-brand-600' : scoreDelta < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+              <span className={`font-bold ${scoreDelta > 0 ? 'text-brand-700' : scoreDelta < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                 ({scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta})
               </span>
             )}
@@ -465,8 +465,8 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
       />
 
       {risk.incomplete && assessmentMessage && (
-        <div className="px-5 py-4 border-b border-amber-100 bg-amber-50/60">
-          <p className="text-sm text-amber-800 leading-relaxed">{assessmentMessage}</p>
+        <div className="px-5 py-4 border-b border-[1.5px] border-brand-700 bg-transparent">
+          <p className="text-sm text-brand-700 leading-relaxed">{assessmentMessage}</p>
         </div>
       )}
 
@@ -481,8 +481,8 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
       <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-100">
         {[
           { label: 'Critical', count: counts.critical, cls: 'text-red-600'    },
-          { label: 'High',     count: counts.high,     cls: 'text-orange-600' },
-          { label: 'Medium',   count: counts.medium,   cls: 'text-amber-600'  },
+          { label: 'High',     count: counts.high,     cls: 'text-red-600' },
+          { label: 'Medium',   count: counts.medium,   cls: 'text-brand-700'  },
           { label: 'Low',      count: counts.low,      cls: 'text-blue-600'   },
         ].map(({ label, count, cls }) => (
           <div key={label} className="flex flex-col items-center py-4 gap-0.5">
@@ -599,8 +599,8 @@ function RemediationSection({ plan, assessmentMessage = null }) {
       />
 
       {plan.incomplete && assessmentMessage && (
-        <div className="px-5 py-4 border-b border-amber-100 bg-amber-50/60">
-          <p className="text-sm text-amber-800 leading-relaxed">{assessmentMessage}</p>
+        <div className="px-5 py-4 border-b border-[1.5px] border-brand-700 bg-transparent">
+          <p className="text-sm text-brand-700 leading-relaxed">{assessmentMessage}</p>
         </div>
       )}
 
@@ -654,7 +654,7 @@ function EmailControl({ label, status, statusCls, detail, mono, warning }) {
       <span className="text-xs font-semibold text-gray-500 w-16 shrink-0 pt-0.5">{label}</span>
       <div className="flex-1 min-w-0">
         {detail && <p className={`text-xs ${mono ? 'mono text-gray-500 break-all' : 'text-gray-500'} leading-snug`}>{detail}</p>}
-        {warning && <p className="text-xs text-amber-600 mt-0.5 leading-snug">{warning}</p>}
+        {warning && <p className="text-xs text-brand-700 mt-0.5 leading-snug">{warning}</p>}
       </div>
       <div className="shrink-0">
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${statusCls}`}>{status}</span>
@@ -809,7 +809,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{imp.business_impact}</p>
                   {imp.recommendation && (
-                    <p className="text-xs text-brand-600 font-medium mt-1 leading-relaxed">→ {imp.recommendation}</p>
+                    <p className="text-xs text-brand-700 font-medium mt-1 leading-relaxed">→ {imp.recommendation}</p>
                   )}
                 </div>
               </div>
@@ -832,7 +832,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
                   <p className="text-xs font-semibold text-gray-800">{f.title}</p>
                   <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
                   {f.recommendation && (
-                    <p className="text-xs text-brand-600 font-medium mt-1">→ {f.recommendation}</p>
+                    <p className="text-xs text-brand-700 font-medium mt-1">→ {f.recommendation}</p>
                   )}
                 </div>
                 <span className={`shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.informational}`}>{f.severity}</span>
@@ -848,8 +848,8 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
 // ── Section: Technology Detection ─────────────────────────────────────────────
 
 const TECH_PILL = {
-  'Cloudflare':    'bg-orange-50 text-orange-700 border-orange-200',
-  'nginx':         'bg-green-50 text-green-700 border-green-200',
+  'Cloudflare':    'bg-slate-100 text-slate-700 border-slate-200',
+  'nginx':         'bg-brand-200 text-brand-900 border-brand-200',
   'Apache':        'bg-red-50 text-red-700 border-red-200',
   'Microsoft IIS': 'bg-blue-50 text-blue-700 border-blue-200',
   'Express':       'bg-gray-100 text-gray-700 border-gray-200',
@@ -859,9 +859,9 @@ const TECH_PILL = {
   'Next.js':       'bg-gray-900 text-white border-gray-700',
   'WordPress':     'bg-sky-50 text-sky-700 border-sky-200',
   'Drupal':        'bg-indigo-50 text-indigo-700 border-indigo-200',
-  'Joomla':        'bg-orange-50 text-orange-700 border-orange-200',
-  'OpenResty':     'bg-green-50 text-green-700 border-green-200',
-  'LiteSpeed':     'bg-amber-50 text-amber-700 border-amber-200',
+  'Joomla':        'bg-slate-100 text-slate-700 border-slate-200',
+  'OpenResty':     'bg-brand-200 text-brand-900 border-brand-200',
+  'LiteSpeed':     'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
 }
 
 function TechDetectionSection({ tech }) {
@@ -914,7 +914,7 @@ function TechDetectionSection({ tech }) {
           <div key={label} className="flex items-start justify-between gap-3 px-5 py-2">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0 pt-0.5 w-20">{label}</span>
             <span className={`text-xs text-right break-all leading-relaxed ${
-              value?.includes('✓') ? 'text-brand-600 font-medium' :
+              value?.includes('✓') ? 'text-brand-700 font-medium' :
               value?.includes('✗') ? 'text-red-500 font-medium'  : 'text-gray-700 mono'
             }`}>{value}</span>
           </div>
@@ -924,8 +924,8 @@ function TechDetectionSection({ tech }) {
       {/* Version disclosure findings */}
       {tech.info_findings?.length > 0 && (
         <div className="border-t border-gray-100">
-          <div className="px-5 py-2.5 bg-amber-50/60 border-b border-amber-100">
-            <p className="text-xs font-bold text-amber-700 uppercase tracking-widest">
+          <div className="px-5 py-2.5 bg-transparent border-b border-[1.5px] border-brand-700">
+            <p className="text-xs font-bold text-brand-700 uppercase tracking-widest">
               Version Disclosure ({tech.info_findings.length})
             </p>
           </div>
@@ -1009,7 +1009,7 @@ function CveIntelSection({ cve, kev = null, checkPack = null, assessmentMessage 
               <span><span className="font-bold text-red-600">{cve.critical_count}</span> <span className="text-gray-400">critical</span></span>
             )}
             {(cve.high_count ?? 0) > 0 && (
-              <span><span className="font-bold text-orange-600">{cve.high_count}</span> <span className="text-gray-400">high</span></span>
+              <span><span className="font-bold text-red-600">{cve.high_count}</span> <span className="text-gray-400">high</span></span>
             )}
             {cve.total_count_publishable === true && (
               <span className="text-gray-300">{cve.total_cves ?? 0} total</span>
@@ -1019,7 +1019,7 @@ function CveIntelSection({ cve, kev = null, checkPack = null, assessmentMessage 
       />
 
       {cve.customer_message && (
-        <div className="px-5 py-3 text-xs text-amber-800 bg-amber-50 border-b border-amber-100">
+        <div className="px-5 py-3 text-xs text-brand-700 bg-transparent border-b border-[1.5px] border-brand-700">
           {cve.customer_message}
         </div>
       )}
@@ -1041,11 +1041,11 @@ function CveIntelSection({ cve, kev = null, checkPack = null, assessmentMessage 
                   <span className="text-xs text-gray-400">{cves.length} CVE{cves.length !== 1 ? 's' : ''} (High+)</span>
                 </div>
                 {presentation?.evidence_publishable === false ? (
-                  <div className="px-5 py-3 text-xs text-amber-800">
+                  <div className="px-5 py-3 text-xs text-brand-700">
                     {presentation.customer_message}
                   </div>
                 ) : cves.length === 0 ? (
-                  <div className="px-5 py-3 flex items-center gap-2 text-xs text-brand-600">
+                  <div className="px-5 py-3 flex items-center gap-2 text-xs text-brand-700">
                     No HIGH+ CVEs found for this technology
                   </div>
                 ) : (
@@ -1105,7 +1105,7 @@ function KevSection({ kev, assessmentMessage = null }) {
         aside={
           matches.length > 0
             ? <span className="badge-critical">{matches.length} match{matches.length !== 1 ? 'es' : ''}</span>
-            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
+            : <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700">
                 No matches
               </span>
         }

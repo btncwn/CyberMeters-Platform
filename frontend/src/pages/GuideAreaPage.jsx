@@ -74,7 +74,7 @@ function ArticleCard({ article }) {
       to={`/guide/${article.slug}`}
       className="group flex flex-col bg-white rounded-xl border border-gray-200 hover:border-brand-200 hover:shadow-xs transition-all p-4 gap-1.5"
     >
-      <p className="text-[16px] font-bold text-black group-hover:text-brand-700 leading-snug">{article.title}</p>
+      <p className="text-[16px] font-bold text-black group-hover:text-brand-800 leading-snug">{article.title}</p>
       <p className="text-xs text-black leading-relaxed line-clamp-2">{article.summary}</p>
       <span className="text-xs text-gray-600 mt-auto pt-1">{article.readTime} min read</span>
     </Link>
@@ -94,7 +94,7 @@ export default function GuideAreaPage() {
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <nav className="flex items-center gap-1.5 text-xs text-black mb-6" aria-label="Breadcrumb">
-        <Link to="/guide" className="hover:text-brand-700 transition-colors">Field Guide</Link>
+        <Link to="/guide" className="hover:text-brand-800 transition-colors">Field Guide</Link>
         <span aria-hidden="true">/</span>
         <span className="font-semibold">{area.title}</span>
       </nav>
@@ -174,13 +174,13 @@ export default function GuideAreaPage() {
             <h3 className="text-xs font-semibold uppercase tracking-wider mb-3">On this page</h3>
             <nav className="space-y-1.5">
               {SECTIONS.map((s, i) => (
-                <a key={s.id} href={`#${s.id}`} className="flex items-center gap-2 text-[15px] text-black hover:text-brand-700 transition-colors">
+                <a key={s.id} href={`#${s.id}`} className="flex items-center gap-2 text-[15px] text-black hover:text-brand-800 transition-colors">
                   <span className="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: colours.chip, color: colours.text }}>{i + 1}</span>
                   {s.heading}
                 </a>
               ))}
               {articles.length > 0 && (
-                <a href="#deeper" className="flex items-center gap-2 text-[15px] text-black hover:text-brand-700 transition-colors">
+                <a href="#deeper" className="flex items-center gap-2 text-[15px] text-black hover:text-brand-800 transition-colors">
                   <span className="w-5 h-5 rounded-full bg-gray-100 text-xs font-bold flex items-center justify-center shrink-0">+</span>
                   Deeper reading
                 </a>
@@ -192,7 +192,7 @@ export default function GuideAreaPage() {
             <ol className="space-y-1.5">
               {GUIDE_AREAS.map((a, i) => (
                 <li key={a.key}>
-                  <Link to={`/guide/${a.key}`} className={`flex items-center gap-2 text-[15px] hover:text-brand-700 transition-colors ${a.key === area.key ? 'font-bold' : ''}`}>
+                  <Link to={`/guide/${a.key}`} className={`flex items-center gap-2 text-[15px] hover:text-brand-800 transition-colors ${a.key === area.key ? 'font-bold' : ''}`}>
                     <span className="w-5 text-xs text-gray-600">{i + 1}</span>{a.title}
                   </Link>
                 </li>

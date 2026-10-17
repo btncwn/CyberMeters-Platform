@@ -131,7 +131,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
       {/* Progress bar */}
       <div className="h-1.5 bg-gray-200 rounded-full mb-4 overflow-hidden">
         <div
-          className="h-full bg-brand-600 rounded-full transition-all duration-500"
+          className="h-full bg-brand-200 rounded-full transition-all duration-500"
           style={{ width: `${progressPct}%` }}
         />
       </div>
@@ -165,7 +165,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
               {isActive && !step.done && (
                 <Link
                   to={step.href}
-                  className="self-start ml-9 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+                  className="self-start ml-9 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 transition-colors"
                 >
                   {step.cta}
                 </Link>

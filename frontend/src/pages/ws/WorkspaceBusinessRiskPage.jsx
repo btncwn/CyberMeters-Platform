@@ -12,10 +12,10 @@ import { PlanGate } from '../../components/PlanUsageCard'
 // ── Grade badge ──────────────────────────────────────────────────────────────
 function GradeBadge({ grade, label, score }) {
   const styles = {
-    A: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+    A: 'bg-brand-200 border-brand-200 text-brand-900',
     B: 'bg-blue-50   border-blue-200   text-blue-700',
-    C: 'bg-amber-50  border-amber-200  text-amber-700',
-    D: 'bg-orange-50 border-orange-200 text-orange-700',
+    C: 'bg-transparent  border-[1.5px] border-brand-700  text-brand-700',
+    D: 'bg-red-50 border-red-100 text-red-600',
     F: 'bg-red-50    border-red-200    text-red-700',
   }
   const style = styles[grade] ?? styles['F']
@@ -36,8 +36,8 @@ function CategoryRow({ label, category, weight }) {
   if (!category) return null
   const { score, label: catLabel, issues = [] } = category
   const pct = Math.max(0, Math.min(100, score))
-  const barColor = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-blue-500' : score >= 40 ? 'bg-amber-500' : 'bg-red-500'
-  const textColor = score >= 80 ? 'text-emerald-700' : score >= 60 ? 'text-blue-700' : score >= 40 ? 'text-amber-700' : 'text-red-700'
+  const barColor = score >= 80 ? 'bg-brand-700' : score >= 60 ? 'bg-blue-500' : score >= 40 ? 'bg-brand-700' : 'bg-red-500'
+  const textColor = score >= 80 ? 'text-brand-700' : score >= 60 ? 'text-blue-700' : score >= 40 ? 'text-brand-700' : 'text-red-700'
 
   return (
     <div className="py-4 border-b border-gray-100 last:border-0">
@@ -169,7 +169,7 @@ export default function WorkspaceBusinessRiskPage() {
                 {currentAssessed ? (
                   <GradeBadge grade={data.grade} label={data.band ?? data.grade_label} score={data.score ?? data.brs} />
                 ) : (
-                  <div className="inline-flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-6 py-5 text-amber-800">
+                  <div className="inline-flex items-center gap-3 rounded-2xl border border-[1.5px] border-brand-700 bg-transparent px-6 py-5 text-brand-700">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-widest opacity-60">Current assessment</p>
                       <p className="text-xl font-bold">Business Risk Score unavailable</p>
@@ -228,8 +228,8 @@ export default function WorkspaceBusinessRiskPage() {
                     const title  = r.title  ?? r.category ?? ''
                     const impact = r.impact ?? r.issue    ?? ''
                     const sev    = r.severity ?? 'medium'
-                    const sevCls = sev === 'critical' ? 'bg-red-50 border-red-100' : sev === 'high' ? 'bg-orange-50 border-orange-100' : 'bg-amber-50 border-amber-100'
-                    const txtCls = sev === 'critical' ? 'text-red-700' : sev === 'high' ? 'text-orange-700' : 'text-amber-700'
+                    const sevCls = sev === 'critical' ? 'bg-red-50 border-red-100' : sev === 'high' ? 'bg-red-50 border-red-100' : 'bg-transparent border-[1.5px] border-brand-700'
+                    const txtCls = sev === 'critical' ? 'text-red-700' : sev === 'high' ? 'text-red-600' : 'text-brand-700'
                     return (
                       <div key={i} className={`rounded-lg border px-4 py-3 ${sevCls}`}>
                         <div className="flex items-start gap-3">
