@@ -131,7 +131,7 @@ ok("INV-E8 roleWithArticle: a viewer / an analyst / an admin / an owner",
    membersMod.roleWithArticle("admin") === "an admin" && membersMod.roleWithArticle("owner") === "an owner" &&
    membersMod.roleWithArticle("") === "a member");
 {
-  const mail = membersMod.buildInvitationEmail({ workspaceName: "Acme", role: "analyst", acceptUrl: "https://app.example/invitations/t", expiresAt: "2026-10-24T00:00:00Z" });
+  const mail = membersMod.buildInvitationEmail({ workspaceName: "Acme", role: "analyst", acceptUrl: "https://app.example/invitations/t", expiresAt: new Date(Date.now() + 7 * 864e5).toISOString() });
   ok("INV-E8 invitation text and HTML say 'as an analyst' (never 'as a analyst')",
      /as an analyst\./.test(mail.text) && /as <strong>an analyst<\/strong>\./.test(mail.html) && !/as a analyst|as a <strong>/.test(mail.text + mail.html));
   const viewer = membersMod.buildInvitationEmail({ workspaceName: "Acme", role: "viewer", acceptUrl: "https://app.example/invitations/t" });

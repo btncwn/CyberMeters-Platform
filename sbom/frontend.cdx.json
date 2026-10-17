@@ -3,9 +3,9 @@
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
   "version": 1,
-  "serialNumber": "urn:uuid:52bdfb19-d4ec-4eba-aed5-85b2ca3035d2",
+  "serialNumber": "urn:uuid:f7a381ce-4383-4d88-9f89-da94bd52b76f",
   "metadata": {
-    "timestamp": "2026-10-15T12:43:54.615Z",
+    "timestamp": "2026-10-17T15:57:58.273Z",
     "tools": {
       "components": [
         {
@@ -114,6 +114,61 @@
     }
   },
   "components": [
+    {
+      "type": "library",
+      "name": "playwright",
+      "group": "@axe-core",
+      "version": "4.10.2",
+      "bom-ref": "cybermeters-frontend@1.0.0|@axe-core/playwright@4.10.2",
+      "description": "Provides a method to inject and analyze web pages using axe",
+      "licenses": [
+        {
+          "license": {
+            "id": "MPL-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40axe-core/playwright@4.10.2",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/dequelabs/axe-core-npm.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/dequelabs/axe-core-npm#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/dequelabs/axe-core-npm/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@axe-core/playwright/-/playwright-4.10.2.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "ebf6f90498c6ea10da44db60ccb21f2abe437f0ca22c73b8f81c932c1d1c26059233c2e5ecaaad75b9484ba6c4930485eb8dbf131f75bcda8897718b5c695c7a"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@axe-core/playwright"
+        }
+      ]
+    },
     {
       "type": "library",
       "name": "parser",
@@ -1614,6 +1669,123 @@
               "value": "node_modules/vitest/node_modules/picomatch"
             }
           ]
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "axe-core",
+      "version": "4.10.3",
+      "bom-ref": "cybermeters-frontend@1.0.0|axe-core@4.10.3",
+      "description": "Accessibility engine for automated Web UI testing",
+      "licenses": [
+        {
+          "license": {
+            "id": "MPL-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/axe-core@4.10.3",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/dequelabs/axe-core.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://www.deque.com/axe/",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/dequelabs/axe-core/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/axe-core/-/axe-core-4.10.3.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "5e6edba515e70d25f6604d9815f064d859c5d1ea7ab661bbc4f87c88779ef0c21cae0abbeb636471ef39e9d62d2582e4b88a1866f19f4ecfcf6d986275e4dc12"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:constraint:engine:node",
+          "value": ">=4"
+        },
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/axe-core"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "playwright-core",
+      "version": "1.61.1",
+      "bom-ref": "cybermeters-frontend@1.0.0|playwright-core@1.61.1",
+      "author": "Microsoft Corporation",
+      "description": "A high-level API to automate web browsers",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/playwright-core@1.61.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/microsoft/playwright.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://playwright.dev",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/microsoft/playwright/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.61.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "87b425b7a9b8444a76e6abc876f6c3b55983e0ba955dfa51c61391bfd2f48f3113334e69e1fb8f27774acae4974310d26d79e64bbf470208bde7cf65192a4b92"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:constraint:engine:node",
+          "value": ">=18"
+        },
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/playwright-core"
         }
       ]
     },
@@ -7038,65 +7210,6 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@babel/helper-validator-identifier"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "name": "playwright-core",
-      "version": "1.61.1",
-      "bom-ref": "cybermeters-frontend@1.0.0|playwright-core@1.61.1",
-      "author": "Microsoft Corporation",
-      "description": "A high-level API to automate web browsers",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0",
-            "acknowledgement": "declared"
-          }
-        }
-      ],
-      "purl": "pkg:npm/playwright-core@1.61.1",
-      "externalReferences": [
-        {
-          "url": "git+https://github.com/microsoft/playwright.git",
-          "type": "vcs",
-          "comment": "as detected from PackageJson property \"repository.url\""
-        },
-        {
-          "url": "https://playwright.dev",
-          "type": "website",
-          "comment": "as detected from PackageJson property \"homepage\""
-        },
-        {
-          "url": "https://github.com/microsoft/playwright/issues",
-          "type": "issue-tracker",
-          "comment": "as detected from PackageJson property \"bugs.url\""
-        },
-        {
-          "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.61.1.tgz",
-          "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "87b425b7a9b8444a76e6abc876f6c3b55983e0ba955dfa51c61391bfd2f48f3113334e69e1fb8f27774acae4974310d26d79e64bbf470208bde7cf65192a4b92"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
-        }
-      ],
-      "properties": [
-        {
-          "name": "cdx:npm:package:constraint:engine:node",
-          "value": ">=18"
-        },
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
-        {
-          "name": "cdx:npm:package:path",
-          "value": "node_modules/playwright-core"
         }
       ]
     },
@@ -13144,6 +13257,7 @@
     {
       "ref": "cybermeters-frontend@1.0.0",
       "dependsOn": [
+        "cybermeters-frontend@1.0.0|@axe-core/playwright@4.10.2",
         "cybermeters-frontend@1.0.0|@babel/parser@7.29.7",
         "cybermeters-frontend@1.0.0|@playwright/test@1.61.1",
         "cybermeters-frontend@1.0.0|@tailwindcss/postcss@4.3.3",
@@ -13166,6 +13280,13 @@
         "cybermeters-frontend@1.0.0|typescript@6.0.3",
         "cybermeters-frontend@1.0.0|vite@6.4.3",
         "cybermeters-frontend@1.0.0|vitest@4.1.11"
+      ]
+    },
+    {
+      "ref": "cybermeters-frontend@1.0.0|@axe-core/playwright@4.10.2",
+      "dependsOn": [
+        "cybermeters-frontend@1.0.0|axe-core@4.10.3",
+        "cybermeters-frontend@1.0.0|playwright-core@1.61.1"
       ]
     },
     {
@@ -13408,6 +13529,12 @@
     },
     {
       "ref": "cybermeters-frontend@1.0.0|vitest@4.1.11|picomatch@4.0.7"
+    },
+    {
+      "ref": "cybermeters-frontend@1.0.0|axe-core@4.10.3"
+    },
+    {
+      "ref": "cybermeters-frontend@1.0.0|playwright-core@1.61.1"
     },
     {
       "ref": "cybermeters-frontend@1.0.0|@babel/types@7.29.7",
@@ -13922,9 +14049,6 @@
     },
     {
       "ref": "cybermeters-frontend@1.0.0|@babel/helper-validator-identifier@7.29.7"
-    },
-    {
-      "ref": "cybermeters-frontend@1.0.0|playwright-core@1.61.1"
     },
     {
       "ref": "cybermeters-frontend@1.0.0|@jridgewell/remapping@2.3.5",
