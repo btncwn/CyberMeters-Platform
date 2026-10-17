@@ -2205,65 +2205,65 @@
         "requireAuth",
         "requireWorkspaceRole"
       ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": "/^\\/api\\/workspaces\\/([^/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/executive-dashboard.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": "/^\\/api\\/workspaces\\/([^/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/executive-dashboard.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": "/^\\/api\\/workspaces\\/([^/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/executive-dashboard.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": "/^\\/api\\/workspaces\\/([^/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/executive-dashboard.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
       "scope_helpers": [
         "getWorkspaceBillingUserId"
       ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
       "authed": true,
       "public_reason": null
     },

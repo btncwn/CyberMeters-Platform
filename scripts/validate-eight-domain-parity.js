@@ -16,6 +16,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { healthyMonitoringStates } from "./lib/monitoring-fixture.mjs";
+// CI carries the cross-page honesty regressions through this existing validator.
+import "./honesty-contradictions-regression.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const enginesDir = path.join(root, "workers", "scan-api", "src", "engines");
