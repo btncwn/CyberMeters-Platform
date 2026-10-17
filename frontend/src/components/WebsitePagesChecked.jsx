@@ -57,7 +57,7 @@ export default function WebsitePagesChecked({ workspaceId, refresh = 0 }) {
 
   const domains = data?.domains || []
   return (
-    <section className="card p-5 mb-6" aria-label="Pages checked">
+    <section id="pages-checked" className="card p-5 mb-6 scroll-mt-28" aria-label="Pages checked">
       <h2 className="section-title mb-1">Pages checked</h2>
       <p className="text-sm text-gray-600 mb-3">
         Besides the homepage, CyberMeters checks a small number of your site's own public pages — sign-in, account,

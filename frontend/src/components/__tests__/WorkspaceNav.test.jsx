@@ -92,7 +92,12 @@ describe('WorkspaceNav (module rail)', () => {
     expect(subpagesForDomainKey('brand_protection').find((t) => t.label === 'Brand Findings').to).toBe('/ws/brand-monitoring?tab=overview#brand-summary')
     expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Expiry Risk').to).toBe('/ws/certificates?tab=overview#cert-expiry')
     expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Inventory').to).toBe('/ws/certificates#cert-inventory')
-    expect(subpagesForDomainKey('website_security')).toEqual([])
+    expect(subpagesForDomainKey('website_security').map(t => t.to)).toEqual([
+      '/ws/website-security?tab=overview#website-observations',
+      '/ws/website-security?tab=overview#exposure-checks',
+      '/ws/website-security#pages-checked',
+      '/ws/website-security#sign-in-settings',
+    ])
     expect(subpagesForDomainKey('nope')).toEqual([])
     expect(Object.keys(MODULE_SUBPAGES)).toEqual(MODULES.map(m => m.domainKey))
   })

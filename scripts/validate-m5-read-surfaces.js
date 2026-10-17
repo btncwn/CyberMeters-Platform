@@ -162,6 +162,10 @@ epEvent("epe-dead", "wsDead", "hd-9", "hosted_dns_entry", "monitoring_changed", 
   const ws = await call("/api/workspaces/ws1/website-security/conditions");
   eq("089: Website Security conditions are readable", ws.status, 200);
   eq("089: the workspace's own conditions are returned", ws.data?.items?.length, 3);
+  const hsts = ws.data?.items?.find((item) => item.id === "wsc-1");
+  ok("089: the tracked finding carries its registry action", hsts?.recommended_action?.includes("Strict-Transport-Security"));
+  eq("089: the registry owner is preserved", hsts?.owner_type, "customer_it");
+  eq("089: the registry verification method is preserved", hsts?.verification_method, "https_recheck");
 
   const ce = await call("/api/workspaces/ws1/cyber-essentials/controls");
   eq("090: Cyber Essentials control records are readable", ce.status, 200);
@@ -313,6 +317,8 @@ for (const [label, p] of [
   const d = await call("/api/workspaces/ws1/website-security/conditions/wsc-1");
   eq("089: a record detail resolves", d.status, 200);
   eq("089: it is the requested record", d.data?.item?.id, "wsc-1");
+  eq("089: direct detail carries the same registry action", d.data?.item?.recommended_action,
+    (await call("/api/workspaces/ws1/website-security/conditions")).data.items.find((item) => item.id === "wsc-1")?.recommended_action);
   ok("089: with its append-only history", Array.isArray(d.data?.events) && d.data.events.length >= 1);
   eq("089: linked_case is null — nothing writes it for this domain yet", d.data?.linked_case, null);
 

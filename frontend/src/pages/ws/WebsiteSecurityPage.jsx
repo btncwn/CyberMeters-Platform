@@ -9,6 +9,7 @@ import WebsiteScanOverview from '../../components/WebsiteScanOverview'
 import WebsitePagesChecked from '../../components/WebsitePagesChecked'
 import WebsiteSignInSettings from '../../components/WebsiteSignInSettings'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
+import { OWNER_LABELS } from '../../data/remediation'
 import {
   monitoringMeta, severityMeta, scanQualityMeta, unknownReasonText,
   toneClass, conditionLabel,
@@ -50,6 +51,15 @@ function ConditionRow({ item, expanded, onToggle, detail, detailError }) {
         <div className="space-y-4 bg-gray-50 px-5 pb-5 pt-3 text-base text-gray-700">
           {item.monitoring_status === 'unknown' && <p><strong>Current status not confirmed.</strong> {unknownReasonText(item.unknown_reason) || 'The latest check could not determine whether this condition is still present.'} This does not mean it has been fixed.</p>}
           {uncertain && <p className="text-sm">Last recorded severity: <strong>{severityMeta(item.severity).label}</strong>. {item.monitoring_status === 'unknown' ? 'This is a historical rating, not a confirmed current issue.' : 'The latest scan evidence is incomplete; this rating needs that context.'}</p>}
+          {item.recommended_action && <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm">
+            <p className="font-semibold text-gray-900">Recommended action</p>
+            <p className="mt-1">{item.recommended_action}</p>
+            <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+              {item.owner_type && <div><dt className="text-gray-600">Owner type</dt><dd className="font-medium">{OWNER_LABELS[item.owner_type] || item.owner_type.replaceAll('_', ' ')}</dd></div>}
+              {item.verification_method && <div><dt className="text-gray-600">Verification method</dt><dd className="font-medium">{item.verification_method.replaceAll('_', ' ')}</dd></div>}
+            </dl>
+          </div>}
+          {!item.recommended_action && <p className="text-sm text-gray-600">No registry action is mapped to this condition.</p>}
           <div className="flex flex-wrap gap-2">
             {caseId && <Link className={ACTION} to={`/ws/cases/${encodeURIComponent(caseId)}`}>Open managed case</Link>}
             {item.last_scan_id && <Link className={ACTION} to={`/scans/${encodeURIComponent(item.last_scan_id)}?view=technical#website-evidence`}>View scan evidence</Link>}

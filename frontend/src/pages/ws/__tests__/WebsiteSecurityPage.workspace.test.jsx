@@ -41,6 +41,18 @@ beforeEach(() => {
 })
 
 describe('WebsiteSecurityPage — workspace resolution', () => {
+  it('renders every Website Security tile target in its stated tab', () => {
+    useWorkspace.mockReturnValue({ wsId: WS_ID, loading: false })
+    api.getWebsiteSecurityConditions.mockResolvedValue({ items: [], pagination: { total: 0 } })
+    const overview = mount('/ws/website-security')
+    expect(document.getElementById('website-observations')).toBeInTheDocument()
+    expect(document.getElementById('exposure-checks')).toBeInTheDocument()
+    overview.unmount()
+    mount()
+    expect(document.getElementById('pages-checked')).toBeInTheDocument()
+    expect(document.getElementById('sign-in-settings')).toBeInTheDocument()
+  })
+
   it('calls the conditions API with the context wsId (never undefined) on a paramless route', async () => {
     useWorkspace.mockReturnValue({ wsId: WS_ID, loading: false })
     api.getWebsiteSecurityConditions.mockResolvedValue({ items: [], pagination: { total: 0 } })
@@ -126,6 +138,18 @@ describe('WebsiteSecurityPage — actionable, compact findings', () => {
     expect(screen.getByRole('link', { name: 'View scan evidence' })).toHaveAttribute('href', '/scans/scan_1?view=technical#website-evidence')
     expect(screen.getByRole('link', { name: 'Recheck domain' })).toHaveAttribute('href', '/scans/new?domain=example.com')
     expect(screen.getByText('History and scan details').closest('details')).not.toHaveAttribute('open')
+  })
+
+  it('shows the server registry action, owner and verification method when expanded', async () => {
+    api.getWebsiteSecurityConditions.mockResolvedValue({
+      items: [{ ...ITEM, recommended_action: 'Add a Content Security Policy header.', owner_type: 'customer_it', verification_method: 'https_recheck' }],
+      pagination: { total: 1 },
+    })
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: /Mixed content/ }))
+    expect(screen.getByText('Add a Content Security Policy header.')).toBeInTheDocument()
+    expect(screen.getByText('IT / DNS Administrator')).toBeInTheDocument()
+    expect(screen.getByText('https recheck')).toBeInTheDocument()
   })
 
   it('does not present an unknown historical Critical rating as a current red finding', async () => {
