@@ -23,6 +23,7 @@ async function main() {
   const origin = `http://127.0.0.1:${port}`;
   const resource = "https://mcp-staging.cybermeters.com/mcp";
   const callback = `http://127.0.0.1:${port + 1}/callback`;
+  const hostedCallback = "https://client.example/callback";
   const reviewedCimd = "https://reviewed-client.example/oauth/client.json";
   const unreviewedCimd = "https://unreviewed-client.example/oauth/client.json";
   const configPath = join(temp, "worker.json");
@@ -47,7 +48,7 @@ globalThis.fetch = async (input) => {
   const url = input instanceof Request ? input.url : String(input);
   outboundUrls.push(url);
   if (url === reviewedCimd) return Response.json({ client_id: reviewedCimd,
-    client_name: "Reviewed local CIMD fixture", redirect_uris: [${JSON.stringify(callback)}],
+    client_name: "Reviewed local CIMD fixture", redirect_uris: [${JSON.stringify(callback)}, ${JSON.stringify(hostedCallback)}],
     grant_types: ["authorization_code"], response_types: ["code"],
     token_endpoint_auth_method: "none" });
   return new Response("outbound blocked by local fixture", { status: 502 });
@@ -244,6 +245,25 @@ export default { async fetch(request, env, ctx) {
     assert.equal((await fetch(changedCimdRedirect, { redirect: "manual" })).status, 400,
       "SDK loopback port relaxation must be fenced by exact registered URI");
 
+    const hostedAuthorize = cimdAuthorize(reviewedCimd);
+    hostedAuthorize.searchParams.set("redirect_uri", hostedCallback);
+    await resetBudget();
+    const hostedStart = await fetch(hostedAuthorize, { redirect: "manual" });
+    assert.equal(hostedStart.status, 302, await hostedStart.clone().text());
+    const hostedIntent = new URL(hostedStart.headers.get("Location")).searchParams.get("intent");
+    const hostedBridge = await fetch(`${origin}/api/mcp/oauth/browser-session`, {
+      method: "POST", headers: { Origin: origin, Authorization: `Bearer ${sessionA}`,
+        "Content-Type": "application/json" }, body: JSON.stringify({ intent: hostedIntent }),
+    });
+    assert.equal(hostedBridge.status, 200, await hostedBridge.clone().text());
+    const hostedCookie = hostedBridge.headers.get("Set-Cookie").split(";")[0];
+    const hostedContinue = (await hostedBridge.json()).continue_url;
+    const hostedConsent = await fetch(hostedContinue, { headers: { Cookie: hostedCookie } });
+    assert.equal(hostedConsent.status, 200, await hostedConsent.clone().text());
+    assert.equal(hostedConsent.headers.get("Content-Security-Policy"),
+      `default-src 'none'; form-action 'self' ${new URL(hostedCallback).origin}; frame-ancestors 'none'; base-uri 'none'`,
+      "hosted clients admit only their registered HTTPS callback origin");
+
     const clientMetadata = { client_name: "Local MCP test", redirect_uris: [callback],
       grant_types: ["authorization_code", "refresh_token"], response_types: ["code"],
       token_endpoint_auth_method: "none" };
@@ -319,6 +339,9 @@ export default { async fetch(request, env, ctx) {
       assert.equal(consent.status, 200, await consent.clone().text());
       assert.equal(consent.headers.get("Referrer-Policy"), "same-origin",
         "same-origin consent forms must retain their Origin header without cross-origin URL leakage");
+      assert.equal(consent.headers.get("Content-Security-Policy"),
+        `default-src 'none'; form-action 'self' ${new URL(callback).origin}; frame-ancestors 'none'; base-uri 'none'`,
+        "the consent form must allow only its registered callback origin after approval");
       const html = await consent.text();
       assert.match(html, /formnovalidate>Deny/);
       assert.match(html, /value="" selected disabled/);
@@ -361,6 +384,10 @@ export default { async fetch(request, env, ctx) {
       const callbackUrl = new URL(approved.headers.get("Location"));
       assert.equal(callbackUrl.searchParams.get("state"), `state-${index}`);
       assert.equal(callbackUrl.searchParams.get("iss"), origin);
+      const replay = await fetch(continueUrl, { headers: { Cookie: bridgeCookie } });
+      assert.equal(replay.status, deny ? 400 : 200);
+      assert.equal(await replay.text(), deny ? "Authorization expired"
+        : "This connection was already authorised. Return to your app.");
       if (deny) {
         assert.equal(callbackUrl.searchParams.get("error"), "access_denied");
         assert.equal(callbackUrl.searchParams.has("code"), false);
@@ -368,6 +395,20 @@ export default { async fetch(request, env, ctx) {
       }
       const code = callbackUrl.searchParams.get("code");
       assert.ok(code);
+      if (index === "A") {
+        const completed = await d1(`SELECT authorization_url FROM mcp_oauth_login_intents
+          WHERE id_hash = '${tokenHash(intent)}'`);
+        assert.deepEqual(completed, [{ authorization_url: "completed" }],
+          "a completed intent retains only a bounded, non-sensitive marker");
+        const replayPost = await fetch(continueUrl, {
+          method: "POST", redirect: "manual",
+          headers: { Origin: origin, Cookie: bridgeCookie,
+            "Content-Type": "application/x-www-form-urlencoded" }, body: approvalForm,
+        });
+        assert.equal(replayPost.status, 200);
+        assert.equal(await replayPost.text(),
+          "This connection was already authorised. Return to your app.");
+      }
       if (index === "R") {
         const wrongRedirect = await fetch(`${origin}/oauth/token`, {
           method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
