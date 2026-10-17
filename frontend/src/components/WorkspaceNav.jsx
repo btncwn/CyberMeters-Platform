@@ -32,6 +32,9 @@ export const SERVICES = [
       { to: '/schedules',         label: 'Schedules',      desc: 'When the next assessments run' },
       { to: '/ws/admin-surfaces', label: 'Admin Surfaces', desc: 'Login and admin pages reachable from outside' },
       { to: '/ws/cloud-assets',   label: 'Cloud Assets',   desc: 'Storage and cloud endpoints observed' },
+      // Network/port evidence (NetworkAssetsPanel) lives on the Findings tab; since
+      // #650 nothing led to it, so the founder thought it was gone.
+      { hash: '#network-assets',  label: 'Network assets', desc: 'Open ports and services on addresses you are authorised to test' },
       // The scan-level intelligence page was reachable from nowhere. It carries the
       // score history, what changed between scans and the remediation plan, and it
       // states the check pack's position on outside vulnerability data.

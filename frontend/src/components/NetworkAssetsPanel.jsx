@@ -244,7 +244,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   }
 
   if (!workspaceId) return null
-  return <section className="card p-5 space-y-4" aria-label="Network assets">
+  return <section id="network-assets" className="card p-5 space-y-4 scroll-mt-24" aria-label="Network assets">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h2 className="text-lg font-semibold text-gray-900 ">Network assets</h2><p className="text-sm text-gray-500 mt-1">Public IP addresses and networks you are authorized to test. An open port is an observation, not a vulnerability.</p></div>
       <button className="btn-secondary text-sm" onClick={() => refresh()} disabled={refreshing || busy}>{refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}Refresh network assets</button>

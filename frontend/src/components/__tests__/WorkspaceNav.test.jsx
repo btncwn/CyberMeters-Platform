@@ -32,6 +32,9 @@ describe('WorkspaceNav (area list)', () => {
     expect(subpagesForDomainKey('attack_surface')[0]).toEqual({ label: 'Timeline', desc: 'What appeared, changed or disappeared', to: '/exposure', anchor: false })
     // The scan intelligence page is reachable from the Attack Surface area (16 Oct 2026).
     expect(subpagesForDomainKey('attack_surface').at(-1)).toEqual({ label: 'Intelligence', desc: 'Score history, changes between scans and the remediation plan', to: '/intelligence', anchor: false })
+    // The network/port evidence is reachable from the area menu as a Findings anchor.
+    expect(subpagesForDomainKey('attack_surface').find((t) => t.label === 'Network assets'))
+      .toEqual({ label: 'Network assets', desc: 'Open ports and services on addresses you are authorised to test', to: '/assets#network-assets', anchor: true })
     expect(detectServiceKey('/intelligence')).toBe('surface')
     expect(detectServiceKey('/ws/identity-assets')).toBe('identity')
     expect(subpagesForDomainKey('identity_exposure').map(t => t.to)).toEqual([

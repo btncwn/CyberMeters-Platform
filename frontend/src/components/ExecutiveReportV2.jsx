@@ -2,6 +2,7 @@ import CyberMotDomains from './CyberMotDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
 import { bandMeta } from '../lib/score-presentation'
+import { scoreHeadline, provisionalScoreLabel } from '../lib/scoreHonesty'
 import {
   HOW_TO_READ_REPORT,
   customerEvidenceText,
@@ -347,6 +348,9 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
   }
   const cms = report.cyber_metrics_score || {}
   const bri = report.business_risk_indicator || {}
+  // Score honesty: the backend's provisional flag / withheld band decide; a
+  // withheld score is explanation-first and never the ring.
+  const scoreView = scoreHeadline({ score: cms.value, rating: cms.rating, provisional: cms.provisional, message: cms.message, scanQuality: cms.quality })
   const summary = report.executive_summary || {}
   const branding = report.branding
   const methodology = report.methodology || {}
@@ -434,11 +438,20 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
         <h3 id="assessment-score-heading" className="text-sm font-bold text-gray-900">Assessment Score</h3>
         <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-xl">
-            {cms.message && <p className="text-xs text-brand-700">{customerEvidenceText(cms.message)}</p>}
+            {scoreView.mode === 'withheld'
+              ? (
+                <div data-testid="executive-score-withheld">
+                  <p className="text-sm text-gray-700 leading-relaxed">{customerEvidenceText(scoreView.explanation)}</p>
+                  <p className="text-xs text-gray-600 mt-1">{provisionalScoreLabel(scoreView.score)} · not a final result</p>
+                </div>
+              )
+              : cms.message && <p className="text-xs text-brand-700">{customerEvidenceText(cms.message)}</p>}
             <EvidenceBasis label="Score basis" assertion={cms.evidence_grade} className="mt-2" />
           </div>
           <div className="flex items-center gap-8">
-            <ScoreRing score={cms.value} rating={cms.rating} />
+            {scoreView.mode === 'established'
+              ? <ScoreRing score={scoreView.score} rating={scoreView.rating} />
+              : scoreView.mode === 'none' ? <ScoreRing score={null} rating={null} /> : null}
             <div className="max-w-xs">
               <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
               <EvidenceBasis label="Business Risk Indicator basis" assertion={bri.evidence_grade} className="mb-2" />

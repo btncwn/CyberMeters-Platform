@@ -11,6 +11,7 @@
  * plain Bell icon (no panel) if no workspace is active.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { presentNotificationMessage } from '../lib/scoreHonesty'
 import { Link, useNavigate } from 'react-router-dom'
 import { Bell, X } from 'lucide-react'
 import { api } from '../api'
@@ -357,7 +358,7 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
                           </div>
                         </div>
                         {n.message && (
-                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{presentNotificationMessage(n.message)}</p>
                         )}
                         <div className="flex items-center gap-2 mt-1.5">
                           <span className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider ${cfg.text}`}>
