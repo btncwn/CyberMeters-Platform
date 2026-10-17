@@ -594,8 +594,12 @@ const parity = states.map(parityOutputs);
 // Brand decision honesty (17 Oct 2026) mints resolver 2026-10-17.1. This
 // certificate-only fixture has no brand candidate or enrichment state, so only
 // the methodology stamp and its PDF rendering move both goldens.
-const GOLDEN_F13 = "9d66849d1b3e8c6bf9b7fc618ca173e4bc5ea21031ff5f3cf4705a52533be4e0";
-const GOLDEN_F14 = "a6d281735470691a509840d9ff6234fde3997e2d6a611b7d3b64f0a28162d8fc";
+// Domain decision honesty (17 Oct 2026) mints resolver 2026-10-17.2 and
+// rewords the Identity Exposure summary to its inventory counts ("Inventory
+// evidence: …"). That sentence travels in the resolved states (F14) and the
+// customer PDF (F13); the fixture has no registration finding or sender alert.
+const GOLDEN_F13 = "08c6dcb26850d2f6fac2c19137ea1783ff10ac6e1fce3510eb07c94af765a026";
+const GOLDEN_F14 = "942b21ff1629bba6968306ea0860c052bec5eb910ba7cab33d5f5b5cba156678";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

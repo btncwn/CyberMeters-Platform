@@ -65,7 +65,11 @@ const EXPECTED = Object.freeze({
     // MCP read projections add four fail-closed comparisons in two route files:
     // null/unknown quality is never presented as complete. The pre-existing
     // runtime comparison sites remain unchanged.
-    comparison_occurrences: 57,
+    // Domain decision honesty (17 Oct 2026): the Email Protection sender-alert
+    // caveat adds one coverage guard in cyber-mot-domains.js that never
+    // upgrades `degraded` to `partial`. No new source file; the partial-only
+    // fingerprint is unchanged.
+    comparison_occurrences: 58,
     source_file_count: 26,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -104,7 +108,7 @@ const EXPECTED = Object.freeze({
     // pinned, so real additions/removals still fail while line-only edits do not.
     // TLS release: the historical customer projector consumes effective
     // quality, and the aggregate now checks the projected complete state.
-    fingerprint: "caec8b9e087453b6ed4aa6af680cc648949aa91bc924b99571b0827e95ce356d",
+    fingerprint: "2c3fb2c53f53ed4351afb33fb54a1ee17e386eea718f83d75cfb4c4d24365a12",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {

@@ -100,7 +100,13 @@ import {
 // high-risk candidate or an open confirmed-abuse case is a finding, and a
 // watchlist with candidates still awaiting a probe stays provisional instead of
 // falling through to healthy. `required` and the precedence ladder are unchanged.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.1";
+// `2026-10-17.2`: Attack Surface owns the registration (WHOIS/RDAP) expiry
+// findings (`whois_` match); an expired or expiring registration is an issue.
+// Identity Exposure publishes its inventory counts (state unchanged,
+// evidence_count is the real inventory count). Email Protection names an open
+// unauthorised-sending-source alert as a coverage caveat without changing the
+// published-record decision. `required` lists are unchanged.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.2";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -187,7 +193,9 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     required: ["subdomains", "dns"],
     monitoring_signals: ["attack_surface"],
     monitoring_degradation_message: "Attack-surface and subdomain discovery coverage was incomplete this run.",
-    match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),
+    // `whois_`: registration expiry findings (whois-scan.js) are Attack Surface
+    // facts — an expired registration exposes every name under the domain.
+    match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),
     maturity: "M3", managed_status: "managed_case",
     limitations: ["External observation only; no internal-network discovery. Subdomain discovery covers the names CyberMeters checks in DNS, names in DNS records and links found on the website; it is not a complete inventory."],
   },
@@ -294,7 +302,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
   // includes legacy "unknown" coverage, which must never render as healthy.
   const provisional = quality != null && quality !== "complete";
 
-  return CYBER_MOT_DOMAINS.map((d) => {
+  const resolveDomain = (d) => {
     const monitoringCoverage = resolveSignalMonitoringCoverage(
       report?.monitoring_states,
       d.monitoring_signals
@@ -557,9 +565,36 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       }
     }
     if (d.domain_key === "identity_exposure") {
+      // Inventory counts come from the identity_discovery module itself
+      // (provider/portal counts, the claim-kind classification and the measured
+      // reachability from summarizeIdentityClaims). They describe what was
+      // observed; they never change the state, which stays evidence-insufficient
+      // because compromise and sign-in controls are not evaluated.
+      const inventory = report?.modules?.identity_discovery;
+      const count = (value) => (Number.isFinite(value) && value >= 0 ? value : null);
+      const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+      const providers = count(inventory?.provider_count);
+      const portals = count(inventory?.portal_count);
+      const relationships = count(inventory?.provider_relationship_count);
+      const candidates = count(inventory?.surface_candidate_count);
+      const measured = count(inventory?.reachability_evaluated_count);
+      const reachable = count(inventory?.reachable_surface_count);
+      const identityTotal = count(inventory?.total) ?? ((providers ?? 0) + (portals ?? 0));
+      const observed = [];
+      if (providers != null) observed.push(plural(providers, "provider relationship", "provider relationships"));
+      if (portals != null) observed.push(plural(portals, "possible identity-facing hostname", "possible identity-facing hostnames"));
+      if (measured != null) observed.push(`${plural(measured, "endpoint measured", "endpoints measured")} (${reachable ?? 0} reachable)`);
+      const classified = [];
+      if (relationships != null) classified.push(plural(relationships, "provider relationship", "provider relationships"));
+      if (candidates != null) classified.push(plural(candidates, "hostname candidate", "hostname candidates"));
+      if (measured != null) classified.push(plural(measured, "measured surface", "measured surfaces"));
+      const identitySummary = observed.length
+        ? `Inventory evidence: ${observed.join(", ")}${classified.length ? `; classified as ${classified.join(", ")}` : ""}.`
+        : "Inventory evidence: no provider relationship or identity-facing hostname was observed.";
+      base.evidence_count = identityTotal;
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = anyRequiredInsufficient || signalCoverageLimited ? "degraded" : "partial";
-      base.summary = "Provider relationships, possible hostnames and measured endpoints are inventory evidence. Account compromise and sign-in controls were not evaluated.";
+      base.summary = `${identitySummary} Account compromise and sign-in controls were not evaluated.`;
       return base;
     }
     if (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
@@ -640,5 +675,39 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     base.coverage = "complete";
     base.summary = "Assessed — no material issue observed.";
     return base;
-  });
+  };
+  return CYBER_MOT_DOMAINS.map((d) => withEmailSenderAlertCaveat(resolveDomain(d), report));
+}
+
+// ── Email Protection: an open unauthorised-sending-source alert is not silent ─
+// The SPF-RUA corroboration (spf-corroboration.js) alerts when a DMARC aggregate
+// report shows SPF failure from a source outside the resolved authorisation.
+// That is observed sending behaviour, not a published-record defect, so the
+// domain decision (healthy, issue, provisional …) is unchanged — but a healthy
+// card that says nothing while such an alert is open would read as an all-clear.
+// Coverage becomes `partial` (never upgrading `degraded`) and the summary names
+// the alert. An alert ledger that could not be read adds nothing: it is not
+// evidence either way. Pure: reads only the frozen report.
+function withEmailSenderAlertCaveat(entry, report) {
+  if (entry?.domain_key !== "email_protection") return entry;
+  if (entry.state === CYBER_MOT_STATES.NOT_YET_ASSESSED) return entry;
+  const alerts = report?.modules?.email_security?.unauthorised_sending_sources;
+  if (!alerts || typeof alerts !== "object" || alerts.state !== "read") return entry;
+  const count = Number.isFinite(alerts.count) ? alerts.count : 0;
+  if (count <= 0) return entry;
+  const days = Number.isFinite(alerts.window_days) ? alerts.window_days : 30;
+  // Word by what the corroboration could establish: a source is called
+  // "outside your resolved SPF authorisation" only when its alert made that
+  // comparison; a source whose comparison was unavailable is a failure
+  // observation, never an authorisation claim.
+  const outside = Number.isFinite(alerts.outside_authorisation) ? alerts.outside_authorisation : 0;
+  const uncompared = Number.isFinite(alerts.comparison_unavailable) ? alerts.comparison_unavailable : Math.max(0, count - outside);
+  const detail = [];
+  if (outside > 0) detail.push(`${outside} outside your resolved SPF authorisation`);
+  if (uncompared > 0) detail.push(`${uncompared} where that comparison was unavailable`);
+  return {
+    ...entry,
+    coverage: entry.coverage === "degraded" ? "degraded" : "partial",
+    summary: `${entry.summary} ${count} sending source${count === 1 ? "" : "s"} reported SPF failure for this domain in DMARC aggregate reports in the last ${days} days${detail.length ? ` (${detail.join("; ")})` : ""}; the open Email Protection alert names ${count === 1 ? "it" : "them"}. This does not change the published-record conclusion above.`,
+  };
 }

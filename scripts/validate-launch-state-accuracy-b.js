@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engine = (name) => pathToFileURL(path.join(root, "workers/scan-api/src/engines", name)).href;
 const { runEmailModule, applyDmarcbisEmailCompatibilityProjection } = await import(engine("email-scan.js"));
-const { resolveCyberMotDomainStates } = await import(engine("cyber-mot-domains.js"));
+const { resolveCyberMotDomainStates, CYBER_MOT_DOMAINS } = await import(engine("cyber-mot-domains.js"));
 const { composeSnapshot } = await import(engine("report-snapshot.js"));
 const { computeScore } = await import(engine("scoring.js"));
 const { projectPhase5ScanRowsForCustomer } = await import(engine("phase5-evidence.js"));
@@ -22,6 +22,9 @@ const {
   selectBrandValidationAssetsSql, selectBrandOpenAbuseCasesSql,
 } = await import(engine("brand-validation-state.js"));
 import fs from "node:fs";
+const { whoisReportFindings } = await import(engine("whois-scan.js"));
+const { loadUnauthorisedSendingSourceAlerts, spfUnauthorisedDedupePrefix } = await import(engine("spf-corroboration.js"));
+const { resolveRemediation } = await import(engine("remediation-registry.js"));
 
 let passed = 0;
 let failed = 0;
@@ -377,6 +380,154 @@ check("CM-P1-007 scan merges enrichment state before scoring and before the repo
   mergeAt > 0 && scoreAt > mergeAt &&
   /import \{ loadBrandValidationState \} from "\.\/brand-validation-state\.js";/.test(scanEngineSource) &&
   /workspaceId, domain, brandModule: modules\.brand_monitoring,/.test(scanEngineSource));
+
+// ── CM-P1-008: Identity Exposure publishes its inventory counts ──────────────
+// The state stays evidence-insufficient (compromise and sign-in controls are not
+// evaluated); the summary states what was observed and evidence_count is the
+// real inventory count rather than the number of modules present.
+const identityModule = {
+  detected: true, total: 5, provider_count: 2, portal_count: 3,
+  provider_relationship_count: 2, surface_candidate_count: 2, reachability_evaluated_count: 1, reachable_surface_count: 1,
+  password_form_count: 0, high_risk_count: 1, providers: [], portals: [], source: "identity_discovery", error: null,
+};
+const identityOf = (mod) => resolveCyberMotDomainStates(reportWith({ identity_discovery: mod })).find((entry) => entry.domain_key === "identity_exposure");
+const identityEntry = identityOf(identityModule);
+check("CM-P1-008 identity inventory counts reach the summary without changing the state",
+  identityEntry?.state === "evidence_insufficient" && identityEntry.evidence_count === 5 &&
+  /2 provider relationships, 3 possible identity-facing hostnames, 1 endpoint measured \(1 reachable\)/.test(identityEntry.summary) &&
+  /classified as 2 provider relationships, 2 hostname candidates, 1 measured surface\./.test(identityEntry.summary) &&
+  /were not evaluated/.test(identityEntry.summary) && identityEntry.finding_count === 0);
+const emptyIdentity = identityOf({});
+check("CM-P1-008 empty identity inventory reports zero evidence honestly",
+  emptyIdentity?.state === "evidence_insufficient" && emptyIdentity.evidence_count === 0 &&
+  /no provider relationship or identity-facing hostname was observed/.test(emptyIdentity.summary) && /not evaluated/.test(emptyIdentity.summary));
+const malformedIdentity = identityOf({ provider_count: "2", portal_count: -1, total: "5" });
+check("CM-P1-008 non-numeric identity counts are omitted, never fabricated",
+  malformedIdentity?.evidence_count === 0 && !/provider relationship[s]?,/.test(malformedIdentity.summary) &&
+  /no provider relationship or identity-facing hostname was observed/.test(malformedIdentity.summary));
+
+// ── CM-P1-009: registration expiry findings are Attack Surface issues ─────────
+const whoisAnswered = {
+  source: "rdap", optional: true, domain: "fixture.example", registrar: "Fixture Registrar",
+  expiration_date: "2026-10-01T00:00:00Z", days_until_expiry: 15, error: null, registries_asked: [],
+  findings: [
+    { id: "whois_expiry_critical", title: "Domain expires within 30 days", severity: "high", score_impact: 0, module: "whois_intelligence", recommendation: "Renew the domain." },
+    { id: "whois_new_domain", title: "Recently registered domain", severity: "low", score_impact: 0, module: "whois_intelligence" },
+    { id: "whois_registrar_info", title: "Registrar identified", severity: "informational", score_impact: 0, module: "whois_intelligence" },
+  ],
+};
+const whoisFindings = whoisReportFindings(whoisAnswered);
+// Downstream checks use the produced finding when present; a mutant that
+// produces none still reports its own named failure and lets the suite finish.
+const whoisExpiry = whoisFindings[0] ?? { id: "whois_expiry_critical", severity: "high", finding_type: "finding", score_impact: 0, module: "whois_intelligence" };
+check("CM-P1-009 only the expiry finding reaches the report, with finding authority and no score weight",
+  whoisFindings.length === 1 && whoisFindings[0].id === "whois_expiry_critical" && whoisFindings[0].finding_type === "finding" &&
+  whoisFindings[0].score_impact === 0 && whoisFindings[0].module === "whois_intelligence" &&
+  whoisFindings[0].evidence.some((item) => item.label === "Expiration Date" && item.value === "2026-10-01T00:00:00Z") &&
+  whoisFindings[0].evidence.some((item) => item.label === "Source" && /RDAP/.test(item.value)));
+check("CM-P1-009 unavailable, deferred or errored registries add nothing",
+  [{ ...whoisAnswered, unavailable: true }, { ...whoisAnswered, incomplete: true }, { ...whoisAnswered, error: "lookup failed" },
+    { ...whoisAnswered, outcome: "deadline_exceeded" }, { ...whoisAnswered, findings: [] }, null, undefined]
+    .every((mod) => whoisReportFindings(mod).length === 0));
+const attackSurfaceOf = (findings) => resolveCyberMotDomainStates(reportWith({ subdomains: { count: 1 }, dns: {}, whois_intelligence: whoisAnswered }, findings))
+  .find((entry) => entry.domain_key === "attack_surface");
+const expiring = attackSurfaceOf(whoisFindings);
+check("CM-P1-009 expiring registration turns Attack Surface to issue_detected",
+  expiring?.state === "issue_detected" && expiring.highest_severity === "high" && expiring.finding_count === 1 &&
+  JSON.stringify(expiring.finding_ids) === JSON.stringify(["whois_expiry_critical"]));
+const expired = attackSurfaceOf([{ ...whoisExpiry, id: "whois_domain_expired", title: "Domain has expired" }]);
+const warning = attackSurfaceOf([{ ...whoisExpiry, id: "whois_expiry_warning", severity: "medium" }]);
+check("CM-P1-009 expired registration is high; the 90-day warning is medium",
+  expired?.state === "issue_detected" && expired.highest_severity === "high" &&
+  warning?.state === "issue_detected" && warning.highest_severity === "medium");
+check("CM-P1-009 registration finding belongs to exactly one domain",
+  JSON.stringify(CYBER_MOT_DOMAINS.filter((d) => d.match(whoisExpiry)).map((d) => d.domain_key)) === JSON.stringify(["attack_surface"]));
+const observationOnly = attackSurfaceOf([{ id: "whois_new_domain", finding_type: "observation", severity: "low", score_impact: 0, module: "whois_intelligence" }]);
+check("CM-P1-009 registration observations never own the Attack Surface state",
+  observationOnly?.state !== "issue_detected" && observationOnly.finding_count === 0);
+check("CM-P1-009 expiry findings resolve to the registration remediation",
+  ["whois_domain_expired", "whois_expiry_critical", "whois_expiry_warning"].every((id) =>
+    resolveRemediation({ finding_type: id, domain_key: "attack_surface" })?.remediation_id === "asm.domain.expiry"));
+const whoisSnapshot = snapshot(roundTrip(reportWith({ subdomains: { count: 1 }, dns: {}, whois_intelligence: whoisAnswered }, whoisFindings)));
+check("CM-P1-009 snapshot grades registration evidence as registry data and carries the issue",
+  whoisSnapshot.domains.find((entry) => entry.domain_key === "attack_surface")?.state === "issue_detected" &&
+  whoisSnapshot.observed_findings.some((item) => item.finding_id === "whois_expiry_critical") &&
+  JSON.stringify(whoisSnapshot).includes("Registration data (RDAP)"));
+const whoisSource = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/whois-scan.js"), "utf8");
+check("CM-P1-009 scan appends registration findings to the one report array with explicit authority",
+  scanEngineSource.includes("for (const f of whoisReportFindings(modules.whois_intelligence)) {") &&
+  ["whois_domain_expired", "whois_expiry_critical", "whois_expiry_warning"].every((id) =>
+    new RegExp(`id:\\s+"${id}",\\n\\s+finding_type:\\s+"finding",`).test(whoisSource)) &&
+  ["whois_new_domain", "whois_registrar_info"].every((id) =>
+    new RegExp(`id:\\s+"${id}",\\n\\s+finding_type:\\s+"observation",`).test(whoisSource)));
+
+// ── CM-P1-010: an open unauthorised-sending-source alert is not silent ────────
+function mockAlertDb(rows, { fail = false } = {}) {
+  const calls = [];
+  return { calls, prepare: (sql) => ({ bind: (...args) => ({ all: async () => {
+    calls.push({ sql, args });
+    if (fail) throw new Error("D1 unavailable");
+    return { results: rows };
+  } }) }) };
+}
+const tierMeta = (tier) => JSON.stringify({ corroboration_tier: tier });
+const alertRows = [
+  { dedupe_key: "spf_unauthorised:fixture.example:203.0.113.5", severity: "medium", created_at: "2026-10-16T12:00:00Z", metadata_json: tierMeta("unauthorised_confirmed") },
+  { dedupe_key: "spf_unauthorised:fixture.example:198.51.100.7", severity: "low", created_at: "2026-10-10T12:00:00Z", metadata_json: tierMeta("fail_comparison_unavailable") },
+  { dedupe_key: "spf_unauthorised:fixture.example:203.0.113.5", severity: "low", created_at: "2026-10-01T12:00:00Z", metadata_json: tierMeta("fail_comparison_unavailable") },
+];
+const alertDb = mockAlertDb(alertRows);
+const senderAlerts = await loadUnauthorisedSendingSourceAlerts({ cybermeters_db: alertDb }, { workspaceId: "ws_fixture", domain: "Fixture.example", now: enrichmentAt });
+const alertPrefix = spfUnauthorisedDedupePrefix("Fixture.example");
+check("CM-P1-010 sender alerts are read per source, tenant-scoped, within the corroboration window",
+  senderAlerts.state === "read" && senderAlerts.count === 2 &&
+  JSON.stringify(senderAlerts.source_ips) === JSON.stringify(["203.0.113.5", "198.51.100.7"]) &&
+  senderAlerts.latest_at === "2026-10-16T12:00:00Z" && senderAlerts.highest_severity === "medium" && senderAlerts.window_days === 30 &&
+  senderAlerts.outside_authorisation === 1 && senderAlerts.comparison_unavailable === 1 &&
+  alertDb.calls.length === 1 && JSON.stringify(alertDb.calls[0].args) === JSON.stringify(["ws_fixture", alertPrefix.length, "spf_unauthorised:fixture.example:"]) &&
+  /w\.deleted_at IS NULL/.test(alertDb.calls[0].sql) && /n\.type = 'email_spf_unauthorised_source'/.test(alertDb.calls[0].sql) &&
+  /datetime\('now', '-30 days'\)/.test(alertDb.calls[0].sql) && /LIMIT \d+/.test(alertDb.calls[0].sql));
+const healthyEmail = { dmarc_state: { enforcement_level: "reject_enforced" } };
+const emailEntryOf = (emailModule) => resolveCyberMotDomainStates(reportWith({ email_security: emailModule })).find((entry) => entry.domain_key === "email_protection");
+const emailBaseline = emailEntryOf(healthyEmail);
+const emailWithAlert = emailEntryOf({ ...healthyEmail, unauthorised_sending_sources: senderAlerts });
+check("CM-P1-010 healthy decision is unchanged but coverage and summary name the open alert",
+  emailBaseline?.state === "assessed_healthy" && emailBaseline.coverage === "complete" &&
+  emailWithAlert?.state === "assessed_healthy" && emailWithAlert.coverage === "partial" && emailWithAlert.finding_count === 0 &&
+  /2 sending sources reported SPF failure for this domain in DMARC aggregate reports in the last 30 days \(1 outside your resolved SPF authorisation; 1 where that comparison was unavailable\)/.test(emailWithAlert.summary) &&
+  /does not change the published-record conclusion/.test(emailWithAlert.summary) &&
+  emailWithAlert.summary.startsWith(emailBaseline.summary));
+const uncomparedOnly = emailEntryOf({ ...healthyEmail, unauthorised_sending_sources: { ...senderAlerts, count: 1, source_ips: ["198.51.100.7"], outside_authorisation: 0, comparison_unavailable: 1 } });
+check("CM-P1-010 a source whose comparison was unavailable is never called unauthorised",
+  uncomparedOnly?.state === "assessed_healthy" && uncomparedOnly.coverage === "partial" &&
+  /1 sending source reported SPF failure .* \(1 where that comparison was unavailable\); the open Email Protection alert names it\./.test(uncomparedOnly.summary) &&
+  !/outside your/.test(uncomparedOnly.summary));
+const quarantineWithAlert = emailEntryOf({ ...roundTrip(liveEmail), unauthorised_sending_sources: { ...senderAlerts, count: 1, source_ips: ["203.0.113.5"], outside_authorisation: 1, comparison_unavailable: 0 } });
+check("CM-P1-010 issue decision also carries the caveat",
+  quarantineWithAlert?.state === "issue_detected" && quarantineWithAlert.coverage === "partial" &&
+  /1 sending source reported SPF failure .* \(1 outside your resolved SPF authorisation\); the open Email Protection alert names it\./.test(quarantineWithAlert.summary));
+const silentVariants = [
+  { ...healthyEmail, unauthorised_sending_sources: { ...senderAlerts, count: 0, source_ips: [] } },
+  { ...healthyEmail, unauthorised_sending_sources: { ...senderAlerts, state: "unavailable", count: null, source_ips: [] } },
+  { ...healthyEmail, unauthorised_sending_sources: { ...senderAlerts, state: "unavailable", count: 3 } },
+  healthyEmail,
+];
+check("CM-P1-010 zero alerts, an unreadable ledger and legacy reports stay as before",
+  silentVariants.every((mod) => JSON.stringify(emailEntryOf(mod)) === JSON.stringify(emailBaseline)));
+const alertReadFailed = await loadUnauthorisedSendingSourceAlerts({ cybermeters_db: mockAlertDb([], { fail: true }) }, { workspaceId: "ws_fixture", domain: "fixture.example", now: enrichmentAt });
+const alertNoDb = await loadUnauthorisedSendingSourceAlerts({}, { workspaceId: "ws_fixture", domain: "fixture.example", now: enrichmentAt });
+const alertNoWorkspace = await loadUnauthorisedSendingSourceAlerts({ cybermeters_db: alertDb }, { workspaceId: null, domain: "fixture.example", now: enrichmentAt });
+check("CM-P1-010 read failure, missing database and missing workspace never fabricate an alert",
+  [alertReadFailed, alertNoDb, alertNoWorkspace].every((out) => out.state === "unavailable" && out.count === null && out.source_ips.length === 0 && out.outside_authorisation === null) &&
+  alertReadFailed.reason === "alert_read_failed" && alertNoDb.reason === "database_unavailable" && alertNoWorkspace.reason === "no_workspace_context");
+const alertAttachAt = scanEngineSource.indexOf("modules.email_security.unauthorised_sending_sources = await loadUnauthorisedSendingSourceAlerts(env, {");
+check("CM-P1-010 scan attaches the alert summary before the report freezes",
+  alertAttachAt > 0 && alertAttachAt < scanEngineSource.indexOf("const report = {") &&
+  /if \(!modules\.email_security\.error\) \{\n\s+modules\.email_security\.unauthorised_sending_sources/.test(scanEngineSource));
+const emailSnapshot = snapshot(roundTrip(reportWith({ email_security: { ...healthyEmail, unauthorised_sending_sources: senderAlerts } })))
+  .domains.find((entry) => entry.domain_key === "email_protection");
+check("CM-P1-010 snapshot email domain carries the caveat with the decision unchanged",
+  emailSnapshot?.state === "assessed_healthy" && emailSnapshot.coverage === "partial" && /sending sources reported SPF failure for this domain/.test(emailSnapshot.summary));
 
 const completeInputs = {
   headers: { values: {} }, technology_detection: { external_scripts: [] },

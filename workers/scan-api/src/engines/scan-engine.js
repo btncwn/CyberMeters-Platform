@@ -61,7 +61,7 @@ import { runHeadersModule } from "./headers-scan.js";
 import { applyScanComparability, reconcileLateFindings, runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
-import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
+import { loadUnauthorisedSendingSourceAlerts, recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
 import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, durableCoreModuleBudget, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
@@ -111,7 +111,7 @@ import { runVendorRelationshipModule } from "./vendor-relationship.js";
 import { recomputeVendorRiskScoresForDomain } from "./vendor-risk.js";
 import { detectVendorsFromModules } from "./vendor-signatures.js";
 import { checkForFinding, checkPackSummary, moduleNotInCheckPack } from "./check-pack.js";
-import { REGISTRATION_DATA_OPTIONAL, runWhoisModule } from "./whois-scan.js";
+import { REGISTRATION_DATA_OPTIONAL, runWhoisModule, whoisReportFindings } from "./whois-scan.js";
 import { collectDegradations, mayGradeDegraded } from "./scan-degradation-contract.js";
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 
@@ -1544,6 +1544,18 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       now: new Date(now()).toISOString(),
     });
 
+    // Email Protection: an unauthorised-sending-source alert (SPF-RUA
+    // corroboration, Phase 8a.2 of an earlier scan) does not change the
+    // published-record conclusion, but the domain conclusion must not stay
+    // silent about it. The bounded alert summary rides on email_security so the
+    // resolver marks coverage partial and names it; an unreadable ledger adds
+    // nothing (not evidence either way).
+    if (!modules.email_security.error) {
+      modules.email_security.unauthorised_sending_sources = await loadUnauthorisedSendingSourceAlerts(env, {
+        workspaceId, domain, now: new Date(now()).toISOString(),
+      });
+    }
+
     // Compute Cyber Metrics Score
     const { score, risk_level, findings, recommendations } = computeScore(modules, domain);
 
@@ -1556,6 +1568,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           ...f,
         });
       }
+    }
+
+    // Registration data: the WHOIS/RDAP module's expiry findings reach the ONE
+    // report findings array (score_impact 0, explicit finding authority) so the
+    // Attack Surface domain owns them and an expired or expiring registration
+    // can turn the card red. Unavailable or deferred registries add nothing.
+    for (const f of whoisReportFindings(modules.whois_intelligence)) {
+      if (findings.some((existing) => existing?.id === f.id)) continue;
+      findings.push(f);
     }
 
     // Append admin surface detection findings (score_impact: 0 — no scoring changes in Phase 1)
