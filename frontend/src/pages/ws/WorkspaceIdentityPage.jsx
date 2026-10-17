@@ -1,5 +1,6 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   ShieldAlert, RefreshCw, Globe,
   Wifi, Building2,
@@ -99,6 +100,7 @@ const TYPE_FILTERS = [
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function WorkspaceIdentityPage() {
+  const { hash } = useLocation()
   const { wsId, wsName } = useWorkspace()
   const [assets, setAssets]     = useState([])
   const [summary, setSummary]   = useState(null)
@@ -125,6 +127,11 @@ export default function WorkspaceIdentityPage() {
   }, [wsId])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (loading || error || !hash) return
+    document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: 'start' })
+  }, [hash, loading, error])
 
   if (!wsId) return <NoWorkspaceSelected />
 
@@ -168,8 +175,8 @@ export default function WorkspaceIdentityPage() {
       </div>
 
       {/* Stats */}
-      <IdentityWorkforceCard key={"workforce-" + wsId} workspaceId={wsId} />
-      <IdentityPublicSourcesCard key={wsId} workspaceId={wsId} />
+      <div id="workforce-response"><IdentityWorkforceCard key={"workforce-" + wsId} workspaceId={wsId} /></div>
+      <div id="public-sources"><IdentityPublicSourcesCard key={wsId} workspaceId={wsId} /></div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard icon={ShieldAlert} label="Identity Evidence" value={assets.length} />
         <StatCard icon={Building2} label="Provider Relationships" value={summary?.provider_relationship_count ?? 0} />

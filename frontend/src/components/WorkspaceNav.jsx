@@ -50,8 +50,12 @@ export const SERVICES = [
   },
   {
     key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',
-    match: p => p.startsWith('/ws/identity-exposure'),
-    items: [],
+    match: p => p.startsWith('/ws/identity-exposure') || p.startsWith('/ws/identity-assets'),
+    items: [
+      { to: '/ws/identity-assets', label: 'People & evidence', desc: 'Accounts and identity evidence' },
+      { to: '/ws/identity-assets#workforce-response', label: 'Workforce response', desc: 'Account observations and recorded responses' },
+      { to: '/ws/identity-assets#public-sources', label: 'Public sources', desc: 'Checks of public web files' },
+    ],
   },
   {
     key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', to: '/ws/shadow-it',
