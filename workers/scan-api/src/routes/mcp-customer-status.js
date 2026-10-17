@@ -10,7 +10,7 @@ import { mcpCriticalFindingSql } from "./mcp-finding-presentation.js";
 
 const PAGE_SIZE = 10;
 const MAX_RESULT_BYTES = 20_000;
-const MAX_OBSERVATION_BYTES = 32_000;
+const MAX_SIGNAL_MODEL_BYTES = 48_000;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const HOST = /^[A-Za-z0-9.-]{1,253}$/;
 const TYPE = /^[A-Za-z0-9_.-]{1,120}$/;
@@ -218,6 +218,27 @@ export async function projectMcpFindingExplanation(env, grant, _facts, input = {
 }
 
 /** Current managed certificate lifecycle; a D1 failure is never an empty list. */
+function tlsAssessmentProgress(row) {
+  const sourceScanId = id(row.tls_source_scan_id) ? row.tls_source_scan_id : null;
+  const base = { source_scan_id: sourceScanId, completed_checks: null, planned_checks: null };
+  if (!sourceScanId || row.tls_plan_type !== "object") return {
+    ...base, state: "not_recorded", reason: "tls_assessment_not_recorded",
+  };
+  const completed = row.tls_completed_checks;
+  const planned = row.tls_planned_checks;
+  if (!Number.isSafeInteger(completed) || !Number.isSafeInteger(planned) ||
+      completed < 0 || planned < 0 || completed > planned) return {
+    ...base, state: "incomplete", reason: "tls_progress_unavailable",
+  };
+  const progress = { ...base, completed_checks: completed, planned_checks: planned };
+  if (row.tls_job_state === "complete" && completed === planned) return {
+    ...progress, state: "complete", reason: null,
+  };
+  return { ...progress, state: "incomplete",
+    reason: row.tls_job_state === "budget_exhausted" ? "budget_exhausted"
+      : row.tls_job_state === "cancelled" ? "authority_lost" : "checks_not_finished" };
+}
+
 export async function projectMcpTlsPosture(env, grant, _facts, input = {}) {
   const workspaceId = await assertWorkspace(env, grant, input, ["workspaceId", "cursor"]);
   const cursor = parseCursor(input.cursor, "t", workspaceId);
@@ -225,7 +246,22 @@ export async function projectMcpTlsPosture(env, grant, _facts, input = {}) {
     `SELECT cl.id, cl.workspace_id, cl.domain_id, cl.primary_hostname,
             cl.not_after, cl.days_remaining, cl.renewal_readiness,
             cl.coverage_status, cl.verification_status, cl.last_seen_at,
-            co.evidence_json AS current_observation_evidence_json
+            CASE WHEN json_valid(co.evidence_json) THEN
+              CASE WHEN length(json_extract(co.evidence_json, '$.signal_completeness')) <= ${MAX_SIGNAL_MODEL_BYTES}
+                THEN json_object('signal_completeness', json_extract(co.evidence_json, '$.signal_completeness'))
+                ELSE NULL END
+              ELSE NULL END AS current_observation_evidence_json,
+            CASE WHEN co.evidence_json IS NULL THEN 'absent'
+              WHEN NOT json_valid(co.evidence_json) THEN 'invalid'
+              WHEN length(json_extract(co.evidence_json, '$.signal_completeness')) > ${MAX_SIGNAL_MODEL_BYTES}
+                THEN 'over_limit' ELSE 'recorded' END AS observation_evidence_state,
+            ej.scan_id AS tls_source_scan_id, ej.state AS tls_job_state,
+            CASE WHEN json_valid(ej.plan_json) THEN json_type(ej.plan_json, '$.tls')
+              ELSE NULL END AS tls_plan_type,
+            CASE WHEN json_valid(ej.plan_json) THEN json_extract(ej.plan_json, '$.tls.cursor')
+              ELSE NULL END AS tls_completed_checks,
+            CASE WHEN json_valid(ej.plan_json) THEN json_array_length(ej.plan_json, '$.tls.selected')
+              ELSE NULL END AS tls_planned_checks
        FROM certificate_lifecycle cl
        JOIN workspace_domains wd ON wd.workspace_id = cl.workspace_id
                                 AND wd.domain_id = cl.domain_id
@@ -233,6 +269,12 @@ export async function projectMcpTlsPosture(env, grant, _facts, input = {}) {
        LEFT JOIN certificate_observations co
          ON co.id = cl.current_certificate_observation_id
         AND co.workspace_id = cl.workspace_id AND co.domain_id = cl.domain_id
+       LEFT JOIN external_exposure_jobs ej
+         ON ej.scan_id = (SELECT s.id FROM scans s
+           WHERE s.workspace_id = cl.workspace_id AND s.domain_id = cl.domain_id
+             AND s.status = 'completed'
+           ORDER BY s.created_at DESC, s.id DESC LIMIT 1)
+        AND ej.workspace_id = cl.workspace_id AND ej.domain_id = cl.domain_id
       WHERE cl.workspace_id = ? AND wd.verification_status = 'verified'
         ${cursor ? "AND cl.id > ?" : ""}
       ORDER BY cl.id ASC LIMIT ?`,
@@ -243,16 +285,23 @@ export async function projectMcpTlsPosture(env, grant, _facts, input = {}) {
     if (!id(row.id) || !id(row.domain_id) || !host(row.primary_hostname) ||
         row.workspace_id !== workspaceId ||
         (row.current_observation_evidence_json != null &&
-          (typeof row.current_observation_evidence_json !== "string" ||
-            row.current_observation_evidence_json.length > MAX_OBSERVATION_BYTES))) throw deny();
-    const assurance = buildCertificateLifecycleAssurance(row);
+          typeof row.current_observation_evidence_json !== "string")) throw deny();
+    const evidenceReason = row.observation_evidence_state === "invalid"
+      ? "invalid_recorded_evidence"
+      : row.observation_evidence_state === "over_limit" ||
+          (row.current_observation_evidence_json &&
+            encoder.encode(row.current_observation_evidence_json).byteLength > MAX_SIGNAL_MODEL_BYTES)
+        ? "signal_evidence_over_limit" : null;
+    const assurance = buildCertificateLifecycleAssurance(evidenceReason
+      ? { ...row, current_observation_evidence_json: null } : row);
     if (row.days_remaining != null && !Number.isSafeInteger(row.days_remaining)) throw deny();
     const signals = {};
     for (const key of ["leaf", "expiry", "hostname_match", "trust_store_validation", "revocation_assurance"]) {
       const signal = assurance.signals?.[key];
       signals[key] = {
-        state: listed(signal?.state, SIGNAL_STATES),
-        check_outcome: listed(signal?.check?.outcome, CHECK_OUTCOMES, "not_checked"),
+        state: evidenceReason ? "unavailable" : listed(signal?.state, SIGNAL_STATES),
+        check_outcome: evidenceReason ? "not_checked"
+          : listed(signal?.check?.outcome, CHECK_OUTCOMES, "not_checked"),
       };
     }
     return {
@@ -265,7 +314,9 @@ export async function projectMcpTlsPosture(env, grant, _facts, input = {}) {
       verification_status: text(row.verification_status, 40),
       last_seen_at: date(row.last_seen_at),
       assurance_status: assurance.status === "current" ? "current" : "not_recorded",
-      signals,
+      certificate_evidence_reason: evidenceReason ||
+        (assurance.status === "current" ? null : "signal_evidence_not_recorded"),
+      tls_assessment: tlsAssessmentProgress(row), signals,
     };
   });
   const more = data.results.length > PAGE_SIZE;
