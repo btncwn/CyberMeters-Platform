@@ -193,14 +193,14 @@ export async function createMcpOAuthIntent(request, env, options = {}) {
   return opaque;
 }
 
-export async function readMcpOAuthIntent(env, opaque) {
+export async function readMcpOAuthIntent(env, opaque, { includeCompleted = false } = {}) {
   if (!env?.cybermeters_db || typeof opaque !== "string" || !OPAQUE_RE.test(opaque)) return null;
   const idHash = await hashToken(opaque);
   const row = await env.cybermeters_db.prepare(
     `SELECT id_hash, authorization_url FROM mcp_oauth_login_intents
       WHERE id_hash = ? AND unixepoch(expires_at) > unixepoch('now') LIMIT 1`,
   ).bind(idHash).first();
-  return row?.authorization_url && row.authorization_url.length <= MAX_AUTH_URL ? row : null;
+  return validMcpOAuthIntentRow(row, includeCompleted);
 }
 
 function cookieValue(request) {
@@ -316,4 +316,26 @@ export async function bridgeMcpOAuthBrowserSession(request, env, options = {}) {
 
 export function expireMcpOAuthBrowserCookie(headers) {
   headers.append("Set-Cookie", `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+}
+
+export const MCP_OAUTH_COMPLETED_INTENT = "completed";
+
+/** Keep a short, non-sensitive completion marker for a repeated browser navigation. */
+export async function completeMcpOAuthBrowserSession(env, intentHash) {
+  await env.cybermeters_db.prepare(
+    `DELETE FROM mcp_oauth_browser_sessions WHERE intent_hash = ?`,
+  ).bind(intentHash).run();
+  const completed = await env.cybermeters_db.prepare(
+    `UPDATE mcp_oauth_login_intents
+       SET authorization_url = ?, expires_at = datetime('now', '+10 minutes')
+     WHERE id_hash = ? AND authorization_url != ?`,
+  ).bind(MCP_OAUTH_COMPLETED_INTENT, intentHash, MCP_OAUTH_COMPLETED_INTENT).run();
+  if (Number(completed?.meta?.changes ?? completed?.changes ?? 0) !== 1) {
+    throw new Error("mcp_oauth_completion_unavailable");
+  }
+}
+
+function validMcpOAuthIntentRow(row, includeCompleted) {
+  if (!row?.authorization_url || row.authorization_url.length > MAX_AUTH_URL) return null;
+  return !includeCompleted && row.authorization_url === MCP_OAUTH_COMPLETED_INTENT ? null : row;
 }

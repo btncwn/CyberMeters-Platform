@@ -15,7 +15,7 @@ import {
   bridgeMcpOAuthBrowserSession, claimMcpOAuthBrowserSession,
   claimMcpOAuthStartIpBudget, claimMcpOAuthStartGlobalBudget,
   claimMcpOAuthTokenBudget, mcpOAuthGlobalBudgetSaturated,
-  clearMcpOAuthBrowserSession,
+  clearMcpOAuthBrowserSession, completeMcpOAuthBrowserSession, MCP_OAUTH_COMPLETED_INTENT,
   createMcpOAuthIntent, expireMcpOAuthBrowserCookie, mcpOAuthCorsHeaders,
   mcpOAuthJson, readBoundedMcpOAuthBody, readMcpOAuthBrowserSession, readMcpOAuthIntent,
   requireMcpWebSession,
@@ -271,10 +271,10 @@ ${portfolioChoices}
 <button type="submit" name="decision" value="deny" formnovalidate>Deny</button></p></form></main></body></html>`;
 }
 
-function consentHeaders(headers) {
+function consentHeaders(headers, redirectUri) {
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
-  headers.set("Content-Security-Policy", "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+  headers.set("Content-Security-Policy", `default-src 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`);
   headers.set("X-Frame-Options", "DENY");
   headers.set("X-Content-Type-Options", "nosniff");
   // Keep the intent URL off cross-origin requests while preserving Origin on the same-origin consent POST.
@@ -311,9 +311,9 @@ async function processAuthorize(request, env, server, options) {
     } });
   }
   if (!intentOpaque || !["GET", "POST"].includes(request.method)) return plain("Invalid authorization request");
-  const intent = await readMcpOAuthIntent(env, intentOpaque);
+  const intent = await readMcpOAuthIntent(env, intentOpaque, { includeCompleted: true });
   const original = intent && authorizeUrlFromIntent(intent, issuer);
-  if (!intent || !original) return plain("Authorization expired", 400);
+  if (!intent || !original) return missingIntentResponse(intent);
   if (!isAllowedAuthorizationClient(original, env)) return plain("Invalid authorization request");
   const browser = await readMcpOAuthBrowserSession(request, env, intent.id_hash);
   if (!browser) return plain("Authorization session expired", 401);
@@ -331,7 +331,7 @@ async function processAuthorize(request, env, server, options) {
     const details = await oauth.describeConsent(parsed);
     const consent = await oauth.beginConsent(parsed);
     return new Response(consentPage(details, consent.handle, intentOpaque,
-      workspaces, portfolioAvailable, parsed.scope), { headers: consentHeaders(consent.headers) });
+      workspaces, portfolioAvailable, parsed.scope), { headers: consentHeaders(consent.headers, parsed.redirectUri) });
   }
 
   if (request.headers.get("Origin") !== issuer ||
@@ -433,7 +433,7 @@ async function processAuthorize(request, env, server, options) {
       required: true, active_workspace_required: Boolean(workspaceId),
     });
     if (audit !== true) throw new Error("mcp_audit_unavailable");
-    await clearMcpOAuthBrowserSession(env, intent.id_hash);
+    await completeMcpOAuthBrowserSession(env, intent.id_hash);
     const headers = new Headers(approved.headers);
     headers.set("Location", completed.redirectTo);
     headers.set("Cache-Control", "no-store");
@@ -614,4 +614,10 @@ export async function handleMcpOAuthRequest(request, env, ctx, options = {}) {
     console.error(JSON.stringify({ event: "mcp_oauth_unavailable", path }));
     return plain("Authorization temporarily unavailable", 503);
   }
+}
+
+function missingIntentResponse(intent) {
+  return intent?.authorization_url === MCP_OAUTH_COMPLETED_INTENT
+    ? plain("This connection was already authorised. Return to your app.", 200)
+    : plain("Authorization expired", 400);
 }
