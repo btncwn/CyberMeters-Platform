@@ -141,9 +141,12 @@ const EXPECTED = Object.freeze({
     // executive-dashboard SQL query site, which moves by that much; the
     // two-tree --dump-current diff shows only line/offset shifts — predicate
     // text, site/sink counts and classification are unchanged.
-    fingerprint: "de919838f28966078e5405476a86d7948d1cf872a95aba9e5695dcedf962c134",
+    // Module Findings adds registry-backed display fields above the existing
+    // executive-dashboard queries. Their SQL source lines each move by nine;
+    // query text, predicate counts and classifications remain unchanged.
+    fingerprint: "4570c24266f3ed32a38b64581fac9e334da08644c10847f93b0f770d83d3e401",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "0841be7e83068112aff305a47e8fdee52cd98b042218759ac240cd6eb9773901",
+    resolved_query_sink_fingerprint: "56315bf312b0bae44aac276edcd7371b07430ae0e6ff1ca61067bae920f62a1f",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
