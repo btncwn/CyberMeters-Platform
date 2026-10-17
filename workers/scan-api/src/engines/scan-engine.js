@@ -21,6 +21,7 @@ import { buildScanAssetEvidence, collectAssetHints } from "./asset-evidence.js";
 import { deriveAttackSurfaceSignalCompleteness } from "./attack-surface-signal-completeness.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
+import { loadBrandValidationState } from "./brand-validation-state.js";
 import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildCaConcentrationAnalytics } from "./cert-analysis.js";
@@ -1530,6 +1531,19 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       if (!emailApplicability.applicable) modules.email_security.remediation_actions = [];
     }
 
+    // Brand decision honesty: merge the enrichment state the workspace already
+    // holds (hourly DNS / daily HTTPS results in workspace_brand_assets, open
+    // confirmed-abuse cases) into the brand module BEFORE scoring and BEFORE the
+    // report is frozen. `candidates_validated` is derived from that state; a
+    // read failure fails closed (unvalidated → provisional, never healthy). The
+    // resolver, the 091 state rows and the M5.c snapshot all read this one
+    // report, so the card can no longer read provisional or healthy while a
+    // live high-risk lookalike or an open abuse case exists.
+    modules.brand_monitoring = await loadBrandValidationState(env, {
+      workspaceId, domain, brandModule: modules.brand_monitoring,
+      now: new Date(now()).toISOString(),
+    });
+
     // Compute Cyber Metrics Score
     const { score, risk_level, findings, recommendations } = computeScore(modules, domain);
 
@@ -2857,7 +2871,9 @@ function buildCanonicalUrlProfile(modules) {
 
     // Phase 8e: Brand Asset Upsert — persists generated typosquat candidates to
     // workspace_brand_assets as 'unverified'.  DNS validation happens separately
-    // via POST /brand-monitoring/refresh to stay within subrequest budget.
+    // (hourly brand-dns-enrichment sweep, daily HTTPS enrichment, manual
+    // /brand-monitoring/refresh); the NEXT scan reads that state back into its
+    // brand decision through loadBrandValidationState above.
     try {
       await upsertBrandAssets(domainId, modules.brand_monitoring, env);
     } catch { /* non-fatal */ }

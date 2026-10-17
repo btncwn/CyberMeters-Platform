@@ -263,7 +263,7 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
 // version MUST have moved or every customer's CE would "improve"/"deteriorate" on deploy day.
 {
   eq("the Cyber MOT resolver version includes the B1 evidence-attribution boundary",
-    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-10-16.2");
+    motDomains.CYBER_MOT_RESOLVER_VERSION, "2026-10-17.1");
   const hist = await import(eng("cyber-mot-state-history.js"));
   const mk = (v, state) => ({ resolver_version: v, scan_quality: "complete", state, assessed_at: "2026-07-16T00:00:00Z" });
   const cross = hist.resolveDomainTrend(mk("2026-07-16.2", "assessed_healthy"), mk("2026-07-16.1", "issue_detected"));
@@ -572,7 +572,7 @@ if (!process.argv.includes("--no-mutate")) {
     { file: CE, name: "missing methodology metadata is treated as comparable",
       from: "  if (A.ver == null || B.ver == null || A.rev == null || B.rev == null) return false;", to: "" },
     { file: MOT, name: "the resolver version loses the B1 evidence-attribution boundary",
-      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.2";',
+      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.1";',
       to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-09.1";' },
     { file: MOT, name: "D4: Attack Surface drops the exposure and TLS evidence modules",
       from: '    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns", "external_exposure", "tls_assessment"],',
@@ -587,7 +587,7 @@ if (!process.argv.includes("--no-mutate")) {
       from: '    match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),',
       to: '    match: (f) => /^(asset_|subdomain_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),' },
     { file: MOT, name: "D4: the resolver version is not minted for the evidence declaration",
-      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.2";',
+      from: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.1";',
       to: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.1";' },
     { file: MODEL, name: "`external` maps to automated again",
       from: '  if (method === "external") return "external";', to: "" },

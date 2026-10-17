@@ -94,7 +94,13 @@ import {
 // and the precedence ladder are unchanged, and every finding keeps its domain).
 // Outside vulnerability data is not a resolver input: the check pack removed
 // it (2026-10-13), so no exploited-vulnerability module can ever own a state.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-16.2";
+// `2026-10-17.1`: the Brand Protection decision reads the enrichment state
+// (brand-validation-state.js). `candidates_validated` is derived from
+// CyberMeters' own DNS results instead of a constant `false`; a resolving
+// high-risk candidate or an open confirmed-abuse case is a finding, and a
+// watchlist with candidates still awaiting a probe stays provisional instead of
+// falling through to healthy. `required` and the precedence ladder are unchanged.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -451,12 +457,24 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.recommendation_count = domainFindings.filter((f) => f.recommendation).length;
     }
 
+    // Brand enrichment state (brand-validation-state.js). Present on reports
+    // whose scan read the workspace's DNS/HTTPS enrichment results; absent on
+    // older reports and lightweight routes, which keep the plain gate below.
+    const brandValidation = d.domain_key === "brand_protection" &&
+      report?.modules?.brand_monitoring?.validation &&
+      typeof report.modules.brand_monitoring.validation === "object"
+      ? report.modules.brand_monitoring.validation : null;
+    const brandPendingChecks = Number.isFinite(brandValidation?.unchecked) ? brandValidation.unchecked : 0;
     if (brandUnvalidated) {
       const count = Array.isArray(report.modules.brand_monitoring.domains)
         ? report.modules.brand_monitoring.domains.length : 0;
       base.state = CYBER_MOT_STATES.PROVISIONAL;
       base.coverage = "partial";
-      base.summary = `${count} unvalidated lookalike candidate${count === 1 ? "" : "s"} on the watchlist. Registration and activity have not been confirmed.`;
+      base.summary = brandValidation?.state === "unavailable"
+        ? `${count} lookalike candidate${count === 1 ? "" : "s"} on the watchlist. The DNS validation state could not be read this scan, so registration and activity are unconfirmed.`
+        : brandValidation
+          ? `${count} lookalike candidate${count === 1 ? "" : "s"} on the watchlist; none has a DNS result yet. Registration and activity have not been confirmed.`
+          : `${count} unvalidated lookalike candidate${count === 1 ? "" : "s"} on the watchlist. Registration and activity have not been confirmed.`;
       return base;
     }
     if (brandValidationUnknown) {
@@ -471,10 +489,33 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       // UI whether the evidence behind it was provisional.
       const caveat = anyRequiredInsufficient || provisional || signalCoverageLimited
         || (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
-          .some((asset) => asset?.probe_status === "not_applicable"));
+          .some((asset) => asset?.probe_status === "not_applicable"))
+        || brandPendingChecks > 0;
       base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
       base.coverage = caveat ? "partial" : (quality || "complete");
       base.summary = `${domainFindings.length} issue${domainFindings.length === 1 ? "" : "s"} detected${caveat ? " (provisional evidence)" : ""}.`;
+      if (brandValidation) {
+        const liveCount = Number.isFinite(brandValidation.active_high_risk) ? brandValidation.active_high_risk : 0;
+        const caseCount = Number.isFinite(brandValidation.open_abuse_cases) ? brandValidation.open_abuse_cases : 0;
+        const parts = [];
+        if (liveCount > 0) parts.push(`${liveCount} high-risk lookalike${liveCount === 1 ? "" : "s"} resolving in DNS`);
+        if (caseCount > 0) parts.push(`${caseCount} open confirmed-abuse case${caseCount === 1 ? "" : "s"}`);
+        if (brandPendingChecks > 0) parts.push(`${brandPendingChecks} candidate${brandPendingChecks === 1 ? "" : "s"} still awaiting DNS validation`);
+        if (parts.length) base.summary += ` ${parts.join("; ")}.`;
+      }
+      return base;
+    }
+    // ── Brand Protection: unfinished enrichment is not a clean watchlist ──────
+    // Some candidates have a conclusive DNS result and none of them resolves at
+    // high risk, but others have not been probed yet. A healthy conclusion over
+    // unfinished checks would read the backlog as absence; the domain stays
+    // provisional until every generated candidate has a result. Runs after
+    // positive findings (never hides one) and before every healthy conclusion.
+    if (brandValidation && brandPendingChecks > 0) {
+      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.coverage = "partial";
+      const checked = Number.isFinite(brandValidation.checked) ? brandValidation.checked : 0;
+      base.summary = `${brandPendingChecks} of ${checked + brandPendingChecks} lookalike candidates still await DNS validation; ${checked} checked, none resolving at high risk.`;
       return base;
     }
     // ── Email Protection: canonical DMARC contribution (ADR-003 §7) ──────────

@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.10.16-clean-app-shell.9d95bf7c5c24",
-  "closure_sha256": "9d95bf7c5c246d0cb7ea7fe5bd4c68cc9146279cd6cd6ac9c85f444a03fd7932",
-  "closure_file_count": 101,
-  "scan_api_file_count": 98,
+  "app_version": "2026.10.17-brand-decision-honesty.55a941dfac81",
+  "closure_sha256": "55a941dfac81245243756222948f1d62bebddc6c73fa0b66bf84f998ff593ca8",
+  "closure_file_count": 102,
+  "scan_api_file_count": 99,
   "files": [
     "shared/cyber-essentials-questions.js",
     "shared/exposure/catalog.js",
@@ -27,6 +27,7 @@
     "workers/scan-api/src/engines/brand-case-machine.js",
     "workers/scan-api/src/engines/brand-logo.js",
     "workers/scan-api/src/engines/brand-typosquat.js",
+    "workers/scan-api/src/engines/brand-validation-state.js",
     "workers/scan-api/src/engines/business-risk.js",
     "workers/scan-api/src/engines/case-workflow.js",
     "workers/scan-api/src/engines/ce-readiness.js",

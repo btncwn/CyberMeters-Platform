@@ -591,8 +591,11 @@ const parity = states.map(parityOutputs);
 // hash is unchanged and no mutation control is touched.
 // Attack Surface evidence and the current Shadow IT summary change the rendered
 // PDF and resolved states without changing the certificate evidence fixture.
-const GOLDEN_F13 = "ef880e52ffcf039c24e645c46ed9858c8ff9067b739d96991afbc4da1857091b";
-const GOLDEN_F14 = "0c4b1e71e2dc5dac204408d99349051c72ed57ed23954df31cb4311e1a6198af";
+// Brand decision honesty (17 Oct 2026) mints resolver 2026-10-17.1. This
+// certificate-only fixture has no brand candidate or enrichment state, so only
+// the methodology stamp and its PDF rendering move both goldens.
+const GOLDEN_F13 = "9d66849d1b3e8c6bf9b7fc618ca173e4bc5ea21031ff5f3cf4705a52533be4e0";
+const GOLDEN_F14 = "a6d281735470691a509840d9ff6234fde3997e2d6a611b7d3b64f0a28162d8fc";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

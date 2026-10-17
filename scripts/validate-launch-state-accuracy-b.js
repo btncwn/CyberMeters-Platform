@@ -12,10 +12,16 @@ const { computeScore } = await import(engine("scoring.js"));
 const { projectPhase5ScanRowsForCustomer } = await import(engine("phase5-evidence.js"));
 const { runVendorRelationshipModule } = await import(engine("vendor-relationship.js"));
 const { upsertVendorRelationships } = await import(engine("scan-engine.js"));
+const { upsertBrandAssets } = await import(engine("asset-persistence.js"));
 const {
   projectUnvalidatedBrandReportForCustomer,
   projectUnvalidatedBrandSnapshotForCustomer,
 } = await import(engine("brand-candidate-presentation.js"));
+const {
+  deriveBrandValidation, loadBrandValidationState, brandCandidateIsLive,
+  selectBrandValidationAssetsSql, selectBrandOpenAbuseCasesSql,
+} = await import(engine("brand-validation-state.js"));
+import fs from "node:fs";
 
 let passed = 0;
 let failed = 0;
@@ -190,6 +196,187 @@ check("CM-P1-006 validated high-risk candidate still surfaces",
   domainState(reportWith({ brand_monitoring: { ...unvalidated, candidates_validated: true } }, [legacyCandidateFinding]), "brand_protection") === "issue_detected");
 check("CM-P1-006 failed candidate module is evidence insufficient",
   domainState(reportWith({ brand_monitoring: { ...unvalidated, domains: [], error: "analysis failed" } }), "brand_protection") === "evidence_insufficient");
+
+// ── CM-P1-007: the Brand decision reads the enrichment state ─────────────────
+// The scan module is pure and marks candidates unvalidated; the hourly DNS and
+// daily HTTPS enrichment live in workspace_brand_assets. The scan must read
+// that state back into its decision: a resolving high-risk candidate or an open
+// confirmed-abuse case is a finding, an unchecked candidate is never a finding
+// and never inactive, and unfinished checks never read as a clean watchlist.
+const enrichmentAt = "2026-10-17T00:00:00.000Z";
+const generated = {
+  brand: "fixture", total_candidates_generated: 3, candidates_validated: false, source: "typosquat_analysis", error: null,
+  risk_summary: { critical: 1, high: 1, medium: 1, low: 0 },
+  domains: [
+    { candidate_domain: "fixture-login.example", variant_type: "prefix_keyword", risk_level: "high", risk_reasons: ["login keyword"], confidence: 40, validation_quality: "weak" },
+    { candidate_domain: "fixtvre.example", variant_type: "substitution", risk_level: "critical", risk_reasons: ["one character"], confidence: 40, validation_quality: "weak" },
+    { candidate_domain: "fixture.co", variant_type: "tld_variation", risk_level: "medium", risk_reasons: ["other TLD"], confidence: 40, validation_quality: "weak" },
+  ],
+};
+const brandFindingsOf = (mod) => computeScore({ brand_monitoring: mod }, "fixture.example").findings
+  .filter((finding) => /^brand_/.test(finding.id || ""));
+const brandEntry = (mod, findings = []) => resolveCyberMotDomainStates(reportWith({ brand_monitoring: mod }, findings))
+  .find((entry) => entry.domain_key === "brand_protection");
+const row = (candidate_domain, dns_resolves, extra = {}) => ({
+  candidate_domain, dns_resolves, https_available: null, classification: "unreviewed", risk_level: "high", status: "unverified",
+  last_checked_at: dns_resolves === null ? null : enrichmentAt, ...extra,
+});
+
+const unchecked3 = deriveBrandValidation(generated, { assetRows: [row("fixture-login.example", null)], caseRows: [], checkedAt: enrichmentAt });
+check("CM-P1-007 unchecked watchlist stays unvalidated",
+  unchecked3.candidates_validated === false && unchecked3.validation?.state === "unchecked" &&
+  unchecked3.validation.unchecked === 3 && unchecked3.validation.checked === 0 &&
+  unchecked3.domains.every((c) => c.dns_resolves === null && c.enrichment_status === "unchecked") &&
+  brandFindingsOf(unchecked3).length === 0);
+const uncheckedEntry = brandEntry(roundTrip(unchecked3));
+check("CM-P1-007 unchecked watchlist reads provisional, never inactive or healthy",
+  uncheckedEntry?.state === "provisional" && uncheckedEntry.coverage === "partial" &&
+  /none has a DNS result/.test(uncheckedEntry.summary) && !/inactive/i.test(uncheckedEntry.summary));
+
+const liveRows = [
+  row("fixture-login.example", 1, { https_available: 1 }),
+  row("fixtvre.example", 0),
+  row("fixture.co", 1),
+];
+const live = deriveBrandValidation(generated, { assetRows: liveRows, caseRows: [], checkedAt: enrichmentAt });
+check("CM-P1-007 enrichment state is merged per candidate",
+  live.candidates_validated === true && live.validation.state === "complete" &&
+  live.validation.checked === 3 && live.validation.unchecked === 0 &&
+  live.validation.active === 2 && live.validation.active_high_risk === 1 && live.validation.https_served === 1 &&
+  live.domains[0].dns_resolves === 1 && live.domains[0].https_available === 1 && live.domains[0].enrichment_status === "active" &&
+  live.domains[1].dns_resolves === 0 && live.domains[1].enrichment_status === "inactive" &&
+  live.domains[0].last_checked_at === enrichmentAt);
+const liveFindings = brandFindingsOf(live);
+check("CM-P1-007 live high-risk candidate is a scored finding",
+  liveFindings.length === 1 && liveFindings[0].id === "brand_lookalike_detected" &&
+  liveFindings[0].finding_type === "finding" && liveFindings[0].severity === "high" &&
+  liveFindings[0].evidence.some((item) => item.label === "DNS Resolves" && /^yes/.test(item.value)) &&
+  liveFindings[0].evidence.some((item) => item.label === "HTTPS" && item.value === "served") &&
+  /own DNS probe resolved it/.test(liveFindings[0].description) &&
+  !/(phishing|malicious|attacker|compromise)/i.test(`${liveFindings[0].title} ${liveFindings[0].description}`));
+check("CM-P1-007 inactive critical candidate is not a finding",
+  !liveFindings.some((finding) => /fixtvre/.test(finding.title)) && !brandCandidateIsLive(live.domains[1]));
+const liveBrandReport = roundTrip(reportWith({ brand_monitoring: live }, liveFindings));
+const liveEntry = brandEntry(liveBrandReport.modules.brand_monitoring, liveBrandReport.findings);
+check("CM-P1-007 live candidate turns the card to issue_detected",
+  liveEntry?.state === "issue_detected" && liveEntry.coverage === "complete" && liveEntry.finding_count === 1 &&
+  /1 high-risk lookalike resolving in DNS/.test(liveEntry.summary));
+const liveSnapshot = snapshot({ ...liveBrandReport, cyber_metrics_score: 70, risk_level: "moderate", monitoring_states: oldCandidateReport.monitoring_states });
+check("CM-P1-007 snapshot carries the validated finding and its score",
+  liveSnapshot.domains.find((entry) => entry.domain_key === "brand_protection")?.state === "issue_detected" &&
+  liveSnapshot.observed_findings.some((item) => item.finding_id === "brand_lookalike_detected" && item.finding_type === "finding") &&
+  liveSnapshot.overall.cyber_metrics_score === 70);
+
+const partial = deriveBrandValidation(generated, { assetRows: [row("fixtvre.example", 0)], caseRows: [], checkedAt: enrichmentAt });
+const partialEntry = brandEntry(roundTrip(partial), brandFindingsOf(partial));
+check("CM-P1-007 partially validated watchlist stays provisional",
+  partial.candidates_validated === true && partial.validation.state === "partial" && partial.validation.unchecked === 2 &&
+  brandFindingsOf(partial).length === 0 &&
+  partialEntry?.state === "provisional" && partialEntry.coverage === "partial" &&
+  /2 of 3 lookalike candidates still await DNS validation; 1 checked/.test(partialEntry.summary));
+
+const allInactive = deriveBrandValidation(generated, {
+  assetRows: [row("fixture-login.example", 0), row("fixtvre.example", 0), row("fixture.co", 0)], caseRows: [], checkedAt: enrichmentAt,
+});
+const allInactiveReport = roundTrip({ ...reportWith({ brand_monitoring: allInactive }), monitoring_states: oldCandidateReport.monitoring_states });
+check("CM-P1-007 fully checked inactive watchlist can read healthy",
+  allInactive.validation.state === "complete" && brandFindingsOf(allInactive).length === 0 &&
+  domainState(allInactiveReport, "brand_protection") === "assessed_healthy");
+
+const closed = deriveBrandValidation(generated, {
+  assetRows: [row("fixture-login.example", 1, { classification: "false_positive" }), row("fixtvre.example", 0), row("fixture.co", 0)],
+  caseRows: [], checkedAt: enrichmentAt,
+});
+check("CM-P1-007 customer-closed live candidate is not a finding",
+  closed.validation.closed_by_customer === 1 && closed.validation.active_high_risk === 0 &&
+  brandFindingsOf(closed).length === 0 && !brandCandidateIsLive(closed.domains[0]));
+
+const caseRow = { id: "case_fixture", candidate_domain: "fixture-login.example", severity: "high", status: "confirmed_abuse" };
+const withCase = deriveBrandValidation(generated, { assetRows: [], caseRows: [caseRow], checkedAt: enrichmentAt });
+const caseFindings = brandFindingsOf(withCase);
+check("CM-P1-007 open confirmed-abuse case is a finding",
+  withCase.candidates_validated === true && withCase.validation.open_abuse_cases === 1 &&
+  withCase.domains[0].open_abuse_case?.case_id === "case_fixture" &&
+  caseFindings.length === 1 && /Confirmed brand abuse under management/.test(caseFindings[0].title) &&
+  caseFindings[0].evidence.some((item) => item.label === "Managed Case" && item.value === "case_fixture") &&
+  /registrar or provider actions it/.test(caseFindings[0].description));
+const caseEntry = brandEntry(roundTrip(withCase), caseFindings);
+check("CM-P1-007 open case turns the card to issue_detected even with unchecked candidates",
+  caseEntry?.state === "issue_detected" && caseEntry.coverage === "partial" &&
+  /1 open confirmed-abuse case/.test(caseEntry.summary) && /3 candidates still awaiting DNS validation/.test(caseEntry.summary));
+const triageOnly = deriveBrandValidation(generated, { assetRows: [], caseRows: [{ ...caseRow, status: "triage" }], checkedAt: enrichmentAt });
+const resolvedOnly = deriveBrandValidation(generated, { assetRows: [], caseRows: [{ ...caseRow, status: "resolved" }], checkedAt: enrichmentAt });
+check("CM-P1-007 unconfirmed or resolved case is not a finding",
+  triageOnly.candidates_validated === false && resolvedOnly.candidates_validated === false &&
+  brandFindingsOf(triageOnly).length === 0 && brandFindingsOf(resolvedOnly).length === 0);
+const orphanCase = deriveBrandValidation(generated, { assetRows: [], caseRows: [{ ...caseRow, candidate_domain: "older-fixture.example" }], checkedAt: enrichmentAt });
+check("CM-P1-007 open case for an older candidate still counts",
+  orphanCase.domains.length === 4 && orphanCase.validation.open_abuse_cases === 1 &&
+  brandFindingsOf(orphanCase).some((finding) => /older-fixture\.example/.test(finding.title)));
+
+const persistedBinds = [];
+const persistenceDb = { prepare: (sql) => ({ bind: (...args) => {
+  persistedBinds.push(args);
+  return {
+    all: async () => ({ results: /FROM workspace_domains wd/.test(sql) ? [{ workspace_id: "ws_fixture", domain: "fixture.example" }] : [] }),
+    first: async () => null,
+    run: async () => ({ meta: { changes: 1 } }),
+  };
+} }) };
+await upsertBrandAssets("dom_fixture", orphanCase, { cybermeters_db: persistenceDb });
+const persistedCandidates = new Set(persistedBinds.flat().filter((value) => typeof value === "string" && /\.example$/.test(value)));
+check("CM-P1-007 case-only entries are never re-persisted as generated candidates",
+  orphanCase.domains[3]?.generated_this_scan === false &&
+  persistedCandidates.has("fixture-login.example") && !persistedCandidates.has("older-fixture.example"));
+
+const unavailable = deriveBrandValidation(generated, { checkedAt: enrichmentAt, unavailable: true, reason: "enrichment_state_read_failed" });
+const unavailableEntry = brandEntry(roundTrip(unavailable));
+check("CM-P1-007 unreadable enrichment state fails closed",
+  unavailable.candidates_validated === false && unavailable.validation.state === "unavailable" &&
+  brandFindingsOf(unavailable).length === 0 &&
+  unavailableEntry?.state === "provisional" && /could not be read/.test(unavailableEntry.summary));
+const failedModule = deriveBrandValidation({ ...generated, error: "analysis failed" }, { assetRows: liveRows, checkedAt: enrichmentAt });
+check("CM-P1-007 failed candidate generation never becomes validated",
+  failedModule.candidates_validated === false && failedModule.validation.state === "unavailable");
+
+function mockBrandDb({ assets = [], cases = [], throwOn = null } = {}) {
+  const calls = [];
+  return { calls, prepare: (sql) => ({ bind: (...args) => ({ all: async () => {
+    calls.push({ sql, args });
+    const isCases = /FROM managed_cases/.test(sql);
+    if (throwOn === "any" || (throwOn === "cases" && isCases)) throw new Error("D1 unavailable");
+    return { results: isCases ? cases : assets };
+  } }) }) };
+}
+const db = mockBrandDb({ assets: liveRows, cases: [caseRow] });
+const loaded = await loadBrandValidationState({ cybermeters_db: db }, { workspaceId: "ws_fixture", domain: "fixture.example", brandModule: generated, now: enrichmentAt });
+check("CM-P1-007 scan-time read merges rows and cases through one derivation",
+  JSON.stringify(loaded) === JSON.stringify(deriveBrandValidation(generated, { assetRows: liveRows, caseRows: [caseRow], checkedAt: enrichmentAt })));
+check("CM-P1-007 enrichment reads are tenant-scoped and bounded",
+  db.calls.length === 2 &&
+  db.calls.every((call) => /w\.deleted_at IS NULL/.test(call.sql) && /LIMIT \d+/.test(call.sql) && call.args.includes("ws_fixture") && call.args.includes("fixture.example")) &&
+  /workspace_id = \?/.test(selectBrandValidationAssetsSql()) && /c\.workspace_id = \?/.test(selectBrandOpenAbuseCasesSql()) &&
+  /case_type = 'brand_abuse'/.test(selectBrandOpenAbuseCasesSql()) && /'confirmed_abuse'/.test(selectBrandOpenAbuseCasesSql()) &&
+  !/'triage'|'resolved'|'closed'|'false_positive'/.test(selectBrandOpenAbuseCasesSql()));
+const loadFailed = await loadBrandValidationState({ cybermeters_db: mockBrandDb({ throwOn: "any" }) }, { workspaceId: "ws_fixture", domain: "fixture.example", brandModule: generated, now: enrichmentAt });
+const loadNoDb = await loadBrandValidationState({}, { workspaceId: "ws_fixture", domain: "fixture.example", brandModule: generated, now: enrichmentAt });
+const loadNoWorkspace = await loadBrandValidationState({ cybermeters_db: db }, { workspaceId: null, domain: "fixture.example", brandModule: generated, now: enrichmentAt });
+check("CM-P1-007 read failure, missing database and missing workspace all fail closed",
+  [loadFailed, loadNoDb, loadNoWorkspace].every((mod) => mod.candidates_validated === false && mod.validation?.state === "unavailable") &&
+  loadFailed.validation.reason === "enrichment_state_read_failed" && loadNoDb.validation.reason === "database_unavailable" &&
+  loadNoWorkspace.validation.reason === "no_workspace_context");
+
+const legacyValidated = { candidates_validated: true, domains: [{ candidate_domain: "legacy-login.example", variant_type: "prefix_keyword", risk_level: "high", risk_reasons: ["legacy"] }] };
+check("CM-P1-007 legacy validated module without DNS fields still scores",
+  brandFindingsOf(legacyValidated).length === 1 && brandEntry(legacyValidated, brandFindingsOf(legacyValidated))?.state === "issue_detected");
+
+const scanEngineSource = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/scan-engine.js"), "utf8");
+const mergeAt = scanEngineSource.indexOf("modules.brand_monitoring = await loadBrandValidationState(env, {");
+const scoreAt = scanEngineSource.indexOf("computeScore(modules, domain)");
+check("CM-P1-007 scan merges enrichment state before scoring and before the report freezes",
+  mergeAt > 0 && scoreAt > mergeAt &&
+  /import \{ loadBrandValidationState \} from "\.\/brand-validation-state\.js";/.test(scanEngineSource) &&
+  /workspaceId, domain, brandModule: modules\.brand_monitoring,/.test(scanEngineSource));
 
 const completeInputs = {
   headers: { values: {} }, technology_detection: { external_scripts: [] },
