@@ -32,6 +32,8 @@ export const STATUS_VOCABULARY = Object.freeze({
   established:           { label: 'Established',           tone: 'filled' },
   stale:                 { label: 'Stale',                  tone: 'hollow' },
   action_required:       { label: 'Action required',       tone: 'red' },
+  // Awaiting the customer is hollow aqua (founder, 17 Oct 2026): not red, not filled.
+  customer_input:        { label: 'Customer input required', tone: 'hollow' },
   in_progress:           { label: 'In progress',           tone: 'hollow' },
   ready_to_verify:       { label: 'Ready to verify',       tone: 'indigo' },
   verified:              { label: 'Verified',              tone: 'filled' },
@@ -75,7 +77,7 @@ const DOMAIN_STATE_WORD = Object.freeze({
   assessed_healthy:        'established',
   monitoring_only:         'established',
   issue_detected:          'action_required',
-  customer_input_required: 'action_required',
+  customer_input_required: 'customer_input',
 })
 
 // Words that mean "something stands"; backend-stale evidence overrides them.
