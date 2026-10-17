@@ -84,3 +84,49 @@ describe('Scan Information panel', () => {
     expect(within(panel).getByTestId('scan-band-chip')).toHaveTextContent('Good')
   })
 })
+
+// Score honesty (follow-up PR, 17 Oct 2026): a partial or band-withheld score is
+// never a headline "100 / 100" — the backend's explanation reads first and the
+// number follows, small and labelled provisional.
+const withheldAssessment = { quality: 'partial', provisional: true, authoritative: false, comparable: false, display_score: 100, display_rating: null, message: 'The Cyber Metrics Score is withheld because attack surface did not complete this scan.' }
+const establishedAssessment = { quality: 'complete', provisional: false, authoritative: true, comparable: true, display_score: 82, display_rating: 'good' }
+const scoreScan = (over = {}) => ({ ...scan, score: 100, rating: 'excellent', scan_quality: 'partial', ...over })
+const scoreReport = (assessment) => ({ ...report, cyber_metrics_score: assessment.display_score, risk_level: assessment.display_rating, assessment, scan_quality: { status: assessment.quality } })
+async function renderScore(s, r) {
+  api.getScan.mockResolvedValue({ scan: s, report_availability: { status: 'report_ready', retryable: false } })
+  api.getScanReport.mockResolvedValue(r)
+  api.getExecutiveReportV2.mockRejectedValue(new Error('not in this fixture'))
+  api.getFindingWaivers.mockResolvedValue({ waivers: [] })
+  render(<MemoryRouter initialEntries={[`/scans/${s.id}`]}><Routes><Route path="/scans/:id" element={<ScanDetail />} /></Routes></MemoryRouter>)
+  await screen.findByText('Scan Information')
+  await waitFor(() => expect(api.getScanReport).toHaveBeenCalled())
+  return screen.getByText('Scan Information').closest('.card')
+}
+
+describe('Scan Information — score honesty', () => {
+  it('partial + withheld: explanation first, no headline 100 / 100, the number small and labelled provisional', async () => {
+    const panel = await renderScore(scoreScan(), scoreReport(withheldAssessment))
+    expect(within(panel).queryByTestId('scan-score-headline')).toBeNull()
+    expect(within(panel).queryByText('100 / 100', { selector: '.font-bold' })).toBeNull()
+    const block = within(panel).getByTestId('scan-score-withheld')
+    const explanation = within(block).getByText(withheldAssessment.message)
+    const number = within(block).getByText('100 / 100')
+    expect(explanation.compareDocumentPosition(number) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(number.parentElement).toHaveClass('text-xs')
+    expect(number.parentElement).toHaveTextContent('provisional')
+    expect(within(panel).getByText('Provisional Score')).toBeInTheDocument()
+    expect(within(panel).getByTestId('scan-band-chip')).toHaveTextContent('Withheld until a complete scan')
+    // The technical report hero follows the same rule.
+    const hero = screen.getByTestId('hero-score-withheld')
+    expect(hero).toHaveTextContent(withheldAssessment.message)
+    expect(hero).toHaveTextContent('Provisional score 100 / 100')
+    expect(screen.queryByText('/100')).toBeNull()
+  })
+
+  it('an established score stays a headline', async () => {
+    const panel = await renderScore(scoreScan({ scan_quality: 'complete', score: 82, rating: 'good' }), scoreReport(establishedAssessment))
+    expect(within(panel).getByTestId('scan-score-headline')).toHaveTextContent('82 / 100')
+    expect(within(panel).queryByTestId('scan-score-withheld')).toBeNull()
+    expect(within(panel).getByTestId('scan-band-chip')).toHaveTextContent('Good')
+  })
+})

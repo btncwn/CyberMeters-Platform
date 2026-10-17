@@ -71,8 +71,14 @@ const EXPECTED = Object.freeze({
     // fingerprint is unchanged.
     // HTTP/TLS phase split: one domain-local status membership check was added;
     // the two-tree semantic diff shows all preceding runtime comparisons retained.
-    comparison_occurrences: 59,
-    source_file_count: 26,
+    // SCORE-HONESTY SUCCESSION (follow-up PR, 18 Oct 2026): 59 -> 60 across 26 -> 27
+    // files. ONE comparison added in the new presentation helper
+    // frontend/src/lib/scoreHonesty.js — `PARTIAL.has(String(scanQuality || '').toLowerCase())`,
+    // the partial/degraded check that keeps a withheld score from being a
+    // headline. Two-tree --dump-current diff (origin/main vs this head) keyed by
+    // file:kind:slot:snippet shows no other comparison delta.
+    comparison_occurrences: 60,
+    source_file_count: 27,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -110,7 +116,7 @@ const EXPECTED = Object.freeze({
     // pinned, so real additions/removals still fail while line-only edits do not.
     // TLS release: the historical customer projector consumes effective
     // quality, and the aggregate now checks the projected complete state.
-    fingerprint: "d46ea12facb0d39f31f552e03890067fcc461ddf51627bb1eb54dd8d281bf401",
+    fingerprint: "680c43dd29b42e0e0c408bfa2589a8c5c687d46e614ca93a32f85bd1482d87e7",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -212,7 +218,8 @@ const EXPECTED = Object.freeze({
   // runtime source set, 33 -> 32.
   // TLS quality: the new quality projector joins the runtime set, 33 -> 34.
   // MCP discovery, status, and projection routes join the governed runtime set.
-  runtime_source_file_count: 37,
+  // 37 -> 38: frontend/src/lib/scoreHonesty.js (score-honesty succession above).
+  runtime_source_file_count: 38,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -273,7 +280,12 @@ const EXPECTED = Object.freeze({
     // Honesty status adds one direct scan.scan_quality read in the same file
     // (#9) so the sidebar and title agree on partial results. Relative to
     // current main, the two-tree direct-read diff has this sole addition.
-    runtime: { occurrence_count: 127, source_file_count: 47, fingerprint: "34b71f645041bd921b6f7fa718731e8f9b29b5cf3808bb847e2acc2a0b4a3055" },
+    // SCORE-HONESTY SUCCESSION (follow-up PR, 18 Oct 2026): 127 -> 130 across 47 -> 48
+    // files. Three presentation reads added, none removed (same two-tree diff):
+    // scoreHonesty.js destructures `scanQuality`, and ScanDetail.jsx passes
+    // `report?.scan_quality` / `scan?.scan_quality` to it — the backend's recorded
+    // quality, never a verdict decided here.
+    runtime: { occurrence_count: 130, source_file_count: 48, fingerprint: "0cefe718d59e4db10af81b7dca6dd43fe60f66d33ec8da232742b4f9d40afa69" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -395,7 +407,8 @@ const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
 // without deciding a security status. They are keyed by file, line and snippet;
 // a move, duplicate or wording change fails the classification gate.
 const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
-  ["frontend/src/components/ExecutiveReportV2.jsx:247:value !== ''",
+  // 247 -> 248: the score-honesty import added one line above (follow-up PR); same check.
+  ["frontend/src/components/ExecutiveReportV2.jsx:248:value !== ''",
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;

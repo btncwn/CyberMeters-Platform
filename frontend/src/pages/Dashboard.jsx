@@ -489,17 +489,18 @@ export default function Dashboard() {
                 className="flex items-center gap-4 px-6 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors group"
               >
                 <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
-                {/* Show real score if available */}
-                {scanAssessment.score !== null && (
-                  <span className={`text-sm font-bold shrink-0 ${scanAssessment.authoritative ? 'text-brand-700' : 'text-brand-700 rounded-md border-[1.5px] border-brand-700 px-1.5'}`}>
-                    {scanAssessment.score}{scanAssessment.authoritative ? '' : ' provisional'}
-                  </span>
-                )}
+                {/* Explanation first: the state word leads; a provisional number
+                    follows small and labelled, never as a headline. */}
                 <span className="flex items-center gap-1.5 text-xs text-gray-500">
                   <span>{scan.status === 'completed' && !scanAssessment.authoritative
                     ? scan.scan_quality === 'complete' ? 'Provisional result' : 'Partial results'
                     : scan.status}</span>
                 </span>
+                {scanAssessment.score !== null && (
+                  <span className={`shrink-0 ${scanAssessment.authoritative ? 'text-brand-700' : 'text-brand-700 rounded-md border-[1.5px] border-brand-700 px-1.5'} ${scanAssessment.authoritative ? 'text-sm font-bold' : 'text-xs font-medium py-0.5'}`}>
+                    {scanAssessment.score}{scanAssessment.authoritative ? '' : ' provisional'}
+                  </span>
+                )}
                 <span className="text-xs text-gray-400 hidden sm:block shrink-0">{formatDate(scan.created_at)}</span>
               </li>
               )
