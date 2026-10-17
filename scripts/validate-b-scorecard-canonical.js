@@ -418,7 +418,7 @@ ok("SAN_B_F19", emptyScorecard !== null && emptyScorecard.certificate_risks != n
 
 const frontendCertificateSources = [
   "frontend/src/pages/Dashboard.jsx",
-  "frontend/src/pages/ws/WorkspaceDashboard.jsx",
+  "frontend/src/components/overview/SecurityOverview.jsx",
 ].map((relative) => fs.readFileSync(path.join(ROOT, relative), "utf8")).join("\n");
 ok("SAN_B_F21", !/\b(?:risk_signals|informational_observations)\b/.test(frontendCertificateSources));
 {

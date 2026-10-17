@@ -258,9 +258,10 @@ const send = (ws, severity = "high") => sendTenantAlertEmail(env, ws, { subject:
   const digestRefs = files.filter((f) => /daily_digest/.test(stripComments(fs.readFileSync(f, "utf8"))));
   eq(`no backend CODE references daily_digest any more (${digestRefs.map((f) => path.basename(f)).join(", ") || "none"})`, digestRefs.length, 0);
 
-  const settings = stripComments(fs.readFileSync(path.join(root, "frontend", "src", "pages", "SettingsPage.jsx"), "utf8"));
-  ok("Settings no longer offers a Daily digest option", !/daily_digest/.test(settings));
-  ok("Settings no longer promises a daily summary email",
+  // The preferences card moved from the retired Settings page to Account → Notifications (17 Oct 2026).
+  const settings = stripComments(fs.readFileSync(path.join(root, "frontend", "src", "components", "NotificationPreferencesCard.jsx"), "utf8"));
+  ok("Notification preferences no longer offer a Daily digest option", !/daily_digest/.test(settings));
+  ok("Notification preferences no longer promise a daily summary email",
      !/summary email per day/i.test(settings) && !/Daily digest/i.test(settings));
 }
 
