@@ -788,7 +788,9 @@ await withEngineFetchFixture(async () => {
   };
   const q = buildScanQuality(modules);
   eq("deferred non-core module → scan_quality partial", q.status, "partial");
-  ok("deferred module listed as skipped", q.modules_skipped.includes("known_exploited_vulnerabilities"));
+  ok("deferred module listed as incomplete, not skipped",
+    q.modules_incomplete.some((item) => item.module === "known_exploited_vulnerabilities") &&
+    !q.modules_skipped.includes("known_exploited_vulnerabilities"));
   ok("a warning names the incomplete module", q.warnings.some((w) => /known_exploited_vulnerabilities/.test(w)));
   // Completed modules are untouched and still present with their real values.
   eq("completed dns survives", modules.dns.resolves, true);

@@ -299,9 +299,10 @@ const EXPECTED = Object.freeze({
     // Load lab: 116 -> 118 across 36 -> 37 files — scripts/lab/load-lab.mjs reads
     // each finished scan's recorded quality to report how many were partial.
     // Two MCP read assertions add governed direct reads in two test files.
-    // Exposure report tests add two governance reads in one validator source;
-    // runtime direct reads remain 127 across 47 files, and SQL remains 24.
-    governance: { occurrence_count: 129, source_file_count: 42, fingerprint: "28d42024b33fab36e549233deb6292ab9b123355b9c27a2061273cd5d32ab5ee" },
+    // Exposure report tests add two governance reads; the Phase-5 fixture now
+    // reads modules_incomplete twice to distinguish attempted from skipped.
+    // Runtime direct reads remain 127 across 47 files, and SQL remains 24.
+    governance: { occurrence_count: 131, source_file_count: 42, fingerprint: "0a89572f25c1eef08d0061e98b372aba41a48c6ef55d735bb8f5a8b6b10ab6e5" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -395,7 +396,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-cert-trust-l2.js:232:routeCert?.tls_assessment?.quality === \"partial\"",
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
-  "scripts/validate-phase5-evidence-honesty.js:234:presentation.quality === \"partial\"",
+  "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",
   "scripts/validate-signal-monitoring-state.js:276:degraded.quality === \"degraded\"",
   // The lab's measurements: the certificate world's unreachable-certificate scan
   // is partial, and the load lab counts partial scans. Both read the quality the
