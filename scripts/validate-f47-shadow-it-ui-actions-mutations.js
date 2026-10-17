@@ -31,8 +31,8 @@ const SUITES = [
 // persisted-domain fixtures the original suite never exercised), then 55 -> 59 in
 // successor-2, which added the measured serializer-boundary fixtures: the empty
 // string is normalized to null, and each claimed non-empty value is demonstrated
-// as passing through.
-const EXPECTED_TOTAL = 59;
+// as passing through. The inventory source and history cases add two assertions.
+const EXPECTED_TOTAL = 61;
 
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const abs = (rel) => path.join(root, rel);
@@ -43,7 +43,7 @@ const write = (rel, v) => fs.writeFileSync(abs(rel), v);
 // Returns { ok, failed: [names], total, transformError }.
 function runSuites() {
   const out = path.join(os.tmpdir(), `f47-vitest-${crypto.randomUUID()}.json`);
-  const r = spawnSync("npx", ["vitest", "run", "--reporter=json", `--outputFile=${out}`, ...SUITES], {
+  const r = spawnSync("npx", ["vitest", "run", "--configLoader", "runner", "--reporter=json", `--outputFile=${out}`, ...SUITES], {
     cwd: abs("frontend"), encoding: "utf8", timeout: 600000,
   });
   if (r.error || r.signal) return { ok: false, failed: [], total: 0, transformError: true };
