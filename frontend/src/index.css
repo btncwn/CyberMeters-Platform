@@ -657,6 +657,9 @@
    bottom 18, 108px → centre 76px from the right edge, 72px from the bottom). */
 .cm-notif {
   position: fixed; right: 30px; bottom: 135px; width: 360px; max-width: calc(100vw - 32px);
+  /* Never under the 68px top bar: the panel is capped to the space between
+     the bar and the dock (68 + 135 + a 16px gap); the list inside scrolls. */
+  max-height: calc(100dvh - 219px);
   transform-origin: calc(100% - 46px) calc(100% + 63px);
   animation: cmNotifIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }

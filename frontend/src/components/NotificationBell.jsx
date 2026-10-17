@@ -224,11 +224,11 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
           aria-label="Notifications"
           data-testid="notification-panel"
           className={earth
-            ? 'cm-notif bg-white rounded-[22px] shadow-xl border border-gray-100 z-50 overflow-hidden'
-            : 'fixed left-4 right-4 mt-2 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden'}
+            ? 'cm-notif flex flex-col bg-white rounded-[22px] shadow-xl border border-gray-100 z-50 overflow-hidden'
+            : 'fixed left-4 right-4 mt-2 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:w-80 max-h-[calc(100dvh-140px)] flex flex-col bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden'}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          {/* Header — fixed within the panel; the list below scrolls. */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-900 text-sm">Notifications</span>
               {hasUnread && (
@@ -257,8 +257,11 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
             </div>
           </div>
 
-          {/* Notification list */}
-          <div className="max-h-[420px] overflow-y-auto">
+          {/* Notification list — the only part that scrolls. The panel itself is
+              capped to the space between the top bar and the dock (CSS .cm-notif /
+              the dropdown max-height), so with 30 items the header and footer stay
+              on screen and the panel never sits under the top bar. */}
+          <div className="flex-1 min-h-0 max-h-[420px] overflow-y-auto" data-testid="notification-list">
             {loadError && !hasLoadedSuccessfully ? (
               <div role="alert" className="px-4 py-8 text-center">
                 <p className="text-sm font-semibold text-gray-700">We couldn’t load notifications.</p>
@@ -374,8 +377,8 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
             )}
           </div>
 
-          {/* Footer */}
-          <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between">
+          {/* Footer — fixed within the panel. */}
+          <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between shrink-0">
             <p className="text-xs text-gray-300">
               {notifications.length > 0
                 ? `${notifications.length} shown · refreshes every 60s`
