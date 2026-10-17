@@ -277,7 +277,8 @@ function consentHeaders(headers) {
   headers.set("Content-Security-Policy", "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
   headers.set("X-Frame-Options", "DENY");
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Referrer-Policy", "no-referrer");
+  // Keep the intent URL off cross-origin requests while preserving Origin on the same-origin consent POST.
+  headers.set("Referrer-Policy", "same-origin");
   return headers;
 }
 
