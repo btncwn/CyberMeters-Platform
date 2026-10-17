@@ -8,7 +8,7 @@ import { MODULES } from '../../lib/moduleRegistry'
 // popover tests live in WorkspaceMenu.test.jsx and the sheet in AreaMenu.test.jsx.
 
 describe('WorkspaceNav (area list)', () => {
-  it('lists the eight canonical areas in founder order, agreeing with the module registry', () => {
+  it('lists the eight canonical domains in founder order, agreeing with the module registry', () => {
     expect(SERVICES.map(s => s.title)).toEqual([
       'Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure',
       'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness',

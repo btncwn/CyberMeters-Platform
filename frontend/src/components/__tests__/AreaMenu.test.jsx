@@ -68,7 +68,7 @@ describe('<AreaMenu>', () => {
     expect(screen.getByTestId('area-state-website_security')).toHaveTextContent('Action required')
     expect(screen.getByTestId('area-state-shadow_it_unmanaged_technology')).toHaveTextContent('Established')
     expect(screen.getByTestId('area-state-certificates_trust')).toHaveTextContent('Established')
-    expect(screen.getByTestId('area-state-cyber_essentials_readiness')).toHaveTextContent('Action required')
+    expect(screen.getByTestId('area-state-cyber_essentials_readiness')).toHaveTextContent('Customer input required')
     expect(api.getCyberMotDomains).toHaveBeenCalledWith('ws1')
   })
 
