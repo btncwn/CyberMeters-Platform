@@ -73,7 +73,7 @@ describe('ModuleContract — head and tabs', () => {
     expect(tabs.map(t => t.textContent)).toEqual(MODULE_TABS.map(t => t.label))
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
     const tiles = within(screen.getByTestId('module-tiles')).getAllByRole('link')
-    expect(tiles.map(t => t.getAttribute('href'))).toEqual(['/ws/email-protection#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail'])
+    expect(tiles.map(t => t.getAttribute('href'))).toEqual(['/ws/email-protection#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail', '/ws/email-protection#connect-reporting', '/ws/email-protection#lifecycle-history'])
     // Overview (founder, 16 Oct 2026): the tiles and the summary card only — no
     // numbered strip, no findings, cases, verification or guide sections here.
     expect(screen.queryByTestId('body')).not.toBeInTheDocument()
@@ -103,6 +103,25 @@ describe('ModuleContract — head and tabs', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
     expect(screen.getByTestId('module-tiles')).toBeInTheDocument()
+  })
+
+  it('shows registry titles and links for latest finding IDs without exposing unknown raw IDs', async () => {
+    api.getCyberMotDomains.mockResolvedValueOnce({ cyber_mot_domains: eight({ email_protection: {
+      state: 'issue_detected', finding_count: 2, source_scan_id: 'scan_1',
+      finding_ids: ['email_missing_spf', 'unmapped_internal_key'],
+      finding_details: [{ finding_id: 'email_missing_spf', status: 'resolved', customer_title: 'Publish an SPF record', recommended_action: 'Publish the approved SPF record.', owner_type: 'customer_it', verification_method: 'dns_recheck' }, { finding_id: 'unmapped_internal_key', status: 'unmapped' }],
+    } }) })
+    renderPage('/ws/email-protection?tab=findings')
+    const list = await screen.findByTestId('latest-assessment-findings')
+    expect(within(list).getByText('Publish an SPF record')).toBeInTheDocument()
+    expect(within(list).getByText('Publish the approved SPF record.')).toBeInTheDocument()
+    expect(within(list).getByText('Owner: IT / DNS Administrator')).toBeInTheDocument()
+    expect(within(list).getByText('Finding title unavailable')).toBeInTheDocument()
+    expect(list).not.toHaveTextContent('unmapped_internal_key')
+    expect(within(list).getAllByRole('link', { name: /Open technical scan/ })).toHaveLength(2)
+    for (const link of within(list).getAllByRole('link', { name: /Open technical scan/ })) {
+      expect(link).toHaveAttribute('href', '/scans/scan_1?view=technical')
+    }
   })
 
   it('renders the page\'s overview blocks on Overview only, between the tiles and the summary card', () => {
@@ -206,7 +225,10 @@ describe('ModuleContract — head and tabs', () => {
     await waitFor(() => expect(api.getManagedCases).toHaveBeenCalled())
     const box = screen.getByRole('searchbox', { name: 'Filter pages and cases in this area' })
     fireEvent.change(box, { target: { value: 'sender' } })
-    expect(within(screen.getByTestId('module-tiles')).getAllByRole('link').map(t => t.textContent)).toEqual(['Sender InventoryEvery source seen sending as your domain'])
+    expect(within(screen.getByTestId('module-tiles')).getAllByRole('link').map(t => t.textContent)).toEqual([
+      'Sender InventoryEvery source seen sending as your domain',
+      'Lifecycle historyChanges to reporting and senders',
+    ])
     fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
     expect(screen.getByText('No case in this area matches the filter.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))

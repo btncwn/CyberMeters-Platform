@@ -33,6 +33,7 @@ import StatusChip from '../StatusChip'
 import { requestDomainStates, requestManagedCases, domainsRequestState } from '../overview/SecurityOverview'
 import { subpagesForDomainKey } from '../WorkspaceNav'
 import { moduleIcon } from '../shell/moduleIcons'
+import { OWNER_LABELS } from '../../data/remediation'
 
 export const MODULE_CONTRACT_SECTIONS = Object.freeze([
   { id: 'module-scope',          n: 1, label: 'Scope' },
@@ -276,6 +277,30 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   )
   const findingsSection = (
     <Section section={S['module-findings']} theme={theme}>
+      <div className="card p-5 mb-5" data-testid="latest-assessment-findings">
+        <h3 className="text-sm font-semibold text-gray-900">Findings in the latest assessment</h3>
+        {!read && <p className="text-sm text-gray-600 mt-2">{domainsRequest === 'loading' ? 'Reading the latest assessment…' : 'Findings could not be read.'}</p>}
+        {read && (!Array.isArray(entry.finding_ids) || entry.finding_ids.length === 0) && (
+          <p className="text-sm text-gray-600 mt-2">No finding IDs were recorded for this area in the latest assessment.</p>
+        )}
+        {read && Array.isArray(entry.finding_ids) && entry.finding_ids.length > 0 && (
+          <ul className="mt-3 space-y-3">
+            {entry.finding_ids.map((id) => {
+              const detail = entry.finding_details?.find((item) => item.finding_id === id)
+              const title = detail?.status === 'resolved' ? detail.customer_title : 'Finding title unavailable'
+              return <li key={id} className="border-t border-gray-100 pt-3 first:border-0 first:pt-0">
+                <p className="text-sm font-medium text-gray-900">{title}</p>
+                {detail?.status === 'resolved' && <>
+                  {detail.recommended_action && <p className="text-sm text-gray-600 mt-1">{detail.recommended_action}</p>}
+                  {detail.owner_type && <p className="text-xs text-gray-500 mt-1">Owner: {OWNER_LABELS[detail.owner_type] || detail.owner_type.replaceAll('_', ' ')}</p>}
+                  {detail.verification_method && <p className="text-xs text-gray-500">Verification: {detail.verification_method.replaceAll('_', ' ')}</p>}
+                </>}
+                {entry.source_scan_id && <Link className="text-xs font-medium text-brand-600 hover:underline" to={`/scans/${encodeURIComponent(entry.source_scan_id)}?view=technical`}>Open technical scan →</Link>}
+              </li>
+            })}
+          </ul>
+        )}
+      </div>
       {children}
     </Section>
   )
@@ -285,7 +310,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
         {recommendedAction}
         <p className="text-xs text-gray-600 leading-relaxed">
           {read
-            ? `${entry.recommendation_count ?? 0} recommendation${(entry.recommendation_count ?? 0) === 1 ? '' : 's'} recorded in the latest assessment. Each finding above carries the registry's recommended action, owner type and verification method; an unmapped finding says so rather than inventing one.`
+            ? `${entry.recommendation_count ?? 0} recommendation${(entry.recommendation_count ?? 0) === 1 ? '' : 's'} recorded in the latest assessment. Registered actions, owners and verification methods appear with the findings above; an unmapped finding has no invented advice.`
             : 'Recommended actions come from the canonical remediation registry for each finding; none can be shown until the area has been read.'}
         </p>
       </div>

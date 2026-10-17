@@ -5,6 +5,7 @@
 // route matches, or null so the main router continues.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
+import { resolveRemediation } from "../engines/remediation-registry.js";
 import { evidenceFreshness } from "../engines/cyber-mot-state-history.js";
 import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
 import { MATURITY_LEDGER_CONTRACT_VERSION, readWorkspaceMaturity, readDomainMaturityHistory } from "../engines/domain-maturity.js";
@@ -22,10 +23,18 @@ import {
 // evidenceFreshness the portfolio matrix uses) so a screen never has to
 // compute staleness itself. Not a posture verdict; a stale healthy must read
 // as stale, never as a current all-clear.
-function withEvidenceFreshness(domains) {
+export function withEvidenceFreshness(domains) {
   return domains.map((d) => {
     const f = evidenceFreshness(d.last_assessed_at ?? null);
-    return { ...d, evidence_freshness: f.freshness, evidence_age_days: f.age_days, freshness_reason: f.reason };
+    const finding_details = (d.finding_ids || []).map((finding_id) => {
+      const remediation = resolveRemediation({ finding_type: finding_id, domain_key: d.domain_key });
+      return remediation.status === "resolved" && remediation.applicable !== false
+        ? { finding_id, status: "resolved", customer_title: remediation.customer_title,
+            recommended_action: remediation.recommended_action, owner_type: remediation.owner_type,
+            verification_method: remediation.verification_method }
+        : { finding_id, status: "unmapped" };
+    });
+    return { ...d, evidence_freshness: f.freshness, evidence_age_days: f.age_days, freshness_reason: f.reason, finding_details };
   });
 }
 

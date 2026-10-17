@@ -76,6 +76,7 @@ describe('WorkspaceNav (module rail)', () => {
   it('exposes each area’s sub-pages as absolute tiles (anchors resolve against the area page)', () => {
     expect(subpagesForDomainKey('email_protection').map(t => t.to)).toEqual([
       '/ws/email-protection#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail',
+      '/ws/email-protection#connect-reporting', '/ws/email-protection#lifecycle-history',
     ])
     expect(subpagesForDomainKey('attack_surface')[0]).toEqual({ label: 'Timeline', desc: 'What appeared, changed or disappeared', to: '/exposure', anchor: false })
     // The scan intelligence page is reachable from the Attack Surface area (16 Oct 2026).

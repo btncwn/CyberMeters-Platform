@@ -3375,6 +3375,25 @@ function Toast({ toast, onClose }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+export function MxRecordsCard({ intelligence }) {
+  const records = intelligence?.starttls?.mx_records ?? intelligence?.mx_records
+  return <div className="card p-5" data-testid="email-mx-records">
+    <h3 className="text-sm font-semibold text-gray-900">MX records</h3>
+    {!Array.isArray(records) ? (
+      <p className="text-sm text-gray-500 mt-2">MX evidence was not available in this assessment.</p>
+    ) : records.length === 0 ? (
+      <p className="text-sm text-gray-500 mt-2">No MX records were recorded in this assessment.</p>
+    ) : (
+      <ul className="mt-2 space-y-1 text-sm text-gray-700">
+        {records.map((record, index) => <li key={`${record.host}-${record.priority}-${index}`} className="break-all">
+          {record.host || 'Host not recorded'}{record.priority != null && ` · priority ${record.priority}`}
+        </li>)}
+      </ul>
+    )}
+    <p className="text-xs text-gray-500 mt-2">These are DNS MX records from the scan. SMTP STARTTLS was not tested here.</p>
+  </div>
+}
+
 export default function WorkspaceEmailProtectionPage() {
   const { wsId, wsName } = useWorkspace()
 
@@ -3788,6 +3807,7 @@ export default function WorkspaceEmailProtectionPage() {
               <BimiCard readiness={es.bimi_readiness} />
               <MtaStsCard detail={es.mta_sts_detail} />
               <TlsRptCard detail={es.tls_rpt_detail} />
+              <MxRecordsCard intelligence={report?.modules?.email_security_intelligence} />
             </div>
           </section>
 
