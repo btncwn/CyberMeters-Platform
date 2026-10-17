@@ -73,10 +73,10 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
   return (
     <section aria-label="Recently deleted workspaces" className="space-y-3">
       {restored && (
-        <div role="status" className="rounded-xl border border-green-100 bg-green-50 p-4 flex items-start gap-3">
+        <div role="status" className="rounded-xl border border-brand-200 bg-brand-200 p-4 flex items-start gap-3">
           <div className="text-sm">
-            <p className="font-semibold text-green-800">“{restored.name}” was restored.</p>
-            <p className="text-green-700 mt-0.5">
+            <p className="font-semibold text-brand-700">“{restored.name}” was restored.</p>
+            <p className="text-brand-700 mt-0.5">
               {restored.note || 'Scheduled scans for its current domains are switched back on where your plan allows.'}
             </p>
           </div>
@@ -84,10 +84,10 @@ export default function DeletedWorkspacesPanel({ justDeleted = null, onRestored 
       )}
 
       {justDeletedItem && (
-        <div role="status" className="rounded-xl border border-amber-100 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div role="status" className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent p-4 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1 text-sm">
-            <p className="font-semibold text-amber-900">“{justDeletedItem.name}” was deleted.</p>
-            <p className="text-amber-800 mt-0.5">
+            <p className="font-semibold text-brand-700">“{justDeletedItem.name}” was deleted.</p>
+            <p className="text-brand-700 mt-0.5">
               {formatDeadline(justDeletedItem.restorable_until)
                 ? <>You can undo this before {formatDeadline(justDeletedItem.restorable_until)}. After that its data is permanently removed.</>
                 : <>You can undo this during the restore window. After that its data is permanently removed.</>}

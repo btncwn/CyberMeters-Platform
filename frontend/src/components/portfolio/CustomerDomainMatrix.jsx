@@ -84,7 +84,7 @@ export function CustomerRow({ row, onOpenCustomer }) {
           {scanId && (
             <Link to={`/scans/${encodeURIComponent(scanId)}`} className="font-semibold text-gray-500 hover:text-gray-800">Assessment</Link>
           )}
-          <button type="button" onClick={() => onOpenCustomer?.(row)} className="font-semibold text-brand-600 hover:text-brand-700">
+          <button type="button" onClick={() => onOpenCustomer?.(row)} className="font-semibold text-brand-700 hover:text-brand-800">
             Open customer
           </button>
         </div>
@@ -121,7 +121,7 @@ export default function CustomerDomainMatrix({ rows, request = 'ok', portfolioSt
             Each monitored domain with the state and trend its latest assessment recorded, highest priority first.
           </p>
         </div>
-        <Link to="/portfolio/domains" className="text-sm font-semibold text-brand-600 hover:text-brand-700 shrink-0">
+        <Link to="/portfolio/domains" className="text-sm font-semibold text-brand-700 hover:text-brand-800 shrink-0">
           Full domain view
         </Link>
       </div>

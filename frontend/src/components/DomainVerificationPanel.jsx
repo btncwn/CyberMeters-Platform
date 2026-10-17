@@ -24,7 +24,7 @@ function CopyButton({ value, label }) {
           setTimeout(() => setCopied(false), 1800)
         } catch { /* clipboard unavailable — the value is on screen to copy by hand */ }
       }}
-      className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors shrink-0"
+      className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 transition-colors shrink-0"
       aria-label={`Copy ${label}`}
     >
       {copied ? 'Copied' : <>Copy {label}</>}
@@ -96,7 +96,7 @@ export default function DomainVerificationPanel({ domain, dns, state, note, onVe
 
       {/* A failed check is a waiting state, not a dead end. */}
       {note && (
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 leading-relaxed">
+        <p className="text-xs text-brand-700 bg-transparent border border-[1.5px] border-brand-700 rounded-md px-3 py-2 leading-relaxed">
           {note}
         </p>
       )}

@@ -34,7 +34,7 @@ function FilterBtn({ active, onClick, children }) {
     <button
       onClick={onClick}
       className={active
-        ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white'
+        ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-200 text-brand-900'
         : 'px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 border border-gray-200'}
     >
       {children}
@@ -48,7 +48,7 @@ const COLUMNS = [
   { key: 'confidence', label: 'Confidence', render: v => <span className="capitalize text-gray-600 text-xs">{v}</span> },
   { key: 'risk_level', label: 'Risk',     render: v => <RiskBadge level={v} /> },
   { key: 'status',     label: 'Status',   render: v => (
-    <span className={`text-xs font-semibold capitalize ${v === 'active' ? 'text-brand-600' : 'text-gray-400'}`}>{v}</span>
+    <span className={`text-xs font-semibold capitalize ${v === 'active' ? 'text-brand-700' : 'text-gray-400'}`}>{v}</span>
   )},
   { key: 'last_seen',  label: 'Last Seen', render: v => v ? parseServerDate(v).toLocaleDateString() : '—' },
 ]

@@ -68,8 +68,8 @@ export default function CookiePolicyPage() {
           </Section>
 
           <Section title="3. Third-Party Cookies">
-            <p><strong className="text-gray-800">Cloudflare.</strong> Our platform is hosted on Cloudflare Pages and served via the Cloudflare global network. Cloudflare may set technical cookies as part of its DDoS protection and bot management infrastructure. These are essential for service security and delivery. See <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">Cloudflare's privacy policy</a> for details.</p>
-            <p><strong className="text-gray-800">Stripe.</strong> Our pricing and checkout pages embed elements from Stripe, Inc. for payment processing. Stripe may set cookies on these pages to prevent fraud and authenticate payment sessions. These are only active on pages where you initiate a subscription checkout. See <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">Stripe's privacy policy</a> for details.</p>
+            <p><strong className="text-gray-800">Cloudflare.</strong> Our platform is hosted on Cloudflare Pages and served via the Cloudflare global network. Cloudflare may set technical cookies as part of its DDoS protection and bot management infrastructure. These are essential for service security and delivery. See <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" className="text-brand-700 hover:underline">Cloudflare's privacy policy</a> for details.</p>
+            <p><strong className="text-gray-800">Stripe.</strong> Our pricing and checkout pages embed elements from Stripe, Inc. for payment processing. Stripe may set cookies on these pages to prevent fraud and authenticate payment sessions. These are only active on pages where you initiate a subscription checkout. See <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="text-brand-700 hover:underline">Stripe's privacy policy</a> for details.</p>
           </Section>
 
           <Section title="4. What We Do NOT Use Cookies For">
@@ -95,7 +95,7 @@ export default function CookiePolicyPage() {
           </Section>
 
           <Section title="7. Contact">
-            <p>For questions about this Cookie Policy, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline font-medium">hello@cybermeters.com</a></p>
+            <p>For questions about this Cookie Policy, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-700 hover:underline font-medium">hello@cybermeters.com</a></p>
           </Section>
         </article>
 

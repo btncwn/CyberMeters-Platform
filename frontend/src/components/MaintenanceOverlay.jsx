@@ -57,7 +57,7 @@ export default function MaintenanceOverlay() {
         <button
           onClick={checkLifted}
           disabled={checking}
-          className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-brand-700 disabled:opacity-60"
+          className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand-200 px-5 py-2.5 text-sm font-semibold text-brand-900 shadow-xs transition-colors hover:bg-brand-300 disabled:opacity-60"
         >
           {checking ? 'Checking…' : 'Check again'}
         </button>

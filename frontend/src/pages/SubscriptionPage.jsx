@@ -44,7 +44,7 @@ const PLAN_META = {
   },
   professional: {
     label:       'Professional',
-    color:       'text-brand-600',
+    color:       'text-brand-700',
     badge:       'bg-brand-50 text-brand-700 border-brand-200',
     ring:        'border-brand-200',
     description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, third-party technology detection, Executive Dashboard and audit logs.',
@@ -58,17 +58,17 @@ const PLAN_META = {
   },
   enterprise: {
     label:       'MSP',
-    color:       'text-amber-600',
-    badge:       'bg-amber-50 text-amber-700 border-amber-200',
-    ring:        'border-amber-200',
+    color:       'text-brand-700',
+    badge:       'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
+    ring:        'border-[1.5px] border-brand-700',
     description: 'For MSPs and advisors managing client portfolios — base fee plus per-domain pricing, sales-led onboarding.',
   },
 }
 
 const STATUS_CFG = {
   trialing:  { label: 'Trial',     dot: 'bg-blue-400',   pill: 'bg-blue-50 text-blue-700 border-blue-100'   },
-  active:    { label: 'Active',    dot: 'bg-green-400',  pill: 'bg-green-50 text-green-700 border-green-100' },
-  past_due:  { label: 'Past due',  dot: 'bg-amber-400',  pill: 'bg-amber-50 text-amber-700 border-amber-100' },
+  active:    { label: 'Active',    dot: 'bg-brand-700',  pill: 'bg-brand-200 text-brand-900 border-brand-200' },
+  past_due:  { label: 'Past due',  dot: 'bg-brand-700',  pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
   canceled:  { label: 'Cancelled', dot: 'bg-red-400',    pill: 'bg-red-50 text-red-700 border-red-100'       },
   expired:   { label: 'Expired',   dot: 'bg-red-400',    pill: 'bg-red-50 text-red-700 border-red-100'       },
   free:      { label: 'Free',      dot: 'bg-gray-300',   pill: 'bg-gray-50 text-gray-600 border-gray-100'    },
@@ -115,17 +115,17 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
   const urgent = daysLeft <= 3
   const warning = daysLeft <= 7 && !urgent
   const bg    = urgent  ? 'bg-red-50 border-red-200'    :
-                warning ? 'bg-amber-50 border-amber-200' :
+                warning ? 'bg-transparent border-[1.5px] border-brand-700' :
                           'bg-blue-50 border-blue-200'
   const textH = urgent  ? 'text-red-800'  :
-                warning ? 'text-amber-800' :
+                warning ? 'text-brand-700' :
                           'text-blue-800'
   const textB = urgent  ? 'text-red-600'  :
-                warning ? 'text-amber-600' :
+                warning ? 'text-brand-700' :
                           'text-blue-600'
   const btnBg = urgent  ? 'bg-red-600 hover:bg-red-700'     :
-                warning ? 'bg-amber-600 hover:bg-amber-700'  :
-                          'bg-brand-600 hover:bg-brand-700'
+                warning ? 'bg-brand-200 hover:bg-brand-300'  :
+                          'bg-brand-200 hover:bg-brand-300'
 
   const endDate = trialEnd ? parseServerDate(trialEnd).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'long', year: 'numeric',
@@ -164,7 +164,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
         </div>
         <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all ${urgent ? 'bg-red-500' : warning ? 'bg-amber-500' : 'bg-blue-500'}`}
+            className={`h-full rounded-full transition-all ${urgent ? 'bg-red-500' : warning ? 'bg-brand-700' : 'bg-blue-500'}`}
             style={{ width: `${((14 - daysLeft) / 14) * 100}%` }}
           />
         </div>
@@ -234,7 +234,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
         )}
         {shownGbp === null && plan === 'enterprise' && (
           <div className="text-right shrink-0">
-            <p className="text-lg font-black text-amber-700">{mspFloor != null ? `from £${mspFloor.toFixed(2)}` : 'Contact us'}</p>
+            <p className="text-lg font-black text-brand-700">{mspFloor != null ? `from £${mspFloor.toFixed(2)}` : 'Contact us'}</p>
             <p className="text-xs text-gray-400 font-medium">{mspFloor != null ? `${annualBilling ? '/ year' : '/ month'} · contact us` : 'sales-led'}</p>
           </div>
         )}
@@ -244,7 +244,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
         <button
           onClick={() => onUpgrade(upgradeTo)}
           disabled={checkoutLoading}
-          className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors disabled:opacity-60"
+          className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-brand-900 bg-brand-200 hover:bg-brand-300 rounded-xl transition-colors disabled:opacity-60"
         >
           {checkoutLoading
             ? <><RefreshCw className="w-4 h-4 animate-spin" /> {portalPlanChange ? 'Opening billing portal…' : 'Opening checkout…'}</>
@@ -257,13 +257,13 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
       {upgradeTo === 'enterprise' && (
         <a
           href="mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
-          className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
+          className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-brand-700 bg-transparent hover:bg-brand-50 border border-[1.5px] border-brand-700 rounded-xl transition-colors"
         >
           Contact Sales for MSP
         </a>
       )}
       {!upgradeTo && (
-        <div className="flex items-center gap-2 text-xs text-green-600 font-semibold">
+        <div className="flex items-center gap-2 text-xs text-brand-700 font-semibold">
           You're on our top plan
         </div>
       )}
@@ -356,7 +356,7 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
           <button
             onClick={() => onUpgrade(upgradeTo)}
             disabled={checkoutLoading}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition-colors disabled:opacity-60"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-brand-900 bg-brand-200 hover:bg-brand-300 rounded-xl transition-colors disabled:opacity-60"
           >
             {checkoutLoading
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Opening checkout…</>
@@ -366,7 +366,7 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
         ) : (
           <a
             href="mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
-            className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition-colors"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-brand-900 bg-brand-200 hover:bg-brand-300 rounded-xl transition-colors"
           >
             Contact Sales for MSP
           </a>
@@ -627,7 +627,7 @@ export default function SubscriptionPage() {
       {/* ── Stripe return banners ── */}
       {activation === 'activating' && (
         <div className="flex items-center gap-3 bg-brand-50 border border-brand-100 rounded-2xl px-4 py-3" role="status">
-          <RefreshCw className="w-5 h-5 text-brand-600 shrink-0 animate-spin" />
+          <RefreshCw className="w-5 h-5 text-brand-700 shrink-0 animate-spin" />
           <div>
             <p className="text-sm font-bold text-gray-900">Checkout complete — activating your plan…</p>
             <p className="text-xs text-gray-600 mt-0.5">This usually takes a few seconds. Please don't pay again.</p>
@@ -635,18 +635,18 @@ export default function SubscriptionPage() {
         </div>
       )}
       {activation === 'active' && (
-        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl px-4 py-3" role="status">
+        <div className="flex items-center gap-3 bg-brand-200 border border-brand-200 rounded-2xl px-4 py-3" role="status">
           <div>
-            <p className="text-sm font-bold text-green-800">Payment received — your {meta.label} plan is active.</p>
-            <p className="text-xs text-green-600 mt-0.5">Your plan features are available now.</p>
+            <p className="text-sm font-bold text-brand-700">Payment received — your {meta.label} plan is active.</p>
+            <p className="text-xs text-brand-700 mt-0.5">Your plan features are available now.</p>
           </div>
         </div>
       )}
       {activation === 'pending' && (
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3" role="alert">
+        <div className="flex items-start gap-3 bg-transparent border border-[1.5px] border-brand-700 rounded-2xl px-4 py-3" role="alert">
           <div>
-            <p className="text-sm font-bold text-amber-900">Your checkout finished, but your plan isn't active yet.</p>
-            <p className="text-xs text-amber-800 mt-0.5">
+            <p className="text-sm font-bold text-brand-700">Your checkout finished, but your plan isn't active yet.</p>
+            <p className="text-xs text-brand-700 mt-0.5">
               Please don't pay again. If this page still doesn't show your plan in a few minutes, email{' '}
               <a href="mailto:hello@cybermeters.com" className="underline font-semibold">hello@cybermeters.com</a>{' '}
               and we'll activate it.
@@ -674,16 +674,16 @@ export default function SubscriptionPage() {
 
       {/* ── Payment grace period — plan still active while Stripe retries ── */}
       {graceActive && (
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+        <div className="flex items-start gap-3 bg-transparent border border-[1.5px] border-brand-700 rounded-2xl p-4">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-amber-800">Payment issue — your plan is still active</p>
-            <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+            <p className="text-sm font-bold text-brand-700">Payment issue — your plan is still active</p>
+            <p className="text-xs text-brand-700 mt-0.5 leading-relaxed">
               Your latest payment could not be processed. Your {meta?.name || 'paid'} plan remains fully active
               {fmtDay(graceEndsAt) ? <> until <span className="font-semibold">{fmtDay(graceEndsAt)}</span></> : null} while the charge is retried.
               Update your payment method to keep your plan.
             </p>
             <button onClick={handleManageBilling} disabled={portalLoading}
-              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors disabled:opacity-50">
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-brand-900 bg-brand-200 hover:bg-brand-300 rounded-lg transition-colors disabled:opacity-50">
               {portalLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
               Update payment method
             </button>
@@ -739,10 +739,10 @@ export default function SubscriptionPage() {
 
       {/* ── Trial expired banner ── */}
       {!trialActive && !subscriptionActive && status === 'trialing' && (
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+        <div className="flex items-start gap-3 bg-transparent border border-[1.5px] border-brand-700 rounded-2xl p-4">
           <div>
-            <p className="text-sm font-bold text-amber-800">Your trial has ended</p>
-            <p className="text-xs text-amber-600 mt-0.5">
+            <p className="text-sm font-bold text-brand-700">Your trial has ended</p>
+            <p className="text-xs text-brand-700 mt-0.5">
               Your workspace is now on the Free plan. Upgrade to restore full access.
             </p>
           </div>
@@ -789,7 +789,7 @@ export default function SubscriptionPage() {
         <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 flex items-start gap-3">
           <div>
             <p className="text-sm font-bold text-brand-800 mb-1">You're on the 14-day full trial</p>
-            <p className="text-xs text-brand-600 leading-relaxed">
+            <p className="text-xs text-brand-700 leading-relaxed">
               The full product is active for 1 monitored domain. Upgrade before your trial ends to keep
               access to Cyber Essentials Readiness, the Executive Dashboard, and more.
             </p>

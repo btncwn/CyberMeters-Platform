@@ -44,7 +44,7 @@ export default function ForgotPasswordPage() {
             <p className="text-sm text-gray-400 mb-7">
               Didn't receive anything? Check your spam folder, or{' '}
               <button
-                className="text-brand-600 font-semibold hover:underline"
+                className="text-brand-700 font-semibold hover:underline"
                 onClick={() => { setSubmitted(false); setError(null) }}
               >
                 try again
@@ -101,7 +101,7 @@ export default function ForgotPasswordPage() {
       </div>
 
       <p className="mt-5 text-sm text-gray-500 flex items-center gap-1.5">
-        <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+        <Link to="/login" className="text-brand-700 font-semibold hover:underline">
           Back to sign in
         </Link>
       </p>

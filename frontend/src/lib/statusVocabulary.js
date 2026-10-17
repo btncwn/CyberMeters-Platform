@@ -27,14 +27,14 @@ export const STATUS_VOCABULARY = Object.freeze({
   loading:               { label: 'Loading',               tone: 'gray' },
   error:                 { label: 'Error',                 tone: 'red' },
   not_assessed:          { label: 'Not assessed',          tone: 'gray' },
-  evidence_insufficient: { label: 'Evidence insufficient', tone: 'amber' },
-  provisional:           { label: 'Provisional',           tone: 'amber' },
-  established:           { label: 'Established',           tone: 'blue' },
-  stale:                 { label: 'Stale',                  tone: 'amber' },
+  evidence_insufficient: { label: 'Evidence insufficient', tone: 'hollow' },
+  provisional:           { label: 'Provisional',           tone: 'hollow' },
+  established:           { label: 'Established',           tone: 'filled' },
+  stale:                 { label: 'Stale',                  tone: 'hollow' },
   action_required:       { label: 'Action required',       tone: 'red' },
-  in_progress:           { label: 'In progress',           tone: 'amber' },
+  in_progress:           { label: 'In progress',           tone: 'hollow' },
   ready_to_verify:       { label: 'Ready to verify',       tone: 'indigo' },
-  verified:              { label: 'Verified',              tone: 'green' },
+  verified:              { label: 'Verified',              tone: 'filled' },
   recurring:             { label: 'Recurring / reopened',  tone: 'red' },
   attested:              { label: ATTESTED_LABEL,          tone: 'blue' },
   external:              { label: EXTERNAL_EVIDENCE_LABEL, tone: 'blue' },
@@ -43,13 +43,18 @@ export const STATUS_VOCABULARY = Object.freeze({
 
 export const STATUS_KEYS = Object.freeze(Object.keys(STATUS_VOCABULARY))
 
+// Two aqua treatments, never mixed (founder, 17 Oct 2026): `filled` is the
+// brand ground with dark ink for what stands on CyberMeters' own observation;
+// `hollow` is the 1.5px aqua-ink outline on a transparent ground for what is
+// provisional, insufficient, awaiting the customer or stale. Red stays for
+// what needs action.
 export const STATUS_TONE_CLASS = Object.freeze({
   gray:   'bg-gray-50 text-gray-600 border-gray-200',
   red:    'bg-red-50 text-red-700 border-red-200',
-  amber:  'bg-amber-50 text-amber-800 border-amber-200',
+  hollow: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   blue:   'bg-blue-50 text-blue-700 border-blue-200',
   indigo: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  green:  'bg-emerald-50 text-emerald-700 border-emerald-200',
+  filled: 'bg-brand-200 text-brand-900 border-brand-200',
 })
 
 export function statusMeta(key) {

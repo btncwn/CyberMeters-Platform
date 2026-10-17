@@ -20,8 +20,8 @@ import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
 
 const SEVERITY_CFG = {
   critical: { dot: 'bg-red-500',    text: 'text-red-600',    bg: 'bg-red-50'    },
-  high:     { dot: 'bg-orange-400', text: 'text-orange-600', bg: 'bg-orange-50' },
-  medium:   { dot: 'bg-amber-400',  text: 'text-amber-600',  bg: 'bg-amber-50'  },
+  high:     { dot: 'bg-red-500', text: 'text-red-600', bg: 'bg-red-50' },
+  medium:   { dot: 'bg-brand-700',  text: 'text-brand-700',  bg: 'bg-transparent'  },
   low:      { dot: 'bg-blue-400',   text: 'text-blue-600',   bg: 'bg-blue-50'   },
   info:     { dot: 'bg-gray-300',   text: 'text-gray-500',   bg: 'bg-gray-50'   },
 }
@@ -197,7 +197,7 @@ export default function NotificationBell() {
       >
         <Bell className="w-[22px] h-[22px]" />
         {hasUnread && (
-          <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-[#E29535] border-2 border-[#071B40]" />
+          <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-[#a9f2e5] border-2 border-[#071B40]" />
         )}
       </button>
 
@@ -219,7 +219,7 @@ export default function NotificationBell() {
                 <button
                   onClick={handleMarkAll}
                   disabled={markingAll}
-                  className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium px-2 py-1 rounded-lg hover:bg-brand-50 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-800 font-medium px-2 py-1 rounded-lg hover:bg-brand-50 transition-colors disabled:opacity-50"
                 >
                   All read
                 </button>
@@ -244,7 +244,7 @@ export default function NotificationBell() {
                   type="button"
                   onClick={retryLoad}
                   disabled={loading}
-                  className="mt-3 px-3 py-1.5 text-xs font-semibold text-brand-600 rounded-lg bg-brand-50 hover:bg-brand-100 transition-colors disabled:opacity-50"
+                  className="mt-3 px-3 py-1.5 text-xs font-semibold text-brand-700 rounded-lg bg-brand-50 hover:bg-brand-100 transition-colors disabled:opacity-50"
                 >
                   {loading ? 'Retrying…' : 'Retry'}
                 </button>
@@ -252,7 +252,7 @@ export default function NotificationBell() {
             ) : (
               <>
                 {loadError && (
-                  <div role="alert" className="flex items-start gap-2 px-4 py-3 bg-amber-50 border-b border-amber-100 text-amber-800">
+                  <div role="alert" className="flex items-start gap-2 px-4 py-3 bg-transparent border-b border-[1.5px] border-brand-700 text-brand-700">
                     <p className="text-xs leading-relaxed flex-1">
                       <span className="font-semibold">Couldn’t refresh notifications.</span>{' '}
                       Showing the last known notifications.
@@ -316,7 +316,7 @@ export default function NotificationBell() {
                           </p>
                           <div className="flex items-center gap-1 shrink-0">
                             {link && (
-                              <span className="text-xs text-brand-500 font-medium">→</span>
+                              <span className="text-xs text-brand-700 font-medium">→</span>
                             )}
                             {isUnread && (
                               <button
@@ -361,7 +361,7 @@ export default function NotificationBell() {
             <Link
               to="/notifications"
               onClick={() => setOpen(false)}
-              className="text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
+              className="text-xs font-medium text-brand-700 hover:text-brand-800 transition-colors"
             >
               View all →
             </Link>

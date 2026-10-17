@@ -32,7 +32,7 @@ function CopyField({ label, value }) {
         <code className="flex-1 text-sm text-gray-800 break-all font-mono leading-snug">{value}</code>
         <button
           onClick={copy}
-          className="shrink-0 flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition-colors"
+          className="shrink-0 flex items-center gap-1 text-xs text-gray-400 hover:text-brand-800 transition-colors"
         >
           {copied ? 'Copied' : 'Copy'}
         </button>
@@ -55,7 +55,7 @@ function DnsCheckResult({ result }) {
     </div>
   )
   if (!found) return (
-    <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700">
+    <div className="flex items-start gap-3 p-4 bg-transparent border border-[1.5px] border-brand-700 rounded-xl text-sm text-brand-700">
       <div>
         <p className="font-semibold">TXT record not found yet</p>
         <p className="text-xs mt-1 opacity-80">DNS changes can take up to 48 hours to propagate. Try again later.</p>
@@ -63,7 +63,7 @@ function DnsCheckResult({ result }) {
     </div>
   )
   if (found && !matches) return (
-    <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700 space-y-2">
+    <div className="p-4 bg-transparent border border-[1.5px] border-brand-700 rounded-xl text-sm text-brand-700 space-y-2">
       <div className="flex items-center gap-2 font-semibold">
         TXT record found but value doesn't match
       </div>
@@ -350,7 +350,7 @@ export default function DomainVerifyPage() {
                     href={instructions.html.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
+                    className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline"
                   >
                     Test URL
                   </a>

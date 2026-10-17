@@ -28,19 +28,19 @@ const SEVERITY_CFG = {
     label:  'Critical',
   },
   high: {
-    dot:    'bg-orange-400',
-    text:   'text-orange-600',
-    bg:     'bg-orange-50',
-    border: 'border-orange-200',
-    pill:   'bg-orange-100 text-orange-700',
+    dot:    'bg-red-500',
+    text:   'text-red-600',
+    bg:     'bg-red-50',
+    border: 'border-red-100',
+    pill:   'bg-red-50 text-red-600',
     label:  'High',
   },
   medium: {
-    dot:    'bg-amber-400',
-    text:   'text-amber-600',
-    bg:     'bg-amber-50',
-    border: 'border-amber-200',
-    pill:   'bg-amber-100 text-amber-700',
+    dot:    'bg-brand-700',
+    text:   'text-brand-700',
+    bg:     'bg-transparent',
+    border: 'border-[1.5px] border-brand-700',
+    pill:   'bg-transparent text-brand-700',
     label:  'Medium',
   },
   low: {
@@ -186,7 +186,7 @@ function NotificationCard({ n, onMarkRead }) {
           {/* Right side: unread dot + scan link */}
           <div className="flex items-center gap-3 shrink-0 mt-0.5">
             {link && (
-              <span className="text-xs text-brand-600 font-medium whitespace-nowrap">
+              <span className="text-xs text-brand-700 font-medium whitespace-nowrap">
                 {linkLabel}
               </span>
             )}
@@ -353,7 +353,7 @@ export default function NotificationsPage() {
         <div className="text-center">
           <h2 className="text-lg font-semibold text-gray-700 mb-1">No workspace selected</h2>
           <p className="text-sm text-gray-400 mb-4">Select a workspace to view notifications.</p>
-          <Link to="/workspaces" className="text-sm text-brand-600 hover:underline">
+          <Link to="/workspaces" className="text-sm text-brand-700 hover:underline">
             Go to Workspaces
           </Link>
         </div>
@@ -401,7 +401,7 @@ export default function NotificationsPage() {
             <button
               onClick={handleMarkAll}
               disabled={markingAll}
-              className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-medium px-3 py-2 rounded-xl hover:bg-brand-50 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-800 font-medium px-3 py-2 rounded-xl hover:bg-brand-50 transition-colors disabled:opacity-50"
             >
               {markingAll ? 'Marking…' : 'Mark all read'}
             </button>
@@ -469,7 +469,7 @@ export default function NotificationsPage() {
                 type="button"
                 onClick={retryLoad}
                 disabled={loading || loadingMore}
-                className="mt-4 px-3 py-2 text-sm font-medium text-brand-600 rounded-xl bg-brand-50 hover:bg-brand-100 transition-colors disabled:opacity-50"
+                className="mt-4 px-3 py-2 text-sm font-medium text-brand-700 rounded-xl bg-brand-50 hover:bg-brand-100 transition-colors disabled:opacity-50"
               >
                 {loading || loadingMore ? 'Retrying…' : 'Retry'}
               </button>
@@ -477,7 +477,7 @@ export default function NotificationsPage() {
           ) : (
             <>
               {loadError && (
-                <div role="alert" className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-100 text-amber-800">
+                <div role="alert" className="flex items-center gap-3 px-4 py-3 bg-transparent border-b border-[1.5px] border-brand-700 text-brand-700">
                   <p className="text-xs flex-1">
                     <span className="font-semibold">Couldn’t refresh notifications.</span>{' '}
                     Showing the last known results.
@@ -495,7 +495,7 @@ export default function NotificationsPage() {
 
               {loading && !loadError ? (
                 <div className="py-16 text-center">
-                  <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                  <div className="w-6 h-6 border-2 border-brand-700 border-t-transparent rounded-full animate-spin mx-auto" />
                 </div>
               ) : visible.length === 0 && !loadError ? (
                 <EmptyState />

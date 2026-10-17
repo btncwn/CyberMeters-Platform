@@ -40,7 +40,7 @@ const PLAN_CFG = {
   starter:      { label: 'Starter',      bg: 'bg-blue-50',    text: 'text-blue-700',   border: 'border-blue-200'  },
   professional: { label: 'Professional', bg: 'bg-brand-50',   text: 'text-brand-700',  border: 'border-brand-200' },
   business:     { label: 'Business',     bg: 'bg-purple-50',  text: 'text-purple-700', border: 'border-purple-200'},
-  enterprise:   { label: 'MSP',          bg: 'bg-amber-50',   text: 'text-amber-700',  border: 'border-amber-200' },
+  enterprise:   { label: 'MSP',          bg: 'bg-transparent',   text: 'text-brand-700',  border: 'border-[1.5px] border-brand-700' },
 }
 
 const PLAN_ORDER = ['free', 'starter', 'professional', 'business', 'enterprise']
@@ -87,7 +87,7 @@ function UsageBar({ label, used, limit, note }) {
   const pct      = infinite ? 0 : limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
   const near     = pct >= 80
   const full     = pct >= 100
-  const barColor = full ? 'bg-red-500' : near ? 'bg-amber-400' : 'bg-brand-500'
+  const barColor = full ? 'bg-red-500' : near ? 'bg-brand-700' : 'bg-brand-500'
 
   return (
     <div className="py-2.5 border-b border-gray-50 last:border-0">
@@ -96,7 +96,7 @@ function UsageBar({ label, used, limit, note }) {
           {label}
           {note && <span className="text-gray-400">{note}</span>}
         </span>
-        <span className={`text-xs font-semibold ${full ? 'text-red-600' : near ? 'text-amber-600' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold ${full ? 'text-red-600' : near ? 'text-brand-700' : 'text-gray-500'}`}>
           {used} / {infinite ? '∞' : limit}
         </span>
       </div>

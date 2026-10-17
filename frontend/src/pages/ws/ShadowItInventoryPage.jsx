@@ -74,9 +74,9 @@ function ShadowItHistory({ workspaceId, itemId }) {
 // Tailwind classes are written as whole literal strings so the JIT scanner can
 // see them; never build these by concatenation.
 const ACTION_TONE = {
-  green: 'border-green-200 text-green-700',
+  green: 'border-brand-200 text-brand-700',
   red:   'border-red-200 text-red-700',
-  amber: 'border-amber-200 text-amber-700',
+  amber: 'border-[1.5px] border-brand-700 text-brand-700',
   slate: 'border-slate-200 text-slate-600',
 }
 
@@ -293,7 +293,7 @@ export default function ShadowItInventoryPage() {
                 <Fragment key={it.inventory_item_id}>
                 <tr
                   ref={it.inventory_item_id === focusItemId ? focusRef : null}
-                  className={`border-b border-slate-50 align-top ${it.inventory_item_id === focusItemId ? 'bg-amber-50/60 ring-1 ring-inset ring-amber-200' : ''}`}
+                  className={`border-b border-slate-50 align-top ${it.inventory_item_id === focusItemId ? 'bg-transparent ring-1 ring-inset ring-brand-200' : ''}`}
                 >
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">
@@ -314,7 +314,7 @@ export default function ShadowItInventoryPage() {
                     <div className="text-xs text-slate-400">{it.provider}{it.confidence ? ` · ${it.confidence} confidence` : ''}</div>
                     <SourceEvidence item={it} />
                     {it.linked_case_id && (
-                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
+                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-brand-700 hover:underline">
                         Open case →
                       </Link>
                     )}
@@ -333,7 +333,7 @@ export default function ShadowItInventoryPage() {
                       <div className="text-xs text-slate-500 mt-1">{onboardingMeta(it.onboarding_status).label}</div>
                     )}
                     {removalMeta(it.removal_status, it.removal_verified) && (
-                      <div className={`text-xs mt-0.5 ${removalMeta(it.removal_status, it.removal_verified).tone === 'red' ? 'text-red-600' : removalMeta(it.removal_status, it.removal_verified).tone === 'amber' ? 'text-amber-600' : 'text-slate-500'}`}>
+                      <div className={`text-xs mt-0.5 ${removalMeta(it.removal_status, it.removal_verified).tone === 'red' ? 'text-red-600' : removalMeta(it.removal_status, it.removal_verified).tone === 'amber' ? 'text-brand-700' : 'text-slate-500'}`}>
                         {removalMeta(it.removal_status, it.removal_verified).label}
                       </div>
                     )}
@@ -345,7 +345,7 @@ export default function ShadowItInventoryPage() {
                         email and in-app card carry. Falls back to the raw type only
                         when the server sent no summary. */}
                     {(it.recurrence_summary || it.recurrence_type) && (
-                      <div className="text-xs text-amber-600 mt-0.5">{it.recurrence_summary || it.recurrence_type.replace(/_/g, ' ')}</div>
+                      <div className="text-xs text-brand-700 mt-0.5">{it.recurrence_summary || it.recurrence_type.replace(/_/g, ' ')}</div>
                     )}
                     {it.inventory_item_id === focusItemId && it.recommended_next_action && (
                       <div className="text-xs text-slate-500 mt-0.5"><span className="font-medium">Recommended:</span> {it.recommended_next_action}</div>

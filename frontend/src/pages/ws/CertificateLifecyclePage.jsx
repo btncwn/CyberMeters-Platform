@@ -152,7 +152,7 @@ export default function CertificateLifecyclePage() {
                       </div>
                     )}
                     {it.linked_case_id && (
-                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
+                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-brand-700 hover:underline">
                         Open case →
                       </Link>
                     )}
@@ -173,12 +173,12 @@ export default function CertificateLifecyclePage() {
                     {(it.business_owner || it.technical_owner || it.renewal_owner) && (
                       <div className="text-xs text-slate-400 mt-0.5">{it.renewal_owner || it.technical_owner || it.business_owner}</div>
                     )}
-                    {it.recurrence_type && <div className="text-xs text-amber-600 mt-0.5">{it.recurrence_type.replace(/_/g, ' ')}</div>}
+                    {it.recurrence_type && <div className="text-xs text-brand-700 mt-0.5">{it.recurrence_type.replace(/_/g, ' ')}</div>}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={verificationMeta(it.verification_status)} />
                     {isAwaitingVerification(it) && (
-                      <div className="text-xs text-amber-600 mt-0.5">Recorded by you â not yet verified</div>
+                      <div className="text-xs text-brand-700 mt-0.5">Recorded by you â not yet verified</div>
                     )}
                     {it.verified_at && <div className="text-xs text-slate-300 mt-0.5">Verified {it.verified_at.slice(0, 10)}</div>}
                   </td>
@@ -188,8 +188,8 @@ export default function CertificateLifecyclePage() {
                       {can('assign_renewal_owner') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'assign_renewal_owner')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
                       {can('plan_renewal') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'plan_renewal')} className="text-xs rounded-sm border border-blue-200 text-blue-700 px-2 py-0.5">Plan</button>}
                       {can('record_replacement_completed') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_replacement_completed')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Record renewal</button>}
-                      {can('request_verification') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded-sm border border-green-200 text-green-700 px-2 py-0.5">Verify</button>}
-                      {can('record_exception') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded-sm border border-amber-200 text-amber-700 px-2 py-0.5">Exception</button>}
+                      {can('request_verification') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded-sm border border-brand-200 text-brand-700 px-2 py-0.5">Verify</button>}
+                      {can('record_exception') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded-sm border border-[1.5px] border-brand-700 text-brand-700 px-2 py-0.5">Exception</button>}
                       {can('retire') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'retire')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
                     </div>
                   </td>

@@ -27,14 +27,14 @@ function StatusBadge({ status }) {
   const cfg = {
     completed: 'bg-brand-50 text-brand-700 border-brand-100',
     failed:    'bg-red-50 text-red-700 border-red-100',
-    pending:   'bg-amber-50 text-amber-700 border-amber-100',
-    running:   'bg-amber-50 text-amber-700 border-amber-100',
+    pending:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
+    running:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   }[status] ?? 'bg-gray-50 text-gray-500 border-gray-100'
 
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${cfg}`}>
       {(status === 'pending' || status === 'running') && (
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+        <span className="w-1.5 h-1.5 rounded-full bg-brand-700 animate-pulse" />
       )}
       {status}
     </span>
@@ -210,10 +210,10 @@ function ScheduledReportsCard({ wsId }) {
                   onClick={() => handleToggle(sr)}
                   title={sr.enabled ? 'Disable' : 'Enable'}
                   aria-label={sr.enabled ? 'Disable' : 'Enable'}
-                  className="text-gray-400 hover:text-brand-600 transition-colors"
+                  className="text-gray-400 hover:text-brand-800 transition-colors"
                 >
                   {sr.enabled
-                    ? <ToggleRight className="w-5 h-5 text-brand-500" />
+                    ? <ToggleRight className="w-5 h-5 text-brand-700" />
                     : <ToggleLeft  className="w-5 h-5 text-gray-300"  />
                   }
                 </button>
@@ -406,8 +406,8 @@ function WorkspaceReports({ wsId, wsName }) {
               executive dashboard moved here from the workspace popover; routes
               and their entitlement checks are unchanged. */}
           <nav aria-label="Also under Reports" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <Link to="/ws/scorecard" className="font-semibold text-brand-600 hover:text-brand-700">Scorecard</Link>
-            <Link to="/ws/executive-dashboard" className="font-semibold text-brand-600 hover:text-brand-700">Executive dashboard</Link>
+            <Link to="/ws/scorecard" className="font-semibold text-brand-700 hover:text-brand-800">Scorecard</Link>
+            <Link to="/ws/executive-dashboard" className="font-semibold text-brand-700 hover:text-brand-800">Executive dashboard</Link>
           </nav>
         </div>
 
@@ -565,7 +565,7 @@ function WorkspaceReports({ wsId, wsName }) {
                         {report.status === 'completed' ? (
                           <button
                             onClick={() => handleDownload(report)}
-                            className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700"
+                            className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-brand-700 hover:text-brand-800"
                           >
                             PDF
                           </button>

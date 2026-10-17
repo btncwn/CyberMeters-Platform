@@ -66,7 +66,7 @@ export function tabForLocation(params, hash) {
   return 'overview'
 }
 
-const SEVERITY_TONE = { critical: 'text-red-700', high: 'text-orange-700', medium: 'text-amber-700', low: 'text-blue-700', info: 'text-gray-600' }
+const SEVERITY_TONE = { critical: 'text-red-700', high: 'text-red-600', medium: 'text-brand-700', low: 'text-blue-700', info: 'text-gray-600' }
 
 function formatDay(value) {
   if (!value) return null
@@ -319,7 +319,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
           </>
         )}
         <div className="mt-3">
-          <Link to={casesPath} className="text-sm font-semibold text-brand-600 hover:text-brand-700">Open Operations for this area</Link>
+          <Link to={casesPath} className="text-sm font-semibold text-brand-700 hover:text-brand-800">Open Operations for this area</Link>
         </div>
       </div>
     </Section>

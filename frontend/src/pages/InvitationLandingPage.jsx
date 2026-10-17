@@ -94,8 +94,8 @@ function isExpired(expiresAt) {
 function StatusBanner({ type, children }) {
   const styles = {
     error:   'bg-red-50 border-red-200 text-red-700',
-    warning: 'bg-amber-50 border-amber-200 text-amber-700',
-    success: 'bg-green-50 border-green-200 text-green-700',
+    warning: 'bg-transparent border-[1.5px] border-brand-700 text-brand-700',
+    success: 'bg-brand-200 border-brand-200 text-brand-900',
     info:    'bg-blue-50 border-blue-200 text-blue-700',
   }
   return (
@@ -200,7 +200,7 @@ export default function InvitationLandingPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4">
         <CyberMetersLogoMark size={36} showWordmark animated />
-        <RefreshCw className="w-6 h-6 text-brand-500 animate-spin mt-4" />
+        <RefreshCw className="w-6 h-6 text-brand-700 animate-spin mt-4" />
         <p className="text-sm text-gray-400">Loading invitation…</p>
       </div>
     )
@@ -325,7 +325,7 @@ export default function InvitationLandingPage() {
         {/* ── Invitation card ──────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl shadow-xs border border-gray-100 overflow-hidden">
           {/* Header band */}
-          <div className="bg-brand-600 px-8 py-6">
+          <div className="bg-brand-200 px-8 py-6">
             <h1 className="text-2xl font-bold text-white mb-1">
               You've been invited to join a workspace
             </h1>

@@ -195,21 +195,21 @@ export default function LoginPage() {
             )}
 
             {verificationRequired && (
-              <div className="px-4 py-3 mb-5 bg-amber-50 border border-amber-100 rounded-xl text-sm">
-                <div className="flex items-center gap-2.5 text-amber-700 mb-2">
+              <div className="px-4 py-3 mb-5 bg-transparent border border-[1.5px] border-brand-700 rounded-xl text-sm">
+                <div className="flex items-center gap-2.5 text-brand-700 mb-2">
                   <span className="font-semibold">Email not verified</span>
                 </div>
-                <p className="text-amber-600 text-xs mb-3">
+                <p className="text-brand-700 text-xs mb-3">
                   Please check your inbox and click the verification link before signing in.
                 </p>
                 {resendDone ? (
-                  <span className="text-xs text-green-600 font-medium">If that address has an unverified account, a new link is on its way.</span>
+                  <span className="text-xs text-brand-700 font-medium">If that address has an unverified account, a new link is on its way.</span>
                 ) : (
                   <button
                     type="button"
                     onClick={handleResendVerification}
                     disabled={resendLoading}
-                    className="text-xs text-brand-600 font-semibold hover:underline disabled:opacity-50"
+                    className="text-xs text-brand-700 font-semibold hover:underline disabled:opacity-50"
                   >
                     {resendLoading ? 'Sending…' : 'Resend verification email'}
                   </button>
@@ -255,7 +255,7 @@ export default function LoginPage() {
               <div className="flex justify-end -mt-1 mb-1">
                 <Link
                   to="/forgot-password"
-                  className="text-xs text-brand-600 font-medium hover:underline flex items-center gap-1"
+                  className="text-xs text-brand-700 font-medium hover:underline flex items-center gap-1"
                 >
                   Forgot password?
                 </Link>
@@ -353,7 +353,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => { setShowRecovery(true); setError(null) }}
-                className="text-xs text-brand-600 font-medium hover:underline flex items-center gap-1"
+                className="text-xs text-brand-700 font-medium hover:underline flex items-center gap-1"
               >
                 Use recovery code
               </button>
@@ -418,7 +418,7 @@ export default function LoginPage() {
       {!mfaRequired && (
         <p className="mt-5 text-sm text-gray-500">
           Don't have an account?{' '}
-          <Link to="/signup" className="text-brand-600 font-semibold hover:underline">
+          <Link to="/signup" className="text-brand-700 font-semibold hover:underline">
             Create one
           </Link>
         </p>

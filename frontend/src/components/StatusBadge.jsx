@@ -38,8 +38,8 @@ const DEFAULT = { label: 'Unknown', dot: 'bg-gray-300', bg: 'bg-gray-100', text:
 // never in the success colour (the backend's scan_quality decides; this only shows it).
 const PARTIAL_RESULTS = {
   label: 'Partial results',
-  dot: 'bg-amber-500',
-  bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200',
+  dot: 'bg-brand-700',
+  bg: 'bg-transparent', text: 'text-brand-700', border: 'border-[1.5px] border-brand-700',
 }
 const PARTIAL_QUALITIES = new Set(['partial', 'degraded'])
 

@@ -25,7 +25,7 @@ export default function VerificationStatusBadge({ status, size = 'sm' }) {
     }
     if (s === 'pending' || s === 'pending_verification') return {
       label: 'Pending',
-      cls:   'bg-amber-50 text-amber-700 border-amber-100',
+      cls:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     }
     if (s === 'failed' || s === 'verification_failed') return {
       label: 'Failed',

@@ -187,7 +187,7 @@ export default function CyberMetersLogo({
         </span>
         {subtitle && size >= 36 && (
           <span
-            className="font-semibold text-brand-600 tracking-widest uppercase block"
+            className="font-semibold text-brand-700 tracking-widest uppercase block"
             style={{ fontSize: subSize, marginTop: 2 }}
           >
             Platform

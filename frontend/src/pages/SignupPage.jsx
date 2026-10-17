@@ -23,14 +23,14 @@ function ResendLink({ email }) {
     }
   }
 
-  if (sent) return <span className="text-green-600 font-medium">If that address has an unverified account, a new link is on its way.</span>
+  if (sent) return <span className="text-brand-700 font-medium">If that address has an unverified account, a new link is on its way.</span>
   return (
     <>
       <button
         type="button"
         onClick={handleResend}
         disabled={loading}
-        className="text-brand-600 font-medium hover:underline disabled:opacity-50"
+        className="text-brand-700 font-medium hover:underline disabled:opacity-50"
       >
         {loading ? 'Sending…' : 'Resend verification email'}
       </button>
@@ -127,7 +127,7 @@ export default function SignupPage() {
             <ResendLink email={email} />
           </p>
           <div className="mt-6">
-            <Link to="/login" className="text-sm text-brand-600 font-semibold hover:underline">
+            <Link to="/login" className="text-sm text-brand-700 font-semibold hover:underline">
               Back to sign in
             </Link>
           </div>
@@ -229,9 +229,9 @@ export default function SignupPage() {
 
           <p className="text-xs text-gray-500 text-center leading-relaxed mt-3">
             By creating an account you agree to our{' '}
-            <Link to="/terms"   className="text-brand-600 hover:underline">Terms of Service</Link>
+            <Link to="/terms"   className="text-brand-700 hover:underline">Terms of Service</Link>
             {' '}and{' '}
-            <Link to="/privacy" className="text-brand-600 hover:underline">Privacy Policy</Link>.
+            <Link to="/privacy" className="text-brand-700 hover:underline">Privacy Policy</Link>.
           </p>
         </form>
       </div>
@@ -241,7 +241,7 @@ export default function SignupPage() {
       {!done && (
         <p className="mt-5 text-sm text-gray-500">
           Already have an account?{' '}
-          <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+          <Link to="/login" className="text-brand-700 font-semibold hover:underline">
             Sign in
           </Link>
         </p>

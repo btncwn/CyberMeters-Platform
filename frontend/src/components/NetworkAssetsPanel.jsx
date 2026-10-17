@@ -77,7 +77,7 @@ function Suggestions({ state, canManage, onUse }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-mono text-sm">{row.address}</span>
         <span className="flex flex-wrap gap-1">
-          {row.priority === 'high' && <span className="rounded-sm bg-amber-50 text-amber-800 px-2 py-0.5 text-xs font-medium">Sensitive name: {row.high_value_labels.join(', ')}</span>}
+          {row.priority === 'high' && <span className="rounded-sm bg-transparent text-brand-700 px-2 py-0.5 text-xs font-medium">Sensitive name: {row.high_value_labels.join(', ')}</span>}
           {row.recommendation === 'covered' && <span className="rounded-sm bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Already a network target</span>}
           {row.recommendation === 'provider_infrastructure' && <span className="rounded-sm bg-gray-100 text-gray-700 px-2 py-0.5 text-xs font-medium">Shared infrastructure: {row.provider}</span>}
         </span>
@@ -253,7 +253,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
     {message && <p role="status" className="text-sm text-brand-700">{message}</p>}
     {!current && !error && <p className="text-sm text-gray-500" role="status">Loading network inventory…</p>}
     {current && <>
-      {capabilities.collector_available !== true && <p className="text-sm text-amber-800 bg-amber-50 p-3 rounded-sm">Network scanning is currently unavailable. Recorded targets and observations remain available.</p>}
+      {capabilities.collector_available !== true && <p className="text-sm text-brand-700 bg-transparent p-3 rounded-sm">Network scanning is currently unavailable. Recorded targets and observations remain available.</p>}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Network asset views">{[['targets', 'Targets'], ['suggested', 'Suggested'], ['services', 'Services'], ['scans', 'Recent scans']].map(([value, title]) => <button role="tab" aria-selected={tab === value} key={value} className={tab === value ? 'btn-primary text-sm' : 'btn-secondary text-sm'} onClick={() => setTab(value)}>{title}</button>)}</div>
 
       {tab === 'targets' && <div className="space-y-4" role="tabpanel" aria-label="Targets">
@@ -265,11 +265,11 @@ export default function NetworkAssetsPanel({ workspaceId }) {
         </form>}
         {capabilities.can_scan === true && <fieldset className="space-y-2"><legend className="font-medium text-sm">Ports to check</legend><div className="flex flex-wrap gap-x-4 gap-y-2">{allowedPorts.map(port => <label className="flex items-center gap-1 text-sm" key={port}><input type="checkbox" checked={selectedPorts.includes(port)} onChange={event => setPorts(previous => event.target.checked ? [...new Set([...previous, port])] : previous.filter(value => value !== port))} disabled={busy} />{port}</label>)}</div>
           <p className="text-xs text-gray-500">Only selected TCP ports are checked.{maxPorts !== null && ` Up to ${maxPorts} ports per scan.`}{maxPairs !== null && ` Up to ${maxPairs} address/port checks per scan.`}</p>
-          {!validPorts && <p className="text-sm text-amber-800">Select one or more ports within the available limit.</p>}
+          {!validPorts && <p className="text-sm text-brand-700">Select one or more ports within the available limit.</p>}
         </fieldset>}
         {!current.targets.length ? <p className="text-sm text-gray-500">No network targets recorded yet.</p> : <div className="relative overflow-x-auto"><table className="data-table w-full min-w-[800px]"><thead><tr><th>Target</th><th>Scope</th><th>Authorization</th><th><span className="sr-only">Scan</span></th></tr></thead><tbody>{current.targets.map(row => <tr key={row.id}>
           <td className="font-mono text-xs">{row.target}{row.label && <span className="block font-sans text-gray-500">{row.label}</span>}</td><td>{count(row.address_count) === null ? 'Address count not recorded' : `${row.address_count} address${row.address_count === 1 ? '' : 'es'}`}</td><td className="text-xs">{row.authorization_status === 'attested' ? 'Authorization declared' : 'Authorization not established'}<span className="block text-gray-500">{date(row.authorized_at)}</span></td>
-          <td>{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), 'Network scan queued. Results will appear when the selected checks finish.')}>{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-amber-800 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}</td>
+          <td>{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), 'Network scan queued. Results will appear when the selected checks finish.')}>{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-brand-700 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}</td>
         </tr>)}</tbody></table></div>}
       </div>}
 

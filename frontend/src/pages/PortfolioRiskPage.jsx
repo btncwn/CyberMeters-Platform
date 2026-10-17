@@ -43,8 +43,8 @@ function DeltaChip({ delta }) {
 function AlertSeverityBar({ level }) {
   const cls =
     level === 'critical' ? 'bg-red-500' :
-    level === 'high'     ? 'bg-orange-400' :
-    level === 'medium'   ? 'bg-amber-400' : 'bg-gray-300'
+    level === 'high'     ? 'bg-red-500' :
+    level === 'medium'   ? 'bg-brand-700' : 'bg-gray-300'
   return <span className={`inline-block w-1 self-stretch rounded-full shrink-0 ${cls}`} />
 }
 
@@ -162,7 +162,7 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
               <td className="py-2.5">
                 <button
                   onClick={() => onWorkspaceClick(r.workspace_id)}
-                  className="text-gray-300 hover:text-brand-600 transition-colors"
+                  className="text-gray-300 hover:text-brand-800 transition-colors"
                   aria-label={`Open ${r.workspace_name}`}
                 >
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -180,7 +180,7 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
 function AlertsList({ alerts }) {
   if (!alerts?.length) {
     return (
-      <div className="flex items-center gap-2 text-sm text-brand-600 py-3">
+      <div className="flex items-center gap-2 text-sm text-brand-700 py-3">
         No active portfolio alerts.
       </div>
     )
@@ -273,7 +273,7 @@ function SharedDepsTable({ deps }) {
                     className="h-full rounded-full"
                     style={{
                       width: `${d.pct_of_portfolio}%`,
-                      backgroundColor: d.pct_of_portfolio >= 75 ? '#EF4444' : d.pct_of_portfolio >= 50 ? '#F59E0B' : '#00876A',
+                      backgroundColor: d.pct_of_portfolio >= 75 ? '#EF4444' : d.pct_of_portfolio >= 50 ? '#45e3c7' : '#117362',
                     }}
                   />
                 </div>
@@ -316,7 +316,7 @@ export default function PortfolioRiskPage() {
   if (loading) {
     return (
       <div className="p-8 flex items-center justify-center min-h-64">
-        <div className="animate-spin w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full" />
+        <div className="animate-spin w-6 h-6 border-2 border-brand-700 border-t-transparent rounded-full" />
       </div>
     )
   }

@@ -15,7 +15,7 @@ import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 const SEVERITY_STYLE = {
   info:     'bg-gray-100 text-gray-500',
   low:      'bg-blue-50 text-blue-600',
-  medium:   'bg-amber-50 text-amber-700',
+  medium:   'bg-transparent text-brand-700',
   high:     'bg-red-50 text-red-600',
   critical: 'bg-red-100 text-red-700',
 }
@@ -195,7 +195,7 @@ export default function ExposureTimeline({ workspaceId }) {
             onClick={() => setCategory(c.value)}
             className={`text-xs font-medium px-3 py-1 rounded-full border transition-colors ${
               category === c.value
-                ? 'bg-brand-600 text-white border-brand-600'
+                ? 'bg-brand-200 text-brand-900 border-brand-200'
                 : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'
             }`}
           >

@@ -85,7 +85,7 @@ describe('CertificateAssuranceSummary', () => {
       />
     )
     expect(screen.getByText('Does not cover example.test')).toHaveClass('text-red-800')
-    expect(screen.getByText('In date until 2026-09-30 (12 days left when checked)')).toHaveClass('text-emerald-800')
+    expect(screen.getByText('In date until 2026-09-30 (12 days left when checked)')).toHaveClass('text-brand-900')
     expect(screen.getByText('Not checked')).toHaveClass('text-gray-600')
     // The check outcome replaces the evidence state on these three signals.
     expect(screen.queryByText('observed')).toBeNull()

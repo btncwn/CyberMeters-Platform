@@ -226,7 +226,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
               {rc.linked_case_id && (
                 <Link
                   to={`/ws/cases/${encodeURIComponent(rc.linked_case_id)}`}
-                  className="text-brand-600 hover:underline"
+                  className="text-brand-700 hover:underline"
                 >
                   Linked case: {rc.linked_case_id} →
                 </Link>
@@ -401,7 +401,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
             </div>
 
             {actionError && <p className="text-xs text-red-600 mt-3" role="alert">{actionError}</p>}
-            {actionOk && <p className="text-xs text-green-700 mt-3" role="status">{actionOk}</p>}
+            {actionOk && <p className="text-xs text-brand-700 mt-3" role="status">{actionOk}</p>}
           </div>
           )}
         </div>

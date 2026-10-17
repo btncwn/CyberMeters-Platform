@@ -25,8 +25,8 @@ import WorkspaceUsageCard from '../../components/WorkspaceUsageCard'
 const PLAN_RETENTION = [
   { plan: 'Free',       days: 30,     color: 'text-gray-500'   },
   { plan: 'Starter',    days: 90,     color: 'text-blue-600'   },
-  { plan: 'Pro',        days: 365,    color: 'text-brand-600'  },
-  { plan: 'Business',   days: 730,    color: 'text-amber-600'  },
+  { plan: 'Pro',        days: 365,    color: 'text-brand-700'  },
+  { plan: 'Business',   days: 730,    color: 'text-brand-700'  },
   { plan: 'Enterprise', days: null,   color: 'text-purple-600' },
 ]
 
@@ -63,9 +63,9 @@ function StatItem({ label, value, sub, loading }) {
 
 function InlineBadge({ children, variant = 'neutral' }) {
   const cfg = {
-    green:   'bg-green-50 text-green-700 border-green-100',
+    green:   'bg-brand-200 text-brand-900 border-brand-200',
     red:     'bg-red-50 text-red-700 border-red-100',
-    amber:   'bg-amber-50 text-amber-700 border-amber-100',
+    amber:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     neutral: 'bg-gray-50 text-gray-600 border-gray-100',
     brand:   'bg-brand-50 text-brand-700 border-brand-100',
   }[variant]
@@ -100,7 +100,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
     <div className="fixed inset-0 z-200 flex items-center justify-center bg-gray-900/40 px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-5 flex items-start gap-3 border-b border-amber-100 bg-amber-50">
+        <div className="px-6 py-5 flex items-start gap-3 border-b border-[1.5px] border-brand-700 bg-transparent">
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-bold text-gray-900">Review your retention changes</h3>
             <p className="text-xs text-gray-500 mt-0.5">This may result in permanent data removal</p>
@@ -108,7 +108,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
           <button
             onClick={onCancel}
             disabled={loading}
-            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-amber-100 flex items-center justify-center shrink-0"
+            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-brand-50 flex items-center justify-center shrink-0"
             aria-label="Close retention warning"
           >
             <X className="w-4 h-4" />
@@ -126,8 +126,8 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
             </div>
           )}
           {enablingCleanup && (
-            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-100">
-              <p className="text-sm text-amber-800">
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-transparent border border-[1.5px] border-brand-700">
+              <p className="text-sm text-brand-700">
                 Enabling auto cleanup will automatically delete reports that exceed the configured
                 retention period. <strong>This action cannot be automatically reversed</strong> once
                 reports are purged.
@@ -149,7 +149,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-brand-200 hover:bg-brand-300 text-brand-900 transition-colors disabled:opacity-50"
           >
             {loading ? <><RefreshCw className="w-4 h-4 animate-spin" />Saving…</> : 'Confirm & save'}
           </button>
@@ -274,7 +274,7 @@ function RetentionPolicyCard({ data, loading, error }) {
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     Auto cleanup is{' '}
-                    <span className={data?.auto_cleanup ? 'text-green-600 font-medium' : 'text-gray-500'}>
+                    <span className={data?.auto_cleanup ? 'text-brand-700 font-medium' : 'text-gray-500'}>
                       {data?.auto_cleanup ? 'enabled' : 'disabled'}
                     </span>
                     {data?.plan ? ` · Plan: ${data.plan}` : ''}
@@ -443,15 +443,15 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
               aria-label={cleanup ? 'Disable auto cleanup' : 'Enable auto cleanup'}
             >
               {cleanup
-                ? <ToggleRight className="w-9 h-9 text-brand-600" />
+                ? <ToggleRight className="w-9 h-9 text-brand-700" />
                 : <ToggleLeft  className="w-9 h-9 text-gray-300" />
               }
             </button>
           </div>
 
           {/* Warning copy — always visible */}
-          <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-50 border border-amber-100">
-            <p className="text-xs text-amber-800 leading-relaxed">
+          <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-transparent border border-[1.5px] border-brand-700">
+            <p className="text-xs text-brand-700 leading-relaxed">
               Reports older than the configured retention period may be permanently removed.
               Download any reports you need before enabling auto cleanup.
             </p>
@@ -459,7 +459,7 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
 
           {/* Save feedback */}
           {saveOk && (
-            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-green-50 border border-green-100 text-sm text-green-700">
+            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-brand-200 border border-brand-200 text-sm text-brand-900">
               Retention settings saved successfully.
             </div>
           )}
@@ -529,15 +529,15 @@ function StorageInsightsSection({ storage, retention, loading }) {
 
   if (storage) {
     const mb = storage.storage_mb ?? 0
-    if (mb < 100)  insights.push({ bg: 'bg-green-50', text: 'Storage usage is within typical plan limits.' })
-    if (mb > 500)  insights.push({ bg: 'bg-amber-50', text: 'Storage usage is high. Consider downloading and archiving older reports.' })
+    if (mb < 100)  insights.push({ bg: 'bg-brand-200', text: 'Storage usage is within typical plan limits.' })
+    if (mb > 500)  insights.push({ bg: 'bg-transparent', text: 'Storage usage is high. Consider downloading and archiving older reports.' })
 
     if (storage.report_count > 0 && retention?.retention_days) {
       // Rough estimate: assume linear distribution of reports
       const estimatedOld = Math.round(storage.report_count * 0.15)
       if (estimatedOld > 0 && retention.auto_cleanup) {
         insights.push({
-          bg: 'bg-amber-50',
+          bg: 'bg-transparent',
           text: `Auto cleanup may remove approximately ${estimatedOld} older report${estimatedOld === 1 ? '' : 's'} based on your retention policy.`,
         })
       }

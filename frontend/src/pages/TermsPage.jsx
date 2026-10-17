@@ -28,7 +28,7 @@ export default function TermsPage() {
             By creating an account or using the Services, you agree to be bound by these Terms. If you are accepting on behalf of an organisation, you represent that you have authority to bind that organisation.
           </p>
 
-          <div className="mt-6 bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-800">
+          <div className="mt-6 bg-transparent border border-[1.5px] border-brand-700 rounded-xl p-4 text-sm text-brand-700">
             <strong>Service scope.</strong> CyberMeters reports externally observable evidence within the scope and limits of each check. A score or completed scan is not a guarantee that a system is free of vulnerabilities. The Services are provided on an "as available" basis. Features, pricing, and terms may change. We will provide advance notice of material changes.
           </div>
 
@@ -45,7 +45,7 @@ export default function TermsPage() {
 
           <Section title="2. Eligibility and Account Registration">
             <p>To use the Services, you must: (a) be at least 18 years of age; (b) provide accurate registration information; and (c) maintain the security of your account credentials.</p>
-            <p>You are responsible for all activity that occurs under your account. You must notify us immediately at <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline">hello@cybermeters.com</a> if you suspect unauthorised access to your account.</p>
+            <p>You are responsible for all activity that occurs under your account. You must notify us immediately at <a href="mailto:hello@cybermeters.com" className="text-brand-700 hover:underline">hello@cybermeters.com</a> if you suspect unauthorised access to your account.</p>
           </Section>
 
           <Section title="3. Acceptable Use">
@@ -98,7 +98,7 @@ export default function TermsPage() {
           </Section>
 
           <Section title="8. Data Processing">
-            <p>Where you process personal data using the Services, you act as the data controller and CyberMeters acts as a data processor. Our Data Processing Addendum (DPA), available at <Link to="/dpa" className="text-brand-600 hover:underline">/dpa</Link>, forms part of these Terms and governs such processing.</p>
+            <p>Where you process personal data using the Services, you act as the data controller and CyberMeters acts as a data processor. Our Data Processing Addendum (DPA), available at <Link to="/dpa" className="text-brand-700 hover:underline">/dpa</Link>, forms part of these Terms and governs such processing.</p>
           </Section>
 
           <Section title="9. Confidentiality">
@@ -120,7 +120,7 @@ export default function TermsPage() {
           </Section>
 
           <Section title="13. Contact">
-            <p>For questions about these Terms, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline font-medium">hello@cybermeters.com</a></p>
+            <p>For questions about these Terms, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-700 hover:underline font-medium">hello@cybermeters.com</a></p>
           </Section>
         </article>
 

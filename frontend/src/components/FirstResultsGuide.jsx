@@ -89,7 +89,7 @@ export default function FirstResultsGuide({ compact = false }) {
               <p className="text-xs text-gray-400 leading-relaxed">{feature.desc}</p>
               <Link
                 to={feature.href}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors mt-auto pt-1"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800 transition-colors mt-auto pt-1"
               >
                 {feature.cta}
               </Link>

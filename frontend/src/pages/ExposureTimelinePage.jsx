@@ -43,7 +43,7 @@ export default function ExposureTimelinePage() {
           changes, exposed services, and certificates — newest first.
         </p>
         {requested && !loading && !requestedRow && (
-          <p className="text-sm text-amber-600 mt-2">
+          <p className="text-sm text-brand-700 mt-2">
             The workspace this link refers to isn't available on your account — showing your current workspace instead.
           </p>
         )}

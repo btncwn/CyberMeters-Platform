@@ -128,10 +128,10 @@ function suggestedNextStep(c) {
 }
 const CHIP = {
   closed: 'bg-gray-50 text-gray-500 border-gray-200',
-  warn:   'bg-amber-50 text-amber-700 border-amber-200',
+  warn:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   bad:    'bg-red-50 text-red-700 border-red-200',
   info:   'bg-blue-50 text-blue-700 border-blue-100',
-  review: 'bg-amber-50 text-amber-700 border-amber-200',
+  review: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
 }
 
 function Toast({ toast, onClose }) {
@@ -316,7 +316,7 @@ function ProtectedBrand({ profile, editing, setEditing, onSave, saving }) {
       ) : (
         <>
           {profile.inferred && (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 flex gap-2">
+            <div className="mt-3 rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-3 text-sm text-brand-700 flex gap-2">
               CyberMeters is currently inferring brand monitoring from your workspace domains.
             </div>
           )}
@@ -344,15 +344,15 @@ const FILTERS = [
 ]
 
 const CASE_CHIP = {
-  detected: 'bg-amber-50 text-amber-700 border-amber-200',
-  triage: 'bg-amber-50 text-amber-700 border-amber-200',
+  detected: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
+  triage: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   confirmed_abuse: 'bg-red-50 text-red-700 border-red-200',
   customer_approval: 'bg-blue-50 text-blue-700 border-blue-200',
   evidence_ready: 'bg-brand-50 text-brand-700 border-brand-100',
   takedown_submitted: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   provider_followup: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   verification_pending: 'bg-gray-50 text-gray-700 border-gray-200',
-  resolved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  resolved: 'bg-brand-200 text-brand-900 border-brand-200',
   provider_no_response: 'bg-red-50 text-red-700 border-red-200',
   reappeared: 'bg-red-50 text-red-700 border-red-200',
 }
@@ -723,7 +723,7 @@ export default function BrandMonitoringPage() {
           <div className="flex flex-wrap gap-1.5">
             {FILTERS.map(f => (
               <button key={f.key} onClick={() => setFilter(f.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === f.key ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-100 border border-gray-200'}`}>
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === f.key ? 'bg-brand-200 text-brand-900' : 'text-gray-500 hover:bg-gray-100 border border-gray-200'}`}>
                 {f.label}
               </button>
             ))}

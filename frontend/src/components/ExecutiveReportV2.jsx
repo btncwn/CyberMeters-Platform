@@ -27,10 +27,10 @@ function readableCode(value) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const RATING_CFG = {
-  excellent: { color: '#00876A', text: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
-  good:      { color: '#00876A', text: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good' },
-  moderate:  { color: '#F59E0B', text: 'text-amber-500', pill: 'bg-amber-50 text-amber-700 border-amber-100', label: 'Moderate' },
-  high:      { color: '#F97316', text: 'text-orange-500', pill: 'bg-orange-50 text-orange-700 border-orange-100', label: bandMeta('high').label },
+  excellent: { color: '#117362', text: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
+  good:      { color: '#117362', text: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good' },
+  moderate:  { color: '#45e3c7', text: 'text-brand-700', pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700', label: 'Moderate' },
+  high:      { color: '#f87171', text: 'text-red-600', pill: 'bg-red-50 text-red-600 border-red-100', label: bandMeta('high').label },
   critical:  { color: '#EF4444', text: 'text-red-500', pill: 'bg-red-50 text-red-700 border-red-100', label: 'Critical' },
   unknown:   { color: '#D1D5DB', text: 'text-gray-400', pill: 'bg-gray-100 text-gray-500 border-gray-200', label: 'Unrated' },
 }
@@ -45,8 +45,8 @@ const SEV_BADGE = {
 }
 const BRI_PILL = {
   critical: 'bg-red-50 text-red-700 border-red-100',
-  high:     'bg-orange-50 text-orange-700 border-orange-100',
-  medium:   'bg-amber-50 text-amber-700 border-amber-100',
+  high:     'bg-red-50 text-red-600 border-red-100',
+  medium:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   low:      'bg-brand-50 text-brand-700 border-brand-100',
 }
 
@@ -269,12 +269,12 @@ function AssessmentCoverage({ coverage }) {
         </dl>
       )}
       {skipped.length > 0 && (
-        <p className="mt-2 text-xs leading-relaxed text-amber-700">
+        <p className="mt-2 text-xs leading-relaxed text-brand-700">
           <span className="font-semibold">Modules skipped:</span> {skipped.map(readableCode).join(', ')}
         </p>
       )}
       {skippedScoreBearing.length > 0 && (
-        <p className="mt-1 text-xs leading-relaxed text-amber-700">
+        <p className="mt-1 text-xs leading-relaxed text-brand-700">
           <span className="font-semibold">Score-bearing modules skipped:</span> {skippedScoreBearing.map(readableCode).join(', ')}
         </p>
       )}
@@ -377,7 +377,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
             <p className="text-sm text-gray-500">{report.domain?.name}</p>
             <p className="text-xs text-gray-400 mt-1">Assessed on {fmtDate(report.assessed_at)}</p>
             {report.provenance === 'reconstructed_on_demand' && (
-              <p className="text-xs text-amber-600 mt-1">
+              <p className="text-xs text-brand-700 mt-1">
                 Reconstructed on {fmtDate(report.generated_at)} from the evidence recorded at assessment time.
               </p>
             )}
@@ -434,7 +434,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
         <h3 id="assessment-score-heading" className="text-sm font-bold text-gray-900">Assessment Score</h3>
         <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-xl">
-            {cms.message && <p className="text-xs text-amber-600">{customerEvidenceText(cms.message)}</p>}
+            {cms.message && <p className="text-xs text-brand-700">{customerEvidenceText(cms.message)}</p>}
             <EvidenceBasis label="Score basis" assertion={cms.evidence_grade} className="mt-2" />
           </div>
           <div className="flex items-center gap-8">

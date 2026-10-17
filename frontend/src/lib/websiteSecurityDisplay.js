@@ -46,8 +46,8 @@ export const SCAN_QUALITY_META = {
 }
 
 export const TONE_CLASS = {
-  green: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  amber: 'bg-amber-50 text-amber-700 border-amber-100',
+  green: 'bg-brand-200 text-brand-900 border-brand-200',
+  amber: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   red:   'bg-red-50 text-red-700 border-red-100',
   blue:  'bg-blue-50 text-blue-700 border-blue-100',
   slate: 'bg-gray-100 text-gray-600 border-gray-200',

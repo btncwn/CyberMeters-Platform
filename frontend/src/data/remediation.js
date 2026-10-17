@@ -36,8 +36,8 @@
 
 export const PRIORITY_LABELS = {
   P1: { label: 'P1 — Critical',  color: 'text-red-600',    bg: 'bg-red-50 border-red-100',    dot: 'bg-red-500'    },
-  P2: { label: 'P2 — High',      color: 'text-orange-600', bg: 'bg-orange-50 border-orange-100', dot: 'bg-orange-500' },
-  P3: { label: 'P3 — Medium',    color: 'text-amber-600',  bg: 'bg-amber-50 border-amber-100',   dot: 'bg-amber-500'  },
+  P2: { label: 'P2 — High',      color: 'text-red-600', bg: 'bg-red-50 border-red-100', dot: 'bg-red-500' },
+  P3: { label: 'P3 — Medium',    color: 'text-brand-700',  bg: 'bg-transparent border-[1.5px] border-brand-700',   dot: 'bg-brand-700'  },
   P4: { label: 'P4 — Advisory',  color: 'text-gray-500',   bg: 'bg-gray-50 border-gray-200',     dot: 'bg-gray-400'   },
 }
 

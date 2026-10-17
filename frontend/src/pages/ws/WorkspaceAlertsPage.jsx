@@ -69,7 +69,7 @@ function SecretModal({ secret, onClose }) {
         <div className="mt-4 flex items-center gap-2">
           <code className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 break-all">{secret}</code>
           <button onClick={copy} className="btn-secondary text-sm shrink-0" aria-label="Copy signing secret">
-            {copied ? <Check className="w-4 h-4 text-brand-600" /> : <Copy className="w-4 h-4" />}
+            {copied ? <Check className="w-4 h-4 text-brand-700" /> : <Copy className="w-4 h-4" />}
           </button>
         </div>
         <button onClick={onClose} className="btn-primary text-sm mt-5 w-full">I have stored it safely</button>
@@ -237,7 +237,7 @@ export default function WorkspaceAlertsPage() {
                   onClick={() => { setType(key); setFormError(null) }}
                   className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
                     type === key
-                      ? 'bg-brand-600 text-white border-brand-600'
+                      ? 'bg-brand-200 text-brand-900 border-brand-200'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
                   }`}
                 >

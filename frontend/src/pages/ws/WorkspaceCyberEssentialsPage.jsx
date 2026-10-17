@@ -28,7 +28,7 @@ const ANSWER_OPTIONS = [
 const READINESS_STYLES = {
   ready: 'bg-brand-50 text-brand-700 border-brand-100',
   incomplete: 'bg-blue-50 text-blue-700 border-blue-100',
-  gaps: 'bg-amber-50 text-amber-700 border-amber-100',
+  gaps: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
 }
 
 const FINAL_DISCLAIMER = 'CyberMeters provides readiness guidance only. It does not issue Cyber Essentials certification and cannot fully verify internal controls such as MFA, admin account separation, endpoint protection or patching across your devices. Formal Cyber Essentials certification is handled through IASME and approved Certification Bodies.'
@@ -72,7 +72,7 @@ function evidenceMeta(control) {
     return {
       label: 'Cyber MOT disagrees ⚠',
       helper: 'Your answer suggests this area is in place, but CyberMeters found external evidence that may conflict with it. Review this before applying for Cyber Essentials.',
-      className: 'bg-amber-50 text-amber-800 border-amber-200',
+      className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     }
   }
 
@@ -88,7 +88,7 @@ function evidenceMeta(control) {
     return {
       label: 'Checked by Cyber MOT ✓',
       helper: 'Cyber MOT evidence found a gap in this control area. Review the gap before applying for Cyber Essentials.',
-      className: 'bg-amber-50 text-amber-800 border-amber-200',
+      className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     }
   }
 
@@ -121,7 +121,7 @@ function overallTone(readiness) {
   // critical — a verdict the evidence does not support. Absent stays neutral.
   if (typeof score !== 'number') return 'border-gray-200 bg-gray-50 text-gray-700'
   if (score >= 80) return 'border-brand-100 bg-brand-50 text-brand-800'
-  if (score >= 55) return 'border-amber-100 bg-amber-50 text-amber-800'
+  if (score >= 55) return 'border-[1.5px] border-brand-700 bg-transparent text-brand-700'
   return 'border-red-100 bg-red-50 text-red-800'
 }
 
@@ -234,9 +234,9 @@ function ControlResultCard({ control, readinessNotAssessed = false }) {
       </div>
 
       {!readinessNotAssessed && control.contradiction && (
-        <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-3">
+        <div className="mt-4 rounded-xl border border-[1.5px] border-brand-700 bg-transparent p-3">
           <div className="flex gap-2">
-            <p className="text-sm leading-relaxed text-amber-800">{control.contradiction.message}</p>
+            <p className="text-sm leading-relaxed text-brand-700">{control.contradiction.message}</p>
           </div>
         </div>
       )}
@@ -362,7 +362,7 @@ function Recommendations({ readiness }) {
         <ul className="mt-4 space-y-3">
           {readiness.recommendations.map((item, index) => (
             <li key={index} className="flex gap-3 text-sm leading-relaxed text-gray-600">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-200 text-xs font-bold text-brand-900">
                 {index + 1}
               </span>
               <span>{item}</span>
@@ -625,7 +625,7 @@ export default function WorkspaceCyberEssentialsPage() {
                 <span className="text-sm font-bold tabular-nums text-brand-700">{progress.answered}/{progress.total}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${progress.pct}%` }} />
+                <div className="h-full rounded-full bg-brand-200 transition-all" style={{ width: `${progress.pct}%` }} />
               </div>
               {savedAt && <p className="mt-2 text-xs text-gray-400">Saved {savedAt.toLocaleTimeString('en-GB')}</p>}
             </div>

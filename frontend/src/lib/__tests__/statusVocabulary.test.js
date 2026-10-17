@@ -99,7 +99,7 @@ describe('caseStatus — case phase + verification support → word', () => {
     expect(caseStatus({ canonical_phase: 'verified', verification_support: 'unsupported' })).toBe('attested')
     expect(caseStatus({ canonical_phase: 'verified', verification_support: 'external' })).toBe('external')
     expect(STATUS_VOCABULARY.attested.label).toBe(ATTESTED_LABEL)
-    expect(STATUS_VOCABULARY.attested.tone).not.toBe('green')
+    expect(STATUS_VOCABULARY.attested.tone).not.toBe('filled')
   })
 
   it('terminal phases are Closed; falls back to status; unknown phase needs a look', () => {

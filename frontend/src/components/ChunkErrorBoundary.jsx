@@ -144,7 +144,7 @@ class ChunkBoundaryInner extends Component {
     if (autoReloading) {
       return (
         <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6">
-          <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-brand-700 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-gray-500">Loading the latest version of CyberMeters…</p>
         </div>
       )

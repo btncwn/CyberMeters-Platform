@@ -108,8 +108,8 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
                   <span className={`rounded-full border px-3 py-1 text-sm ${toneClass(quality.tone)}`}>{quality.label}</span>
                 </div>
                 {reportPending && <p className="mt-4 text-base text-gray-600">Loading recorded checks…</p>}
-                {current?.error && <p role="alert" className="mt-4 text-base text-amber-800">The latest report could not be loaded. Its checks are not confirmed here.</p>}
-                {!['completed', 'partial'].includes(scan.status) && <p className="mt-4 text-base text-amber-800">The latest scan has not produced a completed assessment. Earlier results have not been substituted.</p>}
+                {current?.error && <p role="alert" className="mt-4 text-base text-brand-700">The latest report could not be loaded. Its checks are not confirmed here.</p>}
+                {!['completed', 'partial'].includes(scan.status) && <p className="mt-4 text-base text-brand-700">The latest scan has not produced a completed assessment. Earlier results have not been substituted.</p>}
                 {domainState?.conclusion_label && <p className="mt-4 text-base font-medium text-gray-700">{domainState.conclusion_label}</p>}
               </>}
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

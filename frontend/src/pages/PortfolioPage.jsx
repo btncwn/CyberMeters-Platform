@@ -91,7 +91,7 @@ function SeverityBadge({ level }) {
 function StatusDot({ status }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-      status === 'active' ? 'text-brand-600' : 'text-gray-400'
+      status === 'active' ? 'text-brand-700' : 'text-gray-400'
     }`}>
       <span className={`w-1.5 h-1.5 rounded-full ${
         status === 'active' ? 'bg-brand-500' : 'bg-gray-300'
@@ -284,7 +284,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
 
   const tierLabels = {
     'critical/high': { label: 'Critical / High', border: 'border-red-100', bg: 'bg-red-50/30' },
-    'medium':        { label: 'Medium',           border: 'border-amber-100', bg: 'bg-amber-50/20' },
+    'medium':        { label: 'Medium',           border: 'border-[1.5px] border-brand-700', bg: 'bg-transparent' },
     'low/info':      { label: 'Low / Info',       border: 'border-gray-100', bg: '' },
   }
 
@@ -355,7 +355,7 @@ function TrendsSection({ trend, loading, error, onRetry }) {
   const first = trend[0]?.average_score
   const last  = trend[trend.length - 1]?.average_score
   const diff  = last != null && first != null ? Math.round(last - first) : null
-  const trendColor = diff == null ? '' : diff > 0 ? 'text-brand-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'
+  const trendColor = diff == null ? '' : diff > 0 ? 'text-brand-700' : diff < 0 ? 'text-red-500' : 'text-gray-400'
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -379,7 +379,7 @@ function TrendsSection({ trend, loading, error, onRetry }) {
               formatter={(v, n) => [v != null ? v : '—', n]}
             />
             <Legend wrapperStyle={{ fontSize: 13 }} />
-            <Line type="monotone" dataKey="average_score" name="Avg Score"  stroke="#00876A" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="average_score" name="Avg Score"  stroke="#117362" strokeWidth={2} dot={false} />
             <Line type="monotone" dataKey="lowest_score"  name="Lowest"     stroke="#ef4444" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
             <Line type="monotone" dataKey="highest_score" name="Highest"    stroke="#3b82f6" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
           </LineChart>
@@ -397,7 +397,7 @@ function TrendsSection({ trend, loading, error, onRetry }) {
             <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
             <Legend wrapperStyle={{ fontSize: 13 }} />
             <Line type="monotone" dataKey="critical_findings" name="Critical" stroke="#ef4444" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="high_findings"     name="High"    stroke="#f97316" strokeWidth={1.5} dot={false} />
+            <Line type="monotone" dataKey="high_findings"     name="High"    stroke="#f87171" strokeWidth={1.5} dot={false} />
             <Line type="monotone" dataKey="scans"             name="Scans"   stroke="#94a3b8" strokeWidth={1} dot={false} strokeDasharray="4 3" />
           </LineChart>
         </ResponsiveContainer>

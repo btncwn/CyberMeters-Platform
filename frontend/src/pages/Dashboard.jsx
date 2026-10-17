@@ -480,7 +480,7 @@ export default function Dashboard() {
                 <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
                 {/* Show real score if available */}
                 {scanAssessment.score !== null && (
-                  <span className={`text-sm font-bold shrink-0 ${scanAssessment.authoritative ? 'text-brand-600' : 'text-amber-700'}`}>
+                  <span className={`text-sm font-bold shrink-0 ${scanAssessment.authoritative ? 'text-brand-700' : 'text-brand-700 rounded-md border-[1.5px] border-brand-700 px-1.5'}`}>
                     {scanAssessment.score}{scanAssessment.authoritative ? '' : ' provisional'}
                   </span>
                 )}

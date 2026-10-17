@@ -7,8 +7,8 @@ import { api } from '../api'
 // login surfaces) support it. Renders nothing until loaded.
 
 const LEVEL = {
-  Low:    { text: 'text-green-700', bg: 'bg-green-50',  ring: 'border-green-200' },
-  Medium: { text: 'text-amber-700', bg: 'bg-amber-50',  ring: 'border-amber-200' },
+  Low:    { text: 'text-brand-900', bg: 'bg-brand-200',  ring: 'border-brand-200' },
+  Medium: { text: 'text-brand-700', bg: 'bg-transparent',  ring: 'border-[1.5px] border-brand-700' },
   High:   { text: 'text-red-700',   bg: 'bg-red-50',    ring: 'border-red-200' },
   'Not Assessed': { text: 'text-slate-700', bg: 'bg-slate-50', ring: 'border-slate-200' },
   Unavailable: { text: 'text-slate-700', bg: 'bg-slate-50', ring: 'border-slate-200' },

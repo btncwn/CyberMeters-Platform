@@ -49,7 +49,7 @@ function CaseRow({ c }) {
   return (
     <li className="py-3 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4" data-testid="case-row" data-case-id={c.case_id} data-lane-word={caseStatus(c)}>
       <div className="min-w-0 flex-1">
-        <Link to={`/ws/cases/${encodeURIComponent(c.case_id)}`} className="text-sm font-semibold text-gray-900 hover:text-brand-700">
+        <Link to={`/ws/cases/${encodeURIComponent(c.case_id)}`} className="text-sm font-semibold text-gray-900 hover:text-brand-800">
           {c.title || c.source_finding_type || c.case_id}
         </Link>
         <p className="text-xs text-gray-500 mt-0.5">

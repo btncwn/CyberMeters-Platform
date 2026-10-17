@@ -35,9 +35,9 @@ function SectionCard({ title, subtitle, children }) {
 
 function StatusBanner({ type, children }) {
   const cfg = {
-    success: { bg: 'bg-green-50 border-green-100',  text: 'text-green-800' },
+    success: { bg: 'bg-brand-200 border-brand-200',  text: 'text-brand-900' },
     error:   { bg: 'bg-red-50 border-red-100',      text: 'text-red-700'   },
-    warning: { bg: 'bg-amber-50 border-amber-100',  text: 'text-amber-800' },
+    warning: { bg: 'bg-transparent border-[1.5px] border-brand-700',  text: 'text-brand-700' },
   }[type] ?? { bg: 'bg-gray-50 border-gray-100', text: 'text-gray-700' }
   return (
     <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border text-sm ${cfg.bg} ${cfg.text}`}>
@@ -119,7 +119,7 @@ function ConfirmModal({ open, onClose, onConfirm, title, description, confirmWor
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               dangerous
                 ? 'bg-red-600 hover:bg-red-700 text-white disabled:opacity-40'
-                : 'bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-40'
+                : 'bg-brand-200 hover:bg-brand-300 text-brand-900 disabled:opacity-40'
             }`}
           >
             {loading ? <><Loader className="w-4 h-4 animate-spin" />Processing…</> : confirmLabel}
@@ -322,7 +322,7 @@ function WorkspaceRow({ workspace, onRequested }) {
       </div>
 
       {submitted ? (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-1">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 bg-transparent border border-[1.5px] border-brand-700 rounded-full px-2.5 py-1">
           Deletion requested
         </span>
       ) : (

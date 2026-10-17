@@ -9,7 +9,7 @@ import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 // there is (or isn't) history, so it never flashes an empty box.
 
 const SEVERITY_DOT = {
-  info: 'bg-gray-300', low: 'bg-blue-400', medium: 'bg-amber-400', high: 'bg-red-400', critical: 'bg-red-600',
+  info: 'bg-gray-300', low: 'bg-blue-400', medium: 'bg-brand-700', high: 'bg-red-400', critical: 'bg-red-600',
 }
 function relTime(str) {
   if (!str) return ''
@@ -43,7 +43,7 @@ export default function RecentChangesCard({ workspaceId }) {
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-900">Recent changes</h2>
-        <Link to="/exposure" className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
+        <Link to="/exposure" className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">
           View timeline
         </Link>
       </div>

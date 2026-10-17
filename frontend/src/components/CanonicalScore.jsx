@@ -4,8 +4,8 @@ function establishedTone(rating) {
   if (rating === 'excellent' || rating === 'good') {
     return 'bg-brand-50 text-brand-700 border-brand-100'
   }
-  if (rating === 'moderate') return 'bg-amber-50 text-amber-700 border-amber-100'
-  if (rating === 'high') return 'bg-orange-50 text-orange-700 border-orange-100'
+  if (rating === 'moderate') return 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
+  if (rating === 'high') return 'bg-red-50 text-red-600 border-red-100'
   if (rating === 'critical') return 'bg-red-50 text-red-700 border-red-100'
   return 'bg-gray-50 text-gray-600 border-gray-200'
 }
@@ -31,12 +31,12 @@ export default function CanonicalScore({ assessment }) {
     return (
       <div className="max-w-[16rem]" aria-label={`Score ${view.score}, provisional. ${view.reason}`}>
         <div className="inline-flex items-center gap-1.5">
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border bg-amber-50 text-amber-800 border-amber-200">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border bg-transparent text-brand-700 border-[1.5px] border-brand-700">
             {view.score}
           </span>
-          <span className="text-xs font-semibold text-amber-800">Provisional</span>
+          <span className="text-xs font-semibold text-brand-700">Provisional</span>
         </div>
-        <p className="text-xs text-amber-800 mt-1 leading-tight">{view.reason}</p>
+        <p className="text-xs text-brand-700 mt-1 leading-tight">{view.reason}</p>
       </div>
     )
   }

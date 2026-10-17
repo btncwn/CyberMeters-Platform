@@ -60,7 +60,7 @@ function ServiceCard({ service }) {
     >
       <h2 className="text-lg font-bold text-gray-900">{service.title}</h2>
       <p className="text-sm text-gray-500 mt-1.5 leading-relaxed flex-1">{service.copy}</p>
-      <span className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-brand-200 text-brand-700 text-sm font-semibold bg-white group-hover:bg-brand-600 group-hover:text-white group-hover:border-brand-600 shadow-btn transition-all">
+      <span className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-brand-200 text-brand-700 text-sm font-semibold bg-white group-hover:bg-brand-200 group-hover:text-brand-900 group-hover:border-brand-700 shadow-btn transition-all">
         {service.cta}
       </span>
     </Link>

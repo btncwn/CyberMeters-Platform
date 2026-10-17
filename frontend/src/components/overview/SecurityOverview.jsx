@@ -94,7 +94,7 @@ export function NextActionCard({ signals = {} }) {
   )
 }
 
-const KPI_TONE = { bad: 'text-red-700', warn: 'text-amber-700', '': 'text-gray-800' }
+const KPI_TONE = { bad: 'text-red-700', warn: 'text-brand-700', '': 'text-gray-800' }
 
 function ModuleCard({ module, entry, request, caseSummary, casesRequest, observations }) {
   const theme = moduleTheme(module.domainKey)
@@ -139,11 +139,11 @@ function ModuleCard({ module, entry, request, caseSummary, casesRequest, observa
           : 'Findings not read'}
         {' · '}
         {casesRequest === 'ok'
-          ? <Link to={casesPathForDomainKey(module.domainKey)} className="font-semibold text-gray-700 hover:text-brand-700">{openCases} open case{openCases === 1 ? '' : 's'}</Link>
+          ? <Link to={casesPathForDomainKey(module.domainKey)} className="font-semibold text-gray-700 hover:text-brand-800">{openCases} open case{openCases === 1 ? '' : 's'}</Link>
           : casesRequest === 'loading' ? 'cases loading' : 'cases not read'}
       </p>
       <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">
-        <Link to={module.to} className="text-sm font-semibold text-brand-600 hover:text-brand-700">{module.cta}</Link>
+        <Link to={module.to} className="text-sm font-semibold text-brand-700 hover:text-brand-800">{module.cta}</Link>
         {guide && <Link to={guide} className="text-sm font-semibold text-gray-500 hover:text-gray-800">Field Guide</Link>}
       </div>
     </article>
@@ -176,7 +176,7 @@ export default function SecurityOverview({ workspaceName, domains, domainsReques
     { label: 'Open findings', value: signals.hasCompletedScan ? `${critical} critical, ${high} high` : 'No completed scan', tone: critical > 0 ? 'bad' : high > 0 ? 'warn' : 'na' },
     { label: 'Certificate risk', value: cr ? titleCase(cr) : 'Unknown', tone: cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : 'na' },
   ]
-  const pTone = (t) => t === 'bad' ? 'text-red-700' : t === 'warn' ? 'text-amber-700' : 'text-gray-400'
+  const pTone = (t) => t === 'bad' ? 'text-red-700' : t === 'warn' ? 'text-brand-700' : 'text-gray-400'
 
   return (
     <div className="space-y-6" data-testid="security-overview">

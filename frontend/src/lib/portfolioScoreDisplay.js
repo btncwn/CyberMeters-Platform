@@ -20,8 +20,8 @@
 /** Tone → Tailwind classes. Slate is the "we do not know" tone: never green, never red. */
 export const TONE_CLASS = Object.freeze({
   healthy:  'bg-brand-50 text-brand-700 border border-brand-100',
-  moderate: 'bg-amber-50 text-amber-700 border border-amber-100',
-  elevated: 'bg-orange-50 text-orange-700 border border-orange-100',
+  moderate: 'bg-transparent text-brand-700 border border-[1.5px] border-brand-700',
+  elevated: 'bg-red-50 text-red-600 border border-red-100',
   serious:  'bg-red-50 text-red-700 border border-red-100',
   unknown:  'bg-slate-100 text-slate-600 border border-slate-200',
 });
@@ -108,7 +108,7 @@ export function scoreOutOfHundred(score) {
 // M5.e-C: inline-style hex per tone for SVG/inline consumers (ScoreBar, ring).
 // Unknown is neutral gray — an absent band never paints a risk colour.
 export const TONE_HEX = Object.freeze({
-  healthy: '#00876A', moderate: '#F59E0B', elevated: '#F97316', serious: '#EF4444', unknown: '#9CA3AF',
+  healthy: '#117362', moderate: '#45e3c7', elevated: '#f87171', serious: '#EF4444', unknown: '#9CA3AF',
 });
 export function bandHex(band) {
   // scoreBandMeta returns null for absent/unknown bands — neutral, never risky.
@@ -116,6 +116,6 @@ export function bandHex(band) {
 }
 // Workspace BRS risk_band (low/medium/high/critical) — backend-owned words.
 export function riskBandHex(riskBand) {
-  const map = { low: '#00876A', medium: '#F59E0B', high: '#F97316', critical: '#EF4444' };
+  const map = { low: '#117362', medium: '#45e3c7', high: '#f87171', critical: '#EF4444' };
   return map[String(riskBand ?? '').toLowerCase()] ?? TONE_HEX.unknown;
 }

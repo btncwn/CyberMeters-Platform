@@ -19,16 +19,20 @@ const STATE_META = {
   degraded:                { label: 'Degraded',             tone: 'amber' },
   unavailable:             { label: 'Unavailable',          tone: 'gray' },
   not_configured:          { label: 'Not configured',       tone: 'gray' },
-  customer_input_required: { label: 'Input required',       tone: 'blue' },
+  // Awaiting the customer is a hollow state (founder, 17 Oct 2026): never a filled chip.
+  customer_input_required: { label: 'Input required',       tone: 'amber' },
   monitoring_only:         { label: 'Monitoring',           tone: 'blue' },
   not_yet_assessed:        { label: 'Not assessed',         tone: 'gray' },
   evidence_insufficient:   { label: 'Evidence insufficient', tone: 'amber' },
 }
 
+// `green` = the filled aqua chip (assessed on CyberMeters' own observation);
+// `amber` = the hollow aqua-ink chip (provisional, insufficient, awaiting the
+// customer). The keys are historical names; the colours are the brand aqua.
 const TONE = {
-  green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  green: 'bg-brand-200 text-brand-900 border-brand-200',
   red:   'bg-red-50 text-red-700 border-red-200',
-  amber: 'bg-amber-50 text-amber-700 border-amber-200',
+  amber: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   blue:  'bg-blue-50 text-blue-700 border-blue-200',
   gray:  'bg-gray-50 text-gray-600 border-gray-200',
 }

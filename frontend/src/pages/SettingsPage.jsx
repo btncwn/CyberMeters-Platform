@@ -27,7 +27,7 @@ function Status({ error, ok }) {
   }
   if (ok) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-100 text-xs text-green-700">
+      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-200 border border-brand-200 text-xs text-brand-900">
         Saved
       </div>
     )
@@ -48,13 +48,13 @@ function UsageLine({ label, used, limit }) {
   const pct = unlimited || !limit ? 0 : Math.min(100, Math.round((used / limit) * 100))
   const full = !unlimited && pct >= 100
   const near = !unlimited && pct >= 80
-  const color = full ? 'bg-red-500' : near ? 'bg-amber-400' : 'bg-brand-500'
+  const color = full ? 'bg-red-500' : near ? 'bg-brand-700' : 'bg-brand-500'
 
   return (
     <div>
       <div className="flex items-center justify-between text-xs mb-1">
         <span className="text-gray-500">{label}</span>
-        <span className={`font-semibold ${full ? 'text-red-600' : near ? 'text-amber-600' : 'text-gray-700'}`}>
+        <span className={`font-semibold ${full ? 'text-red-600' : near ? 'text-brand-700' : 'text-gray-700'}`}>
           {used} / {unlimited ? '∞' : limit}
         </span>
       </div>
@@ -150,7 +150,7 @@ function NotificationPreferencesCard() {
 
       {loading ? (
         <div className="py-4 text-center">
-          <div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-5 h-5 border-2 border-brand-700 border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
       ) : (
         <div className="space-y-2">
@@ -169,7 +169,7 @@ function NotificationPreferencesCard() {
                 value={opt.value}
                 checked={freq === opt.value}
                 onChange={() => setFreq(opt.value)}
-                className="mt-0.5 accent-brand-600 shrink-0"
+                className="mt-0.5 accent-brand-700 shrink-0"
               />
               <div>
                 <p className="text-sm font-semibold text-gray-800">{opt.label}</p>

@@ -29,7 +29,7 @@ export default function WorkspaceCasesPage() {
         {/* Also under Cases (founder, 16 Oct 2026): the related-changes record
             moved here from the workspace popover; route and access unchanged. */}
         <nav aria-label="Also under Cases" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <Link to="/ws/related-changes" className="font-semibold text-brand-600 hover:text-brand-700">Related changes</Link>
+          <Link to="/ws/related-changes" className="font-semibold text-brand-700 hover:text-brand-800">Related changes</Link>
         </nav>
       </div>
       {wsId && (
