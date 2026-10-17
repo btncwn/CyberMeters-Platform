@@ -15,7 +15,7 @@ export const EXPOSURE_JOB_LIMITS = Object.freeze({
   hosts:4, checks:1024, requests:1024, bytes:64*1024*1024,
   workspaceRequests:4096, workspaceBytes:128*1024*1024,
   windowMs:60*60*1000, completionMs:15*60*1000, leaseMs:30000,
-  attempts:150, failures:3, byteReservation:EXPOSURE_LIMITS.bytes+131072,
+  attempts:150, maxPlannedAttempts:2048, failures:3, byteReservation:EXPOSURE_LIMITS.bytes+131072,
   // Authoritative no-address evidence older than the lifecycle recheck window
   // (attack-surface-lifecycle RECHECK_OBSERVATION_WINDOW_DAYS) is stale: the
   // name is planned again rather than skipped on an old answer.
@@ -190,6 +190,7 @@ async function createJob(env, scan, now, dispatch) {
     plan.tls={...tlsPlan,endpoints:endpoints.endpoints,gaps:endpoints.gaps,scope_generation:endpoints.scope_generation,
       omitted_services:endpoints.omitted_services,results:[],state:'pending'};
   }
+  plan.network_budget=sizeExposureJobBudget(plan);
   await db.prepare(`INSERT OR IGNORE INTO external_exposure_jobs
     (scan_id,workspace_id,domain_id,domain,plan_json,dispatch_json,created_ms,deadline_ms,updated_at)
     SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM scans s JOIN workspaces w ON w.id=s.workspace_id
@@ -334,16 +335,64 @@ export function mergeWebsiteContentPlan(plan,receipt,domain) {
   return plan;
 }
 
-function nextTlsChecks(plan) {
-  const tls=plan.tls,first=tls?.selected?.[tls.cursor];
+function tlsSliceAt(selected,cursor) {
+  const first=selected?.[cursor];
   if(!first)return [];
   if(['heartbleed','robot','ccs'].includes(first.check.control))return [first];
   const batch=[];
-  for(const row of tls.selected.slice(tls.cursor,tls.cursor+TLS_SLICE_LIMITS.checks)){
+  for(const row of selected.slice(cursor,cursor+TLS_SLICE_LIMITS.checks)){
     if(row.endpoint_index!==first.endpoint_index||['heartbleed','robot','ccs'].includes(row.check.control))break;
     batch.push(row);
   }
   return batch;
+}
+function nextTlsChecks(plan) { return tlsSliceAt(plan.tls?.selected,plan.tls?.cursor||0); }
+
+// Reserve each planned collector slice, including redirects/TLS retry capacity,
+// plus 20% for uncertain attempts. Successful receipts refund unused capacity.
+// The hourly workspace ceilings remain absolute even when a plan needs more.
+export function sizeExposureJobBudget(plan) {
+  const checks=Array.isArray(plan?.checks)?plan.checks:[];
+  let httpSlices=0;
+  const originOf=check=>{try{return new URL(check?.url).origin;}catch{return null;}};
+  for(let i=0;i<checks.length;){
+    const origin=originOf(checks[i]);
+    let count=0;
+    do{i++;count++;}while(origin&&count<EXPOSURE_LIMITS.checks&&i<checks.length&&originOf(checks[i])===origin);
+    httpSlices++;
+  }
+  const selected=Array.isArray(plan?.tls?.selected)?plan.tls.selected:[];
+  let tlsSlices=0,tlsRequests=0;
+  for(let i=0;i<selected.length;){
+    const slice=tlsSliceAt(selected,i);
+    if(!slice.length)break;
+    tlsSlices++;
+    tlsRequests+=TLS_SPECIAL_CONNECTION_LIMITS[slice[0].check.control]||TLS_SLICE_LIMITS.connections;
+    i+=slice.length;
+  }
+  const content=plan?.content_state==='not_requested'?0:1;
+  const slices=content+httpSlices+tlsSlices;
+  const requests=content*WEBSITE_CONTENT_LIMITS.requests+httpSlices*EXPOSURE_LIMITS.requests+tlsRequests;
+  const bytes=content*(WEBSITE_CONTENT_LIMITS.bytes+WEBSITE_CONTENT_LIMITS.overreadBytes)
+    +httpSlices*EXPOSURE_JOB_LIMITS.byteReservation
+    +tlsSlices*(TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes);
+  const headroom=value=>Math.ceil(value*6/5);
+  return {requests:Math.min(EXPOSURE_JOB_LIMITS.workspaceRequests,headroom(requests)),
+    bytes:Math.min(EXPOSURE_JOB_LIMITS.workspaceBytes,headroom(bytes)),
+    attempts:Math.min(EXPOSURE_JOB_LIMITS.maxPlannedAttempts,headroom(slices))};
+}
+function exposureJobBudget(plan) {
+  const budget=plan?.network_budget;
+  const valid=(key,ceiling)=>Number.isSafeInteger(budget?.[key])&&budget[key]>0&&budget[key]<=ceiling;
+  return valid('requests',EXPOSURE_JOB_LIMITS.workspaceRequests)&&
+    valid('bytes',EXPOSURE_JOB_LIMITS.workspaceBytes)&&
+    valid('attempts',EXPOSURE_JOB_LIMITS.maxPlannedAttempts)
+    ? budget : EXPOSURE_JOB_LIMITS;
+}
+function growExposureJobBudget(plan) {
+  if(!plan.network_budget)return;
+  const next=sizeExposureJobBudget(plan);
+  for(const key of ['requests','bytes','attempts'])plan.network_budget[key]=Math.max(plan.network_budget[key],next[key]);
 }
 
 async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now) {
@@ -376,6 +425,7 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
   if(!await tlsScopeStillAuthorized(env,scan,entry))
     return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
   const token=crypto.randomUUID().replaceAll('-',''),db=env.cybermeters_db;
+  const budget=exposureJobBudget(plan);
   const reservationRequests=TLS_SPECIAL_CONNECTION_LIMITS[items[0].check.control]||TLS_SLICE_LIMITS.connections;
   const reservationBytes=TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes;
   const claimed=await db.prepare(`UPDATE external_exposure_jobs SET state='running',lease_token=?,lease_until=?,
@@ -392,8 +442,8 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
         WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
       AND ${TLS_SCOPE_FENCE}`)
     .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,new Date(now).toISOString(),
-      row.scan_id,row.workspace_id,row.cursor,now,tls.cursor,reservationRequests,EXPOSURE_JOB_LIMITS.requests,
-      reservationBytes,EXPOSURE_JOB_LIMITS.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
+      row.scan_id,row.workspace_id,row.cursor,now,tls.cursor,reservationRequests,budget.requests,
+      reservationBytes,budget.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
       EXPOSURE_JOB_LIMITS.workspaceRequests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,EXPOSURE_JOB_LIMITS.workspaceBytes,
       ...tlsScopeParams(entry)).run();
   if(!changed(claimed)){
@@ -459,9 +509,9 @@ export async function processExposureMessage(body,env,deps={}) {
   if(terminal(row.state)){await resumeDomain(env,row);return {action:'ack',outcome:'terminal'};}
   if(!await canRun(env,row))return finishWithoutProbe(env,row,'cancelled','authority_lost',now);
   if(row.lease_until>now)return deferBusy(env,row,'lease_held');
-  if(now>=row.deadline_ms||row.attempts>=EXPOSURE_JOB_LIMITS.attempts||row.failure_count>=EXPOSURE_JOB_LIMITS.failures)
+  const plan=json(row.plan_json,{checks:[]}),budget=exposureJobBudget(plan);
+  if(now>=row.deadline_ms||row.attempts>=budget.attempts||row.failure_count>=EXPOSURE_JOB_LIMITS.failures)
     return finishWithoutProbe(env,row,'budget_exhausted','completion_budget',now);
-  const plan=json(row.plan_json,{checks:[]});
   const contentPhase=plan.content_state==='pending';
   if(!contentPhase&&row.cursor>=plan.checks.length){
     if(plan.tls?.selected?.length>plan.tls.cursor)return processTlsSlice(env,row,plan,now,deps);
@@ -490,8 +540,8 @@ export async function processExposureMessage(body,env,deps={}) {
     AND (SELECT COALESCE(SUM(j.charged_bytes),0) FROM external_exposure_jobs j
       WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?`)
     .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,new Date(now).toISOString(),
-      row.scan_id,row.workspace_id,row.cursor,now,reservationRequests,EXPOSURE_JOB_LIMITS.requests,
-      reservationBytes,EXPOSURE_JOB_LIMITS.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
+      row.scan_id,row.workspace_id,row.cursor,now,reservationRequests,budget.requests,
+      reservationBytes,budget.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
       EXPOSURE_JOB_LIMITS.workspaceRequests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,EXPOSURE_JOB_LIMITS.workspaceBytes).run();
   if(!changed(claimed)){
     const active=await db.prepare('SELECT scan_id FROM external_exposure_jobs WHERE workspace_id=? AND lease_until>? LIMIT 1').bind(row.workspace_id,now).first();
@@ -537,6 +587,7 @@ export async function processExposureMessage(body,env,deps={}) {
       plan.checks.push({rule_id:candidate.ruleId,url:candidate.url});
     }
     if(!contentPhase)plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...(receipt.discoveries?.hosts||[])])].filter(h=>safeHost(h,row.domain)).slice(0,128);
+    growExposureJobBudget(plan);
     const cursor=contentPhase?0:row.cursor+checks.length;
     const state=cursor>=plan.checks.length && (!plan.tls || plan.tls.cursor>=plan.tls.selected.length)?'complete':'pending';
     // Receipt + progress + refund are one atomic, fenced commit. A late result
@@ -577,6 +628,10 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   const reason=row.state==='cancelled'?'authority_lost':row.state==='budget_exhausted'?'budget_exhausted':'queued';
   const pending=plan.checks.slice(row.cursor).map(c=>({...c,identity:exposureIdentity(c.rule_id,c.url),state:reason,comparable:false,finding:null,reason,observed_at:null}));
   const checks=[...results,...pending];
+  // The durable job can exhaust after HTTP finished while deep TLS is still
+  // pending. Its terminal state must not downgrade already completed HTTP.
+  const httpComplete=row.cursor>=plan.checks.length && plan.content_state!=='pending' &&
+    (row.state==='complete'||row.state==='budget_exhausted'&&Boolean(plan.tls));
   const notApplicableHosts=(Array.isArray(plan.hosts_not_applicable)?plan.hosts_not_applicable:[]).filter(h=>typeof h?.hostname==='string');
   const coverage={completed:0,pending:0,blocked:0,not_applicable:0,budget_exhausted:plan.omitted_checks||0,uncertain:0,pending_assets:plan.pending_assets||0,
     not_applicable_hosts:notApplicableHosts.length};
@@ -590,8 +645,9 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   }
   // job_state says whether the job FINISHED; quality and incomplete_reason say
   // whether what it observed can support a conclusion. They are different facts.
-  return {source:'external_exposure',version:'1',quality:row.state==='complete'&&checks.every(r=>r.comparable)?'complete':'partial',
-    job_state:row.state,incomplete_reason:exposureIncompleteReason(row.state,coverage,checks.length),
+  return {source:'external_exposure',version:'1',quality:httpComplete&&checks.every(r=>r.comparable)?'complete':'partial',
+    job_state:row.state,phase_state:httpComplete?'complete':row.state,
+    incomplete_reason:exposureIncompleteReason(httpComplete?'complete':row.state,coverage,checks.length),
     hosts_not_applicable:notApplicableHosts.map(h=>({hostname:h.hostname,reason:h.reason,observed_at:h.evidence?.observed_at||null})),
     page_discovery:plan.content_state==='complete'?plan.page_discovery:null,
     coverage,checks,hostname_references:{candidates:(plan.discovered_hosts||[]).map(hostname=>({hostname,sources:['exposure_content']}))},costs:{...json(row.costs_json,{}),charged_requests:row.charged_requests,charged_bytes:row.charged_bytes,
@@ -623,9 +679,11 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
     else coverage.uncertain++;
   }
   const costs=json(row.costs_json,{});
-  const quality=row.state==='complete'&&coverage.uncertain===0&&coverage.unexecutable===0&&coverage.not_authorized===0&&
+  const tlsComplete=row.state==='complete'&&tls.cursor>=tls.selected.length;
+  const quality=tlsComplete&&coverage.uncertain===0&&coverage.unexecutable===0&&coverage.not_authorized===0&&
     coverage.omitted_checks===0&&coverage.omitted_services===0&&coverage.endpoint_gaps===0?'complete':'partial';
-  return {source:'tls_assessment',version:tls.profile_version,policy_version:tls.policy_version,quality,coverage,endpoints,
+  return {source:'tls_assessment',version:tls.profile_version,policy_version:tls.policy_version,quality,
+    phase_state:tlsComplete?'complete':row.state,coverage,endpoints,
     gaps:tls.gaps,trust_store_context:TLS_TRUST_BUNDLE,
     costs:{connections:costs.tls_connections||0,bytes_sent:costs.tls_bytes_sent||0,
       bytes_received:costs.tls_bytes_received||0,duration_ms:costs.tls_duration_ms||0,

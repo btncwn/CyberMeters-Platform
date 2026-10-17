@@ -48,8 +48,8 @@ const MUTANTS = Object.freeze([
     defect: "reader returns no incomplete_reason, so a finished job reads as cut off by the budget (the original defect)",
     file: "jobs",
     mutate: (s) => once(s,
-      "    job_state:row.state,incomplete_reason:exposureIncompleteReason(row.state,coverage,checks.length),",
-      "    job_state:row.state,incomplete_reason:null,", "XM1"),
+      "    incomplete_reason:exposureIncompleteReason(httpComplete?'complete':row.state,coverage,checks.length),",
+      "    incomplete_reason:null,", "XM1"),
     expect: [
       "X1_READ_REASON_INCONCLUSIVE",
       ...FALSE_SENTENCE_RESTORED,

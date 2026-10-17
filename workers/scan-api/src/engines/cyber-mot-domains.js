@@ -106,7 +106,10 @@ import {
 // evidence_count is the real inventory count). Email Protection names an open
 // unauthorised-sending-source alert as a coverage caveat without changing the
 // published-record decision. `required` lists are unchanged.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.2";
+// `2026-10-17.3`: completed HTTP exposure evidence remains domain-local when
+// an unrelated phase ran out of budget. A changed
+// favourable conclusion from the same frozen report is a methodology boundary.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.3";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -284,6 +287,26 @@ function moduleAttempted(report, name, skippedSet) {
   return !!(m.error || m.skipped === true || m.incomplete === true || skippedSet.has(name));
 }
 
+function completedHttpDomainDespiteOtherBudget(report, domain, skippedSet) {
+  if (!['website_security', 'attack_surface'].includes(domain.domain_key) ||
+      report?.modules?.external_exposure?.quality !== 'complete') return false;
+  const quality = report?.scan_quality;
+  if (!['partial', 'degraded'].includes(quality?.status) ||
+      (quality.degradations || []).length > 0) return false;
+  const unrelated = domain.domain_key === 'website_security'
+    ? new Set(['tls_assessment', 'asset_exposure']) : new Set(['tls_assessment']);
+  const incomplete = Array.isArray(quality.modules_incomplete) ? quality.modules_incomplete : [];
+  const skipped = Array.isArray(quality.modules_skipped) ? quality.modules_skipped : [];
+  if (!incomplete.length && !skipped.length) return false;
+  if (incomplete.some(item => !unrelated.has(item?.module)) || skipped.some(name => !unrelated.has(name))) return false;
+  const allowedWarnings = new Set([...unrelated].flatMap(name => [
+    `Module incomplete: ${name}`, `Module skipped (subrequest budget): ${name}`]));
+  const warnings = Array.isArray(quality.warnings) ? quality.warnings : [];
+  if (warnings.some(warning => !allowedWarnings.has(warning))) return false;
+  return domain.modules.filter(name => !unrelated.has(name))
+    .every(name => moduleAssessed(report, name, skippedSet));
+}
+
 /**
  * resolveCyberMotDomainStates — the canonical eight-domain resolver.
  * @param {object} report  the R2 scan report (modules + findings + scan_quality). May be null.
@@ -303,6 +326,8 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
   const provisional = quality != null && quality !== "complete";
 
   const resolveDomain = (d) => {
+    const localComplete = provisional && completedHttpDomainDespiteOtherBudget(report, d, skippedSet);
+    const domainProvisional = provisional && !localComplete;
     const monitoringCoverage = resolveSignalMonitoringCoverage(
       report?.monitoring_states,
       d.monitoring_signals
@@ -319,7 +344,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       summary: "",
       description: d.description,
       state: CYBER_MOT_STATES.NOT_YET_ASSESSED,
-      coverage: quality,                 // domain-relevant quality (refined below)
+      coverage: localComplete ? 'complete' : quality, // domain-relevant quality
       maturity: d.maturity,
       managed_status: d.managed_status,
       evidence_count: 0,
@@ -495,12 +520,12 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     if (domainFindings.length > 0) {
       // A real finding always surfaces as issue_detected; coverage metadata tells the
       // UI whether the evidence behind it was provisional.
-      const caveat = anyRequiredInsufficient || provisional || signalCoverageLimited
+      const caveat = anyRequiredInsufficient || domainProvisional || signalCoverageLimited
         || (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
           .some((asset) => asset?.probe_status === "not_applicable"))
         || brandPendingChecks > 0;
       base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
-      base.coverage = caveat ? "partial" : (quality || "complete");
+      base.coverage = caveat ? "partial" : (localComplete ? "complete" : quality || "complete");
       base.summary = `${domainFindings.length} issue${domainFindings.length === 1 ? "" : "s"} detected${caveat ? " (provisional evidence)" : ""}.`;
       if (brandValidation) {
         const liveCount = Number.isFinite(brandValidation.active_high_risk) ? brandValidation.active_high_risk : 0;
@@ -660,7 +685,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.summary = "Not yet assessed for this domain — required checks did not run.";
       return base;
     }
-    if (provisional) {
+    if (domainProvisional) {
       // All required evidence assessed, no material finding, BUT the overall scan is
       // provisional (partial/degraded/unknown) → do not assert an authoritative healthy.
       base.state = CYBER_MOT_STATES.PROVISIONAL;
