@@ -95,11 +95,11 @@ test("anonymous gateway denials have per-client and shared audit caps; authentic
     for (let n = 1; n < hashes.length; n++) {
       assert.equal(await recordMcpGatewayDenial(f.env, input(hashes[n]), { appendAudit }), true);
     }
-    assert.equal(f.audit.length, 96, "the shared budget bounds distributed anonymous audit rows");
+    assert.equal(f.audit.length, 16, "the shared budget bounds distributed anonymous audit rows");
     assert.equal(f.sql.prepare(`SELECT COUNT(*) AS total FROM api_rate_limits
-      WHERE action = 'mcp_gateway_denial_audit'`).get().total, 94);
+      WHERE action = 'mcp_gateway_denial_audit'`).get().total, 14);
     assert.equal(await recordMcpGatewayDenial(f.env, input(hashes[0], true), { appendAudit }), true);
-    assert.equal(f.audit.length, 97, "authenticated denial bypasses anonymous caps");
+    assert.equal(f.audit.length, 17, "authenticated denial bypasses anonymous caps");
     assert.ok(f.audit.every((event) => event.event_type === "mcp_customer_gateway_denied"));
     assert.equal(JSON.stringify(f.audit).includes(hashes[0]), false);
     f.sql.exec("DROP TABLE api_rate_limits");

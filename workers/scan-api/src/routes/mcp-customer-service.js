@@ -313,11 +313,12 @@ export async function recordMcpGatewayDenial(env, input, overrides = {}) {
       !CLIENT_IP_HASH.test(input.client_ip_hash)) throw deny();
   if (!input.authenticated) {
     // The shared cap is claimed first so a distributed flood cannot create
-    // unbounded per-IP counter rows. Both claims stop writing at saturation.
+    // unbounded per-IP counter rows. At 20/min, hourly retention can drain
+    // even a sustained flood; both claims stop writing at saturation.
     const budget = { atomic: true, saturating: true, failClosed: true };
     const global = await consumeApiRateLimit(env,
       [{ scope: "mcp_gateway_anon_all", scope_id: "all" }],
-      "mcp_gateway_denial_audit", 100, 60, budget);
+      "mcp_gateway_denial_audit", 20, 60, budget);
     if (global?.status === 429) return true;
     if (global) throw deny();
     const client = await consumeApiRateLimit(env,
