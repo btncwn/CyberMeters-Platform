@@ -309,8 +309,8 @@ const EXPECTED = Object.freeze({
     // reads modules_incomplete twice to distinguish attempted from skipped.
     // Runtime direct reads remain 127 across 47 files, and SQL remains 24.
     // P1b's real-engine fixture adds one governed direct read of the recorded
-    // scan_quality (validate-p1b-single-domain-engine.js:82); runtime reads are unchanged.
-    governance: { occurrence_count: 132, source_file_count: 43, fingerprint: "d725abb72783cc4f20287bb21c07bf7de22023f2bbc34e54fa0e83729c0b2c64" },
+    // scan_quality (p1b-single-domain-engine-fixture.js:82); runtime reads are unchanged.
+    governance: { occurrence_count: 132, source_file_count: 43, fingerprint: "f5ecceee3bf339815caeaf4ab8b9fbda207a849c849b06ecc5c1744f7fa598ee" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper

@@ -200,4 +200,4 @@ try {
   await assert.rejects(Promise.race([hung,new Promise((_,reject)=>{guardTimer=setTimeout(()=>reject(new Error('abort_not_bounded')),1000);})]),/collector_aborted/);
 } finally {clearTimeout(abortTimer);clearTimeout(guardTimer);}
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
-await import('./validate-p1b-single-domain-engine.js');
+await import('./p1b-single-domain-engine-fixture.js');
