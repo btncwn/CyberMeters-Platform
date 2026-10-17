@@ -1,4 +1,5 @@
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDate, formatDay } from '../../utils/dates'
+import InternalIdCopyButton from '../../components/InternalIdCopyButton'
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import {
@@ -78,7 +79,7 @@ function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm text-xs">
-      <p className="text-gray-500 mb-1">{parseServerDate(label).toLocaleDateString()}</p>
+      <p className="text-gray-500 mb-1">{formatDay(label)}</p>
       {payload.map(p => (
         <p key={p.dataKey} style={{ color: p.color }} className="font-semibold">
           {p.name}: {p.value}
@@ -188,11 +189,11 @@ export default function WorkspaceBusinessRiskPage() {
                         {data.current_assessment.assessed_at ? 'Latest assessment' : 'Latest scan started'}:{' '}
                         <span className="font-semibold text-gray-600">
                           {(data.current_assessment.assessed_at ?? data.current_assessment.scan_started_at)
-                            ? parseServerDate(data.current_assessment.assessed_at ?? data.current_assessment.scan_started_at).toLocaleString()
+                            ? formatDate(data.current_assessment.assessed_at ?? data.current_assessment.scan_started_at)
                             : 'timestamp unavailable'}
                         </span>
                       </p>
-                      <p>Latest scan ID: <span className="font-mono text-gray-600">{data.current_assessment.scan_id}</span></p>
+                      <p>Latest scan: <InternalIdCopyButton id={data.current_assessment.scan_id} label="scan" /></p>
                     </div>
                   )}
                 </div>
@@ -210,10 +211,10 @@ export default function WorkspaceBusinessRiskPage() {
                   </span>
                 </p>
                 <p className="text-xs text-gray-500 mt-3">
-                  Historical/stale — basis scan <span className="font-mono">{lastComplete.basis_scan?.scan_id}</span>
+                  Historical/stale — basis scan <InternalIdCopyButton id={lastComplete.basis_scan?.scan_id} label="scan" />
                   {' · '}
                   {lastComplete.basis_scan?.assessed_at
-                    ? parseServerDate(lastComplete.basis_scan.assessed_at).toLocaleString()
+                    ? formatDate(lastComplete.basis_scan.assessed_at)
                     : 'timestamp unavailable'}
                 </p>
               </div>
@@ -289,7 +290,7 @@ export default function WorkspaceBusinessRiskPage() {
                 <div className="rounded-lg bg-gray-50 px-4 py-3">
                   <p className="text-xs text-gray-500 mb-1">Score Last Updated</p>
                   <p className="text-sm font-semibold text-gray-900">
-                    {data.generated_at ? parseServerDate(data.generated_at).toLocaleString() : '—'}
+                    {formatDate(data.generated_at)}
                   </p>
                 </div>
               </div>
@@ -307,7 +308,7 @@ export default function WorkspaceBusinessRiskPage() {
                     <XAxis
                       dataKey="date"
                       tick={{ fontSize: 13, fill: '#9ca3af' }}
-                      tickFormatter={v => parseServerDate(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      tickFormatter={v => formatDay(v)}
                     />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 13, fill: '#9ca3af' }} />
                     <Tooltip content={<ChartTooltip />} />

@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { formatDate, parseServerDate } from '../utils/dates'
 import { snapshotRows } from '../lib/reportSnapshotDisplay'
 
 function fmt(value) {
   const d = parseServerDate(value)
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+  return d && !Number.isNaN(d.getTime()) ? formatDate(d) : '—'
 }
 
 // Read-only history of the workspace's assessment snapshots. Loaded only when

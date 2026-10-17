@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { X } from 'lucide-react'
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDay } from '../../utils/dates'
 
 const RESOURCE_LABELS = {
   scans_per_month:     'monthly scans',
@@ -61,8 +61,8 @@ export default function UpgradePromptModal() {
     try {
       const d = parseServerDate(limit.reset_at)
       resetNote = limit.reason === 'trial_daily_allowance'
-        ? `Renews ${d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric', timeZone: 'UTC' })}, 00:00 UTC.`
-        : `Your quota resets on ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`
+        ? `Renews ${formatDay(d, '—', { timeZone: 'UTC' })}, 00:00 UTC.`
+        : `Your quota resets on ${formatDay(d)}.`
     } catch { /* ignore */ }
   }
 

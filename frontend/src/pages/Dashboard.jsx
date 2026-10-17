@@ -6,6 +6,7 @@ import Spinner from '../components/Spinner'
 import PostureCard          from '../components/overview/PostureCard'
 import { NextActionCard } from '../components/overview/SecurityOverview'
 import SetupCard from '../components/SetupCard'
+import { formatDate } from '../utils/dates'
 
 // The home screen (founder, 16 Oct 2026): the question, the last assessment,
 // the scan input, the "Your external posture" card (every area with the
@@ -15,27 +16,10 @@ import SetupCard from '../components/SetupCard'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
 
-function formatDate(str) {
-  if (!str) return '—'
-  return new Date(str.replace(' ', 'T') + 'Z')
-    .toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-// Relative age of a stored timestamp, or '' when the value is missing or
-// cannot be parsed — the hero drops the "· … ago" part rather than render
-// "NaNd ago". Exported for its test.
-export function relativeTime(str, nowMs = Date.now()) {
-  if (typeof str !== 'string' || !str.trim()) return ''
-  const iso = str.includes('T') ? str : str.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(str) ? '' : 'Z')
-  const ms = new Date(iso).getTime()
-  if (!Number.isFinite(ms)) return ''
-  const diff = Math.max(0, nowMs - ms)
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
+export function lastAssessmentLabel(scan) {
+  if (!scan?.domain) return 'No assessment has been recorded in this workspace yet.'
+  const date = formatDate(scan.created_at, '')
+  return [`Last assessment of ${scan.domain}`, date].filter(Boolean).join(' · ')
 }
 
 function assessedScan(scan) {
@@ -424,9 +408,7 @@ export default function Dashboard() {
       <section className="text-center pt-4 sm:pt-10 pb-2" aria-labelledby="home-question">
         <h1 id="home-question" className="cm-hero-title">Where is {activeWorkspaceName || 'your organisation'} exposed today?</h1>
         <p className="text-[15px] text-gray-500 mt-3">
-          {latestScan
-            ? [`Last assessment of ${latestScan.domain}`, relativeTime(latestScan.created_at)].filter(Boolean).join(' · ')
-            : 'No assessment has been recorded in this workspace yet.'}
+          {lastAssessmentLabel(latestScan)}
         </p>
         <form
           className="cm-hero-input mt-6"

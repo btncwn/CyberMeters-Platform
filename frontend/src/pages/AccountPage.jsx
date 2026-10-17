@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDay } from '../utils/dates'
 /**
  * AccountPage — one page with sub-tabs (founder, 17 Oct 2026; the old
  * /settings page merged here and redirects):
@@ -648,7 +648,7 @@ export default function AccountPage() {
                         <p className="text-sm font-semibold text-gray-800">Authenticator app (TOTP)</p>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {mfaStatus?.mfa_enabled
-                            ? `Enabled ${mfaStatus.mfa_enabled_at ? 'on ' + parseServerDate(mfaStatus.mfa_enabled_at).toLocaleDateString() : ''}`
+                            ? `Enabled ${mfaStatus.mfa_enabled_at ? 'on ' + formatDay(mfaStatus.mfa_enabled_at) : ''}`
                             : 'Not enabled'}
                         </p>
                       </div>
@@ -875,10 +875,10 @@ export default function AccountPage() {
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-gray-900 truncate">{token.name}</p>
                               <p className="text-xs text-gray-400 mt-0.5">
-                                Created {token.created_at ? parseServerDate(token.created_at).toLocaleDateString() : 'unknown'}
+                                Created {token.created_at ? formatDay(token.created_at) : 'unknown'}
                               </p>
                               <p className="text-xs text-gray-400">
-                                Last used {token.last_used_at ? parseServerDate(token.last_used_at).toLocaleDateString() : 'never'}
+                                Last used {token.last_used_at ? formatDay(token.last_used_at) : 'never'}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
@@ -950,14 +950,14 @@ export default function AccountPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">{['active', 'past_due'].includes(subscription.status) ? 'Renews' : 'Ended'}</span>
                         <span className="text-xs text-gray-400">
-                          {parseServerDate(subscription.current_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {formatDay(subscription.current_period_end)}
                         </span>
                       </div>
                     ) : subscription.trial_ends_at ? (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">Trial ends</span>
                         <span className="text-xs text-gray-400">
-                          {parseServerDate(subscription.trial_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {formatDay(subscription.trial_ends_at)}
                         </span>
                       </div>
                     ) : null}

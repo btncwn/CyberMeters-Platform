@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatNumber, formatDay } from '../utils/dates'
 /**
  * SubscriptionPage — workspace-level subscription and trial status.
  *
@@ -120,9 +120,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
                 warning ? 'bg-brand-200 hover:bg-brand-300'  :
                           'bg-brand-200 hover:bg-brand-300'
 
-  const endDate = trialEnd ? parseServerDate(trialEnd).toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'long', year: 'numeric',
-  }) : null
+  const endDate = trialEnd ? formatDay(trialEnd) : null
 
   return (
     <div className={`rounded-2xl border p-5 ${bg}`}>
@@ -279,7 +277,7 @@ function LimitsGrid({ limits }) {
   function fmt(v) {
     if (v === undefined || v === null) return '—'
     if (v >= 999999) return 'Unlimited'
-    return v.toLocaleString()
+    return formatNumber(v)
   }
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -542,7 +540,7 @@ export default function SubscriptionPage() {
   const fmtDay = (v) => {
     if (!v) return null
     const d = parseServerDate(v)
-    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    return Number.isNaN(d.getTime()) ? null : formatDay(d)
   }
 
   // ── Loading ────────────────────────────────────────────────────────────────

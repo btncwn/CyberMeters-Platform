@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDate } from '../utils/dates'
 
 // Owner's soft-deleted workspaces that can still be restored. The backend
 // decides restorability (window, purge state, ownership); this panel only
@@ -14,7 +14,7 @@ import { parseServerDate } from '../utils/dates'
 function formatDeadline(value) {
   const d = parseServerDate(value)
   if (!d || Number.isNaN(d.getTime())) return null
-  return d.toLocaleString(undefined, { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return formatDate(d)
 }
 
 function restoreErrorMessage(err) {

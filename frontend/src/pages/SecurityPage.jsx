@@ -1,18 +1,10 @@
-import { parseServerDate } from '../utils/dates'
+import { formatDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatDate(iso) {
-  if (!iso) return '—'
-  return parseServerDate(iso).toLocaleString(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-}
 
 function shortUA(ua) {
   if (!ua) return 'Unknown browser'

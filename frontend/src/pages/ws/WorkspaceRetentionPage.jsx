@@ -6,7 +6,6 @@
  *  2. RetentionPolicyCard  — current policy summary with plan-based guidance
  *  3. RetentionSettingsCard — days selector + auto-cleanup toggle + save (PUT /api/workspaces/:id/retention)
  *  4. CleanupWarningModal  — triggered when reducing days or enabling cleanup
- *  5. StorageInsightsSection — lightweight derived insights from available data
  *
  * All sections gracefully handle missing data with empty states and skeleton loaders.
  * No backend modifications. UX only.
@@ -18,6 +17,7 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import WorkspaceUsageCard from '../../components/WorkspaceUsageCard'
+import { formatNumber } from '../../utils/dates'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ import WorkspaceUsageCard from '../../components/WorkspaceUsageCard'
 const PLAN_RETENTION = [
   { plan: 'Free',       days: 30,     color: 'text-gray-500'   },
   { plan: 'Starter',    days: 90,     color: 'text-blue-600'   },
-  { plan: 'Pro',        days: 365,    color: 'text-brand-700'  },
+  { plan: 'Professional', days: 365, color: 'text-brand-700'  },
   { plan: 'Business',   days: 730,    color: 'text-brand-700'  },
   { plan: 'Enterprise', days: null,   color: 'text-purple-600' },
 ]
@@ -49,12 +49,13 @@ function Skel({ className = '' }) {
 }
 
 function StatItem({ label, value, sub, loading }) {
+  if (!loading && (value == null || value === false)) return null
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{label}</span>
       {loading
         ? <Skel className="h-6 w-24 mt-1" />
-        : <span className="text-lg font-bold text-gray-900">{value ?? '—'}</span>
+        : <span className="text-lg font-bold text-gray-900">{value}</span>
       }
       {sub && !loading && <span className="text-xs text-gray-400">{sub}</span>}
     </div>
@@ -163,7 +164,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
 
 function StorageUsageCard({ data, loading, error, onRefresh }) {
   function fmtBytes(mb) {
-    if (mb === null || mb === undefined) return '—'
+    if (mb === null || mb === undefined) return null
     if (mb < 1) return `${Math.round(mb * 1024)} KB`
     if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
     return `${mb.toFixed(1)} MB`
@@ -207,18 +208,18 @@ function StorageUsageCard({ data, loading, error, onRefresh }) {
 
       {(loading || data) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-          <StatItem label="Reports stored"  value={data?.report_count?.toLocaleString()}                    loading={loading} />
+          <StatItem label="Reports stored"  value={data?.report_count == null ? null : formatNumber(data.report_count)} loading={loading} />
           <StatItem label="Storage used"    value={fmtBytes(data?.storage_mb)}                              loading={loading} />
-          <StatItem label="Retention"       value={data?.retention_days ? `${data.retention_days} days` : '—'} loading={loading} />
+          <StatItem label="Retention"       value={data?.retention_days ? `${data.retention_days} days` : null} loading={loading} />
           <StatItem
             label="Auto cleanup"
             loading={loading}
             value={
-              !loading && data && (
+              typeof data?.auto_cleanup === 'boolean' ? (
                 <InlineBadge variant={data.auto_cleanup ? 'green' : 'neutral'}>
                   {data.auto_cleanup ? 'Enabled' : 'Disabled'}
                 </InlineBadge>
-              )
+              ) : null
             }
           />
         </div>
@@ -509,73 +510,6 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
   )
 }
 
-// ── 5. Storage Insights Section ───────────────────────────────────────────────
-
-function StorageInsightsSection({ storage, retention, loading }) {
-  if (loading) {
-    return (
-      <div className="card p-6">
-        <SectionHeader title="Storage Insights" />
-        <div className="space-y-2.5">
-          <Skel className="h-10 w-full rounded-xl" />
-          <Skel className="h-10 w-4/5 rounded-xl" />
-        </div>
-      </div>
-    )
-  }
-
-  // Build insights from available data only
-  const insights = []
-
-  if (storage) {
-    const mb = storage.storage_mb ?? 0
-    if (mb < 100)  insights.push({ bg: 'bg-brand-200', text: 'Storage usage is within typical plan limits.' })
-    if (mb > 500)  insights.push({ bg: 'bg-transparent', text: 'Storage usage is high. Consider downloading and archiving older reports.' })
-
-    if (storage.report_count > 0 && retention?.retention_days) {
-      // Rough estimate: assume linear distribution of reports
-      const estimatedOld = Math.round(storage.report_count * 0.15)
-      if (estimatedOld > 0 && retention.auto_cleanup) {
-        insights.push({
-          bg: 'bg-transparent',
-          text: `Auto cleanup may remove approximately ${estimatedOld} older report${estimatedOld === 1 ? '' : 's'} based on your retention policy.`,
-        })
-      }
-    }
-
-    if (storage.report_count === 0) {
-      insights.push({ bg: 'bg-gray-50', text: 'No reports stored yet. Retention settings will apply once reports are generated.' })
-    }
-  }
-
-  if (retention) {
-    if (!retention.auto_cleanup) {
-      insights.push({ bg: 'bg-blue-50', text: 'Auto cleanup is disabled. Reports will accumulate until manually managed.' })
-    }
-    if (retention.retention_days >= 730) {
-      insights.push({ bg: 'bg-brand-50', text: 'Long retention periods support compliance and historical trend analysis.' })
-    }
-  }
-
-  if (insights.length === 0) return null
-
-  return (
-    <div className="card p-6">
-      <SectionHeader
-        title="Storage Insights"
-        subtitle="Observations based on your current configuration"
-      />
-      <div className="space-y-2.5">
-        {insights.map((ins, i) => (
-          <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${ins.bg} border-transparent`}>
-            <p className="text-sm text-gray-700 leading-relaxed">{ins.text}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function WorkspaceRetentionPage() {
@@ -679,11 +613,6 @@ export default function WorkspaceRetentionPage() {
           loadError={retentionError}
           onRetry={loadRetention}
           onSaved={handleRetentionSaved}
-        />
-        <StorageInsightsSection
-          storage={storage}
-          retention={retention}
-          loading={storageLoading || retentionLoading}
         />
       </div>
     </WsPage>

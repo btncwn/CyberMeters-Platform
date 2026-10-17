@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDay } from '../utils/dates'
 /**
  * InvitationLandingPage — public, no auth required.
  *
@@ -78,9 +78,7 @@ const BENEFITS = [
 function formatDate(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return parseServerDate(s).toLocaleDateString(undefined, {
-    day: 'numeric', month: 'long', year: 'numeric',
-  })
+  return formatDay(s)
 }
 
 function isExpired(expiresAt) {

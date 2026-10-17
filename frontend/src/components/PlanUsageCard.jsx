@@ -32,6 +32,7 @@
  */
 
 import { useNavigate } from 'react-router-dom'
+import { customerCodeLabel } from '../lib/customerReasonText'
 
 // ── Plan display config ──────────────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ export function PlanGate({ error, children, feature: featureOverride, requiredPl
 
   const featureKey   = featureOverride ?? error?.feature ?? ''
   const requiredPlan = planOverride ?? error?.required_plan ?? 'starter'
-  const featureLabel = FEATURE_LABELS[featureKey] ?? 'This feature'
+  const featureLabel = FEATURE_LABELS[featureKey] ?? customerCodeLabel(featureKey) ?? 'This feature'
   const planCfg      = PLAN_CFG[requiredPlan] ?? PLAN_CFG.starter
   const planFeatures = PLAN_FEATURES[requiredPlan] ?? []
 

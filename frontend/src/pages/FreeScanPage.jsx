@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Moon, Sun } from 'lucide-react'
+import { formatDate } from '../utils/dates'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
 import { BASE } from '../api'
@@ -301,7 +302,7 @@ export default function FreeScanPage() {
             <div>
               <span className="fm-kicker">Free Cyber MOT snapshot</span>
               <h1>{result.domain}</h1>
-              <p>{result.scanned_at ? `Completed ${new Date(result.scanned_at).toLocaleString('en-GB')}` : 'Snapshot completed'}</p>
+              <p>{result.scanned_at ? `Completed ${formatDate(result.scanned_at)}` : 'Snapshot completed'}</p>
             </div>
             <button className="fm-button fm-button--secondary" onClick={reset} type="button">
               Check another domain

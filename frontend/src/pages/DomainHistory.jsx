@@ -6,23 +6,8 @@ import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import EmptyState from '../components/EmptyState'
-
-function formatDate(str) {
-  if (!str) return '—'
-  return new Date(str.replace(' ', 'T') + 'Z')
-    .toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function relativeTime(str) {
-  if (!str) return ''
-  const diff = Date.now() - new Date(str.replace(' ', 'T') + 'Z').getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
-}
+import { formatDate } from '../utils/dates'
+import InternalIdCopyButton from '../components/InternalIdCopyButton'
 
 export default function DomainHistory() {
   const { domain } = useParams()
@@ -88,7 +73,7 @@ export default function DomainHistory() {
             <p className="text-sm font-semibold text-gray-700 mt-1">Completed</p>
           </div>
           <div className="card p-5">
-            <p className="text-sm font-bold text-blue-700 mt-1">{latest ? relativeTime(latest.created_at) : '—'}</p>
+            <p className="text-sm font-bold text-blue-700 mt-1">{latest ? formatDate(latest.created_at) : '—'}</p>
             <p className="text-sm font-semibold text-gray-700 mt-1">Last Scan</p>
           </div>
         </div>
@@ -139,12 +124,11 @@ export default function DomainHistory() {
                         </span>
                       )}
                     </div>
-                    <p className="mono text-xs text-gray-600 mt-1.5 truncate">{scan.id}</p>
+                    <p className="mt-1.5"><InternalIdCopyButton id={scan.id} label="scan" /></p>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-gray-400 flex items-center gap-1">
                         {formatDate(scan.created_at)}
                       </span>
-                      <span className="text-xs text-gray-600">{relativeTime(scan.created_at)}</span>
                     </div>
                   </div>
                 </li>

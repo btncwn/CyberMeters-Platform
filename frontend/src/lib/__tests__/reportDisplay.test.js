@@ -21,21 +21,28 @@ describe('reportPeriodLabel', () => {
     expect(reportPeriodLabel({ ...snapshot, domain: 'example.co.uk' })).toMatch(/^example\.co\.uk · Single scan · /)
   })
 
-  it('falls back to "Single scan" without any date, and to a dash without any period', () => {
+  it('falls back to a report type when no date is recorded', () => {
     expect(reportPeriodLabel({ report_type: 'scan_snapshot' })).toBe('Single scan')
-    expect(reportPeriodLabel({ report_type: 'manual', report_period: '' })).toBe('—')
+    expect(reportPeriodLabel({ report_type: 'manual', report_period: '' })).toBe('Manual')
     expect(reportPeriodLabel(null)).toBe('—')
   })
 
-  it('shows customer-meaningful periods of other report types as they are', () => {
-    expect(reportPeriodLabel({ report_type: 'monthly_executive', report_period: '2026-09' })).toBe('2026-09')
-    expect(reportPeriodLabel({ report_type: 'manual', report_period: 'recovered-report' })).toBe('recovered-report')
+  it('names weekly, monthly, quarterly and manual report periods in customer words', () => {
+    expect(reportPeriodLabel({ report_type: 'weekly_executive', report_period: '2026-W42' })).toBe('Weekly executive · week 42, 2026')
+    expect(reportPeriodLabel({ report_type: 'monthly_executive', report_period: '2026-09' })).toBe('Monthly executive · September 2026')
+    expect(reportPeriodLabel({ report_type: 'quarterly_executive', report_period: '2026-Q4' })).toBe('Quarterly executive · Q4 2026')
+    expect(reportPeriodLabel({ report_type: 'manual', report_period: 'recovered-report', generated_at: '2026-10-17T19:21:00Z' })).toMatch(/^Manual · 17 Oct 2026$/)
+    expect(reportPeriodLabel({ report_type: 'manual', report_period: 'recovered-report' })).toBe('Manual')
   })
 
-  it('treats an internal-looking period on any type as a single scan', () => {
+  it('never exposes an internal-looking period, preserving the report type', () => {
     expect(isInternalPeriod('scan-v2-scan_abc123-x')).toBe(true)
+    expect(isInternalPeriod('rpt_abc123')).toBe(true)
+    expect(isInternalPeriod('workspace_abc123')).toBe(true)
+    expect(isInternalPeriod('mcpconn_abc123')).toBe(true)
     expect(isInternalPeriod('2026-W41')).toBe(false)
-    expect(reportPeriodLabel({ report_type: 'manual', report_period: 'scan-v2-scan_abc123-x', created_at: '2026-10-01T00:00:00Z' })).toMatch(/^Single scan · /)
+    expect(reportPeriodLabel({ report_type: 'manual', report_period: 'scan-v2-scan_abc123-x', created_at: '2026-10-01T00:00:00Z' })).toMatch(/^Manual · /)
+    expect(reportPeriodLabel({ report_type: 'weekly_executive', report_period: 'rpt_abc123', created_at: '2026-10-01T00:00:00Z' })).toMatch(/^Weekly executive · /)
   })
 })
 
@@ -44,6 +51,6 @@ describe('reportFileName', () => {
     const name = reportFileName(snapshot)
     expect(name).toMatch(/^cybermeters-scan-snapshot-single-scan-.*\.pdf$/)
     expect(name).not.toMatch(/scan-v2|snap_|rep_/)
-    expect(reportFileName({ report_type: 'monthly_executive', report_period: '2026-09' })).toBe('cybermeters-monthly-executive-2026-09.pdf')
+    expect(reportFileName({ report_type: 'monthly_executive', report_period: '2026-09' })).toBe('cybermeters-monthly-executive-september-2026.pdf')
   })
 })

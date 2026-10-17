@@ -22,15 +22,20 @@ describe('Public content evidence', () => {
     expect(screen.getByText(/These checks were not recorded/)).toBeInTheDocument()
     expect(screen.queryByText(/verified fixed|all clear/i)).toBeNull()
   })
-  it('shows all coverage states, safe evidence, rationale, remediation and a scoped recheck link', () => {
+  it('combines completed, blocked and unfinished counts without exposing accounting tiles', () => {
     mount(exposure)
-    for (const label of ['Completed', 'Waiting', 'Blocked', 'Not applicable', 'Budget reached', 'Not determined']) expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByText('8 checks completed · 1 blocked · 7 not completed this scan')).toBeInTheDocument()
+    for (const label of ['Budget reached', 'Not determined', 'Recorded request cost']) expect(screen.queryByText(label)).toBeNull()
     expect(screen.getByText(/https:\/\/example.com\/\.env/)).toBeInTheDocument()
     expect(screen.getByText(/validity was not tested/)).toBeInTheDocument()
     expect(screen.getByText(/configuration structure/)).toBeInTheDocument()
     expect(screen.getByText(/Restrict the file and replace/)).toBeInTheDocument()
     expect(screen.getByText(/cannot confirm that a previous finding was fixed/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Recheck this website' })).toHaveAttribute('href', '/scans/new?domain=example.com')
+  })
+  it('renders the observed receipt distribution without dropping unfinished checks', () => {
+    mount({ ...exposure, coverage: { completed: 133, blocked: 4, pending: 160, budget_exhausted: 12, uncertain: 244 } })
+    expect(screen.getByText('133 checks completed · 4 blocked · 416 not completed this scan')).toBeInTheDocument()
   })
   it('renders observation text literally, without creating executable markup', () => {
     const value = structuredClone(exposure)

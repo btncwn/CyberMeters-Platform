@@ -1,4 +1,4 @@
-import { parseServerDate } from '../../utils/dates'
+import { formatDate, formatNumber } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { RefreshCw } from 'lucide-react'
@@ -43,12 +43,7 @@ const ENTITY_TYPE_OPTIONS = [
 ]
 
 function formatTime(ts) {
-  if (!ts) return '—'
-  const d = parseServerDate(ts)
-  return d.toLocaleString(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  })
+  return formatDate(ts)
 }
 
 function MetaSummary({ metadata }) {
@@ -280,7 +275,7 @@ export default function WorkspaceAuditLogPage() {
           {/* Results info */}
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <span className="text-xs text-gray-500">
-              {loading ? 'Loading…' : `${total.toLocaleString()} event${total !== 1 ? 's' : ''}`}
+              {loading ? 'Loading…' : `${formatNumber(total)} event${total !== 1 ? 's' : ''}`}
             </span>
             {total > 0 && (
               <span className="text-xs text-gray-400">
@@ -369,7 +364,7 @@ export default function WorkspaceAuditLogPage() {
                 Previous
               </button>
               <span className="text-xs text-gray-500">
-                Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total.toLocaleString()}
+                Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {formatNumber(total)}
               </span>
               <button
                 onClick={() => load(offset + PAGE_SIZE)}

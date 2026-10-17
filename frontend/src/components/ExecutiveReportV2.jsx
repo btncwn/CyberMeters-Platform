@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/dates'
 import CyberMotDomains from './CyberMotDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
@@ -55,7 +56,7 @@ function fmtDate(str) {
   if (!str) return '—'
   const d = new Date(str.includes('T') ? str : str.replace(' ', 'T') + 'Z')
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDate(d)
 }
 
 function EvidenceBasis({ label, assertion, className = '' }) {

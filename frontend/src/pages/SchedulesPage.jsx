@@ -5,20 +5,13 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import EmptyState from '../components/EmptyState'
+import { formatDate } from '../utils/dates'
+import InternalIdCopyButton from '../components/InternalIdCopyButton'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function isValidDomain(v) {
   return /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(v.trim())
-}
-
-function formatDate(str) {
-  if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
 }
 
 const FREQ_LABELS = { daily: 'Daily', weekly: 'Weekly' }
@@ -258,7 +251,7 @@ export default function SchedulesPage() {
                         <div className="flex items-center gap-2.5">
                           <div>
                             <p className="font-semibold text-gray-900">{s.domain}</p>
-                            <p className="mono text-xs text-gray-600 truncate max-w-[180px]">{s.id}</p>
+                            <InternalIdCopyButton id={s.id} label="schedule" />
                           </div>
                         </div>
                       </td>

@@ -1,4 +1,4 @@
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDate, formatDay } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -70,7 +70,7 @@ function ScoreTrendChart({ trend }) {
   const data = trend.map((p, i) => ({
     name:  p.domain ? `${p.domain.slice(0, 16)}…` : `Scan ${i + 1}`,
     score: p.score,
-    date:  p.scanned_at ? parseServerDate(p.scanned_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '',
+    date:  p.scanned_at ? formatDay(p.scanned_at) : '',
   }))
 
   return (
@@ -180,7 +180,7 @@ function TopRisksTable({ risks }) {
               <td className="py-2.5 pr-4"><SevBadge severity={r.severity} /></td>
               <td className="py-2.5 pr-4 text-gray-500 font-mono text-xs truncate max-w-[120px]">{r.domain}</td>
               <td className="py-2.5 text-gray-400 text-xs whitespace-nowrap">
-                {r.detected_at ? parseServerDate(r.detected_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '—'}
+                {r.detected_at ? formatDay(r.detected_at) : '—'}
               </td>
             </tr>
           ))}
@@ -321,7 +321,7 @@ export default function WorkspaceExecutiveDashboard() {
         </div>
         {gen && (
           <div className="flex items-center gap-1.5 text-xs text-gray-400">
-            Updated {parseServerDate(gen).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+            Updated {formatDate(gen)}
           </div>
         )}
       </div>
@@ -390,7 +390,7 @@ export default function WorkspaceExecutiveDashboard() {
           <ChangesWidget changes={data?.changes} />
           {s.last_scan_at && (
             <p className="text-xs text-gray-400 mt-4 flex items-center gap-1">
-              Last scan: {parseServerDate(s.last_scan_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric' })}
+              Last scan: {formatDay(s.last_scan_at)}
               {s.last_scan_domain && ` · ${s.last_scan_domain}`}
             </p>
           )}

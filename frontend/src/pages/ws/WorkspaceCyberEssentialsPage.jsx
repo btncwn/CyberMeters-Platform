@@ -1,3 +1,4 @@
+import { formatDate } from '../../utils/dates'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -633,7 +634,7 @@ export default function WorkspaceCyberEssentialsPage() {
               <div className="h-2 overflow-hidden rounded-full bg-gray-100">
                 <div className="h-full rounded-full bg-brand-200 transition-all" style={{ width: `${progress.pct}%` }} />
               </div>
-              {savedAt && <p className="mt-2 text-xs text-gray-400">Saved {savedAt.toLocaleTimeString('en-GB')}</p>}
+              {savedAt && <p className="mt-2 text-xs text-gray-400">Saved {formatDate(savedAt)}</p>}
             </div>
           )}
           overview={(

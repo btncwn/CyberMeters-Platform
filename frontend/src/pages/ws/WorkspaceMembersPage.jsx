@@ -1,4 +1,4 @@
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDay } from '../../utils/dates'
 /**
  * WorkspaceMembersPage — Workspace Invitations & Team Collaboration v1
  *
@@ -27,8 +27,7 @@ import ErrorAlert from '../../components/ErrorAlert'
 
 function formatDate(str) {
   if (!str) return '—'
-  return new Date(str.includes('T') ? str : str.replace(' ', 'T') + 'Z')
-    .toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  return formatDay(str)
 }
 
 const ROLE_COLORS = {

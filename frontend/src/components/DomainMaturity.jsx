@@ -8,7 +8,7 @@ import React, { useState } from 'react'
 import { resolveDisplayMaturity, STAGE_META, maturityHistoryRows } from '../lib/maturityDisplay'
 import { ATTESTED_LABEL } from '../lib/caseDisplay'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDay } from '../utils/dates'
 
 const TONE = {
   green:  'bg-brand-200 text-brand-900 border-brand-200',
@@ -37,7 +37,7 @@ function Flags({ flags }) {
 
 function fmtDate(value) {
   const t = parseServerDate(value)
-  return t && !Number.isNaN(t.getTime()) ? t.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+  return t && !Number.isNaN(t.getTime()) ? formatDay(t) : '—'
 }
 
 // Append-only history of one domain record's stage for this canonical domain,

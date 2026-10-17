@@ -12,6 +12,7 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import OwnerPicker from '../../components/OwnerPicker'
 import CaseGuidance from '../../components/CaseGuidance'
+import InternalIdCopyButton from '../../components/InternalIdCopyButton'
 import {
   phaseMeta, phaseClass, domainKeyLabel,
   ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL,
@@ -341,7 +342,7 @@ export default function WorkspaceCaseDetailPage() {
               <div>
                 <dt className="text-xs text-slate-400">Source scan</dt>
                 <dd className="text-slate-700 mt-0.5">
-                  {c.source_scan_id ? <Link className="text-brand-700 hover:underline font-mono text-xs" to={`/scans/${c.source_scan_id}`}>{c.source_scan_id}</Link> : '—'}
+                  {c.source_scan_id ? <><Link className="text-brand-700 hover:underline text-xs" to={`/scans/${encodeURIComponent(c.source_scan_id)}`}>View scan</Link>{' · '}<InternalIdCopyButton id={c.source_scan_id} label="scan" /></> : '—'}
                 </dd>
               </div>
               {/* Backend-owned provenance classification (ASM traceability). The

@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { formatDate, formatDay } from '../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
@@ -11,12 +11,14 @@ import { scoreHeadline, provisionalScoreLabel } from '../lib/scoreHonesty'
 import { rememberSample } from '../lib/scanDuration'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
+import InternalIdCopyButton from '../components/InternalIdCopyButton'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import CyberMotDomains from '../components/CyberMotDomains'
 import LiveTlsEvidence, { TlsAssessmentEvidence } from '../components/LiveTlsEvidence'
 import WebsiteResponseEvidence from '../components/WebsiteResponseEvidence'
 import { bandMeta } from '../lib/score-presentation'
+import { customerEvidenceText } from '../lib/evidenceStrengthDisplay'
 import {
   isReportPreparing,
   isReportReady,
@@ -28,12 +30,6 @@ const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatDate(str) {
-  if (!str) return '—'
-  const d = new Date(str.includes('T') ? str : str.replace(' ', 'T') + 'Z')
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-}
 
 function durationSeconds(start, end) {
   if (!start || !end) return null
@@ -109,32 +105,8 @@ function KV({ label, value }) {
   )
 }
 
-// The raw scan id is an internal identifier: shown shortened on one line,
-// copied in full; the full id is the tooltip.
-export function shortScanId(id) {
-  const s = String(id || '')
-  return s.length <= 14 ? s : `${s.slice(0, 9)}…${s.slice(-4)}`
-}
-
 function ScanIdValue({ id }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <span className="inline-flex items-center justify-end gap-2 min-w-0 max-w-full">
-      <span className="mono text-xs text-gray-700 whitespace-nowrap" title={id} data-testid="scan-id-short">{shortScanId(id)}</span>
-      <button
-        type="button"
-        onClick={async () => {
-          try { await navigator.clipboard.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1800) }
-          catch { /* clipboard unavailable — the full id is in the title to copy by hand */ }
-        }}
-        className="text-xs font-semibold text-brand-700 hover:text-brand-800 shrink-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700"
-        aria-label={`Copy scan ID ${id}`}
-        title={id}
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </button>
-    </span>
-  )
+  return <InternalIdCopyButton id={id} label="scan" />
 }
 
 // ── Score Ring (compact) ─────────────────────────────────────────────────────
@@ -235,7 +207,7 @@ function EvidencePanel({ evidence }) {
           hasVal && ['Observed',      String(valRaw ?? 'null (no record found)')],
           exp   && ['Expected',       String(exp)],
           src   && ['Source',         String(src)],
-          chk   && ['Checked at',     parseServerDate(chk).toLocaleString()],
+          chk   && ['Checked at',     formatDate(chk)],
           stat  && ['HTTP status',    String(stat)],
           mhdr  && ['Missing header', String(mhdr)],
         ].filter(Boolean)
@@ -609,7 +581,7 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
-                Risk accepted{w.created_at ? ` on ${parseServerDate(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                Risk accepted{w.created_at ? ` on ${formatDay(w.created_at)}` : ''}
                 {w.waived_by_name ? ` by ${w.waived_by_name}` : ''}
                 {w.reason ? <> — “{w.reason}”</> : ''}
               </p>
@@ -1010,7 +982,7 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
       <div className="px-6 py-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
-          <p className="text-xs text-gray-600 mono mt-0.5 truncate">vs {changes.previous_scan_id}</p>
+          <p className="text-xs text-gray-600 mt-0.5">Compared with previous scan <InternalIdCopyButton id={changes.previous_scan_id} label="previous scan" /></p>
         </div>
         <div className="flex items-center gap-2 shrink-0 text-sm">
           <span className="text-gray-400">{changes.previous_score ?? '—'}</span>
@@ -1240,20 +1212,20 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
             <p className="font-semibold">Scan coverage {scan_quality.status}</p>
             {skippedModules.length > 0 && (
               <p className="text-xs mt-0.5">
-                Skipped modules: {skippedModules.slice(0, 4).join(', ')}
+                Checks not completed: {skippedModules.slice(0, 4).map(customerEvidenceText).join(', ')}
               </p>
             )}
             {incompleteModules.slice(0, 4).map(({ module, incomplete_reason }) => (
               <p key={module} className="text-xs mt-0.5">
                 {incomplete_reason
                   /* it ran, and what it observed could not support a conclusion */
-                  ? `${module}: ran, but evidence was insufficient — ${String(incomplete_reason).replace(/_/g, ' ')}`
+                  ? customerEvidenceText(`${module}: ran, but evidence was insufficient — ${incomplete_reason}`)
                   /* it never finished, so nothing was observed — not an evidence verdict */
-                  : `${module}: did not complete within the scan budget — not assessed`}
+                  : customerEvidenceText(`${module}: did not complete within the scan budget — not assessed`)}
               </p>
             ))}
             {qualityWarnings.slice(0, 2).map((warning, i) => (
-              <p key={i} className="text-xs mt-0.5">{warning}</p>
+              <p key={i} className="text-xs mt-0.5">{customerEvidenceText(warning)}</p>
             ))}
             {skippedModules.length === 0 && incompleteModules.length === 0 && qualityWarnings.length === 0 && (
               <p className="text-xs mt-0.5">Some scan coverage may be incomplete.</p>
@@ -1665,9 +1637,10 @@ export default function ScanDetail() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-bold text-gray-900 break-words min-w-0">{scan.domain}</h1>
+                <h1 className="text-xl font-bold text-gray-900 break-words min-w-0">Scan — {formatDate(scan.created_at)}</h1>
                 <StatusBadge status={scan.status} quality={scan.scan_quality} />
               </div>
+              <p className="text-xs text-gray-500">{scan.domain} · <InternalIdCopyButton id={scan.id} label="scan" /></p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button onClick={() => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`)} className="btn-secondary">

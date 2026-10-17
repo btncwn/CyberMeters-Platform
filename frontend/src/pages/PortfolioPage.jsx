@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDate, formatDay } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -55,15 +55,11 @@ function RatingBadge({ rating }) {
 function fmtDate(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return parseServerDate(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatDay(s)
 }
 
 function fmtDateTime(str) {
-  if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return parseServerDate(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  return formatDate(str)
 }
 
 function fmtDay(str) {

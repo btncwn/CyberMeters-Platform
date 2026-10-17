@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, X } from 'lucide-react'
 import { api } from '../api'
 import LiveTlsEvidence from './LiveTlsEvidence'
-import { parseServerDate } from '../utils/dates'
+import { formatDate, parseServerDate } from '../utils/dates'
 
 const OBSERVATION_LABELS = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
 const RUN_LABELS = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed' }
@@ -12,7 +12,7 @@ const pending = scan => ['queued', 'running'].includes(scan?.status)
 const date = value => {
   if (!value) return 'Not recorded'
   const parsed = parseServerDate(value)
-  return Number.isFinite(parsed?.getTime()) ? parsed.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Not recorded'
+  return Number.isFinite(parsed?.getTime()) ? formatDate(parsed, 'Not recorded') : 'Not recorded'
 }
 
 function Observation({ state }) {

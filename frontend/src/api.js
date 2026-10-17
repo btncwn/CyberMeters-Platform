@@ -1,6 +1,7 @@
 // @ts-check
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
 import { friendlyHttpError } from './lib/httpErrors'
+import { customerCodeLabel } from './lib/customerReasonText'
 
 /**
  * Shared API contract types — see src/types/api.d.ts (kept in lockstep with
@@ -165,6 +166,18 @@ async function signInHandshake(path, body) {
   return data
 }
 
+function planFeatureError(err) {
+  const label = customerCodeLabel(err.feature)
+  const gateError = /** @type {ApiError} */ (new Error(label
+    ? `Upgrade your plan to use ${label}.`
+    : 'This feature requires a plan upgrade.'))
+  gateError.error = 'plan_feature_required'
+  gateError.feature = err.feature
+  gateError.required_plan = err.required_plan
+  gateError.upgrade_url = err.upgrade_url
+  return gateError
+}
+
 /**
  * Authenticated JSON request. Throws an {@link ApiError} on any failure —
  * decorated with status/code/plan-gate context so callers branch on fields,
@@ -242,12 +255,7 @@ async function request(path, options = {}) {
       throw rateError
     }
     if (err.error === 'plan_feature_required') {
-      const gateError = /** @type {ApiError} */ (new Error(`Feature requires upgrade: ${err.feature ?? ''}`))
-      gateError.error         = 'plan_feature_required'
-      gateError.feature       = err.feature
-      gateError.required_plan = err.required_plan
-      gateError.upgrade_url   = err.upgrade_url
-      throw gateError
+      throw planFeatureError(err)
     }
     const httpError = friendlyHttpError(res, err)
     // Preserve machine-readable context (e.g. the readiness interlock details
@@ -347,12 +355,7 @@ async function requestBlob(path, options = {}) {
       throw rateError
     }
     if (err.error === 'plan_feature_required') {
-      const gateError = /** @type {ApiError} */ (new Error(`Feature requires upgrade: ${err.feature ?? ''}`))
-      gateError.error         = 'plan_feature_required'
-      gateError.feature       = err.feature
-      gateError.required_plan = err.required_plan
-      gateError.upgrade_url   = err.upgrade_url
-      throw gateError
+      throw planFeatureError(err)
     }
     const httpError = friendlyHttpError(res, err)
     if (err.code) httpError.code = err.code
@@ -976,6 +979,7 @@ export const api = {
     if (res.status === 401) { handleUnauthorized(); throw new Error('Session expired.') }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
+      if (err.error === 'plan_feature_required') throw planFeatureError(err)
       throw new Error(err.error || `HTTP ${res.status}`)
     }
     return res.blob()

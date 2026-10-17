@@ -65,6 +65,8 @@ describe('Field Guide data', () => {
     expect(allText).not.toMatch(/internet-facing login|publicly reachable admin|login or admin surface|none exposed|credentials are attacked/i)
     // Nobody is told CyberMeters performs the registrar or takedown action.
     expect(getGuideArea('brand-protection').covers.join(' ')).toMatch(/does not file them/i)
+    expect(getGuideArea('brand-protection').summary).toContain('preparing and tracking takedown requests')
+    expect(allText).not.toContain('getting them taken down')
   })
 
   it('maps every in-depth article to exactly one existing area', () => {
