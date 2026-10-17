@@ -318,7 +318,9 @@ const EXPECTED = Object.freeze({
   // unchanged in content and file, as confirmed by the two-tree inventory diff.
   // Certificate route imports shift two existing projection lines by two;
   // both SQL snippets and every runtime direct read match the main-tree dump.
-  sql_reads: { projection_occurrences: 24, fingerprint: "2a273c547ac5cad2618405e398951354c79ba30f47cb4bec100106d82336bf77" },
+  // MCP TLS evidence projection shifts one existing scan_quality SQL read
+  // from line 381 to 432; the two-tree diff has no SQL read membership change.
+  sql_reads: { projection_occurrences: 24, fingerprint: "e00ed7eb39fbac3ea37d1a86abb92db4c01cdf8ea09ba33d7ef7826d790f9ab2" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

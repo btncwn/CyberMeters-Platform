@@ -30,6 +30,8 @@ function fixture() {
       last_seen_at TEXT, current_certificate_observation_id TEXT);
     CREATE TABLE certificate_observations (id TEXT PRIMARY KEY, workspace_id TEXT,
       domain_id TEXT, evidence_json TEXT);
+    CREATE TABLE external_exposure_jobs (scan_id TEXT, workspace_id TEXT,
+      domain_id TEXT, state TEXT, plan_json TEXT);
     CREATE TABLE scan_report_snapshots (id TEXT PRIMARY KEY, workspace_id TEXT,
       domain_id TEXT, scan_id TEXT, status TEXT, r2_key TEXT,
       checksum_sha256 TEXT, snapshot_schema_version TEXT,
@@ -276,6 +278,70 @@ test("TLS D1 failure propagates rather than becoming an empty/healthy status", a
       return original(query);
     };
     await rejectProjection(projectMcpTlsPosture(f.env, grantA, null, { workspaceId: "ws_a" }));
+  } finally { f.close(); }
+});
+
+test("partial TLS job returns bounded observed signals and its budget reason", async () => {
+  const f = fixture();
+  try {
+    const present = (value = null) => ({ completeness_state: "monitoring_healthy",
+      observation: "present", value });
+    const evidence = JSON.stringify({ signal_completeness: {
+      model_version: "certificate-signal-completeness-v3", signals: {
+        leaf: present({ certificate_identity: "leaf-a", internal_detail: "x".repeat(34_000) }),
+        expiry: present("2026-12-01T00:00:00.000Z"),
+        hostname_match: present({ result: "matched", reference_hostname: "a.example" }),
+        trust_store_validation: present({ validation_result: "valid" }),
+        revocation_assurance: { completeness_state: "evidence_incomplete",
+          observation: "unknown", reasons: ["Revocation was not assessed."] },
+      },
+    }, extra_collector_detail: "x".repeat(35_000) });
+    assert.ok(evidence.length > 69_000);
+    f.sql.prepare("INSERT INTO certificate_observations VALUES ('co_a','ws_a','d_a',?)").run(evidence);
+    f.sql.prepare("UPDATE certificate_lifecycle SET current_certificate_observation_id='co_a' WHERE id='cl_a'").run();
+    f.sql.prepare("UPDATE scans SET scan_quality='partial' WHERE id='scan_a'").run();
+    f.sql.prepare("INSERT INTO external_exposure_jobs VALUES ('scan_a','ws_a','d_a','budget_exhausted',?)")
+      .run(JSON.stringify({ tls: { state: "pending", cursor: 1, selected: [{}, {}] } }));
+    const raw = await projectMcpTlsPosture(f.env, grantA, null, { workspaceId: "ws_a" });
+    const projected = JSON.parse(projectCustomerTlsPosture(raw, "ws_a"));
+    const item = projected.certificates[0];
+    assert.equal(item.assurance_status, "current");
+    assert.equal(item.certificate_evidence_reason, null);
+    assert.equal(item.signals.leaf.state, "observed");
+    assert.equal(item.signals.revocation_assurance.state, "incomplete");
+    assert.deepEqual(item.tls_assessment, { source_scan_id: "scan_a",
+      state: "incomplete", reason: "budget_exhausted", completed_checks: 1, planned_checks: 2 });
+    assert.equal(JSON.stringify(projected).includes("extra_collector_detail"), false);
+    assert.equal(JSON.stringify(projected).includes("internal_detail"), false);
+    const hugeSignal = JSON.stringify({ signal_completeness: {
+      model_version: "certificate-signal-completeness-v3",
+      signals: { leaf: present("x".repeat(50_000)) },
+    } });
+    f.sql.prepare("UPDATE certificate_observations SET evidence_json=? WHERE id='co_a'")
+      .run(hugeSignal);
+    const overLimit = await projectMcpTlsPosture(f.env, grantA, null, { workspaceId: "ws_a" });
+    assert.equal(overLimit.certificates[0].certificate_evidence_reason, "signal_evidence_over_limit");
+    assert.equal(overLimit.certificates[0].signals.leaf.state, "unavailable");
+    f.sql.prepare("UPDATE certificate_observations SET evidence_json='{' WHERE id='co_a'").run();
+    const invalid = await projectMcpTlsPosture(f.env, grantA, null, { workspaceId: "ws_a" });
+    assert.equal(invalid.certificates[0].certificate_evidence_reason, "invalid_recorded_evidence");
+    assert.equal(invalid.certificates[0].signals.leaf.state, "unavailable");
+    assert.equal(f.writes, 0);
+  } finally { f.close(); }
+});
+
+test("absent TLS evidence remains explicitly not recorded", async () => {
+  const f = fixture();
+  try {
+    const raw = await projectMcpTlsPosture(f.env, grantA, null, { workspaceId: "ws_a" });
+    const item = JSON.parse(projectCustomerTlsPosture(raw, "ws_a")).certificates[0];
+    assert.equal(item.assurance_status, "not_recorded");
+    assert.equal(item.certificate_evidence_reason, "signal_evidence_not_recorded");
+    assert.equal(item.signals.leaf.state, "not_observed");
+    assert.deepEqual(item.tls_assessment, { source_scan_id: null,
+      state: "not_recorded", reason: "tls_assessment_not_recorded",
+      completed_checks: null, planned_checks: null });
+    assert.equal(f.writes, 0);
   } finally { f.close(); }
 });
 

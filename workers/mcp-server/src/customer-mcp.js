@@ -283,6 +283,20 @@ export function projectCustomerTlsPosture(raw, workspaceId) {
       renewal_readiness: text(40), coverage_status: text(40),
       verification_status: text(40), last_seen_at: datetime,
       assurance_status: z.enum(['current', 'not_recorded']),
+      certificate_evidence_reason: z.enum([
+        'invalid_recorded_evidence', 'signal_evidence_over_limit',
+        'signal_evidence_not_recorded',
+      ]).nullable(),
+      tls_assessment: z.object({
+        source_scan_id: id.nullable(),
+        state: z.enum(['complete', 'incomplete', 'not_recorded']),
+        reason: z.enum([
+          'budget_exhausted', 'authority_lost', 'checks_not_finished',
+          'tls_progress_unavailable', 'tls_assessment_not_recorded',
+        ]).nullable(),
+        completed_checks: z.number().int().min(0).max(2048).nullable(),
+        planned_checks: z.number().int().min(0).max(2048).nullable(),
+      }).passthrough(),
       signals: z.object({
         leaf: signal, expiry: signal, hostname_match: signal,
         trust_store_validation: signal, revocation_assurance: signal,
@@ -304,6 +318,13 @@ export function projectCustomerTlsPosture(raw, workspaceId) {
       renewal_readiness: item.renewal_readiness, coverage_status: item.coverage_status,
       verification_status: item.verification_status, last_seen_at: item.last_seen_at,
       assurance_status: item.assurance_status,
+      certificate_evidence_reason: item.certificate_evidence_reason,
+      tls_assessment: {
+        source_scan_id: item.tls_assessment.source_scan_id,
+        state: item.tls_assessment.state, reason: item.tls_assessment.reason,
+        completed_checks: item.tls_assessment.completed_checks,
+        planned_checks: item.tls_assessment.planned_checks,
+      },
       signals: Object.fromEntries([
         'leaf', 'expiry', 'hostname_match', 'trust_store_validation', 'revocation_assurance',
       ].map((key) => [key, {
