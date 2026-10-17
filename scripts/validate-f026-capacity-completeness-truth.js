@@ -141,7 +141,8 @@ function capacityTruth() {
     b.platform_ceiling === 10_000 && b.effective_limit !== b.platform_ceiling,
     JSON.stringify(b));
   ok("(b) remaining estimate is computed against the EFFECTIVE limit",
-    b.remaining_estimate === 105 && b.remaining_estimate === Math.max(0, capacity.limit - (b.estimated ?? 0)),
+    // One bounded second-resolver DMARC attempt adds eight reserved requests.
+    b.remaining_estimate === 97 && b.remaining_estimate === Math.max(0, capacity.limit - (b.estimated ?? 0)),
     JSON.stringify(b));
   ok("(b) legacy 200 is not configured as a provider-enforced physical hard cap",
     /^\[limits\]\s*\nsubrequests\s*=\s*10_000\s*$/m.test(wrangler) &&
@@ -288,7 +289,7 @@ function variableOutboundBoundTruth() {
   ok("(c) admin_surface is derived from completed exposure evidence with zero new network I/O",
     adminIsPure, JSON.stringify({ adminStart, adminEnd }));
   ok("(c) conservative named-variable envelope stays below provider 10000 but above admission 200",
-    conservativeProfileEnvelope === 2756 &&
+    conservativeProfileEnvelope === 2764 &&
       conservativeProfileEnvelope > 200 && conservativeProfileEnvelope < providerCeiling,
     JSON.stringify({ fixedModeledEstimate, namedVariableOutboundBound, conservativeProfileEnvelope, providerCeiling }));
 }
