@@ -288,6 +288,9 @@ function findingEvidenceGrade(finding, report) {
   } else if (/^identity_/.test(id) || moduleName === "identity_discovery") {
     basis = DOMAIN_EVIDENCE_BASIS.identity_exposure;
     limits.push("No leaked-credential, breached-password, stealer-log, dark-web or compromise evidence is claimed.");
+  } else if (/^whois_/.test(id) || moduleName === "whois_intelligence") {
+    basis = "Registration data (RDAP) as published by the registry at scan time, interpreted under CyberMeters product policy.";
+    limits.push("Registry data describes the registration record, not the domain's services; renewal is actioned at the registrar, which CyberMeters does not perform.");
   } else if (/^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(id)) {
     basis = DOMAIN_EVIDENCE_BASIS.attack_surface;
     limits.push("External observation does not establish internal ownership, intent or complete asset coverage.");

@@ -23,6 +23,47 @@ import { RDAP_UA, safeFetch } from "../lib/http.js";
 // keep an unanswered registry out of the scan's completeness.
 export const REGISTRATION_DATA_OPTIONAL = Object.freeze({ source: "rdap", optional: true });
 
+// The registration findings that reach the report's findings array, where the
+// Attack Surface domain owns them (cyber-mot-domains.js `whois_` match). They
+// keep score_impact 0 — registration data never moves the Cyber Metrics Score —
+// but carry explicit finding authority so an expired or expiring registration
+// can own the domain's issue state. `whois_new_domain` and
+// `whois_registrar_info` stay module-local observations.
+export const WHOIS_REPORT_FINDING_IDS = Object.freeze([
+  "whois_domain_expired", "whois_expiry_critical", "whois_expiry_warning",
+]);
+
+/**
+ * whoisReportFindings — the module's actionable registration findings, shaped
+ * for the report. Pure. Unavailable, deferred, errored or empty modules yield
+ * nothing; a module that did answer yields at most one expiry finding.
+ */
+export function whoisReportFindings(whoisModule) {
+  if (!whoisModule || typeof whoisModule !== "object") return [];
+  if (whoisModule.error || whoisModule.unavailable === true || whoisModule.incomplete === true
+    || whoisModule.skipped === true || whoisModule.executed === false || whoisModule.outcome === "deadline_exceeded") return [];
+  if (!Array.isArray(whoisModule.findings)) return [];
+  const out = [];
+  for (const finding of whoisModule.findings) {
+    if (!finding || !WHOIS_REPORT_FINDING_IDS.includes(finding.id)) continue;
+    if (out.some((item) => item.id === finding.id)) continue;
+    out.push({
+      ...finding,
+      module: "whois_intelligence",
+      finding_type: "finding",
+      score_impact: 0,
+      evidence: Array.isArray(finding.evidence) && finding.evidence.length ? finding.evidence : [
+        { label: "Registered Domain", value: whoisModule.domain ?? null },
+        { label: "Expiration Date", value: whoisModule.expiration_date ?? null },
+        { label: "Days Until Expiry", value: whoisModule.days_until_expiry ?? null },
+        { label: "Registrar", value: whoisModule.registrar ?? null },
+        { label: "Source", value: "RDAP registry lookup" },
+      ].filter((item) => item.value !== null && item.value !== undefined),
+    });
+  }
+  return out;
+}
+
 function registryHost(url) {
   try { return new URL(url).hostname; } catch { return null; }
 }
@@ -223,8 +264,10 @@ export async function runWhoisModule(domain, opts = {}) {
       : null;
 
     // ── Findings ──────────────────────────────────────────────────────────────
-    // score_impact is 0 — WHOIS findings are informational/advisory only and
-    // do NOT feed into computeScore to avoid double-counting.
+    // score_impact is 0 — WHOIS findings never feed computeScore. The expiry
+    // findings carry explicit finding authority and reach the report through
+    // whoisReportFindings() so Attack Surface owns them; the rest are
+    // module-local observations.
     const findings = [];
     let riskLevel = "Low";
 
@@ -233,6 +276,7 @@ export async function runWhoisModule(domain, opts = {}) {
         riskLevel = "High";
         findings.push({
           id:             "whois_domain_expired",
+          finding_type:   "finding",
           title:          "Domain has expired",
           description:    `Domain ${registeredDomain} expiration date has passed (${daysUntilExpiry === 0 ? "today" : `${Math.abs(daysUntilExpiry)} days ago`}). The domain may be available for registration by a third party.`,
           severity:       "high",
@@ -244,6 +288,7 @@ export async function runWhoisModule(domain, opts = {}) {
         riskLevel = "High";
         findings.push({
           id:             "whois_expiry_critical",
+          finding_type:   "finding",
           title:          "Domain expires within 30 days",
           description:    `Domain ${registeredDomain} expires in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? "s" : ""}. Without renewal, services will stop and the domain may be seized.`,
           severity:       "high",
@@ -255,6 +300,7 @@ export async function runWhoisModule(domain, opts = {}) {
         if (riskLevel === "Low") riskLevel = "Medium";
         findings.push({
           id:             "whois_expiry_warning",
+          finding_type:   "finding",
           title:          "Domain expires within 90 days",
           description:    `Domain ${registeredDomain} expires in ${daysUntilExpiry} days. Proactive renewal avoids service disruption and domain-hijacking risk.`,
           severity:       "medium",
@@ -268,6 +314,7 @@ export async function runWhoisModule(domain, opts = {}) {
     if (domainAgeDays != null && domainAgeDays < 180) {
       findings.push({
         id:             "whois_new_domain",
+        finding_type:   "observation",
         title:          "Recently registered domain",
         description:    `Domain was registered ${domainAgeDays} day${domainAgeDays !== 1 ? "s" : ""} ago. Newly registered domains carry elevated phishing-association and fraud-signal risk in email and threat-intel systems.`,
         severity:       "low",
@@ -280,6 +327,7 @@ export async function runWhoisModule(domain, opts = {}) {
     if (registrar) {
       findings.push({
         id:             "whois_registrar_info",
+        finding_type:   "observation",
         title:          "Registrar identified",
         description:    `Domain is registered through ${registrar}${registrationStatus ? ` (status: ${registrationStatus})` : ""}.`,
         severity:       "informational",

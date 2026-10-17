@@ -95,7 +95,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m7-resolver-version-reused",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.2";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.1";',
     expectedFailures: ["current resolver version preserves the evidence-methodology boundary"],
   },
@@ -375,8 +375,8 @@ const MUTATIONS = Object.freeze([
   {
     id: "dual-ownership",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: `match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),`,
-    replacement: `match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_|dnssec_)/.test(f?.id || ""),`,
+    anchor: `match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),`,
+    replacement: `match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),`,
     expectedFailures: [
       "cookie is absent from Attack Surface count",
       "cookie is counted exactly once across all eight domains",
@@ -453,7 +453,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "comparable-historical-transition",
     file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.1";',
+    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.2";',
     replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
       "current resolver version preserves the evidence-methodology boundary",

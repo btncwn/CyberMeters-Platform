@@ -38,6 +38,99 @@ export const SPF_CORROBORATION_TIER = Object.freeze({
 });
 
 export const SPF_UNAUTHORISED_REMEDIATION_ID = "email.spf.unauthorised_source";
+export const SPF_UNAUTHORISED_ALERT_KIND = "email_spf_unauthorised_source";
+// The corroboration itself evaluates the last 30 days of RUA fail-sources, so an
+// alert older than that window describes evidence the current comparison no
+// longer sees.
+export const SPF_UNAUTHORISED_ALERT_WINDOW_DAYS = 30;
+export const SPF_UNAUTHORISED_ALERT_ROW_LIMIT = 200;
+export const SPF_UNAUTHORISED_ALERT_SCHEMA_VERSION = "spf-unauthorised-sources.v1";
+
+export function spfUnauthorisedDedupePrefix(domain) {
+  return `spf_unauthorised:${String(domain || "").trim().toLowerCase()}:`;
+}
+
+// Tenant-scoped: the workspace must be live; the dedupe key prefix binds the
+// alert to this monitored domain exactly (substr equality, not LIKE).
+export function selectOpenUnauthorisedSourceAlertsSql() {
+  return `SELECT n.dedupe_key, n.severity, n.created_at, n.metadata_json
+            FROM notification_events n
+            JOIN workspaces w ON w.id = n.workspace_id AND w.deleted_at IS NULL
+           WHERE n.workspace_id = ?
+             AND n.type = '${SPF_UNAUTHORISED_ALERT_KIND}'
+             AND substr(n.dedupe_key, 1, ?) = ?
+             AND n.created_at >= datetime('now', '-${SPF_UNAUTHORISED_ALERT_WINDOW_DAYS} days')
+           ORDER BY n.created_at DESC
+           LIMIT ${SPF_UNAUTHORISED_ALERT_ROW_LIMIT}`;
+}
+
+const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+
+function alertTier(row) {
+  try {
+    const tier = JSON.parse(row?.metadata_json || "{}")?.corroboration_tier;
+    return Object.values(SPF_CORROBORATION_TIER).includes(tier) ? tier : null;
+  } catch { return null; }
+}
+
+/**
+ * loadUnauthorisedSendingSourceAlerts — reads the unauthorised-sending-source
+ * alerts raised for this workspace + domain within the corroboration window and
+ * returns a bounded summary for the report. Never throws. A read failure is
+ * reported as `state: "unavailable"` with a null count: the resolver then adds
+ * no caveat, because an alert that could not be read is not evidence either way.
+ */
+export async function loadUnauthorisedSendingSourceAlerts(env, { workspaceId, domain, now = null } = {}) {
+  const checkedAt = now || new Date().toISOString();
+  const base = {
+    schema_version: SPF_UNAUTHORISED_ALERT_SCHEMA_VERSION,
+    source: "dmarc_aggregate_report",
+    alert_kind: SPF_UNAUTHORISED_ALERT_KIND,
+    window_days: SPF_UNAUTHORISED_ALERT_WINDOW_DAYS,
+    checked_at: checkedAt,
+  };
+  const unavailable = (reason) => ({
+    ...base, state: "unavailable", reason, count: null, source_ips: [], latest_at: null, highest_severity: null,
+    outside_authorisation: null, comparison_unavailable: null,
+  });
+  if (!workspaceId || !domain) return unavailable("no_workspace_context");
+  const db = env?.cybermeters_db;
+  if (!db) return unavailable("database_unavailable");
+  const prefix = spfUnauthorisedDedupePrefix(domain);
+  try {
+    const rows = (await db.prepare(selectOpenUnauthorisedSourceAlertsSql()).bind(workspaceId, prefix.length, prefix).all())?.results || [];
+    // One source IP, one verdict: the newest alert for that IP (rows are newest
+    // first) carries the tier that applies. The tier decides the wording — a
+    // source whose comparison was unavailable is NOT claimed to be outside the
+    // authorised set.
+    const latestTierByIp = new Map();
+    for (const row of rows) {
+      const ip = String(row?.dedupe_key || "").slice(prefix.length);
+      if (ip && !latestTierByIp.has(ip)) latestTierByIp.set(ip, alertTier(row));
+    }
+    const ips = [...latestTierByIp.keys()];
+    const outside = ips.filter((ip) => [SPF_CORROBORATION_TIER.UNAUTHORISED_CONFIRMED, SPF_CORROBORATION_TIER.UNAUTHORISED_SOFT_POLICY].includes(latestTierByIp.get(ip))).length;
+    const highest = rows.map((row) => String(row?.severity || "").toLowerCase())
+      .filter((sev) => sev in SEVERITY_RANK)
+      .sort((a, b) => SEVERITY_RANK[b] - SEVERITY_RANK[a])[0] ?? null;
+    return {
+      ...base,
+      state: "read",
+      reason: null,
+      count: ips.length,
+      source_ips: ips.slice(0, 20),
+      latest_at: rows[0]?.created_at ?? null,
+      highest_severity: highest,
+      // Sources whose newest alert placed them outside the resolved SPF
+      // authorisation (-all or softer policy) vs. sources where that
+      // comparison was unavailable (failure observed, no authorisation claim).
+      outside_authorisation: outside,
+      comparison_unavailable: ips.length - outside,
+    };
+  } catch {
+    return unavailable("alert_read_failed");
+  }
+}
 
 // Registrable-domain-ish suffix match: the RUA record is "ours" when its
 // spf_domain / header_from equals the monitored domain or a subdomain of it. A
