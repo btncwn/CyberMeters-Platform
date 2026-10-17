@@ -249,7 +249,7 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
               )}
               <button
                 onClick={() => setOpen(false)}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700 transition-colors"
                 aria-label="Close notifications"
               >
                 <X className="w-3.5 h-3.5" />
@@ -346,7 +346,7 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
                                 onClick={e => { e.stopPropagation(); handleMarkRead(n.id) }}
                                 title="Mark as read"
                                 aria-label="Mark as read"
-                                className="w-5 h-5 flex items-center justify-center rounded-sm text-gray-300 hover:text-brand-500 hover:bg-brand-50 transition-colors"
+                                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-600 hover:text-brand-800 hover:bg-brand-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700 transition-colors"
                               >
                                 <X className="w-3 h-3" />
                               </button>

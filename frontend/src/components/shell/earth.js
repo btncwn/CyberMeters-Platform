@@ -22,8 +22,10 @@ export const EARTH_TILT = 0.41
 export const STILL_FRAME_SPIN = 2.2
 export const TEXTURE_WIDTH = 1440
 export const TEXTURE_HEIGHT = 720
-export const EARTH_SIZE_DESKTOP = 135
-export const EARTH_SIZE_PHONE = 110
+// 108px: the founder prototype's 135px less 20% (review of #662). Its only job
+// is the notification control, so it stays well above the 44×44 hit minimum.
+export const EARTH_SIZE_DESKTOP = 108
+export const EARTH_SIZE_PHONE = 88
 
 const SUN = (() => {
   const l = [-0.55, 0.5, 0.67]

@@ -647,15 +647,17 @@
 .cm-earth { display: block; border-radius: 50%; cursor: pointer; transition: transform 200ms ease; background: transparent; }
 .cm-earthdock:hover .cm-earth { transform: scale(1.04); }
 .cm-earth:focus-visible { outline: 2px solid #117362; outline-offset: 3px; }
+/* Badge scaled with the 108px globe (0.8 × the prototype's 26px). */
 .cm-earth-count {
-  position: absolute; left: 14px; top: 12px; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 999px;
-  background: #a9f2e5; color: #081f1c; font-size: 13px; font-weight: 600; display: grid; place-items: center;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18); pointer-events: none;
+  position: absolute; left: 11px; top: 10px; min-width: 21px; height: 21px; padding: 0 6px; border-radius: 999px;
+  background: #a9f2e5; color: #081f1c; font-size: 11px; font-weight: 600; display: grid; place-items: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.18); pointer-events: none;
 }
-/* The notification panel grows out of the globe's centre. */
+/* The notification panel grows out of the globe's centre (globe: right 22,
+   bottom 18, 108px → centre 76px from the right edge, 72px from the bottom). */
 .cm-notif {
-  position: fixed; right: 30px; bottom: 162px; width: 360px; max-width: calc(100vw - 32px);
-  transform-origin: calc(100% - 60px) calc(100% + 80px);
+  position: fixed; right: 30px; bottom: 135px; width: 360px; max-width: calc(100vw - 32px);
+  transform-origin: calc(100% - 46px) calc(100% + 63px);
   animation: cmNotifIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 @keyframes cmNotifIn { from { opacity: 0; transform: translate(10px, 40px) scale(0.15); } to { opacity: 1; transform: none; } }
@@ -667,8 +669,35 @@
 .cm-main { padding-bottom: 24px; }
 .cm-footer {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 24px 120px; font-size: 14px; color: #6b7280; border-top: 1px solid rgba(16, 24, 40, 0.06);
+  padding: 12px 24px 24px; font-size: 14px; color: #6b7280; border-top: 1px solid rgba(16, 24, 40, 0.06);
   background: rgba(255, 255, 255, 0.6);
+}
+/* Reserved gutters (≥1280px): deck 22 + 92 + gap on the left, globe 22 + 108 +
+   gap on the right. The content column and the footer both clear the docks at
+   every scroll position, so nothing clickable can sit under the globe; the
+   bottom padding is the dock height (108 + 18) plus a 16px gap as well. */
+@media (min-width: 1280px) {
+  .cm-main, .cm-footer { padding-left: 160px; padding-right: 160px; }
+  .cm-main { padding-bottom: 142px; }
+}
+@media (max-width: 1279.98px) {
+  .cm-dock, .cm-earthdock { display: none; }
+}
+/* Top-bar stand-ins below 1280px. */
+.cm-wsmini {
+  width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none;
+  background: linear-gradient(145deg, #0f2a5c 0%, #0b57d0 100%); color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.cm-wsmini .cm-wsbtn-initial { font-size: 18px; }
+.cm-bellbtn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 999px; color: #0b1220; transition: background-color 150ms ease;
+}
+.cm-bellbtn:hover { background-color: rgba(16, 24, 40, 0.06); }
+.cm-bell-count {
+  position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: #a9f2e5; color: #081f1c; font-size: 11px; font-weight: 600; display: grid; place-items: center;
 }
 .cm-hero-input {
   display: flex; align-items: center; gap: 8px; width: 100%; max-width: 560px; margin: 0 auto;
@@ -698,12 +727,6 @@
   .cm-brand-word { font-size: 24px; }
   .cm-sheet { left: 16px; top: 112px; }
   .cm-sheet-grid { grid-template-columns: 1fr; }
-  .cm-dock-left { left: 14px; bottom: 14px; }
-  .cm-wsbtn { width: 72px; height: 72px; border-radius: 22px; }
-  .cm-wsbtn::before, .cm-wsbtn::after { border-radius: 22px; }
-  .cm-wsbtn-initial { font-size: 32px; }
-  .cm-wsbtn-label { font-size: 9px; bottom: 7px; }
-  .cm-earthdock { right: 14px; bottom: 14px; }
   .cm-notif { right: 16px; bottom: 136px; }
   .cm-tab { padding: 10px 9px; font-size: 14px; }
 }

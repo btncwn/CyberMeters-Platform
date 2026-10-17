@@ -2,7 +2,8 @@
 // shell (founder prototype v2, 17 Oct 2026). The globe IS the notifications
 // button: it carries the unread counter, and the notification panel grows out
 // of its centre. Pointer events are limited to the globe itself so the dock
-// never sits on top of content; on a phone the globe is 110px.
+// never sits on top of content. 108px on the wide layout (the only place it
+// is rendered); the 88px size is kept for a phone caller.
 //
 // Rendering lives in shell/earth.js. One turn every 24 seconds; a single still
 // frame under prefers-reduced-motion; paused while the tab is hidden.

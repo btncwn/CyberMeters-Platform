@@ -9,10 +9,10 @@ import { api } from '../../api'
 
 vi.mock('../../api', () => ({ api: { getWorkspaces: vi.fn() } }))
 
-function renderMenu({ wsId = 'ws1', wsName = 'Deneme' } = {}) {
+function renderMenu({ wsId = 'ws1', wsName = 'Deneme', size } = {}) {
   return render(
     <MemoryRouter initialEntries={['/dashboard']}>
-      <Routes><Route path="*" element={<WorkspaceMenu wsId={wsId} wsName={wsName} />} /></Routes>
+      <Routes><Route path="*" element={<WorkspaceMenu wsId={wsId} wsName={wsName} size={size} />} /></Routes>
     </MemoryRouter>,
   )
 }
@@ -32,6 +32,19 @@ describe('workspace card deck', () => {
     expect(within(b).getByText('Workspace').className).toContain('cm-wsbtn-label')
     expect(workspaceInitial('black bull barbers')).toBe('B')
     expect(workspaceInitial('')).toBe('?')
+  })
+
+  it('the mini card for the top bar keeps the initial, drops the label and opens the same popover downwards', async () => {
+    renderMenu({ size: 'mini' })
+    const b = screen.getByTestId('workspace-mini-button')
+    expect(b).toHaveClass('cm-wsmini')
+    expect(b).toHaveAccessibleName('Workspace: Deneme')
+    expect(within(b).getByText('D')).toBeInTheDocument()
+    expect(within(b).queryByText('Workspace')).not.toBeInTheDocument()
+    fireEvent.click(b)
+    const menu = screen.getByRole('menu', { name: 'Workspace' })
+    expect(menu.className).toContain('top-full')
+    expect(await within(menu).findByRole('menuitem', { name: 'Manage workspaces' })).toBeInTheDocument()
   })
 
   it('names the active workspace, lists workspaces on open, and offers Manage workspaces and Members & roles only', async () => {

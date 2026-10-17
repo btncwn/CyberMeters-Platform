@@ -2752,10 +2752,11 @@ function RemediationsPanel({ wsId, domain }) {
   )
 }
 
-function ZoneHeader({ n, title, hint }) {
+// Section header without a number: #639 removed section numbering from the
+// area pages, and it must not come back.
+function ZoneHeader({ title, hint }) {
   return (
     <div className="flex items-center gap-3 pt-3">
-      <div className="w-7 h-7 rounded-lg bg-gray-900 text-white text-xs font-bold flex items-center justify-center shrink-0">{n}</div>
       <div className="min-w-0 shrink-0">
         <h2 className="text-base font-bold text-gray-900 leading-tight">{title}</h2>
         {hint && <p className="text-xs text-gray-400 leading-tight mt-0.5">{hint}</p>}
@@ -3645,7 +3646,7 @@ export default function WorkspaceEmailProtectionPage() {
               body={es.applicability?.reason ? `${es.applicability.reason}. This domain is not expected to send mail, so email-authentication findings are not raised.` : 'This domain is not expected to send mail, so email guidance does not apply.'} />
           ) : (
             <>
-              <ZoneHeader n="1" title="Your email posture" hint="Can attackers spoof this domain — and what is the business impact?" />
+              <ZoneHeader title="Your email posture" hint="Can attackers spoof this domain — and what is the business impact?" />
 
               {/* 0·hero — compliance % + policy + business exposure in one glance */}
               <EmailPostureHero
@@ -3715,7 +3716,7 @@ export default function WorkspaceEmailProtectionPage() {
           {/* The posture hero, evidence card, connection overview, BEC exposure and
               ingestion status are the Overview tab's summary; the journey, senders,
               setup and detail lists stay here. */}
-          <ZoneHeader n="2" title="Requested-policy journey" hint="Where you are, and the evidence to review before requesting stronger receiver handling." />
+          <ZoneHeader title="Requested-policy journey" hint="Where you are, and the evidence to review before requesting stronger receiver handling." />
 
           {/* 1. DMARC journey */}
           <DmarcJourney journey={es.policy_journey} />
@@ -3749,7 +3750,7 @@ export default function WorkspaceEmailProtectionPage() {
             onGoto={goToAnchor}
           />
 
-          <ZoneHeader n="3" title="Senders, setup & validation" hint="Who sends as you, connect reporting, and check any message instantly." />
+          <ZoneHeader title="Senders, setup & validation" hint="Who sends as you, connect reporting, and check any message instantly." />
 
           {/* 2b. Sender inventory + classification */}
           <div id="sender-inventory" className="scroll-mt-20">
@@ -3790,7 +3791,7 @@ export default function WorkspaceEmailProtectionPage() {
             <DmarcReportHistory wsId={wsId} domain={selectedDomain} />
           </div>
 
-          <ZoneHeader n="4" title="Authentication detail & reference" hint="Records, status and how email risk connects to the rest of your attack surface." />
+          <ZoneHeader title="Authentication detail & reference" hint="Records, status and how email risk connects to the rest of your attack surface." />
 
           {/* 3. Authentication cards */}
           <section id="auth-detail" className="scroll-mt-20">

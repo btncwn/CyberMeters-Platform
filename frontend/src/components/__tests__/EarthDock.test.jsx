@@ -45,12 +45,12 @@ describe('<EarthDock>', () => {
     expect(screen.queryByTestId('earth-unread')).not.toBeInTheDocument()
     fireEvent.click(globe)
     expect(screen.queryByRole('dialog', { name: 'Notifications' })).not.toBeInTheDocument()
-    expect(screen.getByTestId('earth-dock')).toHaveStyle({ width: '135px', height: '135px' })
+    expect(screen.getByTestId('earth-dock')).toHaveStyle({ width: '108px', height: '108px' })
   })
 
-  it('is 110px on a phone', () => {
+  it('is 88px for a phone caller', () => {
     renderDock({ phone: true })
-    expect(screen.getByTestId('earth-dock')).toHaveStyle({ width: '110px', height: '110px' })
+    expect(screen.getByTestId('earth-dock')).toHaveStyle({ width: '88px', height: '88px' })
   })
 
   it('shows the unread counter on the globe and opens the panel from it, with Mark all read and See all activity', async () => {

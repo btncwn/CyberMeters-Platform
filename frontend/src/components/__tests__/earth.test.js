@@ -97,7 +97,8 @@ describe('sphere', () => {
     expect(spinAt(ROTATION_PERIOD_MS / 2)).toBeCloseTo(Math.PI)
     expect(spinAt(12345, true)).toBe(STILL_FRAME_SPIN)
     expect(spinAt(99999, true)).toBe(STILL_FRAME_SPIN)
-    expect(EARTH_SIZE_DESKTOP).toBe(135)
-    expect(EARTH_SIZE_PHONE).toBe(110)
+    expect(EARTH_SIZE_DESKTOP).toBe(108)   // 135 less 20%, still ≥ 44×44
+    expect(EARTH_SIZE_PHONE).toBe(88)
+    expect(EARTH_SIZE_DESKTOP).toBeGreaterThanOrEqual(44)
   })
 })

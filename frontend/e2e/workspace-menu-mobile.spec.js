@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test'
 
 test.use({ viewport: { width: 390, height: 844 } })
 
-// The 72px workspace card deck sits in the bottom-left dock on a phone; its
-// popover opens above it, is hit-testable, never widens the page, and switching
-// writes the workspace the rest of the app reads.
-test('390px workspace deck opens its menu above the card and switches workspace', async ({ page }) => {
+// Below 1280px the shell shows the 36px workspace card in the top bar (no
+// bottom docks on a phone); its popover opens below it, is hit-testable, never
+// widens the page, and switching writes the workspace the rest of the app reads.
+test('390px workspace card in the top bar opens its menu below and switches workspace', async ({ page }) => {
   await page.route('**/api/workspaces', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -24,7 +24,7 @@ test('390px workspace deck opens its menu above the card and switches workspace'
   await expect(page.getByRole('menuitem', { name: 'Customer B' })).toBeVisible()
 
   const layout = await page.evaluate(() => {
-    const card = document.querySelector('.cm-wsbtn')
+    const card = document.querySelector('.cm-wsmini')
     const menu = document.getElementById('cm-workspace-menu')
     const box = menu.getBoundingClientRect()
     const cardBox = card.getBoundingClientRect()
@@ -32,17 +32,17 @@ test('390px workspace deck opens its menu above the card and switches workspace'
     return {
       cardWidth: cardBox.width,
       cardHeight: cardBox.height,
-      menuBottom: box.bottom,
-      cardTop: cardBox.top,
+      menuTop: box.top,
+      cardBottom: cardBox.bottom,
+      menuRight: box.right,
       hitInsideMenu: menu.contains(hit),
       pageWidth: document.documentElement.scrollWidth,
-      cardOnScreen: cardBox.bottom <= window.innerHeight && cardBox.left >= 0,
     }
   })
-  expect(layout.cardWidth).toBe(72)
-  expect(layout.cardHeight).toBe(72)
-  expect(layout.cardOnScreen).toBe(true)
-  expect(layout.menuBottom).toBeLessThanOrEqual(layout.cardTop)
+  expect(layout.cardWidth).toBe(36)
+  expect(layout.cardHeight).toBe(36)
+  expect(layout.menuTop).toBeGreaterThanOrEqual(layout.cardBottom)
+  expect(layout.menuRight).toBeLessThanOrEqual(390)
   expect(layout.hitInsideMenu).toBe(true)
   expect(layout.pageWidth).toBeLessThanOrEqual(390)
 

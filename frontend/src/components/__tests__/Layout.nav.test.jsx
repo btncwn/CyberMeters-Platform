@@ -27,7 +27,14 @@ const DIRECT_FEATURES = ['scheduled_scans', 'alerts', 'pdf_reports', 'business_r
 const PRO_FEATURES = [...DIRECT_FEATURES, 'multi_workspace', 'team_members', 'vendor_risk', 'executive_dashboard', 'audit_logs']
 const MSP_FEATURES = [...PRO_FEATURES, 'portfolio_monitoring', 'white_label']
 
-function renderLayout(usage, { user = { name: 'Taylor Owner', email: 'owner@example.co.uk', plan: 'professional' }, path = '/dashboard', workspace = null } = {}) {
+// jsdom has no matchMedia: the shell is wide (≥1280px, docks in the gutters)
+// unless a test asks for the compact bar.
+function mockViewport(wide) {
+  window.matchMedia = vi.fn().mockReturnValue({ matches: wide, addEventListener: vi.fn(), removeEventListener: vi.fn() })
+}
+
+function renderLayout(usage, { user = { name: 'Taylor Owner', email: 'owner@example.co.uk', plan: 'professional' }, path = '/dashboard', workspace = null, wide = true } = {}) {
+  mockViewport(wide)
   useAuth.mockReturnValue({ user, logout: vi.fn(), isAuthenticated: true, isLoading: false })
   api.getWorkspaces.mockResolvedValue({ workspaces: [] })
   api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: [] })
@@ -238,6 +245,18 @@ describe('Layout top bar — shape', () => {
     for (const a of within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link')) {
       expect(a.className.split(' ')).toContain('cm-pill')
     }
+  })
+
+  it('below 1280px no dock is rendered: a compact bell and a 36px workspace card sit in the top bar instead', async () => {
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' }, wide: false })
+    expect(screen.queryByTestId('earth-dock')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-dock')).not.toBeInTheDocument()
+    const h = header()
+    const mini = within(h).getByRole('button', { name: 'Workspace: Customer A' })
+    expect(mini).toHaveClass('cm-wsmini')
+    expect(within(h).getByTestId('compact-bell')).toHaveAccessibleName('Notifications')
+    fireEvent.click(mini)
+    expect(await screen.findByRole('menu', { name: 'Workspace' })).toBeInTheDocument()
   })
 
   it('the workspace dock opens the existing workspace popover', async () => {
