@@ -227,7 +227,7 @@ describe('ModuleContract — head and tabs', () => {
     expect(matchesFilter('anything', '')).toBe(true)
   })
 
-  it('a failed read shows Error in the head, never a settled word; an area without sub-pages shows no tiles', async () => {
+  it('a failed read shows Error in the head while Website Security sections remain navigable', async () => {
     api.getCyberMotDomains.mockRejectedValue(new Error('down'))
     render(
       <MemoryRouter initialEntries={['/ws/website-security']}>
@@ -236,7 +236,12 @@ describe('ModuleContract — head and tabs', () => {
     )
     await waitFor(() => expect(within(screen.getByTestId('module-head-status')).getByText('Error')).toBeInTheDocument())
     expect(within(screen.getByTestId('module-head-status')).getByText('The latest assessment could not be read.')).toBeInTheDocument()
-    expect(screen.queryByTestId('module-tiles')).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('module-tiles')).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+      '/ws/website-security?tab=overview#website-observations',
+      '/ws/website-security?tab=overview#exposure-checks',
+      '/ws/website-security#pages-checked',
+      '/ws/website-security#sign-in-settings',
+    ])
     expect(screen.getByRole('heading', { level: 1, name: 'Website Security' })).toBeInTheDocument()
   })
 })
