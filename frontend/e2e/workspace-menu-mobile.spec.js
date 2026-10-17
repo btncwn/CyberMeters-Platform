@@ -2,7 +2,10 @@ import { expect, test } from '@playwright/test'
 
 test.use({ viewport: { width: 390, height: 844 } })
 
-test('390px workspace menu opens above the icon scroller and switches workspace', async ({ page }) => {
+// The 72px workspace card deck sits in the bottom-left dock on a phone; its
+// popover opens above it, is hit-testable, never widens the page, and switching
+// writes the workspace the rest of the app reads.
+test('390px workspace deck opens its menu above the card and switches workspace', async ({ page }) => {
   await page.route('**/api/workspaces', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -12,32 +15,34 @@ test('390px workspace menu opens above the icon scroller and switches workspace'
       { id: 'ws-b', name: 'Customer B' },
     ] }),
   }))
-  await page.goto('/e2e/fixtures/rail.html')
-  const rail = page.getByRole('navigation', { name: 'Modules' })
+  await page.goto('/e2e/fixtures/workspace-dock.html')
   const trigger = page.getByRole('button', { name: 'Workspace: Customer A' })
+  await expect(trigger).toBeVisible()
   await trigger.click()
   const menu = page.getByRole('menu', { name: 'Workspace' })
   await expect(menu).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Customer B' })).toBeVisible()
 
   const layout = await page.evaluate(() => {
-    const rail = document.querySelector('.cm-rail')
-    const list = document.querySelector('.cm-rail-list')
+    const card = document.querySelector('.cm-wsbtn')
     const menu = document.getElementById('cm-workspace-menu')
     const box = menu.getBoundingClientRect()
+    const cardBox = card.getBoundingClientRect()
     const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
     return {
-      railOverflow: getComputedStyle(rail).overflowX,
-      listOverflow: getComputedStyle(list).overflowX,
-      menuTop: box.top,
-      railTop: rail.getBoundingClientRect().top,
+      cardWidth: cardBox.width,
+      cardHeight: cardBox.height,
+      menuBottom: box.bottom,
+      cardTop: cardBox.top,
       hitInsideMenu: menu.contains(hit),
       pageWidth: document.documentElement.scrollWidth,
+      cardOnScreen: cardBox.bottom <= window.innerHeight && cardBox.left >= 0,
     }
   })
-  expect(layout.railOverflow).toBe('visible')
-  expect(layout.listOverflow).toBe('auto')
-  expect(layout.menuTop).toBeLessThan(layout.railTop)
+  expect(layout.cardWidth).toBe(72)
+  expect(layout.cardHeight).toBe(72)
+  expect(layout.cardOnScreen).toBe(true)
+  expect(layout.menuBottom).toBeLessThanOrEqual(layout.cardTop)
   expect(layout.hitInsideMenu).toBe(true)
   expect(layout.pageWidth).toBeLessThanOrEqual(390)
 
