@@ -92,9 +92,13 @@ const scoreAnchor = `  const score = Number.isFinite(assessment?.display_score)
     : null`;
 const comparableAnchor = "  if (changes.comparable !== true) {";
 const positiveAnchor = "  const previousScore = Number.isFinite(changes.previous_score) ? changes.previous_score : null";
+// Retargeted (follow-up PR, 18 Oct 2026): the same context-strip score span, now
+// explanation-first ("Score withheld · Provisional score N/100"). The mutant still
+// inserts a raw-score helper immediately after it; expected failures are unchanged.
 const contextScoreAnchor = `              <span className="text-gray-500">
-                {assessmentPresentation.provisional && assessmentPresentation.score != null ? 'Provisional score ' : 'Score '}
-                {assessmentPresentation.score ?? '—'}/100
+                {assessmentPresentation.provisional && assessmentPresentation.score != null
+                  ? <>Score withheld · <span className="text-xs">{'Provisional score '}{assessmentPresentation.score}/100</span></>
+                  : <>Score {assessmentPresentation.score ?? '—'}/100</>}
               </span>`;
 const reasonAnchor = `function nonComparableReason(assessment, scanQuality) {
   if (typeof assessment?.message === 'string' && assessment.message.trim()) {

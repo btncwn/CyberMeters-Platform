@@ -1306,7 +1306,7 @@ export default function IntelligencePage() {
               <span className="text-gray-600">·</span>
               <span className="text-gray-500">
                 {assessmentPresentation.provisional && assessmentPresentation.score != null
-                  ? <>Score withheld · <span className="text-xs">Provisional score {assessmentPresentation.score}/100</span></>
+                  ? <>Score withheld · <span className="text-xs">{'Provisional score '}{assessmentPresentation.score}/100</span></>
                   : <>Score {assessmentPresentation.score ?? '—'}/100</>}
               </span>
               <span className="text-gray-600">·</span>
