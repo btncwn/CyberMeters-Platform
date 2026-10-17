@@ -317,6 +317,8 @@ export default { async fetch(request, env, ctx) {
       }
       const consent = await fetch(continueUrl, { headers: { Cookie: bridgeCookie } });
       assert.equal(consent.status, 200, await consent.clone().text());
+      assert.equal(consent.headers.get("Referrer-Policy"), "same-origin",
+        "same-origin consent forms must retain their Origin header without cross-origin URL leakage");
       const html = await consent.text();
       assert.match(html, /formnovalidate>Deny/);
       assert.match(html, /value="" selected disabled/);
@@ -338,6 +340,16 @@ export default { async fetch(request, env, ctx) {
         : { handle, decision: "approve", context: workspaceId });
       for (const selectedWorkspaceId of selectedWorkspaceIds) {
         approvalForm.append("selected_workspace_id", selectedWorkspaceId);
+      }
+      if (index === "A") {
+        const nullOrigin = await fetch(continueUrl, {
+          method: "POST", redirect: "manual",
+          headers: { Origin: "null", Cookie: `${bridgeCookie}; ${consentCookie}`,
+            "Content-Type": "application/x-www-form-urlencoded" },
+          body: approvalForm,
+        });
+        assert.equal(nullOrigin.status, 403,
+          "a null Origin must remain rejected rather than weakening consent CSRF protection");
       }
       const approved = await fetch(continueUrl, {
         method: "POST", redirect: "manual",
