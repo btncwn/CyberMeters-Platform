@@ -298,7 +298,9 @@ const EXPECTED = Object.freeze({
     // Load lab: 116 -> 118 across 36 -> 37 files — scripts/lab/load-lab.mjs reads
     // each finished scan's recorded quality to report how many were partial.
     // Two MCP read assertions add governed direct reads in two test files.
-    governance: { occurrence_count: 123, source_file_count: 40, fingerprint: "817ccf07228bee1d3566d91dba92eaefcea8f7f45e771e2fbf496c5a9cfd1a4d" },
+    // Exposure phase tests add four scan_quality assertions in one test file.
+    // Two-tree direct-read diff has only those four governance additions.
+    governance: { occurrence_count: 127, source_file_count: 41, fingerprint: "47836da0ca0cafaa34928de2d853814ac0f92a8162967761809092e095f1ebfd" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper

@@ -598,8 +598,10 @@ const parity = states.map(parityOutputs);
 // rewords the Identity Exposure summary to its inventory counts ("Inventory
 // evidence: …"). That sentence travels in the resolved states (F14) and the
 // customer PDF (F13); the fixture has no registration finding or sender alert.
-const GOLDEN_F13 = "08c6dcb26850d2f6fac2c19137ea1783ff10ac6e1fce3510eb07c94af765a026";
-const GOLDEN_F14 = "942b21ff1629bba6968306ea0860c052bec5eb910ba7cab33d5f5b5cba156678";
+// Phase-local exposure authority mints resolver 2026-10-17.3. Reverting only
+// that stamp reproduces both prior goldens; this fixture has no exposure phase.
+const GOLDEN_F13 = "2b62fcd6d4fc13845f7f7408f2e2aedba332386841ffbfac71614f92af2095dc";
+const GOLDEN_F14 = "94e687586f6d8f2a427e628d061cc0a63e0ad538c22c09e298e0b02fed5eb675";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
