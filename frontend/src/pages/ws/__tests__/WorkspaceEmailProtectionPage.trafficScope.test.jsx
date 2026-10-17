@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EmailProtectionOverview } from '../WorkspaceEmailProtectionPage'
+import { EmailProtectionOverview, MxRecordsCard } from '../WorkspaceEmailProtectionPage'
 import { api } from '../../../api'
 
 vi.mock('../../../api', () => ({ BASE: 'https://api.example.test/api', api: { getDmarcIngestEndpoint: vi.fn() } }))
@@ -38,5 +38,20 @@ describe('Email overview message evidence scope', () => {
     show(null)
     for (const name of ['Messages observed', 'Aligned messages', 'Unaligned messages']) expect(tile(name).getByText('Waiting')).toBeInTheDocument()
     expect(screen.queryByText('119')).not.toBeInTheDocument()
+  })
+})
+
+describe('Email authentication MX records', () => {
+  it('shows MX records from the already loaded intelligence module without claiming STARTTLS was tested', () => {
+    render(<MxRecordsCard intelligence={{ starttls: { mx_records: [{ host: 'mail.example.test', priority: 10 }] } }} />)
+    expect(screen.getByText('mail.example.test · priority 10')).toBeInTheDocument()
+    expect(screen.getByText(/SMTP STARTTLS was not tested here/)).toBeInTheDocument()
+  })
+
+  it('distinguishes unavailable MX evidence from an observed empty list', () => {
+    const view = render(<MxRecordsCard intelligence={null} />)
+    expect(screen.getByText('MX evidence was not available in this assessment.')).toBeInTheDocument()
+    view.rerender(<MxRecordsCard intelligence={{ starttls: { mx_records: [] } }} />)
+    expect(screen.getByText('No MX records were recorded in this assessment.')).toBeInTheDocument()
   })
 })

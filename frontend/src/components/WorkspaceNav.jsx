@@ -25,6 +25,8 @@ export const SERVICES = [
       { hash: '#dmarc-setup',       label: 'DMARC Setup',          desc: 'Policy, alignment and the hosted record' },
       { hash: '#sender-inventory',  label: 'Sender Inventory',     desc: 'Every source seen sending as your domain' },
       { hash: '#auth-detail',       label: 'Authentication Detail', desc: 'SPF, DKIM and DMARC as observed' },
+      { hash: '#connect-reporting', label: 'Connect reporting', desc: 'Set up DMARC report delivery' },
+      { hash: '#lifecycle-history', label: 'Lifecycle history', desc: 'Changes to reporting and senders' },
     ],
   },
   {
