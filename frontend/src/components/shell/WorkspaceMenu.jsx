@@ -18,8 +18,12 @@ export function workspaceInitial(name) {
   return source ? source[0].toUpperCase() : '?'
 }
 
-export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
+export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 'deck' }) {
   const mini = size === 'mini'
+  // The card's letter is the selected domain's initial (cybermeters.com → C,
+  // blackbullbarbers.co.uk → B), falling back to the workspace name; hover
+  // never changes it. The tooltip names the same thing.
+  const subject = String(domainName || '').trim() || wsName
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState(null)
@@ -77,15 +81,16 @@ export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
         aria-expanded={open}
         aria-controls={WORKSPACE_MENU_ID}
         aria-label={wsName ? `Workspace: ${wsName}` : 'Select a workspace'}
+        title={subject ? `Workspace · ${subject}` : undefined}
         className={mini ? 'cm-wsmini' : 'cm-wsbtn'}
         data-testid={mini ? 'workspace-mini-button' : 'workspace-dock-button'}
       >
         {/* The card deck (founder prototype v2): a navy-to-blue card with the
             serif initial and a WORKSPACE label, two offset white cards behind.
             The mini card keeps the initial only. */}
-        <span className="cm-wsbtn-initial" aria-hidden="true">{workspaceInitial(wsName)}</span>
+        <span className="cm-wsbtn-initial" aria-hidden="true" data-testid="workspace-initial">{workspaceInitial(subject)}</span>
         {!mini && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
-        {!mini && <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">{wsName ? `Workspace · ${wsName}` : 'Select a workspace'}</span>}
+        {!mini && <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">{subject ? `Workspace · ${subject}` : 'Select a workspace'}</span>}
       </button>
 
       {open && (

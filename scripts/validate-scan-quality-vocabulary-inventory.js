@@ -267,7 +267,13 @@ const EXPECTED = Object.freeze({
     // Attack Surface evidence adds two direct reads of the recorded scan quality.
     // Phase-local authority reads scan_quality once in the domain resolver;
     // the two-tree direct-read diff has this sole addition and no removals.
-    runtime: { occurrence_count: 127, source_file_count: 47, fingerprint: "34b71f645041bd921b6f7fa718731e8f9b29b5cf3808bb847e2acc2a0b4a3055" },
+    // SHELL-V2 SCAN-INFORMATION SUCCESSION: 127 -> 126 (same 47 files). ONE read
+    // genuinely REMOVED, not relocated: ScanDetail.jsx `scan.scan_quality`, the
+    // argument of the retired assessmentBandLabel() call in the Scan Information
+    // panel; the row's label is now the constant "Assessment band" and a withheld
+    // band still says so in the value. Two-tree --dump-current diff keyed by
+    // file:kind:slot:snippet (origin/main vs this head): no other delta.
+    runtime: { occurrence_count: 126, source_file_count: 47, fingerprint: "20a63df405bf802ce467b537b16eb6e770c9e147daf1438572881d63dd247586" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

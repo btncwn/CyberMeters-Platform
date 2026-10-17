@@ -8,9 +8,7 @@ import SafeBoundary from './SafeBoundary'
 import ProfileMenu from './shell/ProfileMenu'
 import AreaMenu from './shell/AreaMenu'
 import WorkspaceMenu from './shell/WorkspaceMenu'
-import EarthDock from './shell/EarthDock'
-import NotificationBell from './NotificationBell'
-import { Bell } from 'lucide-react'
+import EarthButton from './shell/EarthButton'
 import UpgradePromptModal from './shell/UpgradePromptModal'
 
 // The app shell v2 (founder prototype, 17 Oct 2026):
@@ -24,11 +22,14 @@ import UpgradePromptModal from './shell/UpgradePromptModal'
 //     brand is clicked.
 //   • bottom-left: the workspace card deck (WorkspaceMenu) and its popover
 //     (Switch, Manage workspaces, Members & roles).
-//   • bottom-right: the photographic globe — the notifications control. The
-//     unread counter sits on it; the panel grows out of it.
-//   • the docks sit in reserved side gutters from 1280px up and are not
-//     rendered below that; a compact bell and a 36px workspace card then take
-//     their place in the top bar, so nothing fixed ever covers content.
+//   • top bar, left of the account initial: the photographic globe — the ONE
+//     notifications control at every width (founder, 17 Oct 2026). Same 40px
+//     diameter as the initial, 12px apart; the unread counter is a small aqua
+//     label on it; the panel opens beneath it, right-aligned. Nothing fixed
+//     sits in the bottom-right of the content area, and there is no bell.
+//   • the workspace deck sits in a reserved left gutter from 1280px up and is
+//     not rendered below that; a 36px workspace card then takes its place in
+//     the top bar.
 //
 // Two menus, chosen by ENTITLEMENT (the `features` list the API publishes on
 // /account/usage), never by workspace or domain count. Until usage has loaded
@@ -69,11 +70,10 @@ function useAccountFeatures() {
   return features
 }
 
-// Wide layout (≥1280px): the two corner docks live in reserved side gutters
+// Wide layout (≥1280px): the workspace deck lives in a reserved left gutter
 // beside the content column, so no fixed element ever sits on page content
-// or a control. Below that, the docks are not rendered at all: a compact bell
-// and a 36px workspace card take their place in the top bar, and the content
-// keeps the full width (status chips stay readable on a phone).
+// or a control. Below that, the deck is not rendered at all: a 36px workspace
+// card takes its place in the top bar, and the content keeps the full width.
 export const WIDE_LAYOUT_QUERY = '(min-width: 1280px)'
 function useWideLayout() {
   const query = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE_LAYOUT_QUERY) : null
@@ -89,28 +89,29 @@ function useWideLayout() {
   return wide
 }
 
-// The compact notifications control for the top bar below 1280px: a bell
-// with the unread counter, opening the standard dropdown panel.
-function CompactBell() {
-  return (
-    <NotificationBell
-      trigger={({ open, toggle, unreadCount, hasUnread, panelId }) => (
-        <button
-          type="button"
-          onClick={toggle}
-          className="cm-bellbtn"
-          aria-label={hasUnread ? `Notifications (${unreadCount} unread)` : 'Notifications'}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-controls={panelId}
-          data-testid="compact-bell"
-        >
-          <Bell className="w-5 h-5" aria-hidden="true" />
-          {hasUnread && <span className="cm-bell-count" aria-hidden="true">{unreadCount > 99 ? '99+' : unreadCount}</span>}
-        </button>
-      )}
-    />
-  )
+// The workspace card's letter is the selected domain's initial (founder,
+// 17 Oct 2026): the workspace's first verified domain, else its first domain,
+// else the workspace name. Re-read whenever the workspace changes, so an MSP
+// switching customer sees the letter change at once.
+export function primaryDomainOf(domains) {
+  const rows = Array.isArray(domains) ? domains : []
+  const nameOf = (d) => String(d?.domain || d?.name || '').trim()
+  const verified = rows.find((d) => String(d?.verification_status || d?.status || '').toLowerCase() === 'verified' && nameOf(d))
+  return nameOf(verified || rows.find(nameOf)) || null
+}
+function usePrimaryDomain(wsId) {
+  const [domain, setDomain] = useState(null)
+  useEffect(() => {
+    let alive = true
+    setDomain(null)
+    if (!wsId) return undefined
+    Promise.resolve()
+      .then(() => api.getWorkspaceDomains(wsId))
+      .then((data) => { if (alive) setDomain(primaryDomainOf(data?.domains)) })
+      .catch(() => { if (alive) setDomain(null) })
+    return () => { alive = false }
+  }, [wsId])
+  return domain
 }
 
 const PLAN_LABELS = { free: 'Free plan', starter: 'Starter plan', professional: 'Professional plan', business: 'Business plan', enterprise: 'MSP plan' }
@@ -134,6 +135,7 @@ export default function Layout() {
   const domainColors = SERVICE_COLORS[detectServiceKey(pathname)] || null
   const nav = selectNav(useAccountFeatures())
   const wide = useWideLayout()
+  const primaryDomain = usePrimaryDomain(wsId)
   useEffect(() => {
     function sync() {
       setWsId(localStorage.getItem('cybermeters_workspace_id'))
@@ -164,12 +166,17 @@ export default function Layout() {
           <div className="cm-top-account">
             {!wide && (
               <SafeBoundary>
-                <div className="flex items-center gap-2 mr-1" data-testid="compact-controls">
-                  <WorkspaceMenu wsId={wsId} wsName={wsName} size="mini" />
-                  <CompactBell />
+                <div className="flex items-center mr-3" data-testid="compact-controls">
+                  <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} size="mini" />
                 </div>
               </SafeBoundary>
             )}
+            {/* The globe: notifications, 40px like the initial, 12px before it. */}
+            <SafeBoundary>
+              <div className="mr-3 flex items-center" data-testid="earth-slot">
+                <EarthButton />
+              </div>
+            </SafeBoundary>
             <ProfileMenu roleLabel={roleLabelFor(user)} workspaceId={wsId} />
           </div>
         </div>
@@ -200,19 +207,14 @@ export default function Layout() {
         </div>
       </footer>
 
-      {/* The two docks (wide screens only): fixed in the reserved side gutters,
-          pointer events only on their controls. */}
+      {/* The workspace deck (wide screens only): fixed in the reserved left
+          gutter, pointer events only on the card. Nothing sits bottom-right. */}
       {wide && (
-        <>
-          <div className="cm-dock cm-dock-left" data-testid="workspace-dock">
-            <SafeBoundary>
-              <WorkspaceMenu wsId={wsId} wsName={wsName} />
-            </SafeBoundary>
-          </div>
+        <div className="cm-dock cm-dock-left" data-testid="workspace-dock">
           <SafeBoundary>
-            <EarthDock />
+            <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} />
           </SafeBoundary>
-        </>
+        </div>
       )}
     </div>
   )

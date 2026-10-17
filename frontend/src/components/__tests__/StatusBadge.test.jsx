@@ -27,6 +27,11 @@ describe('StatusBadge', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 
+  it('never breaks onto two lines', () => {
+    render(<StatusBadge status="completed" quality="partial" />)
+    expect(screen.getByText('Partial results')).toHaveClass('whitespace-nowrap')
+  })
+
   it('handles case-insensitive and unknown statuses', () => {
     const { rerender } = render(<StatusBadge status="COMPLETED" />)
     expect(screen.getByText('Completed')).toBeInTheDocument()

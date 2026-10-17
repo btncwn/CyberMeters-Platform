@@ -37,13 +37,22 @@ describe('product typography', () => {
   it('the shell canvas is an opaque white-to-sky gradient and the docks take pointer events only on their controls', () => {
     expect(css).toMatch(/\.cm-shell\s*\{[^}]*linear-gradient\(180deg,\s*#ffffff/)
     expect(css).not.toMatch(/\.cm-shell\s*\{[^}]*rgba\(/)
-    // The globe is a control now (notifications), so the DOCK is inert and only
-    // the canvas inside it is a pointer target; the same holds for the workspace dock.
-    expect(css).toMatch(/\.cm-earthdock\s*\{[^}]*pointer-events:\s*none/)
-    expect(css).toMatch(/\.cm-earthdock\s*>\s*\*\s*\{[^}]*pointer-events:\s*auto/)
+    // The globe lives in the top bar (no corner dock, no bell); the workspace dock is inert
+    // apart from the card itself.
+    expect(css).not.toMatch(/\.cm-earthdock\s*\{/)
+    expect(css).not.toMatch(/\.cm-bellbtn\s*\{/)
     expect(css).toMatch(/\.cm-dock\s*\{[^}]*pointer-events:\s*none/)
-    // The notification panel is capped between the top bar and the dock; the list scrolls inside.
-    expect(css).toMatch(/\.cm-notif\s*\{[^}]*max-height:\s*calc\(100dvh - 219px\)/)
+    // The notification panel hangs under the globe, right-aligned, capped below the bar; the list scrolls inside.
+    expect(css).toMatch(/\.cm-notif\s*\{[^}]*position:\s*absolute;\s*right:\s*0;\s*top:\s*calc\(100% \+ 10px\)/)
+    expect(css).toMatch(/\.cm-notif\s*\{[^}]*max-height:\s*calc\(100dvh - 100px\)/)
+    // The workspace card never turns white on hover and keeps a white letter; its focus ring is aqua.
+    expect(css).toMatch(/\.cm-wsbtn:hover[^{]*\{[^}]*color:\s*#fff/)
+    // The white offset cards sit on the wrapper, so a hover transform on the button cannot lift them over its ground.
+    expect(css).toMatch(/\.cm-wsdock::before,\s*\.cm-wsdock::after\s*\{/)
+    expect(css).not.toMatch(/\.cm-wsbtn::before/)
+    expect(css).not.toMatch(/\.cm-wsbtn:hover[^{]*\{[^}]*background:\s*#fff/)
+    expect(css).toMatch(/\.cm-wsbtn:focus-visible,\s*\.cm-wsmini:focus-visible\s*\{[^}]*outline:\s*3px solid #a9f2e5/)
+    expect(css).toMatch(/\.cm-earth-count\s*\{[^}]*background:\s*#a9f2e5;\s*color:\s*#081f1c/)
     expect(css).not.toMatch(/\.cm-globe\s*\{/)
     expect(css).not.toMatch(/\.cm-rail\s*\{/)
   })

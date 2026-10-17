@@ -1,9 +1,8 @@
-// EarthDock — the photographic globe in the bottom-right corner of the app
-// shell (founder prototype v2, 17 Oct 2026). The globe IS the notifications
-// button: it carries the unread counter, and the notification panel grows out
-// of its centre. Pointer events are limited to the globe itself so the dock
-// never sits on top of content. 108px on the wide layout (the only place it
-// is rendered); the 88px size is kept for a phone caller.
+// EarthButton — the photographic globe in the top bar, the ONE notifications
+// control (founder, 17 Oct 2026): it sits immediately left of the account
+// initial, the same 40px diameter, with the unread counter as a small aqua
+// label at its top-right and the notification panel opening beneath it,
+// right-aligned. No corner dock and no bell at any width.
 //
 // Rendering lives in shell/earth.js. One turn every 24 seconds; a single still
 // frame under prefers-reduced-motion; paused while the tab is hidden.
@@ -11,10 +10,9 @@ import { useEffect, useRef } from 'react'
 import NotificationBell from '../NotificationBell'
 import {
   buildEarthTexture, buildSphereNormals, flatOceanTexture, renderEarthFrame, spinAt,
-  EARTH_SIZE_DESKTOP, EARTH_SIZE_PHONE, TEXTURE_WIDTH, TEXTURE_HEIGHT,
+  EARTH_SIZE_TOPBAR, TEXTURE_WIDTH, TEXTURE_HEIGHT,
 } from './earth'
 
-export const EARTH_PHONE_QUERY = '(max-width: 639.98px)'
 const FRAME_MIN_MS = 1000 / 30 // the texture lookup is per pixel; 30 fps is plenty for a 24 s turn
 
 let textureCache = null
@@ -73,48 +71,36 @@ export function useEarthCanvas(canvasRef, size) {
   }, [canvasRef, size])
 }
 
-export function EarthCanvas({ size, label, expanded, controls, onToggle }) {
+/** "Notifications, 12 unread" / "Notifications" — the control's accessible name. */
+export function notificationsLabel(unreadCount) {
+  const n = Number(unreadCount) || 0
+  return n > 0 ? `Notifications, ${n} unread` : 'Notifications'
+}
+
+export default function EarthButton({ size = EARTH_SIZE_TOPBAR }) {
   const canvasRef = useRef(null)
   useEarthCanvas(canvasRef, size)
   return (
-    <canvas
-      ref={canvasRef}
-      role="button"
-      tabIndex={0}
-      aria-label={label}
-      aria-haspopup="dialog"
-      aria-expanded={expanded}
-      aria-controls={controls}
-      onClick={onToggle}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(e) } }}
-      className="cm-earth"
-      data-testid="shell-earth"
-      style={{ width: size, height: size }}
+    <NotificationBell
+      variant="earth"
+      trigger={({ open, toggle, unreadCount, hasUnread, panelId }) => (
+        <button
+          type="button"
+          onClick={toggle}
+          className="cm-earthbtn"
+          style={{ width: size, height: size }}
+          aria-label={notificationsLabel(unreadCount)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={panelId}
+          data-testid="shell-earth"
+        >
+          <canvas ref={canvasRef} className="cm-earth" aria-hidden="true" style={{ width: size, height: size }} />
+          {hasUnread && (
+            <span className="cm-earth-count" aria-hidden="true" data-testid="earth-unread">{unreadCount > 99 ? '99+' : unreadCount}</span>
+          )}
+        </button>
+      )}
     />
-  )
-}
-
-export default function EarthDock({ phone = false }) {
-  const size = phone ? EARTH_SIZE_PHONE : EARTH_SIZE_DESKTOP
-  return (
-    <div className="cm-earthdock" data-testid="earth-dock" style={{ width: size, height: size }}>
-      <NotificationBell
-        variant="earth"
-        trigger={({ open, toggle, unreadCount, hasUnread, panelId }) => (
-          <>
-            <EarthCanvas
-              size={size}
-              label={hasUnread ? `Notifications (${unreadCount} unread)` : 'Notifications'}
-              expanded={open}
-              controls={panelId}
-              onToggle={toggle}
-            />
-            {hasUnread && (
-              <span className="cm-earth-count" aria-hidden="true" data-testid="earth-unread">{unreadCount > 99 ? '99+' : unreadCount}</span>
-            )}
-          </>
-        )}
-      />
-    </div>
   )
 }
