@@ -100,6 +100,7 @@ function SignalRow({ signal, showEvidence }) {
 export default function CertificateAssuranceSummary({
   presentation,
   liveTls = null,
+  tlsAssessment = null,
   title = 'Certificate Evidence & Trust',
   compact = false,
   showEvidence = false,
@@ -136,7 +137,7 @@ export default function CertificateAssuranceSummary({
         {keys.map((key) => <SignalRow key={key} signal={signals[key]} showEvidence={showEvidence} />)}
       </div>
 
-      {liveTls && <div className="mt-3"><LiveTlsEvidence evidence={liveTls} /></div>}
+      {liveTls && <div className="mt-3"><LiveTlsEvidence evidence={liveTls} assessment={tlsAssessment} /></div>}
 
       {presentation.relationship?.customer_message && (
         <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">

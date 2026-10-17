@@ -122,7 +122,12 @@ describe('Live TLS evidence presentation', () => {
   it('exposes live evidence on the existing Certificates page while preserving historical log-only records', async () => {
     const assurance = { signals: {}, signal_order: [], summary: { ct_only: true }, scope_note: 'Certificate signals are reported separately.' }
     api.getWorkspaceCertificates.mockResolvedValue({ certificates: [
-      { domain: 'live.example.test', certificate_assurance: { ...assurance, summary: { ct_only: false } }, live_tls: fixture(), days_until_expiry: 23 },
+      { domain: 'live.example.test', certificate_assurance: { ...assurance, summary: { ct_only: false } }, live_tls: fixture(),
+        tls_assessment: { source: 'tls_assessment', quality: 'partial', endpoints: [], coverage: {} },
+        finding_actions: [{ finding_id: 'certificate_expiring_soon', status: 'resolved', customer_title: 'Renew the certificate before expiry', recommended_action: 'Schedule renewal and confirm the replacement.', owner_type: 'customer_it', verification_method: 'certificate_recheck' }],
+        ca_concentration: { concentration_level: 'high', issuer_count: 1, dominant_ca_owner: 'Recorded CA', observations: ['One issuer observed.'] },
+        wildcard_warning: 'Wildcard DNS observed.', san_hostnames: ['live.example.test', 'admin.example.test'],
+        days_until_expiry: 23 },
       { domain: 'historic.example.test', issuer: 'Historical issuer', certificate_assurance: assurance, live_tls: null, days_until_expiry: null },
     ] })
     api.getWorkspaceCertificatesTimeline.mockResolvedValue({})
@@ -131,8 +136,24 @@ describe('Live TLS evidence presentation', () => {
     expect(await screen.findByText(fingerprint)).toBeInTheDocument()
     expect(screen.getByText('Historical log record only')).toBeInTheDocument()
     expect(screen.getByText('Historical issuer')).toBeInTheDocument()
+    expect(screen.getByText('Renew the certificate before expiry')).toBeInTheDocument()
+    expect(screen.getByText('Schedule renewal and confirm the replacement.')).toBeInTheDocument()
+    expect(screen.getByText('Owner: IT / DNS Administrator')).toBeInTheDocument()
+    expect(screen.queryByText('Certificate expiring soon')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'TLS security assessment' })).toHaveTextContent('Partial')
+    expect(screen.getByText('CA concentration: high')).toBeInTheDocument()
+    expect(screen.getByText('Wildcard DNS: Wildcard DNS observed.')).toBeInTheDocument()
+    expect(screen.getByText('SAN hostnames: live.example.test, admin.example.test')).toBeInTheDocument()
     const summaries = screen.getAllByText(/Certificate evidence ·/)
     expect(summaries).toHaveLength(2)
     expect(within(summaries[1].closest('section')).queryByTestId('live-tls-evidence')).not.toBeInTheDocument()
+  })
+
+  it('shows a certificate read failure instead of an empty inventory', async () => {
+    api.getWorkspaceCertificates.mockRejectedValueOnce(new Error('network failed'))
+    api.getWorkspaceCertificatesTimeline.mockResolvedValue({})
+    render(<MemoryRouter initialEntries={['/ws/certificates?tab=findings']}><CertificatesPage /></MemoryRouter>)
+    expect(await screen.findByText('Could not load certificate evidence.')).toBeInTheDocument()
+    expect(screen.queryByText('Run a scan to start certificate and trust monitoring')).not.toBeInTheDocument()
   })
 })

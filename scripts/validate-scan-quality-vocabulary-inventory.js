@@ -312,7 +312,9 @@ const EXPECTED = Object.freeze({
   // and their count are unchanged.
   // Founder canary shifts MCP route source lines; all 24 projected reads remain
   // unchanged in content and file, as confirmed by the two-tree inventory diff.
-  sql_reads: { projection_occurrences: 24, fingerprint: "b6ef0a5a72eab7505b81ad23dc4aaff51a7779714ace862d467b5c6d5a387666" },
+  // Certificate route imports shift two existing projection lines by two;
+  // both SQL snippets and every runtime direct read match the main-tree dump.
+  sql_reads: { projection_occurrences: 24, fingerprint: "2a273c547ac5cad2618405e398951354c79ba30f47cb4bec100106d82336bf77" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -376,6 +378,8 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
 // only its line moves (257 -> 301 -> 276) as that validator's fixtures above it
 // change; it now proves module-owned degraded evidence.
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
+  // TLS assessment quality is a recorded fixture field, not scan_quality.
+  "scripts/validate-cert-trust-l2.js:232:routeCert?.tls_assessment?.quality === \"partial\"",
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:234:presentation.quality === \"partial\"",
