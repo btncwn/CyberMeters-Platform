@@ -69,7 +69,9 @@ const EXPECTED = Object.freeze({
     // caveat adds one coverage guard in cyber-mot-domains.js that never
     // upgrades `degraded` to `partial`. No new source file; the partial-only
     // fingerprint is unchanged.
-    comparison_occurrences: 58,
+    // HTTP/TLS phase split: one domain-local status membership check was added;
+    // the two-tree semantic diff shows all preceding runtime comparisons retained.
+    comparison_occurrences: 59,
     source_file_count: 26,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -108,7 +110,7 @@ const EXPECTED = Object.freeze({
     // pinned, so real additions/removals still fail while line-only edits do not.
     // TLS release: the historical customer projector consumes effective
     // quality, and the aggregate now checks the projected complete state.
-    fingerprint: "2c3fb2c53f53ed4351afb33fb54a1ee17e386eea718f83d75cfb4c4d24365a12",
+    fingerprint: "d46ea12facb0d39f31f552e03890067fcc461ddf51627bb1eb54dd8d281bf401",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -262,7 +264,9 @@ const EXPECTED = Object.freeze({
     // Historical brand-score suppression reads the projected scan quality once
     // more when it constructs an evidence-insufficient assessment.
     // Attack Surface evidence adds two direct reads of the recorded scan quality.
-    runtime: { occurrence_count: 126, source_file_count: 47, fingerprint: "8c03047c2cf0fe53ba0cf678cf33bfd1a520187774fe2da406ace3137dc164c6" },
+    // Phase-local authority reads scan_quality once in the domain resolver;
+    // the two-tree direct-read diff has this sole addition and no removals.
+    runtime: { occurrence_count: 127, source_file_count: 47, fingerprint: "34b71f645041bd921b6f7fa718731e8f9b29b5cf3808bb847e2acc2a0b4a3055" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

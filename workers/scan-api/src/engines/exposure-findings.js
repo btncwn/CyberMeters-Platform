@@ -44,7 +44,7 @@ export function evaluateExposureCondition(key, module) {
 export function externalExposureModule(receipt) {
   if (!receipt || receipt.source !== 'external_exposure') return {
     source: 'external_exposure', version: EXPOSURE_CATALOG_VERSION, quality: 'not_recorded',
-    job_state: null, incomplete_reason: null, hosts_not_applicable: [],
+    job_state: null, phase_state: null, incomplete_reason: null, hosts_not_applicable: [],
     coverage: null, checks: [], findings: [], costs: null, observed_at: null,
   };
   const projectHit = (hit) => hit ? {
@@ -65,6 +65,7 @@ export function externalExposureModule(receipt) {
     // "finished" (job_state) and "assessed" (quality + incomplete_reason) are
     // separate facts; the domain resolver reads incomplete_reason verbatim.
     job_state: JOB_STATES.has(receipt.job_state) ? receipt.job_state : null,
+    phase_state: JOB_STATES.has(receipt.phase_state) ? receipt.phase_state : null,
     incomplete_reason: carriedIncompleteReason(receipt.incomplete_reason),
     hosts_not_applicable: (Array.isArray(receipt.hosts_not_applicable) ? receipt.hosts_not_applicable : [])
       .filter(host => typeof host?.hostname === 'string' && HOST_RE.test(host.hostname) && host.reason === 'authoritative_no_address')
