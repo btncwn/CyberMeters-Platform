@@ -11,7 +11,12 @@ import { exposureIdentity } from '../shared/exposure/redaction.js';
 
 const root=path.join(path.dirname(fileURLToPath(import.meta.url)),'..');
 const db=new DatabaseSync(':memory:');
-const apply=file=>{try{db.exec(fs.readFileSync(file,'utf8'));}catch{/* convergent migration overlap */}};
+const apply=file=>{try{db.exec(fs.readFileSync(file,'utf8'));}catch(error){
+  // Early billing migrations predate the later subscriptions table DDL.
+  const earlyBilling=/^0(?:28|29)-/.test(path.basename(file));
+  if(earlyBilling&&/^no such table: subscriptions$/i.test(String(error?.message)))return;
+  if(!/already exists|duplicate column name/i.test(String(error?.message)))throw error;
+}};
 apply(path.join(root,'database/schema.sql'));
 for(const name of fs.readdirSync(path.join(root,'database/migrations')).filter(name=>name.endsWith('.sql')).sort())
   apply(path.join(root,'database/migrations',name));

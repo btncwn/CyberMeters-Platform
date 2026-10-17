@@ -601,8 +601,10 @@ const parity = states.map(parityOutputs);
 // Completed-phase subset evidence mints resolver 2026-10-17.4 and the snapshot
 // separates attempted incomplete modules from skips. This fixture has no
 // exposure phase, so only the methodology stamps move its golden bytes.
-const GOLDEN_F13 = "7cd5d28f2ace238c9803b602845dca984f15f60b5720619131be43c87d72b200";
-const GOLDEN_F14 = "294ab5d07d0bc3a203be28bd2c306b0e013c44bf889f205fb4b6f7bbf6682c48";
+// P1b mints resolver 2026-10-17.5. This certificate-only fixture has no
+// exposure, TLS, or DMARC signal; the changed methodology stamp moves both bytes.
+const GOLDEN_F13 = "e0c2559ccd6703f1756ec43fee22591d38670f4fb3062d3fe4f729e29629c763";
+const GOLDEN_F14 = "12c70b94aba89a0df292e631db8f4627e3726452e6fa834d473ed66018feb035";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
