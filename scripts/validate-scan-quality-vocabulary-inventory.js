@@ -308,7 +308,9 @@ const EXPECTED = Object.freeze({
     // Exposure report tests add two governance reads; the Phase-5 fixture now
     // reads modules_incomplete twice to distinguish attempted from skipped.
     // Runtime direct reads remain 127 across 47 files, and SQL remains 24.
-    governance: { occurrence_count: 131, source_file_count: 42, fingerprint: "0a89572f25c1eef08d0061e98b372aba41a48c6ef55d735bb8f5a8b6b10ab6e5" },
+    // P1b's real-engine fixture adds one governed direct read of the recorded
+    // scan_quality (validate-p1b-single-domain-engine.js:82); runtime reads are unchanged.
+    governance: { occurrence_count: 132, source_file_count: 43, fingerprint: "d725abb72783cc4f20287bb21c07bf7de22023f2bbc34e54fa0e83729c0b2c64" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -397,7 +399,7 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;
-// only its line moves (257 -> 301 -> 276) as that validator's fixtures above it
+// only its line moves (257 -> 301 -> 276 -> 290) as that validator's fixtures above it
 // change; it now proves module-owned degraded evidence.
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   // TLS assessment quality is a recorded fixture field, not scan_quality.
@@ -405,7 +407,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",
-  "scripts/validate-signal-monitoring-state.js:276:degraded.quality === \"degraded\"",
+  "scripts/validate-signal-monitoring-state.js:290:degraded.quality === \"degraded\"",
   // The lab's measurements: the certificate world's unreachable-certificate scan
   // is partial, and the load lab counts partial scans. Both read the quality the
   // engine recorded; neither decides a status.

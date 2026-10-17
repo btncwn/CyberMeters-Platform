@@ -47,11 +47,11 @@ async function withMutant(directory, file, from, to, run) {
 await withMutant(
   engines,
   "dmarcbis-production.js",
-  "export const DMARCBIS_CORE_BUDGET_MS = 750;",
+  "export const DMARCBIS_CORE_BUDGET_MS = 1200;",
   "export const DMARCBIS_CORE_BUDGET_MS = 15_000;",
   async (mutant) => {
     ok("MUTANT 15-second DMARC phase makes the R1 allocation fixture red",
-      mutant.DMARCBIS_CORE_BUDGET_MS > 750);
+      mutant.DMARCBIS_CORE_BUDGET_MS > 1200);
   },
 );
 

@@ -223,6 +223,20 @@ const incompleteAttackSurface = derive({
       !/completed normally/i.test(attackSurface.message));
 }
 
+{
+  const serverErrorModules = completeModules();
+  serverErrorModules.asset_exposure = {
+    incomplete: true,
+    executed: true,
+    incomplete_reason: "server_error",
+  };
+  const stated = derive({ modules: serverErrorModules, scanQuality: { status: "partial", modules_skipped: [] } });
+  ok("an executed exposure module names the server error instead of saying only that checks stopped",
+    stated.signals.attack_surface.state === "evidence_incomplete" &&
+    stated.signals.attack_surface.message.includes("website target returned a server error after retry") &&
+    stated.signals.attack_surface.evidence.incomplete_modules.includes("asset_exposure"));
+}
+
 const allComplete = derive();
 {
   eq("complete derivation stamps every configured signal exactly once",

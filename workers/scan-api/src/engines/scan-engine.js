@@ -139,7 +139,7 @@ export function computeScanBudget(bruteforceChecked) {
     ssl:                        4,
     headers:                    2,
     email_security:             22,
-    dmarc_core:                 10,
+    dmarc_core:                 18,
     dmarc_external_rua:         11,
     ct_discovery:               4,
     dns_bruteforce:             typeof bruteforceChecked === "number" ? bruteforceChecked : BRUTEFORCE_MAX_NAMES,

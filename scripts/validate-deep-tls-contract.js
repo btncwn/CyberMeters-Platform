@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateTlsAssessmentRequest, projectTlsCollectorReceipt, validateTlsAssessmentReceipt, validateTlsEngineResult } from '../workers/network-probe/src/tls-contract.js';
-import { parseTlsDnsAnswers, buildTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
+import { parseTlsDnsAnswers, buildTlsCheckPlan, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
 import { collectTlsAssessment } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
 import { resolveAssessmentPresentation } from '../workers/scan-api/src/engines/assessment-presentation.js';
@@ -96,6 +98,35 @@ assert.deepEqual(parseTlsDnsAnswers([
 const endpoint={endpoint:request.endpoint,endpoint_identity:'mail.acme.org|mail.acme.org|8.8.8.8|587|tcp|smtp',scope:request.scope};
 const plan=buildTlsCheckPlan({endpoints:[endpoint],cipherCatalog:[{protocol:'tls1_2',name:'ECDHE-RSA-AES256-GCM-SHA384',executable:true},
   {protocol:'ssl2',name:'EXP-RC4-MD5',executable:false,reason:'engine_unsupported'}],maxChecks:100});
+const thirteen=Array.from({length:13},(_,index)=>({endpoint:{hostname:`host${index}.example.org`,port:443,application_protocol:'https',address:`8.8.8.${index+1}`},
+  endpoint_identity:`host${index}.example.org|host${index}.example.org|8.8.8.${index+1}|443|tcp|https`,scope:{special_consent:false}}));
+const budgetedEndpoints=[...thirteen,...thirteen.map((entry,index)=>({...entry,
+  endpoint:{...entry.endpoint,address:`1.1.1.${index+1}`},endpoint_identity:entry.endpoint_identity.replace('8.8.8.','1.1.1.')}))];
+const budgeted=buildBudgetedTlsCheckPlan({endpoints:budgetedEndpoints,
+  cipherCatalog:[{protocol:'tls1_2',name:'AES128-GCM-SHA256',executable:true},
+    {protocol:'tls1_2',name:'AES128-SHA',executable:true}],
+  observedHttpsHosts:thirteen.map(entry=>entry.endpoint.hostname),scanId:'scan-budgeted',maxChecks:512});
+assert(budgeted.selected.length>0&&budgeted.selected.length<=512,'13 observed HTTPS assets fit the TLS cap');
+assert.equal(budgeted.omitted_checks,0,'no pending control is silently left beyond the cap');
+assert.equal(budgeted.deferred_endpoints.length,13,'other DNS addresses are explicitly deferred');
+assert.equal(budgeted.deferred_hosts.length,0,'all 13 observed HTTPS hosts fit the plan');
+assert.equal(new Set(budgeted.selected.map(row=>`${budgetedEndpoints[row.endpoint_index].endpoint.hostname}|${row.check.protocol}|${row.check.control}|${row.check.cipher_id||''}`)).size,budgeted.selected.length);
+const plannerPath=fileURLToPath(new URL('../workers/scan-api/src/engines/tls-planner.js',import.meta.url));
+const mutantPath=plannerPath.replace(/\.js$/,`.p1b-mutant-${process.pid}.js`);
+const plannerSource=readFileSync(plannerPath,'utf8');
+const mutatedSource=plannerSource.replace('const key=`${host}|${port}`;', 'const key=`${host}|${port}|${entry.endpoint.address}`;');
+assert.notEqual(mutatedSource,plannerSource,'TLS dedupe mutation must apply');
+try{
+  writeFileSync(mutantPath,mutatedSource);
+  const mutant=await import(pathToFileURL(mutantPath).href);
+  const wrong=mutant.buildBudgetedTlsCheckPlan({endpoints:budgetedEndpoints,cipherCatalog:[
+    {protocol:'tls1_2',name:'AES128-GCM-SHA256',executable:true},{protocol:'tls1_2',name:'AES128-SHA',executable:true}],
+    observedHttpsHosts:thirteen.map(entry=>entry.endpoint.hostname),scanId:'scan-budgeted',maxChecks:512});
+  assert.notEqual(wrong.deferred_endpoints.length,13,'removing host/port dedupe must fail the exact deferral proof');
+  assert(wrong.deferred_hosts.some(row=>row.reason==='tls_plan_budget'),'mutation exhausts the bounded plan');
+}finally{rmSync(mutantPath,{force:true});}
+const tiny=buildBudgetedTlsCheckPlan({endpoints:thirteen,cipherCatalog:[],observedHttpsHosts:thirteen.map(entry=>entry.endpoint.hostname),maxChecks:20});
+assert(tiny.deferred_hosts.some(row=>row.reason==='tls_plan_budget'),'over-cap hosts are deferred with a reason');
 assert(plan.selected.some(row=>row.check.control==='cipher'&&row.check.protocol==='tls1_2'));
 assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='not_authorized'));
 const consentedPlan=buildTlsCheckPlan({endpoints:[{...endpoint,scope:{...endpoint.scope,special_consent:true,
@@ -105,7 +136,7 @@ assert.equal(consentedPlan.selected.filter(row=>['heartbleed','robot','ccs'].inc
 assert(plan.static_results.some(row=>row.check.control==='early_data'&&row.check.protocol==='tls1_2'&&row.state==='not_applicable'));
 assert(plan.static_results.some(row=>row.check.control==='cipher'&&row.check.protocol==='ssl2'&&row.state==='unexecutable'));
 const tlsPartial={source:'tls_assessment',quality:'partial',coverage:{omitted_checks:1176,uncertain:395,
-  unexecutable:336,omitted_services:0,endpoint_gaps:0},endpoints:[{hostname:'acme.org',checks:[]}]};
+  unexecutable:336,omitted_services:0,endpoint_gaps:0},endpoints:[{hostname:'acme.org',checks:[{control:'certificate',protocol:'tls1_3',state:'accepted'}]}]};
 const tlsStaticOnly={...tlsPartial,coverage:{...tlsPartial.coverage,omitted_checks:0,uncertain:0}};
 assert.equal(tlsSupportedCoverageGapReason(tlsPartial),'tls_checks_outside_scan_budget');
 assert.equal(tlsSupportedCoverageGapReason(tlsStaticOnly),null,'unavailable special controls alone do not degrade supported coverage');
@@ -169,3 +200,4 @@ try {
   await assert.rejects(Promise.race([hung,new Promise((_,reject)=>{guardTimer=setTimeout(()=>reject(new Error('abort_not_bounded')),1000);})]),/collector_aborted/);
 } finally {clearTimeout(abortTimer);clearTimeout(guardTimer);}
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
+await import('./validate-p1b-single-domain-engine.js');

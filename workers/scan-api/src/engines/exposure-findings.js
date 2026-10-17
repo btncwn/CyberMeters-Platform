@@ -36,7 +36,7 @@ export function evaluateExposureCondition(key, module) {
   const matches = (module.checks || []).filter((row) => row.condition_key === key || exposureConditionKey(row) === key);
   if (!matches.length) return { state: 'deferred', reason: 'exact_condition_not_tested' };
   if (matches.some((row) => row.state === 'finding' && row.comparable === true && row.finding)) return { state: 'present', reason: 'content_condition_observed' };
-  if (matches.every((row) => row.comparable === true && row.finding === null && (row.state === 'not_found'
+  if (matches.every((row) => row.comparable === true && row.finding === null && (['not_found', 'not_present_soft404'].includes(row.state)
       || row.state === 'observed' && exposurePresentation(row.rule_id, row.observation?.indicators || [])?.observationOnly === true))) return { state: 'clear', reason: 'exact_content_condition_retested_clear' };
   return { state: 'deferred', reason: 'content_retest_inconclusive' };
 }

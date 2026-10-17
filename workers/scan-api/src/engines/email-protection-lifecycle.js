@@ -382,7 +382,9 @@ function primaryPolicyWalkEntries(policyEvidence) {
 // events and P5 owns alert/case eligibility. Every subject is derived from the
 // complete canonical resolver output; no raw RRset is copied to D1.
 export function deriveDmarcPolicyConditions(policyEvidence) {
-  if (policyEvidence?.core_completeness !== "complete") return [];
+  if (policyEvidence?.core_completeness !== "complete" ||
+      policyEvidence?.corroboration_state === "unavailable" ||
+      policyEvidence?.resolver_fallback_used === true) return [];
   const conditions = [];
   const seen = new Set();
   const add = (condition_type, subject_key, detail = {}) => {
@@ -458,7 +460,9 @@ export async function establishDmarcPolicyBaseline(env, {
   if (!env?.cybermeters_db || !workspace_id || !domain_id || !domain || !scan_id) {
     return { skipped: "incomplete_context" };
   }
-  if (policy_evidence?.core_completeness !== "complete") {
+  if (policy_evidence?.core_completeness !== "complete" ||
+      policy_evidence?.corroboration_state === "unavailable" ||
+      policy_evidence?.resolver_fallback_used === true) {
     return { skipped: "core_incomplete" };
   }
 

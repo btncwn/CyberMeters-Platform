@@ -62,7 +62,7 @@ export const MODULE_SUBREQUEST_COST = Object.freeze({
   ssl:                  6,
   headers:              6,
   email_security:       24,   // SPF/BIMI + DKIM selector sweep (conservative pre-DMARCbis estimate retained)
-  dmarc_core:           10,   // RFC 9989: <=8 tree + <=1 existence + <=1 corroboration
+  dmarc_core:           18,   // <=8 tree + <=8 second-resolver recovery + existence/corroboration
   dmarc_external_rua:   11,   // one fully admitted RFC 9990 destination host
   subdomains:           2,    // wildcard A + AAAA
   technology_detection: 4,
@@ -263,7 +263,7 @@ export const SCAN_MODULE_BUDGETS = Object.freeze({
   dns:                           750,
   dns_bruteforce:                750,
   email_security:                750,
-  dmarc_core:                    750,
+  dmarc_core:                    1200,
   dmarc_external_rua:            600,
   technology_detection:          500,
   whois_intelligence:          2_000,

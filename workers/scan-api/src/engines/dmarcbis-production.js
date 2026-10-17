@@ -1,18 +1,19 @@
 // Production adapter for the pure DMARCbis P1 resolver.
 //
 // This module owns only invocation-scoped DNS observation, the approved
-// 750 ms/600 ms phase bounds, Item 6 evidence metadata, and compatibility-safe
+// 1200 ms/600 ms phase bounds, Item 6 evidence metadata, and compatibility-safe
 // degradation. Protocol parsing and derivation remain in dmarcbis-resolver.js.
 import { dnsQuery, dnsQueryGoogle } from "./dns.js";
 import {
   DMARCBIS_METHODOLOGY_VERSION,
+  normalizeDmarcbisDnsObservation,
   resolveDmarcbisExternalRuaAuthorizations,
   resolveDmarcbisPolicy,
 } from "./dmarcbis-resolver.js";
 
-export const DMARCBIS_CORE_BUDGET_MS = 750;
+export const DMARCBIS_CORE_BUDGET_MS = 1200;
 export const DMARCBIS_PRIMARY_BUDGET_MS = 500;
-export const DMARCBIS_CORROBORATION_DEADLINE_MS = 650;
+export const DMARCBIS_CORROBORATION_DEADLINE_MS = 1100;
 export const DMARCBIS_EXTERNAL_RUA_BUDGET_MS = 600;
 export const DMARCBIS_EXTERNAL_HOST_RESERVATION = 11;
 export const DMARCBIS_EXTERNAL_PRIMARY_DEADLINE_MS = 300;
@@ -140,7 +141,7 @@ export function createProductionDmarcbisDnsClient({
     ) {
       boundary = DMARCBIS_EXTERNAL_AUTHORIZATION_DEADLINE_MS;
     }
-    return boundedProviderQuery({
+    const first = await boundedProviderQuery({
       provider,
       question,
       cache,
@@ -151,6 +152,29 @@ export function createProductionDmarcbisDnsClient({
       clearTimer,
       now,
     });
+    // A temporary failure on the required primary tree walk gets one bounded
+    // attempt through the independent resolver in the same scan. A budget or
+    // parent cancellation is not retried and never becomes an absence claim.
+    if (phase !== "core" || secondary || signal?.aborted ||
+        normalizeDmarcbisDnsObservation(first, question).definitive ||
+        ["cancelled_deadline", "not_issued_budget"].includes(first.outcome)) return first;
+    const remaining = DMARCBIS_CORROBORATION_DEADLINE_MS - Math.max(0, now() - startedAt);
+    if (remaining <= 0) return first;
+    const fallbackQuestion = { ...question, resolver: "secondary" };
+    const fallback = await boundedProviderQuery({
+      provider: secondaryProvider,
+      question: fallbackQuestion,
+      cache,
+      accounting,
+      parentSignal: signal,
+      remainingMs: remaining,
+      setTimer,
+      clearTimer,
+      now,
+    });
+    return normalizeDmarcbisDnsObservation(fallback, fallbackQuestion).definitive
+      ? { ...fallback, fallback_from: "primary", primary_outcome: normalizeDmarcbisDnsObservation(first, question).outcome }
+      : first;
   };
 }
 
@@ -160,7 +184,10 @@ function evidenceGradeForCore(policyEvidence, observedAt) {
     && ["complete", "not_applicable"].includes(
       policyEvidence?.existence_completeness,
     );
-  const grade = complete ? "L3" : policyEvidence?.lookup_path?.length ? "L1" : "L0";
+  const independentlyCorroborated = policyEvidence?.policy_source_kind === "none" ||
+    policyEvidence?.corroboration_state === "corroborated";
+  const grade = complete && independentlyCorroborated && !policyEvidence?.resolver_fallback_used
+    ? "L3" : policyEvidence?.lookup_path?.length ? "L1" : "L0";
   return {
     observable_ceiling: "L5",
     beta_target: "L4",
@@ -415,11 +442,13 @@ export async function runDmarcbisCore(authorDomain, {
     // completeness additionally requires the org-domain walk and existence to be
     // complete. Recompute here so the panel (monitoring_state) can never read
     // "evidence complete" while core_completeness is incomplete.
-    monitoring_state: complete ? "monitoring_healthy" : "monitoring_degraded",
+    monitoring_state: complete && policy.corroboration_state !== "unavailable" &&
+      !policy.resolver_fallback_used ? "monitoring_healthy" : "monitoring_degraded",
     core_completeness: complete ? "complete" : "incomplete",
     executed: true,
     ...(complete ? {} : { incomplete: true }),
-    outcome: complete ? "available" : "unavailable",
+    outcome: complete ? policy.corroboration_state === "unavailable" || policy.resolver_fallback_used
+      ? "degraded" : "available" : "unavailable",
     evidence_grade: evidenceGradeForCore(policy, observedAt),
     limits: {
       ...(policy.limits || {}),

@@ -175,6 +175,27 @@ setFetch(() => htmlResponse(503));
 mod = await runExposureModule("example.com", ["a.example.com", "b.example.com"]);
 ok("B5b all 5xx (answered, not content-assessed) → incomplete (server_error), reachable 0",
   mod.incomplete === true && mod.incomplete_reason === "server_error" && mod.reachable === 0);
+const twelveTargets = Array.from({ length: 12 }, (_, index) => `target-${index}.example.com`);
+const flakyHost = twelveTargets[7];
+let flakyCalls = 0;
+const retryDelays = [];
+const flakyResponse = url => {
+  if (new URL(url).hostname === flakyHost && ++flakyCalls === 1) return htmlResponse(503);
+  return htmlResponse(200, "<title>Observed service</title>");
+};
+setFetch(flakyResponse);
+mod = await runExposureModule("example.com", twelveTargets, { retryDelay: async ms => retryDelays.push(ms) });
+ok("B5c one target error among 12 retries once after the 2s delay and completes",
+  mod.checked === 12 && !mod.incomplete && flakyCalls === 2 && retryDelays.length === 1 && retryDelays[0] === 2000);
+let persistentCalls = 0;
+setFetch(url => {
+  if (new URL(url).hostname === flakyHost) { persistentCalls++; return htmlResponse(503); }
+  return htmlResponse(200, "<title>Observed service</title>");
+});
+mod = await runExposureModule("example.com", twelveTargets, { retryDelay: async () => {} });
+ok("B5d repeated target error stays an assessed target error, never skipped or complete",
+  mod.checked === 12 && mod.assets.length === 12 && mod.incomplete_reason === "server_error" &&
+  mod.not_assessed_count === 1 && persistentCalls === 2 && mod.assets.find(asset => asset.host === flakyHost)?.probe_status === "server_error");
 // Production-regression repro (P1, 19-20 Jul 2026): a real domain whose subdomain list
 // contains mail-only / no-origin names — reachable sites plus CF-edge 522/530 answers.
 // The pass is COMPLETE: every host got an authoritative disposition.
@@ -507,6 +528,19 @@ const mfetch = (fn, run, dnsFixture = false) => { const prev = globalThis.fetch;
   const r = m.anchor ? await mfetch(() => edgeResponse(530), () => m.mod.runExposureModule("example.com", ["reports.example.com"])) : null;
   ok("mutation M17 (edge branch removed — the 19 Jul P1 reintroduced) → edge-530 pass falsely incomplete — CAUGHT",
     m.anchor && r.incomplete === true && r.incomplete_reason === "server_error");
+}
+// M18: removing the one-target retry leaves a transient 5xx as a partial scan.
+{
+  const m = await mutant(ASSET_SRC,
+    "probeAsset(host, probeOpts).then(first => retryServerError(host, first)),",
+    "probeAsset(host, probeOpts),");
+  let calls = 0;
+  const r = m.anchor ? await mfetch(url => {
+    if (new URL(url).hostname === flakyHost && ++calls === 1) return htmlResponse(503);
+    return htmlResponse(200, "<title>Observed service</title>");
+  }, () => m.mod.runExposureModule("example.com", twelveTargets, { retryDelay: async () => {} })) : null;
+  ok("mutation M18 (retry removed) → transient target error keeps scan partial — CAUGHT",
+    m.anchor && r.incomplete === true && r.incomplete_reason === "server_error" && calls === 1);
 }
 
 console.log(`\napp-probe-reliability: ${pass}/${pass + fail} passed`);

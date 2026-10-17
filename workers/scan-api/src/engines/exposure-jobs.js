@@ -9,7 +9,7 @@ import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteC
 import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, TLS_SPECIAL_CONSENT_VERSION, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
-import { buildTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
+import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
 
 export const EXPOSURE_JOB_LIMITS = Object.freeze({
   hosts:4, checks:1024, requests:1024, bytes:64*1024*1024,
@@ -86,7 +86,7 @@ export function unresolvedExposureChecks(previous=[],results=[]) {
   for(const row of results){
     const key=row.rule_id+'|'+row.url;
     if(row.state==='finding')retained.set(key,{rule_id:row.rule_id,url:row.url});
-    else if(row.comparable===true&&['not_found','observed'].includes(row.state))retained.delete(key);
+    else if(row.comparable===true&&['not_found','not_present_soft404','observed'].includes(row.state))retained.delete(key);
   }
   return [...retained.values()];
 }
@@ -185,9 +185,15 @@ async function createJob(env, scan, now, dispatch) {
   }
   if(env.TLS_ASSESSMENT_MODE==='evidence-v1'){
     const endpoints=await loadTlsEndpoints(env,scan);
-    const tlsPlan=buildTlsCheckPlan({endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
-      previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),scanId:scan.id,maxChecks:512});
-    plan.tls={...tlsPlan,endpoints:endpoints.endpoints,gaps:endpoints.gaps,scope_generation:endpoints.scope_generation,
+    const observedHttpsHosts=[...new Set(json(previous?.results_json,[]).filter(row=>
+      row.comparable===true||['soft_404_or_common_response','authentication_rate_limit_or_challenge',
+        'server_or_redirect_failure'].includes(row.reason)).map(row=>{
+      try{const url=new URL(row.url);return url.protocol==='https:'?url.hostname:null;}catch{return null;}
+    }).filter(Boolean))];
+    const tlsPlan=buildBudgetedTlsCheckPlan({endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
+      previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),observedHttpsHosts,scanId:scan.id,maxChecks:512});
+    plan.tls={...tlsPlan,deferred_hosts:[...tlsPlan.deferred_hosts,...(endpoints.deferred_services||[])],
+      endpoints:endpoints.endpoints,gaps:endpoints.gaps,scope_generation:endpoints.scope_generation,
       omitted_services:endpoints.omitted_services,results:[],state:'pending'};
   }
   plan.network_budget=sizeExposureJobBudget(plan);
@@ -573,6 +579,10 @@ export async function processExposureMessage(body,env,deps={}) {
     for(const key of ['requests','redirects','retries','bytes_wire','bytes_decoded','duration_ms'])costs[key]=(costs[key]||0)+t[key];
     plan.retest_checks=unresolvedExposureChecks(plan.retest_checks||[],receipt.results);
     const results=[...json(row.results_json,[]),...receipt.results.map(r=>({...r,observed_at:receipt.finished_at}))];
+    if(!contentPhase&&Array.isArray(receipt.baseline)){
+      const baselines=Array.isArray(plan.http_baselines)?plan.http_baselines.filter(item=>item.origin!==origin):[];
+      plan.http_baselines=[...baselines,{origin,controls:receipt.baseline,observed_at:receipt.finished_at}].slice(-32);
+    }
     // Reuse references extracted during the bounded read; never fetch a URL
     // merely because an API document lists it. Only catalog-compatible passive
     // candidates are admitted, and every addition shares the original budget.
@@ -670,7 +680,8 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
       endpoint_identity:entry.endpoint_identity})),
   }));
   const coverage={planned:all.length+(tls.omitted_checks||0),completed:0,uncertain:0,unexecutable:0,not_authorized:0,not_applicable:0,
-    omitted_checks:tls.omitted_checks||0,omitted_services:tls.omitted_services||0,endpoint_gaps:tls.gaps.length};
+    omitted_checks:tls.omitted_checks||0,omitted_services:tls.omitted_services||0,endpoint_gaps:tls.gaps.length,
+    deferred_hosts:tls.deferred_hosts?.length||0,deferred_endpoints:tls.deferred_endpoints?.length||0};
   for(const item of all){
     if(['accepted','rejected'].includes(item.state))coverage.completed++;
     else if(item.state==='not_authorized')coverage.not_authorized++;
@@ -680,11 +691,11 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
   }
   const costs=json(row.costs_json,{});
   const tlsComplete=row.state==='complete'&&tls.cursor>=tls.selected.length;
-  const quality=tlsComplete&&coverage.uncertain===0&&coverage.unexecutable===0&&coverage.not_authorized===0&&
+  const quality=tlsComplete&&tls.selected.length>0&&coverage.uncertain===0&&coverage.unexecutable===0&&coverage.not_authorized===0&&
     coverage.omitted_checks===0&&coverage.omitted_services===0&&coverage.endpoint_gaps===0?'complete':'partial';
   return {source:'tls_assessment',version:tls.profile_version,policy_version:tls.policy_version,quality,
     phase_state:tlsComplete?'complete':row.state,coverage,endpoints,
-    gaps:tls.gaps,trust_store_context:TLS_TRUST_BUNDLE,
+    gaps:tls.gaps,scope_deferrals:{hosts:tls.deferred_hosts||[],endpoints:tls.deferred_endpoints||[]},trust_store_context:TLS_TRUST_BUNDLE,
     costs:{connections:costs.tls_connections||0,bytes_sent:costs.tls_bytes_sent||0,
       bytes_received:costs.tls_bytes_received||0,duration_ms:costs.tls_duration_ms||0,
       charged_connections:row.charged_requests,charged_bytes:row.charged_bytes,unknown_attempts:row.unknown_attempts,
