@@ -1,4 +1,5 @@
 import { parseServerDate } from '../../utils/dates'
+import { reportPeriodLabel, reportFileName } from '../../lib/reportDisplay'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
@@ -354,8 +355,8 @@ function WorkspaceReports({ wsId, wsName }) {
       // Programmatic anchor download — saves file to disk rather than opening
       // inline in a new tab. Content-Disposition is lost once we have the blob,
       // so the filename is reconstructed here from the report metadata.
-      const period   = report.report_type === 'scan_snapshot' ? report.id : (report.report_period || report.id)
-      const filename = `cybermeters-${report.report_type || 'report'}-${period}.pdf`
+      // Never an internal id: the customer label of the Period cell, made file-safe.
+      const filename = reportFileName(report)
       const a = document.createElement('a')
       a.href     = url
       a.download = filename
@@ -540,8 +541,8 @@ function WorkspaceReports({ wsId, wsName }) {
                       </span>
                     </td>
                     <td>
-                      <span className="block max-w-56 truncate text-sm text-gray-500 font-mono" title={report.report_period || undefined}>
-                        {report.report_period || '—'}
+                      <span className="block max-w-64 truncate text-sm text-gray-600" title={reportPeriodLabel(report)}>
+                        {reportPeriodLabel(report)}
                       </span>
                     </td>
                     <td className="text-center">
@@ -602,7 +603,7 @@ function WorkspaceReports({ wsId, wsName }) {
               <div className="min-w-0">
                 <h2 className="text-sm font-bold text-gray-900">Delete this report permanently?</h2>
                 <div className="mt-3 space-y-1 text-sm">
-                  <p className="break-all"><span className="text-gray-400">Report:</span> <span className="font-medium text-gray-800">{deleteTarget.report_period || deleteTarget.id}</span></p>
+                  <p className="break-all"><span className="text-gray-400">Report:</span> <span className="font-medium text-gray-800">{reportPeriodLabel(deleteTarget)}</span></p>
                   <p><span className="text-gray-400">Created:</span> <span className="font-medium text-gray-800">{fmtDateTime(deleteTarget.created_at)}</span></p>
                   <p><span className="text-gray-400">Type:</span> <span className="font-medium text-gray-800">{fmtType(deleteTarget.report_type)}</span></p>
                 </div>

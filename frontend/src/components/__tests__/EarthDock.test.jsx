@@ -79,6 +79,29 @@ describe('<EarthDock>', () => {
     await waitFor(() => expect(screen.queryByTestId('earth-unread')).not.toBeInTheDocument())
   })
 
+  it('with 30 notifications the list scrolls inside a capped panel and the header and footer stay fixed', async () => {
+    localStorage.setItem('cybermeters_workspace_id', 'ws1')
+    const notifications = Array.from({ length: 30 }, (_, i) => ({
+      id: `n${i}`, status: i < 12 ? 'unread' : 'read', severity: 'medium', type: 'scan',
+      title: `Notification ${i + 1}`, message: 'Detail', created_at: new Date().toISOString(), metadata: {},
+    }))
+    api.getWorkspaceNotifications.mockResolvedValue({ unread_count: 120, notifications })
+    renderDock()
+    fireEvent.click(await screen.findByRole('button', { name: 'Notifications (120 unread)' }))
+    const panel = screen.getByRole('dialog', { name: 'Notifications' })
+    expect(await screen.findByText('Notification 30')).toBeInTheDocument()
+    expect(screen.getAllByText(/^Notification \d+$/)).toHaveLength(30)
+    expect(panel.className).toContain('flex-col')
+    const list = screen.getByTestId('notification-list')
+    for (const cls of ['flex-1', 'min-h-0', 'overflow-y-auto']) expect(list.className.split(' ')).toContain(cls)
+    expect(list.contains(screen.getByText('Notification 1'))).toBe(true)
+    // Header (counter, Mark all read, close) and footer are outside the scroller.
+    expect(list.contains(screen.getByRole('button', { name: 'Mark all read' }))).toBe(false)
+    expect(list.contains(screen.getByRole('button', { name: 'Close notifications' }))).toBe(false)
+    expect(list.contains(screen.getByRole('link', { name: 'See all activity →' }))).toBe(false)
+    expect(screen.getAllByText('99+').length).toBeGreaterThanOrEqual(2) // globe badge and panel header
+  })
+
   it('opens from the keyboard (Enter and Space) and closes on an outside click', async () => {
     localStorage.setItem('cybermeters_workspace_id', 'ws1')
     api.getWorkspaceNotifications.mockResolvedValue({ unread_count: 0, notifications: [] })

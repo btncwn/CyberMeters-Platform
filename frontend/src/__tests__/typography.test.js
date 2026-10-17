@@ -42,6 +42,8 @@ describe('product typography', () => {
     expect(css).toMatch(/\.cm-earthdock\s*\{[^}]*pointer-events:\s*none/)
     expect(css).toMatch(/\.cm-earthdock\s*>\s*\*\s*\{[^}]*pointer-events:\s*auto/)
     expect(css).toMatch(/\.cm-dock\s*\{[^}]*pointer-events:\s*none/)
+    // The notification panel is capped between the top bar and the dock; the list scrolls inside.
+    expect(css).toMatch(/\.cm-notif\s*\{[^}]*max-height:\s*calc\(100dvh - 219px\)/)
     expect(css).not.toMatch(/\.cm-globe\s*\{/)
     expect(css).not.toMatch(/\.cm-rail\s*\{/)
   })
