@@ -77,8 +77,8 @@ function scanQualityWithTruncatedTakeover() {
   ok("(a-prop) a truncated takeover degrades scan_quality to partial",
     q.status === "partial", `status=${q.status}`);
   ok("(a-prop) the takeover is listed as incomplete, not silently dropped",
-    (q.modules_incomplete || []).includes("subdomain_takeover") ||
-    (q.modules_skipped || []).includes("subdomain_takeover"),
+    (q.modules_incomplete || []).some((item) => item.module === "subdomain_takeover" && item.incomplete_reason === "host_cap_truncation") &&
+    !(q.modules_skipped || []).includes("subdomain_takeover"),
     JSON.stringify({ inc: q.modules_incomplete, skip: q.modules_skipped }));
 
   // (a-prop F1): a LOOKUP-FAILURE incomplete flows through the SAME generic
@@ -92,8 +92,8 @@ function scanQualityWithTruncatedTakeover() {
   const qf = buildScanQuality(failModules);
   ok("(a-prop F1) a lookup-failure takeover also degrades scan_quality to partial",
     qf.status === "partial" &&
-      ((qf.modules_incomplete || []).includes("subdomain_takeover") ||
-       (qf.modules_skipped || []).includes("subdomain_takeover")),
+      (qf.modules_incomplete || []).some((item) => item.module === "subdomain_takeover" && item.incomplete_reason === "host_lookup_failure") &&
+      !(qf.modules_skipped || []).includes("subdomain_takeover"),
     JSON.stringify({ status: qf.status, inc: qf.modules_incomplete }));
 
   // (a-prop CONTRACT-EXT): an UNCONFIRMED-probe incomplete also flows the same
@@ -108,8 +108,8 @@ function scanQualityWithTruncatedTakeover() {
   const qu = buildScanQuality(uncModules);
   ok("(a-prop CE) an unconfirmed-probe takeover also degrades scan_quality to partial",
     qu.status === "partial" &&
-      ((qu.modules_incomplete || []).includes("subdomain_takeover") ||
-       (qu.modules_skipped || []).includes("subdomain_takeover")),
+      (qu.modules_incomplete || []).some((item) => item.module === "subdomain_takeover" && item.incomplete_reason === "host_probe_unconfirmed") &&
+      !(qu.modules_skipped || []).includes("subdomain_takeover"),
     JSON.stringify({ status: qu.status, inc: qu.modules_incomplete }));
 }
 

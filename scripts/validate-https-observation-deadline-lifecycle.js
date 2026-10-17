@@ -128,7 +128,9 @@ ok("D: SSL module carries canonical incompleteness",
   JSON.stringify({ i: d.ssl.incomplete, r: d.ssl.incomplete_reason }));
 ok("D: scan_quality is partial in D1", d.quality === "partial", String(d.quality));
 ok("D: SSL is listed in canonical incompleteness metadata",
-  (d.report?.scan_quality?.modules_skipped || []).includes("ssl"),
+  (d.report?.scan_quality?.modules_incomplete || []).some((item) =>
+    item.module === "ssl" && item.incomplete_reason === "https_probe_not_executed") &&
+  !(d.report?.scan_quality?.modules_skipped || []).includes("ssl"),
   JSON.stringify(d.report?.scan_quality));
 ok("D: NO \"HTTPS Not Available\" finding", !d.findings.includes("HTTPS Not Available"), d.findings.join(" | "));
 {
@@ -215,7 +217,7 @@ const MUTATIONS = [
     // A deferred module would again assert positive evidence of absence.
     check: (mod) => {
       const q = mod.buildScanQuality({ ssl: { https_available: false, source: "tls_probe" } });
-      return q.status !== "partial" || !(q.modules_skipped || []).includes("ssl");
+      return q.status !== "partial" || !(q.modules_incomplete || []).some((item) => item.module === "ssl");
     },
   },
   {
@@ -225,7 +227,7 @@ const MUTATIONS = [
     to: 'https_endpoint_observations: [], source: "tls_probe"',
     check: (mod) => {
       const q = mod.buildScanQuality({ ssl: { https_available: null, source: "tls_probe" } });
-      return !(q.modules_skipped || []).includes("ssl");
+      return !(q.modules_incomplete || []).some((item) => item.module === "ssl");
     },
   },
   {
