@@ -81,6 +81,10 @@ describe('WorkspaceNav (module rail)', () => {
     // The scan intelligence page is reachable from the Attack Surface area (16 Oct 2026).
     expect(subpagesForDomainKey('attack_surface').at(-1)).toEqual({ label: 'Intelligence', desc: 'Score history, changes between scans and the remediation plan', to: '/intelligence', anchor: false })
     expect(detectServiceKey('/intelligence')).toBe('surface')
+    expect(detectServiceKey('/ws/identity-assets')).toBe('identity')
+    expect(subpagesForDomainKey('identity_exposure').map(t => t.to)).toEqual([
+      '/ws/identity-assets', '/ws/identity-assets#workforce-response', '/ws/identity-assets#public-sources',
+    ])
     // A summary block that lives on Overview is reached with the tab stated.
     expect(subpagesForDomainKey('brand_protection').find((t) => t.label === 'Brand Findings').to).toBe('/ws/brand-monitoring?tab=overview#brand-summary')
     expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Expiry Risk').to).toBe('/ws/certificates?tab=overview#cert-expiry')

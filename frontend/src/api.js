@@ -902,6 +902,9 @@ export const api = {
     return request(`/workspaces/${id}/identity-surfaces${q ? `?${q}` : ''}`)
   },
 
+  getIdentitySurface: (id, recId) =>
+    request(`/workspaces/${encodeURIComponent(id)}/identity-surfaces/${encodeURIComponent(recId)}`),
+
   /** POST /api/workspaces/:id/identity-surfaces/:recId/action — classify/assign/remediate */
   identitySurfaceAction: (id, recId, body) =>
     request(`/workspaces/${id}/identity-surfaces/${encodeURIComponent(recId)}/action`, {

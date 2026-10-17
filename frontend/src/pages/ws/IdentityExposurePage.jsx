@@ -5,7 +5,7 @@
 // response â the frontend never invents risk, verification, or actions. It draws
 // a hard, visible line between what is OBSERVED EXTERNALLY, what the CUSTOMER
 // classified, and what CyberMeters has VERIFIED.
-import { useEffect, useState, useCallback } from 'react'
+import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -22,6 +22,47 @@ function Pill({ meta }) {
 
 const CLASS_FILTERS = ['', 'unreviewed', 'expected', 'unexpected', 'investigate', 'exception', 'retired']
 
+function IdentitySurfaceDetail({ workspaceId, recordId }) {
+  const [detail, setDetail] = useState(null)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    let active = true
+    setDetail(null)
+    setError(false)
+    api.getIdentitySurface(workspaceId, recordId).then(
+      (value) => { if (active) setDetail(value) },
+      () => { if (active) setError(true) },
+    )
+    return () => { active = false }
+  }, [workspaceId, recordId])
+
+  if (error) return <p role="alert" className="text-sm text-red-700">Could not load this surface's history.</p>
+  if (!detail) return <p className="text-sm text-slate-500">Loading history…</p>
+  const events = Array.isArray(detail.events) ? detail.events : []
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-slate-800">Event history</h3>
+      {events.length === 0 ? <p className="text-sm text-slate-500">No recorded events.</p> : (
+        <ol className="space-y-2 text-sm text-slate-600">
+          {events.map((event) => <li key={event.id}>
+            <span className="font-medium text-slate-800">{event.event_type?.replaceAll('_', ' ') || 'Recorded event'}</span>
+            {event.actor_type && ` · ${event.actor_type}`}
+            {event.created_at && ` · ${event.created_at}`}
+          </li>)}
+        </ol>
+      )}
+      {detail.linked_case && (
+        <p className="text-sm">
+          Linked case: <Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>
+            {detail.linked_case.id}
+          </Link>
+          {detail.linked_case.status && ` · ${detail.linked_case.status}`}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function IdentityExposurePage() {
   // Workspace comes from the canonical context hook, not a route param â the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
@@ -32,17 +73,23 @@ export default function IdentityExposurePage() {
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+  const requestGeneration = useRef(0)
 
   const load = useCallback(() => {
-    if (!workspaceId) return   // never call the API with a null/unresolved workspace id
+    const generation = ++requestGeneration.current
+    setData(null)
+    setError(null)
+    setExpandedId(null)
+    if (!workspaceId) { setLoading(false); return }   // never call the API with a null/unresolved workspace id
     setLoading(true)
     api.getIdentitySurfaces(workspaceId, filter ? { customer_classification: filter } : {})
-      .then((res) => { setData(res); setError(null) })
-      .catch(() => setError('Could not load managed identity surfaces.'))
-      .finally(() => setLoading(false))
+      .then((res) => { if (generation === requestGeneration.current) { setData(res); setError(null) } })
+      .catch(() => { if (generation === requestGeneration.current) setError('Could not load managed identity surfaces.') })
+      .finally(() => { if (generation === requestGeneration.current) setLoading(false) })
   }, [workspaceId, filter])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { requestGeneration.current += 1 } }, [load])
 
   const can = (item, action) => Array.isArray(item?.allowed_actions) && item.allowed_actions.includes(action)
 
@@ -141,6 +188,7 @@ export default function IdentityExposurePage() {
             <thead>
               <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
                 <th className="py-2 px-3 font-medium">Surface</th>
+                <th className="py-2 px-3 font-medium">Observed</th>
                 <th className="py-2 px-3 font-medium">Risk</th>
                 <th className="py-2 px-3 font-medium">Classification</th>
                 <th className="py-2 px-3 font-medium">Owner</th>
@@ -150,7 +198,8 @@ export default function IdentityExposurePage() {
             </thead>
             <tbody>
               {items.map((it) => (
-                <tr key={it.identity_exposure_id} className="border-b border-slate-50 align-top">
+                <Fragment key={it.identity_exposure_id}>
+                <tr className="border-b border-slate-50 align-top">
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.primary_hostname || it.provider_name || surfaceLabel(it.surface_type)}</div>
                     <div className="text-xs text-slate-400">{surfaceLabel(it.surface_type)}{it.provider_name ? ` Â· ${it.provider_name}` : ''}</div>
@@ -161,6 +210,15 @@ export default function IdentityExposurePage() {
                         Open case →
                       </Link>
                     )}
+                  </td>
+                  <td className="py-2 px-3 text-xs text-slate-600 min-w-48">
+                    <div>First seen: {it.first_seen_at || 'Not available'}</div>
+                    <div>Last seen: {it.last_seen_at || 'Not available'}</div>
+                    {Array.isArray(it.measured_endpoints) && it.measured_endpoints.length > 0 && (
+                      <div className="mt-1 break-all">Measured: {it.measured_endpoints.join(', ')}</div>
+                    )}
+                    <div className="mt-1">Monitoring: {it.monitoring_status || 'Not available'}</div>
+                    {it.monitoring_reason && <div>Reason: {it.monitoring_reason}</div>}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={riskMeta(it.risk_status)} />
@@ -185,6 +243,13 @@ export default function IdentityExposurePage() {
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        className="text-xs rounded-sm border border-slate-200 text-slate-700 px-2 py-0.5"
+                        aria-expanded={expandedId === it.identity_exposure_id}
+                        aria-controls={`identity-history-${it.identity_exposure_id}`}
+                        onClick={() => setExpandedId(expandedId === it.identity_exposure_id ? null : it.identity_exposure_id)}
+                      >History</button>
                       {can(it, 'classify_expected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_expected')} className="text-xs rounded-sm border border-green-200 text-green-700 px-2 py-0.5">Expected</button>}
                       {can(it, 'classify_unexpected') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'classify_unexpected')} className="text-xs rounded-sm border border-red-200 text-red-700 px-2 py-0.5">Unexpected</button>}
                       {can(it, 'assign_identity_owner') && <button disabled={busy === it.identity_exposure_id} onClick={() => act(it, 'assign_identity_owner')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
@@ -195,6 +260,12 @@ export default function IdentityExposurePage() {
                     </div>
                   </td>
                 </tr>
+                {expandedId === it.identity_exposure_id && <tr id={`identity-history-${it.identity_exposure_id}`}>
+                  <td colSpan={7} className="bg-slate-50 p-4">
+                    <IdentitySurfaceDetail workspaceId={workspaceId} recordId={it.identity_exposure_id} />
+                  </td>
+                </tr>}
+                </Fragment>
               ))}
             </tbody>
           </table>
