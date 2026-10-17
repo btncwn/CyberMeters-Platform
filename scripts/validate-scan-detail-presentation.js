@@ -19,8 +19,9 @@ const scanDetailFile = path.join(frontend, "src", "pages", "ScanDetail.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-// The pinned set includes the direct Website Security evidence-link render.
-const EXPECTED_ASSERTIONS = 29;
+// The pinned set includes the direct Website Security evidence-link render
+// and the shared partial-result status in the scan title and sidebar.
+const EXPECTED_ASSERTIONS = 30;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial canonical score and null rating override divergent raw scan presentation",
   "reason A: canonical assessment message outranks skipped modules and warnings",
@@ -42,6 +43,7 @@ const UI_TEST_TITLES = Object.freeze([
   "shows the scan TLS assessment and its omitted checks even without a live-leaf capture",
   "presents the live leaf and scan TLS assessment without contradictory missing-evidence copy",
   "opens the recorded website evidence directly from the condition link",
+  "uses scan_quality for both completed-run status badges",
 ]);
 
 let passed = 0;

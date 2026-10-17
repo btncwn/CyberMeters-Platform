@@ -30,6 +30,14 @@ export const ATTESTED_LABEL = 'Attested by customer — not externally verifiabl
 // CyberMeters, and not the customer. Neither reserved word applies.
 export const EXTERNAL_EVIDENCE_LABEL = 'Requires independent third-party evidence';
 
+// Legacy certificate titles persisted the assignment state at creation time.
+// The current assignee is the live case field, so never repeat a stale suffix.
+export function caseDisplayTitle(c) {
+  const title = c?.title || c?.source_finding_type || c?.case_id || ''
+  if (!c?.owner_ref) return title
+  return String(title).replace(/\s*\(owner missing\)$/i, '')
+}
+
 // Canonical phases (must match managed-case-model.js CANONICAL_CASE_STATES +
 // CANONICAL_TERMINAL_STATES). Labels are presentation only.
 export const CANONICAL_PHASE_META = {

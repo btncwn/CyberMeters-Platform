@@ -97,12 +97,14 @@ export default function ServiceLauncher() {
   const { wsId, wsName } = useWorkspace()
   const [hasDomain, setHasDomain] = useState(null) // null = unknown
   const [hasScan, setHasScan]     = useState(null)
+  const [reportingConnected, setReportingConnected] = useState(null)
 
   useEffect(() => {
     let cancelled = false
+    setReportingConnected(null)
     if (!wsId) { setHasDomain(null); setHasScan(null); return }
     Promise.allSettled([api.getWorkspaceSummary(wsId), api.getWorkspaceDomains(wsId)])
-      .then(([s, d]) => {
+      .then(async ([s, d]) => {
         if (cancelled) return
         const summary = s.status === 'fulfilled' ? s.value : null
         const domainList = d.status === 'fulfilled' ? (d.value?.domains || []) : null
@@ -110,6 +112,16 @@ export default function ServiceLauncher() {
         setHasDomain(domainCount == null ? null : domainCount > 0)
         // A latest score (or any reports) only exists after a scan has run.
         setHasScan(summary == null ? null : (summary.latest_score != null || (summary.reports_count || 0) > 0))
+        const primary = domainList?.find((item) => item.is_primary)?.domain || domainList?.[0]?.domain
+        if (!primary) return
+        const [endpoint, dns] = await Promise.allSettled([
+          Promise.resolve().then(() => api.getDmarcIngestEndpoint(wsId, primary)),
+          Promise.resolve().then(() => api.verifyDmarcDns(wsId, primary)),
+        ])
+        if (cancelled) return
+        if (endpoint.status === 'fulfilled' && dns.status === 'fulfilled') {
+          setReportingConnected(Boolean(endpoint.value?.endpoint?.last_inbound_at && dns.value?.status === 'verified'))
+        }
       })
     return () => { cancelled = true }
   }, [wsId])
@@ -122,7 +134,9 @@ export default function ServiceLauncher() {
       : hasScan === false
         ? { text: 'Run your first Cyber MOT to check your website, email posture, certificates and visible external posture.', cta: 'Start Cyber MOT', to: '/scans/new' }
         : (hasDomain || hasScan)
-          ? { text: 'Connect Email Protection to start receiving DMARC reports for your domain.', cta: 'Open Email Protection', to: '/ws/email-protection' }
+          ? reportingConnected
+            ? { text: 'DMARC reporting is connected. Review sender activity and the latest evidence.', cta: 'Open Email Protection', to: '/ws/email-protection' }
+            : { text: 'Connect Email Protection to start receiving DMARC reports for your domain.', cta: 'Open Email Protection', to: '/ws/email-protection' }
           : { text: 'Recommended first step: run a Cyber MOT and connect Email Protection.', cta: 'Start Cyber MOT', to: '/scans/new' }
 
   // ── First-run checklist statuses (never invented) ──
@@ -130,7 +144,7 @@ export default function ServiceLauncher() {
   const steps = [
     { n: 1, title: 'Add or confirm your primary domain', explanation: 'Tell CyberMeters which domain to protect.', status: hasDomain == null ? 'recommended' : st(hasDomain, !!wsId), actionLabel: 'Add domain', to: '/ws/dashboard' },
     { n: 2, title: 'Run your first Cyber MOT', explanation: 'Check your website, email posture, certificates and visible external posture.', status: hasScan == null ? 'recommended' : st(hasScan, hasDomain === true), actionLabel: 'Start Cyber MOT', to: '/scans/new' },
-    { n: 3, title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Set up', to: '/ws/email-protection' },
+    { n: 3, title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: reportingConnected ? 'done' : hasScan ? 'recommended' : 'waiting', actionLabel: reportingConnected ? 'Review' : 'Set up', to: '/ws/email-protection' },
     { n: 4, title: 'Review BEC Exposure', explanation: 'See how exposed your domain is to spoofing and invoice fraud.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Review', to: '/ws/email-protection' },
     { n: 5, title: 'Review Brand Protection candidates', explanation: 'Find lookalike domains that could impersonate your brand.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Review', to: '/ws/brand-monitoring' },
     { n: 6, title: 'Schedule monitoring', explanation: 'Keep scans running on a schedule so new exposure is found sooner.', status: 'recommended', actionLabel: 'Schedule', to: '/schedules' },

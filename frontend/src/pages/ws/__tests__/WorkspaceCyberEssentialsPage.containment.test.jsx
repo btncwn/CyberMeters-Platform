@@ -69,6 +69,20 @@ beforeEach(() => {
 })
 
 describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
+  it('does not render a grade or Likely Ready before the questionnaire is complete', async () => {
+    api.getWorkspaceCyberEssentialsAnswers.mockResolvedValue({ questions: [{ control_key: 'boundary_protection', questions: [{ key: 'q1', text: 'Question 1' }] }], answers: {} })
+    api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness({
+      assessable: true, score: null, grade: null, status: 'questionnaire_incomplete',
+      summary: '2 of 5 control areas externally aligned · questionnaire not started',
+      questionnaire: { answered: 0, total: 20, complete: false },
+    }))
+    mountOverview()
+    expect(await screen.findByText('2 of 5 control areas externally aligned · questionnaire not started')).toBeInTheDocument()
+    expect(screen.queryByText('Grade A')).not.toBeInTheDocument()
+    expect(screen.queryByText('Likely Ready')).not.toBeInTheDocument()
+    expect(screen.queryByText('100')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Complete the questionnaire' })).toHaveAttribute('href', '/ws/cyber-essentials?tab=findings#questionnaire')
+  })
   it('shows the customer title as the evidence headline and the remediation id as a helper', async () => {
     api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness())
     api.getCyberEssentialsControls.mockResolvedValue(controls([{

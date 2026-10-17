@@ -671,6 +671,31 @@ export function isCyberEssentialsQuestionnaireComplete(answersMap = {}) {
   });
 }
 
+// The external indicator is evidence, not a five-control readiness verdict.
+// Only a complete questionnaire can publish the grade or readiness status.
+export function presentCyberEssentialsQuestionnaireReadiness(readiness, answersMap = {}) {
+  const total = CE_QUESTIONS.reduce((n, c) => n + c.questions.length, 0);
+  const answered = CE_QUESTIONS.reduce((n, c) => n + c.questions.filter((q) => {
+    const value = answersMap?.[c.control_key]?.[q.key];
+    return value && value !== "unknown";
+  }).length, 0);
+  const complete = isCyberEssentialsQuestionnaireComplete(answersMap);
+  const questionnaire = { answered, total, complete };
+  if (complete || readiness?.assessable !== true) return { ...readiness, questionnaire };
+  const categories = Array.isArray(readiness.categories) ? readiness.categories : [];
+  const aligned = categories.filter((c) => c.assessable === true && c.score === 100
+    && (!Array.isArray(c.gaps) || c.gaps.length === 0)
+    && c.externally_assessed === true).length;
+  return {
+    ...readiness,
+    score: null,
+    grade: null,
+    status: "questionnaire_incomplete",
+    summary: `${aligned} of ${categories.length} control areas externally aligned · questionnaire ${answered === 0 ? "not started" : "in progress"}`,
+    questionnaire,
+  };
+}
+
 // getCyberEssentialsSnapshot — the ONE canonical Cyber Essentials snapshot used by
 // every surface's eight-domain resolver, so a workspace shows the SAME CE state on
 // the Dashboard, Scan Detail, Executive Report UI and Executive PDF.

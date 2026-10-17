@@ -17,7 +17,7 @@
 // The page keeps its own findings body (passed as children); the contract
 // renders the framing sections from backend values only: the area's resolver
 // row (GET /workspaces/:id/cyber-mot-domains) and its managed cases
-// (GET /workspaces/:id/managed-cases?domain_key=…). The words are the common
+// (GET /workspaces/:id/cases?domain_key=…, the same query as Operations). The words are the common
 // vocabulary (lib/statusVocabulary.js); nothing here derives a state, and a
 // read that fails or is still pending is shown as that. The filter box narrows
 // the tiles and the case list by text; it does not search anything else and
@@ -91,7 +91,7 @@ export function useModuleContract(workspaceId, domainKey) {
       },
       () => { if (!cancelled) setState((s) => ({ ...s, domainsRequest: 'error', entry: null })) },
     )
-    requestManagedCases(workspaceId, { domain_key: domainKey, limit: 100 }).then(
+    requestManagedCases(workspaceId, { domain_key: domainKey, limit: 200 }).then(
       (res) => {
         if (cancelled) return
         const list = Array.isArray(res?.cases) ? res.cases : null

@@ -19,7 +19,7 @@ import StatusChip from '../StatusChip'
 // (older bundles, partial mocks): a missing function is a failed request, which
 // the vocabulary shows as Error — never as an empty, settled list.
 export function requestManagedCases(workspaceId, params = { limit: 200 }) {
-  return Promise.resolve().then(() => api.getManagedCases(workspaceId, params))
+  return Promise.resolve().then(() => api.getCases(workspaceId, params))
 }
 
 export function requestDomainStates(workspaceId) {

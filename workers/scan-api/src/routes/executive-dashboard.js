@@ -38,6 +38,16 @@ export function withEvidenceFreshness(domains) {
   });
 }
 
+export function withShadowItInventoryCount(domains, count, hasScan) {
+  if (!hasScan) return domains;
+  const total = Number(count);
+  if (!Number.isSafeInteger(total) || total < 0) throw new Error("Invalid inventory count");
+  return domains.map((entry) => entry.domain_key === "shadow_it_unmanaged_technology"
+    ? { ...entry, evidence_count: total,
+        summary: `${total} externally observed technologies/services in the current inventory; compare against your approved inventory in Shadow IT.` }
+    : entry);
+}
+
 export async function executiveDashboardRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, requireWorkspaceRole } = rctx;
@@ -73,10 +83,21 @@ export async function executiveDashboardRoutes(rctx) {
         }
         let ceSnap = null;
         try { ceSnap = await getCyberEssentialsSnapshot(wsId, env); } catch { ceSnap = null; }
+        // The workspace inventory is the source for both classification cards
+        // and the current Shadow IT count. Scan-module occurrences are a
+        // different grain and must not appear beside that inventory as another
+        // count of "technologies".
+        const inventoryCount = await env.cybermeters_db
+          .prepare("SELECT COUNT(*) AS n FROM shadow_it_inventory WHERE workspace_id = ?")
+          .bind(wsId).first();
+        const domains = withShadowItInventoryCount(
+          withEvidenceFreshness(resolveCyberMotDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap })),
+          inventoryCount?.n, Boolean(sourceScanId),
+        );
         return json({
           workspace_id:   wsId,
           source_scan_id: sourceScanId,
-          cyber_mot_domains: withEvidenceFreshness(resolveCyberMotDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap })),
+          cyber_mot_domains: domains,
         });
       } catch (e) {
         return json({ workspace_id: wsId, source_scan_id: null, cyber_mot_domains: withEvidenceFreshness(resolveCyberMotDomainStates(null)) });

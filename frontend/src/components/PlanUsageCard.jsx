@@ -52,7 +52,7 @@ const FEATURE_LABELS = {
   cyber_essentials:    'Cyber Essentials Readiness',
   // Honest external-observation label — the retired vendor-risk marketing
   // claim must not be advertised on billing/upgrade surfaces.
-  vendor_risk:         'Third-party technology detection',
+  vendor_risk:         'Vendor relationships and supply chain views',
   portfolio_monitoring:'Portfolio Risk Monitoring',
   white_label:         'White Label Reports',
   msp_dashboard:       'MSP Dashboard',

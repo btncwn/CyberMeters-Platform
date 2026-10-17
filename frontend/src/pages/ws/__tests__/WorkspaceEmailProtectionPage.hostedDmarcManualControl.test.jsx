@@ -75,9 +75,9 @@ describe('DMARC receipt and BEC assessment evidence scopes', () => {
     expect(await screen.findByText('Reports received · DNS not verified')).toBeInTheDocument()
     expect(screen.getByText('Yes')).toBeInTheDocument()
     expect(screen.getByText('Not verified')).toBeInTheDocument()
-    expect(screen.getByText('Pass rate: Not measured')).toBeInTheDocument()
+    expect(screen.getByText('Customer-uploaded BEC pass rate')).toBeInTheDocument()
     expect(screen.getByText('Not measured')).toBeInTheDocument()
-    expect(screen.queryByText('Pass rate 0%')).not.toBeInTheDocument()
+    expect(screen.getByText('Customer-uploaded BEC pass rate').nextElementSibling).toHaveTextContent('Not measured')
     expect(screen.queryByText('0%')).not.toBeInTheDocument()
     expect(screen.queryByText('No reports yet')).not.toBeInTheDocument()
     expect(screen.queryByText('No DMARC reports have been received')).not.toBeInTheDocument()
@@ -94,10 +94,11 @@ describe('DMARC receipt and BEC assessment evidence scopes', () => {
     api.getDmarcReportHistory.mockResolvedValue({ totals: { reports: 1, last_seen: 1791244800 } })
     render(<><BecExposure wsId={WS_ID} domain={DOMAIN} /><DmarcIngestionStatus wsId={WS_ID} domain={DOMAIN} /></>)
 
-    expect(await screen.findByText('Pass rate 0%')).toBeInTheDocument()
+    expect(await screen.findByText('Customer-uploaded BEC pass rate')).toBeInTheDocument()
+    expect(screen.getByText('Customer-uploaded pass rate 0%')).toBeInTheDocument()
     expect(await screen.findByText('Customer-submitted sender activity · BEC assessment')).toBeInTheDocument()
     expect(screen.queryByText('Not measured')).not.toBeInTheDocument()
-    expect(screen.queryByText('Pass rate: Not measured')).not.toBeInTheDocument()
+    expect(screen.getByText('Customer-uploaded BEC pass rate').nextElementSibling).toHaveTextContent('0%')
   })
 
   it('does not infer DMARC receipt from a shared endpoint date when DMARC history is empty', async () => {

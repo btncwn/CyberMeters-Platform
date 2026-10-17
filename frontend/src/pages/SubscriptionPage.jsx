@@ -47,7 +47,7 @@ const PLAN_META = {
     color:       'text-brand-700',
     badge:       'bg-brand-50 text-brand-700 border-brand-200',
     ring:        'border-brand-200',
-    description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, third-party technology detection, Executive Dashboard and audit logs.',
+    description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, vendor relationships and supply chain views, Executive Dashboard and audit logs.',
   },
   business: {
     label:       'Business',
@@ -82,23 +82,16 @@ function statusCfg(s) {
 }
 
 // Feature gate display config
-const GATE_DISPLAY = [
-  { key: 'scheduled_scans', label: 'Scheduled scans'         },
-  { key: 'alerts',          label: 'Email & in-app alerts'   },
-  { key: 'pdf_reports',     label: 'PDF report export'       },
-  { key: 'multi_workspace', label: 'Multiple workspaces'     },
-  { key: 'team_members',    label: 'Team member invitations' },
-  { key: 'business_risk_score', label: 'Business Risk Score' },
-  { key: 'cyber_essentials',    label: 'Cyber Essentials Readiness' },
-  // vendor_risk gates the live third-party technology surface; the retired
-  // vendor-risk marketing claim must not be advertised — the honest label
-  // states only what external observation actually provides.
-  { key: 'vendor_risk',         label: 'Third-party technology detection' },
-  { key: 'executive_dashboard', label: 'Executive Risk Dashboard'   },
-  { key: 'audit_logs',          label: 'Workspace Audit Logs'     },
-  { key: 'portfolio_monitoring',label: 'Portfolio Monitoring'       },
-  { key: 'white_label',         label: 'White-label reports'        },
-]
+const GATE_LABELS = {
+  scheduled_scans: 'Scheduled scans', alerts: 'Email & in-app alerts',
+  pdf_reports: 'PDF report export', multi_workspace: 'Multiple workspaces',
+  team_members: 'Team member invitations', business_risk_score: 'Business Risk Score',
+  cyber_essentials: 'Cyber Essentials Readiness',
+  vendor_risk: 'Vendor relationships and supply chain views',
+  executive_dashboard: 'Executive Risk Dashboard', audit_logs: 'Workspace Audit Logs',
+  portfolio_monitoring: 'Portfolio Monitoring', white_label: 'White-label reports',
+  msp_dashboard: 'MSP Dashboard',
+}
 
 // Upgrade path from each plan
 const UPGRADE_TARGET = {
@@ -303,25 +296,21 @@ function LimitsGrid({ limits }) {
 
 // ── Features checklist ────────────────────────────────────────────────────────
 
-function FeatureChecklist({ features }) {
-  if (!features) return null
-  const featureSet = new Set(features)
+function FeatureChecklist({ features, limits }) {
+  if (!Array.isArray(features) || !limits) return null
+  const listed = [...new Set(features)].filter((key) =>
+    Object.hasOwn(GATE_LABELS, key) && (key !== 'multi_workspace' || Number(limits.workspaces) > 1))
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {GATE_DISPLAY.map(({ key, label }) => {
-        const has = featureSet.has(key)
-        return (
+      {listed.map((key) => (
           <div
             key={key}
-            className={`flex items-center gap-2.5 text-xs font-medium px-3 py-2 rounded-lg ${
-              has ? 'text-gray-700' : 'text-gray-600'
-            }`}
+            className="flex items-center gap-2.5 text-xs font-medium px-3 py-2 rounded-lg text-gray-700"
           >
-            <span className="sr-only">{has ? 'Included: ' : 'Not included: '}</span>
-            {label}
+            <span className="sr-only">Included: </span>
+            {GATE_LABELS[key]}
           </div>
-        )
-      })}
+      ))}
     </div>
   )
 }
@@ -775,7 +764,7 @@ export default function SubscriptionPage() {
       <div>
         <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Included features</h2>
         <div className="bg-white border border-gray-100 rounded-2xl p-4">
-          <FeatureChecklist features={features} />
+          <FeatureChecklist features={features} limits={limits} />
         </div>
       </div>
 

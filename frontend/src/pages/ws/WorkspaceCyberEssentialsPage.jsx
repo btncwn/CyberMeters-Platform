@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import {
   readinessMeta as ceReadinessMeta, coverageMeta as ceCoverageMeta,
@@ -57,7 +58,10 @@ function flattenAnswers(answersByControl = {}) {
 
 function answeredCount(questionSet = [], answersByControl = {}) {
   return questionSet.reduce((sum, control) => (
-    sum + (control.questions || []).filter(question => answersByControl?.[control.control_key]?.[question.key]).length
+    sum + (control.questions || []).filter(question => {
+      const answer = answersByControl?.[control.control_key]?.[question.key]
+      return answer && answer !== 'unknown'
+    }).length
   ), 0)
 }
 
@@ -483,17 +487,19 @@ function ExternallyObservedControls({ data, error }) {
 }
 
 function ResultSummary({ readiness }) {
+  const questionnaireIncomplete = readiness?.questionnaire?.complete === false
   return (
     <section className={`rounded-2xl border p-5 ${overallTone(readiness)}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide opacity-70">External readiness indicator</p>
-            <h2 className="mt-1 text-2xl font-bold">
+            {!questionnaireIncomplete && <h2 className="mt-1 text-2xl font-bold">
               {typeof readiness?.score === 'number' ? readiness.score : '—'}<span className="text-base opacity-70">/100</span>
               {readiness?.grade ? <span className="ml-3">Grade {readiness.grade}</span> : null}
-            </h2>
+            </h2>}
             <p className="mt-2 max-w-3xl text-sm leading-relaxed">{readiness?.summary || 'Complete the questionnaire to improve the readiness view for this workspace.'}</p>
+            {questionnaireIncomplete && <Link to="/ws/cyber-essentials?tab=findings#questionnaire" className="mt-2 inline-block text-sm font-semibold underline">Complete the questionnaire</Link>}
             {/* The denominator, next to the number it qualifies. Backend-owned: a screen that
                 worked out its own coverage would be a second source of truth. */}
             {readiness?.external_coverage_statement ? (
@@ -501,9 +507,9 @@ function ResultSummary({ readiness }) {
             ) : null}
           </div>
         </div>
-        <span className="rounded-full border border-current/20 px-3 py-1 text-sm font-bold capitalize">
+        {!questionnaireIncomplete && <span className="rounded-full border border-current/20 px-3 py-1 text-sm font-bold capitalize">
           {titleCaseStatus(readiness?.status)}
-        </span>
+        </span>}
       </div>
     </section>
   )
@@ -648,7 +654,7 @@ export default function WorkspaceCyberEssentialsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6">
+        <div id="questionnaire" className="grid grid-cols-1 gap-6 scroll-mt-28">
           <section className="space-y-5">
             {questionSet.length > 0 ? (
               questionSet.map(control => (

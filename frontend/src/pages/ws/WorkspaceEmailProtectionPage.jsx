@@ -2771,7 +2771,7 @@ function ZoneHeader({ title, hint }) {
 // compliance rate (technical), the policy state, AND the business impersonation
 // exposure (business) — the last of which point-tools do not translate. Leads
 // with meaning, ends with the single next action.
-function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentation, onGoto }) {
+export function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentation, onGoto }) {
   const [bec, setBec] = useState(null)
   const [liveDns, setLiveDns] = useState(null)
   const [rescan, setRescan] = useState(null) // null | 'starting' | 'started' | 'error'
@@ -2791,8 +2791,8 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
     catch { setRescan('error') }
   }
 
-  const total    = dmarc?.traffic?.total_messages ?? 0
-  const passRate = dmarc?.traffic?.pass_rate
+  const total    = dmarc?.traffic_by_source?.auto_ingested?.total_messages ?? 0
+  const passRate = dmarc?.traffic_by_source?.auto_ingested?.pass_rate
   const hasCompliance = total > 0 && passRate != null
   const scanStage = policyJourney?.stage || null
   // Reconcile against live DNS: the live record is more current than the last
@@ -2853,7 +2853,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
       <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Compliance — the technical number email teams live by */}
         <div>
-          <p className="text-sm font-semibold text-gray-900">DMARC compliance</p>
+          <p className="text-sm font-semibold text-gray-900">Automatically ingested RUA · DMARC compliance</p>
           <p className={`text-3xl font-black mt-1 tabular-nums ${cCol}`}>{hasCompliance ? `${passRate}%` : '—'}</p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             {hasCompliance
@@ -2889,7 +2889,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
             <>
               <p className={`text-xl font-bold mt-1 ${sev.text}`}>{titleCase(bec.exposure_level)}</p>
               <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                Impersonation &amp; invoice-fraud exposure · <span className="font-semibold tabular-nums">{bec.exposure_score}/100</span> · higher = worse.
+                Impersonation &amp; invoice-fraud exposure. The BEC assessment below shows the score and its source.
               </p>
             </>
           ) : (
@@ -2958,7 +2958,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
   const messages       = dmarc?.traffic?.total_messages ?? null
   const aligned        = dmarc?.traffic?.aligned_messages ?? null
   const unaligned      = dmarc?.traffic?.failed_messages ?? null
-  const trafficPeriod  = dmarc?.period_days ? `Last ${dmarc.period_days} days` : 'Selected reporting window'
+  const trafficPeriod  = `${dmarc?.period_days ? `Last ${dmarc.period_days} days` : 'Selected reporting window'} · automatic and customer-uploaded reports`
   const hasData        = (messages || 0) > 0 || (sendersCount || 0) > 0
 
   let state
@@ -3072,9 +3072,9 @@ function becEvidenceChips(ev) {
   const out = []
   const has = (k) => ev[k] !== undefined && ev[k] !== null
   if (has('dmarc_policy'))   out.push({ label: `DMARC: ${ev.dmarc_policy}`, tone: ev.dmarc_policy === 'none' ? 'warn' : 'neutral' })
-  if (has('pass_rate'))      out.push(Number(ev.total_messages) > 0
-    ? { label: `Pass rate ${ev.pass_rate}%`, tone: ev.pass_rate < 90 ? 'warn' : 'neutral' }
-    : { label: 'Pass rate: Not measured', tone: 'neutral' })
+  if (Object.hasOwn(ev, 'pass_rate')) out.push(Number(ev.total_messages) > 0 && typeof ev.pass_rate === 'number'
+    ? { label: `Customer-uploaded pass rate ${ev.pass_rate}%`, tone: ev.pass_rate < 90 ? 'warn' : 'neutral' }
+    : { label: 'Customer-uploaded pass rate: Not measured', tone: 'neutral' })
   if (has('failed_messages'))out.push({ label: `${ev.failed_messages} failed`, tone: ev.failed_messages > 0 ? 'warn' : 'neutral' })
   if (has('unknown_senders'))out.push({ label: `${ev.unknown_senders} unknown sender${ev.unknown_senders === 1 ? '' : 's'}`, tone: ev.unknown_senders > 0 ? 'warn' : 'neutral' })
   if (has('suspicious_senders')) out.push({ label: `${ev.suspicious_senders} suspicious`, tone: ev.suspicious_senders > 0 ? 'warn' : 'neutral' })
@@ -3119,7 +3119,7 @@ export function BecExposure({ wsId, domain }) {
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70">
         <span className="eyebrow">Email risk</span>
         <h2 className="section-title leading-tight">Business Email Compromise exposure</h2>
-        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Estimated from DMARC reports, sender alignment, RUA verification and brand impersonation evidence.</p>
+        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Estimated from customer-uploaded DMARC reports, sender alignment, RUA verification and brand impersonation evidence.</p>
       </div>
 
       <div className="p-6">
@@ -3158,7 +3158,7 @@ export function BecExposure({ wsId, domain }) {
             {/* Evidence chips */}
             {chips.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Customer-uploaded report evidence</p>
                 <p className="text-xs text-gray-500 mb-2">Sender figures here use customer-submitted reports. Automatically received reports appear separately in sender activity and do not establish trust in the sender.</p>
                 <div className="flex flex-wrap gap-1.5">
                   {chips.map((c, i) => (
@@ -3277,7 +3277,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
     { label: 'Latest report period', value: lastReportPeriod ? new Date(Number(lastReportPeriod) * 1000).toLocaleDateString() : reportsReceived === false ? 'Not yet' : 'Not available' },
     { label: 'DNS verification', value: dnsLabel, tone: dnsVerified === false ? 'warn' : dnsVerified ? 'ok' : 'na' },
   ]
-  if (bec) tiles.push({ label: 'BEC assessment pass rate', value: passRate != null ? `${passRate}%` : 'Not measured', tone: passRate == null ? 'na' : passRate < 90 ? 'warn' : 'ok' })
+  if (bec) tiles.push({ label: 'Customer-uploaded BEC pass rate', value: passRate != null ? `${passRate}%` : 'Not measured', tone: passRate == null ? 'na' : passRate < 90 ? 'warn' : 'ok' })
 
   const hasSenders = hasMeasuredMessages && (known != null || unknown != null || suspicious != null)
   const senderSummary = hasSenders ? [
