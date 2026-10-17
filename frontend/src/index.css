@@ -616,20 +616,28 @@
 .cm-dock { position: fixed; z-index: 30; pointer-events: none; }
 .cm-dock > * { pointer-events: auto; }
 .cm-dock-left { left: 22px; bottom: 22px; }
-.cm-wsdock { display: inline-block; }
+/* The two white cards behind the front card belong to the WRAPPER, not the
+   button: a hover transform on the button creates a stacking context, and
+   negative-z-index pseudo-elements on the button itself would then paint over
+   its navy ground (the card read as white on hover). */
+.cm-wsdock { position: relative; display: inline-block; isolation: isolate; width: 92px; height: 92px; }
+.cm-wsdock::before, .cm-wsdock::after {
+  content: ""; position: absolute; inset: 0; border-radius: 27px; z-index: 0; background: #fff; pointer-events: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(11, 87, 208, 0.10);
+}
+.cm-wsdock::before { transform: translate(6px, -6px) rotate(4deg); opacity: 0.9; }
+.cm-wsdock::after { transform: translate(12px, -12px) rotate(8deg); opacity: 0.6; }
 .cm-wsbtn {
-  position: relative; width: 92px; height: 92px; border-radius: 27px; display: grid; place-items: center;
+  position: relative; z-index: 1; width: 92px; height: 92px; border-radius: 27px; display: grid; place-items: center;
   background: linear-gradient(145deg, #0f2a5c 0%, #0b57d0 100%); color: #fff;
   box-shadow: 0 10px 24px rgba(11, 87, 208, 0.28), 0 1px 2px rgba(0, 0, 0, 0.12);
   transition: transform 150ms ease, box-shadow 150ms ease;
 }
-.cm-wsbtn::before, .cm-wsbtn::after {
-  content: ""; position: absolute; inset: 0; border-radius: 27px; z-index: -1; background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(11, 87, 208, 0.10);
-}
-.cm-wsbtn::before { transform: translate(6px, -6px) rotate(4deg); opacity: 0.9; }
-.cm-wsbtn::after { transform: translate(12px, -12px) rotate(8deg); opacity: 0.6; }
-.cm-wsbtn:hover, .cm-wsbtn:focus-visible { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(11, 87, 208, 0.32); outline: none; }
+/* Hover: one tone lighter navy and a lift; the letter stays white (never a
+   white ground). Focus: an aqua ring with a dark hairline so it reads on the
+   white page. */
+.cm-wsbtn:hover, .cm-wsbtn:focus-visible { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(11, 87, 208, 0.32); color: #fff; background: linear-gradient(145deg, #173a78 0%, #1d67db 100%); }
+.cm-wsbtn:focus-visible, .cm-wsmini:focus-visible { outline: 3px solid #a9f2e5; outline-offset: 2px; box-shadow: 0 0 0 2px #081f1c, 0 14px 30px rgba(11, 87, 208, 0.32); }
 .cm-wsbtn-initial { font-family: 'Computer Modern Serif', Georgia, Cambria, serif; font-size: 42px; line-height: 1; }
 .cm-wsbtn-label { position: absolute; left: 0; right: 0; bottom: 9px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; text-align: center; }
 .cm-tip {
@@ -642,31 +650,32 @@
 .cm-wsbtn:hover > .cm-tip, .cm-wsbtn:focus-visible > .cm-tip { opacity: 1; }
 .cm-wsbtn[aria-expanded="true"] > .cm-tip { opacity: 0; }
 
-.cm-earthdock { position: fixed; right: 22px; bottom: 18px; z-index: 30; pointer-events: none; }
-.cm-earthdock > * { pointer-events: auto; }
-.cm-earth { display: block; border-radius: 50%; cursor: pointer; transition: transform 200ms ease; background: transparent; }
-.cm-earthdock:hover .cm-earth { transform: scale(1.04); }
-.cm-earth:focus-visible { outline: 2px solid #117362; outline-offset: 3px; }
-/* Badge scaled with the 108px globe (0.8 × the prototype's 26px). */
+/* The globe button in the top bar: the account initial's 40px diameter; the
+   hit area is widened to 44px with an inset pseudo-element so the visual size
+   stays equal to the initial. */
+.cm-earthbtn { position: relative; display: inline-grid; place-items: center; border-radius: 50%; flex: none; cursor: pointer; background: transparent; transition: transform 200ms ease; }
+.cm-earthbtn::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; }
+.cm-earthbtn:hover { transform: scale(1.06); }
+.cm-earthbtn:focus-visible { outline: 2px solid #117362; outline-offset: 3px; }
+.cm-earth { display: block; border-radius: 50%; background: transparent; pointer-events: none; }
+/* Unread label: small aqua pill at the globe's top-right; hidden when zero. */
 .cm-earth-count {
-  position: absolute; left: 11px; top: 10px; min-width: 21px; height: 21px; padding: 0 6px; border-radius: 999px;
-  background: #a9f2e5; color: #081f1c; font-size: 11px; font-weight: 600; display: grid; place-items: center;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.18); pointer-events: none;
+  position: absolute; right: -6px; top: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: #a9f2e5; color: #081f1c; font-size: 11px; font-weight: 600; line-height: 1; display: grid; place-items: center;
+  box-shadow: 0 0 0 2px #fff; pointer-events: none;
 }
-/* The notification panel grows out of the globe's centre (globe: right 22,
-   bottom 18, 108px → centre 76px from the right edge, 72px from the bottom). */
+/* The notification panel opens beneath the globe, right-aligned to it, and is
+   capped to the viewport below the 68px bar; the list inside scrolls. */
 .cm-notif {
-  position: fixed; right: 30px; bottom: 135px; width: 360px; max-width: calc(100vw - 32px);
-  /* Never under the 68px top bar: the panel is capped to the space between
-     the bar and the dock (68 + 135 + a 16px gap); the list inside scrolls. */
-  max-height: calc(100dvh - 219px);
-  transform-origin: calc(100% - 46px) calc(100% + 63px);
-  animation: cmNotifIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: absolute; right: 0; top: calc(100% + 10px); width: 360px; max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 100px);
+  transform-origin: calc(100% - 20px) -10px;
+  animation: cmNotifIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-@keyframes cmNotifIn { from { opacity: 0; transform: translate(10px, 40px) scale(0.15); } to { opacity: 1; transform: none; } }
+@keyframes cmNotifIn { from { opacity: 0; transform: translateY(-6px) scale(0.92); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .cm-sheet, .cm-notif { animation: none; }
-  .cm-earth, .cm-wsbtn, .cm-brand-caret { transition: none; }
+  .cm-earthbtn, .cm-wsbtn, .cm-brand-caret { transition: none; }
 }
 
 .cm-main { padding-bottom: 24px; }
@@ -675,33 +684,26 @@
   padding: 12px 24px 24px; font-size: 14px; color: #6b7280; border-top: 1px solid rgba(16, 24, 40, 0.06);
   background: rgba(255, 255, 255, 0.6);
 }
-/* Reserved gutters (≥1280px): deck 22 + 92 + gap on the left, globe 22 + 108 +
-   gap on the right. The content column and the footer both clear the docks at
-   every scroll position, so nothing clickable can sit under the globe; the
-   bottom padding is the dock height (108 + 18) plus a 16px gap as well. */
+/* Reserved gutters (≥1280px): deck 22 + 92 + gap on the left, mirrored on the
+   right so the content column stays centred. The content and the footer clear
+   the deck at every scroll position; the bottom padding is the deck height
+   (92 + 22) plus a 16px gap. Nothing is docked bottom-right. */
 @media (min-width: 1280px) {
   .cm-main, .cm-footer { padding-left: 160px; padding-right: 160px; }
-  .cm-main { padding-bottom: 142px; }
+  .cm-main { padding-bottom: 130px; }
 }
 @media (max-width: 1279.98px) {
-  .cm-dock, .cm-earthdock { display: none; }
+  .cm-dock { display: none; }
 }
-/* Top-bar stand-ins below 1280px. */
+/* Top-bar stand-in for the deck below 1280px: the same navy card and white
+   letter, the same hover and focus rules. */
 .cm-wsmini {
   width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none;
   background: linear-gradient(145deg, #0f2a5c 0%, #0b57d0 100%); color: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); transition: transform 150ms ease, box-shadow 150ms ease;
 }
+.cm-wsmini:hover { color: #fff; background: linear-gradient(145deg, #173a78 0%, #1d67db 100%); transform: translateY(-1px); box-shadow: 0 6px 14px rgba(11, 87, 208, 0.3); }
 .cm-wsmini .cm-wsbtn-initial { font-size: 18px; }
-.cm-bellbtn {
-  position: relative; display: inline-flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; border-radius: 999px; color: #0b1220; transition: background-color 150ms ease;
-}
-.cm-bellbtn:hover { background-color: rgba(16, 24, 40, 0.06); }
-.cm-bell-count {
-  position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
-  background: #a9f2e5; color: #081f1c; font-size: 11px; font-weight: 600; display: grid; place-items: center;
-}
 .cm-hero-input {
   display: flex; align-items: center; gap: 8px; width: 100%; max-width: 560px; margin: 0 auto;
   padding: 6px 6px 6px 18px; border-radius: 999px; background: #fff;
@@ -730,7 +732,8 @@
   .cm-brand-word { font-size: 24px; }
   .cm-sheet { left: 16px; top: 112px; }
   .cm-sheet-grid { grid-template-columns: 1fr; }
-  .cm-notif { right: 16px; bottom: 136px; }
+  /* On a phone the panel takes the width under the bar. */
+  .cm-notif { position: fixed; left: 16px; right: 16px; top: 76px; width: auto; max-height: calc(100dvh - 92px); transform-origin: calc(100% - 40px) -10px; }
   .cm-tab { padding: 10px 9px; font-size: 14px; }
 }
 

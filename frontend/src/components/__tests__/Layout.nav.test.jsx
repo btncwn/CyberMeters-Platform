@@ -12,13 +12,12 @@ import { useAuth } from '../../context/AuthContext'
 // workspaces or domains it has.
 
 vi.mock('../../api', () => ({
-  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn(), getCyberMotDomains: vi.fn() },
+  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn(), getCyberMotDomains: vi.fn(), getWorkspaceDomains: vi.fn() },
   logoutWithToken: vi.fn(),
 }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }))
-vi.mock('../shell/EarthDock', () => ({
-  default: ({ phone }) => <div data-testid="earth-dock" data-phone={String(Boolean(phone))} />,
-  EARTH_PHONE_QUERY: '(max-width: 639.98px)',
+vi.mock('../shell/EarthButton', () => ({
+  default: () => <button type="button" aria-label="Notifications" data-testid="shell-earth" />,
 }))
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
@@ -33,11 +32,12 @@ function mockViewport(wide) {
   window.matchMedia = vi.fn().mockReturnValue({ matches: wide, addEventListener: vi.fn(), removeEventListener: vi.fn() })
 }
 
-function renderLayout(usage, { user = { name: 'Taylor Owner', email: 'owner@example.co.uk', plan: 'professional' }, path = '/dashboard', workspace = null, wide = true } = {}) {
+function renderLayout(usage, { user = { name: 'Taylor Owner', email: 'owner@example.co.uk', plan: 'professional' }, path = '/dashboard', workspace = null, wide = true, domainsFor = null } = {}) {
   mockViewport(wide)
   useAuth.mockReturnValue({ user, logout: vi.fn(), isAuthenticated: true, isLoading: false })
   api.getWorkspaces.mockResolvedValue({ workspaces: [] })
   api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: [] })
+  api.getWorkspaceDomains.mockImplementation(async (id) => (domainsFor ? domainsFor(id) : { domains: [] }))
   if (usage instanceof Promise) api.getAccountUsage.mockReturnValue(usage)
   else if (usage instanceof Error) api.getAccountUsage.mockRejectedValue(usage)
   else api.getAccountUsage.mockResolvedValue(usage)
@@ -155,7 +155,12 @@ describe('Layout top bar — shape', () => {
     const brand = within(h).getByRole('button', { name: 'CyberMeters — open areas' })
     expect(brand).toHaveTextContent('CyberMeters')
     expect(brand).toHaveAttribute('aria-haspopup', 'menu')
-    expect(within(h).queryByRole('button', { name: /Notifications/ })).not.toBeInTheDocument()
+    // The globe is the one notifications control in the bar; no bell beside it.
+    expect(within(h).getAllByRole('button', { name: /^Notifications/ })).toHaveLength(1)
+    // The globe sits immediately before the account initial.
+    const slot = within(h).getByTestId('earth-slot')
+    expect(slot.compareDocumentPosition(within(h).getByRole('button', { name: 'Account menu' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(slot).toHaveClass('mr-3')
     expect(within(h).queryByRole('link', { name: 'CyberMeters home' })).not.toBeInTheDocument()
   })
 
@@ -236,10 +241,11 @@ describe('Layout top bar — shape', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu', { name: 'Areas' })).not.toBeInTheDocument()
 
-    // Workspace card deck bottom-left, the globe (notifications) bottom-right.
+    // Workspace card deck bottom-left; the globe lives in the top bar, nothing bottom-right.
     const dock = screen.getByTestId('workspace-dock')
     expect(within(dock).getByRole('button', { name: 'Workspace: Customer A' })).toHaveClass('cm-wsbtn')
-    expect(screen.getByTestId('earth-dock')).toBeInTheDocument()
+    expect(screen.queryByTestId('earth-dock')).not.toBeInTheDocument()
+    expect(within(header()).getByTestId('shell-earth')).toBeInTheDocument()
     expect(screen.getByText('Skip to content')).toHaveAttribute('href', '#main')
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main')
     for (const a of within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link')) {
@@ -247,14 +253,15 @@ describe('Layout top bar — shape', () => {
     }
   })
 
-  it('below 1280px no dock is rendered: a compact bell and a 36px workspace card sit in the top bar instead', async () => {
+  it('below 1280px no dock is rendered: the 36px workspace card and the same globe sit in the top bar; no bell', async () => {
     renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' }, wide: false })
     expect(screen.queryByTestId('earth-dock')).not.toBeInTheDocument()
     expect(screen.queryByTestId('workspace-dock')).not.toBeInTheDocument()
     const h = header()
     const mini = within(h).getByRole('button', { name: 'Workspace: Customer A' })
     expect(mini).toHaveClass('cm-wsmini')
-    expect(within(h).getByTestId('compact-bell')).toHaveAccessibleName('Notifications')
+    expect(screen.queryByTestId('compact-bell')).not.toBeInTheDocument()
+    expect(within(h).getAllByRole('button', { name: /^Notifications/ })).toHaveLength(1)
     fireEvent.click(mini)
     expect(await screen.findByRole('menu', { name: 'Workspace' })).toBeInTheDocument()
   })
@@ -267,5 +274,21 @@ describe('Layout top bar — shape', () => {
     expect(await within(menu).findByRole('menuitem', { name: /Customer B/ })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Manage workspaces' })).toHaveAttribute('href', '/workspaces')
     expect(within(menu).getByRole('menuitem', { name: 'Members & roles' })).toHaveAttribute('href', '/ws/members')
+  })
+
+  it('the workspace card letter is the selected domain\'s initial and follows a workspace switch', async () => {
+    const domainsFor = (id) => ({
+      domains: id === 'ws_a'
+        ? [{ domain: 'pending.example', verification_status: 'pending' }, { domain: 'cybermeters.com', verification_status: 'verified' }]
+        : [{ domain: 'blackbullbarbers.co.uk', verification_status: 'verified' }],
+    })
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Zed Workspace' }, domainsFor })
+    const dock = screen.getByTestId('workspace-dock')
+    await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('C'))
+    expect(within(dock).getByRole('button', { name: 'Workspace: Zed Workspace' })).toHaveAttribute('title', 'Workspace · cybermeters.com')
+    localStorage.setItem('cybermeters_workspace_id', 'ws_b')
+    localStorage.setItem('cybermeters_workspace_name', 'Black Bull Barbers')
+    window.dispatchEvent(new Event('storage'))
+    await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('B'))
   })
 })

@@ -87,13 +87,21 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
   const markRequestsInFlightRef = useRef(0)
   const markRecoveryNeededRef = useRef(false)
 
-  // Close on outside click
+  // Close on outside click; Escape closes and returns focus to the control.
   useEffect(() => {
     function handler(e) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false)
     }
+    function onKeyDown(e) {
+      if (e.key !== 'Escape') return
+      setOpen((wasOpen) => {
+        if (wasOpen) ref.current?.querySelector(`[aria-controls="${NOTIFICATION_PANEL_ID}"]`)?.focus()
+        return false
+      })
+    }
     document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('keydown', onKeyDown) }
   }, [])
 
   const load = useCallback(async (silent = false, query = BELL_QUERY) => {

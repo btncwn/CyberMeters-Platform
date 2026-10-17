@@ -34,6 +34,24 @@ describe('workspace card deck', () => {
     expect(workspaceInitial('')).toBe('?')
   })
 
+  it('the letter is the selected domain\'s initial, upper-cased, and the tooltip names the domain; the workspace name is the fallback', () => {
+    const { rerender } = renderMenu()
+    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('D')
+    rerender(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes><Route path="*" element={<WorkspaceMenu wsId="ws1" wsName="Deneme" domainName="blackbullbarbers.co.uk" />} /></Routes>
+      </MemoryRouter>,
+    )
+    const b = screen.getByTestId('workspace-dock-button')
+    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('B')
+    expect(b).toHaveAttribute('title', 'Workspace · blackbullbarbers.co.uk')
+    expect(within(b).getByText('Workspace · blackbullbarbers.co.uk')).toHaveClass('cm-tip')
+    // The accessible name still says which workspace this is.
+    expect(b).toHaveAccessibleName('Workspace: Deneme')
+    fireEvent.mouseOver(b)
+    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('B')
+  })
+
   it('the mini card for the top bar keeps the initial, drops the label and opens the same popover downwards', async () => {
     renderMenu({ size: 'mini' })
     const b = screen.getByTestId('workspace-mini-button')

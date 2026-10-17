@@ -13,7 +13,7 @@ import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import CyberMotDomains from '../components/CyberMotDomains'
 import LiveTlsEvidence, { TlsAssessmentEvidence } from '../components/LiveTlsEvidence'
 import WebsiteResponseEvidence from '../components/WebsiteResponseEvidence'
-import { assessmentBandLabel, bandMeta } from '../lib/score-presentation'
+import { bandMeta } from '../lib/score-presentation'
 import {
   isReportPreparing,
   isReportReady,
@@ -94,12 +94,43 @@ function SectionHeader({ title, aside }) {
   )
 }
 
+// Scan Information rows: a two-column grid — label | value — where the value
+// column has min-width 0 and wraps anywhere, so a long domain or date is never
+// clipped at the right edge (founder, 17 Oct 2026).
 function KV({ label, value }) {
   return (
-    <div className="flex items-start justify-between gap-4 px-6 py-3 border-b border-gray-50 last:border-0">
-      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide min-w-[130px] pt-0.5">{label}</span>
-      <span className="text-sm text-gray-900 text-right flex-1 font-medium">{value ?? '—'}</span>
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-start gap-x-3 px-6 py-3 border-b border-gray-50 last:border-0" data-testid="scan-info-row">
+      <span className="text-xs font-medium text-gray-500 pt-0.5">{label}</span>
+      <span className="text-sm text-gray-900 font-medium min-w-0 text-right [overflow-wrap:anywhere]" data-testid="scan-info-value">{value ?? '—'}</span>
     </div>
+  )
+}
+
+// The raw scan id is an internal identifier: shown shortened on one line,
+// copied in full; the full id is the tooltip.
+export function shortScanId(id) {
+  const s = String(id || '')
+  return s.length <= 14 ? s : `${s.slice(0, 9)}…${s.slice(-4)}`
+}
+
+function ScanIdValue({ id }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <span className="inline-flex items-center justify-end gap-2 min-w-0 max-w-full">
+      <span className="mono text-xs text-gray-700 whitespace-nowrap" title={id} data-testid="scan-id-short">{shortScanId(id)}</span>
+      <button
+        type="button"
+        onClick={async () => {
+          try { await navigator.clipboard.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1800) }
+          catch { /* clipboard unavailable — the full id is in the title to copy by hand */ }
+        }}
+        className="text-xs font-semibold text-brand-700 hover:text-brand-800 shrink-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-700"
+        aria-label={`Copy scan ID ${id}`}
+        title={id}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </span>
   )
 }
 
@@ -1752,7 +1783,7 @@ export default function ScanDetail() {
               <div className="card overflow-hidden">
                 <SectionHeader title="Scan Information" />
                 <div>
-                  <KV label="Scan ID"   value={<span className="mono text-xs text-brand-700">{scan.id}</span>} />
+                  <KV label="Scan ID"   value={<ScanIdValue id={scan.id} />} />
                   <KV label="Domain"    value={scan.domain} />
                   {/* The run finishing and its checks all completing are two facts. */}
                   <KV label="Status"    value={<StatusBadge status={scan.status} />} />
@@ -1762,11 +1793,9 @@ export default function ScanDetail() {
                       ? <span className={`font-bold ${assessment?.provisional === true ? 'text-gray-700' : 'text-brand-700'}`}>{assessmentScore} / 100</span>
                       : '—'
                   } />
-                  <KV label={assessmentBandLabel({
-                    assessment: report?.assessment,
-                    scanQuality: scan.scan_quality,
-                  })} value={
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentBand.pill}`}>
+                  {/* Short label (founder, 17 Oct 2026); a withheld band says so in the value. */}
+                  <KV label="Assessment band" value={
+                    <span className={`inline-flex whitespace-nowrap text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentBand.pill}`} data-testid="scan-band-chip">
                       {/* A provisional assessment withholds its band; say so instead of "Not assessed". */}
                       {assessmentRating == null && assessmentScore !== null ? 'Withheld until a complete scan' : assessmentBand.label}
                     </span>
