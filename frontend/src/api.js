@@ -684,6 +684,9 @@ export const api = {
     return request(`/workspaces/${id}/shadow-it/inventory${q ? `?${q}` : ''}`)
   },
 
+  getShadowItItem: (id, itemId) =>
+    request(`/workspaces/${encodeURIComponent(id)}/shadow-it/inventory/${encodeURIComponent(itemId)}`),
+
   /** POST /api/workspaces/:id/shadow-it/inventory/:itemId/action — classify/assign/lifecycle */
   shadowItAction: (id, itemId, payload) =>
     request(`/workspaces/${id}/shadow-it/inventory/${encodeURIComponent(itemId)}/action`, {

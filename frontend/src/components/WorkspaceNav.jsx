@@ -59,10 +59,13 @@ export const SERVICES = [
   },
   {
     key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', to: '/ws/shadow-it',
-    match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party'),
+    match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party')
+      || p.startsWith('/ws/vendors') || p.startsWith('/ws/supply-chain'),
     items: [
       { to: '/ws/saas-exposure',   label: 'SaaS Exposure', desc: 'Portals and tenants observed for your domain' },
       { to: '/ws/third-party',     label: 'Third-Party',   desc: 'Suppliers and services seen in your pages' },
+      { to: '/ws/vendors',         label: 'Vendors',       desc: 'Observed provider relationships' },
+      { to: '/ws/supply-chain',    label: 'Supply chain',  desc: 'Supplier evidence and follow-up' },
     ],
   },
   {

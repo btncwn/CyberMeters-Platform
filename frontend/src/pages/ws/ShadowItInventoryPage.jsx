@@ -3,7 +3,7 @@
 // inventory and posts classification/ownership/lifecycle actions the BACKEND
 // validates. The set of allowed actions comes from the server response — the
 // frontend never invents classification states or actions.
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -17,6 +17,54 @@ import {
 
 function Pill({ meta }) {
   return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${toneClass(meta.tone)}`}>{meta.label}</span>
+}
+
+const SOURCE_LABELS = {
+  vendor: 'Vendor signal', cloud_asset: 'Cloud asset', identity_provider: 'Identity provider',
+  email_sender: 'DMARC report', saas_portal: 'SaaS portal',
+}
+
+function SourceEvidence({ item }) {
+  const sources = String(item.source_type || '').split(',').map(value => value.trim()).filter(Boolean)
+  const identifiers = Array.isArray(item.observed_identifiers) ? item.observed_identifiers : []
+  return <div className="mt-1 space-y-1 text-xs text-slate-600">
+    {sources.length > 0 && <div className="flex flex-wrap gap-1" aria-label="Observation sources">
+      {sources.map(source => <span key={source} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+        Observed via {SOURCE_LABELS[source] || source.replaceAll('_', ' ')}
+      </span>)}
+    </div>}
+    {identifiers.length > 0 && <div className="break-all">Observed identifiers: {identifiers.join(', ')}</div>}
+    {item.evidence_age_days != null && <div>Evidence age: {item.evidence_age_days} days</div>}
+  </div>
+}
+
+function ShadowItHistory({ workspaceId, itemId }) {
+  const [detail, setDetail] = useState(null)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    let active = true
+    setDetail(null)
+    setError(false)
+    api.getShadowItItem(workspaceId, itemId).then(
+      value => { if (active) setDetail(value) },
+      () => { if (active) setError(true) },
+    )
+    return () => { active = false }
+  }, [workspaceId, itemId])
+  if (error) return <p role="alert" className="text-sm text-red-700">Could not load this item's history.</p>
+  if (!detail) return <p className="text-sm text-slate-500">Loading history…</p>
+  const events = Array.isArray(detail.events) ? detail.events : []
+  return <div className="space-y-3">
+    <h3 className="text-sm font-semibold text-slate-800">Event history</h3>
+    {events.length === 0 ? <p className="text-sm text-slate-500">No recorded events.</p> : <ol className="space-y-2 text-sm text-slate-600">
+      {events.map(event => <li key={event.id}>
+        <span className="font-medium text-slate-800">{event.event_type?.replaceAll('_', ' ') || 'Recorded event'}</span>
+        {event.actor_type && ` · ${event.actor_type}`}
+        {event.created_at && ` · ${event.created_at}`}
+      </li>)}
+    </ol>}
+    {detail.linked_case && <p className="text-sm">Linked case: <Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>{detail.linked_case.id}</Link>{detail.linked_case.status && ` · ${detail.linked_case.status}`}</p>}
+  </div>
 }
 
 // The customer-facing action surface. Grouping mirrors the BACKEND's own field
@@ -94,6 +142,8 @@ export default function ShadowItInventoryPage() {
   const [actionError, setActionError] = useState(null)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+  const requestGeneration = useRef(0)
   // Deep-link target from an alert CTA (/ws/shadow-it?item=<id>). The id is the
   // server's own opaque surrogate; the list below is already workspace-scoped, so
   // a foreign id simply matches nothing.
@@ -105,15 +155,19 @@ export default function ShadowItInventoryPage() {
   }, [data, focusItemId])
 
   const load = useCallback(() => {
-    if (!workspaceId) return   // never call the API with a null/unresolved workspace id
+    const generation = ++requestGeneration.current
+    setData(null)
+    setError(null)
+    setExpandedId(null)
+    if (!workspaceId) { setLoading(false); return }   // never call the API with a null/unresolved workspace id
     setLoading(true)
     api.getShadowItInventory(workspaceId, filter ? { classification: filter } : {})
-      .then((res) => { setData(res); setError(null) })
-      .catch(() => setError('Could not load the technology inventory.'))
-      .finally(() => setLoading(false))
+      .then((res) => { if (generation === requestGeneration.current) { setData(res); setError(null) } })
+      .catch(() => { if (generation === requestGeneration.current) setError('Could not load the technology inventory.') })
+      .finally(() => { if (generation === requestGeneration.current) setLoading(false) })
   }, [workspaceId, filter])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { requestGeneration.current += 1 } }, [load])
 
   // Allowed actions are server-provided; the UI only surfaces those.
   const serverActions = data?.actions || []
@@ -236,8 +290,8 @@ export default function ShadowItInventoryPage() {
             </thead>
             <tbody>
               {items.map((it) => (
+                <Fragment key={it.inventory_item_id}>
                 <tr
-                  key={it.inventory_item_id}
                   ref={it.inventory_item_id === focusItemId ? focusRef : null}
                   className={`border-b border-slate-50 align-top ${it.inventory_item_id === focusItemId ? 'bg-amber-50/60 ring-1 ring-inset ring-amber-200' : ''}`}
                 >
@@ -258,6 +312,7 @@ export default function ShadowItInventoryPage() {
                       )}
                     </div>
                     <div className="text-xs text-slate-400">{it.provider}{it.confidence ? ` · ${it.confidence} confidence` : ''}</div>
+                    <SourceEvidence item={it} />
                     {it.linked_case_id && (
                       <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
                         Open case →
@@ -299,6 +354,11 @@ export default function ShadowItInventoryPage() {
                   <td className="py-2 px-3"><Pill meta={monitoringMeta(it.monitoring_status)} /></td>
                   <td className="py-2 px-3 text-slate-400 text-xs">{it.last_seen_at ? it.last_seen_at.slice(0, 10) : '—'}</td>
                   <td className="py-2 px-3" aria-busy={busy === it.inventory_item_id}>
+                    <button type="button" className="mb-2 text-xs rounded-sm border border-slate-200 text-slate-700 px-2 py-0.5"
+                      aria-expanded={expandedId === it.inventory_item_id}
+                      aria-controls={`shadow-it-history-${it.inventory_item_id}`}
+                      onClick={() => setExpandedId(expandedId === it.inventory_item_id ? null : it.inventory_item_id)}
+                    >History</button>
                     {/* One control per server-advertised action, grouped for
                         hierarchy. A group disappears entirely when the server
                         advertises none of its actions, so a viewer (actions: [])
@@ -329,6 +389,10 @@ export default function ShadowItInventoryPage() {
                     </div>
                   </td>
                 </tr>
+                {expandedId === it.inventory_item_id && <tr id={`shadow-it-history-${it.inventory_item_id}`}>
+                  <td colSpan={7} className="bg-slate-50 p-4"><ShadowItHistory workspaceId={workspaceId} itemId={it.inventory_item_id} /></td>
+                </tr>}
+                </Fragment>
               ))}
             </tbody>
           </table>
