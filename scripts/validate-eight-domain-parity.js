@@ -193,10 +193,11 @@ const cleanComplete = () => ({
   ok("B3: Dashboard.jsx renders <PostureCard", jsx.includes("<PostureCard"));
   ok("B3: Dashboard.jsx does NOT gate the panel behind report?.cyber_mot_domains &&",
     !jsx.includes("report?.cyber_mot_domains &&"));
-  const ws = await fs.readFile(path.join(root, "frontend", "src", "pages", "ws", "WorkspaceDashboard.jsx"), "utf8");
-  ok("B3: WorkspaceDashboard.jsx renders <CyberMotDomains", ws.includes("<CyberMotDomains"));
-  ok("B3: WorkspaceDashboard.jsx does NOT gate the panel behind report?.cyber_mot_domains &&",
-    !ws.includes("report?.cyber_mot_domains &&"));
+  // One home per thing (17 Oct 2026): the separate workspace overview is dissolved;
+  // /ws/dashboard redirects and Overview's PostureCard is the one eight-area surface.
+  const app = await fs.readFile(path.join(root, "frontend", "src", "App.jsx"), "utf8");
+  ok("B3: the workspace overview is dissolved — /ws/dashboard redirects to /ws/members", /path="ws\/dashboard"\s+element=\{<Navigate to="\/ws\/members" replace \/>\}/.test(app));
+  ok("B3: no second workspace overview page exists", !app.includes("WorkspaceDashboard"));
 }
 
 // B4. A newer provisional TLS assessment must supply the grid's evidence even

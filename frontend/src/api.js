@@ -922,7 +922,7 @@ export const api = {
 
   /** GET /api/workspaces/:id/vendor-relationships */
   // DELIBERATELY RETAINED despite currently having no frontend call site:
-  // Vendor Risk / Supply Chain is protected evidence-pipeline substrate
+  // Third-party / dependency intelligence is protected evidence-pipeline substrate
   // (founder decision) — do not remove as "dead code".
   getVendorRelationships: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()

@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const supplyChainFile = path.join(root, "workers", "scan-api", "src", "engines", "supply-chain.js");
-const supplyChainPage = path.join(root, "frontend", "src", "pages", "ws", "WorkspaceSupplyChainPage.jsx");
+// The dependency analysis lives on the merged Third parties page (17 Oct 2026).
+const supplyChainPage = path.join(root, "frontend", "src", "pages", "ws", "ThirdPartiesPage.jsx");
 const portfolioPage = path.join(root, "frontend", "src", "pages", "PortfolioRiskPage.jsx");
 const backendValidator = path.join(root, "scripts", "validate-brs-downstream-completeness.js");
 const EXPECTED_MUTANTS = 6;
@@ -73,19 +74,19 @@ const mutants = [
       let source = files.get(supplyChainPage);
       source = replaceExactlyOnce(
         source,
-        "{supplyChainScoreAssessed ? (",
+        "{dependencyScoreAssessed ? (",
         "{true ? (",
         this.name,
       );
       source = replaceExactlyOnce(
         source,
-        '<ScoreRing score={data.supply_chain_score} label="Supply Chain" size={72} />',
-        '<ScoreRing score={data.supply_chain_score ?? 0} label="Supply Chain" size={72} />',
+        '<ScoreRing score={data.supply_chain_score} label="Dependency" size={72} />',
+        '<ScoreRing score={data.supply_chain_score ?? 0} label="Dependency" size={72} />',
         this.name,
       );
       files.set(supplyChainPage, source);
     },
-    ...frontendCommand("src/pages/ws/__tests__/WorkspaceSupplyChainPage.honesty.test.jsx"),
+    ...frontendCommand("src/pages/ws/__tests__/ThirdPartiesPage.honesty.test.jsx"),
     expected: "does not convert an unavailable BRS-derived composite into 0, initial or low",
   },
   {
@@ -137,7 +138,7 @@ const mutants = [
         this.name,
       ));
     },
-    ...frontendCommand("src/pages/ws/__tests__/WorkspaceSupplyChainPage.honesty.test.jsx"),
+    ...frontendCommand("src/pages/ws/__tests__/ThirdPartiesPage.honesty.test.jsx"),
     expected: "renders an assessed BRS of zero as a real input without degrading the composites",
   },
 ];

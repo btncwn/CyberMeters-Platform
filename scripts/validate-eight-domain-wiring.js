@@ -46,7 +46,9 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
     /MODULES\.map\(/.test(posture) && /domainStatus\(/.test(posture) && /domainsRequestState\(/.test(posture)
       && !/from ['"].*cyber-mot-domains/.test(posture) && !/resolveCyberMotDomainStates\(/.test(posture));
   ok("Main Dashboard renders the PostureCard", /<PostureCard[\s>]/.test(read("frontend/src/pages/Dashboard.jsx")));
-  ok("Workspace overview renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/ws/WorkspaceDashboard.jsx")));
+  // One home per thing (17 Oct 2026): the separate workspace overview is dissolved —
+  // /ws/dashboard redirects and Overview (the PostureCard above) is the one eight-area surface.
+  ok("Workspace overview dissolved: /ws/dashboard redirects to /ws/members", /path="ws\/dashboard"\s+element=\{<Navigate to="\/ws\/members" replace \/>\}/.test(read("frontend/src/App.jsx")));
   ok("Scan Detail renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/ScanDetail.jsx")));
   ok("Executive Report UI renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/components/ExecutiveReportV2.jsx")));
   // Dashboard no longer defaults absent evidence to green.

@@ -4,8 +4,9 @@ import WorkspaceMenu, { workspaceInitial } from '../shell/WorkspaceMenu'
 import { api } from '../../api'
 
 // The workspace card deck (bottom-left): the serif initial and a WORKSPACE
-// label on the front card, and the existing popover — Switch, Manage
-// workspaces, Members & roles — nothing else.
+// label on the front card, and the popover — Switch, Manage workspaces, then
+// the workspace's own places: Domains, Members & roles, Alert channels, Usage &
+// retention, Audit log (account things live in the account menu).
 
 vi.mock('../../api', () => ({ api: { getWorkspaces: vi.fn() } }))
 
@@ -65,7 +66,7 @@ describe('workspace card deck', () => {
     expect(await within(menu).findByRole('menuitem', { name: 'Manage workspaces' })).toBeInTheDocument()
   })
 
-  it('names the active workspace, lists workspaces on open, and offers Manage workspaces and Members & roles only', async () => {
+  it('names the active workspace, lists workspaces on open, and offers Manage workspaces plus the workspace places', async () => {
     renderMenu()
     const b = screen.getByRole('button', { name: 'Workspace: Deneme' })
     expect(b).toHaveAttribute('aria-expanded', 'false')
@@ -77,8 +78,12 @@ describe('workspace card deck', () => {
     expect(within(menu).getByRole('menuitem', { name: /Deneme/ })).toHaveAttribute('aria-current', 'true')
     expect(within(menu).getByRole('menuitem', { name: 'Manage workspaces' })).toHaveAttribute('href', '/workspaces')
     expect(within(menu).getByRole('menuitem', { name: 'Members & roles' })).toHaveAttribute('href', '/ws/members')
-    expect(within(menu).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['Deneme', 'Other', 'Manage workspaces', 'Members & roles'])
-    for (const gone of ['Clear selection', 'Administration', 'Scorecard', 'Executive dashboard', 'Operations', 'Related changes', 'Audit log', 'Alert channels', 'Usage & retention', 'Settings']) {
+    expect(within(menu).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['Deneme', 'Other', 'Manage workspaces', 'Domains', 'Members & roles', 'Alert channels', 'Usage & retention', 'Audit log'])
+    expect(within(menu).getByRole('menuitem', { name: 'Domains' })).toHaveAttribute('href', '/ws/domains')
+    expect(within(menu).getByRole('menuitem', { name: 'Alert channels' })).toHaveAttribute('href', '/ws/alerts')
+    expect(within(menu).getByRole('menuitem', { name: 'Usage & retention' })).toHaveAttribute('href', '/ws/retention')
+    expect(within(menu).getByRole('menuitem', { name: 'Audit log' })).toHaveAttribute('href', '/ws/audit-log')
+    for (const gone of ['Clear selection', 'Administration', 'Scorecard', 'Executive dashboard', 'Operations', 'Related changes', 'Settings', 'Field Guide', 'Billing', 'Account']) {
       expect(within(menu).queryByRole('menuitem', { name: gone })).not.toBeInTheDocument()
     }
     expect(api.getWorkspaces).toHaveBeenCalledTimes(1)

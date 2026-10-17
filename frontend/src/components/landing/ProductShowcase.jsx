@@ -25,7 +25,7 @@ export default function ProductShowcase({ rows }) {
     <>
       <ProductFrame
         label="Sample report layout"
-        path="/ws/dashboard"
+        path="/dashboard"
         className="mt-14"
         caption="Sample layout to show how results read, not a live result. Each area says what was observed, what could not be assessed and what needs your input."
       >

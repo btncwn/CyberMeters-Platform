@@ -34,7 +34,7 @@ const DOMAINS_PARAMS = { limit: MATRIX_LIMIT, offset: 0, sort: 'priority' }
 function selectWorkspace(navigate, workspaceId, workspaceName) {
   localStorage.setItem('cybermeters_workspace_id', workspaceId)
   localStorage.setItem('cybermeters_workspace_name', workspaceName)
-  navigate('/ws/dashboard')
+  navigate('/dashboard')
 }
 
 // RatingBadge renders the CANONICAL Cyber Metrics Score band vocabulary via the

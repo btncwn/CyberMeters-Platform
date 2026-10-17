@@ -1,8 +1,8 @@
 // WorkspaceMenu — the workspace card deck in the bottom-left of the shell and
-// its popover: the active workspace, the switch list, Manage workspaces and
-// Members & roles (founder, 16 Oct 2026: nothing else lives here — the
-// workspace settings are in the account menu, Related changes under Cases,
-// Scorecard and the executive dashboard under Reports). Writes the same
+// its popover: the active workspace, the switch list, then the workspace's own
+// places (founder, 17 Oct 2026 — account things in the account menu, workspace
+// things here): Manage workspaces, Domains, Members & roles, Alert channels,
+// Usage & retention, Audit log. Writes the same
 // localStorage keys the rest of the app reads and fires a `storage` event so
 // the shell follows at once. Closes on Escape and on an outside click; focus
 // returns to the button.
@@ -12,6 +12,16 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 
 export const WORKSPACE_MENU_ID = 'cm-workspace-menu'
+
+// The selected workspace's own places. Domains (adding, importing and
+// verifying them) moved here from the dissolved /ws/dashboard page.
+export const WORKSPACE_PLACES = Object.freeze([
+  { to: '/ws/domains',   label: 'Domains' },
+  { to: '/ws/members',   label: 'Members & roles' },
+  { to: '/ws/alerts',    label: 'Alert channels' },
+  { to: '/ws/retention', label: 'Usage & retention' },
+  { to: '/ws/audit-log', label: 'Audit log' },
+])
 
 export function workspaceInitial(name) {
   const source = String(name || '').trim()
@@ -66,7 +76,7 @@ export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 
     localStorage.setItem('cybermeters_workspace_name', ws.name)
     window.dispatchEvent(new Event('storage'))
     close({ refocus: true })
-    navigate('/ws/dashboard')
+    navigate('/dashboard')
   }
 
   const itemClass = 'flex items-center gap-2 px-4 py-2 text-[15px] text-gray-800 hover:bg-gray-50 transition-colors'
@@ -121,7 +131,9 @@ export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 
           </div>
           <div className="border-t border-gray-100 py-1">
             <Link role="menuitem" to="/workspaces" onClick={() => close({ refocus: true })} className={`${itemClass} font-semibold text-brand-700`}>Manage workspaces</Link>
-            <Link role="menuitem" to="/ws/members" onClick={() => close({ refocus: true })} className={itemClass}>Members &amp; roles</Link>
+            {WORKSPACE_PLACES.map(({ to, label }) => (
+              <Link key={to} role="menuitem" to={to} onClick={() => close({ refocus: true })} className={itemClass}>{label}</Link>
+            ))}
           </div>
         </div>
       )}

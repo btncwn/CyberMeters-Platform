@@ -19,6 +19,7 @@
  * through ARTICLE_AREAS below.
  */
 import { ARTICLES } from './academy'
+import { sortByAreaOrder } from '../../../shared/areas.js'
 
 // Shared vocabulary: the coverage states every area can show, as the product
 // labels them, with what each means for the reader. Areas add their own rows.
@@ -36,7 +37,7 @@ const COMMON_STATES = [
 // Wording shared by every area's "How a fix is verified" section.
 const VERIFIED_MEANS = 'When CyberMeters re-observes the change itself, the case reads Verified. That word is reserved for CyberMeters’ own observation. A change CyberMeters cannot observe from outside is recorded as attested by you and is never shown as verified or green.'
 
-export const GUIDE_AREAS = [
+const GUIDE_AREA_DEFINITIONS = [
   {
     key: 'email-protection',
     colourKey: 'email',
@@ -543,6 +544,9 @@ export const GUIDE_AREAS = [
     },
   },
 ]
+
+// Founder order from shared/areas.js — the same constant the area sheet and the Overview list use.
+export const GUIDE_AREAS = Object.freeze(sortByAreaOrder(GUIDE_AREA_DEFINITIONS))
 
 // Article slug → area key, so each article appears as deeper reading under the
 // one area it belongs to. Articles not listed here are reachable by search

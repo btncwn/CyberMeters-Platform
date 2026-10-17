@@ -477,7 +477,19 @@ function LegalLinksSection() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function AccountPrivacyPage() {
+export default function AccountPrivacyPage({ embedded = false }) {
+  // Embedded in the Account page's Privacy & data tab (17 Oct 2026): no page header of its own.
+  if (embedded) {
+    return (
+      <div className="space-y-6">
+        <ExportSection />
+        <AccountDeletionSection />
+        <WorkspaceDeletionSection />
+        <DataRetentionSection />
+        <LegalLinksSection />
+      </div>
+    )
+  }
   return (
     <div className="max-w-(--breakpoint-lg) mx-auto px-6 py-8">
 

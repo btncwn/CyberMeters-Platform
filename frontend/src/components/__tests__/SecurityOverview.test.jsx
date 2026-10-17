@@ -103,7 +103,7 @@ describe('SecurityOverview — one overview for every persona', () => {
   })
 
   it('the recommended next action is the same ladder for both surfaces', () => {
-    expect(recommendedNextAction({ domainCount: 0 }).to).toBe('/ws/dashboard')
+    expect(recommendedNextAction({ domainCount: 0 }).to).toBe('/ws/domains')
     expect(recommendedNextAction({ domainCount: 1, hasCompletedScan: false }).to).toBe('/scans/new')
     expect(recommendedNextAction({ domainCount: 1, hasCompletedScan: true, scorecard: { certificate_risks: { risk_level: 'high' } } }).to).toBe('/ws/certificates')
     expect(recommendedNextAction({ domainCount: 1, hasCompletedScan: true, scorecard: { brand_risks: { high: 2 } } }).to).toBe('/ws/brand-monitoring')

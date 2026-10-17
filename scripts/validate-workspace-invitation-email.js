@@ -16,7 +16,7 @@
 //           records the real delivery outcome (never a creation claim on failure).
 //   INV-E5  The accept link is the canonical /invitations/:token route.
 //   INV-E6  The failure audit never leaks the raw token (no token in that branch).
-//   INV-E7  The manual-link panel no longer claims "No email will be sent".
+//   INV-E7  The invite form (members page) says an accept link is emailed, never "No email will be sent".
 //
 // Each guard is a predicate over source that MUST hold on the real file AND MUST
 // fail on a copy with the defect reintroduced (in-memory mutation) — self-proving.
@@ -30,7 +30,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (...p) => fs.readFileSync(path.join(root, ...p), "utf8");
 
 const membersSrc = read("workers", "scan-api", "src", "routes", "workspace-members.js");
-const panelSrc   = read("frontend", "src", "components", "WorkspaceMembersPanel.jsx");
+// The one invite form (17 Oct 2026): the duplicate members panel on the dissolved
+// workspace administration page is gone; /ws/members owns inviting.
+const panelSrc   = read("frontend", "src", "pages", "ws", "WorkspaceMembersPage.jsx");
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -115,13 +117,13 @@ guard(
                    "metadata:     { invitation_id: inviteId, email, role, token, delivery_reason: inviteDelivery.reason || \"send_failed\" },"),
 );
 
-// ── INV-E7 Manual-link panel no longer claims "No email will be sent" ─────────
+// ── INV-E7 The invite form never claims "No email will be sent" ─────────────────
 guard(
-  "INV-E7 members panel copy reflects that an email is now sent",
+  "INV-E7 members page invite form says an accept link is emailed",
   panelSrc,
   (s) => !/No email will be sent/.test(s) && /We email the invitee an accept link/.test(s),
-  (s) => s.replace("We email the invitee an accept link. You can also share the generated link manually as a backup.",
-                   "No email will be sent. Share the generated invite link manually."),
+  (s) => s.replace("We email the invitee an accept link.",
+                   "No email will be sent. Share the invite link manually."),
 );
 
 // ── INV-E8 The role carries the right article: a viewer, an analyst, an admin ──

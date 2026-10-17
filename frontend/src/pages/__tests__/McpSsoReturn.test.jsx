@@ -122,7 +122,7 @@ describe('MCP connection return after sign-in', () => {
     render(<MemoryRouter initialEntries={[`/auth/microsoft/callback?otc=otc123&intent=${INTENT}`]}>
       <MicrosoftCallbackPage />
     </MemoryRouter>)
-    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/services', { replace: true }))
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/dashboard', { replace: true }))
     expect(JSON.stringify(navigateSpy.mock.calls)).not.toContain(INTENT)
   })
 })

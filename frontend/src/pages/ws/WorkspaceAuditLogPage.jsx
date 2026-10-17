@@ -4,6 +4,8 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import { RefreshCw } from 'lucide-react'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { api } from '../../api'
+import ActivityTimeline from '../../components/ActivityTimeline'
+import { PlanGate } from '../../components/PlanUsageCard'
 
 const PAGE_SIZE = 50
 
@@ -83,6 +85,7 @@ export default function WorkspaceAuditLogPage() {
   const [offset,   setOffset]   = useState(0)
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState(null)
+  const [gate,  setGate]  = useState(null)
 
   // Export state
   const [exporting, setExporting] = useState(null) // 'csv' | 'json' | null
@@ -102,8 +105,12 @@ export default function WorkspaceAuditLogPage() {
       setEvents(data.events || [])
       setTotal(data.pagination?.total ?? 0)
       setOffset(off)
+      setGate(null)
     } catch (e) {
-      setError(e.message)
+      // The audit log is a plan feature; the gate keeps its own object so the
+      // page can show the upgrade state instead of a bare error.
+      if ((e?.error ?? e?.code) === 'plan_feature_required') setGate(e)
+      else setError(e.message)
     } finally {
       setLoading(false)
     }
@@ -149,6 +156,7 @@ export default function WorkspaceAuditLogPage() {
 
   return (
     <WsPage title="Audit Log">
+      <PlanGate error={gate}>
       <div className="space-y-5">
 
         {/* Header */}
@@ -373,7 +381,13 @@ export default function WorkspaceAuditLogPage() {
             </div>
           )}
         </div>
+
+        {/* The activity feed that lived on the dissolved workspace administration
+            page (17 Oct 2026). It sits under the same plan gate as the audit log,
+            so a workspace never sees one open and the other locked. */}
+        <ActivityTimeline workspaceId={wsId} />
       </div>
+      </PlanGate>
     </WsPage>
   )
 }

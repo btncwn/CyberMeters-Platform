@@ -38,8 +38,8 @@ export const CATEGORIES = [
   { slug: 'cloud-storage-security',    label: 'Cloud Storage Security',    icon: 'Cloud',       color: 'cyan'   },
   { slug: 'identity-discovery',        label: 'Identity Discovery',        icon: 'Users',       color: 'amber'  },
   { slug: 'saas-exposure',             label: 'SaaS Exposure',             icon: 'Layers',      color: 'pink'   },
-  { slug: 'vendor-risk',               label: 'Vendor Risk',               icon: 'Briefcase',   color: 'orange' },
-  { slug: 'supply-chain-intelligence', label: 'Supply Chain Intelligence', icon: 'Link',        color: 'rose'   },
+  { slug: 'vendor-risk',               label: 'Third-party risk',               icon: 'Briefcase',   color: 'orange' },
+  { slug: 'supply-chain-intelligence', label: 'Third-party dependencies', icon: 'Link',        color: 'rose'   },
   { slug: 'cyber-essentials',          label: 'Cyber Essentials',          icon: 'ClipboardCheck', color: 'green' },
 ]
 
@@ -724,7 +724,7 @@ export const ARTICLES = [
       {
         heading: 'Real World Example',
         blocks: [
-          p('In 2020, the SolarWinds supply chain attack\'s impact was significantly amplified because attackers used forged SAML tokens to access Microsoft 365 email and documents at hundreds of organisations. Discovery of M365 deployment in reconnaissance phases was the first step in targeting decisions. Organisations without proper M365 security configuration — conditional access policies, legacy auth blocking, and MFA enforcement — were disproportionately affected.'),
+          p('In 2020, the SolarWinds third-party compromise\'s impact was significantly amplified because attackers used forged SAML tokens to access Microsoft 365 email and documents at hundreds of organisations. Discovery of M365 deployment in reconnaissance phases was the first step in targeting decisions. Organisations without proper M365 security configuration — conditional access policies, legacy auth blocking, and MFA enforcement — were disproportionately affected.'),
           p('In 2022, Microsoft reported that 99.9% of compromised accounts that used MFA were not breached via credential attacks. Legacy authentication (which bypasses MFA) was the primary vector for the remaining breached accounts.'),
         ],
       },
@@ -766,12 +766,12 @@ export const ARTICLES = [
     findingIds: ['identity_microsoft_365_detected', 'identity_legacy_auth_exposed', 'identity_autodiscover_exposed'],
   },
 
-  // ── 11. Vendor Risk Explained ──────────────────────────────────────────────
+  // ── 11. Third-party risk explained ──────────────────────────────────────────────
   {
     slug: 'vendor-risk-explained',
-    title: 'Vendor Risk Explained',
+    title: 'Third-party risk explained',
     category: 'vendor-risk',
-    summary: 'Vendor risk — also known as third-party risk — is the exposure an organisation inherits from the companies it does business with. When you share data with a supplier, integrate their software into your systems, or rely on their infrastructure, their security posture becomes part of your attack surface. Managing this inherited risk is a core responsibility of modern security programmes.',
+    summary: 'Third-party risk — is the exposure an organisation inherits from the companies it does business with. When you share data with a supplier, integrate their software into your systems, or rely on their infrastructure, their security posture becomes part of your attack surface. Managing this inherited risk is a core responsibility of modern security programmes.',
     readTime: 9,
     featured: false,
     publishedAt: '2026-06-01',
@@ -780,15 +780,15 @@ export const ARTICLES = [
         heading: 'Why It Matters',
         blocks: [
           p('Organisations increasingly rely on third-party vendors for critical business functions — cloud infrastructure, payroll, HR, customer data processing, legal services, and software development. Each of these relationships creates a connection between your organisation\'s data and systems and another organisation\'s security posture. A breach at a vendor can expose your data, disrupt your operations, or compromise your customers — even if your own defences are perfect.'),
-          p('Regulators including the ICO, FCA, and SOC 2 auditors hold organisations responsible for the security of personal and sensitive data even when that data is held by third parties. This means vendor risk is not just a security concern — it is a legal and compliance obligation.'),
+          p('Regulators including the ICO, FCA, and SOC 2 auditors hold organisations responsible for the security of personal and sensitive data even when that data is held by third parties. This means third-party risk is not just a security concern — it is a legal and compliance obligation.'),
           callout('The average organisation shares sensitive data with 583 third-party vendors. Only 34% of organisations have a formal third-party risk management programme that reviews vendor security annually.', 'info'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
-          p('Attackers target the weakest link in the supply chain. Instead of attacking a well-defended enterprise directly, they identify which third-party vendors have access to that enterprise\'s data or systems, and attack the vendor. A single successful vendor breach can cascade to hundreds or thousands of downstream customers.'),
-          p('Attack patterns include: compromising vendor software development pipelines to distribute malicious updates (supply chain attack), breaching vendor infrastructure that holds customer data (data supply chain breach), and using stolen vendor credentials or API keys to access customer environments (credential supply chain).'),
+          p('Attackers target the weakest link in the third-party dependency. Instead of attacking a well-defended enterprise directly, they identify which third-party vendors have access to that enterprise\'s data or systems, and attack the vendor. A single successful vendor breach can cascade to hundreds or thousands of downstream customers.'),
+          p('Attack patterns include: compromising vendor software development pipelines to distribute malicious updates (third-party compromise), breaching vendor infrastructure that holds customer data (data third-party breach), and using stolen vendor credentials or API keys to access customer environments (credential third-party dependency).'),
         ],
       },
       {
@@ -801,7 +801,7 @@ export const ARTICLES = [
       {
         heading: 'What CyberMeters Detects',
         blocks: [
-          p('CyberMeters provides vendor risk intelligence across your technology stack:'),
+          p('CyberMeters provides third-party risk intelligence across your technology stack:'),
           li([
             'Third-party services detected in DNS records, JavaScript includes, and web page source (tracking pixels, CDNs, analytics)',
             'Vendor domains with poor security posture (missing email authentication, weak TLS)',
@@ -837,12 +837,12 @@ export const ARTICLES = [
     findingIds: ['vendor_risk_detected', 'third_party_service_detected', 'saas_exposure_detected'],
   },
 
-  // ── 12. Supply Chain Attacks Explained ────────────────────────────────────
+  // ── 12. Attacks through third parties explained ────────────────────────────────────
   {
     slug: 'supply-chain-attacks-explained',
-    title: 'Supply Chain Attacks Explained',
+    title: 'Attacks through third parties explained',
     category: 'supply-chain-intelligence',
-    summary: 'Supply chain attacks target the software, services, or infrastructure that organisations rely on — rather than attacking the organisation directly. By compromising a trusted supplier, attackers gain access to all downstream customers simultaneously. They represent one of the most sophisticated and impactful threat categories in modern cybersecurity.',
+    summary: 'Third-party compromises target the software, services, or infrastructure that organisations rely on — rather than attacking the organisation directly. By compromising a trusted supplier, attackers gain access to all downstream customers simultaneously. They represent one of the most sophisticated and impactful threat categories in modern cybersecurity.',
     readTime: 11,
     featured: true,
     publishedAt: '2026-06-01',
@@ -850,16 +850,16 @@ export const ARTICLES = [
       {
         heading: 'Why It Matters',
         blocks: [
-          p('Software supply chain attacks exploit the trust organisations place in their vendors and development tools. Every software dependency, development platform, CI/CD tool, and managed service represents a potential supply chain entry point. When attackers compromise the supply chain, they inherit all of the trust relationships downstream customers have built with the compromised vendor.'),
-          p('Supply chain attacks are particularly dangerous because they are difficult to detect (malicious code is signed by the legitimate vendor), difficult to scope (the blast radius is all downstream customers), and difficult to remediate (the fix requires both the vendor and every customer to take action simultaneously).'),
-          callout('Supply chain attacks often have a long dwell time. The SolarWinds attack had a backdoor active for at least 9 months before detection. During this time, attackers had persistent access to thousands of organisations.', 'warning'),
+          p('Software third-party compromises exploit the trust organisations place in their vendors and development tools. Every software dependency, development platform, CI/CD tool, and managed service represents a potential third-party dependency entry point. When attackers compromise the third-party dependency, they inherit all of the trust relationships downstream customers have built with the compromised vendor.'),
+          p('Third-party compromises are particularly dangerous because they are difficult to detect (malicious code is signed by the legitimate vendor), difficult to scope (the blast radius is all downstream customers), and difficult to remediate (the fix requires both the vendor and every customer to take action simultaneously).'),
+          callout('Third-party compromises often have a long dwell time. The SolarWinds attack had a backdoor active for at least 9 months before detection. During this time, attackers had persistent access to thousands of organisations.', 'warning'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
-          p('Supply chain attacks take several forms. Software dependency attacks inject malicious code into open-source libraries (npm, PyPI, RubyGems) — either by compromising maintainer accounts or by registering typosquatting packages that developers accidentally install. Build pipeline attacks compromise CI/CD infrastructure to insert malicious code during the build and packaging phase. Update mechanism attacks modify legitimate software updates to distribute backdoors.'),
-          p('In service supply chain attacks, attackers compromise a managed service provider (MSP) or SaaS platform to gain access to all downstream clients. Once inside an MSP\'s infrastructure, a single set of credentials can provide access to hundreds or thousands of client environments.'),
+          p('Third-party compromises take several forms. Software dependency attacks inject malicious code into open-source libraries (npm, PyPI, RubyGems) — either by compromising maintainer accounts or by registering typosquatting packages that developers accidentally install. Build pipeline attacks compromise CI/CD infrastructure to insert malicious code during the build and packaging phase. Update mechanism attacks modify legitimate software updates to distribute backdoors.'),
+          p('In service third-party compromises, attackers compromise a managed service provider (MSP) or SaaS platform to gain access to all downstream clients. Once inside an MSP\'s infrastructure, a single set of credentials can provide access to hundreds or thousands of client environments.'),
           li([
             'Malicious npm package published with legitimate-looking name (typosquatting)',
             'Compromised build server injects malicious code into signed release',
@@ -880,7 +880,7 @@ export const ARTICLES = [
       {
         heading: 'What CyberMeters Detects',
         blocks: [
-          p('CyberMeters monitors your organisation\'s external-facing supply chain footprint:'),
+          p('CyberMeters monitors your organisation\'s external-facing third-party dependency footprint:'),
           li([
             'Third-party software components detected in web page source (JavaScript libraries, CDN-hosted scripts)',
             'Software vendors identified in DNS, SSL certificates, and HTTP headers',
@@ -899,17 +899,17 @@ export const ARTICLES = [
             'Pin dependency versions and review changes before upgrading',
             'Subscribe to vendor security advisories for all critical suppliers',
             'Implement network segmentation — vendor management access should not have unrestricted internal network access',
-            'Test incident response plans for supply chain breach scenarios — the response is different from a direct breach',
-            'Assess MSP and SaaS vendors for supply chain security practices',
+            'Test incident response plans for third-party breach scenarios — the response is different from a direct breach',
+            'Assess MSP and SaaS vendors for third-party dependency security practices',
           ]),
-          callout('No single control prevents all supply chain attacks. Defence in depth — combining code signing verification, network segmentation, monitoring, and rapid response capability — is the appropriate strategy.', 'info'),
+          callout('No single control prevents all third-party compromises. Defence in depth — combining code signing verification, network segmentation, monitoring, and rapid response capability — is the appropriate strategy.', 'info'),
         ],
       },
       {
         heading: 'Verification',
         blocks: [
           p('In CyberMeters, the providers and third-party scripts observed on your domains appear under Shadow IT & Unmanaged Technology, and externally visible technologies appear in Attack Surface. For each critical provider, verify you are subscribed to its security advisories and have an incident response runbook for a provider compromise scenario.'),
-          p('Conduct an annual tabletop exercise simulating a supply chain breach scenario — specifically a scenario where one of your critical SaaS providers or software dependencies is compromised. This tests whether your organisation can detect, scope, and respond effectively when the attack vector is outside your direct control.'),
+          p('Conduct an annual tabletop exercise simulating a third-party breach scenario — specifically a scenario where one of your critical SaaS providers or software dependencies is compromised. This tests whether your organisation can detect, scope, and respond effectively when the attack vector is outside your direct control.'),
         ],
       },
     ],
@@ -1192,7 +1192,7 @@ export const FINDING_TO_ACADEMY = {
   asset_exposure_dev_env:              'what-is-attack-surface-management',
   asset_exposure_sensitive_tool:       'what-is-attack-surface-management',
   subdomains_large_attack_surface:     'what-is-attack-surface-management',
-  // Vendor / supply chain
+  // Third parties
   vendor_risk_detected:                'vendor-risk-explained',
   third_party_service_detected:        'vendor-risk-explained',
   saas_exposure_detected:              'vendor-risk-explained',

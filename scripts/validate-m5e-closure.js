@@ -184,10 +184,10 @@ async function checkEightDomainCompleteness() {
   const domainConsumers = [
     "frontend/src/components/CyberMotDomains.jsx",
     "frontend/src/pages/Dashboard.jsx",
-    "frontend/src/components/ServiceLauncher.jsx",
+    "frontend/src/components/SetupCard.jsx",
     "frontend/src/components/WorkspaceNav.jsx",
     "frontend/src/pages/PublicLandingPage.jsx",
-    "frontend/src/pages/ws/WorkspaceDashboard.jsx",
+    "frontend/src/pages/ws/WorkspaceDomainsPage.jsx",
     "frontend/src/pages/ws/WorkspaceScorecard.jsx",
     "workers/scan-api/src/engines/report-snapshot.js",
     "workers/scan-api/src/engines/pdf.js",
@@ -202,14 +202,14 @@ async function checkEightDomainCompleteness() {
     ok(`A: ${file} has no four-service customer grouping`, !/\bfour[- ]service|four services\b/i.test(src));
   }
   const nav = getSource("frontend/src/components/WorkspaceNav.jsx");
-  const launcher = getSource("frontend/src/components/ServiceLauncher.jsx");
+  const sharedAreas = getSource("shared/areas.js");
   const landing = getSource("frontend/src/pages/PublicLandingPage.jsx");
   // App Experience PR 2: the overview's eight area cards come from one module
   // registry rendered by the shared SecurityOverview on BOTH the direct
   // dashboard and the MSP-selected workspace dashboard (no second implementation).
   const registry = getSource("frontend/src/lib/moduleRegistry.js");
   const dashboard = getSource("frontend/src/pages/Dashboard.jsx");
-  const workspaceDashboard = getSource("frontend/src/pages/ws/WorkspaceDashboard.jsx");
+  const appRoutes = getSource("frontend/src/App.jsx");
   // Clean app shell (16 Oct 2026): the home screen keeps the shared PostureCard
   // (every area from the registry) and the shared NextActionCard (one ladder);
   // the full SecurityOverview with its counts stays on the workspace overview.
@@ -218,10 +218,12 @@ async function checkEightDomainCompleteness() {
       && /import \{ NextActionCard \} from '\.\.\/components\/overview\/SecurityOverview'/.test(dashboard)
       && !/<SecurityOverview[\s\n]/.test(dashboard) && !/<CyberMotDomains[\s\n]/.test(dashboard));
   ok("A/G: PostureCard renders the module registry", /MODULES\.map\(/.test(getSource("frontend/src/components/overview/PostureCard.jsx")));
-  ok("A/G: WorkspaceDashboard renders the shared SecurityOverview", /<SecurityOverview[\s\n]/.test(workspaceDashboard));
+  // One home per thing (17 Oct 2026): the separate workspace overview is dissolved;
+  // /ws/dashboard redirects and Overview is the one overview for every persona.
+  ok("A/G: the workspace overview is dissolved — /ws/dashboard redirects to /ws/members", /path="ws\/dashboard"\s+element=\{<Navigate to="\/ws\/members" replace \/>\}/.test(appRoutes));
+  for (const key of CANONICAL_KEYS) ok(`A/G: shared area order lists ${key}`, sharedAreas.includes(`'${key}'`));
   for (const label of CANONICAL_LABELS) {
     ok(`A/G: WorkspaceNav exposes ${label}`, nav.includes(label));
-    ok(`A/G: ServiceLauncher exposes ${label}`, launcher.includes(label));
     ok(`A/G: PublicLandingPage exposes ${label}`, landing.includes(label));
     ok(`A/G: module registry (rendered by both overviews) exposes ${label}`, registry.includes(label));
   }
@@ -508,10 +510,12 @@ async function checkMspParity() {
 }
 
 async function checkFrontendParity() {
-  const workspaceDash = getSource("frontend/src/pages/ws/WorkspaceDashboard.jsx");
-  ok("G: WorkspaceDashboard renders eight-domain Cyber MOT surface", /<CyberMotDomains/.test(workspaceDash));
-  ok("G: WorkspaceDashboard fetches backend cyber-mot-domains", /getCyberMotDomains/.test(workspaceDash));
-  ok("G: WorkspaceDashboard has no second Posture Score tile", !/Latest Score/.test(workspaceDash));
+  // One home per thing (17 Oct 2026): Overview is the one eight-area surface.
+  const overview = getSource("frontend/src/pages/Dashboard.jsx");
+  ok("G: Overview renders the eight-area PostureCard", /<PostureCard[\s\n]/.test(overview));
+  ok("G: Overview fetches backend cyber-mot-domains", /getCyberMotDomains/.test(overview));
+  ok("G: Overview has no second Posture Score tile", !/Latest Score/.test(overview));
+  ok("G: the dissolved workspace overview redirects to /ws/members", /path="ws\/dashboard"\s+element=\{<Navigate to="\/ws\/members" replace \/>\}/.test(getSource("frontend/src/App.jsx")));
 
   for (const file of [
     "frontend/src/components/IdentityExposureCard.jsx",

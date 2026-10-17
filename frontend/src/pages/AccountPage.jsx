@@ -1,18 +1,24 @@
 import { parseServerDate } from '../utils/dates'
 /**
- * AccountPage — Customer Portal Foundation v1
- *
- * Sections:
- *  1. Profile        — display name, email (read-only)
- *  2. Company Info   — editable: company name, website, industry, company size, country
- *  3. Subscription   — current plan + status per workspace (read-only in v1)
+ * AccountPage — one page with sub-tabs (founder, 17 Oct 2026; the old
+ * /settings page merged here and redirects):
+ *   Profile · Company · Security (MFA, sessions, API tokens) ·
+ *   Notifications (email frequency + channels link) · Billing (plan, status,
+ *   agency report branding) · Privacy & data.
+ * One company form, one industry list, one size list: the richer lists kept,
+ * the Settings page's security-contact fields folded in (saved through the
+ * company-profile API alongside the account profile).
  *
  * Authentication: requireAuth enforced by ProtectedRoute in App.jsx.
  * Only the profile owner can write (backend enforces user_id from session).
  */
 
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
+import SecurityPage from './SecurityPage'
+import AccountPrivacyPage from './AccountPrivacyPage'
+import NotificationPreferencesCard from '../components/NotificationPreferencesCard'
+import { AgencyReportBranding } from '../components/ReportBranding'
 import { CheckCircle, ChevronDown, Trash2, Copy } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -163,7 +169,7 @@ function PlanLimitsCard({ planLimits }) {
 
       {plan === 'free' || plan === 'starter' ? (
         <div className="mt-4 pt-4 border-t border-gray-50">
-          <p className="text-xs text-brand-700 font-medium">Upgrade for higher limits →</p>
+          <p className="text-xs text-brand-700 font-medium">Higher limits are available on a larger plan.</p>
           <Link to="/billing" className="text-xs text-brand-700 mt-0.5 inline-block">View billing and plans →</Link>
         </div>
       ) : null}
@@ -171,9 +177,24 @@ function PlanLimitsCard({ planLimits }) {
   )
 }
 
+export const ACCOUNT_TABS = Object.freeze([
+  { key: 'profile',       label: 'Profile',        to: '/account' },
+  { key: 'company',       label: 'Company',        to: '/account/company' },
+  { key: 'security',      label: 'Security',       to: '/account/security' },
+  { key: 'notifications', label: 'Notifications',  to: '/account/notifications' },
+  { key: 'billing',       label: 'Billing',        to: '/account/billing' },
+  { key: 'privacy',       label: 'Privacy & data', to: '/account/privacy' },
+])
+
+/** The tab for a pathname: /account → profile, /account/<key> → that key, unknown → profile. */
+export function accountTabForPath(pathname) {
+  const seg = String(pathname || '').replace(/\/+$/, '').split('/').pop()
+  return ACCOUNT_TABS.some((t) => t.key === seg) ? seg : 'profile'
+}
+
 export default function AccountPage() {
-  const navigate = useNavigate()
-  const { user: authUser, login } = useAuth()
+  const { pathname } = useLocation()
+  const { user: authUser } = useAuth()
 
   // Remote state
   const [profile,      setProfile]      = useState(null)
@@ -193,6 +214,8 @@ export default function AccountPage() {
     country:      '',
   })
 
+  // Security contact (company-profile API) — part of the one company form.
+  const [contact, setContact] = useState({ contact_name: '', contact_email: '' })
   const [saving,     setSaving]     = useState(false)
   const [saveError,  setSaveError]  = useState(null)
   const [saveOk,     setSaveOk]     = useState(false)
@@ -221,13 +244,18 @@ export default function AccountPage() {
       setLoading(true)
       setLoadError(null)
       try {
-        const [profileRes, subRes, tokenRes, limitsRes, mfaRes] = await Promise.allSettled([
+        const [profileRes, subRes, tokenRes, limitsRes, mfaRes, companyRes] = await Promise.allSettled([
           api.getAccountProfile(),
           api.getSubscription(),
           api.getApiTokens(),
           api.getAccountUsage(),
           api.getMfaStatus(),
+          Promise.resolve().then(() => api.getCompanyProfile()),
         ])
+        if (companyRes.status === 'fulfilled') {
+          const c = companyRes.value?.company || {}
+          setContact({ contact_name: c.contact_name || '', contact_email: c.contact_email || '' })
+        }
 
         if (profileRes.status === 'fulfilled') {
           const { user: u, profile: p } = profileRes.value
@@ -271,6 +299,37 @@ export default function AccountPage() {
     setSaveOk(false)
     setSaveError(null)
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
+  }
+
+  function handleContactChange(e) {
+    setSaveOk(false)
+    setSaveError(null)
+    setContact(prev => ({ ...prev, [e.target.name]: e.target.value }))
+  }
+
+  // One company form, two records behind it: the account profile (company
+  // name, website, industry, size, country) and the company profile (the
+  // same company fields plus the security contact). Both are saved together.
+  async function handleSaveCompany(e) {
+    e.preventDefault()
+    setSaving(true)
+    setSaveError(null)
+    setSaveOk(false)
+    try {
+      const [res] = await Promise.all([
+        api.updateAccountProfile(form),
+        api.updateCompanyProfile({
+          company_name: form.company_name, website: form.website, industry: form.industry, company_size: form.company_size,
+          contact_name: contact.contact_name, contact_email: contact.contact_email,
+        }),
+      ])
+      setProfile(res.profile)
+      setSaveOk(true)
+    } catch (err) {
+      setSaveError(err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleSave(e) {
@@ -401,30 +460,64 @@ export default function AccountPage() {
     }
   }
 
+  const tab = accountTabForPath(pathname)
+  // Notifications and Privacy & data fetch their own data; only the tabs that
+  // show the profile, company, tokens or subscription wait on the account load.
+  const needsAccountLoad = ['profile', 'company', 'security', 'billing'].includes(tab)
+  const saveFeedback = (
+    <>
+      {/* Save feedback */}
+      {saveError && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
+          <p className="text-xs text-red-700">{saveError}</p>
+        </div>
+      )}
+      {saveOk && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-brand-200 border border-brand-200 mb-4">
+          <p className="text-xs text-brand-700">Profile saved successfully.</p>
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={saving}
+          className="btn-primary flex items-center gap-2 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+      </div>
+    </>
+  )
+
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       {/* Page header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Account</h1>
-        <p className="text-sm text-gray-500 mt-1">Manage your profile, company details, and subscription.</p>
+        <p className="text-sm text-gray-500 mt-1">Your profile, company, security, notifications, billing and data — one place (the old Settings page merged here).</p>
       </div>
 
-      {loading ? (
+      {/* Sub-tabs: the URL is the tab, so each is linkable. */}
+      <nav aria-label="Account sections" className="cm-tabs mb-6" role="tablist">
+        {ACCOUNT_TABS.map((t) => (
+          <Link key={t.key} to={t.to} role="tab" aria-selected={tab === t.key} className="cm-tab" data-testid={`account-tab-${t.key}`}>{t.label}</Link>
+        ))}
+      </nav>
+
+      {needsAccountLoad && loading ? (
         <div className="card p-16 text-center">
           <p className="text-sm text-gray-400">Loading…</p>
         </div>
-      ) : loadError ? (
+      ) : needsAccountLoad && loadError ? (
         <div className="card p-8 text-center">
           <p className="text-sm text-red-700">{loadError}</p>
         </div>
       ) : (
-        <form onSubmit={handleSave}>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            {/* Left column — Profile + Company */}
-            <div className="lg:col-span-2">
-
-              {/* ── Profile ──────────────────────────────────────────────── */}
+        <div className="max-w-3xl" role="tabpanel" data-testid={`account-panel-${tab}`}>
+          {tab === 'profile' && (
+            <form onSubmit={handleSave}>
+{/* ── Profile ──────────────────────────────────────────────── */}
               <Section title="Profile">
                 <Field label="Email address" hint="Email cannot be changed.">
                   <input
@@ -446,9 +539,14 @@ export default function AccountPage() {
                   />
                 </Field>
               </Section>
+              <div className="-mt-2 mb-6">{saveFeedback}</div>
+            </form>
+          )}
 
-              {/* ── Company Information ───────────────────────────────────── */}
-              <Section title="Company Information">
+          {tab === 'company' && (
+            <form onSubmit={handleSaveCompany} data-testid="company-form">
+{/* ── Company Information ───────────────────────────────────── */}
+              <Section title="Company">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5">
                   <Field label="Company name">
                     <input
@@ -515,93 +613,21 @@ export default function AccountPage() {
                       />
                     </div>
                   </Field>
-                </div>
-
-                {/* Save feedback */}
-                {saveError && (
-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
-                    <p className="text-xs text-red-700">{saveError}</p>
-                  </div>
-                )}
-                {saveOk && (
-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-brand-200 border border-brand-200 mb-4">
-                    <p className="text-xs text-brand-700">Profile saved successfully.</p>
-                  </div>
-                )}
-
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="btn-primary flex items-center gap-2 disabled:opacity-50"
-                  >
-                    {saving ? 'Saving…' : 'Save changes'}
-                  </button>
+                  <Field label="Security contact name" hint="Who CyberMeters should name on reports and notices">
+                    <input type="text" name="contact_name" value={contact.contact_name} onChange={handleContactChange} placeholder="Security contact" className="input" maxLength={120} />
+                  </Field>
+                  <Field label="Security contact email">
+                    <input type="email" name="contact_email" value={contact.contact_email} onChange={handleContactChange} placeholder="security@example.com" className="input" />
+                  </Field>
                 </div>
               </Section>
-            </div>
+              <div className="-mt-2 mb-6">{saveFeedback}</div>
+            </form>
+          )}
 
-            {/* Right column — Plan Usage + Subscription */}
-            <div className="lg:col-span-1">
-              <PlanLimitsCard planLimits={planLimits} />
-              <Section title="Subscription">
-
-                {!subscription ? (
-                  <div className="text-center py-6">
-                    <p className="text-sm text-gray-400">No subscription found.</p>
-                    <p className="text-xs text-gray-600 mt-1">Your account is on the free plan.</p>
-                  </div>
-                ) : (
-                  <div className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
-                    {subscription.plan && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">Plan</span>
-                        <PlanBadge plan={subscription.plan} />
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">Status</span>
-                      <StatusDot status={subscription.status} />
-                    </div>
-                    {subscriptionStatusDisplay(subscription.status).note && (
-                      <p className="text-xs text-gray-500" data-testid="subscription-status-note">
-                        {subscriptionStatusDisplay(subscription.status).note}
-                      </p>
-                    )}
-                    {subscription.billing_provider && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">Billing</span>
-                        <span className="text-xs font-medium text-gray-700 capitalize">{subscription.billing_provider}</span>
-                      </div>
-                    )}
-                    {subscription.current_period_end && ['active', 'past_due', 'canceled', 'expired', 'past_due_lapsed', 'inactive'].includes(subscription.status) ? (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">{['active', 'past_due'].includes(subscription.status) ? 'Renews' : 'Ended'}</span>
-                        <span className="text-xs text-gray-400">
-                          {parseServerDate(subscription.current_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
-                      </div>
-                    ) : subscription.trial_ends_at ? (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">Trial ends</span>
-                        <span className="text-xs text-gray-400">
-                          {parseServerDate(subscription.trial_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-
-                <div className="mt-5 p-4 rounded-xl bg-brand-50 border border-brand-100">
-                  <p className="text-xs font-semibold text-brand-700 mb-2">Upgrade your plan</p>
-                  <p className="text-xs text-brand-700 leading-relaxed">
-                    Unlock unlimited domains, advanced reporting, and MSP portfolio features.
-                  </p>
-                  <Link to="/billing" className="text-xs text-brand-700 mt-2 inline-block">View billing and plans →</Link>
-                </div>
-              </Section>
-
-              {/* ── Two-Factor Authentication ─────────────────────────── */}
+          {tab === 'security' && (
+            <>
+{/* ── Two-Factor Authentication ─────────────────────────── */}
               <Section title="Two-Factor Authentication">
                 {mfaSuccess && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-brand-200 border border-brand-200 mb-4">
@@ -766,7 +792,7 @@ export default function AccountPage() {
                 )}
               </Section>
 
-              <Section title="API Tokens">
+<Section title="API Tokens">
                 <div className="space-y-4">
                   <div className="space-y-3">
                     <div>
@@ -879,46 +905,79 @@ export default function AccountPage() {
                   )}
                 </div>
               </Section>
+              <SecurityPage embedded />
+            </>
+          )}
 
-              {/* ── Security & Privacy Quick Links ──────────────────────── */}
-              <div className="card p-4 mt-6 divide-y divide-gray-50">
-                <button
-                  type="button"
-                  onClick={() => navigate('/account/security')}
-                  className="w-full flex items-center gap-3 text-left group pb-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">Security</p>
-                    <p className="text-xs text-gray-400">Login history &amp; active sessions</p>
+          {tab === 'notifications' && (
+            <NotificationPreferencesCard />
+          )}
+
+          {tab === 'billing' && (
+            <>
+              <PlanLimitsCard planLimits={planLimits} />
+<Section title="Subscription">
+
+                {!subscription ? (
+                  <div className="text-center py-6">
+                    <p className="text-sm text-gray-400">No subscription found.</p>
+                    <p className="text-xs text-gray-600 mt-1">Your account is on the free plan.</p>
                   </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/account/privacy')}
-                  className="w-full flex items-center gap-3 text-left group py-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">Privacy &amp; Data</p>
-                    <p className="text-xs text-gray-400">Export data, deletion requests, retention policy</p>
-                  </div>
-                </button>
-                {import.meta.env.VITE_MCP_BETA_ENABLED === 'true' && (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/account/mcp')}
-                    className="w-full flex items-center gap-3 text-left group pt-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">MCP connections</p>
-                      <p className="text-xs text-gray-400">Review AI client access and remove connections</p>
+                ) : (
+                  <div className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
+                    {subscription.plan && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Plan</span>
+                        <PlanBadge plan={subscription.plan} />
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Status</span>
+                      <StatusDot status={subscription.status} />
                     </div>
-                  </button>
+                    {subscriptionStatusDisplay(subscription.status).note && (
+                      <p className="text-xs text-gray-500" data-testid="subscription-status-note">
+                        {subscriptionStatusDisplay(subscription.status).note}
+                      </p>
+                    )}
+                    {subscription.billing_provider && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Billing</span>
+                        <span className="text-xs font-medium text-gray-700 capitalize">{subscription.billing_provider}</span>
+                      </div>
+                    )}
+                    {subscription.current_period_end && ['active', 'past_due', 'canceled', 'expired', 'past_due_lapsed', 'inactive'].includes(subscription.status) ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">{['active', 'past_due'].includes(subscription.status) ? 'Renews' : 'Ended'}</span>
+                        <span className="text-xs text-gray-400">
+                          {parseServerDate(subscription.current_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    ) : subscription.trial_ends_at ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Trial ends</span>
+                        <span className="text-xs text-gray-400">
+                          {parseServerDate(subscription.trial_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
                 )}
-              </div>
-            </div>
 
-          </div>
-        </form>
+                <p className="mt-4 text-xs text-gray-500">Plan, invoices and payment settings are managed on the billing page.</p>
+              </Section>
+              <div className="mb-6">
+                <Link to="/billing" className="btn-primary">Manage billing</Link>
+              </div>
+              {/* Agency report branding lives with billing (plan-gated as before). */}
+              <AgencyReportBranding accountId={authUser?.id} />
+            </>
+          )}
+
+          {tab === 'privacy' && (
+            <AccountPrivacyPage embedded />
+          )}
+        </div>
       )}
     </div>
   )

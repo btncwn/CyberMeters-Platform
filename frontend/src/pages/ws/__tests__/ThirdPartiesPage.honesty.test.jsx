@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import WorkspaceSupplyChainPage from '../WorkspaceSupplyChainPage'
+import ThirdPartiesPage from '../ThirdPartiesPage'
 import { api } from '../../../api'
 
 vi.mock('../../../api', () => ({
-  api: { getWorkspaceSupplyChain: vi.fn() },
+  api: { getWorkspaceSupplyChain: vi.fn(), getWorkspaceThirdPartyAssets: vi.fn(), getWorkspaceVendors: vi.fn(), getWorkspaceVendorsSummary: vi.fn() },
 }))
 vi.mock('../../../hooks/useWorkspace', () => ({
   useWorkspace: () => ({ wsId: 'ws', wsName: 'Founder Workspace' }),
@@ -71,16 +71,21 @@ const incompletePayload = {
 
 const renderPage = async (payload) => {
   api.getWorkspaceSupplyChain.mockResolvedValue(payload)
-  render(<MemoryRouter><WorkspaceSupplyChainPage /></MemoryRouter>)
+  api.getWorkspaceThirdPartyAssets.mockResolvedValue({ assets: [] })
+  api.getWorkspaceVendors.mockResolvedValue({ vendors: [] })
+  api.getWorkspaceVendorsSummary.mockResolvedValue({ active: 0, by_risk: {} })
+  render(<MemoryRouter><ThirdPartiesPage /></MemoryRouter>)
   await waitFor(() => expect(api.getWorkspaceSupplyChain).toHaveBeenCalledWith('ws'))
 }
 
 beforeEach(() => vi.clearAllMocks())
 
-describe('WorkspaceSupplyChainPage BRS completeness', () => {
+// The dependency analysis on the merged Third parties page keeps the completeness honesty
+// the retired Supply Chain page proved: an unavailable BRS-derived composite is never 0, initial or low.
+describe('ThirdPartiesPage dependency analysis — BRS completeness', () => {
   it('does not convert an unavailable BRS-derived composite into 0, initial or low', async () => {
     await renderPage(incompletePayload)
-    await waitFor(() => expect(screen.getByText('Supply Chain Score unavailable')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Dependency score unavailable')).toBeInTheDocument())
     expect(screen.getByText('ASM maturity unavailable')).toBeInTheDocument()
     expect(screen.getAllByText('Incomplete')).toHaveLength(3)
     expect(document.body.textContent).not.toMatch(/0\/100|Maturity Score|initial/i)
@@ -91,9 +96,9 @@ describe('WorkspaceSupplyChainPage BRS completeness', () => {
   it('keeps independently trustworthy sibling evidence visible', async () => {
     await renderPage(incompletePayload)
     await waitFor(() => expect(screen.getAllByText('82').length).toBeGreaterThan(0))
-    expect(screen.getByText('Identity Provider')).toBeInTheDocument()
+    expect(screen.getAllByText('Identity Provider').length).toBeGreaterThan(0)
     expect(screen.getByText(/23\/65 observed points/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Single Points of Failure/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Single points of failure/).length).toBeGreaterThan(0)
   })
 
   it('preserves the assessed-BRS positive control', async () => {
@@ -129,7 +134,7 @@ describe('WorkspaceSupplyChainPage BRS completeness', () => {
     expect(screen.getAllByText('high').length).toBeGreaterThan(0)
     expect(screen.getByText('medium')).toBeInTheDocument()
     expect(screen.getByText('low')).toBeInTheDocument()
-    expect(screen.queryByText('Supply Chain Score unavailable')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dependency score unavailable')).not.toBeInTheDocument()
   })
 
   it('renders an assessed BRS of zero as a real input without degrading the composites', async () => {
@@ -163,7 +168,7 @@ describe('WorkspaceSupplyChainPage BRS completeness', () => {
     await waitFor(() => expect(screen.getByText(/BRS input:/)).toHaveTextContent('BRS input: 0'))
     expect(screen.getAllByText('54').length).toBeGreaterThan(0)
     expect(screen.getByText('developing')).toBeInTheDocument()
-    expect(screen.queryByText('Supply Chain Score unavailable')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dependency score unavailable')).not.toBeInTheDocument()
     expect(screen.queryByText('ASM maturity unavailable')).not.toBeInTheDocument()
   })
 })
