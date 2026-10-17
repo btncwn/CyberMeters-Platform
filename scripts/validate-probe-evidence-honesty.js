@@ -181,11 +181,12 @@ const sslPositivelyAbsent = () => ({
 {
   const timedOut = buildScanQuality({ dns: { resolves: true }, ssl: sslHealthy(), headers: headersNotExecuted(), email_security: {} });
   eq("headers timeout => scan_quality is NOT complete", timedOut.status, "partial");
-  ok("headers timeout => the module is listed as skipped/incomplete", timedOut.modules_skipped.includes("headers"));
+  ok("headers timeout => the module is incomplete, not skipped", !timedOut.modules_skipped.includes("headers") &&
+    timedOut.modules_incomplete.some(item => item.module === "headers"));
 
   const sslOut = buildScanQuality({ dns: { resolves: true }, ssl: sslNotExecuted(), headers: headersHealthy(), email_security: {} });
   eq("HTTPS probe timeout => scan_quality is NOT complete", sslOut.status, "partial");
-  ok("HTTPS probe timeout => the module is listed", sslOut.modules_skipped.includes("ssl"));
+  ok("HTTPS probe timeout => the module is incomplete", sslOut.modules_incomplete.some(item => item.module === "ssl"));
 
   // Redirect exhaustion and a blocked target reach the module the SAME way — via
   // safeFetch returning null — so they produce the identical non-executed shape.
@@ -493,7 +494,7 @@ const certModulesFor = (ssl) => ({
   const modules = certModulesFor(sslWithoutLeaf());
   const q = buildScanQuality(modules);
   eq("an unobserved certificate degrades the scan to `partial`, never `complete`", q.status, "partial");
-  ok("and lists the module as skipped", (q.modules_skipped || []).includes("certificate_intelligence"));
+  ok("and lists the module as incomplete", (q.modules_incomplete || []).some(item => item.module === "certificate_intelligence"));
 
   const report = { scan_quality: q, modules, findings: [], completed_at: "2026-07-16T00:00:00Z" };
   const cert = resolveCyberMotDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "certificates_trust");

@@ -182,9 +182,10 @@ const EXPECTED = Object.freeze({
     // Queued-scan authority: 80 -> 81, additive only — the queue validator
     // asserts that a scan failed for lost authority writes a failed report
     // whose scan_quality is null (validate-scan-queue-dispatch.js).
-    // Two focused TLS regression assertions add governance comparisons only.
-    comparison_occurrences: 83,
-    source_file_count: 30,
+    // The completed exposure-job fixture adds one governance comparison in one
+    // validator; runtime comparison membership remains 59 across 26 files.
+    comparison_occurrences: 84,
+    source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
@@ -203,7 +204,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "e5493464689c67ce07d6a7cc66a046ea657b8c5f9e02adde51ea83b55a04b882",
+    fingerprint: "8b78f7e4439bd59b6247be15e6cad1daf6459cd1be7f2cdcebea2b5bfc67f1e0",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -298,9 +299,9 @@ const EXPECTED = Object.freeze({
     // Load lab: 116 -> 118 across 36 -> 37 files — scripts/lab/load-lab.mjs reads
     // each finished scan's recorded quality to report how many were partial.
     // Two MCP read assertions add governed direct reads in two test files.
-    // Exposure phase tests add four scan_quality assertions in one test file.
-    // Two-tree direct-read diff has only those four governance additions.
-    governance: { occurrence_count: 127, source_file_count: 41, fingerprint: "47836da0ca0cafaa34928de2d853814ac0f92a8162967761809092e095f1ebfd" },
+    // Exposure report tests add two governance reads in one validator source;
+    // runtime direct reads remain 127 across 47 files, and SQL remains 24.
+    governance: { occurrence_count: 129, source_file_count: 42, fingerprint: "28d42024b33fab36e549233deb6292ab9b123355b9c27a2061273cd5d32ab5ee" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper

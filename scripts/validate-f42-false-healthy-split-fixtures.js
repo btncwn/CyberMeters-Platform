@@ -259,10 +259,11 @@ assertNoFalseHealthy("F42_BAR4_UNIFORM_530", await observe(UNIFORM_530));
      typeof r.scan_quality?.status === "string" && Array.isArray(r.scan_quality?.modules_skipped));
   ok("F42_BAR6_RESOLVER_OUTPUT_IS_PRESENT",
      typeof r.website?.state === "string" && r.website?.domain_key === "website_security");
-  ok("F42_BAR6_GRADER_NAMES_THE_UNOBSERVED_MODULES",
-     r.scan_quality.modules_skipped.includes("headers") &&
-     r.scan_quality.modules_skipped.includes("technology_detection"),
-     JSON.stringify(r.scan_quality.modules_skipped));
+  ok("F42_BAR6_GRADER_NAMES_THE_INCOMPLETE_MODULES",
+     ["headers", "technology_detection"].every(name =>
+       r.scan_quality.modules_incomplete.some(item => item.module === name)) &&
+     !r.scan_quality.modules_skipped.includes("headers"),
+     JSON.stringify(r.scan_quality.modules_incomplete));
 }
 
 console.log(`\nF-42 split-fixture proof: ${pass}/${pass + fail} assertions passed`);

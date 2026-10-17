@@ -212,29 +212,20 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
     }
   }
 
-  // Trust: a module that self-reports incomplete evidence (e.g. exposure probes
-  // starved by the Worker subrequest budget) did not actually execute. Treat it as
-  // incomplete — list it as skipped and force scan_quality "partial" — so absence of
-  // findings is never presented as a clean result and downstream verification /
-  // managed-case resolution defers. This does not change module order/estimator.
+  // A module may execute and still return incomplete evidence. Keep that separate
+  // from a module that did not run; either condition makes the scan partial.
   const incompleteModules = Object.entries(modules)
     .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
     .map(([name]) => name);
   // The evidence proposition, kept SEPARATE from the execution proposition.
   //
-  // `modules_skipped` answers "did it run?". `incomplete` answers "did what it
-  // observed support a conclusion?". Merging them (below, for compatibility) made
-  // an F-42/F-48 success — a module that ran and correctly reported an unusable
-  // origin — render to the customer as "Skipped modules: headers", hiding the very
-  // marker the remediation exists to produce. This carries the reason alongside the
-  // name, derived from the same stored per-module records, so a surface can state
-  // WHY evidence was insufficient instead of claiming the module never executed.
+  // `modules_skipped` answers "did it run?". `modules_incomplete` answers whether
+  // the evidence it observed supports a conclusion. Preserve both propositions.
   const modulesIncomplete = incompleteModules.map((name) => ({
     module: name,
     incomplete_reason: modules[name]?.incomplete_reason ?? null,
   }));
   for (const name of incompleteModules) {
-    if (!modulesSkipped.includes(name)) modulesSkipped.push(name);
     warnings.push(`Module incomplete: ${name}`);
   }
 
@@ -300,8 +291,8 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
     // Structured carrier. Always an array so consumers never branch on undefined.
     degradations,
     modules_skipped: modulesSkipped,
-    // Additive. Existing consumers of modules_skipped are unchanged; a surface that
-    // wants the honest distinction reads this instead.
+    // Both arrays are explicit so readers can distinguish an unrun module from
+    // attempted checks that returned insufficient evidence.
     modules_incomplete: modulesIncomplete,
     subrequest_budget: {
       estimated,

@@ -107,9 +107,11 @@ import {
 // unauthorised-sending-source alert as a coverage caveat without changing the
 // published-record decision. `required` lists are unchanged.
 // `2026-10-17.3`: completed HTTP exposure evidence remains domain-local when
-// an unrelated phase ran out of budget. A changed
-// favourable conclusion from the same frozen report is a methodology boundary.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.3";
+// an unrelated phase ran out of budget. A changed favourable conclusion from
+// the same frozen report is a methodology boundary.
+// `2026-10-17.4`: completed HTTP and TLS phases with conclusive subset evidence
+// resolve provisionally instead of claiming that their checks did not run.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.4";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -627,6 +629,36 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "partial";
       base.summary = "Some names have no address in DNS. HTTP was not tested for those names; no healthy web-service conclusion is made.";
+      return base;
+    }
+    // A finished phase with a conclusive subset is useful evidence, even when
+    // other checks were blocked, inconclusive or omitted. It cannot establish a
+    // healthy whole-domain verdict; keep the unassessed remainder explicit.
+    if (d.domain_key === "website_security" && anyRequiredInsufficient &&
+        requiredInsufficient.length === 1 && requiredInsufficient[0] === "external_exposure" &&
+        report.modules.external_exposure?.phase_state === "complete" &&
+        report.modules.external_exposure?.coverage?.completed > 0 &&
+        ["headers", "ssl"].every(name => moduleAssessed(report, name, skippedSet))) {
+      const exposure = report.modules.external_exposure;
+      const conclusive = exposure.coverage.completed;
+      const checked = Array.isArray(exposure.checks) ? exposure.checks.length : conclusive;
+      const blocked = exposure.coverage.blocked || 0;
+      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.coverage = "partial";
+      base.evidence_count += 1;
+      base.summary = `${conclusive} of ${checked} external content checks were conclusive; ${blocked} were blocked by authentication, rate limiting or a challenge. Other inconclusive or unplanned checks and assets awaiting rotation prevent a complete Website Security conclusion.`;
+      return base;
+    }
+    if (d.domain_key === "certificates_trust" && anyRequiredInsufficient &&
+        requiredInsufficient.length === 1 && requiredInsufficient[0] === "tls_assessment" &&
+        report.modules.tls_assessment?.phase_state === "complete" &&
+        report.modules.tls_assessment?.coverage?.completed > 0 &&
+        moduleAssessed(report, "certificate_intelligence", skippedSet)) {
+      const tls = report.modules.tls_assessment.coverage;
+      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.coverage = "partial";
+      base.evidence_count += 1;
+      base.summary = `The selected TLS checks finished: ${tls.completed} conclusive; ${tls.uncertain || 0} inconclusive; ${tls.omitted_checks || 0} outside this scan's check plan. Observed certificate facts remain available, but full TLS posture is not assessed.`;
       return base;
     }
     if (relevant.length === 0) {

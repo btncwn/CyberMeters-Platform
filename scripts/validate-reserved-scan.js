@@ -122,7 +122,8 @@ eq("default capacity mode is legacy", resolveScanCapacity({}).mode, "legacy");
   const exposureWithDeferred = { checked: 25, reachable: 3, incomplete: true, incomplete_reason: "projected_subrequest_budget", assets: [] };
   const q = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: { accessible: true }, email_security: {}, asset_exposure: exposureWithDeferred });
   eq("scan_quality partial when exposure incomplete (deferred)", q.status, "partial");
-  ok("asset_exposure listed as skipped", q.modules_skipped.includes("asset_exposure"));
+  ok("attempted asset_exposure listed as incomplete", !q.modules_skipped.includes("asset_exposure") &&
+    q.modules_incomplete.some(item => item.module === "asset_exposure"));
 }
 
 globalThis.fetch = realFetch;

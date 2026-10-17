@@ -253,8 +253,8 @@ async function main() {
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
   ok("current resolver methodology stamp is independently pinned",
-     CYBER_MOT_RESOLVER_VERSION === "2026-10-17.3" &&
-     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-17.3");
+     CYBER_MOT_RESOLVER_VERSION === "2026-10-17.4" &&
+     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-17.4");
   // 2026-10-13.1: outside vulnerability data left the check pack, so no
   // exploited-vulnerability match can move the score (scoring.js).
   ok("the Cyber Metrics score methodology stamp is independently pinned",
@@ -497,6 +497,30 @@ async function main() {
   ok("domain-local grade isolation still caps the affected Attack Surface domain and overall conclusion",
      isolatedAttackSurface?.evidence_grade?.grade === "L0" &&
      isolatedPartialSnapshot.overall?.evidence_grade?.grade === "L0");
+
+  // Historical reports may have merged an attempted-but-incomplete module into
+  // modules_skipped. A newly minted customer snapshot must separate the claims.
+  const attemptedReport = makeReport("scan_asset_partial", "dom1", "shared.example", {
+    quality: "partial", skipped: ["asset_exposure"], findings: [],
+  });
+  attemptedReport.modules.asset_exposure = {
+    checked: 12, incomplete: true, incomplete_reason: "server_error", not_assessed_count: 1,
+  };
+  attemptedReport.scan_quality.modules_incomplete = [
+    { module: "asset_exposure", incomplete_reason: "server_error" },
+  ];
+  const attemptedSnapshot = composeSnapshot({
+    snapshotId: "snap-attempted-asset", workspaceId: "ws1", domainId: "dom1",
+    scanId: attemptedReport.scan_id, domain: "shared.example", report: attemptedReport,
+    cyberEssentials: ceSnap1, ceReadiness: null, caseRows: [],
+    questionSetVersions: ["2026-07-16"], supersedesSnapshotId: null,
+    builtAt: "2026-07-16T11:30:01.000Z",
+  });
+  const attemptedCompleteness = attemptedSnapshot.overall?.evidence_completeness;
+  ok("attempted asset remains incomplete but is not described as skipped",
+    attemptedCompleteness?.modules_skipped?.length === 0 &&
+    attemptedCompleteness?.modules_incomplete?.[0]?.incomplete_reason === "server_error" &&
+    attemptedCompleteness?.scan_quality === "partial");
 
   const resolvedSpfReport = makeReport("scan_spf_l3", "dom1", "shared.example");
   resolvedSpfReport.modules.email_security = {
@@ -944,7 +968,7 @@ async function main() {
   ok("new B3 snapshot observation cannot acquire domain issue authority from severity",
      !b3Website?.finding_ids?.includes("csp_weak_policy"));
   ok("new B3 snapshot stamps resolver and score methodologies independently",
-     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-17.3" &&
+     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-17.4" &&
      b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-10-16.1");
 
   // ── Report ──────────────────────────────────────────────────────────────────

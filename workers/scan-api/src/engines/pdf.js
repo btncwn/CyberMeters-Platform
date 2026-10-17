@@ -607,6 +607,12 @@ function sectionOverall(w, snap, { concise = false } = {}) {
       color: "0.45 0.35 0.10",
     });
   }
+  if (Array.isArray(ec.modules_incomplete) && ec.modules_incomplete.length > 0) {
+    w.prose(`Modules with incomplete evidence: ${ec.modules_incomplete.map(item => readableCode(item.module)).join(", ")}.`, {
+      size: 9,
+      color: "0.45 0.35 0.10",
+    });
+  }
   if (
     Array.isArray(ec.skipped_score_bearing_modules) &&
     ec.skipped_score_bearing_modules.length > 0

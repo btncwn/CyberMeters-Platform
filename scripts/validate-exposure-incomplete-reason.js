@@ -20,12 +20,14 @@
 //   X4  a transient DNS failure, a stale observation, a non-latest observation
 //       and an empty ip_addresses column all keep the name planned.
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { exposureIdentity } from '../shared/exposure/redaction.js';
 import { EXPOSURE_RULES } from '../shared/exposure/catalog.js';
-import { ensureExposureReady, readExposureForScan, exposureHostHttpApplicability, exposureIncompleteReason, EXPOSURE_JOB_LIMITS, EXPOSURE_INCOMPLETE_REASONS } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { ensureExposureReady, readExposureForScan, readTlsAssessmentForScan, exposureHostHttpApplicability, exposureIncompleteReason, EXPOSURE_JOB_LIMITS, EXPOSURE_INCOMPLETE_REASONS } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { externalExposureModule } from '../workers/scan-api/src/engines/exposure-findings.js';
 import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
+import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'} ${n}${!c && d ? ' — ' + d : ''}`); };
@@ -67,8 +69,8 @@ function harness() {
   }
   const plan = () => JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scan.id).plan_json);
   const hostsIn = (checks) => [...new Set(checks.map(c => new URL(c.url).hostname))];
-  const setJob = (state, results, { cursor = null, pending_assets = 0, omitted = 0, hostsNotApplicable = [] } = {}) => {
-    const plan = { content_state: 'complete', checks: results.map(r => ({ rule_id: r.rule_id, url: r.url })), pending_assets, omitted_checks: omitted, hosts_not_applicable: hostsNotApplicable };
+  const setJob = (state, results, { cursor = null, plannedChecks = null, pending_assets = 0, omitted = 0, hostsNotApplicable = [], tls = null } = {}) => {
+    const plan = { content_state: 'complete', checks: results.slice(0, plannedChecks ?? results.length).map(r => ({ rule_id: r.rule_id, url: r.url })), pending_assets, omitted_checks: omitted, hosts_not_applicable: hostsNotApplicable, ...(tls ? { tls } : {}) };
     sql.prepare('DELETE FROM external_exposure_jobs').run();
     sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,results_json,state,cursor,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
       .run(scan.id, scan.workspace_id, scan.domain_id, scan.domain, JSON.stringify(plan), JSON.stringify(results), state, cursor ?? results.length, NOW, NOW + EXPOSURE_JOB_LIMITS.completionMs, iso(NOW));
@@ -113,14 +115,14 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
   eq('X1_MODULE_CARRIES_JOB_STATE', module.job_state, 'complete');
   eq('X1_MODULE_QUALITY_STAYS_PARTIAL', module.quality, 'partial');
   const ws = card(module);
-  eq('X1_CARD_EVIDENCE_INSUFFICIENT', ws?.state, 'evidence_insufficient');
+  eq('X1_CARD_PROVISIONAL_WITH_CONCLUSIVE_SUBSET', ws?.state, 'provisional');
   ok('X1_CARD_NEVER_HEALTHY', ws?.state !== 'assessed_healthy');
   ok('X1_CARD_NO_FALSE_BUDGET_SENTENCE', !BUDGET_SENTENCE.test(ws?.summary || ''), `summary=${ws?.summary}`);
-  ok('X1_CARD_STATES_THE_REASON', /external_exposure: checks inconclusive/.test(ws?.summary || ''), `summary=${ws?.summary}`);
+  ok('X1_CARD_STATES_CONCLUSIVE_COUNT', /1 of 381 external content checks/.test(ws?.summary || ''), `summary=${ws?.summary}`);
   // Stored-report shape: a report whose exposure module carries NO reason must
   // still fall back to the budget sentence — that fallback is correct for a job
   // the scan cut off, and this pins that the two cases remain distinguishable.
-  const cutOff = card({ ...module, job_state: 'pending', incomplete_reason: null });
+  const cutOff = card({ ...module, job_state: 'pending', phase_state: 'pending', incomplete_reason: null });
   ok('X1_CONTROL_NO_REASON_STILL_READS_NOT_FINISHED', BUDGET_SENTENCE.test(cutOff?.summary || ''));
 }
 
@@ -224,6 +226,100 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
   eq('X4_GATE_NO_OBSERVATION_STAYS_PLANNED', exposureHostHttpApplicability({ last_observation_scan_id: null, observation_scan_id: null, ip_addresses: '[]' }, NOW).applicable, true);
   eq('X4_GATE_EMPTY_IP_COLUMN_IS_NOT_EVIDENCE', exposureHostHttpApplicability({ ...row, dns_state: 'observed', dns_reason: 'active_dns_records_observed', http_reason: 'http_response_observed', ip_addresses: '[]' }, NOW).applicable, true);
   eq('X4_GATE_FUTURE_TIMESTAMP_STAYS_PLANNED', exposureHostHttpApplicability({ ...row, observation_at: iso(NOW + 3600_000) }, NOW).applicable, true);
+}
+
+// X5: production scan_bc7a4cd9 shape. The job and both selected phases finished;
+// content comparability and TLS breadth remain limited. Never call them unrun.
+{
+  const h = harness();
+  const apex = DOMAIN, other = `mail.${DOMAIN}`;
+  const results = [
+    ...Array.from({ length: 145 }, (_, i) => check(apex, i, 'uncertain', 'soft_404_or_common_response')),
+    ...Array.from({ length: 132 }, (_, i) => check(other, i, 'not_found', 'explicit_absence', true)),
+    ...Array.from({ length: 99 }, (_, i) => check(other, i, 'uncertain', 'dns_no_address')),
+    ...Array.from({ length: 4 }, (_, i) => check(apex, i, 'blocked', 'authentication_rate_limit_or_challenge')),
+    check(apex, 381, 'not_found', 'required_content_not_observed', true),
+    check(apex, 382, 'uncertain', 'body_limit'),
+    check(apex, 383, 'uncertain', 'decoded_limit'),
+    check(apex, 384, 'uncertain', 'request_budget_exhausted'),
+  ];
+  eq('X5_HTTP_RESULT_SHAPE', results.length, 384);
+  const tlsCheck = (state, reason, endpoint_index = 0) => ({
+    endpoint_index, check: { control: 'protocol', protocol: 'tls1_2' }, state, reason,
+    observed_at: iso(NOW), evidence: null,
+  });
+  const dynamic = [
+    ...Array.from({ length: 73 }, () => tlsCheck('accepted', 'handshake_completed')),
+    ...Array.from({ length: 79 }, () => tlsCheck('rejected', 'protocol_version_rejected')),
+    ...Array.from({ length: 356 }, () => tlsCheck('uncertain', 'handshake_failed')),
+    ...Array.from({ length: 4 }, () => tlsCheck('unexecutable', 'heartbeat_unavailable')),
+  ];
+  const statics = [
+    ...Array.from({ length: 208 }, () => tlsCheck('unexecutable', 'requires_credentials')),
+    ...Array.from({ length: 88 }, () => tlsCheck('not_applicable', 'control_not_applicable')),
+  ];
+  const tls = { profile_version: 'fixture', policy_version: 'fixture', cursor: 512,
+    selected: dynamic.map(row => ({ endpoint_index: row.endpoint_index, check: row.check })),
+    results: dynamic, static_results: statics, omitted_checks: 1216, omitted_services: 0,
+    gaps: [], endpoints: [{ endpoint: { hostname: apex }, endpoint_identity: apex, scope: {} }],
+  };
+  h.setJob('complete', results, { cursor: 380, plannedChecks: 380, pending_assets: 5, omitted: 169, tls });
+  const http = externalExposureModule(await readExposureForScan(h.env, { workspaceId: h.scan.workspace_id, scanId: h.scan.id }));
+  const deepTls = await readTlsAssessmentForScan(h.env, { workspaceId: h.scan.workspace_id, scanId: h.scan.id });
+  eq('X5_HTTP_PHASE_COMPLETE', [http.job_state, http.phase_state, http.coverage.completed, http.checks.length], ['complete', 'complete', 133, 384]);
+  eq('X5_HTTP_PARTIAL_COUNTS', [http.coverage.blocked, http.coverage.uncertain, http.coverage.budget_exhausted, http.coverage.pending_assets], [4, 244, 172, 5]);
+  eq('X5_TLS_PHASE_COMPLETE_WITH_LIMITS', [deepTls.phase_state, deepTls.coverage.completed, deepTls.coverage.uncertain,
+    deepTls.coverage.unexecutable, deepTls.coverage.not_applicable, deepTls.coverage.omitted_checks],
+    ['complete', 152, 356, 212, 88, 1216]);
+  const modules = { ...baseModules, certificate_intelligence: { source: 'certificate_intelligence' },
+    asset_exposure: { checked: 12, incomplete: true, incomplete_reason: 'server_error', not_assessed_count: 1 },
+    external_exposure: http, tls_assessment: deepTls };
+  const scanQuality = buildScanQuality(modules);
+  eq('X5_QUALITY_STILL_PARTIAL', scanQuality.status, 'partial');
+  ok('X5_EXECUTED_ASSET_IS_NOT_SKIPPED', !scanQuality.modules_skipped.includes('asset_exposure'));
+  ok('X5_ASSET_INCOMPLETE_REASON_RETAINED', scanQuality.modules_incomplete.some(item =>
+    item.module === 'asset_exposure' && item.incomplete_reason === 'server_error'));
+  const report = { modules, findings: [], scan_quality: scanQuality };
+  const domains = resolveCyberMotDomainStates(report);
+  const website = domains.find(d => d.domain_key === 'website_security');
+  const certificates = domains.find(d => d.domain_key === 'certificates_trust');
+  eq('X5_WEBSITE_PROVISIONAL_NOT_HEALTHY', website?.state, 'provisional');
+  ok('X5_WEBSITE_NAMES_CONCLUSIVE_AND_BLOCKED', /133 of 384/.test(website?.summary || '') && /4 were blocked/.test(website?.summary || ''));
+  eq('X5_CERTIFICATES_PROVISIONAL_NOT_HEALTHY', certificates?.state, 'provisional');
+  ok('X5_CERTIFICATES_PHASE_FINISHED_WITHOUT_FALSE_BUDGET_WORDING', /selected TLS checks finished/.test(certificates?.summary || '') &&
+    !/did not complete within the scan budget/.test(certificates?.summary || ''));
+  const unfinished = structuredClone(report);
+  unfinished.modules.tls_assessment.phase_state = 'budget_exhausted';
+  eq('X5_UNFINISHED_TLS_REMAINS_INSUFFICIENT', resolveCyberMotDomainStates(unfinished)
+    .find(d => d.domain_key === 'certificates_trust')?.state, 'evidence_insufficient');
+  unfinished.modules.external_exposure.phase_state = 'budget_exhausted';
+  eq('X5_UNFINISHED_HTTP_REMAINS_INSUFFICIENT', resolveCyberMotDomainStates(unfinished)
+    .find(d => d.domain_key === 'website_security')?.state, 'evidence_insufficient');
+
+  // Source mutations: an implementation that drops the phase-complete gate or
+  // puts attempted modules back into `modules_skipped` must fail this fixture.
+  async function mutant(sourcePath, from, to, inspect) {
+    const sourceUrl = new URL(sourcePath, import.meta.url);
+    const source = readFileSync(sourceUrl, 'utf8');
+    if (!source.includes(from)) throw new Error(`Missing mutation anchor: ${from}`);
+    const mutantUrl = new URL(`./.exposure-report-mutant-${randomUUID()}.js`, sourceUrl);
+    writeFileSync(mutantUrl, source.replace(from, to));
+    try { return await inspect(await import(mutantUrl.href)); }
+    finally { unlinkSync(mutantUrl); }
+  }
+  ok('X5_MUTATION_TLS_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/cyber-mot-domains.js',
+    'report.modules.tls_assessment?.phase_state === "complete"',
+    'report.modules.tls_assessment?.phase_state === "budget_exhausted"',
+    m => /did not complete within the scan budget/.test(m.resolveCyberMotDomainStates(report)
+      .find(d => d.domain_key === 'certificates_trust')?.summary || '')));
+  ok('X5_MUTATION_HTTP_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/cyber-mot-domains.js',
+    'report.modules.external_exposure?.phase_state === "complete"',
+    'report.modules.external_exposure?.phase_state === "budget_exhausted"',
+    m => m.resolveCyberMotDomainStates(report).find(d => d.domain_key === 'website_security')?.state !== 'provisional'));
+  ok('X5_MUTATION_SKIPPED_MERGE_CAUGHT', await mutant('../workers/scan-api/src/engines/scan-engine.js',
+    'for (const name of incompleteModules) {\n    warnings.push(`Module incomplete: ${name}`);',
+    'for (const name of incompleteModules) {\n    modulesSkipped.push(name);\n    warnings.push(`Module incomplete: ${name}`);',
+    m => m.buildScanQuality(modules).modules_skipped.includes('asset_exposure')));
 }
 
 console.log(`\nExposure incomplete-reason: ${pass}/${pass + fail} assertions passed`);
