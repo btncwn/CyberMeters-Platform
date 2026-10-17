@@ -75,8 +75,8 @@ ok("future successful audits persist safe envelope diagnostics",
 ok("production parser exposes encoded and transfer-decoded sizes without content",
   /encoded_size: leafLength/.test(inbound) &&
   /transfer_decoded_size: bytes\.length/.test(inbound));
-ok("email Worker workers.dev invariant is explicit",
-  /^workers_dev = true$/m.test(emailWrangler));
+ok("email Worker workers.dev is explicitly disabled",
+  /^workers_dev = false$/m.test(emailWrangler));
 ok("Email Routing contract is exact-address only and rejects catch-all guidance",
   /only exact per-address Email Routing rules may target this/.test(inbound) &&
   /Never enable catch-all routing/.test(inbound) &&

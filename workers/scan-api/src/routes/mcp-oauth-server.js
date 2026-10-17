@@ -4,7 +4,8 @@ import {
 import { hashToken } from "../lib/auth-crypto.js";
 import { createAuditEvent } from "../lib/events.js";
 import {
-  admitMcpOAuthToken, canGrantMcpPortfolio, isMcpOAuthClientAllowed, listMcpOAuthConnections,
+  admitMcpOAuthToken, canGrantMcpPortfolio, isMcpOAuthClientAllowed, mcpCimdEnabled,
+  listMcpOAuthConnections,
   listMcpOAuthConsentWorkspaces,
   MCP_OAUTH_APP_ORIGIN, MCP_OAUTH_ISSUER, MCP_OAUTH_RESOURCE,
   resolveMcpOAuthConfig, sameMcpOAuthAuthorizationRequest,
@@ -122,7 +123,7 @@ export function createMcpOAuthAuthorizationServer(env, options = {}) {
   return new OAuthAuthorizationServer({
     issuer, resources: [resource],
     scopesSupported: ["mcp:read", "portfolio:read", "offline_access"],
-    clientIdMetadataDocumentEnabled: env?.MCP_OAUTH_CIMD_ENABLED !== "false",
+    clientIdMetadataDocumentEnabled: mcpCimdEnabled(env),
     ...(env?.MCP_OAUTH_DCR_ENABLED === "true" ? { clientRegistrationEndpoint: "/oauth/register" } : {}),
     clientRegistrationTTL: 90 * 24 * 60 * 60,
     clientRegistrationCallback: (input) => evaluateMcpDcrRegistration(input, env, options),

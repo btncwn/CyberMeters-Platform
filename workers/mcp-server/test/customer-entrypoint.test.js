@@ -58,6 +58,21 @@ test('mismatched staging configuration denies before a customer RPC or OAuth loa
   assert.deepEqual(denials, []);
 });
 
+test('customer gateway opens only for the exact true flag', async () => {
+  const request = () => new Request(STAGING.MCP_STAGING_RESOURCE, { method: 'POST',
+    headers: { host: 'mcp-staging.cybermeters.com', 'CF-Connecting-IP': '203.0.113.8',
+      origin: 'https://evil.invalid', 'content-type': 'application/json' }, body: '{}' });
+  for (const flag of [undefined, 'false', 'TRUE', true, '1']) {
+    const { env, denials } = fixtureEnv(STAGING);
+    env.MCP_CUSTOMER_ENABLED = flag;
+    assert.equal((await worker.fetch(request(), env)).status, 503);
+    assert.deepEqual(denials, []);
+  }
+  const { env, denials } = fixtureEnv(STAGING);
+  assert.equal((await worker.fetch(request(), env)).status, 403);
+  assert.equal(denials.length, 1);
+});
+
 test('staging gateway enforces its host and records content-free denial and latency', async () => {
   const { env, denials, rateKeys } = fixtureEnv(STAGING);
   const original = console.log;
@@ -72,7 +87,10 @@ test('staging gateway enforces its host and records content-free denial and late
     }), env);
     assert.equal(response.status, 403);
   } finally { console.log = original; }
-  assert.deepEqual(denials, [{ reason: 'request_denied' }]);
+  assert.equal(denials.length, 1);
+  assert.equal(denials[0].reason, 'request_denied');
+  assert.equal(denials[0].authenticated, false);
+  assert.match(denials[0].client_ip_hash, /^[a-f0-9]{64}$/);
   assert.ok(logs.some((entry) => entry.event === 'request_denied'));
   assert.ok(logs.some((entry) => entry.event === 'request_completed' &&
     entry.status_class === '4xx' && typeof entry.latency_bucket === 'string'));

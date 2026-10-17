@@ -75,7 +75,9 @@ export default { async fetch(request, env, ctx) {
       [name, (input) => env.MCP_CUSTOMER_BACKEND[name](input)]));
     return createCustomerMcpWorker({ resource: env.TEST_RESOURCE,
       issuer: env.TEST_ISSUER, auth: env.MCP_AUTH, backend,
-      auditDenial: (input) => env.MCP_CUSTOMER_BACKEND.recordGatewayDenial(input),
+      auditDenial: (input) => env.MCP_CUSTOMER_BACKEND.recordGatewayDenial({
+        ...input, client_ip_hash: '0'.repeat(64),
+      }),
     }).fetch(mapped, ctx);
   }
   return env.MCP_OAUTH_HTTP.fetch(request);

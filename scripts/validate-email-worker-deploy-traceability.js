@@ -167,8 +167,8 @@ ok("APP_VERSION suffix is exactly the closure-digest prefix, not a Git identity"
 ok("manifest records the founder-gated email deployment requirement",
   manifest.deployment_required === true &&
   manifest.deployment_status === "pending_founder_approval");
-ok("email Worker keeps the workers.dev health and rollback surface explicit",
-  /^workers_dev\s*=\s*true\s*$/m.test(emailConfig));
+ok("email Worker has no public workers.dev host",
+  /^workers_dev\s*=\s*false\s*$/m.test(emailConfig));
 
 const scanPackage = readJson("workers/scan-api/package.json");
 const scanLock = readJson("workers/scan-api/package-lock.json");

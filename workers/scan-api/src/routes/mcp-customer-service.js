@@ -301,13 +301,32 @@ const GATEWAY_DENIAL_REASONS = new Set([
   "workspace_denied", "invalid_request", "protocol_error",
   "backend_unavailable",
 ]);
+const CLIENT_IP_HASH = /^[a-f0-9]{64}$/;
 
 /** Content-free audit for rejections before any customer tool RPC exists. */
 export async function recordMcpGatewayDenial(env, input, overrides = {}) {
   if (env?.MCP_CUSTOMER_READ_ENABLED !== "true" ||
       env?.MCP_CUSTOMER_OAUTH_ENABLED !== "true" || !env.cybermeters_db ||
-      !input || Object.keys(input).length !== 1 ||
-      !GATEWAY_DENIAL_REASONS.has(input.reason)) throw deny();
+      !input || Object.keys(input).length !== 3 ||
+      !GATEWAY_DENIAL_REASONS.has(input.reason) ||
+      typeof input.authenticated !== "boolean" ||
+      !CLIENT_IP_HASH.test(input.client_ip_hash)) throw deny();
+  if (!input.authenticated) {
+    // The shared cap is claimed first so a distributed flood cannot create
+    // unbounded per-IP counter rows. At 20/min, hourly retention can drain
+    // even a sustained flood; both claims stop writing at saturation.
+    const budget = { atomic: true, saturating: true, failClosed: true };
+    const global = await consumeApiRateLimit(env,
+      [{ scope: "mcp_gateway_anon_all", scope_id: "all" }],
+      "mcp_gateway_denial_audit", 20, 60, budget);
+    if (global?.status === 429) return true;
+    if (global) throw deny();
+    const client = await consumeApiRateLimit(env,
+      [{ scope: "mcp_gateway_anon_ip", scope_id: input.client_ip_hash }],
+      "mcp_gateway_denial_audit", 4, 60, budget);
+    if (client?.status === 429) return true;
+    if (client) throw deny();
+  }
   const written = await (overrides.appendAudit ?? createAuditEvent)(env, {
     event_type: "mcp_customer_gateway_denied", actor_type: "system",
     description: "MCP customer gateway request denied",

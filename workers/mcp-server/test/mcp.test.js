@@ -101,6 +101,8 @@ test('default entrypoint needs both explicit enablement and the named RPC bindin
   for (const env of [undefined, {}, { MCP_INTERNAL_ENABLED: 'true' },
     { MCP_BACKEND: binding }, { MCP_INTERNAL_ENABLED: true, MCP_BACKEND: binding },
     { MCP_INTERNAL_ENABLED: 'false', MCP_BACKEND: binding },
+    { MCP_INTERNAL_ENABLED: 'TRUE', MCP_BACKEND: binding },
+    { MCP_INTERNAL_ENABLED: '1', MCP_BACKEND: binding },
     { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: { fetch() {} } },
     { MCP_INTERNAL_ENABLED: 'true', MCP_BACKEND: { ...binding, listManagedCases: undefined } }]) {
     const response = await worker.fetch(message, env);

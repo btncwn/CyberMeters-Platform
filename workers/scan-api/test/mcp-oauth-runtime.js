@@ -97,6 +97,7 @@ export default { async fetch(request, env, ctx) {
       kv_namespaces: [{ binding: "OAUTH_KV", id: "00000000000000000000000000000121" }],
       vars: { MCP_CUSTOMER_OAUTH_ENABLED: "true", MCP_CUSTOMER_READ_ENABLED: "true",
         MCP_DEPLOYMENT_TIER: "staging", MCP_OAUTH_DCR_ENABLED: "true",
+        MCP_OAUTH_CIMD_ENABLED: "true", MCP_OAUTH_DCR_LOOPBACK_ENABLED: "true",
         MCP_OAUTH_CIMD_ALLOWED_CLIENT_IDS: JSON.stringify([reviewedCimd]),
         TEST_ISSUER: origin, TEST_RESOURCE: resource, TEST_APP_ORIGIN: origin },
     }));
