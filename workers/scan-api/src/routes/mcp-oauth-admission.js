@@ -41,6 +41,8 @@ const MAX_CONSENT_WORKSPACES = 500;
 const PKCE_S256 = /^[A-Za-z0-9_-]{43}$/;
 const ALLOWED_SCOPES = new Set(["mcp:read", "portfolio:read", "offline_access"]);
 
+export const mcpCimdEnabled = (env) => env?.MCP_OAUTH_CIMD_ENABLED === "true";
+
 /** CIMD is a separate registration lane from DCR. Only reviewed, exact client
  * metadata URLs may enter it; a missing or malformed list disables CIMD. */
 export function isMcpOAuthClientAllowed(env, clientId) {
@@ -48,7 +50,7 @@ export function isMcpOAuthClientAllowed(env, clientId) {
   // DCR issues 16-character base64url-alphabet IDs. Treat only this bounded
   // opaque form as registration-backed; every URL-like or malformed ID fails.
   if (!/^https:/i.test(clientId)) return ID_RE.test(clientId);
-  if (env?.MCP_OAUTH_CIMD_ENABLED === "false") return false;
+  if (!mcpCimdEnabled(env)) return false;
   let parsed;
   try { parsed = new URL(clientId); } catch { return false; }
   if (parsed.protocol !== "https:" || clientId !== parsed.toString() ||

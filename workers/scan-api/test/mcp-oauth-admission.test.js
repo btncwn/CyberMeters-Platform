@@ -7,7 +7,8 @@ import { hashToken } from "../src/lib/auth-crypto.js";
 import { hashPassword } from "../src/lib/password.js";
 import { authRoutes } from "../src/routes/auth.js";
 import {
-  admitMcpOAuthToken, canGrantMcpPortfolio, isMcpOAuthClientAllowed, listMcpOAuthConnections,
+  admitMcpOAuthToken, canGrantMcpPortfolio, isMcpOAuthClientAllowed, mcpCimdEnabled,
+  listMcpOAuthConnections,
   listMcpOAuthConsentWorkspaces, reconcileMcpOAuthPortfolioPlan,
   reconcileMcpOAuthPortfolioSubscription,
   MCP_OAUTH_RESOURCE, sameMcpOAuthAuthorizationRequest,
@@ -190,6 +191,13 @@ test("CIMD requires an exact reviewed client ID and removal fences existing toke
   assert.equal(isMcpOAuthClientAllowed(env, "opaque-dcr-client"), true);
   assert.equal(isMcpOAuthClientAllowed(env, approved), false);
   env.MCP_OAUTH_CIMD_ALLOWED_CLIENT_IDS = JSON.stringify([approved]);
+  for (const flag of [undefined, "false", "TRUE", true, "1"]) {
+    env.MCP_OAUTH_CIMD_ENABLED = flag;
+    assert.equal(mcpCimdEnabled(env), false);
+    assert.equal(isMcpOAuthClientAllowed(env, approved), false);
+  }
+  env.MCP_OAUTH_CIMD_ENABLED = "true";
+  assert.equal(mcpCimdEnabled(env), true);
   assert.equal(isMcpOAuthClientAllowed(env, approved), true);
   for (const other of [
     "https://client.example/oauth/other.json",
@@ -531,7 +539,17 @@ test("consent handle cannot switch state, PKCE, scope or another authorization r
 
 test("DCR accepts bounded loopback, rejects hosted callbacks unless explicitly allowed", async () => {
   const { sqlite, env } = fixture();
+  const disabledRequest = new Request("https://api.cybermeters.com/oauth/register", {
+    method: "POST", headers: { "Content-Type": "application/json",
+      "CF-Connecting-IP": "203.0.113.6" }, body: "{}",
+  });
+  for (const flag of [undefined, "false", "TRUE", true, "1"]) {
+    env.MCP_OAUTH_DCR_ENABLED = flag;
+    assert.equal((await evaluateMcpDcrRegistration({ request: disabledRequest,
+      clientMetadata: {} }, env)).status, 403);
+  }
   env.MCP_OAUTH_DCR_ENABLED = "true";
+  env.MCP_OAUTH_DCR_LOOPBACK_ENABLED = "true";
   assert.equal(isMcpDcrLoopbackRedirect("http://localhost:7777/oauth/callback"), true);
   assert.equal(isMcpDcrLoopbackRedirect("http://127.0.0.1:49152/callback"), true);
   assert.equal(isMcpDcrLoopbackRedirect("http://[::1]:49152/oauth/callback"), true);
@@ -546,6 +564,12 @@ test("DCR accepts bounded loopback, rejects hosted callbacks unless explicitly a
     token_endpoint_auth_method: "none",
     grant_types: ["authorization_code"], response_types: ["code"] };
   assert.equal(await evaluateMcpDcrRegistration({ request, clientMetadata: metadata }, env), undefined);
+  for (const flag of [undefined, "false", "TRUE", true, "1"]) {
+    env.MCP_OAUTH_DCR_LOOPBACK_ENABLED = flag;
+    sqlite.exec("DELETE FROM api_rate_limits WHERE action = 'mcp_dcr_register'");
+    assert.equal((await evaluateMcpDcrRegistration({ request, clientMetadata: metadata }, env)).status, 400);
+  }
+  env.MCP_OAUTH_DCR_LOOPBACK_ENABLED = "true";
   for (const changed of [
     { token_endpoint_auth_method: "client_secret_basic" },
     { token_endpoint_auth_method: undefined },
@@ -577,6 +601,7 @@ test("DCR accepts bounded loopback, rejects hosted callbacks unless explicitly a
 
 test("validated OAuth budgets limit each IP before shared emergency capacity", async () => {
   const { sqlite, env } = fixture();
+  env.MCP_OAUTH_DCR_LOOPBACK_ENABLED = "true";
   const request = (ip) => new Request("https://api.cybermeters.com/authorize", {
     headers: { "CF-Connecting-IP": ip },
   });

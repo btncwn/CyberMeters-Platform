@@ -68,7 +68,7 @@ async function claimCustomerEdgeBudget(request, env) {
     env.MCP_EDGE_GLOBAL_RATE.limit({ key: 'mcp_customer_all' }),
   ]);
   if (typeof client?.success !== 'boolean' || typeof aggregate?.success !== 'boolean') return null;
-  return client.success && aggregate.success;
+  return { allowed: client.success && aggregate.success, actor };
 }
 
 /** Low-cardinality, content-free logs for Workers observability. */
@@ -133,7 +133,7 @@ export default {
         logCustomerGatewayEvent('edge_rate_unavailable');
         return disabledResponse();
       }
-      if (!allowed) {
+      if (!allowed.allowed) {
         logCustomerGatewayEvent('edge_rate_limited');
         return edgeRateResponse();
       }
@@ -144,7 +144,9 @@ export default {
       const gateway = createCustomerMcpWorker({ auth: env.MCP_AUTH, backend,
         resource: deployment.resource, issuer: deployment.issuer,
         allowedOrigins: [new URL(deployment.resource).origin, deployment.appOrigin],
-        auditDenial: (input) => env.MCP_CUSTOMER_BACKEND.recordGatewayDenial(input),
+        auditDenial: (input) => env.MCP_CUSTOMER_BACKEND.recordGatewayDenial({
+          reason: input.reason, authenticated: input.authenticated, client_ip_hash: allowed.actor,
+        }),
         onEvent: logCustomerGatewayEvent,
       });
       try {

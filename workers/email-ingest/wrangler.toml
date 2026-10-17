@@ -12,9 +12,8 @@ name = "cybermeters-email"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
 compatibility_flags = ["global_fetch_strictly_public"]
-# Keep the workers.dev rollback/health surface explicit. Adding routes later
-# must never silently disable it (the same standing invariant as scan-api).
-workers_dev = true
+# Inbound email is delivered by Email Routing, with no public HTTP host.
+workers_dev = false
 
 [[d1_databases]]
 binding = "cybermeters_db"

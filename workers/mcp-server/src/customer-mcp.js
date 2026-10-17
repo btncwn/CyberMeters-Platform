@@ -577,7 +577,7 @@ export function createCustomerMcpWorker({ auth, backend, onEvent,
   if (auditDenial !== undefined && typeof auditDenial !== 'function') {
     throw new TypeError('Invalid customer MCP audit binding');
   }
-  async function audited(response, fixedReason) {
+  async function audited(response, fixedReason, authenticated = false) {
     if (response.status < 400) return response;
     const challenge = response.headers.get('www-authenticate') || '';
     const reason = fixedReason || (response.status === 401 ? 'invalid_bearer'
@@ -586,18 +586,25 @@ export function createCustomerMcpWorker({ auth, backend, onEvent,
           : response.status === 503 ? 'backend_unavailable'
             : response.status >= 500 ? 'protocol_error' : 'invalid_request');
     try {
-      if (await auditDenial?.({ reason }) !== true) throw new Error('audit_unavailable');
+      if (await auditDenial?.({ reason, authenticated }) !== true) throw new Error('audit_unavailable');
     } catch {
       emit(onEvent, 'audit_unavailable');
       return safeError(503, 'mcp_not_configured');
     }
     return response;
   }
-  const makeOAuth = ({ OAuthResourceServer, insufficientScope }) => new OAuthResourceServer({
+  const makeOAuth = ({ OAuthResourceServer, insufficientScope }, onAuthenticated) => new OAuthResourceServer({
     resourceMetadata: { resource, authorization_servers: [issuer] },
     requiredScopes: ['mcp:read'],
-    validateToken: () => (audience, token) =>
-      /^cm_[a-f0-9]{64}$/i.test(token) ? null : auth.validateToken(audience, token),
+    validateToken: () => async (audience, token) => {
+      if (/^cm_[a-f0-9]{64}$/i.test(token)) return null;
+      const grant = await auth.validateToken(audience, token);
+      if (grant?.audience === resource &&
+          (grant.expiresAt == null || grant.expiresAt > Date.now() / 1000)) {
+        onAuthenticated();
+      }
+      return grant;
+    },
     handler: {
       async fetch(request, _env, ctx) {
         const props = ctx.props;
@@ -678,8 +685,8 @@ export function createCustomerMcpWorker({ auth, backend, onEvent,
     },
   });
   let oauthPromise;
-  const loadOAuth = () => (oauthPromise ??= (async () =>
-    makeOAuth(oauthRuntime ?? await import('@cloudflare/workers-oauth-provider')))());
+  const loadOAuthRuntime = () => (oauthPromise ??= Promise.resolve(
+    oauthRuntime ?? import('@cloudflare/workers-oauth-provider')));
 
   return {
     async fetch(request, executionContext) {
@@ -696,9 +703,10 @@ export function createCustomerMcpWorker({ auth, backend, onEvent,
         return audited(safeError(405, 'method_not_allowed'), 'invalid_request');
       }
       try {
-        const oauth = await loadOAuth();
+        let authenticated = false;
+        const oauth = makeOAuth(await loadOAuthRuntime(), () => { authenticated = true; });
         const response = await oauth.fetch(request, { MCP_AUTH: auth }, executionContext);
-        return audited(response);
+        return audited(response, undefined, authenticated);
       } catch {
         emit(onEvent, 'oauth_unavailable');
         return audited(safeError(503, 'mcp_not_configured'), 'backend_unavailable');

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { callMcpCustomerRead, MCP_CUSTOMER_RESOURCE } from "../src/routes/mcp-customer-service.js";
+import { callMcpCustomerRead, MCP_CUSTOMER_RESOURCE,
+  recordMcpGatewayDenial } from "../src/routes/mcp-customer-service.js";
 
 const TEST_RESOURCE = "https://mcp-staging.cybermeters.com/mcp";
 const BEARER = `user_a:${"b".repeat(16)}:${"a".repeat(32)}`;
@@ -78,6 +79,34 @@ function fixture() {
   });
   return { sql, env, token, opts, audit, close: () => sql.close() };
 }
+
+test("anonymous gateway denials have per-client and shared audit caps; authenticated denials remain durable", async () => {
+  const f = fixture();
+  const hashes = Array.from({ length: 110 }, (_, n) => n.toString(16).padStart(64, "0"));
+  const input = (client_ip_hash, authenticated = false) => ({
+    reason: "invalid_bearer", authenticated, client_ip_hash,
+  });
+  const appendAudit = async (_env, event) => { f.audit.push(event); return true; };
+  try {
+    for (let n = 0; n < 8; n++) {
+      assert.equal(await recordMcpGatewayDenial(f.env, input(hashes[0]), { appendAudit }), true);
+    }
+    assert.equal(f.audit.length, 4, "one client can write only four anonymous audit rows per minute");
+    for (let n = 1; n < hashes.length; n++) {
+      assert.equal(await recordMcpGatewayDenial(f.env, input(hashes[n]), { appendAudit }), true);
+    }
+    assert.equal(f.audit.length, 96, "the shared budget bounds distributed anonymous audit rows");
+    assert.equal(f.sql.prepare(`SELECT COUNT(*) AS total FROM api_rate_limits
+      WHERE action = 'mcp_gateway_denial_audit'`).get().total, 94);
+    assert.equal(await recordMcpGatewayDenial(f.env, input(hashes[0], true), { appendAudit }), true);
+    assert.equal(f.audit.length, 97, "authenticated denial bypasses anonymous caps");
+    assert.ok(f.audit.every((event) => event.event_type === "mcp_customer_gateway_denied"));
+    assert.equal(JSON.stringify(f.audit).includes(hashes[0]), false);
+    f.sql.exec("DROP TABLE api_rate_limits");
+    assert.equal(await recordMcpGatewayDenial(f.env, input(hashes[0], true), { appendAudit }), true);
+    await denied(recordMcpGatewayDenial(f.env, input(hashes[0]), { appendAudit }));
+  } finally { f.close(); }
+});
 
 test("workspace-bound customer token selects only its bound workspace and records last use", async () => {
   const f = fixture();
@@ -349,9 +378,16 @@ test("customer path rejects general API token, disabled mode, and unknown method
       { bearer: BEARER, workspaceId: "ws_a" }, f.opts()));
     await denied(callMcpCustomerRead(f.env, "deleteDomain",
       { bearer: BEARER, workspaceId: "ws_a" }, f.opts()));
-    f.env.MCP_CUSTOMER_READ_ENABLED = "false";
-    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary",
-      { bearer: BEARER }, f.opts()));
+    for (const flagName of ["MCP_CUSTOMER_READ_ENABLED", "MCP_CUSTOMER_OAUTH_ENABLED"]) {
+      for (const flag of [undefined, "false", "TRUE", true, "1"]) {
+        f.env[flagName] = flag;
+        await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary",
+          { bearer: BEARER }, f.opts()));
+      }
+      f.env[flagName] = "true";
+      assert.equal((await callMcpCustomerRead(f.env, "getWorkspaceSummary",
+        { bearer: BEARER }, f.opts())).workspace_id, "ws_a");
+    }
   } finally { f.close(); }
 });
 

@@ -169,8 +169,22 @@ test('trial PAT is rejected before auth RPC, and wrong host or Origin are denied
   assert.equal((await app.fetch(request('http://localhost:8787/mcp/extra'), ctx)).status, 404);
   assert.equal(authCalls, 0);
   assert.deepEqual(audits, [
-    { reason: 'invalid_bearer' }, { reason: 'request_denied' },
-    { reason: 'request_denied' }, { reason: 'invalid_request' },
+    { reason: 'invalid_bearer', authenticated: false },
+    { reason: 'request_denied', authenticated: false },
+    { reason: 'request_denied', authenticated: false },
+    { reason: 'invalid_request', authenticated: false },
+  ]);
+});
+
+test('authenticated denial attribution is request scoped', async () => {
+  const { app, audits } = harness();
+  assert.equal((await app.fetch(request(RESOURCE, { body: rpc('tools/call', {
+    name: 'unknown_tool', arguments: {},
+  }) }), ctx)).status, 400);
+  assert.equal((await app.fetch(request(RESOURCE, { token: null }), ctx)).status, 401);
+  assert.deepEqual(audits, [
+    { reason: 'invalid_request', authenticated: true },
+    { reason: 'invalid_bearer', authenticated: false },
   ]);
 });
 

@@ -319,7 +319,7 @@ is the stale `a90a59c7-…` secret deployment. From the repository root:
 node scripts/validate-email-worker.js
 node scripts/validate-email-worker-deploy-traceability.js
 cd workers/email-ingest
-grep -n '^workers_dev = true$' wrangler.toml
+grep -n '^workers_dev = false$' wrangler.toml
 grep -n '^APP_VERSION = "2026.07.24-gate4\.' wrangler.toml
 npm run dry-run
 ../scan-api/node_modules/.bin/wrangler deployments list --json \
@@ -329,8 +329,8 @@ npm run dry-run
 The standalone Worker validator must prove the mandatory shared
 `consumeApiRateLimit`/`rateLimitScopeId` injection, including its flood and
 TLS-RPT paths. The traceability validator must prove the APP_VERSION suffix
-matches the effective shared-source import closure. `workers_dev = true` must be
-explicit.
+matches the effective shared-source import closure. `workers_dev = false` must be
+explicit; inbound Email Routing does not need a public HTTP host.
 
 Copy the current 100% version, then deploy only this Worker with the pinned local
 Wrangler:
@@ -344,21 +344,8 @@ EMAIL_ROLLBACK_VERSION="<CURRENT_100_PERCENT_VERSION_ID>"
   --config wrangler.toml
 ```
 
-Record `EMAIL_LIVE_VERSION`, then:
-
-```bash
-curl -sS https://cybermeters-email.ttrnn47.workers.dev/health | jq -e \
-  --arg id "$EMAIL_LIVE_VERSION" \
-  '.status=="ok" and .service=="cybermeters-email" and
-   .deployment_id==$id and (.version|startswith("2026.07.24-gate4."))'
-curl -sS https://cybermeters-email.ttrnn47.workers.dev/ready | jq -e \
-  '.status=="ready" and .checks.d1==true'
-curl -sS -o /dev/null -w '%{http_code}\n' \
-  https://cybermeters-email.ttrnn47.workers.dev/api/workspaces
-```
-
-The protected/nonexistent route must be `404`; this Worker deliberately exposes
-only `/health` and `/ready`. On failure:
+Record `EMAIL_LIVE_VERSION` from the deployment listing. There is no public
+HTTP health route for this Email Routing Worker. On deployment failure:
 
 ```bash
 ../scan-api/node_modules/.bin/wrangler rollback "$EMAIL_ROLLBACK_VERSION" \
@@ -550,7 +537,7 @@ The founder release record must contain:
 - migration pre/post snapshots and confirmation “100 applied”;
 - scan-api live and rollback Worker Version IDs;
 - email-ingest live and rollback Worker Version IDs;
-- `workers_dev=true` proof for both Workers;
+- explicit `workers_dev` state for both Workers;
 - scan-api health/ready results on both hosts;
 - email Worker health/ready result and exact APP_VERSION;
 - live acceptance A/B report IDs, claim IDs, audit timestamps, and PASS/FAIL;
