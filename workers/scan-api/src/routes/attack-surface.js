@@ -17,6 +17,8 @@ import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, norm
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
 import { visibleFindingSql } from "../engines/finding-identity.js";
 import { projectTlsModulesForCustomer } from "../engines/tls-evidence.js";
+import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
+import { resolveRemediation } from "../engines/remediation-registry.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
 import {
@@ -1676,6 +1678,17 @@ export async function attackSurfaceRoutes(rctx) {
         const ci = projectTlsModulesForCustomer(report?.modules ?? {}).certificate_intelligence;
         if (!ci) continue;
 
+        const certificateDomain = resolveCyberMotDomainStates(report, { scanId: scanRows[i]?.id || null })
+          .find((entry) => entry.domain_key === "certificates_trust");
+        const finding_actions = (certificateDomain?.finding_ids || []).map((finding_id) => {
+          const remediation = resolveRemediation({ finding_type: finding_id, domain_key: "certificates_trust" });
+          return remediation.status === "resolved" && remediation.applicable !== false
+            ? { finding_id, status: "resolved", remediation_id: remediation.remediation_id,
+                customer_title: remediation.customer_title, recommended_action: remediation.recommended_action,
+                owner_type: remediation.owner_type, verification_method: remediation.verification_method }
+            : { finding_id, status: "unmapped" };
+        });
+
         const lifecycle = lifecycleByDomain.get(scanRows[i]?.domain_id) || null;
         const assurance = buildCertificateCustomerPresentation({
           signalCompleteness: ci.signal_completeness || null,
@@ -1718,6 +1731,8 @@ export async function attackSurfaceRoutes(rctx) {
           suspicious_certificate_signals: ci.suspicious_certificate_signals || [],
           signal_completeness:           ci.signal_completeness || null,
           live_tls:                      ci.live_tls || null,
+          tls_assessment:                report?.modules?.tls_assessment || null,
+          finding_actions,
           evidence_source:               ci.evidence_source || null,
           live_certificate_verified:     ci.live_certificate_verified === true,
           certificate_assurance:         assurance,

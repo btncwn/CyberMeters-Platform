@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Lock, AlertTriangle, XCircle, ShieldCheck, Clock,
@@ -14,6 +14,7 @@ import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import CertificateAssuranceSummary from '../../components/CertificateAssuranceSummary'
+import { OWNER_LABELS } from '../../data/remediation'
 
 function expiryStatus(daysLeft) {
   if (daysLeft == null) return { label: 'Unknown', cls: 'text-gray-400' }
@@ -110,24 +111,34 @@ function bucketCounts(certs) {
   return b
 }
 
-function ActionCard({ severity, title, body }) {
-  const cfg = {
-    critical: { bar: 'bg-red-500',   chip: 'bg-red-50 text-red-700 border-red-100' },
-    high:     { bar: 'bg-brand-700', chip: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
-    medium:   { bar: 'bg-brand-700', chip: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
-  }[severity] || { bar: 'bg-gray-300', chip: 'bg-gray-50 text-gray-600 border-gray-200' }
+function ActionCard({ action }) {
   return (
-    <div className="card p-4 flex gap-3">
-      <div className={`w-1 rounded-full ${cfg.bar} shrink-0`} />
-      <div className="flex-1">
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-          <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded-full border ${cfg.chip}`}>{severity}</span>
-        </div>
-        <p className="text-xs text-gray-500 leading-relaxed">{body}</p>
-      </div>
+    <div className="card p-4">
+      <h3 className="text-sm font-semibold text-gray-900">{action.customer_title}</h3>
+      <p className="text-xs text-slate-500 mt-1">{action.domain}</p>
+      <p className="text-sm text-slate-700 mt-2">{action.recommended_action}</p>
+      {action.owner_type && <p className="text-xs text-slate-500 mt-2">Owner: {OWNER_LABELS[action.owner_type] || action.owner_type.replaceAll('_', ' ')}</p>}
+      {action.verification_method && <p className="text-xs text-slate-500">Verification: {action.verification_method.replaceAll('_', ' ')}</p>}
     </div>
   )
+}
+
+function CertificateExtraDetails({ cert }) {
+  const concentration = cert.ca_concentration
+  const names = Array.isArray(cert.san_hostnames) ? cert.san_hostnames : []
+  return <details className="rounded-lg border border-slate-200 bg-white p-3" data-testid="certificate-extra-details">
+    <summary className="cursor-pointer text-sm font-semibold text-slate-800">Issuer, wildcard and SAN details</summary>
+    <div className="mt-3 space-y-2 text-sm text-slate-600">
+      {concentration && <div>
+        <p>CA concentration: {concentration.concentration_level || 'Not recorded'}</p>
+        <p>Issuers observed: {concentration.issuer_count ?? 'Not recorded'}</p>
+        {concentration.dominant_ca_owner && <p>Dominant CA owner: {concentration.dominant_ca_owner}</p>}
+        {(concentration.observations || []).map((observation, index) => <p key={index}>{observation}</p>)}
+      </div>}
+      {cert.wildcard_warning && <p>Wildcard DNS: {cert.wildcard_warning}</p>}
+      <p className="break-all">SAN hostnames: {names.length > 0 ? names.join(', ') : 'Not recorded'}</p>
+    </div>
+  </details>
 }
 
 function TrustTile({ label, status, tone, hint, to }) {
@@ -260,10 +271,13 @@ export default function CertificatesPage() {
   const [churn, setChurn] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
-  const issuesRef = useRef(null)
+  const requestGeneration = useRef(0)
   const goToAnchor = useAreaAnchor()
+  const scrollToIssues = () => goToAnchor('cert-actions')
 
   const load = useCallback(async () => {
+    const generation = ++requestGeneration.current
+    setCerts([]); setTimeline([]); setCertTimeline([]); setIssuerHistory([]); setChurn(null)
     if (!wsId) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
@@ -271,7 +285,11 @@ export default function CertificatesPage() {
         api.getWorkspaceCertificates(wsId),
         api.getWorkspaceCertificatesTimeline(wsId),
       ])
-      setCerts(c.status === 'fulfilled' ? (c.value.certificates || []) : [])
+      if (generation !== requestGeneration.current) return
+      if (c.status !== 'fulfilled' || !Array.isArray(c.value?.certificates)) {
+        throw new Error('Could not load certificate evidence.')
+      }
+      setCerts(c.value.certificates)
       if (t.status === 'fulfilled') {
         setTimeline(t.value.timeline || [])
         setCertTimeline(t.value.certificate_timeline || [])
@@ -281,13 +299,13 @@ export default function CertificatesPage() {
         setTimeline([]); setCertTimeline([]); setIssuerHistory([]); setChurn(null)
       }
     } catch (e) {
-      setError(e.message)
+      if (generation === requestGeneration.current) setError(e.message || 'Could not load certificate evidence.')
     } finally {
-      setLoading(false)
+      if (generation === requestGeneration.current) setLoading(false)
     }
   }, [wsId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { requestGeneration.current += 1 } }, [load])
 
   if (!wsId) return <NoWorkspaceSelected />
 
@@ -298,22 +316,17 @@ export default function CertificatesPage() {
   const checkFailed = certs.filter(c =>
     ['hostname_match', 'trust_store_validation'].some(key => c.certificate_assurance?.signals?.[key]?.check?.outcome === 'failed')
   ).length
-  const httpsIssues  = certs.filter(c => c.trust_path?.https_reachable === false || c.trust_path?.expiry_ok === false).length
   const needsReview  = certs.filter(c => ['high', 'critical'].includes(c.certificate_risk_level)).length
   const l2Findings   = certs.flatMap(c => (c.findings || []).filter(f => f.type !== 'unknown').map(f => ({ ...f, domain: c.domain })))
   const anomalies    = certs.flatMap(c => (c.anomalies || []).map(a => ({ ...a, domain: c.domain })))
   const buckets      = bucketCounts(certs)
   const chartData    = timeline.slice().reverse().map(day => ({ day: day.day, events: day.events?.length || 0 }))
 
-  // Certificate-derived actions only — never invented.
-  const actions = []
-  if (expired > 0)      actions.push({ severity: 'critical', title: 'Certificate expired', body: `${expired} certificate${expired === 1 ? '' : 's'} have expired. Renew now to restore certificate validity for affected hosts.` })
-  if (expiringSoon > 0) actions.push({ severity: 'high', title: 'Certificate expiring soon', body: `${expiringSoon} certificate${expiringSoon === 1 ? '' : 's'} expire within 30 days. Schedule renewal to avoid an outage.` })
-  if (httpsIssues > 0)  actions.push({ severity: 'high', title: 'HTTPS or expiry issue', body: `${httpsIssues} certificate record${httpsIssues === 1 ? '' : 's'} show HTTPS reachability or expiry evidence that needs review.` })
-  if (anomalies.length > 0) actions.push({ severity: 'medium', title: 'Certificate change needs review', body: `${anomalies.length} certificate change${anomalies.length === 1 ? ' was' : 's were'} seen between scans in issuer, SAN or parallel-certificate evidence.` })
-  if (needsReview > 0)  actions.push({ severity: 'medium', title: 'Certificate evidence needs review', body: `${needsReview} certificate${needsReview === 1 ? '' : 's'} are flagged high or critical risk and should be reviewed.` })
-
-  const scrollToIssues = () => goToAnchor('cert-actions')
+  const actions = certs.flatMap(cert => (cert.finding_actions || [])
+    .filter(action => action.status === 'resolved')
+    .map(action => ({ ...action, domain: cert.domain })))
+  const unmappedCount = certs.flatMap(cert => cert.finding_actions || [])
+    .filter(action => action.status === 'unmapped').length
 
   // Trust-posture tile states (cert tiles use real data; transport tiles point
   // to Email Protection, which owns MTA-STS / TLS-RPT / redirect checks).
@@ -397,21 +410,20 @@ export default function CertificatesPage() {
       ) : (
         <>
           {/* 5 · Issues / recommended actions */}
-          <div id="cert-actions" ref={issuesRef} className="mb-6 scroll-mt-20">
+          <div id="cert-actions" className="mb-6 scroll-mt-20">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-gray-900">Recommended actions{actions.length > 0 && <span className="text-gray-400 font-semibold"> · {actions.length} open</span>}</h2>
+              <h2 className="font-semibold text-gray-900">Recommended actions from the latest assessments</h2>
             </div>
             {actions.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {actions.map((a, i) => <ActionCard key={i} {...a} />)}
+                {actions.map((action, i) => <ActionCard key={`${action.domain}-${action.finding_id}-${i}`} action={action} />)}
               </div>
             ) : (
               <div className="card p-6 text-center text-sm text-gray-400">
-                {hasKnownExpiry
-                  ? 'No expiry issue was detected in the latest recorded certificate evidence. Separately unavailable chain, trust-store or revocation evidence remains unknown and is shown below.'
-                  : 'Certificate details have not been retrieved yet for the monitored hosts. Run a scan to populate issuer, expiry and HTTPS status.'}
+                No registered certificate action was returned for the latest assessments. Review the evidence below for unavailable checks.
               </div>
             )}
+            {unmappedCount > 0 && <p className="text-sm text-amber-700 mt-2">{unmappedCount} certificate finding{unmappedCount === 1 ? '' : 's'} had no applicable registered action.</p>}
           </div>
 
           {/* 6 · Trust posture */}
@@ -427,13 +439,16 @@ export default function CertificatesPage() {
             </div>
             <div className="space-y-3">
               {certs.map((cert, index) => (
+                <Fragment key={`${cert.domain || 'certificate'}-${index}`}>
                 <CertificateAssuranceSummary
-                  key={`${cert.domain || 'certificate'}-${index}`}
                   presentation={cert.certificate_assurance}
                   liveTls={cert.live_tls}
+                  tlsAssessment={cert.tls_assessment}
                   title={`Certificate evidence · ${cert.domain || 'hostname not recorded'}`}
                   showEvidence
                 />
+                <CertificateExtraDetails cert={cert} />
+                </Fragment>
               ))}
             </div>
           </div>

@@ -197,7 +197,9 @@ async function main() {
   reports.set("reports/scan1.json", {
     json: async () => ({
       domain: "example.co.uk",
+      findings: [{ id: "certificate_expiring_soon", module: "certificate_intelligence", finding_type: "finding", severity: "medium" }],
       modules: {
+        tls_assessment: { source: "tls_assessment", quality: "partial", endpoints: [], gaps: ["not_recorded"] },
         certificate_intelligence: {
           certificate_risk_level: "medium",
           certificate_status: "valid",
@@ -227,6 +229,10 @@ async function main() {
   const route = await call("/api/workspaces/ws1/certificates");
   const routeCert = route.data?.certificates?.[0];
   ok("certificates route returns L2 fields", route.status === 200 && Array.isArray(routeCert?.findings) && routeCert?.renewal_readiness && routeCert?.trust_path && Array.isArray(routeCert?.anomalies));
+  ok("route carries the recorded TLS assessment", routeCert?.tls_assessment?.source === "tls_assessment" && routeCert?.tls_assessment?.quality === "partial");
+  ok("route resolves the certificate finding through the canonical registry", routeCert?.finding_actions?.some((action) =>
+    action.finding_id === "certificate_expiring_soon" && action.customer_title === "Renew the certificate before expiry" &&
+    action.owner_type === "customer_it" && action.recommended_action));
   ok("route keeps chain/root/ocsp unknown", routeCert?.trust_path?.chain_valid === "unknown" && routeCert?.trust_path?.root_trusted === "unknown" && routeCert?.trust_path?.ocsp === "unknown");
   ok("route emits evidence-backed unexpected issuer finding", routeCert?.findings?.some((f) => f.type === "unexpected_issuer" && f.evidence?.length > 0));
 
