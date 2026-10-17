@@ -69,6 +69,25 @@ beforeEach(() => {
 })
 
 describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
+  it('shows the customer title as the evidence headline and the remediation id as a helper', async () => {
+    api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness())
+    api.getCyberEssentialsControls.mockResolvedValue(controls([{
+      id: 'cec-customer-copy',
+      control_key: 'secure_configuration', control_label: 'Secure configuration',
+      readiness_state: 'gaps', external_coverage: 'partial',
+      evidence: [{ remediation_id: 'web.header.csp', customer_title: 'Strengthen the website content policy' }],
+      unknown_signals: [],
+    }]))
+    mountOverview()
+
+    const title = await screen.findByText('Strengthen the website content policy')
+    const helper = screen.getByText('web.header.csp')
+    expect(title).toBeInTheDocument()
+    expect(helper).toHaveClass('font-mono')
+    expect(title.parentElement.firstElementChild).toBe(title)
+    expect(screen.queryByText(/undefined/)).not.toBeInTheDocument()
+  })
+
   it('CE-NOT-ASSESSED-GREEN-ZERO-GAPS: assessable false stays neutral without the green zero-gaps claim', async () => {
     // Deliberately no containment_reason: this proves the pre-existing false-healthy
     // class independently of multi-domain containment.

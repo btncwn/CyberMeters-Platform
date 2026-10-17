@@ -106,7 +106,7 @@ function makeReport(scanId, domainId, domain, completedAt) {
       dns: { has_mx: true }, email_security: {}, headers: {}, ssl: {},
       subdomains: { count: 1 }, certificate_intelligence: {},
       brand_monitoring: {}, identity_discovery: { high_risk_count: 0 },
-      technology_detection: { count: 1 }, saas_exposure: { count: 0 },
+      technology_detection: { technologies: [] }, saas_exposure: { observed_total: 1 },
       vendor_relationships: { high_confidence: 0 },
       // Explicit completed Phase-5 evidence. Historical customer projection
       // deliberately fails closed when these modules are absent.
@@ -325,9 +325,10 @@ async function main() {
      ce?.evidence_grade?.grade === "L0" &&
      ce?.evidence_grade?.limits?.some((limit) => /2 of 5|three|attestation/i.test(limit)),
      JSON.stringify(ce));
-  ok("one observed Shadow IT technology/service is rendered in the singular",
-     /1 externally observed technology\/service\b/.test(shadow?.state_reason || "") &&
-     !/1 externally observed technologies\/services\b/.test(pdfRes.text));
+  const pdfTextLines = [...pdfRes.text.matchAll(/\((.*?)\) Tj/g)].map((match) => match[1]).join(" ");
+  ok("one observed Shadow IT service is counted with the inventory comparison guidance",
+     /1 externally observed technologies\/services; compare against your approved inventory in Shadow IT\./.test(shadow?.state_reason || "") &&
+     /1 externally observed technologies\/services; compare against your approved inventory in Shadow IT\./.test(pdfTextLines));
   ok("appendix stamps the current CE question set and explains the absence of answer versions",
      technicalAppendix.includes("Cyber Essentials current question set: 2026-07-16") &&
      technicalAppendix.includes("Cyber Essentials answered question set versions: No questionnaire answers recorded") &&
@@ -705,10 +706,10 @@ async function main() {
         to:   "A complete RFC 9989 organisational-domain tree-walk is not recorded",
       },
       {
-        name: "Shadow IT singular count uses plural wording",
+        name: "Shadow IT observed count uses the stale field",
         file: srcPath("engines", "cyber-mot-domains.js"),
-        from: "${observed} externally observed ${observed === 1 ? \"technology/service\" : \"technologies/services\"}",
-        to:   "${observed} externally observed technologies/services",
+        from: "m.observed_total",
+        to:   "m.count",
       },
       {
         name: "completed questionnaire promotes the full CE API domain to healthy",
