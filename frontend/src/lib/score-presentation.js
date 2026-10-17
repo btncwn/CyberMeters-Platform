@@ -39,8 +39,8 @@ export const BAND_META = Object.freeze({
   excellent: { label: 'Excellent',       tone: 'brand',  text: 'text-brand-700',  pill: 'bg-brand-50 text-brand-700 border-brand-100',   color: '#117362' },
   good:      { label: 'Good',            tone: 'brand',  text: 'text-brand-700',  pill: 'bg-brand-50 text-brand-700 border-brand-100',   color: '#117362' },
   moderate:  { label: 'Moderate',        tone: 'amber',  text: 'text-brand-700',  pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',   color: '#45e3c7' },
-  high:      { label: 'Needs Attention', tone: 'orange', text: 'text-red-600', pill: 'bg-red-50 text-red-600 border-red-100', color: '#f87171' },
-  critical:  { label: 'Critical',        tone: 'red',    text: 'text-red-500',    pill: 'bg-red-50 text-red-700 border-red-100',          color: '#EF4444' },
+  high:      { label: 'Needs Attention', tone: 'orange', text: 'text-red-700', pill: 'bg-red-50 text-red-700 border-red-100', color: '#f87171' },
+  critical:  { label: 'Critical',        tone: 'red',    text: 'text-red-700',    pill: 'bg-red-50 text-red-700 border-red-100',          color: '#EF4444' },
   unknown:   { label: 'Not assessed',    tone: 'slate',  text: 'text-gray-400',   pill: 'bg-gray-100 text-gray-500 border-gray-200',      color: '#D1D5DB' },
 });
 

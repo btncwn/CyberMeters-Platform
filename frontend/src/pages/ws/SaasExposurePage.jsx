@@ -35,7 +35,7 @@ function ExposureCard({ exp }) {
         )}
         {exp.admin_url && (
           <a href={exp.admin_url} target="_blank" rel="noopener noreferrer"
-             className="flex items-center gap-1.5 text-xs text-red-500 hover:underline truncate">
+             className="flex items-center gap-1.5 text-xs text-red-700 hover:underline truncate">
             Admin: {exp.admin_url}
           </a>
         )}

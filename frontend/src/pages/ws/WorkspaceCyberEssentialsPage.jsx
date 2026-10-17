@@ -389,7 +389,7 @@ function ExternallyObservedControls({ data, error }) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-base font-bold text-gray-900">Externally observed controls</h2>
-        <p className="mt-2 text-sm text-red-600">{error}</p>
+        <p className="mt-2 text-sm text-red-700">{error}</p>
       </div>
     )
   }

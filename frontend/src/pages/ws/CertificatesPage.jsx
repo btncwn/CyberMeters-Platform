@@ -18,8 +18,8 @@ import { OWNER_LABELS } from '../../data/remediation'
 
 function expiryStatus(daysLeft) {
   if (daysLeft == null) return { label: 'Unknown', cls: 'text-gray-400' }
-  if (daysLeft < 0)  return { label: 'Expired',        cls: 'text-red-600 font-semibold' }
-  if (daysLeft < 14) return { label: `${daysLeft}d left`, cls: 'text-red-500 font-semibold' }
+  if (daysLeft < 0)  return { label: 'Expired',        cls: 'text-red-700 font-semibold' }
+  if (daysLeft < 14) return { label: `${daysLeft}d left`, cls: 'text-red-700 font-semibold' }
   if (daysLeft < 30) return { label: `${daysLeft}d left`, cls: 'text-brand-700 font-semibold' }
   return { label: `${daysLeft}d left`, cls: 'text-brand-700' }
 }
@@ -62,7 +62,7 @@ function trustPathState(row) {
 function HttpsChip({ row }) {
   const s = trustPathState(row)
   const cls = s.tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
-    : s.tone === 'bad' ? 'bg-red-50 text-red-600 border-red-100'
+    : s.tone === 'bad' ? 'bg-red-50 text-red-700 border-red-100'
     : s.tone === 'info' ? 'bg-blue-50 text-blue-700 border-blue-100'
     : s.tone === 'warn' ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
     : 'bg-gray-50 text-gray-500 border-gray-200'
@@ -142,7 +142,7 @@ function CertificateExtraDetails({ cert }) {
 }
 
 function TrustTile({ label, status, tone, hint, to }) {
-  const cls = tone === 'ok' ? 'text-brand-700' : tone === 'bad' ? 'text-red-500' : tone === 'warn' ? 'text-brand-700' : tone === 'info' ? 'text-blue-600' : 'text-gray-400'
+  const cls = tone === 'ok' ? 'text-brand-700' : tone === 'bad' ? 'text-red-700' : tone === 'warn' ? 'text-brand-700' : tone === 'info' ? 'text-blue-600' : 'text-gray-400'
   const inner = (
     <div className="card p-4 h-full hover:shadow-card-md transition-shadow">
       <div className="mb-1.5">
@@ -381,11 +381,11 @@ export default function CertificatesPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   {BUCKETS.map(b => {
                     const n = buckets[b.key]
-                    const tone = b.tone === 'bad' ? 'text-red-600' : b.tone === 'warn' ? 'text-brand-700' : b.tone === 'ok' ? 'text-brand-700' : 'text-gray-400'
+                    const tone = b.tone === 'bad' ? 'text-red-700' : b.tone === 'warn' ? 'text-brand-700' : b.tone === 'ok' ? 'text-brand-700' : 'text-gray-400'
                     return (
                       <div key={b.key} className="rounded-xl border border-gray-200 bg-white p-3 text-center">
                         <p className="text-xs font-semibold text-gray-700">{b.label}</p>
-                        <p className={`text-lg font-bold mt-1 tabular-nums ${n > 0 ? tone : 'text-gray-300'}`}>{n}</p>
+                        <p className={`text-lg font-bold mt-1 tabular-nums ${n > 0 ? tone : 'text-gray-600'}`}>{n}</p>
                       </div>
                     )
                   })}

@@ -30,8 +30,8 @@ const RATING_CFG = {
   excellent: { color: '#117362', text: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
   good:      { color: '#117362', text: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good' },
   moderate:  { color: '#45e3c7', text: 'text-brand-700', pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700', label: 'Moderate' },
-  high:      { color: '#f87171', text: 'text-red-600', pill: 'bg-red-50 text-red-600 border-red-100', label: bandMeta('high').label },
-  critical:  { color: '#EF4444', text: 'text-red-500', pill: 'bg-red-50 text-red-700 border-red-100', label: 'Critical' },
+  high:      { color: '#f87171', text: 'text-red-700', pill: 'bg-red-50 text-red-700 border-red-100', label: bandMeta('high').label },
+  critical:  { color: '#EF4444', text: 'text-red-700', pill: 'bg-red-50 text-red-700 border-red-100', label: 'Critical' },
   unknown:   { color: '#D1D5DB', text: 'text-gray-400', pill: 'bg-gray-100 text-gray-500 border-gray-200', label: 'Unrated' },
 }
 
@@ -45,7 +45,7 @@ const SEV_BADGE = {
 }
 const BRI_PILL = {
   critical: 'bg-red-50 text-red-700 border-red-100',
-  high:     'bg-red-50 text-red-600 border-red-100',
+  high:     'bg-red-50 text-red-700 border-red-100',
   medium:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   low:      'bg-brand-50 text-brand-700 border-brand-100',
 }
@@ -129,8 +129,8 @@ function ScoreRing({ score, rating, size = 132 }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {score != null
-            ? <><span className={`text-4xl font-bold ${cfg.text}`}>{score}</span><span className="text-xs text-gray-300 font-semibold">/ 100</span></>
-            : <span className="text-gray-300 text-sm">—</span>}
+            ? <><span className={`text-4xl font-bold ${cfg.text}`}>{score}</span><span className="text-xs text-gray-600 font-semibold">/ 100</span></>
+            : <span className="text-gray-600 text-sm">—</span>}
         </div>
       </div>
       <span className={`text-xs font-bold px-3 py-1 rounded-full border mt-2 ${cfg.pill}`}>

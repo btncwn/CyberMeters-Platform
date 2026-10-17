@@ -47,7 +47,7 @@ function DnsCheckResult({ result }) {
   if (!result) return null
   const { found, matches, value, expected, error } = result
   if (error && !found) return (
-    <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+    <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
       <div>
         <p className="font-semibold">DNS lookup error</p>
         <p className="text-xs mt-0.5 opacity-80">{error}</p>
@@ -221,7 +221,7 @@ export default function DomainVerifyPage() {
 
   if (loading) return (
     <div className="max-w-2xl mx-auto px-6 py-12 text-center">
-      <RefreshCw className="w-6 h-6 text-gray-300 animate-spin mx-auto mb-3" />
+      <RefreshCw className="w-6 h-6 text-gray-600 animate-spin mx-auto mb-3" />
       <p className="text-sm text-gray-400">Loading domain…</p>
     </div>
   )
@@ -297,7 +297,7 @@ export default function DomainVerifyPage() {
       )}
 
       {genError && (
-        <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+        <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
           {genError}
         </div>
       )}
@@ -399,7 +399,7 @@ export default function DomainVerifyPage() {
               <div className={`flex items-start gap-3 p-4 rounded-xl text-sm border ${
                 verifyResult.success
                   ? 'bg-brand-50 border-brand-100 text-brand-700'
-                  : 'bg-red-50 border-red-100 text-red-600'
+                  : 'bg-red-50 border-red-100 text-red-700'
               }`}>
                 <div>
                   <p className="font-semibold">{verifyResult.success ? 'Verified!' : 'Verification failed'}</p>

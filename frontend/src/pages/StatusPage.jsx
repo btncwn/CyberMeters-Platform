@@ -94,7 +94,7 @@ export default function StatusPage() {
         <div className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              {state === 'loading' && <RefreshCw className="w-6 h-6 text-gray-300 animate-spin shrink-0" />}
+              {state === 'loading' && <RefreshCw className="w-6 h-6 text-gray-600 animate-spin shrink-0" />}
               <div className="min-w-0">
                 <h1 className="text-xl font-bold text-gray-900">System status</h1>
                 <p className={`text-sm font-semibold ${state === 'loading' ? 'text-gray-400' : s.cls}`}>

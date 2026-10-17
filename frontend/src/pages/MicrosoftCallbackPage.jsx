@@ -106,7 +106,7 @@ export default function MicrosoftCallbackPage() {
       <div className="card auth-card text-center">
         {error ? (
           <>
-            <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 text-left">
+            <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700 text-left">
               {error}
             </div>
             <button

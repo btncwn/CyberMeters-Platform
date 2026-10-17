@@ -21,7 +21,7 @@ import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
 const SEVERITY_CFG = {
   critical: {
     dot:    'bg-red-500',
-    text:   'text-red-600',
+    text:   'text-red-700',
     bg:     'bg-red-50',
     border: 'border-red-200',
     pill:   'bg-red-100 text-red-700',
@@ -29,10 +29,10 @@ const SEVERITY_CFG = {
   },
   high: {
     dot:    'bg-red-500',
-    text:   'text-red-600',
+    text:   'text-red-700',
     bg:     'bg-red-50',
     border: 'border-red-100',
-    pill:   'bg-red-50 text-red-600',
+    pill:   'bg-red-50 text-red-700',
     label:  'High',
   },
   medium: {
@@ -428,7 +428,7 @@ export default function NotificationsPage() {
                 >
                   {label}
                   {value === 'unread' && unreadCount > 0 && (
-                    <span className="ml-1 text-xs text-red-500 font-bold">
+                    <span className="ml-1 text-xs text-red-700 font-bold">
                       {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                   )}
@@ -535,7 +535,7 @@ export default function NotificationsPage() {
         </div>
 
         {/* Footer note */}
-        <p className="text-xs text-gray-300 text-center">
+        <p className="text-xs text-gray-600 text-center">
           Notifications are workspace-scoped · auto-generated after each scan
         </p>
       </div>

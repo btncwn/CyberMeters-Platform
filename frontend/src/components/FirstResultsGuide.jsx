@@ -71,7 +71,7 @@ export default function FirstResultsGuide({ compact = false }) {
           onClick={dismiss}
           title="Dismiss results guide"
           aria-label="Dismiss results guide"
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-600 hover:text-gray-600 hover:bg-gray-100 transition-colors"
         >
           <X className="w-4 h-4" />
         </button>

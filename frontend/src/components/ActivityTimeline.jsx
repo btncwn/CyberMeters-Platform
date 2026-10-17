@@ -157,7 +157,7 @@ export default function ActivityTimeline({ workspaceId }) {
 
       {/* Content */}
       {error && (
-        <p className="text-xs text-red-500 py-2">{error}</p>
+        <p className="text-xs text-red-700 py-2">{error}</p>
       )}
 
       {!loading && !error && events.length === 0 && (
@@ -188,7 +188,7 @@ export default function ActivityTimeline({ workspaceId }) {
 
       {loading && events.length === 0 && (
         <div className="py-8 text-center">
-          <RefreshCw className="w-5 h-5 text-gray-300 mx-auto animate-spin" />
+          <RefreshCw className="w-5 h-5 text-gray-600 mx-auto animate-spin" />
         </div>
       )}
     </div>

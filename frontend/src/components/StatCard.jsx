@@ -32,7 +32,7 @@ export default function StatCard({
   const t = danger ? 'danger' : warning ? 'warning' : (tone || 'default')
   const T = {
     default: { icon: 'text-brand-700', value: 'text-gray-800',  accent: '' },
-    danger:  { icon: 'text-red-600',   value: 'text-red-700',   accent: 'accent-danger' },
+    danger:  { icon: 'text-red-700',   value: 'text-red-700',   accent: 'accent-danger' },
     warning: { icon: 'text-brand-700', value: 'text-brand-700', accent: 'accent-warning' },
     info:    { icon: 'text-blue-600',  value: 'text-gray-800',  accent: 'accent-info' },
     neutral: { icon: 'text-gray-400',  value: 'text-gray-700',  accent: '' },

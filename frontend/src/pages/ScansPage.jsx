@@ -128,7 +128,7 @@ export default function ScansPage() {
                     <div className="flex items-center gap-2.5">
                       <div>
                         <p className="font-semibold text-gray-900">{scan.domain}</p>
-                        <p className="mono text-xs text-gray-300 truncate max-w-[200px]">{scan.id}</p>
+                        <p className="mono text-xs text-gray-600 truncate max-w-[200px]">{scan.id}</p>
                       </div>
                     </div>
                   </td>

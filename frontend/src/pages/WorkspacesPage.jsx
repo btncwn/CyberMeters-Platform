@@ -187,7 +187,7 @@ export default function WorkspacesPage() {
               findings, asset inventory, and reports. You can have multiple workspaces, one per client or
               business unit.
             </p>
-            <p className="text-xs text-gray-300 mb-8">Takes less than a minute</p>
+            <p className="text-xs text-gray-600 mb-8">Takes less than a minute</p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button onClick={() => navigate('/onboarding')} className="btn-primary">
                 Get Started Guide

@@ -18,10 +18,25 @@ import { revokeMcpOAuthUserWorkspaceConnections } from "./mcp-oauth-purge.js";
 // caller-influenced, so it is HTML-escaped. Never embeds secrets, internal
 // identifiers, or provider details. Delivered through the canonical
 // sendCustomerEmail path, mirroring the password-reset precedent.
+// "a viewer", "an analyst", "an admin", "an owner": the article follows the
+// role's first sound. Exported for the invitation-email guard.
+export function roleWithArticle(role) {
+  const word = String(role || "member").trim().toLowerCase() || "member";
+  const article = /^[aeiou]/.test(word) ? "an" : "a";
+  return `${article} ${word}`;
+}
+
+// Email colours (founder, 17 Oct 2026): the brand aqua #a9f2e5 with #081f1c
+// ink for buttons; the aqua ink #117362 for the wordmark and text links, which
+// keeps 5.75:1 on white. No white text on the aqua ground, no old green.
+export const EMAIL_BUTTON_STYLE = "display:inline-block;background:#a9f2e5;color:#081f1c;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px";
+export const EMAIL_LINK_COLOR = "#117362";
+
 export function buildInvitationEmail({ workspaceName, role, acceptUrl, expiresAt }) {
   const wsName     = workspaceName || "a CyberMeters workspace";
   const wsHtml     = escapeEmailHtml(wsName);
-  const roleHtml   = escapeEmailHtml(role);
+  const roleText   = roleWithArticle(role);
+  const roleHtml   = escapeEmailHtml(roleText);
   const expiryDate = String(expiresAt || "").slice(0, 10);
   const expiryLine = expiryDate
     ? `This invitation expires in 7 days (on ${expiryDate}).`
@@ -29,20 +44,20 @@ export function buildInvitationEmail({ workspaceName, role, acceptUrl, expiresAt
   const subject = "You’ve been invited to a CyberMeters workspace";
   const text =
     `Hi,\n\n` +
-    `You’ve been invited to join the ${wsName} workspace on CyberMeters as a ${role}.\n\n` +
+    `You’ve been invited to join the ${wsName} workspace on CyberMeters as ${roleText}.\n\n` +
     `Accept your invitation here:\n${acceptUrl}\n\n` +
     `${expiryLine}\n\n` +
     `If you were not expecting this invitation, you can ignore this email.\n\n` +
     `— The CyberMeters team`;
   const html =
     `<!DOCTYPE html><html lang="en"><body style="font-family:Arial,sans-serif;color:#111;max-width:560px;margin:40px auto;padding:0 20px">` +
-    `<div style="margin-bottom:24px"><span style="font-weight:700;font-size:18px;color:#0a7c5c">CyberMeters</span></div>` +
+    `<div style="margin-bottom:24px"><span style="font-weight:700;font-size:18px;color:${EMAIL_LINK_COLOR}">CyberMeters</span></div>` +
     `<h2 style="font-size:20px;margin-bottom:8px">You’ve been invited to a workspace</h2>` +
-    `<p style="color:#555;margin-bottom:24px">You’ve been invited to join the <strong>${wsHtml}</strong> workspace on CyberMeters as a <strong>${roleHtml}</strong>.</p>` +
-    `<a href="${acceptUrl}" style="display:inline-block;background:#0a7c5c;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Accept invitation</a>` +
-    `<p style="margin-top:24px;font-size:13px;color:#999">Or copy this URL into your browser:<br><span style="color:#0a7c5c">${acceptUrl}</span></p>` +
-    `<p style="margin-top:16px;font-size:13px;color:#999">${expiryLine}</p>` +
-    `<p style="margin-top:40px;font-size:12px;color:#bbb">If you were not expecting this invitation, you can ignore this email.</p>` +
+    `<p style="color:#374151;margin-bottom:24px">You’ve been invited to join the <strong>${wsHtml}</strong> workspace on CyberMeters as <strong>${roleHtml}</strong>.</p>` +
+    `<a href="${acceptUrl}" style="${EMAIL_BUTTON_STYLE}">Accept invitation</a>` +
+    `<p style="margin-top:24px;font-size:14px;color:#4b5563">Or copy this URL into your browser:<br><span style="color:${EMAIL_LINK_COLOR}">${acceptUrl}</span></p>` +
+    `<p style="margin-top:16px;font-size:14px;color:#4b5563">${expiryLine}</p>` +
+    `<p style="margin-top:40px;font-size:14px;color:#4b5563">If you were not expecting this invitation, you can ignore this email.</p>` +
     `</body></html>`;
   return { subject, text, html };
 }

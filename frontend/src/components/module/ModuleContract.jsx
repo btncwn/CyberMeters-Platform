@@ -67,7 +67,7 @@ export function tabForLocation(params, hash) {
   return 'overview'
 }
 
-const SEVERITY_TONE = { critical: 'text-red-700', high: 'text-red-600', medium: 'text-brand-700', low: 'text-blue-700', info: 'text-gray-600' }
+const SEVERITY_TONE = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-brand-700', low: 'text-blue-700', info: 'text-gray-600' }
 
 function formatDay(value) {
   if (!value) return null

@@ -384,7 +384,7 @@ export function buildAlertChannelPayload(channelType, event = {}) {
   }
   if (channelType === "teams") {
     const themeColor = severity === "critical" || severity === "high" ? "B4232A"
-      : severity === "medium" ? "B45309" : "00876A";
+      : severity === "medium" ? "B45309" : "117362";
     const card = {
       "@type": "MessageCard",
       "@context": "https://schema.org/extensions",
@@ -587,7 +587,7 @@ Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
   const html = `<!DOCTYPE html>
 <html>
 <body style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; padding: 20px; line-height: 1.5;">
-  <h2 style="color: #00876A;">CyberMeters Alert</h2>
+  <h2 style="color: #117362;">CyberMeters Alert</h2>
   <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
     <tr>
       <td style="padding: 6px 0; font-weight: bold; width: 150px;">Workspace:</td>
@@ -621,7 +621,7 @@ Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
   </div>` : ''}
 
   ${link ? `<p style="margin-top: 20px;">
-    <a href="${escapeEmailHtml(link)}" style="background: #00876A; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+    <a href="${escapeEmailHtml(link)}" style="background: #a9f2e5; color: #081f1c; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
       View Dashboard / Report
     </a>
   </p>` : ''}

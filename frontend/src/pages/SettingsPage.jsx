@@ -20,7 +20,7 @@ function Field({ label, children, hint }) {
 function Status({ error, ok }) {
   if (error) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-100 text-xs text-red-600">
+      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-100 text-xs text-red-700">
         {error}
       </div>
     )
@@ -54,7 +54,7 @@ function UsageLine({ label, used, limit }) {
     <div>
       <div className="flex items-center justify-between text-xs mb-1">
         <span className="text-gray-500">{label}</span>
-        <span className={`font-semibold ${full ? 'text-red-600' : near ? 'text-brand-700' : 'text-gray-700'}`}>
+        <span className={`font-semibold ${full ? 'text-red-700' : near ? 'text-brand-700' : 'text-gray-700'}`}>
           {used} / {unlimited ? '∞' : limit}
         </span>
       </div>
@@ -311,7 +311,7 @@ export default function SettingsPage() {
       </div>
 
       {loadError && (
-        <div className="mb-6 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-600">
+        <div className="mb-6 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700">
           {loadError}
         </div>
       )}
@@ -470,13 +470,13 @@ export default function SettingsPage() {
           <h2 className="text-sm font-bold text-gray-900">API</h2>
           <Field label="Base URL">
             <input
-              className={`input mono text-xs ${!import.meta.env.VITE_API_BASE_URL ? 'text-red-500' : ''}`}
+              className={`input mono text-xs ${!import.meta.env.VITE_API_BASE_URL ? 'text-red-700' : ''}`}
               value={import.meta.env.VITE_API_BASE_URL || ''}
               placeholder="VITE_API_BASE_URL is not set"
               readOnly
             />
             {!import.meta.env.VITE_API_BASE_URL && (
-              <p className="text-xs text-red-500 mt-1">
+              <p className="text-xs text-red-700 mt-1">
                 VITE_API_BASE_URL is not configured. Set it in your .env file.
               </p>
             )}

@@ -258,7 +258,7 @@ export default function SchedulesPage() {
                         <div className="flex items-center gap-2.5">
                           <div>
                             <p className="font-semibold text-gray-900">{s.domain}</p>
-                            <p className="mono text-xs text-gray-300 truncate max-w-[180px]">{s.id}</p>
+                            <p className="mono text-xs text-gray-600 truncate max-w-[180px]">{s.id}</p>
                           </div>
                         </div>
                       </td>
@@ -280,7 +280,7 @@ export default function SchedulesPage() {
                           <button
                             onClick={() => handleDelete(s.id)}
                             disabled={deleting === s.id}
-                            className="btn-ghost text-xs text-red-500 hover:text-red-700 hover:bg-red-50 disabled:opacity-40"
+                            className="btn-ghost text-xs text-red-700 hover:text-red-800 hover:bg-red-50 disabled:opacity-40"
                             title="Delete schedule"
                             aria-label="Delete schedule"
                           >

@@ -120,7 +120,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
   const textH = urgent  ? 'text-red-800'  :
                 warning ? 'text-brand-700' :
                           'text-blue-800'
-  const textB = urgent  ? 'text-red-600'  :
+  const textB = urgent  ? 'text-red-700'  :
                 warning ? 'text-brand-700' :
                           'text-blue-600'
   const btnBg = urgent  ? 'bg-red-600 hover:bg-red-700'     :
@@ -314,7 +314,7 @@ function FeatureChecklist({ features }) {
           <div
             key={key}
             className={`flex items-center gap-2.5 text-xs font-medium px-3 py-2 rounded-lg ${
-              has ? 'text-gray-700' : 'text-gray-300'
+              has ? 'text-gray-700' : 'text-gray-600'
             }`}
           >
             <span className="sr-only">{has ? 'Included: ' : 'Not included: '}</span>
@@ -589,7 +589,7 @@ export default function SubscriptionPage() {
   if (error) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-10">
-        <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 px-4 py-3 rounded-xl">
+        <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-100 px-4 py-3 rounded-xl">
           {error}
         </div>
       </div>

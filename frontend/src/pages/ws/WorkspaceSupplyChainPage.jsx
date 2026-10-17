@@ -11,7 +11,7 @@ import { PlanGate } from '../../components/PlanUsageCard'
 
 function concentrationColor(level) {
   if (level === 'critical') return 'text-red-700 bg-red-50 border-red-200'
-  if (level === 'high')     return 'text-red-600 bg-red-50 border-red-100'
+  if (level === 'high')     return 'text-red-700 bg-red-50 border-red-100'
   if (level === 'medium')   return 'text-brand-700 bg-transparent border-[1.5px] border-brand-700'
   return 'text-brand-700 bg-brand-50 border-brand-100'
 }
@@ -160,7 +160,7 @@ function ConcentrationSection({ concentration }) {
           <p className="text-xs font-semibold text-red-700 mb-1">Single Points of Failure</p>
           <ul className="space-y-0.5">
             {concentration.spofs.map((s, i) => (
-              <li key={i} className="text-xs text-red-600">• {s}</li>
+              <li key={i} className="text-xs text-red-700">• {s}</li>
             ))}
           </ul>
         </div>

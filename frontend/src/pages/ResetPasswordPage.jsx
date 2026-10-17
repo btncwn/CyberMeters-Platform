@@ -95,7 +95,7 @@ export default function ResetPasswordPage() {
             </p>
 
             {error && (
-              <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+              <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
                 {error}
               </div>
             )}

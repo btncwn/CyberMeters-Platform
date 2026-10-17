@@ -16,7 +16,7 @@ const SEVERITY_STYLE = {
   info:     'bg-gray-100 text-gray-500',
   low:      'bg-blue-50 text-blue-600',
   medium:   'bg-transparent text-brand-700',
-  high:     'bg-red-50 text-red-600',
+  high:     'bg-red-50 text-red-700',
   critical: 'bg-red-100 text-red-700',
 }
 
@@ -204,7 +204,7 @@ export default function ExposureTimeline({ workspaceId }) {
         ))}
       </div>
 
-      {error && <p className="text-xs text-red-500 py-2">{error}</p>}
+      {error && <p className="text-xs text-red-700 py-2">{error}</p>}
 
       {/* First-run / empty state — explains the subscription value, doesn't scold */}
       {!loading && !error && events.length === 0 && (
@@ -236,7 +236,7 @@ export default function ExposureTimeline({ workspaceId }) {
       )}
 
       {loading && events.length === 0 && (
-        <div className="py-10 text-center"><RefreshCw className="w-5 h-5 text-gray-300 mx-auto animate-spin" /></div>
+        <div className="py-10 text-center"><RefreshCw className="w-5 h-5 text-gray-600 mx-auto animate-spin" /></div>
       )}
       </div>
     </div>

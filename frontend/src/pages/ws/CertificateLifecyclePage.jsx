@@ -122,7 +122,7 @@ export default function CertificateLifecyclePage() {
       </div>
 
       {loading && <p className="text-sm text-slate-400">Loadingâ¦</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-700">{error}</p>}
       {!loading && !error && items.length === 0 && (
         <p className="text-sm text-slate-400">No certificates under management yet. Records appear here after a scan observes a certificate for a monitored domain.</p>
       )}
@@ -165,7 +165,7 @@ export default function CertificateLifecyclePage() {
                   <td className="py-2 px-3">
                     <Pill meta={coverageMeta(it.coverage_status)} />
                     {Array.isArray(it.coverage_detail?.missing) && it.coverage_detail.missing.length > 0 && (
-                      <div className="text-xs text-red-500 mt-0.5">Missing: {it.coverage_detail.missing.slice(0, 2).join(', ')}</div>
+                      <div className="text-xs text-red-700 mt-0.5">Missing: {it.coverage_detail.missing.slice(0, 2).join(', ')}</div>
                     )}
                   </td>
                   <td className="py-2 px-3">
