@@ -17,8 +17,9 @@ const targetFile = path.join(root, targetRel);
 const validator = path.join(root, "scripts", "validate-scan-detail-presentation.js");
 
 const EXPECTED_MUTANTS = 8;
-// The direct Website Security evidence-link render adds one pinned assertion.
-const VALIDATOR_ASSERTIONS = 29;
+// The direct Website Security evidence link and the shared partial-result
+// status each add one pinned render assertion.
+const VALIDATOR_ASSERTIONS = 30;
 const SUMMARY_PREFIX = "ScanDetail presentation:";
 
 const AST_RAW = "AST: raw scan.rating cannot feed ScanDetail presentation";

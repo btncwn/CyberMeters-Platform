@@ -148,6 +148,10 @@ beforeEach(() => {
 })
 
 describe('ScanDetail evidence honesty', () => {
+  it('uses scan_quality for both completed-run status badges', async () => {
+    await renderFixture()
+    expect(screen.getAllByText('Partial results')).toHaveLength(2)
+  })
   it('shows the scan TLS assessment and its omitted checks even without a live-leaf capture', async () => {
     await renderFixture({ report: reportFixture({ modules: { tls_assessment: {
       source: 'tls_assessment', version: 'cybermeters-tls-profile/2', policy_version: 'rfc9325-2022/1',

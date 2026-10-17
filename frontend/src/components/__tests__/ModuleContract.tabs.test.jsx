@@ -7,7 +7,7 @@ import { api } from '../../api'
 // The area page head (founder, 16 Oct 2026): serif title, description, the
 // backend word, a filter box, four tabs, and the area's sub-page tiles.
 
-vi.mock('../../api', () => ({ api: { getCyberMotDomains: vi.fn(), getManagedCases: vi.fn() } }))
+vi.mock('../../api', () => ({ api: { getCyberMotDomains: vi.fn(), getCases: vi.fn() } }))
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
@@ -35,7 +35,7 @@ function renderPage(path = '/ws/email-protection', props = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', highest_severity: 'high', finding_count: 3 } }) })
-  api.getManagedCases.mockResolvedValue({ cases: CASES })
+  api.getCases.mockResolvedValue({ cases: CASES })
 })
 
 describe('ModuleContract — head and tabs', () => {
@@ -222,7 +222,7 @@ describe('ModuleContract — head and tabs', () => {
 
   it('the filter box narrows the tiles and the case list, and says so when nothing matches', async () => {
     renderPage()
-    await waitFor(() => expect(api.getManagedCases).toHaveBeenCalled())
+    await waitFor(() => expect(api.getCases).toHaveBeenCalled())
     const box = screen.getByRole('searchbox', { name: 'Filter pages and cases in this area' })
     fireEvent.change(box, { target: { value: 'sender' } })
     expect(within(screen.getByTestId('module-tiles')).getAllByRole('link').map(t => t.textContent)).toEqual([

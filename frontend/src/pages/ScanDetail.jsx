@@ -1786,7 +1786,7 @@ export default function ScanDetail() {
                   <KV label="Scan ID"   value={<ScanIdValue id={scan.id} />} />
                   <KV label="Domain"    value={scan.domain} />
                   {/* The run finishing and its checks all completing are two facts. */}
-                  <KV label="Status"    value={<StatusBadge status={scan.status} />} />
+                  <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} />} />
                   {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} />} />}
                   <KV label={assessment?.provisional === true && assessmentScore !== null ? 'Provisional Score' : 'Score'} value={
                     assessmentScore !== null

@@ -170,6 +170,7 @@ function PlanLimitsCard({ planLimits }) {
       {plan === 'free' || plan === 'starter' ? (
         <div className="mt-4 pt-4 border-t border-gray-50">
           <p className="text-xs text-brand-700 font-medium">Higher limits are available on a larger plan.</p>
+          <Link to="/billing" className="text-xs text-brand-700 mt-0.5 inline-block">View billing and plans →</Link>
         </div>
       ) : null}
     </div>

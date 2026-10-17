@@ -113,9 +113,9 @@ describe('SecurityOverview — one overview for every persona', () => {
 
   it('a missing API function is a failed request, not an empty success', async () => {
     await expect(requestManagedCases('ws1')).rejects.toBeInstanceOf(TypeError)
-    api.getManagedCases = vi.fn(async () => ({ cases: [] }))
+    api.getCases = vi.fn(async () => ({ cases: [] }))
     await expect(requestManagedCases('ws1')).resolves.toEqual({ cases: [] })
-    expect(api.getManagedCases).toHaveBeenCalledWith('ws1', { limit: 200 })
+    expect(api.getCases).toHaveBeenCalledWith('ws1', { limit: 200 })
   })
 })
 

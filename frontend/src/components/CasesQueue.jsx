@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { phaseMeta, phaseClass, domainKeyLabel, DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
+import { phaseMeta, phaseClass, domainKeyLabel, DOMAIN_KEY_LABELS, caseDisplayTitle } from '../lib/caseDisplay'
 
 export default function CasesQueue({ workspaceId, domainKey, onDomainChange }) {
   const navigate = useNavigate()
@@ -84,7 +84,7 @@ export default function CasesQueue({ workspaceId, domainKey, onDomainChange }) {
                   >
                     <td className="py-2 pr-3 text-slate-600">{domainKeyLabel(c.domain_key)}</td>
                     <td className="py-2 pr-3 text-slate-700">
-                      <span className="font-medium">{c.title || c.source_finding_type || c.case_id}</span>
+                      <span className="font-medium">{caseDisplayTitle(c)}</span>
                       {c.domain ? <span className="text-slate-400"> · {c.domain}</span> : null}
                     </td>
                     <td className="py-2 pr-3 text-slate-600">{c.owner_ref || <span className="text-slate-400">Unassigned</span>}</td>

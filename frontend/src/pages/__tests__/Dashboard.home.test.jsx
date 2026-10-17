@@ -10,7 +10,7 @@ import { api } from '../../api'
 vi.mock('../../api', () => ({
   api: {
     getWorkspaces: vi.fn(), getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceScorecard: vi.fn(),
-    getCyberMotDomains: vi.fn(), getManagedCases: vi.fn(), getScanReport: vi.fn(),
+    getCyberMotDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(),
   },
 }))
 vi.mock('../../components/OnboardingProgress', () => ({ default: () => null }))
@@ -42,7 +42,7 @@ beforeEach(() => {
   api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'example.co.uk' }] })
   api.getWorkspaceScorecard.mockResolvedValue(null)
   api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', summary: '2 issues.' }, attack_surface: { state: 'assessed_healthy', last_assessed_at: '2026-10-12T09:00:00Z', evidence_freshness: 'stale' } }) })
-  api.getManagedCases.mockResolvedValue({ cases: [] })
+  api.getCases.mockResolvedValue({ cases: [] })
   api.getScanReport.mockResolvedValue({ cyber_mot_domains: null })
 })
 

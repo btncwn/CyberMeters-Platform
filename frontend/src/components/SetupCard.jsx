@@ -1,7 +1,8 @@
 // SetupCard — the "Get set up" steps that lived on /services, now at the top
 // of Overview while setup is incomplete (founder, 17 Oct 2026). It reads the
 // same flags the launcher read — a domain exists, a Cyber MOT has run, DMARC
-// reporting is connected — and renders nothing once every step is Done.
+// reporting is connected (#673's definition: an inbound report has been received
+// AND the DMARC DNS record verifies) — and renders nothing once every step is Done.
 // Statuses are never invented: an unknown flag reads as a step still to take.
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -21,7 +22,7 @@ export function setupSteps({ hasDomain, hasScan, dmarcConnected } = {}) {
   return [
     { key: 'domain', title: 'Add or confirm your primary domain', explanation: 'Tell CyberMeters which domain to protect.', status: domain ? 'done' : 'next', actionLabel: 'Add domain', to: '/ws/domains' },
     { key: 'scan',   title: 'Run your first Cyber MOT', explanation: 'Check your website, email posture, certificates and visible external posture.', status: scan ? 'done' : domain ? 'next' : 'waiting', actionLabel: 'Start Cyber MOT', to: '/scans/new' },
-    { key: 'dmarc',  title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: dmarc ? 'done' : scan ? 'next' : 'waiting', actionLabel: 'Set up', to: '/ws/email-protection' },
+    { key: 'dmarc',  title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: dmarc ? 'done' : scan ? 'next' : 'waiting', actionLabel: dmarc ? 'Review' : 'Set up', to: '/ws/email-protection' },
   ]
 }
 
@@ -32,7 +33,9 @@ export function setupComplete(flags) {
 /**
  * Read the flags for a workspace: domains from the workspace's domain list, a
  * scan from the summary (a latest score or any report only exists after one),
- * DMARC reporting from the hosted-DMARC record of the first verified domain.
+ * DMARC reporting for the primary domain (else the first): connected only when
+ * the ingest endpoint has received a report AND the DMARC DNS record verifies.
+ * Either read failing leaves the flag unknown, which reads as not done.
  */
 export async function readSetupFlags(wsId) {
   const [s, d] = await Promise.allSettled([api.getWorkspaceSummary(wsId), api.getWorkspaceDomains(wsId)])
@@ -42,14 +45,15 @@ export async function readSetupFlags(wsId) {
   const hasDomain = domainCount == null ? null : domainCount > 0
   const hasScan = summary == null ? null : (summary.latest_score != null || (summary.reports_count || 0) > 0)
   let dmarcConnected = null
-  const primary = (domainList || []).find((x) => String(x?.verification_status || '').toLowerCase() === 'verified') || (domainList || [])[0]
-  const name = primary?.domain || primary?.name
-  if (name && typeof api.getHostedDmarc === 'function') {
-    try {
-      const hosted = await api.getHostedDmarc(wsId, name)
-      const status = String(hosted?.record?.status || hosted?.status || '').toLowerCase()
-      dmarcConnected = ['active', 'verified', 'connected'].includes(status)
-    } catch { dmarcConnected = false }
+  const name = domainList?.find((item) => item.is_primary)?.domain || domainList?.[0]?.domain
+  if (name) {
+    const [endpoint, dns] = await Promise.allSettled([
+      Promise.resolve().then(() => api.getDmarcIngestEndpoint(wsId, name)),
+      Promise.resolve().then(() => api.verifyDmarcDns(wsId, name)),
+    ])
+    if (endpoint.status === 'fulfilled' && dns.status === 'fulfilled') {
+      dmarcConnected = Boolean(endpoint.value?.endpoint?.last_inbound_at && dns.value?.status === 'verified')
+    }
   }
   return { hasDomain, hasScan, dmarcConnected }
 }

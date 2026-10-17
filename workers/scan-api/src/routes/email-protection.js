@@ -33,6 +33,32 @@ import { readLatestDomainDmarcPolicyEvidence } from "../engines/report-snapshot.
 
 const MTA_STS_POLICY_BOUNDARY = "CyberMeters manages the MTA-STS DNS policy ID. Your organisation or web provider hosts the HTTPS policy file.";
 
+export function aggregateDmarcTrafficBySource(rows = []) {
+  const disposition = { none: 0, quarantine: 0, reject: 0 };
+  const bySource = {
+    auto_ingested: { total_messages: 0, aligned_messages: 0 },
+    customer_uploaded: { total_messages: 0, aligned_messages: 0 },
+  };
+  let totalMsgs = 0, alignedMsgs = 0;
+  for (const row of rows) {
+    const msgs = Number(row.msgs) || 0;
+    const aligned = Number(row.aligned) || 0;
+    totalMsgs += msgs;
+    alignedMsgs += aligned;
+    const bucket = row.report_source === "inbound_email" ? bySource.auto_ingested : bySource.customer_uploaded;
+    bucket.total_messages += msgs;
+    bucket.aligned_messages += aligned;
+    const dispositionKey = Object.hasOwn(disposition, row.disposition) ? row.disposition : "none";
+    disposition[dispositionKey] += msgs;
+  }
+  for (const bucket of Object.values(bySource)) {
+    bucket.pass_rate = bucket.total_messages > 0
+      ? Math.round((bucket.aligned_messages / bucket.total_messages) * 1000) / 10 : null;
+  }
+  return { disposition, totalMsgs, alignedMsgs, failedMsgs: Math.max(0, totalMsgs - alignedMsgs),
+    passRate: totalMsgs > 0 ? Math.round((alignedMsgs / totalMsgs) * 1000) / 10 : null, bySource };
+}
+
 async function buildMtaStsPolicyFromLiveMx(domain) {
   let response = null;
   let lookupOk = false;
@@ -1280,27 +1306,17 @@ export async function emailProtectionRoutes(rctx) {
         const sSummary = summarizeEmailSenders(senders);
 
         const dispoRows = await env.cybermeters_db
-          .prepare(`SELECT r.disposition AS disposition, SUM(r.message_count) AS msgs,
+          .prepare(`SELECT rep.source AS report_source, r.disposition AS disposition, SUM(r.message_count) AS msgs,
                            SUM(CASE WHEN r.spf_aligned_result='pass' OR r.dkim_aligned_result='pass'
                                     THEN r.message_count ELSE 0 END) AS aligned
                     FROM dmarc_aggregate_records r
                     JOIN dmarc_aggregate_reports rep ON rep.id = r.report_id
                     WHERE r.workspace_id = ? AND r.domain = ? AND (rep.date_range_end IS NULL OR rep.date_range_end >= ?)
                       AND ${aggregateReportCompleteSql("rep", "dmarc")} AND ${dmarcOperationalSignalSourceSql("rep")}
-                    GROUP BY r.disposition`)
+                    GROUP BY rep.source, r.disposition`)
           .bind(workspaceId, domain, cutoff).all();
-        const disposition = { none: 0, quarantine: 0, reject: 0 };
-        let totalMsgs = 0, alignedMsgs = 0;
-        for (const row of (dispoRows.results || [])) {
-          const d = row.disposition || "none";
-          const msgs = row.msgs || 0;
-          totalMsgs += msgs; alignedMsgs += row.aligned || 0;
-          if (d === "quarantine") disposition.quarantine += msgs;
-          else if (d === "reject") disposition.reject += msgs;
-          else disposition.none += msgs;
-        }
-        const failedMsgs = Math.max(0, totalMsgs - alignedMsgs);
-        const passRate = totalMsgs > 0 ? Math.round((alignedMsgs / totalMsgs) * 1000) / 10 : null;
+        const { disposition, totalMsgs, alignedMsgs, failedMsgs, passRate, bySource } =
+          aggregateDmarcTrafficBySource(dispoRows.results || []);
 
         const window = await env.cybermeters_db
           .prepare(`SELECT COUNT(*) AS c, MIN(rep.date_range_begin) AS minb,
@@ -1336,6 +1352,7 @@ export async function emailProtectionRoutes(rctx) {
           evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
           authoritative: false,
           traffic: { total_messages: totalMsgs, aligned_messages: alignedMsgs, failed_messages: failedMsgs, pass_rate: passRate },
+          traffic_by_source: bySource,
           senders: { total: sSummary.total_senders, trusted: sSummary.trusted_senders, unknown: sSummary.unknown_senders,
                      suspicious: sSummary.suspicious_senders, threat: sSummary.threat_senders, ignored: sSummary.ignored_senders },
           disposition,

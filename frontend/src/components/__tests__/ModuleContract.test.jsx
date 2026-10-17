@@ -4,6 +4,7 @@ import ModuleContract, { MODULE_CONTRACT_SECTIONS } from '../module/ModuleContra
 import { MODULES } from '../../lib/moduleRegistry'
 import { api } from '../../api'
 import { ATTESTED_LABEL } from '../../lib/caseDisplay'
+import { laneCounts } from '../operations/OperationsBoard'
 
 // Every area page follows the same contract: Scope → Evidence state → Risk →
 // Findings → Recommended action → Managed case → Verification → Field Guide.
@@ -12,7 +13,7 @@ import { ATTESTED_LABEL } from '../../lib/caseDisplay'
 // state and Risk; Findings the page body and the recommended action; Cases the
 // managed cases and verification; Field Guide the guide.
 
-vi.mock('../../api', () => ({ api: { getCyberMotDomains: vi.fn(), getManagedCases: vi.fn() } }))
+vi.mock('../../api', () => ({ api: { getCyberMotDomains: vi.fn(), getCases: vi.fn() } }))
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
@@ -36,9 +37,28 @@ const chip = (el) => el.querySelector('[data-status]').dataset.status
 beforeEach(() => { vi.clearAllMocks() })
 
 describe('ModuleContract — the eight-section page contract', () => {
+  it('matches Operations open-case counts and its cases query for every domain', async () => {
+    const records = KEYS.flatMap((domain_key) => [
+      { case_id: `${domain_key}-open`, domain_key, canonical_phase: 'assigned' },
+      { case_id: `${domain_key}-closed`, domain_key, canonical_phase: 'verified', verification_support: 'automated' },
+    ])
+    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getCases.mockImplementation(async (_wsId, params) => ({ cases: records.filter((c) => c.domain_key === params.domain_key) }))
+    for (const key of KEYS) {
+      const view = show(key)
+      const risk = section('module-risk')
+      await waitFor(() => expect(within(risk).getByText('Open cases')).toBeInTheDocument())
+      const openCell = within(risk).getByText('Open cases').nextElementSibling
+      await waitFor(() => expect(openCell).toHaveTextContent('1'))
+      const lanes = laneCounts(records.filter((c) => c.domain_key === key))
+      expect(Number(openCell.textContent)).toBe(lanes.triage + lanes.in_progress + lanes.ready_to_verify)
+      expect(api.getCases).toHaveBeenCalledWith('ws1', { domain_key: key, limit: 200 })
+      view.unmount()
+    }
+  })
   it('keeps the eight sections in order, each reached through exactly one tab', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     expect(MODULE_CONTRACT_SECTIONS.map((s) => s.label)).toEqual(['Scope', 'Evidence state', 'Risk', 'Findings', 'Recommended action', 'Managed case', 'Verification', 'Field Guide'])
     const perTab = { overview: ['Scope', 'Evidence state', 'Risk'], findings: ['Findings', 'Recommended action'], cases: ['Managed case', 'Verification'], guide: ['Field Guide'] }
     const seen = []
@@ -53,7 +73,7 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('Overview: scope names the area and the workspace; the summary card never shows findings, cases or the guide', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     show()
     await waitFor(() => expect(chip(section('module-evidence-state'))).toBe('not_assessed'))
     expect(within(section('module-scope')).getByText('Website Security')).toBeInTheDocument()
@@ -63,12 +83,12 @@ describe('ModuleContract — the eight-section page contract', () => {
     expect(section('module-guide')).toBeNull()
     expect(screen.queryByRole('navigation', { name: 'On this page' })).not.toBeInTheDocument()
     expect(api.getCyberMotDomains).toHaveBeenCalledWith('ws1')
-    expect(api.getManagedCases).toHaveBeenCalledWith('ws1', { domain_key: 'website_security', limit: 100 })
+    expect(api.getCases).toHaveBeenCalledWith('ws1', { domain_key: 'website_security', limit: 200 })
   })
 
   it('Findings carries the page body; Cases links to Operations for the area; Field Guide links to the guide', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     let r = show('website_security', {}, 'findings')
     expect(within(section('module-findings')).getByText('page body')).toBeInTheDocument()
     r.unmount()
@@ -81,7 +101,7 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('every one of the eight areas resolves to its own Field Guide page and names itself in Scope', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     for (const m of MODULES) {
       let r = show(m.domainKey, {}, 'guide')
       expect(within(section('module-guide')).getByRole('link', { name: 'Open the Field Guide' }).getAttribute('href')).toMatch(/^\/guide\/[a-z-]+$/)
@@ -95,7 +115,7 @@ describe('ModuleContract — the eight-section page contract', () => {
   it('shows Loading before the reads return, then the backend word, risk figures and freshness', async () => {
     let resolveDomains
     api.getCyberMotDomains.mockReturnValue(new Promise((r) => { resolveDomains = r }))
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     show('email_protection')
     expect(chip(section('module-evidence-state'))).toBe('loading')
     expect(within(section('module-risk')).getByText(/Risk is stated only from a read assessment/)).toBeInTheDocument()
@@ -115,7 +135,7 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('backend-stale evidence reads Stale', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ certificates_trust: row('certificates_trust', 'assessed_healthy', { evidence_freshness: 'stale', freshness_reason: 'Last assessed 70 days ago — this evidence is stale and may no longer reflect the current posture.' }) }) })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     show('certificates_trust')
     await waitFor(() => expect(chip(section('module-evidence-state'))).toBe('stale'))
     expect(within(section('module-evidence-state')).getByText(/this evidence is stale/)).toBeInTheDocument()
@@ -123,7 +143,7 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('a failed eight-domain read is Error with no risk figures; a failed case read says so on every tab that shows cases', async () => {
     api.getCyberMotDomains.mockRejectedValue(new Error('boom'))
-    api.getManagedCases.mockRejectedValue(new Error('boom'))
+    api.getCases.mockRejectedValue(new Error('boom'))
     let r = show()
     await waitFor(() => expect(chip(section('module-evidence-state'))).toBe('error'))
     expect(within(section('module-evidence-state')).getByText(/could not be read/)).toBeInTheDocument()
@@ -139,20 +159,20 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('a bundle whose API has no case function shows Error for cases, not an empty settled list', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    const saved = api.getManagedCases
-    delete api.getManagedCases
+    const saved = api.getCases
+    delete api.getCases
     try {
       show('website_security', {}, 'cases')
       await waitFor(() => expect(within(section('module-cases')).getByText('Managed cases could not be read.')).toBeInTheDocument())
       expect(screen.queryByText(/No managed case exists/)).not.toBeInTheDocument()
     } finally {
-      api.getManagedCases = saved
+      api.getCases = saved
     }
   })
 
   it('a malformed or seven-entry backend set is an Error, never a state', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight().slice(0, 7) })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     show()
     await waitFor(() => expect(api.getCyberMotDomains).toHaveBeenCalled())
     await waitFor(() => expect(chip(section('module-evidence-state'))).toBe('error'))
@@ -160,7 +180,7 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('managed cases: open cases first with the case word; verification splits observed from attested; Risk counts the open cases', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    api.getManagedCases.mockResolvedValue({ cases: [
+    api.getCases.mockResolvedValue({ cases: [
       { case_id: 'c1', domain_key: 'email_protection', canonical_phase: 'awaiting_verification', verification_support: 'automated', title: 'DMARC policy missing', domain: 'example.co.uk' },
       { case_id: 'c2', domain_key: 'email_protection', canonical_phase: 'verified', verification_support: 'manual', title: 'Hosted record rolled back', domain: 'example.co.uk' },
       { case_id: 'c3', domain_key: 'email_protection', canonical_phase: 'verified', verification_support: 'automated', title: 'SPF fixed', domain: 'example.co.uk' },
@@ -189,7 +209,7 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('no cases: says there is nothing to verify, without claiming anything is verified', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     show('website_security', {}, 'cases')
     await waitFor(() => expect(within(section('module-cases')).getByText(/No managed case exists for this area/)).toBeInTheDocument())
     expect(within(section('module-verification')).getByText(/nothing to verify/)).toBeInTheDocument()
@@ -198,9 +218,9 @@ describe('ModuleContract — the eight-section page contract', () => {
 
   it('a page may add its own backend-derived recommended action above the registry note', async () => {
     api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
-    api.getManagedCases.mockResolvedValue({ cases: [] })
+    api.getCases.mockResolvedValue({ cases: [] })
     show('certificates_trust', { recommendedAction: <p>Renew the expired certificate.</p> }, 'findings')
-    await waitFor(() => expect(api.getManagedCases).toHaveBeenCalled())
+    await waitFor(() => expect(api.getCases).toHaveBeenCalled())
     expect(within(section('module-recommended')).getByText('Renew the expired certificate.')).toBeInTheDocument()
   })
 })
