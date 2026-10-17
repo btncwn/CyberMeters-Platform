@@ -10,7 +10,8 @@
 // the area page; the area name itself opens its overview. An anchor opens the
 // Findings tab unless `tab: 'overview'` says the block is a summary that lives
 // on Overview (statistic cards, coverage honesty).
-export const SERVICES = [
+import { sortByAreaOrder } from '../../../shared/areas.js'
+const SERVICE_DEFINITIONS = [
   {
     key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
     match: p => p.startsWith('/ws/email-protection'),
@@ -59,13 +60,13 @@ export const SERVICES = [
   },
   {
     key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', to: '/ws/shadow-it',
-    match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party')
-      || p.startsWith('/ws/vendors') || p.startsWith('/ws/supply-chain'),
+    match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-parties')
+      || p.startsWith('/ws/third-party') || p.startsWith('/ws/vendors') || p.startsWith('/ws/supply-chain'),
     items: [
       { to: '/ws/saas-exposure',   label: 'SaaS Exposure', desc: 'Portals and tenants observed for your domain' },
-      { to: '/ws/third-party',     label: 'Third-Party',   desc: 'Suppliers and services seen in your pages' },
-      { to: '/ws/vendors',         label: 'Vendors',       desc: 'Observed provider relationships' },
-      { to: '/ws/supply-chain',    label: 'Supply chain',  desc: 'Supplier evidence and follow-up' },
+      // One home for third parties (founder, 17 Oct 2026): the services seen in
+      // your pages, the providers behind your domain and their concentration.
+      { to: '/ws/third-parties',   label: 'Third parties', desc: 'Services, providers and dependencies observed for your domain' },
     ],
   },
   {
@@ -93,6 +94,10 @@ export const SERVICES = [
     items: [],
   },
 ]
+
+// Founder order lives in ONE place (shared/areas.js); the area sheet, the Overview
+// list and the Field Guide all derive from it.
+export const SERVICES = Object.freeze(sortByAreaOrder(SERVICE_DEFINITIONS))
 
 // Exported: Layout and the area pages use this to find the active area —
 // route→domain mapping stays defined ONCE, here.

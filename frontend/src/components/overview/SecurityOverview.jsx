@@ -72,7 +72,7 @@ export function moduleObservations(domainKey, { scorecard, critical = 0, high = 
 export function recommendedNextAction({ domainCount, hasCompletedScan, scorecard, critical = 0 } = {}) {
   const cr = scorecard?.certificate_risks?.risk_level
   const brand = scorecard?.brand_risks
-  if (domainCount === 0) return { text: 'Add your first domain so CyberMeters can start monitoring it.', cta: 'Add a domain', to: '/ws/dashboard' }
+  if (domainCount === 0) return { text: 'Add your first domain so CyberMeters can start monitoring it.', cta: 'Add a domain', to: '/ws/domains' }
   if (!hasCompletedScan) return { text: 'Run your first external scan to discover exposed assets and email posture.', cta: 'Run a scan', to: '/scans/new' }
   if (cr && ['high', 'critical'].includes(cr)) return { text: 'Certificate trust needs attention — review expiry and HTTPS posture.', cta: 'Review certificates', to: '/ws/certificates' }
   if (brand && (brand.high ?? 0) > 0) return { text: 'High-risk lookalike domains detected — review brand candidates.', cta: 'Review brand candidates', to: '/ws/brand-monitoring' }

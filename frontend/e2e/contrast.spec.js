@@ -8,13 +8,13 @@ import { installAppMock, seedSession, scan, domain } from './fixtures/app-mock.j
 // mock. A violation names the element and the colours, so the fix is exact.
 
 const APP_ROUTES = [
-  '/dashboard', '/services', '/onboarding', '/portfolio', '/portfolio/risk', '/portfolio/domains', '/workspaces',
+  '/dashboard', '/onboarding', '/portfolio', '/portfolio/risk', '/portfolio/domains', '/workspaces',
   `/workspaces/${'ws_e2e'}`, '/intelligence', '/scans', '/scans/new', `/scans/${scan.id}`, `/domain/${domain.domain}/history`,
-  '/assets', '/exposure', '/reports', '/schedules', '/accuracy', '/settings', '/account', '/account/mcp', '/account/security',
-  '/account/privacy', '/billing', '/ws/dashboard', '/ws/scorecard', '/ws/vendors', '/ws/third-party', '/ws/saas-exposure',
+  '/assets', '/exposure', '/reports', '/schedules', '/accuracy', '/account', '/account/company', '/account/mcp', '/account/security', '/account/notifications', '/account/billing',
+  '/account/privacy', '/billing', '/ws/domains', '/ws/scorecard', '/ws/third-parties', '/ws/saas-exposure',
   '/ws/shadow-it', '/ws/cloud-assets', '/ws/admin-surfaces', '/ws/certificates', '/ws/certificates/lifecycle',
   '/ws/website-security', '/ws/identity-exposure', '/ws/brand-monitoring', '/ws/identity-assets', '/ws/email-protection',
-  '/ws/reports', '/ws/executive-dashboard', '/ws/business-risk', '/ws/cyber-essentials', '/ws/supply-chain', '/ws/audit-log',
+  '/ws/reports', '/ws/executive-dashboard', '/ws/business-risk', '/ws/cyber-essentials', '/ws/audit-log',
   '/ws/members', '/ws/cases', '/ws/cases/case_1', '/ws/related-changes', '/ws/alerts', '/ws/retention', '/guide', '/academy',
   '/notifications',
 ]

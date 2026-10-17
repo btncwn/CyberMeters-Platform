@@ -29,14 +29,14 @@ export function safeLoginDestination(from) {
       path.length > 512 || typeof search !== 'string' || search.length > 1024 ||
       (search && !search.startsWith('?')) ||
       /[\\#\x00-\x1f\x7f\p{Cf}]/u.test(path + search) ||
-      path === '/login' || path === '/auth/microsoft/callback') return '/services'
+      path === '/login' || path === '/auth/microsoft/callback') return '/dashboard'
   try {
     const resolved = new URL(`${path}${search}`, APP_ORIGIN)
-    if (resolved.origin !== APP_ORIGIN || resolved.pathname !== path) return '/services'
-  } catch { return '/services' }
-  if (path === '/mcp/connect') return mcpDestination(from) ?? '/services'
+    if (resolved.origin !== APP_ORIGIN || resolved.pathname !== path) return '/dashboard'
+  } catch { return '/dashboard' }
+  if (path === '/mcp/connect') return mcpDestination(from) ?? '/dashboard'
   if ([...new URLSearchParams(search).keys()].some(key => SECRET_QUERY_KEYS.has(key.toLowerCase()))) {
-    return '/services'
+    return '/dashboard'
   }
   return `${path}${search}`
 }

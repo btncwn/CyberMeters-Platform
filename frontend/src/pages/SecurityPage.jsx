@@ -253,7 +253,16 @@ function ActiveSessions() {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export default function SecurityPage() {
+export default function SecurityPage({ embedded = false }) {
+  // Embedded in the Account page's Security tab (17 Oct 2026): no page header of its own.
+  if (embedded) {
+    return (
+      <div className="space-y-6">
+        <ActiveSessions />
+        <LoginHistory />
+      </div>
+    )
+  }
   return (
     <div className="max-w-2xl mx-auto px-6 py-10">
 

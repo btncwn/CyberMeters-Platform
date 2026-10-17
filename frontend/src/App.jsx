@@ -50,18 +50,18 @@ const AssetsPage                = lazy(() => import('./pages/AssetsPage'))
 const ExposureTimelinePage      = lazy(() => import('./pages/ExposureTimelinePage'))
 const ReportsPage               = lazy(() => import('./pages/ReportsPage'))
 const SchedulesPage             = lazy(() => import('./pages/SchedulesPage'))
-const SettingsPage              = lazy(() => import('./pages/SettingsPage'))
 const AccuracyPage              = lazy(() => import('./pages/AccuracyPage'))
 const WorkspacesPage            = lazy(() => import('./pages/WorkspacesPage'))
 const OnboardingPage            = lazy(() => import('./pages/OnboardingPage'))
 const WorkspaceDetailPage       = lazy(() => import('./pages/WorkspaceDetailPage'))
 const IntelligencePage          = lazy(() => import('./pages/IntelligencePage'))
-const ServiceLauncher           = lazy(() => import('./components/ServiceLauncher'))
 const PortfolioPage             = lazy(() => import('./pages/PortfolioPage'))
 const PortfolioRiskPage         = lazy(() => import('./pages/PortfolioRiskPage'))
 const PortfolioDomainsPage      = lazy(() => import('./pages/PortfolioDomainsPage'))
 const AccountPage               = lazy(() => import('./pages/AccountPage'))
 const AccountPrivacyPage        = lazy(() => import('./pages/AccountPrivacyPage'))
+const ThirdPartiesPage         = lazy(() => import('./pages/ws/ThirdPartiesPage'))
+const WorkspaceDomainsPage      = lazy(() => import('./pages/ws/WorkspaceDomainsPage'))
 const SecurityPage              = lazy(() => import('./pages/SecurityPage'))
 const SubscriptionPage          = lazy(() => import('./pages/SubscriptionPage'))
 const DomainVerifyPage          = lazy(() => import('./pages/DomainVerifyPage'))
@@ -75,10 +75,7 @@ const GuideEntryPage            = lazy(() => import('./pages/GuideEntryPage'))
 const NotificationsPage         = lazy(() => import('./pages/NotificationsPage'))
 
 // ── Lazy-Loaded Workspace Intelligent Subsections ───────────────────────
-const WorkspaceDashboard            = lazy(() => import('./pages/ws/WorkspaceDashboard'))
 const WorkspaceScorecard            = lazy(() => import('./pages/ws/WorkspaceScorecard'))
-const VendorsPage                   = lazy(() => import('./pages/ws/VendorsPage'))
-const ThirdPartyPage                = lazy(() => import('./pages/ws/ThirdPartyPage'))
 const SaasExposurePage              = lazy(() => import('./pages/ws/SaasExposurePage'))
 const ShadowItInventoryPage         = lazy(() => import('./pages/ws/ShadowItInventoryPage'))
 const CloudAssetsPage               = lazy(() => import('./pages/ws/CloudAssetsPage'))
@@ -95,7 +92,6 @@ const WorkspaceExecutiveDashboard   = lazy(() => import('./pages/ws/WorkspaceExe
 const WorkspaceAlertsPage           = lazy(() => import('./pages/ws/WorkspaceAlertsPage'))
 const WorkspaceBusinessRiskPage     = lazy(() => import('./pages/ws/WorkspaceBusinessRiskPage'))
 const WorkspaceCyberEssentialsPage  = lazy(() => import('./pages/ws/WorkspaceCyberEssentialsPage'))
-const WorkspaceSupplyChainPage      = lazy(() => import('./pages/ws/WorkspaceSupplyChainPage'))
 const WorkspaceAuditLogPage         = lazy(() => import('./pages/ws/WorkspaceAuditLogPage'))
 const WorkspaceMembersPage          = lazy(() => import('./pages/ws/WorkspaceMembersPage'))
 const WorkspaceCasesPage            = lazy(() => import('./pages/ws/WorkspaceCasesPage'))
@@ -191,7 +187,8 @@ function AppRoutes() {
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard"               element={<Dashboard />} />
-          <Route path="services"                element={<ServiceLauncher />} />
+          {/* /services dissolved (17 Oct 2026): its setup steps live on Overview. */}
+          <Route path="services"                element={<Navigate to="/dashboard" replace />} />
           <Route path="onboarding"              element={<OnboardingPage />} />
           <Route path="portfolio"               element={<PortfolioPage />} />
           <Route path="portfolio/risk"          element={<PortfolioRiskPage />} />
@@ -208,20 +205,29 @@ function AppRoutes() {
           <Route path="reports"                 element={<ReportsPage />} />
           <Route path="schedules"               element={<SchedulesPage />} />
           <Route path="accuracy"                element={<AccuracyPage />} />
-          <Route path="settings"                element={<SettingsPage />} />
+          {/* /settings merged into /account (17 Oct 2026): one page with sub-tabs. */}
+          <Route path="settings"                element={<Navigate to="/account" replace />} />
           <Route path="account"                 element={<AccountPage />} />
+          <Route path="account/company"         element={<AccountPage />} />
+          <Route path="account/security"        element={<AccountPage />} />
+          <Route path="account/notifications"   element={<AccountPage />} />
+          <Route path="account/billing"         element={<AccountPage />} />
+          <Route path="account/privacy"         element={<AccountPage />} />
           <Route path="account/mcp"             element={<McpConnectionsPage />} />
-          <Route path="account/security"        element={<SecurityPage />} />
-          <Route path="account/privacy"         element={<AccountPrivacyPage />} />
           <Route path="billing"                 element={<SubscriptionPage />} />
           <Route path="domains/:id/verify"      element={<DomainVerifyPage />} />
           <Route path="domains/verify-return"   element={<DomainConnectReturnPage />} />
 
           {/* Workspace intelligence subpages */}
-          <Route path="ws/dashboard"        element={<WorkspaceDashboard />} />
+          {/* "Workspace administration" dissolved (17 Oct 2026): members at /ws/members,
+              the activity feed under the audit log, domains at /ws/domains. */}
+          <Route path="ws/dashboard"        element={<Navigate to="/ws/members" replace />} />
+          <Route path="ws/domains"          element={<WorkspaceDomainsPage />} />
           <Route path="ws/scorecard"        element={<WorkspaceScorecard />} />
-          <Route path="ws/vendors"          element={<VendorsPage />} />
-          <Route path="ws/third-party"      element={<ThirdPartyPage />} />
+          {/* Third parties is one home (17 Oct 2026); the three old routes redirect. */}
+          <Route path="ws/third-parties"    element={<ThirdPartiesPage />} />
+          <Route path="ws/vendors"          element={<Navigate to="/ws/third-parties" replace />} />
+          <Route path="ws/third-party"      element={<Navigate to="/ws/third-parties" replace />} />
           <Route path="ws/saas-exposure"    element={<SaasExposurePage />} />
           <Route path="ws/shadow-it"        element={<ShadowItInventoryPage />} />
           <Route path="ws/cloud-assets"     element={<CloudAssetsPage />} />
@@ -240,7 +246,7 @@ function AppRoutes() {
           <Route path="ws/executive-dashboard" element={<WorkspaceExecutiveDashboard />} />
           <Route path="ws/business-risk"       element={<WorkspaceBusinessRiskPage />} />
           <Route path="ws/cyber-essentials"    element={<WorkspaceCyberEssentialsPage />} />
-          <Route path="ws/supply-chain"        element={<WorkspaceSupplyChainPage />} />
+          <Route path="ws/supply-chain"        element={<Navigate to="/ws/third-parties" replace />} />
           <Route path="ws/audit-log"            element={<WorkspaceAuditLogPage />} />
           <Route path="ws/members"              element={<WorkspaceMembersPage />} />
           <Route path="ws/cases"                element={<WorkspaceCasesPage />} />

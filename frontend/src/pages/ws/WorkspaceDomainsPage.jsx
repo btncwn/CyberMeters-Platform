@@ -1,61 +1,20 @@
+// WorkspaceDomainsPage — the workspace's domains: add or import them, verify
+// ownership and see how many are verified. Extracted unchanged from the
+// dissolved "Workspace administration" page (founder, 17 Oct 2026): the
+// verification wizard, the one-click DNS offer and the import widget are the
+// same code; the stat tiles, score and posture list that page carried are gone
+// (Overview owns them) and its members and activity feed moved to their own
+// homes (/ws/members, /ws/audit-log).
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import {
-  BarChart2, Shield, Server, AlertTriangle,
-  Package2, Zap, Tag, Terminal,
-  Globe, FileText, Clock, Activity,
-  ShieldCheck, ChevronDown, ChevronUp,
-} from 'lucide-react'
-import {
-  AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts'
+import { useNavigate } from 'react-router-dom'
+import { AlertTriangle, Clock, ShieldCheck, ChevronDown, ChevronUp, Activity, Globe } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
-import CyberMotDomains from '../../components/CyberMotDomains'
-import SecurityOverview, { requestManagedCases } from '../../components/overview/SecurityOverview'
-import CanonicalScore from '../../components/CanonicalScore'
-import { bandMeta } from '../../lib/score-presentation'
-import { canonicalScoreView } from '../../lib/canonical-score-presentation'
-import { useAuth } from '../../context/AuthContext'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
-import WorkspaceMembersPanel from '../../components/WorkspaceMembersPanel'
 import VerificationStatusBadge from '../../components/VerificationStatusBadge'
 import OneClickDnsButton from '../../components/OneClickDnsButton'
 import { useDomainConnectOffer } from '../../hooks/useDomainConnectOffer'
-import ActivityTimeline from '../../components/ActivityTimeline'
-import { projectedCountDisplay } from '../../lib/assetLifecycleClaimDisplay'
-
-function fmt(str) {
-  if (!str) return '—'
-  const s = /^\d{4}-\d{2}-\d{2}$/.test(str)
-    ? `${str}T00:00:00Z`
-    : str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function HealthBadge({ status }) {
-  const cfg = {
-    healthy: 'bg-brand-50 text-brand-700 border-brand-100',
-    warning: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
-    stale:   'bg-red-50 text-red-700 border-red-100',
-  }[status] ?? 'bg-gray-50 text-gray-500 border-gray-100'
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg}`}>
-      {({
-        healthy: 'Monitoring: recent',
-        warning: 'Monitoring: scan overdue',
-        stale: 'Monitoring: no recent scan',
-      })[status] ?? 'Monitoring: not available'}
-    </span>
-  )
-}
-
-// ── Verification Status Badge ────────────────────────────────────────────────
-// (imported from components/VerificationStatusBadge)
-
-// ── Domain Verification Wizard ───────────────────────────────────────────────
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
@@ -527,64 +486,31 @@ function OnboardingWidget({ wsId, onDone }) {
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
-export default function WorkspaceDashboard() {
+
+export default function WorkspaceDomainsPage() {
   const { wsId, wsName } = useWorkspace()
   if (!wsId) return <NoWorkspaceSelected />
-  return <WorkspaceDashboardContent key={wsId} wsId={wsId} wsName={wsName} />
+  return <WorkspaceDomainsContent key={wsId} wsId={wsId} wsName={wsName} />
 }
 
-function WorkspaceDashboardContent({ wsId, wsName }) {
-  const { user } = useAuth()
-  const [scorecard, setScorecard] = useState(null)
-  const [motDomains, setMotDomains] = useState([])
-  const [motRequest, setMotRequest] = useState('loading')
-  const [cases,      setCases]      = useState([])
-  const [casesRequest, setCasesRequest] = useState('loading')
-  const [timeline,  setTimeline]  = useState([])
-  const [summary,   setSummary]   = useState(null)
-  const [health,    setHealth]    = useState(null)
-  const [domains,   setDomains]   = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState(null)
+function WorkspaceDomainsContent({ wsId, wsName }) {
+  const [domains, setDomains] = useState([])
+  const [summary, setSummary] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState(null)
   const requestGeneration = useRef(0)
 
+  // Every read is scoped to the workspace that asked; a late answer for a
+  // previous workspace is ignored, and a switch clears what was shown.
   const load = useCallback(async () => {
     const generation = ++requestGeneration.current
-    setLoading(true); setError(null)
-    setScorecard(null)
-    setMotDomains([])
-    setMotRequest('loading')
-    setCases([])
-    setCasesRequest('loading')
-    setTimeline([])
-    setSummary(null)
-    setHealth(null)
-    setDomains([])
+    setLoading(true); setError(null); setDomains([]); setSummary(null)
     try {
-      const [sc, tl, sm, hl, dm, mot, mc] = await Promise.allSettled([
-        api.getWorkspaceScorecard(wsId),
-        api.getWorkspacePostureTimeline(wsId),
-        api.getWorkspaceSummary(wsId),
-        api.getWorkspaceHealth(wsId),
-        api.getWorkspaceDomains(wsId),
-        api.getCyberMotDomains(wsId),
-        requestManagedCases(wsId),
-      ])
+      const [dm, sm] = await Promise.allSettled([api.getWorkspaceDomains(wsId), api.getWorkspaceSummary(wsId)])
       if (requestGeneration.current !== generation) return
-      setMotDomains(mot.status === 'fulfilled' ? (mot.value?.cyber_mot_domains ?? []) : [])
-      setMotRequest(mot.status === 'fulfilled' && Array.isArray(mot.value?.cyber_mot_domains) ? 'ok' : 'error')
-      setCases(mc.status === 'fulfilled' && Array.isArray(mc.value?.cases) ? mc.value.cases : [])
-      setCasesRequest(mc.status === 'fulfilled' && Array.isArray(mc.value?.cases) ? 'ok' : 'error')
-      setScorecard(sc.status === 'fulfilled' ? sc.value : null)
-      setTimeline(tl.status === 'fulfilled' ? (tl.value.timeline || []).slice(-30) : [])
+      setDomains(dm.status === 'fulfilled' ? (dm.value?.domains || []) : [])
       setSummary(sm.status === 'fulfilled' ? sm.value : null)
-      setHealth(hl.status === 'fulfilled' ? hl.value : null)
-      setDomains(dm.status === 'fulfilled' ? (dm.value.domains || []) : [])
-
-      // If scorecard errored but not a hard failure, don't block
-      if (sc.status === 'rejected' && tl.status === 'rejected' && sm.status === 'rejected') {
-        throw new Error(sc.reason?.message || 'Failed to load dashboard')
-      }
+      if (dm.status === 'rejected') throw new Error(dm.reason?.message || 'Failed to load domains')
     } catch (e) {
       if (requestGeneration.current === generation) setError(e.message)
     } finally {
@@ -597,250 +523,85 @@ function WorkspaceDashboardContent({ wsId, wsName }) {
     return () => { requestGeneration.current += 1 }
   }, [load])
 
-  const sc = scorecard
-  const posture = sc?.current_posture
-  const authoritative = canonicalScoreView(posture?.authoritative)
-  const noDomains = health?.workspace_status === 'no_domains' || (summary && summary.domains === 0)
-
-  // Verification metrics — computed from the domains list already loaded
-  const verifiedCount   = domains.filter(d => d.verification_status === 'verified').length
-  const pendingCount    = domains.filter(d => ['pending', 'pending_verification'].includes(d.verification_status)).length
-  const failedCount     = domains.filter(d => ['failed', 'verification_failed'].includes(d.verification_status)).length
+  const noDomains = domains.length === 0 && (summary == null || summary.domains === 0)
+  const verifiedCount = domains.filter(d => d.verification_status === 'verified').length
+  const pendingCount  = domains.filter(d => ['pending', 'pending_verification'].includes(d.verification_status)).length
+  const failedCount   = domains.filter(d => ['failed', 'verification_failed'].includes(d.verification_status)).length
   const verificationRate = domains.length > 0 ? Math.round((verifiedCount / domains.length) * 100) : 0
-  const noScans   = health?.workspace_status === 'no_scans'
-  const hasCharts = timeline.length > 0
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
-
-      {/* ── Onboarding: no domains yet ── */}
       {noDomains ? (
         <OnboardingWidget wsId={wsId} onDone={load} />
       ) : (
         <>
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Workspace administration</h1>
-              <p className="text-sm text-gray-400 mt-0.5">
-                {wsName}
-                {sc?.last_scan_at ? ` · Last scan ${fmt(sc.last_scan_at)}` : ''}
-                {health && (
-                  <span className="ml-2 inline-flex items-center">
-                    <HealthBadge status={health.monitoring_health} />
-                  </span>
-                )}
-              </p>
+              <h1 className="text-2xl font-bold text-gray-900">Domains</h1>
+              <p className="text-sm text-gray-500 mt-0.5">{wsName} · the domains CyberMeters monitors for this workspace and whether ownership is verified.</p>
             </div>
-            <div className="card px-6 py-4 text-center" role="region" aria-label="Security score">
-              <p className="label mb-1">Security Score</p>
-              {posture?.authoritative?.label && authoritative.state === 'established' && (
-                <p className="text-xs text-gray-500 mb-1">{posture.authoritative.label}</p>
-              )}
-              <CanonicalScore assessment={posture?.authoritative} />
-              {authoritative.state === 'established' && authoritative.rating && (
-                <p className="text-xs font-semibold text-gray-400 mt-1">{bandMeta(authoritative.rating).label}</p>
-              )}
-              {posture?.latest_provisional && (
-                <div className="border-t border-gray-100 mt-3 pt-3" role="region" aria-label="Latest assessment">
-                  <p className="text-xs text-gray-500 mb-1">Latest assessment</p>
-                  <CanonicalScore assessment={posture.latest_provisional} />
-                </div>
-              )}
-            </div>
+            <button onClick={() => load()} className="btn-secondary" disabled={loading}>Refresh</button>
           </div>
 
-          {/* Summary stat cards */}
-          {summary && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-              <StatCard icon={Globe}       label="Domains"         value={summary.domains}         />
-              <StatCard icon={Server}      label="Active Assets"   value={summary.active_assets}   />
-              <StatCard icon={Package2}    label="Vendors"         value={summary.vendors}         />
-              <StatCard icon={FileText}    label="Reports"         value={summary.reports_count}   />
-              <StatCard icon={AlertTriangle} label="Critical"      value={summary.critical_findings ?? 0} danger={(summary.critical_findings ?? 0) > 0} />
-            </div>
-          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" data-testid="domain-verification-stats">
+            <StatCard icon={ShieldCheck} label="Domains verified" explanation="Ownership proven by DNS or file verification" value={`${verifiedCount} / ${domains.length}`} sub={`${verificationRate}% verification rate`} />
+            <StatCard icon={Clock} label="Pending verification" explanation="Added, not yet proven" value={pendingCount} warning={pendingCount > 0} />
+            <StatCard icon={AlertTriangle} label="Verification failed" explanation="The last check did not find the record" value={failedCount} danger={failedCount > 0} />
+          </div>
 
-          {/* Verification metrics */}
-          {domains.length > 0 && (
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              <StatCard
-                icon={ShieldCheck}
-                label="Domains Verified"
-                value={`${verifiedCount} / ${domains.length}`}
-                sub={`${verificationRate}% verification rate`}
-              />
-              <StatCard
-                icon={Clock}
-                label="Pending Verification"
-                value={pendingCount}
-                warning={pendingCount > 0}
-              />
-              <StatCard
-                icon={AlertTriangle}
-                label="Verification Failed"
-                value={failedCount}
-                danger={failedCount > 0}
-              />
-            </div>
-          )}
-
-          {/* Domain ownership verification wizard */}
           <DomainVerificationPanel domains={domains} wsId={wsId} onVerified={load} />
 
-          {/* Team members */}
-          <WorkspaceMembersPanel workspaceId={wsId} currentUser={user} />
-
-          {/* Activity timeline */}
-          <ActivityTimeline workspaceId={wsId} />
-
-          {/* Empty state: no scans yet */}
-          {/* Eight-domain Cyber MOT — the canonical state surface (M5.e).
-              Renders backend-owned states for ALL EIGHT domains; with no data
-              the shared component shows honest unavailable states. */}
-          <div className="mb-8 space-y-6">
-            <CyberMotDomains domains={motDomains} />
-            {/* The same overview a direct customer sees on /dashboard — one
-                component set for both, with this workspace's backend states. */}
-            <SecurityOverview
-              workspaceName={wsName}
-              domains={motDomains}
-              domainsRequest={motRequest}
-              cases={cases}
-              casesRequest={casesRequest}
-              signals={{ domainCount: domains.length, hasCompletedScan: !noScans, scorecard: sc, critical: sc?.critical_findings ?? 0, high: sc?.high_findings ?? 0 }}
-            />
-          </div>
-
-          {noScans ? (
-            <div className="mb-8 space-y-4">
-              {/* Hero CTA */}
-              <div className="card p-8 flex flex-col sm:flex-row sm:items-center gap-6">
-                <div className="flex-1 min-w-0">
-                  <p className="text-base font-bold text-gray-900 mb-1">Run your first Cyber MOT</p>
-                  <p className="text-sm text-gray-500 leading-relaxed">
-                    A CyberMeters scan analyses your domain's DNS configuration, SSL certificates, security headers,
-                    email security posture, exposed assets, and subdomains — producing a scored risk report in minutes.
-                  </p>
-                </div>
-                <Link to="/scans/new" className="btn-primary shrink-0 inline-flex items-center gap-2">
-                  Start Scan
-                </Link>
-              </div>
-              {/* What a scan checks */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {[
-                  { label: 'DNS & SSL',           desc: 'Certificate validity, DNS hygiene, resolver agreement'   },
-                  { label: 'Security Headers',    desc: 'CSP, HSTS, X-Frame-Options and 6 other header controls'  },
-                  { label: 'Email Security',      desc: 'SPF, DKIM, DMARC — misconfiguration is phishing risk'    },
-                  { label: 'Subdomain Discovery', desc: 'Names linked to your domain, including forgotten ones'    },
-                  { label: 'Asset Exposure',      desc: 'Open admin panels, dev environments and cloud leakage'   },
-                  { label: 'Risk Score',          desc: 'Single 0–100 Cyber Metrics Score with drill-down detail' },
-                ].map(({ label, desc }) => (
-                  <div key={label} className="card p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs font-semibold text-gray-900">{label}</span>
-                    </div>
-                    <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
-                  </div>
-                ))}
-              </div>
+          <section className="card overflow-hidden" aria-label="Domains in this workspace">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-gray-900">All domains</h2>
+              <span className="text-sm text-gray-500">{domains.length}</span>
             </div>
-          ) : (
-            <>
-              {/* KPI Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <StatCard icon={Server}        label="Active Assets"    value={sc?.active_assets ?? '—'} sub={`${sc?.new_assets_30d ?? 0} new in 30d`} />
-                <StatCard icon={AlertTriangle} label="Critical Findings" value={sc?.critical_findings ?? '—'} danger={(sc?.critical_findings ?? 0) > 0} />
-                <StatCard icon={Package2}      label="Vendors Detected" value={sc?.vendors_detected ?? '—'} warning={(sc?.vendor_risk?.high ?? 0) > 0} sub={sc?.vendor_risk?.high > 0 ? `${sc.vendor_risk.high} high-risk` : undefined} />
-                <StatCard icon={Zap}           label="SaaS Exposures"   value={sc?.saas_exposures ?? '—'} warning={(sc?.saas_exposures ?? 0) > 0} />
-                <StatCard icon={Tag}           label="Brand Risks"      value={sc?.brand_risks?.active ?? '—'} danger={(sc?.brand_risks?.high ?? 0) > 0} sub={sc?.brand_risks?.high > 0 ? `${sc.brand_risks.high} high-risk` : undefined} />
-                <StatCard icon={Terminal}      label="Admin Surfaces"   value={sc?.admin_surfaces ?? '—'} danger={(sc?.admin_surfaces ?? 0) > 0} />
-                <StatCard icon={Shield}        label="Cert Risk"        value={sc?.certificate_risks?.risk_level ?? '—'} warning={['high','critical'].includes(sc?.certificate_risks?.risk_level)} />
-                <StatCard
-                  icon={BarChart2}
-                  label="Supported/other changes (30d)"
-                  value={projectedCountDisplay(sc?.customer_asset_events_30d, sc?.lifecycle_claim_projection_30d).label}
-                  sub="lifecycle support aware"
-                />
-              </div>
+            <ul className="divide-y divide-gray-50">
+              {domains.map((d) => (
+                <li key={d.domain_id || d.id || d.domain} className="flex flex-wrap items-center gap-3 px-6 py-3">
+                  <Globe className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-medium text-gray-900 min-w-0 break-words flex-1">{d.domain || d.name}</span>
+                  <VerificationStatusBadge status={d.verification_status} />
+                </li>
+              ))}
+            </ul>
+          </section>
 
-              {/* Charts */}
-              {hasCharts && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                  <div className="card p-6">
-                    <h2 className="font-semibold text-gray-900 mb-4">Risk Score Trend</h2>
-                    <p className="text-sm text-gray-500">Score history is not available.</p>
-                  </div>
-
-                  <div className="card p-6">
-                    <h2 className="font-semibold text-gray-900 mb-4">Asset Growth</h2>
-                    <ResponsiveContainer width="100%" height={160}>
-                      <AreaChart data={timeline}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="day" tick={{ fontSize: 13, fill: '#94a3b8' }} tickFormatter={fmt} />
-                        <YAxis tick={{ fontSize: 13, fill: '#94a3b8' }} width={28} />
-                        <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                        <Area type="monotone" dataKey="asset_count" stroke="#117362" fill="#e6f4f1" strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              )}
-
-              {/* Executive Summary */}
-              {sc?.executive_summary ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="card p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-2 h-2 rounded-full bg-brand-500" />
-                      <h3 className="font-semibold text-gray-900 text-sm">Good</h3>
-                    </div>
-                    {sc.executive_summary.good.length === 0
-                      ? <p className="text-xs text-gray-400">No positive signals yet.</p>
-                      : sc.executive_summary.good.map((s, i) => (
-                          <p key={i} className="text-xs text-gray-600 mb-1.5 leading-relaxed">{s}</p>
-                        ))}
-                  </div>
-
-                  <div className="card p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-2 h-2 rounded-full bg-brand-700" />
-                      <h3 className="font-semibold text-gray-900 text-sm">Attention Required</h3>
-                    </div>
-                    {sc.executive_summary.attention_required.length === 0
-                      ? <p className="text-xs text-gray-400">Nothing requires attention.</p>
-                      : sc.executive_summary.attention_required.map((s, i) => (
-                          <p key={i} className="text-xs text-gray-600 mb-1.5 leading-relaxed">{s}</p>
-                        ))}
-                  </div>
-
-                  <div className="card p-5 border-red-100">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-2 h-2 rounded-full bg-red-500" />
-                      <h3 className="font-semibold text-gray-900 text-sm">Urgent</h3>
-                    </div>
-                    {sc.executive_summary.urgent.length === 0
-                      ? <p className="text-xs text-gray-400">No urgent issues.</p>
-                      : sc.executive_summary.urgent.map((s, i) => (
-                          <p key={i} className="text-xs text-red-700 mb-1.5 leading-relaxed">{s}</p>
-                        ))}
-                  </div>
-                </div>
-              ) : (
-                /* No executive summary — prompt to generate a report */
-                <div className="card p-10 text-center">
-                  <p className="text-gray-500 font-medium mb-1">No executive summary yet.</p>
-                  <p className="text-sm text-gray-400 mb-5">Generate your first executive report to see an AI-powered summary here.</p>
-                  <Link to="/ws/reports" className="btn-secondary mx-auto inline-flex items-center gap-2">
-                    Generate Report
-                  </Link>
-                </div>
-              )}
-            </>
-          )}
+          <div className="mt-6">
+            <AddMoreDomains wsId={wsId} onDone={load} />
+          </div>
         </>
       )}
     </WsPage>
+  )
+}
+
+/* Add more domains to a workspace that already has some: the same import call. */
+function AddMoreDomains({ wsId, onDone }) {
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  async function submit(e) {
+    e.preventDefault()
+    const domains = value.split(/[\n,\s]+/).map((d) => d.trim()).filter(Boolean)
+    if (!domains.length || busy) return
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const res = await api.importWorkspaceDomains(wsId, domains)
+      setResult(res); setValue('')
+      onDone?.()
+    } catch (err) { setError(err.message || 'The domains could not be added.') }
+    finally { setBusy(false) }
+  }
+  return (
+    <form onSubmit={submit} className="card p-6 space-y-3" aria-label="Add domains">
+      <h2 className="text-sm font-bold text-gray-900">Add domains</h2>
+      <p className="text-sm text-gray-600">One per line or comma-separated. Each new domain then needs ownership verification above.</p>
+      <textarea className="input min-h-[80px]" value={value} onChange={(e) => setValue(e.target.value)} placeholder="example.co.uk" aria-label="Domains to add" />
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {result && <p className="text-sm text-gray-700">{result.added ?? result.imported ?? 0} added{result.skipped ? ` · ${result.skipped} skipped` : ''}.</p>}
+      <button type="submit" className="btn-primary" disabled={busy || !value.trim()}>{busy ? 'Adding…' : 'Add domains'}</button>
+    </form>
   )
 }

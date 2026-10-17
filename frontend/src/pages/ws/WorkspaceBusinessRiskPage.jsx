@@ -136,7 +136,7 @@ export default function WorkspaceBusinessRiskPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Business Risk Score</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Executive risk composite across email, infrastructure, brand, and supply chain.
+              Executive risk composite across email, infrastructure, brand, and third parties.
             </p>
           </div>
           <button onClick={load} disabled={loading} className="btn-secondary flex items-center gap-2">

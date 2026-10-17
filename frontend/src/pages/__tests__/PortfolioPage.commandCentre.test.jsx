@@ -97,7 +97,7 @@ const renderPage = () => render(
   <MemoryRouter initialEntries={['/portfolio']}>
     <Routes>
       <Route path="/portfolio" element={<PortfolioPage />} />
-      <Route path="/ws/dashboard" element={<div data-testid="ws-dashboard-probe">Workspace administration</div>} />
+      <Route path="/dashboard" element={<div data-testid="ws-dashboard-probe">Overview</div>} />
     </Routes>
   </MemoryRouter>,
 )
@@ -226,7 +226,7 @@ describe('Portfolio command centre — customers across the eight areas', () => 
     }
   })
 
-  it('Open customer selects that workspace and opens Workspace administration', async () => {
+  it('Open customer selects that workspace and opens its Overview', async () => {
     okEverythingElse()
     api.getPortfolioDomains.mockResolvedValue(resp([MIXED]))
     const m = await matrix()

@@ -61,7 +61,7 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
       label:   'Add Domain',
       detail:  'Add the domain you want to monitor.',
       done:    hasDomain,
-      href:    hasWorkspace ? '/ws/dashboard' : '/onboarding',
+      href:    hasWorkspace ? '/ws/domains' : '/onboarding',
       cta:     'Add domain',
     },
     {

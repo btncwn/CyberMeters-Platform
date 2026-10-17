@@ -92,7 +92,7 @@ export default function MicrosoftCallbackPage() {
         } catch {
           // Workspace check failed — fall through to the services launcher.
         }
-        navigate(mcpDestination || '/services', { replace: true })
+        navigate(mcpDestination || '/dashboard', { replace: true })
       })
       .catch(() => {
         setError('Sign-in could not be completed in this browser. Please sign in again.')

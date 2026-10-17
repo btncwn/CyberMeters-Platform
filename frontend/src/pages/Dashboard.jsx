@@ -5,12 +5,13 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import PostureCard          from '../components/overview/PostureCard'
 import { NextActionCard } from '../components/overview/SecurityOverview'
+import SetupCard from '../components/SetupCard'
 
 // The home screen (founder, 16 Oct 2026): the question, the last assessment,
 // the scan input, the "Your external posture" card (every area with the
 // backend's word), the recommended next action and the recent scans — nothing
 // else. The score and its trend live in Reports; the eight-area overview with
-// its counts lives on the workspace overview (/ws/dashboard).
+// its counts lived on the old workspace overview, now dissolved (17 Oct 2026).
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -121,7 +122,7 @@ export function deriveInsights(scans, report) {
     actions.push({ id: 'a2', priority: 1, title: 'Investigate failed scans',      desc: `${failed} scan${failed !== 1 ? 's' : ''} stopped with an error, so ${failed !== 1 ? 'their' : 'its'} checks did not finish. Review and run ${failed !== 1 ? 'them' : 'it'} again.`, cta: 'View Scans', href: '/scans' })
   }
   if (domains.length > 0) {
-    actions.push({ id: 'a3', priority: 2, title: 'Schedule regular assessments',  desc: 'Enable weekly automated scans to track your security posture over time.', cta: 'Configure',  href: '/settings' })
+    actions.push({ id: 'a3', priority: 2, title: 'Schedule regular assessments',  desc: 'Enable weekly automated scans to track your security posture over time.', cta: 'Configure',  href: '/schedules' })
     actions.push({ id: 'a4', priority: 3, title: 'Export security report',        desc: 'Share your cyber risk posture with stakeholders or clients as a PDF.',    cta: 'Reports',    href: '/reports'  })
   }
   // Surface top recommendations from the report
@@ -413,6 +414,10 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-8">
+
+      {/* While setup is incomplete, the steps that lived on /services sit here
+          (founder, 17 Oct 2026); the card renders nothing once every step is Done. */}
+      <SetupCard workspaceId={activeWorkspaceId} />
 
       {/* Home (founder, 16 Oct 2026): the question, the last assessment, the
           scan input, then what the latest assessment could establish. */}

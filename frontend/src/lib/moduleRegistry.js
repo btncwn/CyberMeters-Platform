@@ -7,9 +7,10 @@
 // Founder order (14 Oct 2026): strongest evidence first, readiness last — the
 // same order as the service sidebar and the eight-domain display helpers.
 import { SERVICE_COLORS } from '../theme/serviceColors'
+import { sortByAreaOrder } from '../../../shared/areas.js'
 import { guideAreaForDomainKey } from '../data/fieldGuide'
 
-export const MODULES = Object.freeze([
+const MODULE_DEFINITIONS = Object.freeze([
   {
     domainKey: 'email_protection', colourKey: 'email', title: 'Email Protection', to: '/ws/email-protection',
     cta: 'Open Email Protection',
@@ -51,6 +52,9 @@ export const MODULES = Object.freeze([
     fallback: 'Review readiness evidence and saved questionnaire answers.',
   },
 ])
+
+// Founder order from shared/areas.js — the same constant the area sheet and the Field Guide use.
+export const MODULES = Object.freeze(sortByAreaOrder(MODULE_DEFINITIONS))
 
 export const MODULE_DOMAIN_KEYS = Object.freeze(MODULES.map((m) => m.domainKey))
 

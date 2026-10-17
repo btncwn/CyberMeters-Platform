@@ -37,11 +37,12 @@ import UpgradePromptModal from './shell/UpgradePromptModal'
 // surface the API would 403.
 export const MSP_NAV_FEATURE = 'portfolio_monitoring'
 
+// Founder, 17 Oct 2026: /services is gone (its setup steps live on Overview
+// while setup is incomplete), so the direct menu is Overview · Operations · Reports.
 export const DIRECT_NAV = [
-  { to: '/dashboard', label: 'Overview' },
-  { to: '/services',  label: 'Services' },
-  { to: '/ws/cases',  label: 'Cases'    },
-  { to: '/reports',   label: 'Reports'  },
+  { to: '/dashboard', label: 'Overview'   },
+  { to: '/ws/cases',  label: 'Operations' },
+  { to: '/reports',   label: 'Reports'    },
 ]
 
 export const MSP_NAV = [
@@ -177,7 +178,7 @@ export default function Layout() {
                 <EarthButton />
               </div>
             </SafeBoundary>
-            <ProfileMenu roleLabel={roleLabelFor(user)} workspaceId={wsId} />
+            <ProfileMenu roleLabel={roleLabelFor(user)} />
           </div>
         </div>
       </header>

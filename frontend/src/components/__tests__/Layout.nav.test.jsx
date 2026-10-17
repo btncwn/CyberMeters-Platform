@@ -60,7 +60,7 @@ const topBarLabels = () =>
   within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link').map(a => a.textContent)
 const header = () => screen.getByRole('banner')
 
-const DIRECT = ['Overview', 'Services', 'Cases', 'Reports']
+const DIRECT = ['Overview', 'Operations', 'Reports']
 const MSP = ['Portfolio', 'Customers', 'Operations', 'Reports']
 
 beforeEach(() => {
@@ -79,9 +79,9 @@ describe('selectNav (pure)', () => {
     expect(MSP_NAV_FEATURE).toBe('portfolio_monitoring')
   })
 
-  it('names the destinations the founder fixed — four pills, Field Guide and Billing elsewhere', () => {
+  it('names the destinations the founder fixed — three pills, Field Guide and Billing elsewhere', () => {
     expect(DIRECT_NAV.map(i => i.label)).toEqual(DIRECT)
-    expect(DIRECT_NAV.map(i => i.to)).toEqual(['/dashboard', '/services', '/ws/cases', '/reports'])
+    expect(DIRECT_NAV.map(i => i.to)).toEqual(['/dashboard', '/ws/cases', '/reports'])
     expect(MSP_NAV.map(i => i.label)).toEqual(MSP)
     expect(MSP_NAV.map(i => i.to)).toEqual(['/portfolio', '/workspaces', '/ws/cases', '/reports'])
   })
@@ -102,7 +102,7 @@ describe('Layout top bar — personas', () => {
     renderLayout({ plan: 'starter', features: DIRECT_FEATURES, usage: { workspaces: 1, domains: 1 } })
     await waitFor(() => expect(api.getAccountUsage).toHaveBeenCalled())
     expect(topBarLabels()).toEqual(DIRECT)
-    for (const label of ['Portfolio', 'Customers', 'Operations']) expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument()
+    for (const label of ['Portfolio', 'Customers', 'Services', 'Cases']) expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument()
   })
 
   it('multi-domain direct customer still gets the direct menu — count is not entitlement', async () => {
@@ -164,7 +164,7 @@ describe('Layout top bar — shape', () => {
     expect(within(h).queryByRole('link', { name: 'CyberMeters home' })).not.toBeInTheDocument()
   })
 
-  it('the account button shows the initial and opens Field Guide, Billing, Account & security, Settings and Sign out', async () => {
+  it('the account button shows the initial and opens Field Guide, Account, Billing and Sign out — account things only', async () => {
     renderLayout({ features: DIRECT_FEATURES })
     const b = within(header()).getByRole('button', { name: 'Account menu' })
     expect(b).toHaveTextContent('T')
@@ -175,26 +175,21 @@ describe('Layout top bar — shape', () => {
     expect(within(menu).getByText('Taylor Owner')).toBeInTheDocument()
     expect(within(menu).getByText('Professional plan')).toBeInTheDocument()
     const items = within(menu).getAllByRole('menuitem')
-    // No workspace selected: only the account Settings entry in the Settings group.
-    expect(items.map(i => i.textContent)).toEqual(['Field Guide', 'Billing', 'Account & security', 'Settings', 'Sign out'])
+    expect(items.map(i => i.textContent)).toEqual(['Field Guide', 'Account', 'Billing', 'Sign out'])
     expect(items[0]).toHaveAttribute('href', '/guide')
-    expect(items[1]).toHaveAttribute('href', '/billing')
-    expect(items[2]).toHaveAttribute('href', '/account')
-    expect(items[3]).toHaveAttribute('href', '/settings')
+    expect(items[1]).toHaveAttribute('href', '/account')
+    expect(items[2]).toHaveAttribute('href', '/billing')
   })
 
-  it('with a workspace selected the Settings group carries the workspace settings that left the workspace popover', () => {
+  it('with a workspace selected the account menu still carries no workspace things (they live in the workspace menu)', () => {
     renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' } })
     fireEvent.click(within(header()).getByRole('button', { name: 'Account menu' }))
-    const group = within(screen.getByTestId('profile-settings-group'))
-    const items = group.getAllByRole('menuitem')
-    expect(items.map(i => [i.textContent, i.getAttribute('href')])).toEqual([
-      ['Administration', '/ws/dashboard'], ['Alert channels', '/ws/alerts'], ['Audit log', '/ws/audit-log'], ['Usage & retention', '/ws/retention'], ['Settings', '/settings'],
-    ])
-    // Scorecard, the executive dashboard, Operations and Related changes live under Reports and Cases, not here.
-    for (const gone of ['Scorecard', 'Executive dashboard', 'Operations', 'Related changes']) {
-      expect(screen.queryByRole('menuitem', { name: gone })).not.toBeInTheDocument()
+    const menu = screen.getByRole('menu', { name: 'Account' })
+    expect(within(menu).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['Field Guide', 'Account', 'Billing', 'Sign out'])
+    for (const gone of ['Administration', 'Alert channels', 'Audit log', 'Usage & retention', 'Settings', 'Scorecard', 'Executive dashboard', 'Operations', 'Related changes']) {
+      expect(within(menu).queryByRole('menuitem', { name: gone })).not.toBeInTheDocument()
     }
+    expect(screen.queryByTestId('profile-settings-group')).not.toBeInTheDocument()
   })
 
   it('the account menu closes on Escape (focus back on the button) and on an outside click', () => {
