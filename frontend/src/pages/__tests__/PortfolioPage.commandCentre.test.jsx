@@ -131,7 +131,7 @@ describe('Portfolio command centre — customers across the eight areas', () => 
       'evidence_insufficient',
       'provisional',           // monitoring_only with partial coverage
       'established',           // assessed_healthy, current
-      'action_required',       // customer_input_required
+      'customer_input',        // customer_input_required
       'evidence_insufficient',
     ])
     expect(within(rs[0]).getByText('Customer A')).toBeInTheDocument()

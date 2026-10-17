@@ -54,7 +54,7 @@ describe('SecurityOverview — one overview for every persona', () => {
       row('cyber_essentials_readiness', 'unavailable'),
     ]
     show({ workspaceName: 'Customer A', domains, signals: { domainCount: 4, hasCompletedScan: true, critical: 1, high: 2 } })
-    expect(cards().map(chipOf)).toEqual(['action_required', 'stale', 'provisional', 'evidence_insufficient', 'established', 'established', 'action_required', 'evidence_insufficient'])
+    expect(cards().map(chipOf)).toEqual(['action_required', 'stale', 'provisional', 'evidence_insufficient', 'established', 'established', 'customer_input', 'evidence_insufficient'])
     expect(screen.getByText(/Every area for Customer A/)).toBeInTheDocument()
     expect(within(cards()[0]).getByText(/3 findings/)).toBeInTheDocument()
     expect(within(cards()[1]).getByText(/this evidence is stale/)).toBeInTheDocument()

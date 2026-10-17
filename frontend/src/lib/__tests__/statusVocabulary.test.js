@@ -18,7 +18,7 @@ describe('vocabulary', () => {
     for (const w of FOUNDER_WORDS) expect(labels).toContain(w)
     expect(labels).toContain(ATTESTED_LABEL)
     expect(labels).toContain('Closed')
-    expect(STATUS_KEYS).toHaveLength(15)
+    expect(STATUS_KEYS).toHaveLength(16)
   })
 
   it('an unknown word is shown as Error, never as a settled state', () => {
@@ -58,7 +58,8 @@ describe('domainStatus — backend eight-domain state → word', () => {
     expect(domainStatus(e('degraded'))).toBe('provisional')
     expect(domainStatus(e('assessed_healthy'))).toBe('established')
     expect(domainStatus(e('issue_detected'))).toBe('action_required')
-    expect(domainStatus(e('customer_input_required'))).toBe('action_required')
+    expect(domainStatus(e('customer_input_required'))).toBe('customer_input')
+    expect(statusMeta('customer_input').tone).toBe('hollow')
   })
 
   it('monitoring-only is established only on complete coverage', () => {
