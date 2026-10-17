@@ -91,7 +91,7 @@ function InviteForm({ workspaceId, callerRole, onSuccess }) {
       <div className="flex items-center gap-2.5 mb-5">
         <div>
           <p className="text-sm font-bold text-gray-900">Invite a team member</p>
-          <p className="text-xs text-gray-400">They'll receive a link to accept via email.</p>
+          <p className="text-xs text-gray-600">We email the invitee an accept link.</p>
         </div>
       </div>
 
