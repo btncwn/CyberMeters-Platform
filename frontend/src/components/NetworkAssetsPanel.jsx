@@ -3,6 +3,7 @@ import { RefreshCw, X } from 'lucide-react'
 import { api } from '../api'
 import LiveTlsEvidence from './LiveTlsEvidence'
 import { formatDate, parseServerDate } from '../utils/dates'
+import InternalIdCopyButton from './InternalIdCopyButton'
 
 const OBSERVATION_LABELS = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
 const RUN_LABELS = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed' }
@@ -293,7 +294,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
     {detail?.workspaceId === workspaceId && <div className="border border-brand-200 bg-brand-50/30 rounded-sm p-4 space-y-3" aria-label="Network scan evidence">
       <div className="flex justify-between items-center"><h3 className="font-semibold">Network scan evidence</h3><button aria-label="Close network scan evidence" onClick={() => { detailRequest.current += 1; setDetail(null) }}><X className="w-5 h-5" /></button></div>
       {detail.loading ? <p>Loading evidence…</p> : detail.error ? <p role="alert" className="text-red-700">{detail.error}</p> : <>
-        <p className="text-xs text-gray-500">Scan reference: {detail.scan?.id || 'Not recorded'}</p>
+        <p className="text-xs text-gray-500">Scan reference: <InternalIdCopyButton id={detail.scan?.id} label="scan" />{!detail.scan?.id && 'Not recorded'}</p>
         <Coverage coverage={detail.receipt?.coverage || detail.scan?.coverage} quality={detail.receipt?.quality || detail.scan?.quality} />
         {detail.receipt?.observations?.length ? <ObservationTable rows={detail.receipt.observations.map(row => ({ ...row, observed_at: row.observed_at || detail.receipt.finished_at }))} /> : <p className="text-sm">No measured observations are recorded for this scan.</p>}
         <ChangeList changes={(detail.changes || []).map(change => ({ ...change, scan_id: change.scan_id || detail.scan?.id, observed_at: change.observed_at || detail.receipt?.finished_at || detail.scan?.completed_at }))} />
