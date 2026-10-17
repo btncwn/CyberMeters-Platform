@@ -326,7 +326,7 @@ const persistenceDb = { prepare: (sql) => ({ bind: (...args) => {
 await upsertBrandAssets("dom_fixture", orphanCase, { cybermeters_db: persistenceDb });
 const persistedCandidates = new Set(persistedBinds.flat().filter((value) => typeof value === "string" && /\.example$/.test(value)));
 check("CM-P1-007 case-only entries are never re-persisted as generated candidates",
-  orphanCase.domains[3].generated_this_scan === false &&
+  orphanCase.domains[3]?.generated_this_scan === false &&
   persistedCandidates.has("fixture-login.example") && !persistedCandidates.has("older-fixture.example"));
 
 const unavailable = deriveBrandValidation(generated, { checkedAt: enrichmentAt, unavailable: true, reason: "enrichment_state_read_failed" });
