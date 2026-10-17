@@ -2,7 +2,7 @@
 // Regression: read `useParams().workspaceId` on a paramless /ws/* route →
 // undefined → /api/workspaces/undefined/... → 403. Now uses useWorkspace().
 // The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import ShadowItInventoryPage from '../ShadowItInventoryPage'
@@ -10,7 +10,7 @@ import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
 vi.mock('../../../api', () => ({
-  api: { getShadowItInventory: vi.fn(), shadowItAction: vi.fn() },
+  api: { getShadowItInventory: vi.fn(), getShadowItItem: vi.fn(), shadowItAction: vi.fn() },
 }))
 vi.mock('../../../hooks/useWorkspace', () => ({ useWorkspace: vi.fn() }))
 
@@ -27,6 +27,34 @@ function mount() {
 beforeEach(() => { vi.clearAllMocks() })
 
 describe('ShadowItInventoryPage — workspace resolution', () => {
+  it('shows only server-provided source evidence and loads item history', async () => {
+    useWorkspace.mockReturnValue({ wsId: WS_ID, loading: false })
+    api.getShadowItInventory.mockResolvedValue({ items: [{
+      inventory_item_id: 'item_1', display_name: 'Mail provider',
+      source_type: 'email_sender,cloud_asset', observed_identifiers: ['mx.example.test'], evidence_age_days: 5,
+      classification: 'unreviewed', ownership_status: 'missing', monitoring_status: 'observed',
+    }], counts: {}, actions: [] })
+    api.getShadowItItem.mockResolvedValue({ events: [{ id: 'event_1', event_type: 'material_change', created_at: '2026-10-16' }], linked_case: { id: 'case_1', status: 'open' } })
+    mount()
+    expect(await screen.findByText('Mail provider')).toBeInTheDocument()
+    expect(screen.getByText('Observed via DMARC report')).toBeInTheDocument()
+    expect(screen.getByText('Observed via Cloud asset')).toBeInTheDocument()
+    expect(screen.getByText('Observed identifiers: mx.example.test')).toBeInTheDocument()
+    expect(screen.getByText('Evidence age: 5 days')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'History' }))
+    expect(api.getShadowItItem).toHaveBeenCalledWith(WS_ID, 'item_1')
+    expect(await screen.findByText('material change')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'case_1' })).toHaveAttribute('href', '/ws/cases/case_1')
+  })
+
+  it('shows a failed detail read as an error', async () => {
+    useWorkspace.mockReturnValue({ wsId: WS_ID, loading: false })
+    api.getShadowItInventory.mockResolvedValue({ items: [{ inventory_item_id: 'item_1', display_name: 'Mail provider', classification: 'unreviewed' }], counts: {}, actions: [] })
+    api.getShadowItItem.mockRejectedValue({ status: 403 })
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'History' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent("Could not load this item's history")
+  })
   it('calls the API with the context wsId (never undefined) on a paramless route', async () => {
     useWorkspace.mockReturnValue({ wsId: WS_ID, loading: false })
     api.getShadowItInventory.mockResolvedValue({ items: [], counts: {}, actions: [] })

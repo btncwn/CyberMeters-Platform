@@ -85,6 +85,9 @@ describe('WorkspaceNav (module rail)', () => {
     expect(subpagesForDomainKey('identity_exposure').map(t => t.to)).toEqual([
       '/ws/identity-assets', '/ws/identity-assets#workforce-response', '/ws/identity-assets#public-sources',
     ])
+    expect(detectServiceKey('/ws/vendors')).toBe('shadow_it')
+    expect(detectServiceKey('/ws/supply-chain')).toBe('shadow_it')
+    expect(subpagesForDomainKey('shadow_it_unmanaged_technology').slice(-2).map(t => t.to)).toEqual(['/ws/vendors', '/ws/supply-chain'])
     // A summary block that lives on Overview is reached with the tab stated.
     expect(subpagesForDomainKey('brand_protection').find((t) => t.label === 'Brand Findings').to).toBe('/ws/brand-monitoring?tab=overview#brand-summary')
     expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Expiry Risk').to).toBe('/ws/certificates?tab=overview#cert-expiry')
