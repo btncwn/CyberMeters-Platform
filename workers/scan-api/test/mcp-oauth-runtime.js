@@ -305,6 +305,16 @@ export default { async fetch(request, env, ctx) {
       assert.equal(bridged.status, 200, await bridged.clone().text());
       const bridgeCookie = bridged.headers.get("Set-Cookie").split(";")[0];
       const { continue_url: continueUrl } = await bridged.json();
+      if (index === "A") {
+        const resumed = await fetch(`${origin}/api/mcp/oauth/browser-session`, {
+          method: "POST", headers: { Origin: origin, Authorization: `Bearer ${session}`,
+            Cookie: bridgeCookie, "Content-Type": "application/json" },
+          body: JSON.stringify({ intent }),
+        });
+        assert.equal(resumed.status, 200, await resumed.clone().text());
+        assert.equal(resumed.headers.get("Set-Cookie"), null);
+        assert.equal((await resumed.json()).continue_url, continueUrl);
+      }
       const consent = await fetch(continueUrl, { headers: { Cookie: bridgeCookie } });
       assert.equal(consent.status, 200, await consent.clone().text());
       const html = await consent.text();

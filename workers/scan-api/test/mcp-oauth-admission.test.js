@@ -684,9 +684,10 @@ test("browser bridge binds an opaque cookie to a verified web session and one in
   const intent = await createMcpOAuthIntent(authorize, env);
   assert.ok(intent);
   assert.ok(await readMcpOAuthIntent(env, intent));
-  const bridgeRequest = (origin, bearer) => new Request(`${issuer}/api/mcp/oauth/browser-session`, {
+  const bridgeRequest = (origin, bearer, cookie) => new Request(`${issuer}/api/mcp/oauth/browser-session`, {
     method: "POST", headers: { Origin: origin, "Content-Type": "application/json",
-      Authorization: `Bearer ${bearer}` }, body: JSON.stringify({ intent }),
+      Authorization: `Bearer ${bearer}`, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify({ intent }),
   });
   assert.equal((await bridgeMcpOAuthBrowserSession(bridgeRequest("https://evil.example", rawSession), env)).status, 400);
   assert.equal((await bridgeMcpOAuthBrowserSession(bridgeRequest("https://app.cybermeters.com", `cm_${"a".repeat(64)}`), env)).status, 401);
@@ -696,6 +697,21 @@ test("browser bridge binds an opaque cookie to a verified web session and one in
   assert.match(response.headers.get("Set-Cookie"), /HttpOnly; Secure; SameSite=Lax/);
   const cookie = response.headers.get("Set-Cookie").split(";")[0];
   const intentRow = await readMcpOAuthIntent(env, intent);
+  const resumed = await bridgeMcpOAuthBrowserSession(
+    bridgeRequest("https://app.cybermeters.com", rawSession, cookie), env);
+  assert.equal(resumed.status, 200, "browser Back can resume the same handoff");
+  assert.equal(resumed.headers.get("Set-Cookie"), null, "resume must not mint a new cookie");
+  assert.deepEqual(await resumed.json(), await response.json());
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM mcp_oauth_browser_sessions").get().n, 1);
+  assert.equal((await bridgeMcpOAuthBrowserSession(
+    bridgeRequest("https://app.cybermeters.com", rawSession), env)).status, 409,
+  "the intent URL without its cookie cannot take over the existing handoff");
+  const secondSession = "b".repeat(64);
+  sqlite.prepare(`INSERT INTO user_sessions VALUES ('s2','u1',?, '2099-01-01')`)
+    .run(await hashToken(secondSession));
+  assert.equal((await bridgeMcpOAuthBrowserSession(
+    bridgeRequest("https://app.cybermeters.com", secondSession, cookie), env)).status, 409,
+  "a different web session cannot resume the handoff, even with its cookie");
   assert.equal((await readMcpOAuthBrowserSession(new Request(`${issuer}/authorize`,
     { headers: { Cookie: cookie } }), env, intentRow.id_hash)).user_id, "u1");
   assert.equal(await readMcpOAuthBrowserSession(new Request(`${issuer}/authorize`,

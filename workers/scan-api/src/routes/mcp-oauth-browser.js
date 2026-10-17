@@ -285,6 +285,17 @@ export async function bridgeMcpOAuthBrowserSession(request, env, options = {}) {
   if (!intent || !(await listMcpOAuthConsentWorkspaces(env, session.user_id))) {
     return mcpOAuthJson(request, { error: "unavailable" }, 403, options);
   }
+  const continueUrl = `${options.issuer ?? "https://api.cybermeters.com"}/authorize?intent=${body.intent}`;
+  // Browser Back may revisit the app handoff after this session was created.
+  // Resume only with its existing host-only cookie and the same web session;
+  // never mint a second cookie for someone holding only the intent URL.
+  const existing = await readMcpOAuthBrowserSession(request, env, intent.id_hash);
+  if (existing) {
+    if (existing.user_id !== session.user_id || existing.web_session_id !== session.session_id) {
+      return mcpOAuthJson(request, { error: "unavailable" }, 409, options);
+    }
+    return mcpOAuthJson(request, { continue_url: continueUrl }, 200, options);
+  }
   const opaque = randomOpaque();
   const cookieHash = await hashToken(opaque);
   try {
@@ -300,7 +311,7 @@ export async function bridgeMcpOAuthBrowserSession(request, env, options = {}) {
     "Content-Type": "application/json; charset=utf-8", ...cors,
     "Set-Cookie": `${COOKIE_NAME}=${opaque}; Path=/; Max-Age=${INTENT_SECONDS}; HttpOnly; Secure; SameSite=Lax`,
   };
-  return response(JSON.stringify({ continue_url: `${options.issuer ?? "https://api.cybermeters.com"}/authorize?intent=${body.intent}` }), 200, headers);
+  return response(JSON.stringify({ continue_url: continueUrl }), 200, headers);
 }
 
 export function expireMcpOAuthBrowserCookie(headers) {
