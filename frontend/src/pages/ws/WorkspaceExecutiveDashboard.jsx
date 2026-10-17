@@ -146,7 +146,7 @@ function SevBadge({ severity }) {
   const s = severity?.toLowerCase()
   const cls = {
     critical: 'bg-red-100 text-red-700',
-    high:     'bg-red-50 text-red-600',
+    high:     'bg-red-50 text-red-700',
     medium:   'bg-yellow-100 text-yellow-700',
     low:      'bg-brand-200 text-brand-900',
     info:     'bg-gray-100 text-gray-600',
@@ -195,7 +195,7 @@ function TopRisksTable({ risks }) {
 function ChangesWidget({ changes }) {
   const { score_current, score_previous, score_delta, score_direction, new_assets_7d } = changes ?? {}
   const deltaColor = score_direction === 'up' ? 'text-brand-700'
-    : score_direction === 'down' ? 'text-red-500' : 'text-gray-400'
+    : score_direction === 'down' ? 'text-red-700' : 'text-gray-400'
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -353,7 +353,7 @@ export default function WorkspaceExecutiveDashboard() {
           label="High Findings"
           value={s.high_findings ?? 0}
           sub="Last 30 days"
-          color={s.high_findings > 0 ? 'text-red-600' : 'text-gray-500'}
+          color={s.high_findings > 0 ? 'text-red-700' : 'text-gray-500'}
         />
       </div>
 

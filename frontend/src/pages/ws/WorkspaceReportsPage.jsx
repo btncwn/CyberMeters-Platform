@@ -179,12 +179,12 @@ function ScheduledReportsCard({ wsId }) {
             </div>
           </div>
           {createErr && (
-            <p className="mt-2 text-xs text-red-500">{createErr}</p>
+            <p className="mt-2 text-xs text-red-700">{createErr}</p>
           )}
         </div>
       )}
 
-      {error && <p className="text-xs text-red-500 py-2">{error}</p>}
+      {error && <p className="text-xs text-red-700 py-2">{error}</p>}
 
       {!loading && !error && schedules.length === 0 && (
         <div className="py-8 text-center">
@@ -215,14 +215,14 @@ function ScheduledReportsCard({ wsId }) {
                 >
                   {sr.enabled
                     ? <ToggleRight className="w-5 h-5 text-brand-700" />
-                    : <ToggleLeft  className="w-5 h-5 text-gray-300"  />
+                    : <ToggleLeft  className="w-5 h-5 text-gray-600"  />
                   }
                 </button>
                 <button
                   onClick={() => handleDelete(sr.id)}
                   title="Delete schedule"
                   aria-label="Delete schedule"
-                  className="text-gray-300 hover:text-red-500 transition-colors"
+                  className="text-gray-600 hover:text-red-500 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -465,7 +465,7 @@ function WorkspaceReports({ wsId, wsName }) {
             {scans.map(scan => <option key={scan.id} value={scan.id}>{scan.domain} · {fmtDateTime(scan.created_at)} · {scan.id.slice(-8)}</option>)}
           </select>
           <p className="text-sm text-gray-500 mt-2">Executive summary of this scan only. Download its technical PDF from the scan details.</p>
-          {scansError && <p role="alert" className="text-sm text-red-600 mt-2">{scansError} <button onClick={() => setScanRetry(v => v + 1)} className="underline">Retry scan list</button></p>}
+          {scansError && <p role="alert" className="text-sm text-red-700 mt-2">{scansError} <button onClick={() => setScanRetry(v => v + 1)} className="underline">Retry scan list</button></p>}
           {!scansLoading && !scansError && scans.length === 0 && <p className="text-sm text-gray-500 mt-2">No completed scans are available in the recent scan history.</p>}
         </div>
       ) : (
@@ -481,9 +481,9 @@ function WorkspaceReports({ wsId, wsName }) {
 
       {/* Generation error */}
       {genError && (
-        <div className="mb-6 flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+        <div className="mb-6 flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
           {genError}
-          <button onClick={() => setGenError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
+          <button onClick={() => setGenError(null)} className="ml-auto text-red-700 hover:text-red-800">✕</button>
         </div>
       )}
 
@@ -571,14 +571,14 @@ function WorkspaceReports({ wsId, wsName }) {
                             PDF
                           </button>
                         ) : report.status === 'failed' ? (
-                          <span className="text-xs text-red-400">Failed</span>
+                          <span className="text-xs text-red-700">Failed</span>
                         ) : (
-                          <span className="text-xs text-gray-300">—</span>
+                          <span className="text-xs text-gray-600">—</span>
                         )}
                         <button
                           onClick={() => setDeleteTarget(report)}
                           disabled={deleting}
-                          className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-red-500 hover:text-red-600 disabled:opacity-50"
+                          className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-red-700 hover:text-red-800 disabled:opacity-50"
                         >
                           Delete
                         </button>

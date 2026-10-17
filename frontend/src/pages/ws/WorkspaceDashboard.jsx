@@ -253,7 +253,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                     >
                       {isActive ? 'Selected' : 'Verify here →'}
                     </button>
-                    <span className="text-gray-200">·</span>
+                    <span className="text-gray-600">·</span>
                     <button
                       onClick={e => { e.stopPropagation(); openVerifyPage(d); }}
                       className="text-xs text-gray-400 hover:text-gray-600"
@@ -301,7 +301,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                           : 'Get Verification Instructions'
                         }
                       </button>
-                      {genError && <p className="mt-2 text-xs text-red-500">{genError}</p>}
+                      {genError && <p className="mt-2 text-xs text-red-700">{genError}</p>}
                     </div>
                   ) : tab === 'dns' ? (
                     <div className="space-y-3">
@@ -398,7 +398,7 @@ function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
                     <div className={`w-full flex items-start gap-2 p-3 rounded-xl text-sm border ${
                       verifyResult.success
                         ? 'bg-brand-50 border-brand-100 text-brand-700'
-                        : 'bg-red-50 border-red-100 text-red-600'
+                        : 'bg-red-50 border-red-100 text-red-700'
                     }`}>
                       <div>
                         <p className="font-medium">{verifyResult.success ? 'Verified!' : 'Verification failed'}</p>
@@ -517,7 +517,7 @@ function OnboardingWidget({ wsId, onDone }) {
       )}
 
       {importError && (
-        <div className="mt-5 p-4 bg-red-50 rounded-xl text-sm text-red-600">
+        <div className="mt-5 p-4 bg-red-50 rounded-xl text-sm text-red-700">
           {importError}
         </div>
       )}

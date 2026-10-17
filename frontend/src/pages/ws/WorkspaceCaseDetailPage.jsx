@@ -172,7 +172,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
               </button>
             ))}
           </div>
-          {actionError && <p className="mt-3 text-sm text-red-600" role="alert">{actionError}</p>}
+          {actionError && <p className="mt-3 text-sm text-red-700" role="alert">{actionError}</p>}
         </>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
@@ -186,7 +186,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
 
           {selected.requires_note && (
             <label className="block">
-              <span className="block text-sm font-medium text-slate-700 mb-1">Reason <span className="text-red-500">*</span></span>
+              <span className="block text-sm font-medium text-slate-700 mb-1">Reason <span className="text-red-700">*</span></span>
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -199,7 +199,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
 
           {selected.requires_expiry && (
             <label className="block">
-              <span className="block text-sm font-medium text-slate-700 mb-1">Accepted until <span className="text-red-500">*</span></span>
+              <span className="block text-sm font-medium text-slate-700 mb-1">Accepted until <span className="text-red-700">*</span></span>
               <input
                 type="date"
                 value={expiry}
@@ -217,7 +217,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
                 </p>
               </div>
               <label className="block">
-                <span className="block text-sm font-medium text-slate-700 mb-1">Attestation statement <span className="text-red-500">*</span></span>
+                <span className="block text-sm font-medium text-slate-700 mb-1">Attestation statement <span className="text-red-700">*</span></span>
                 <textarea
                   value={attestation}
                   onChange={(e) => setAttestation(e.target.value)}
@@ -229,7 +229,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
             </div>
           )}
 
-          {actionError && <p className="text-sm text-red-600" role="alert">{actionError}</p>}
+          {actionError && <p className="text-sm text-red-700" role="alert">{actionError}</p>}
 
           <div className="flex flex-wrap gap-2 pt-1">
             <button

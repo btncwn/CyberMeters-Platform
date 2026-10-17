@@ -58,7 +58,7 @@ export default function TeamOnboardingCard() {
         </div>
         <button
           onClick={dismiss}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-600 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
           aria-label="Dismiss team invitation card"
         >
           <X className="w-4 h-4" />

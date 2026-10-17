@@ -22,7 +22,7 @@ import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleCon
 
 const SEVERITY = {
   critical: { label: 'Critical', pill: 'bg-red-50 text-red-700 border-red-100',       dot: 'bg-red-500',    rank: 0 },
-  high:     { label: 'High',     pill: 'bg-red-50 text-red-600 border-red-100', dot: 'bg-red-500', rank: 1 },
+  high:     { label: 'High',     pill: 'bg-red-50 text-red-700 border-red-100', dot: 'bg-red-500', rank: 1 },
   medium:   { label: 'Medium',   pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',  dot: 'bg-brand-700',  rank: 2 },
   low:      { label: 'Low',      pill: 'bg-blue-50 text-blue-700 border-blue-100',     dot: 'bg-blue-500',   rank: 3 },
   info:     { label: 'Info',     pill: 'bg-gray-100 text-gray-600 border-gray-200',    dot: 'bg-gray-400',   rank: 4 },
@@ -106,7 +106,7 @@ function DmarcJourney({ journey }) {
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors ${
                     current ? 'bg-brand-200 border-brand-200 text-brand-900 ring-4 ring-brand-100'
                     : done ? 'bg-brand-50 border-brand-300 text-brand-700'
-                    : 'bg-white border-gray-200 text-gray-300'
+                    : 'bg-white border-gray-200 text-gray-600'
                   }`}>
                     {i + 1}
                   </div>
@@ -238,12 +238,12 @@ function SpfCard({ spf, detail, wsId, domain }) {
       {detail?.policy_strength && <KV k="Policy strength" v={<span className="capitalize">{detail.policy_strength}</span>} />}
       {live?.status === 'ok' ? (
         <KV k="DNS lookups (live)" v={
-          <span className={live.over_limit ? 'text-red-600 font-bold' : 'text-brand-700 font-semibold'}>
+          <span className={live.over_limit ? 'text-red-700 font-bold' : 'text-brand-700 font-semibold'}>
             {live.lookups_used} / {live.lookup_limit}{live.over_limit ? ' — limit exceeded' : ''}{live.truncated ? ' (partial)' : ''}
           </span>} />
       ) : typeof detail?.lookup_count_estimate === 'number' && (
         <KV k="DNS lookups (est.)" v={
-          <span className={detail.lookup_count_estimate > 10 ? 'text-red-600 font-bold' : ''}>
+          <span className={detail.lookup_count_estimate > 10 ? 'text-red-700 font-bold' : ''}>
             {detail.lookup_count_estimate}{detail.lookup_count_estimate > 10 ? ' / 10 limit exceeded' : ' / 10'}
           </span>} />
       )}
@@ -293,7 +293,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
               <Warnings items={live.warnings} />
               {live.over_limit && live.flattened?.suggested_record && (
                 <div>
-                  <p className="text-xs font-semibold text-red-600 mb-1">
+                  <p className="text-xs font-semibold text-red-700 mb-1">
                     Over the 10-lookup limit — receivers may permerror. Flattened alternative:
                   </p>
                   <DnsValue value={live.flattened.suggested_record} />
@@ -421,7 +421,7 @@ function ActionCard({ action }) {
           </div>
           {action.issue && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{action.issue}</p>}
         </div>
-        <ChevronDown className={`w-4 h-4 text-gray-300 shrink-0 mt-1 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-4 h-4 text-gray-600 shrink-0 mt-1 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="px-5 pb-5 pt-1 space-y-3 border-t border-gray-50">
@@ -649,13 +649,13 @@ const BEC_DOT = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-
 function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
   if (!rows || rows.length < 2) return null
   const cell = (ok) => ok === true ? <span className="text-xs font-semibold text-brand-700">Yes</span>
-    : ok === false ? <span className="text-gray-300">—</span>
-    : <span className="text-gray-300 text-xs">·</span>
+    : ok === false ? <span className="text-gray-600">—</span>
+    : <span className="text-gray-600 text-xs">·</span>
   const compCell = (c) => c == null
-    ? <span className="text-gray-300 text-xs">not measured</span>
+    ? <span className="text-gray-600 text-xs">not measured</span>
     : <span className={`text-xs font-bold tabular-nums ${c >= 95 ? 'text-brand-700' : c >= 80 ? 'text-brand-700' : 'text-red-700'}`}>{c}%</span>
   const becCell = (b) => !b
-    ? <span className="text-gray-300 text-xs">·</span>
+    ? <span className="text-gray-600 text-xs">·</span>
     : <span className={`text-xs font-bold ${BEC_DOT[String(b).toLowerCase()] || 'text-gray-500'}`}>{titleCase(b)}</span>
   return (
     <section className="card overflow-hidden">
@@ -690,7 +690,7 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
                 <td className="text-center">{cell(r.spf)}</td>
                 <td className="text-center">{cell(r.dkim)}</td>
                 <td className="text-center">{cell(r.bimi)}</td>
-                <td className="text-center"><span className={`text-xs font-bold ${r.openActions > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.openActions}</span></td>
+                <td className="text-center"><span className={`text-xs font-bold ${r.openActions > 0 ? 'text-red-700' : 'text-gray-400'}`}>{r.openActions}</span></td>
                 <td><span className="text-xs text-gray-400">{r.lastScan ? fmtDate(r.lastScan) : '—'}</span></td>
               </tr>
             ))}
@@ -741,12 +741,12 @@ const AUTO_CLASSIFY = {
   mailing_list:      { label: 'Mailing list',      pill: 'bg-purple-50 text-purple-700 border-purple-100' },
   misconfigured:     { label: 'Misconfigured',     pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
   unknown:           { label: 'Unknown',           pill: 'bg-gray-100 text-gray-500 border-gray-200' },
-  suspicious:        { label: 'Suspicious',        pill: 'bg-red-50 text-red-600 border-red-100' },
+  suspicious:        { label: 'Suspicious',        pill: 'bg-red-50 text-red-700 border-red-100' },
   unauthorised:      { label: 'Unauthorised',      pill: 'bg-red-50 text-red-700 border-red-100' },
 }
 const RISK = {
   critical: 'bg-red-50 text-red-700 border-red-100',
-  high:     'bg-red-50 text-red-600 border-red-100',
+  high:     'bg-red-50 text-red-700 border-red-100',
   medium:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   low:      'bg-gray-100 text-gray-500 border-gray-200',
 }
@@ -799,7 +799,7 @@ function EnforcementReadiness({ readiness }) {
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
                     current ? 'bg-brand-200 border-brand-200 text-brand-900 ring-4 ring-brand-100'
                     : done ? 'bg-brand-50 border-brand-300 text-brand-700'
-                    : 'bg-white border-gray-200 text-gray-300'}`}>
+                    : 'bg-white border-gray-200 text-gray-600'}`}>
                     {i + 1}
                   </div>
                   <span className={`mt-2 text-xs font-semibold whitespace-nowrap ${current ? 'text-brand-700' : done ? 'text-gray-600' : 'text-gray-400'}`}>{s.label}</span>
@@ -982,7 +982,7 @@ function DmarcSummaryPanel({ summary }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {tile('Total messages', (t.total_messages ?? 0).toLocaleString(), 'observed')}
         {tile('Aligned', (t.aligned_messages ?? 0).toLocaleString(), 'passed SPF/DKIM', 'text-brand-700')}
-        {tile('Failed', (t.failed_messages ?? 0).toLocaleString(), 'failed alignment', (t.failed_messages ?? 0) > 0 ? 'text-red-600' : '')}
+        {tile('Failed', (t.failed_messages ?? 0).toLocaleString(), 'failed alignment', (t.failed_messages ?? 0) > 0 ? 'text-red-700' : '')}
         {tile('Pass rate', `${t.pass_rate ?? 0}%`, 'aligned share')}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1045,11 +1045,11 @@ function SenderRow({ sender, onClassify, classifying }) {
           {sender.provider_confidence && <span className="block text-xs text-gray-400">{sender.provider_confidence} confidence</span>}
         </td>
         <td className="text-right"><span className="text-sm font-semibold text-gray-900">{(sender.total_messages ?? 0).toLocaleString()}</span></td>
-        <td className="text-right"><span className={`text-sm font-semibold ${(sender.pass_rate ?? 0) < 90 ? 'text-red-600' : 'text-gray-900'}`}>{sender.pass_rate ?? 0}%</span></td>
-        <td className="text-right"><span className={`text-sm ${(sender.failed_messages ?? 0) > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{(sender.failed_messages ?? 0).toLocaleString()}</span></td>
+        <td className="text-right"><span className={`text-sm font-semibold ${(sender.pass_rate ?? 0) < 90 ? 'text-red-700' : 'text-gray-900'}`}>{sender.pass_rate ?? 0}%</span></td>
+        <td className="text-right"><span className={`text-sm ${(sender.failed_messages ?? 0) > 0 ? 'text-red-700 font-semibold' : 'text-gray-400'}`}>{(sender.failed_messages ?? 0).toLocaleString()}</span></td>
         <td><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border capitalize ${riskCls}`}>{sender.risk_level || 'low'}</span></td>
         <td><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${cls.pill}`}>{cls.label}</span></td>
-        <td className="text-right"><ChevronDown className={`w-4 h-4 text-gray-300 inline transition-transform ${open ? 'rotate-180' : ''}`} /></td>
+        <td className="text-right"><ChevronDown className={`w-4 h-4 text-gray-600 inline transition-transform ${open ? 'rotate-180' : ''}`} /></td>
       </tr>
       {open && (
         <tr className="bg-gray-50/40">
@@ -1150,7 +1150,7 @@ function EmailLifecycleHistory({ data, error }) {
         The record behind your email alerts: when a condition began, recovered, or came back.
       </p>
 
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
       {!data && !error && <p className="mt-3 text-sm text-gray-400">Loading…</p>}
       {data && items.length === 0 && (
         <p className="mt-3 text-sm text-gray-500">
@@ -1388,7 +1388,7 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
           <button onClick={submit} disabled={!xml.trim() || importing} className="btn-primary disabled:opacity-50">
             {importing ? <><RefreshCw className="w-4 h-4 animate-spin" /> Importing…</> : 'Import report'}
           </button>
-          {error && <span className="text-sm text-red-600">{error}</span>}
+          {error && <span className="text-sm text-red-700">{error}</span>}
         </div>
         {result && (
           <div className={`rounded-xl border p-4 ${result.imported ? 'border-brand-100 bg-brand-50/50' : result.duplicate ? 'border-[1.5px] border-brand-700 bg-transparent' : 'border-gray-200 bg-gray-50'}`}>
@@ -1667,20 +1667,20 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                     <button onClick={() => run(() => api.rotateDmarcIngestEndpoint(wsId, domain), 'Rotate the upload key? The current token stops working immediately.')} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">
                       {rawToken ? 'Rotate again' : 'Generate token'}
                     </button>
-                    <button onClick={() => run(() => api.revokeDmarcIngestEndpoint(wsId, domain), 'Revoke this endpoint? Inbound email and signed uploads will be rejected.')} disabled={busy} className="text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
+                    <button onClick={() => run(() => api.revokeDmarcIngestEndpoint(wsId, domain), 'Revoke this endpoint? Inbound email and signed uploads will be rejected.')} disabled={busy} className="text-sm text-red-700 hover:text-red-800 font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
                       Revoke
                     </button>
                   </div>
                   <div className="space-y-1.5">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Example upload</p>
-                    <pre className="mono text-xs bg-gray-900 text-gray-100 rounded-xl p-4 overflow-x-auto whitespace-pre">{curl}</pre>
+                    <pre className="mono text-xs bg-gray-900 text-white/80 rounded-xl p-4 overflow-x-auto whitespace-pre">{curl}</pre>
                   </div>
                 </div>
               )}
             </div>
           </>
         )}
-        {err && <span className="text-sm text-red-600">{err}</span>}
+        {err && <span className="text-sm text-red-700">{err}</span>}
       </div>
     </section>
   )
@@ -1756,7 +1756,7 @@ function TlsRptHealthCard({ wsId, domain }) {
 
   if (!data) return null // self-hide while loading or when no reports yet
   const rate = data.success_rate
-  const rateCls = rate == null ? 'text-gray-400' : rate >= 99 ? 'text-brand-700' : rate >= 95 ? 'text-brand-700' : 'text-red-600'
+  const rateCls = rate == null ? 'text-gray-400' : rate >= 99 ? 'text-brand-700' : rate >= 95 ? 'text-brand-700' : 'text-red-700'
   return (
     <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1839,7 +1839,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
         )}
       </div>
 
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
 
       {!rec ? (
         <div className="mt-3">
@@ -1890,7 +1890,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
                   }
                 }}
                 disabled={Boolean(busy)}
-                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+                className="text-xs text-gray-400 hover:text-red-800 disabled:opacity-50"
               >
                 Stop hosting
               </button>
@@ -1955,7 +1955,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
         )}
       </div>
 
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
 
       {!rec ? (
         <div className="mt-3">
@@ -2034,7 +2034,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
                   }
                 }}
                 disabled={Boolean(busy)}
-                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+                className="text-xs text-gray-400 hover:text-red-800 disabled:opacity-50"
               >
                 Stop DNS management
               </button>
@@ -2164,7 +2164,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                   }
                 }}
                 disabled={Boolean(busy)}
-                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+                className="text-xs text-gray-400 hover:text-red-800 disabled:opacity-50"
               >
                 Stop managing
               </button>
@@ -2199,7 +2199,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                   <div className="text-right">
                     <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">7-day compliance</p>
                     <p className={`text-2xl font-black tabular-nums leading-none mt-1 ${
-                      ramp.compliance.pass_rate == null ? 'text-gray-300'
+                      ramp.compliance.pass_rate == null ? 'text-gray-600'
                       : ramp.compliance.pass_rate >= 97 ? 'text-brand-700' : 'text-brand-700'}`}>
                       {ramp.compliance.pass_rate != null ? `${ramp.compliance.pass_rate}%` : '—'}
                     </p>
@@ -2349,7 +2349,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
           )}
         </div>
       )}
-      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+      {error && <p className="text-xs text-red-700 mt-2">{error}</p>}
     </div>
   )
 }
@@ -2597,7 +2597,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
             </div>
           </>
         )}
-        {err && <span className="text-sm text-red-600">{err}</span>}
+        {err && <span className="text-sm text-red-700">{err}</span>}
       </div>
     </section>
   )
@@ -2615,7 +2615,7 @@ function EpStatusChecklist({ items }) {
     done:    { cls: 'text-brand-700',  txt: 'Done' },
     needs:   { cls: 'text-brand-700',  txt: 'Needs action' },
     waiting: { cls: 'text-gray-400',   txt: 'Waiting' },
-    unknown: { cls: 'text-gray-300',   txt: 'Unknown' },
+    unknown: { cls: 'text-gray-600',   txt: 'Unknown' },
   }
   return (
     <div className="card p-5">
@@ -2906,7 +2906,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentatio
           <span className="text-sm text-brand-700 font-medium">Results refresh once the scan completes.</span>
         ) : (
           <div className="flex items-center gap-2">
-            {rescan === 'error' && <span className="text-xs text-red-600 font-medium">Couldn’t start — retry</span>}
+            {rescan === 'error' && <span className="text-xs text-red-700 font-medium">Couldn’t start — retry</span>}
             <button
               onClick={() => (next.rescan ? handleRescan() : onGoto?.(next.to))}
               disabled={rescan === 'starting'}

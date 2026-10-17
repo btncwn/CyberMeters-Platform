@@ -19,8 +19,8 @@ import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
 // ── Severity / type helpers ────────────────────────────────────────────────────
 
 const SEVERITY_CFG = {
-  critical: { dot: 'bg-red-500',    text: 'text-red-600',    bg: 'bg-red-50'    },
-  high:     { dot: 'bg-red-500', text: 'text-red-600', bg: 'bg-red-50' },
+  critical: { dot: 'bg-red-500',    text: 'text-red-700',    bg: 'bg-red-50'    },
+  high:     { dot: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50' },
   medium:   { dot: 'bg-brand-700',  text: 'text-brand-700',  bg: 'bg-transparent'  },
   low:      { dot: 'bg-blue-400',   text: 'text-blue-600',   bg: 'bg-blue-50'   },
   info:     { dot: 'bg-gray-300',   text: 'text-gray-500',   bg: 'bg-gray-50'   },
@@ -299,7 +299,7 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
                 ) : notifications.length === 0 && !loadError ? (
                   <div className="px-4 py-10 text-center">
                     <p className="text-sm text-gray-400">No notifications yet.</p>
-                    <p className="text-xs text-gray-300 mt-1">Events appear here after scans and reports.</p>
+                    <p className="text-xs text-gray-600 mt-1">Events appear here after scans and reports.</p>
                   </div>
                 ) : notifications.length > 0 ? (
                   <ul className="divide-y divide-gray-50">
@@ -364,7 +364,7 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
                             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                             {n.severity}
                           </span>
-                          <span className="text-xs text-gray-300">·</span>
+                          <span className="text-xs text-gray-600">·</span>
                           <span className="text-xs text-gray-400">{fmtRelative(n.created_at)}</span>
                         </div>
                       </div>
@@ -379,7 +379,7 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
 
           {/* Footer — fixed within the panel. */}
           <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between shrink-0">
-            <p className="text-xs text-gray-300">
+            <p className="text-xs text-gray-600">
               {notifications.length > 0
                 ? `${notifications.length} shown · refreshes every 60s`
                 : 'Auto-refreshes every 60s'}

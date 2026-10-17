@@ -14,7 +14,7 @@ const COLOR_CLASSES = {
   cyan:   { badge: 'bg-cyan-50 text-cyan-700' },
   amber:  { badge: 'bg-transparent text-brand-700' },
   pink:   { badge: 'bg-pink-50 text-pink-700' },
-  orange: { badge: 'bg-red-50 text-red-600' },
+  orange: { badge: 'bg-red-50 text-red-700' },
   rose:   { badge: 'bg-rose-50 text-rose-700' },
 }
 
@@ -48,7 +48,7 @@ function Block({ block }) {
             </div>
           )}
           <pre className="px-5 py-4 bg-gray-950 overflow-x-auto">
-            <code className="text-[14px] font-mono text-gray-100 leading-relaxed whitespace-pre">
+            <code className="text-[14px] font-mono text-white/80 leading-relaxed whitespace-pre">
               {block.text}
             </code>
           </pre>

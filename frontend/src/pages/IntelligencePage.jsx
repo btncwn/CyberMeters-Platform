@@ -32,7 +32,7 @@ const SEV_DOT = {
 
 const RISK_LEVEL_STYLE = {
   Critical:  { pill: 'bg-red-50 text-red-700 border-red-100',           dot: 'bg-red-500'    },
-  High:      { pill: 'bg-red-50 text-red-600 border-red-100',  dot: 'bg-red-500' },
+  High:      { pill: 'bg-red-50 text-red-700 border-red-100',  dot: 'bg-red-500' },
   Moderate:  { pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',     dot: 'bg-brand-700'  },
   Low:       { pill: 'bg-brand-50 text-brand-700 border-brand-100',     dot: 'bg-brand-500'  },
   Excellent: { pill: 'bg-brand-50 text-brand-700 border-brand-100',     dot: 'bg-brand-500'  },
@@ -41,22 +41,22 @@ const RISK_LEVEL_STYLE = {
 const BIZ_RISK_STYLE = {
   Low:      { text: 'text-brand-700', bg: 'bg-brand-50 text-brand-700 border-brand-100' },
   Moderate: { text: 'text-brand-700', bg: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700' },
-  High:     { text: 'text-red-600', bg: 'bg-red-50 text-red-600 border-red-100' },
-  Critical: { text: 'text-red-600',   bg: 'bg-red-50 text-red-700 border-red-100'       },
+  High:     { text: 'text-red-700', bg: 'bg-red-50 text-red-700 border-red-100' },
+  Critical: { text: 'text-red-700',   bg: 'bg-red-50 text-red-700 border-red-100'       },
 }
 
 const EMAIL_SCORE_STYLE = {
   EXCELLENT: { color: '#117362', label: 'Excellent', cls: 'text-brand-700' },
   GOOD:      { color: '#117362', label: 'Good',      cls: 'text-brand-700' },
   FAIR:      { color: '#45e3c7', label: 'Fair',      cls: 'text-brand-700' },
-  POOR:      { color: '#f87171', label: 'Poor',      cls: 'text-red-600' },
-  CRITICAL:  { color: '#EF4444', label: 'Critical',  cls: 'text-red-500'   },
+  POOR:      { color: '#f87171', label: 'Poor',      cls: 'text-red-700' },
+  CRITICAL:  { color: '#EF4444', label: 'Critical',  cls: 'text-red-700'   },
 }
 
 const DMARC_STATUS_STYLE = {
   FULLY_PROTECTED:   'bg-brand-50 text-brand-700 border-brand-100',
   PARTIAL_PROTECTED: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
-  REPORTING_ONLY:    'bg-red-50 text-red-600 border-red-100',
+  REPORTING_ONLY:    'bg-red-50 text-red-700 border-red-100',
   MISSING:           'bg-red-50 text-red-700 border-red-100',
   ERROR:             'bg-gray-100 text-gray-500 border-gray-200',
 }
@@ -71,13 +71,13 @@ const SPF_STATUS_STYLE = {
 
 const P_COLOR = {
   p1: { bg: 'bg-red-50',    border: 'border-red-100',    text: 'text-red-700',    badge: 'bg-red-500 text-white'    },
-  p2: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-600', badge: 'bg-red-500 text-white' },
+  p2: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', badge: 'bg-red-500 text-white' },
   p3: { bg: 'bg-gray-50',   border: 'border-gray-200',   text: 'text-gray-600',   badge: 'bg-gray-400 text-white'   },
 }
 
 const CVE_SEV_STYLE = {
   CRITICAL: 'bg-red-100 text-red-700',
-  HIGH:     'bg-red-50 text-red-600',
+  HIGH:     'bg-red-50 text-red-700',
   MEDIUM:   'bg-transparent text-brand-700',
   LOW:      'bg-blue-100 text-blue-700',
   UNKNOWN:  'bg-gray-100 text-gray-500',
@@ -137,8 +137,8 @@ function ScoreRing({ score, status, size = 'md' }) {
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {score != null
             ? <><span className={`${size === 'sm' ? 'text-xl' : 'text-2xl'} font-bold ${cfg.cls}`}>{score}</span>
-                <span className="text-xs text-gray-300 font-semibold">/100</span></>
-            : <span className="text-gray-300 text-xs">—</span>}
+                <span className="text-xs text-gray-600 font-semibold">/100</span></>
+            : <span className="text-gray-600 text-xs">—</span>}
         </div>
       </div>
       {status && (
@@ -211,7 +211,7 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
   const emailCfg    = EMAIL_SCORE_STYLE[emailStatus] || EMAIL_SCORE_STYLE.FAIR
 
   const bizRisk  = emailPublishable ? emailIntel?.business_email_risk : null
-  const bizStyle = BIZ_RISK_STYLE[bizRisk] || { text: 'text-gray-300' }
+  const bizStyle = BIZ_RISK_STYLE[bizRisk] || { text: 'text-gray-600' }
 
   const p1Known  = remPlan?.incomplete !== true || (remPlan?.summary?.p1_count ?? 0) > 0
   const p1Count  = p1Known ? (remPlan?.summary?.p1_count ?? 0) : null
@@ -297,7 +297,7 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
                     {s.value}
                   </span>
                   {s.kevBadge && (
-                    <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-sm leading-none">
+                    <span className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-sm leading-none">
                       +{s.kevCount} KEV
                     </span>
                   )}
@@ -394,10 +394,10 @@ function HistoricalComparisonSection({ changes, assessment, scanQuality }) {
           <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
           <div className="flex items-center gap-2 text-sm">
             <span className="text-gray-400">{previousScore}</span>
-            <span className="text-gray-300">→</span>
+            <span className="text-gray-600">→</span>
             <span className="font-bold text-gray-900">{currentScore}</span>
             {scoreDelta != null && (
-              <span className={`font-bold ${scoreDelta > 0 ? 'text-brand-700' : scoreDelta < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+              <span className={`font-bold ${scoreDelta > 0 ? 'text-brand-700' : scoreDelta < 0 ? 'text-red-700' : 'text-gray-400'}`}>
                 ({scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta})
               </span>
             )}
@@ -480,8 +480,8 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
       {/* Finding counts */}
       <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-100">
         {[
-          { label: 'Critical', count: counts.critical, cls: 'text-red-600'    },
-          { label: 'High',     count: counts.high,     cls: 'text-red-600' },
+          { label: 'Critical', count: counts.critical, cls: 'text-red-700'    },
+          { label: 'High',     count: counts.high,     cls: 'text-red-700' },
           { label: 'Medium',   count: counts.medium,   cls: 'text-brand-700'  },
           { label: 'Low',      count: counts.low,      cls: 'text-blue-600'   },
         ].map(({ label, count, cls }) => (
@@ -504,7 +504,7 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
               <div key={cat} className="px-5 py-4">
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">{cat}</span>
-                  <span className="text-xs text-gray-300 ml-auto">{items.length} finding{items.length !== 1 ? 's' : ''}</span>
+                  <span className="text-xs text-gray-600 ml-auto">{items.length} finding{items.length !== 1 ? 's' : ''}</span>
                 </div>
                 <div className="space-y-2.5">
                   {shown.map((f, i) => (
@@ -525,7 +525,7 @@ function RiskIntelligenceSection({ risk, assessmentMessage = null }) {
                             and an incomplete risk projection never presents a
                             deduction (unavailable evidence is not a signal). */}
                         {!risk.incomplete && Number.isFinite(f.score_impact) && f.score_impact < 0 && (
-                          <span className="text-xs font-bold px-1.5 py-0.5 rounded-sm bg-red-50 text-red-600 border border-red-100">
+                          <span className="text-xs font-bold px-1.5 py-0.5 rounded-sm bg-red-50 text-red-700 border border-red-100">
                             {f.score_impact} pts
                           </span>
                         )}
@@ -915,7 +915,7 @@ function TechDetectionSection({ tech }) {
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0 pt-0.5 w-20">{label}</span>
             <span className={`text-xs text-right break-all leading-relaxed ${
               value?.includes('✓') ? 'text-brand-700 font-medium' :
-              value?.includes('✗') ? 'text-red-500 font-medium'  : 'text-gray-700 mono'
+              value?.includes('✗') ? 'text-red-700 font-medium'  : 'text-gray-700 mono'
             }`}>{value}</span>
           </div>
         ))}
@@ -1006,13 +1006,13 @@ function CveIntelSection({ cve, kev = null, checkPack = null, assessmentMessage 
         aside={
           <div className="flex items-center gap-3 text-xs">
             {(cve.critical_count ?? 0) > 0 && (
-              <span><span className="font-bold text-red-600">{cve.critical_count}</span> <span className="text-gray-400">critical</span></span>
+              <span><span className="font-bold text-red-700">{cve.critical_count}</span> <span className="text-gray-400">critical</span></span>
             )}
             {(cve.high_count ?? 0) > 0 && (
-              <span><span className="font-bold text-red-600">{cve.high_count}</span> <span className="text-gray-400">high</span></span>
+              <span><span className="font-bold text-red-700">{cve.high_count}</span> <span className="text-gray-400">high</span></span>
             )}
             {cve.total_count_publishable === true && (
-              <span className="text-gray-300">{cve.total_cves ?? 0} total</span>
+              <span className="text-gray-600">{cve.total_cves ?? 0} total</span>
             )}
           </div>
         }
@@ -1146,13 +1146,13 @@ function KevSection({ kev, assessmentMessage = null }) {
                     <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{m.short_description}</p>
                   )}
                   {m.required_action && (
-                    <p className="text-xs text-red-600 font-medium mt-1 leading-relaxed">
+                    <p className="text-xs text-red-700 font-medium mt-1 leading-relaxed">
                       Required: {m.required_action}
                     </p>
                   )}
                   <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
                     {m.date_added && <span>Added: {m.date_added}</span>}
-                    {m.due_date   && <span className="text-red-500 font-semibold">Due: {m.due_date}</span>}
+                    {m.due_date   && <span className="text-red-700 font-semibold">Due: {m.due_date}</span>}
                   </div>
                 </div>
               </div>
@@ -1303,12 +1303,12 @@ export default function IntelligencePage() {
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentPresentation.band.pill}`}>
                 {assessmentPresentation.band.label}
               </span>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-600">·</span>
               <span className="text-gray-500">
                 {assessmentPresentation.provisional && assessmentPresentation.score != null ? 'Provisional score ' : 'Score '}
                 {assessmentPresentation.score ?? '—'}/100
               </span>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-600">·</span>
               <span className="text-gray-400 text-xs">
                 {parseServerDate(storedScanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
               </span>

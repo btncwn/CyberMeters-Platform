@@ -300,7 +300,7 @@ async function recordLifecycleProviderOutcome(env, { rowId, dedupeKey, workspace
 function _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl }) {
   const body = paras.map(p => `<p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.6">${p}</p>`).join("");
   const button = ctaUrl
-    ? `<p style="margin:6px 0 0"><a href="${ctaUrl}" style="display:inline-block;background:#00876A;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px">${escapeEmailHtml(ctaLabel)}</a></p>`
+    ? `<p style="margin:6px 0 0"><a href="${ctaUrl}" style="display:inline-block;background:#a9f2e5;color:#081f1c;text-decoration:none;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px">${escapeEmailHtml(ctaLabel)}</a></p>`
     : "";
   return `<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:8px">`
     + `<h1 style="font-size:18px;color:#111827;margin:0 0 14px">${escapeEmailHtml(heading)}</h1>`

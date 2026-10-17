@@ -51,8 +51,8 @@ const RISK_CFG = {
   excellent: { color: '#117362', cls: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
   good:      { color: '#117362', cls: 'text-brand-700', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good'      },
   moderate:  { color: '#45e3c7', cls: 'text-brand-700', pill: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700', label: 'Moderate'  },
-  high:      { color: '#f87171', cls: 'text-red-600',pill: 'bg-red-50 text-red-600 border-red-100',label: bandMeta('high').label },
-  critical:  { color: '#EF4444', cls: 'text-red-500',   pill: 'bg-red-50 text-red-700 border-red-100',       label: 'Critical'  },
+  high:      { color: '#f87171', cls: 'text-red-700',pill: 'bg-red-50 text-red-700 border-red-100',label: bandMeta('high').label },
+  critical:  { color: '#EF4444', cls: 'text-red-700',   pill: 'bg-red-50 text-red-700 border-red-100',       label: 'Critical'  },
   unknown:   { color: '#D1D5DB', cls: 'text-gray-400',  pill: 'bg-gray-100 text-gray-500 border-gray-200',   label: 'Unknown'   },
 }
 
@@ -126,8 +126,8 @@ function ScoreRing({ score, riskLevel }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {score != null
-            ? <><span className={`text-3xl font-bold ${cfg.cls}`}>{score}</span><span className="text-xs text-gray-300 font-semibold">/100</span></>
-            : <span className="text-gray-300 text-xs">—</span>
+            ? <><span className={`text-3xl font-bold ${cfg.cls}`}>{score}</span><span className="text-xs text-gray-600 font-semibold">/100</span></>
+            : <span className="text-gray-600 text-xs">—</span>
           }
         </div>
       </div>
@@ -414,7 +414,7 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
 
             {/* Score impact — suppressed for observations (Sprint 10A) */}
             {!isObservation && f.score_impact != null && f.score_impact !== 0 && (
-              <span className="text-xs font-semibold text-red-400">
+              <span className="text-xs font-semibold text-red-700">
                 {f.score_impact} pts
               </span>
             )}
@@ -631,7 +631,7 @@ function CheckRow({ label, value, trueLabel = 'Yes', falseLabel = 'No' }) {
     <div className="flex items-center justify-between px-6 py-3 border-b border-gray-50 last:border-0">
       <span className="text-sm text-gray-600">{label}</span>
       {value == null
-        ? <span className="text-xs text-gray-300">—</span>
+        ? <span className="text-xs text-gray-600">—</span>
         : value
           ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">
               {trueLabel}
@@ -891,7 +891,7 @@ function ChangeList({ title, items, total, renderItem, tone }) {
     <div className="px-6 py-3 border-b border-gray-50 last:border-0">
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
         {title}{' '}
-        <span className="font-normal text-gray-300 normal-case tracking-normal">({total ?? items.length})</span>
+        <span className="font-normal text-gray-600 normal-case tracking-normal">({total ?? items.length})</span>
       </p>
       <div className="flex flex-wrap gap-1.5">
         {items.map((item, i) => (
@@ -952,7 +952,7 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
     : null
   const deltaColor =
     delta > 0  ? 'text-brand-700' :
-    delta < 0  ? 'text-red-500'   : 'text-gray-400'
+    delta < 0  ? 'text-red-700'   : 'text-gray-400'
 
   // Additive history field: older stored reports may not carry it. Absence is
   // rendered as an empty list, never folded into "Resolved Findings".
@@ -976,11 +976,11 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
       <div className="px-6 py-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
-          <p className="text-xs text-gray-300 mono mt-0.5 truncate">vs {changes.previous_scan_id}</p>
+          <p className="text-xs text-gray-600 mono mt-0.5 truncate">vs {changes.previous_scan_id}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0 text-sm">
           <span className="text-gray-400">{changes.previous_score ?? '—'}</span>
-          <span className="text-gray-200">→</span>
+          <span className="text-gray-600">→</span>
           <span className="font-bold text-gray-900">{changes.current_score}</span>
           {deltaStr && (
             <span className={`font-bold ${deltaColor}`}>({deltaStr})</span>
@@ -1051,7 +1051,7 @@ function BusinessRiskCard({ businessRisk }) {
     score >= 90 ? 'text-brand-700' :
     score >= 70 ? 'text-blue-600'   :
     score >= 40 ? 'text-brand-700'  :
-                  'text-red-600'
+                  'text-red-700'
 
   const CAT_LABELS = {
     email_trust:             'Email Trust',
@@ -1094,7 +1094,7 @@ function BusinessRiskCard({ businessRisk }) {
           if (catScore === null) return null
           const pct = Math.max(0, Math.min(100, catScore))
           const bar = catScore >= 80 ? 'bg-brand-700' : catScore >= 60 ? 'bg-blue-500' : catScore >= 40 ? 'bg-brand-700' : 'bg-red-500'
-          const txt = catScore >= 80 ? 'text-brand-700' : catScore >= 60 ? 'text-blue-700' : catScore >= 40 ? 'text-brand-700' : 'text-red-600'
+          const txt = catScore >= 80 ? 'text-brand-700' : catScore >= 60 ? 'text-blue-700' : catScore >= 40 ? 'text-brand-700' : 'text-red-700'
           return (
             <div key={key}>
               <div className="flex justify-between items-center mb-0.5">

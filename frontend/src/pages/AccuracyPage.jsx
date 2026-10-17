@@ -70,7 +70,7 @@ export default function AccuracyPage() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-2 text-sm text-red-600 mb-6">
+        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-2 text-sm text-red-700 mb-6">
           {error}
         </div>
       )}

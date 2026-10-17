@@ -15,7 +15,7 @@ function GradeBadge({ grade, label, score }) {
     A: 'bg-brand-200 border-brand-200 text-brand-900',
     B: 'bg-blue-50   border-blue-200   text-blue-700',
     C: 'bg-transparent  border-[1.5px] border-brand-700  text-brand-700',
-    D: 'bg-red-50 border-red-100 text-red-600',
+    D: 'bg-red-50 border-red-100 text-red-700',
     F: 'bg-red-50    border-red-200    text-red-700',
   }
   const style = styles[grade] ?? styles['F']
@@ -146,7 +146,7 @@ export default function WorkspaceBusinessRiskPage() {
         </div>
 
         {error && (
-          <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-2 text-sm text-red-600 mb-6">
+          <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-2 text-sm text-red-700 mb-6">
             {error}
           </div>
         )}
@@ -229,7 +229,7 @@ export default function WorkspaceBusinessRiskPage() {
                     const impact = r.impact ?? r.issue    ?? ''
                     const sev    = r.severity ?? 'medium'
                     const sevCls = sev === 'critical' ? 'bg-red-50 border-red-100' : sev === 'high' ? 'bg-red-50 border-red-100' : 'bg-transparent border-[1.5px] border-brand-700'
-                    const txtCls = sev === 'critical' ? 'text-red-700' : sev === 'high' ? 'text-red-600' : 'text-brand-700'
+                    const txtCls = sev === 'critical' ? 'text-red-700' : sev === 'high' ? 'text-red-700' : 'text-brand-700'
                     return (
                       <div key={i} className={`rounded-lg border px-4 py-3 ${sevCls}`}>
                         <div className="flex items-start gap-3">

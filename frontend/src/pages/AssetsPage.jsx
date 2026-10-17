@@ -32,7 +32,7 @@ function fmtDateTime(iso) {
 // ── Badges ─────────────────────────────────────────────────────────────────────
 
 function RiskBadge({ level }) {
-  if (!level) return <span className="text-gray-300 text-xs">—</span>
+  if (!level) return <span className="text-gray-600 text-xs">—</span>
   const cls = {
     critical: 'badge-critical',
     high:     'badge-high',
@@ -513,7 +513,7 @@ function Timeline({ rows, projection }) {
                           {count.value}
                         </span>
                       )
-                      : <span className="text-gray-200 text-xs">—</span>
+                      : <span className="text-gray-600 text-xs">—</span>
                     }
                   </td>
                 )
@@ -764,7 +764,7 @@ export default function AssetsPage() {
                             <span className="ml-2 text-xs text-brand-700 font-semibold">WILDCARD</span>
                           )}
                           {criticalNames.has(String(asset.hostname || '').toLowerCase()) && (
-                            <span className="ml-2 inline-flex items-center rounded-full border border-red-100 bg-red-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-600" title="Found by the critical-name DNS pass in the latest scan">Critical name</span>
+                            <span className="ml-2 inline-flex items-center rounded-full border border-red-100 bg-red-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-700" title="Found by the critical-name DNS pass in the latest scan">Critical name</span>
                           )}
                         </td>
                         <td><TypeBadge type={asset.asset_type} /></td>

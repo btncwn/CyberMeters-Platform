@@ -212,7 +212,7 @@ const lifecycleArgs = {
   });
   eq("complete first-scan lifecycle email is byte-unchanged",
     sha256(complete),
-    "3314af5929c23814a8bedeabc312a20bedffc6b80d289d30c0b8ddce4c9db301");
+    "f0e37dbabd2021b54578dafebde1b8a37c799ca4581c7932b50e2e33265ba620");
 
   const partial = buildLifecycleEmail("lifecycle_first_scan_completed", {
     ...lifecycleArgs, scanQuality: "partial",

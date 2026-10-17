@@ -5,7 +5,7 @@ function establishedTone(rating) {
     return 'bg-brand-50 text-brand-700 border-brand-100'
   }
   if (rating === 'moderate') return 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
-  if (rating === 'high') return 'bg-red-50 text-red-600 border-red-100'
+  if (rating === 'high') return 'bg-red-50 text-red-700 border-red-100'
   if (rating === 'critical') return 'bg-red-50 text-red-700 border-red-100'
   return 'bg-gray-50 text-gray-600 border-gray-200'
 }

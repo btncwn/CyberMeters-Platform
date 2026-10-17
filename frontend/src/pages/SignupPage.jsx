@@ -34,7 +34,7 @@ function ResendLink({ email }) {
       >
         {loading ? 'Sending…' : 'Resend verification email'}
       </button>
-      {error && <span role="alert" className="block mt-2 text-red-600">Could not send the link right now. Please try again.</span>}
+      {error && <span role="alert" className="block mt-2 text-red-700">Could not send the link right now. Please try again.</span>}
     </>
   )
 }
@@ -146,7 +146,7 @@ export default function SignupPage() {
         )}
 
         {error && (
-          <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+          <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
             {error}
           </div>
         )}

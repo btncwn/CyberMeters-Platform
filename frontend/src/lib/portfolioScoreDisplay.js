@@ -21,7 +21,7 @@
 export const TONE_CLASS = Object.freeze({
   healthy:  'bg-brand-50 text-brand-700 border border-brand-100',
   moderate: 'bg-transparent text-brand-700 border border-[1.5px] border-brand-700',
-  elevated: 'bg-red-50 text-red-600 border border-red-100',
+  elevated: 'bg-red-50 text-red-700 border border-red-100',
   serious:  'bg-red-50 text-red-700 border border-red-100',
   unknown:  'bg-slate-100 text-slate-600 border border-slate-200',
 });

@@ -66,7 +66,7 @@ export default function MailtoAssist() {
       <div className="pointer-events-auto w-full max-w-[460px] rounded-2xl bg-gray-900 text-white shadow-2xl px-5 py-4 flex items-start gap-4">
         <div className="flex-1 min-w-0">
           <p className="text-base font-semibold break-all">{address}</p>
-          <p className="text-sm text-gray-300 mt-1">
+          <p className="text-sm text-white/80 mt-1">
             {copied
               ? 'Address copied. If your email app did not open, paste it into a new email.'
               : 'If your email app did not open, copy the address into a new email.'}

@@ -177,7 +177,7 @@ export default function IdentityExposurePage() {
       </div>
 
       {loading && <p className="text-sm text-slate-400">Loadingâ¦</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-700">{error}</p>}
       {!loading && !error && items.length === 0 && (
         <p className="text-sm text-slate-400">No managed identity evidence yet. Records appear here after a scan identifies a provider relationship or possible identity-facing hostname for a monitored domain.</p>
       )}

@@ -500,15 +500,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^/` | 56 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 83 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 326 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 357 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| DELETE | `/^\/api\/workspaces\/([^/` | 446 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 508 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 573 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/invitations\/([^/` | 612 | public-or-global | public | — |
-| POST | `/^\/api\/invitations\/([^/` | 646 | public-or-global | ✓ | requireAuth, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 71 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 98 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 341 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 372 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| DELETE | `/^\/api\/workspaces\/([^/` | 461 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 523 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 588 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/invitations\/([^/` | 627 | public-or-global | public | — |
+| POST | `/^\/api\/invitations\/([^/` | 661 | public-or-global | ✓ | requireAuth, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/workspace-reports.js`
 

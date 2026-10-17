@@ -17,9 +17,9 @@
       "root": "frontend",
       "package_name": "cybermeters-frontend",
       "package_version": "1.0.0",
-      "package_json_sha256": "28888e94a035d92b9bd100d635809855b25fbfe44798242ce312b32a23aae105",
+      "package_json_sha256": "3ed7c22ddcddf0db21601704c83a57b285ceda00861a6710fb0689dcae76ae47",
       "lockfile_version": 3,
-      "lockfile_sha256": "e4039c41706c374dd78c756ceebcf460ffbd10661c704c0e5ad51d891718ee1b",
+      "lockfile_sha256": "20b9335596696f6d1335eb0421fa6fd041e10b4f4d31f5a9f26907decb096090",
       "install_script_markers": [
         {
           "package_path": "node_modules/esbuild",

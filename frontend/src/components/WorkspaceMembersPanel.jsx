@@ -151,7 +151,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
       {/* Error */}
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
-          <p className="text-xs text-red-600">{error}</p>
+          <p className="text-xs text-red-700">{error}</p>
         </div>
       )}
 
@@ -193,7 +193,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
                       disabled={removingId === m.id}
                       title="Remove member"
                       aria-label="Remove member"
-                      className="w-6 h-6 flex items-center justify-center rounded-sm text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                      className="w-6 h-6 flex items-center justify-center rounded-sm text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -258,7 +258,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
               </button>
             </div>
             {addError && (
-              <p className="text-xs text-red-500 mt-1">{addError}</p>
+              <p className="text-xs text-red-700 mt-1">{addError}</p>
             )}
             {inviteLink && (
               <div className="p-3 rounded-xl bg-transparent border border-[1.5px] border-brand-700">

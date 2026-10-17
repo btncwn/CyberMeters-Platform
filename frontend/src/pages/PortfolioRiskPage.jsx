@@ -124,7 +124,7 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
             const unavailableBrs = brsUnavailablePresentation(r)
             return (
             <tr key={r.workspace_id} className="hover:bg-gray-50 transition-colors">
-              <td className="py-2.5 pr-2 text-gray-300 text-xs font-medium">{i + 1}</td>
+              <td className="py-2.5 pr-2 text-gray-600 text-xs font-medium">{i + 1}</td>
               <td className="py-2.5 pr-4">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-gray-800">{r.workspace_name}</span>
@@ -156,13 +156,13 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
               </td>
               <td className="py-2.5 pr-4">
                 {r.spof_count > 0 && (
-                  <span className="text-xs font-semibold text-red-600">{r.spof_count}</span>
+                  <span className="text-xs font-semibold text-red-700">{r.spof_count}</span>
                 )}
               </td>
               <td className="py-2.5">
                 <button
                   onClick={() => onWorkspaceClick(r.workspace_id)}
-                  className="text-gray-300 hover:text-brand-800 transition-colors"
+                  className="text-gray-600 hover:text-brand-800 transition-colors"
                   aria-label={`Open ${r.workspace_name}`}
                 >
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -336,7 +336,7 @@ export default function PortfolioRiskPage() {
             <p className="font-semibold">Failed to load portfolio risk</p>
             <p className="text-sm mt-0.5">{error.message ?? String(error)}</p>
           </div>
-          <button onClick={load} className="ml-auto btn-ghost text-red-600">Retry</button>
+          <button onClick={load} className="ml-auto btn-ghost text-red-700">Retry</button>
         </div>
       </div>
     )

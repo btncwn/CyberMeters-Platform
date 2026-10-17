@@ -29,7 +29,7 @@ export default function VerificationStatusBadge({ status, size = 'sm' }) {
     }
     if (s === 'failed' || s === 'verification_failed') return {
       label: 'Failed',
-      cls:   'bg-red-50 text-red-600 border-red-100',
+      cls:   'bg-red-50 text-red-700 border-red-100',
     }
     return {
       label: 'Unverified',
