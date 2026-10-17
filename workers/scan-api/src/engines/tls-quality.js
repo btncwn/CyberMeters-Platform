@@ -17,7 +17,7 @@ export function tlsSupportedCoverageGapReason(assessment) {
   if (uncertain > 0) return 'tls_checks_inconclusive';
   if (count(assessment.coverage, 'omitted_services') > 0) return 'tls_services_outside_scan_budget';
   if (count(assessment.coverage, 'endpoint_gaps') > 0) return 'tls_endpoint_coverage_incomplete';
-  if (!Array.isArray(assessment.endpoints) || assessment.endpoints.length === 0) return 'tls_endpoints_unobserved';
+  if (!Array.isArray(assessment.endpoints) || !assessment.endpoints.some(endpoint => Array.isArray(endpoint?.checks) && endpoint.checks.length > 0)) return 'tls_endpoints_unobserved';
   if (assessment.quality === 'unavailable') return 'tls_result_unavailable';
   return null;
 }

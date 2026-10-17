@@ -7,6 +7,21 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## Unreleased — bounded exposure evidence and single-domain completeness
+
+Two random missing-path responses now establish a bounded soft-404 baseline
+before a matching sensitive path can be classified as absent. The durable job
+retains status, content type, body length and hashes, never response bodies.
+The HTTPS TLS plan uses one representative address per observed host and port,
+orders certificate and chain evidence ahead of protocol and cipher classes,
+and records deferred hosts and addresses. A transient asset target server error
+gets one retry after two seconds. A temporary DMARC DNS lookup failure gets
+one bounded second-resolver attempt; a lone uncorroborated answer remains
+degraded and cannot drive automatic lifecycle changes. Attack Surface now
+states the incomplete module's reason. Resolver version `2026-10-17.5` marks
+this evidence method. An attempted but inconclusive check still leaves scan
+quality partial; the new complete result requires conclusive planned evidence.
+
 ## v2026.10.14-3 — public-claims and retention parity — 14 October 2026
 
 PR #613 merged as `56a7ee3d` after exact-head CI, Frontend E2E and one

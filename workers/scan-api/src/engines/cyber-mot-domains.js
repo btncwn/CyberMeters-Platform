@@ -110,8 +110,9 @@ import {
 // an unrelated phase ran out of budget. A changed favourable conclusion from
 // the same frozen report is a methodology boundary.
 // `2026-10-17.4`: completed HTTP and TLS phases with conclusive subset evidence
+// `2026-10-17.5`: bounded soft-404 proof, resolver fallback and scoped TLS plan
 // resolve provisionally instead of claiming that their checks did not run.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.4";
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.5";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //

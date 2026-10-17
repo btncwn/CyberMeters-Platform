@@ -322,6 +322,7 @@ async function performPrimaryWalk({ domain, dns, resolver = "primary", purpose =
         qname: plan.questions[index].name,
         record: recordSet.selected,
         record_set: recordSet,
+        resolved_by: observation.raw?.resolver || resolver,
       });
     }
 
@@ -353,9 +354,14 @@ async function performPrimaryWalk({ domain, dns, resolver = "primary", purpose =
   };
 }
 
-async function corroborateRecordSet({ dns, name, primaryRecordSet, purpose }) {
+async function corroborateRecordSet({ dns, name, primaryRecordSet, purpose, sourceResolver = "primary" }) {
   if (!name || !primaryRecordSet) {
     return { state: "not_applicable", observation: null, record_set: null };
+  }
+  // A secondary answer used to recover a failed primary lookup is one source,
+  // not independent corroboration merely because the cached answer is read twice.
+  if (sourceResolver === "secondary") {
+    return { state: "unavailable", observation: null, record_set: null };
   }
   const observation = await injectedQuery(dns, {
     name,
@@ -571,7 +577,9 @@ export async function resolveDmarcbisPolicy({
     name: source.entry?.qname,
     primaryRecordSet: source.entry?.record_set,
     purpose: "decisive_policy_corroboration",
+    sourceResolver: source.entry?.resolved_by,
   });
+  const resolverFallbackUsed = walk.path.some(entry => entry.raw?.fallback_from === "primary");
 
   const exactPath = walk.path.find((entry) => entry.question?.ordinal === 1) || null;
   const exactState = exactObservationState(exactPath);
@@ -580,11 +588,9 @@ export async function resolveDmarcbisPolicy({
     !walk.walk_complete && source.kind !== "exact" ||
     existence.state === "unknown" ||
     disagreement;
-  const policyCompleteness = policyUnavailable
-    ? "unavailable"
-    : corroboration.state === "unavailable"
-      ? "incomplete"
-      : "complete";
+  // A definitive answer from one resolver completes the required DNS lookup.
+  // Independent corroboration remains a separate, explicitly degraded grade.
+  const policyCompleteness = policyUnavailable ? "unavailable" : "complete";
   const noPolicy = source.kind === "none" && walk.walk_complete;
   const parsedListsComplete = Boolean(source.entry) || noPolicy;
   const policy = disagreement || policyUnavailable
@@ -650,7 +656,9 @@ export async function resolveDmarcbisPolicy({
     ruf_destinations: parsedListsComplete ? (source.entry?.record?.ruf || []) : null,
     policy_completeness: noPolicy ? "complete" : policyCompleteness,
     corroboration_state: corroboration.state,
-    monitoring_state: policyCompleteness === "complete"
+    resolver_fallback_used: resolverFallbackUsed,
+    monitoring_state: policyCompleteness === "complete" &&
+      corroboration.state !== "unavailable" && !resolverFallbackUsed
       ? "monitoring_healthy"
       : "monitoring_degraded",
     provider_state: walk.walk_complete

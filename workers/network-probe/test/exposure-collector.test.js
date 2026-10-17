@@ -6,7 +6,7 @@ import { createTlsFixtures } from './fixtures/create-tls-fixtures.js';
 import { gzipSync } from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { runExposureCollector, exposureCollectorProgram } from '../src/exposure-collector.js';
+import { runExposureCollector, exposureCollectorProgram, matchesSoft404Baseline } from '../src/exposure-collector.js';
 import { validateExposureRequest, validateExposureReceipt } from '../src/exposure-contract.js';
 import { EXPOSURE_RULES } from '../../../shared/exposure/catalog.js';
 
@@ -48,7 +48,29 @@ test('soft-404 content, dynamic SPA shells, WAF and status-only candidates do no
     else if(variant==='spa')res.end(`<html><head><title>App</title></head><body><div id="root"></div><script src="app.js"></script><p>${Date.now()} ${req.url}</p></body></html>`);
     else if(variant==='waf')res.end('Cloudflare challenge: Just a moment. Verify you are human.');
     else res.end('Welcome to our website');
-  },async deps=>{const receipt=await collect(deps);assert.notEqual(receipt.results[0].state,'finding',variant);});
+  },async deps=>{const receipt=await collect(deps);assert.notEqual(receipt.results[0].state,'finding',variant);
+    if(variant==='soft404')assert.equal(receipt.results[0].state,'not_present_soft404','an identical catch-all secret-shaped body is absent');
+  });
+});
+
+test('stable SPA catch-all is a conclusive soft-404 with two bounded baseline summaries',async()=>{
+  await fixture((req,res)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8'});
+    res.end(`<html><head><title>App</title></head><body><div id="root"></div><p>${req.url}</p></body></html>`);
+  },async deps=>{
+    const receipt=await collect(deps);
+    const row=receipt.results[0];
+    assert.equal(row.state,'not_present_soft404',JSON.stringify({reason:row.reason,baseline:receipt.baseline,observed:row.response_summary}));assert.equal(row.comparable,true);
+    assert.equal(row.reason,'matches_two_negative_controls');assert.equal(receipt.quality,'complete');
+    assert.equal(receipt.baseline.length,2);
+    assert.ok(receipt.baseline.every(control=>control.status===200&&control.content_type==='text/html'&&
+      control.body_length>0&&/^[a-f0-9]{64}$/.test(control.body_sha256)));
+    assert.ok(matchesSoft404Baseline(receipt.baseline,row.response_summary));
+    const forged=structuredClone(receipt);forged.results[0].response_summary.normalized_sha256='0'.repeat(64);
+    assert.equal(validateExposureReceipt(input(),forged).ok,false);
+    // Mutating away baseline agreement must fail this positive fixture.
+    const disabled=Function(`return (${matchesSoft404Baseline.toString().replace('first.normalized_sha256===second.normalized_sha256','false&&first.normalized_sha256===second.normalized_sha256')})`)();
+    assert.equal(disabled(receipt.baseline,row.response_summary),false);
+  });
 });
 
 test('DNS A and AAAA vetting prevents mixed-public/private, rebinding and mapped-local connections',async()=>{

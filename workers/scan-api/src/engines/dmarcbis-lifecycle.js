@@ -167,7 +167,8 @@ function contradictionFree(evidence) {
 
 function coreComplete(evidence) {
   return evidence?.core_completeness === "complete" &&
-    contradictionFree(evidence);
+    contradictionFree(evidence) && evidence?.corroboration_state !== "unavailable" &&
+    evidence?.resolver_fallback_used !== true;
 }
 
 function policyComplete(evidence) {

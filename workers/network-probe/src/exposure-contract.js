@@ -39,11 +39,18 @@ export function validateExposureRequest(input, now=Date.now()) {
 export function validateExposureReceipt(request,receipt,{now=Date.now()}={}) {
   const fail=reason=>({ok:false,reason});
   const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).every(key=>keys.includes(key));
-  if(!exact(receipt,['schema_version','request_id','workspace_id','scan_id','origin','started_at','finished_at','quality','results','discoveries','telemetry','limitations'])||receipt.schema_version!=='exposure-receipt-v1')return fail('invalid_receipt');
+  if(!exact(receipt,['schema_version','request_id','workspace_id','scan_id','origin','started_at','finished_at','quality','results','baseline','discoveries','telemetry','limitations'])||receipt.schema_version!=='exposure-receipt-v1')return fail('invalid_receipt');
   for(const key of ['request_id','workspace_id','scan_id','origin'])if(receipt[key]!==request[key])return fail('identity_mismatch');
   const start=Date.parse(receipt.started_at),finish=Date.parse(receipt.finished_at),deadline=Date.parse(request.deadline_at);
   if(!Number.isFinite(start)||!Number.isFinite(finish)||start>finish||start<deadline-15000||finish>deadline+1000||finish>now+1000||now-finish>60000)return fail('time_mismatch');
   if(!Array.isArray(receipt.results)||receipt.results.length!==request.checks.length)return fail('result_count');
+  const validSummary=s=>exact(s,['status','content_type','body_length','normalized_length','body_sha256','normalized_sha256'])&&
+    Number.isSafeInteger(s.status)&&s.status>=0&&s.status<=599&&Number.isSafeInteger(s.body_length)&&s.body_length>=0&&s.body_length<=32768&&
+    Number.isSafeInteger(s.normalized_length)&&s.normalized_length>=0&&s.normalized_length<=32768&&
+    (s.content_type===null||typeof s.content_type==='string'&&/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(s.content_type))&&
+    [s.body_sha256,s.normalized_sha256].every(h=>h===null||typeof h==='string'&&/^[a-f0-9]{64}$/.test(h));
+  if(receipt.baseline!==undefined&&(!Array.isArray(receipt.baseline)||receipt.baseline.length!==2||!receipt.baseline.every(validSummary)))return fail('invalid_baseline');
+  const near=(a,b)=>Math.abs(a-b)<=Math.max(16,Math.ceil(Math.max(a,b)*0.05));
   if(!exact(receipt.discoveries,['paths','hosts'])||!Array.isArray(receipt.discoveries.paths)||!Array.isArray(receipt.discoveries.hosts)||receipt.discoveries.paths.length>32||receipt.discoveries.hosts.length>32)return fail('invalid_discoveries');
   if(receipt.discoveries.paths.some(path=>!EXPOSURE_RULES.some(rule=>isRulePathAllowed(rule,path)))||receipt.discoveries.hosts.some(host=>!isProbeHostname(host)||!host.endsWith('.'+new URL(request.origin).hostname)))return fail('unsafe_discoveries');
   const t=receipt.telemetry;
@@ -56,8 +63,19 @@ export function validateExposureReceipt(request,receipt,{now=Date.now()}={}) {
   if((t.bytes_wire>request.max_bytes||t.bytes_decoded>request.max_bytes)&&!t.byte_limit_exceeded)return fail('unreported_overread');
   for(let i=0;i<receipt.results.length;i++){
     const row=receipt.results[i],expected=request.checks[i];
-    if(!exact(row,['rule_id','url','identity','indicators','state','comparable','finding','observation','reason'])||row.rule_id!==expected.rule_id||row.url!==expected.url||row.identity!==exposureIdentity(expected.rule_id,expected.url))return fail('result_identity');
-    if(!['finding','observed','not_found','blocked','uncertain','not_applicable'].includes(row.state)||typeof row.comparable!=='boolean'||(row.reason!==null&&!/^[a-z0-9_]{1,80}$/.test(row.reason)))return fail('invalid_result');
+    if(!exact(row,['rule_id','url','identity','indicators','state','comparable','finding','observation','reason','response_summary'])||row.rule_id!==expected.rule_id||row.url!==expected.url||row.identity!==exposureIdentity(expected.rule_id,expected.url))return fail('result_identity');
+    if(!['finding','observed','not_found','not_present_soft404','blocked','uncertain','not_applicable'].includes(row.state)||typeof row.comparable!=='boolean'||(row.reason!==null&&!/^[a-z0-9_]{1,80}$/.test(row.reason)))return fail('invalid_result');
+    if(row.state==='not_present_soft404'){
+      const [first,second]=receipt.baseline||[];
+      const observed=row.response_summary;
+      if(!row.comparable||row.reason!=='matches_two_negative_controls'||!Array.isArray(row.indicators)||row.indicators.length!==0||
+          !validSummary(first)||!validSummary(second)||!validSummary(observed)||
+          [first,second,observed].some(s=>s.status!==200||!s.content_type||s.body_length===0||!s.normalized_sha256)||
+          first.content_type!==second.content_type||first.content_type!==observed.content_type||
+          first.normalized_sha256!==second.normalized_sha256||first.normalized_sha256!==observed.normalized_sha256||
+          !near(first.normalized_length,second.normalized_length)||!near(first.normalized_length,observed.normalized_length)||
+          !near(second.normalized_length,observed.normalized_length))return fail('unproved_soft404');
+    }else if(row.response_summary!==undefined)return fail('unexpected_response_summary');
     if(!Array.isArray(row.indicators)||row.indicators.length>12||row.indicators.some(value=>typeof value!=='string'||value.length>120||!EXPOSURE_INDICATORS.includes(value)))return fail('unsafe_indicators');
     if(['blocked','uncertain','not_applicable'].includes(row.state)&&row.comparable)return fail('false_comparability');
     if(row.state==='finding'||row.state==='observed'){

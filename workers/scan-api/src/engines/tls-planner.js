@@ -61,10 +61,11 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
     JOIN workspace_domains d ON d.workspace_id=a.workspace_id AND d.domain_id=a.domain_id
     JOIN workspaces w ON w.id=a.workspace_id
     WHERE a.workspace_id=? AND a.authorization_status='active' ORDER BY a.authorized_at,a.id LIMIT 64`).bind(scan.workspace_id).all();
-  const selected = rotate((services.results||[]).filter(row => row.domain_id === scan.domain_id &&
+  const eligible = rotate((services.results||[]).filter(row => row.domain_id === scan.domain_id &&
     row.deleted_at === null && row.verification_status === 'verified' && row.target_authorization_status === 'attested' &&
-    safeHostname(row.hostname,scan.domain) && row.sni === row.hostname && isTlsService(row.port,row.application_protocol)),scan.id)
-    .slice(0,MAX_SERVICES_PER_SCAN-1);
+    safeHostname(row.hostname,scan.domain) && row.sni === row.hostname && isTlsService(row.port,row.application_protocol)),scan.id);
+  const selected = eligible.slice(0,MAX_SERVICES_PER_SCAN-1);
+  const deferredServices=eligible.slice(MAX_SERVICES_PER_SCAN-1).map(row=>({hostname:row.hostname,port:row.port,reason:'service_scope_limit'}));
   const candidates = [{ hostname:scan.domain,sni:scan.domain,port:443,application_protocol:'https',kind:'standard_https',service_authorization_id:null,allowed_addresses:null },
     ...selected.map(row => ({ ...row,kind:'authorized_service',service_authorization_id:row.id,
       allowed_addresses:(() => { try { const list=JSON.parse(row.addresses_json);return Array.isArray(list)?new Set(list.map(canonicalAddress).filter(Boolean)):new Set(); } catch { return new Set(); } })() }))];
@@ -93,7 +94,7 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
           special_consent:consent,consent_version:consent?TLS_SPECIAL_CONSENT_VERSION:null}});
     }
   }
-  return {endpoints,gaps,scope_generation:generation,special_consent:consent,omitted_services:Math.max(0,(services.results||[]).length-selected.length)};
+  return {endpoints,gaps,scope_generation:generation,special_consent:consent,omitted_services:0,deferred_services:deferredServices};
 }
 
 export async function refreshTlsEndpoint(entry,{lookup = dnsQuery,now = () => Date.now()} = {}) {
@@ -172,4 +173,64 @@ export function buildTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[
   const omitted = Math.max(0,pending.length-selected.length);
   return {profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,selected,static_results:all.filter(row => row.state !== 'pending'),
     pending_total:pending.length,omitted_checks:omitted,cursor:0,scan_id:scanId};
+}
+
+// The scheduled HTTPS profile plans representative evidence instead of the
+// full native cipher cross product. Scope reductions are explicit, never
+// silently counted as completed checks. A previously positive endpoint wins
+// its host/port group so an exact retest is not lost during address rotation.
+export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[],observedHttpsHosts=[],scanId='',maxChecks=512}) {
+  const observed=new Set(observedHttpsHosts);
+  const groups=new Map(),deferredHosts=[],deferredEndpoints=[];
+  for(let index=0;index<endpoints.length;index++){
+    const entry=endpoints[index],host=entry?.endpoint?.hostname,port=entry?.endpoint?.port;
+    if(!host||entry.endpoint.application_protocol!=='https'||!observed.has(host)){
+      if(host)deferredHosts.push({hostname:host,port,reason:entry.endpoint.application_protocol==='https'?'https_service_not_observed':'non_https_service'});
+      continue;
+    }
+    const key=`${host}|${port}`;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push({entry,index});
+  }
+  const prior=new Set(previousFindings.map(row=>row.endpoint_identity));
+  const selected=[],staticResults=[];
+  for(const [key,group] of [...groups].sort(([a],[b])=>a.localeCompare(b))){
+    group.sort((a,b)=>Number(prior.has(b.entry.endpoint_identity))-Number(prior.has(a.entry.endpoint_identity))||
+      String(a.entry.endpoint.address).localeCompare(String(b.entry.endpoint.address)));
+    const {entry,index}=group[0];
+    for(const spare of group.slice(1))deferredEndpoints.push({hostname:spare.entry.endpoint.hostname,port:spare.entry.endpoint.port,
+      address:spare.entry.endpoint.address,reason:'representative_address_scope'});
+    const rows=[];
+    const add=(control,protocol,cipherId=null)=>{
+      if(!applicableTlsControl(control,protocol))return;
+      rows.push({endpoint_index:index,check:{control,protocol,cipher_id:cipherId},state:'pending',reason:null});
+    };
+    // Certificate and chain facts precede version, cipher-class and optional
+    // active checks. Old protocols get one version check, not hundreds of
+    // duplicate cipher handshakes.
+    for(const protocol of ['tls1_3','tls1_2'])for(const control of ['certificate','key_exchange','ocsp'])add(control,protocol);
+    for(const protocol of [...TLS_PROTOCOLS].reverse())add('protocol',protocol);
+    for(const protocol of ['tls1_3','tls1_2']){
+      for(const control of ['compression','secure_renegotiation','fallback_scsv','extended_master_secret',
+        'session_resumption','early_data','sni_alpn'])add(control,protocol);
+      const valid=cipherCatalog.filter(row=>row.protocol===protocol&&row.executable&&
+        typeof row.name==='string'&&/^[A-Za-z0-9_-]{1,96}$/.test(row.name));
+      const classes=[/GCM|CHACHA20|POLY1305/,/AES.*(?:SHA|CBC)/,/3DES|DES-CBC3|RC4|NULL|EXP-/];
+      for(const pattern of classes){
+        const choices=valid.filter(row=>pattern.test(row.name)).sort((a,b)=>a.name.localeCompare(b.name));
+        const candidate=rotate(choices,scanId+key+protocol+pattern.source)[0];
+        if(candidate)add('cipher',protocol,candidate.name);
+      }
+    }
+    if(entry.scope?.special_consent)for(const control of TLS_SPECIAL_CONTROLS)add(control,'tls1_2');
+    const unique=[...new Map(rows.map(row=>[`${row.check.control}|${row.check.protocol}|${row.check.cipher_id||''}`,row])).values()];
+    if(selected.length+unique.length>Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN))){
+      deferredHosts.push({hostname:entry.endpoint.hostname,port:entry.endpoint.port,reason:'tls_plan_budget'});
+      continue;
+    }
+    selected.push(...unique);
+  }
+  return {profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,selected,static_results:staticResults,
+    pending_total:selected.length,omitted_checks:0,deferred_hosts:[...new Map(deferredHosts.map(row=>[`${row.hostname}|${row.port}|${row.reason}`,row])).values()],
+    deferred_endpoints:deferredEndpoints,cursor:0,scan_id:scanId,plan_scope:'observed_https_representative'};
 }

@@ -192,11 +192,11 @@ function ok(name, cond, detail = "") {
   ok("D2a: a policy-lookup gap still reads as a policy-resolution reason",
     /policy record could not be fully resolved/i.test(summaryFor({ policy_completeness: "incomplete" })));
 
-  // D2b — panel/summary can't diverge: production recomputes monitoring_state from
-  // the full core-completeness check (not policy_completeness alone).
+  // D2b — panel/summary can't diverge: complete core evidence with an
+  // uncorroborated fallback remains visibly degraded.
   const prod = readFileSync(new URL(eng("dmarcbis-production.js")), "utf8");
-  ok("D2b: runDmarcbisCore recomputes monitoring_state from core completeness",
-    /monitoring_state:\s*complete\s*\?\s*"monitoring_healthy"\s*:\s*"monitoring_degraded"/.test(prod));
+  ok("D2b: core completeness and corroboration jointly bound monitoring state",
+    /monitoring_state:\s*complete && policy\.corroboration_state !== "unavailable" &&\s*!policy\.resolver_fallback_used\s*\?\s*"monitoring_healthy"\s*:\s*"monitoring_degraded"/.test(prod));
 }
 
 // ---------------------------------------------------------------------------

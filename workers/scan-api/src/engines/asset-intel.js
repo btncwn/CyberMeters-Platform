@@ -675,12 +675,35 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     ? opts
     : { ...opts, fetcher: makeDefaultProbeFetch(opts.cache) };
 
+  const retryServerError = async (host, first) => {
+    if (first?.probe_status !== "server_error") return first;
+    const wait = typeof opts.retryDelay === "function"
+      ? opts.retryDelay
+      : (ms, signal) => new Promise((resolve, reject) => {
+        if (signal?.aborted) { reject(signal.reason || new Error("aborted")); return; }
+        const abort = () => {
+          clearTimeout(timer);
+          reject(signal.reason || new Error("aborted"));
+        };
+        const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, ms);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+    try {
+      await wait(2000, opts.signal);
+      if (opts.signal?.aborted) return first;
+      return await probeAsset(host, probeOpts);
+    } catch {
+      // Keep the observed target error if the retry cannot run or also fails.
+      return first;
+    }
+  };
+
   // All probes run in parallel; individual failures return reachable:false records.
   // opts (e.g. opts.fetcher for the reserved SSRF-safe prober) is passed through; the
   // legacy caller passes nothing, so probeAsset uses its default native fetcher.
   const assessed = await Promise.all(targets.map(async (host) => {
     const [probe, a, aaaa] = await Promise.allSettled([
-      probeAsset(host, probeOpts),
+      probeAsset(host, probeOpts).then(first => retryServerError(host, first)),
       dnsQuery(host, "A", {
         accounting: opts.dnsAccounting || opts.accounting || null,
         signal: opts.signal || null,

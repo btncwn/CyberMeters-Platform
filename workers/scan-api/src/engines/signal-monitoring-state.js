@@ -297,6 +297,34 @@ function resolveSignalState(definition, modules, skipped) {
   );
 }
 
+const ATTACK_SURFACE_INCOMPLETE_CAUSES = Object.freeze({
+  asset_exposure: Object.freeze({
+    server_error: "A website target returned a server error after retry.",
+    probe_timeout: "A website target did not answer before the probe deadline.",
+    subrequest_budget_exhausted: "The HTTP probe request budget was exhausted.",
+    dns_resolution_unavailable: "DNS resolution for a website target was unavailable.",
+    exposure_probe_failed: "The asset exposure probe failed before it could assess its targets.",
+  }),
+  dns_bruteforce: Object.freeze({
+    dns_not_executed: "Hostname discovery did not finish within the scan budget.",
+  }),
+  subdomain_takeover: Object.freeze({
+    takeover_probe_failed: "The hostname takeover probe failed before it could finish.",
+  }),
+  cloud_storage_discovery: Object.freeze({
+    cloud_storage_probe_failed: "The cloud storage probe failed before it could finish.",
+  }),
+});
+
+function attackSurfaceIncompleteMessage(incompleteModules, modules) {
+  const causes = incompleteModules.map(name =>
+    ATTACK_SURFACE_INCOMPLETE_CAUSES[name]?.[modules[name]?.incomplete_reason]
+  ).filter(Boolean);
+  return causes.length
+    ? `Attack-surface checks did not complete in this run. ${[...new Set(causes)].join(" ")}`
+    : SIGNAL_MONITORING_WORDING.attack_surface.evidence_incomplete;
+}
+
 export function deriveSignalMonitoringStates({
   modules = {},
   scanQuality = null,
@@ -312,7 +340,9 @@ export function deriveSignalMonitoringStates({
     );
     signals[signal] = {
       state,
-      message: SIGNAL_MONITORING_WORDING[signal]?.[state]
+      message: signal === "attack_surface" && state === SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
+        ? attackSurfaceIncompleteMessage(incompleteModules, modules)
+        : SIGNAL_MONITORING_WORDING[signal]?.[state]
         ?? "Monitoring evidence was incomplete in this run.",
       evidence: {
         modules: [...definition.modules],

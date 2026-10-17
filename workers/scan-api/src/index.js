@@ -352,7 +352,7 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
 //   email_security  — 22 in runScanEngine (TXT root + BIMI + 19 DKIM selectors + up to
 //                         3 Phase 2 provider extras); lightweight direct callers retain
 //                         the legacy exact _dmarc lookup (23) until separately budgeted
-//   dmarc_core      — 10 logical questions, independently capped at 750 ms
+//   dmarc_core      — <=18 requests with one second-resolver retry per failed required lookup; 1200 ms cap
 //   subdomains      — 2  (wildcard A + AAAA DoH)
 //   dns_bruteforce  — actual checked count (40 names + 8 MX + 8 SRV lookups)
 //   asset_exposure  — 0  (variable; up to 50×2 HTTP probes; tracked separately from exposure result)

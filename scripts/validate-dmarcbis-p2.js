@@ -76,10 +76,10 @@ const TXT = (...values) => ({
 });
 
 // ── R1 exact time/subrequest allocation and whole-scan envelope ────────────
-eq("core hard phase allocation is 750 ms", DMARCBIS_CORE_BUDGET_MS, 750);
+eq("core hard phase allocation includes a bounded second-resolver retry", DMARCBIS_CORE_BUDGET_MS, 1200);
 eq("primary tree-walk boundary is 500 ms", DMARCBIS_PRIMARY_BUDGET_MS, 500);
-eq("corroboration absolute boundary is 650 ms",
-  DMARCBIS_CORROBORATION_DEADLINE_MS, 650);
+eq("corroboration and fallback absolute boundary is 1100 ms",
+  DMARCBIS_CORROBORATION_DEADLINE_MS, 1100);
 eq("external-RUA optional allocation is 600 ms",
   DMARCBIS_EXTERNAL_RUA_BUDGET_MS, 600);
 eq("external destination primary walk ends by 300 ms",
@@ -228,6 +228,25 @@ ok("serialized network envelope fits executable budget",
     core.evidence_grade.repeat_confirmed, false);
   eq("core RUA authorization starts incomplete before optional phase",
     core.rua_authorisation_completeness, "incomplete");
+  const oneResolver = await runDmarcbisCore("example.test", {
+    primaryProvider: async () => ({ outcome: "timeout" }),
+    secondaryProvider: provider,
+  });
+  eq("a failed primary required lookup is retried once through the second resolver",
+    oneResolver.core_completeness, "complete");
+  eq("one-resolver recovery retains the requested policy without claiming corroboration",
+    [oneResolver.effective_requested_policy, oneResolver.corroboration_state,
+      oneResolver.resolver_fallback_used, oneResolver.evidence_grade.grade, oneResolver.outcome],
+    ["reject", "unavailable", true, "L1", "degraded"]);
+  eq("one-resolver evidence cannot automatically establish a policy lifecycle condition",
+    deriveDmarcPolicyConditions(oneResolver), []);
+  const neitherResolver = await runDmarcbisCore("example.test", {
+    primaryProvider: async () => ({ outcome: "timeout" }),
+    secondaryProvider: async () => ({ outcome: "timeout" }),
+  });
+  eq("both resolver failures still withhold the policy and remain incomplete",
+    [neitherResolver.core_completeness, neitherResolver.effective_requested_policy],
+    ["incomplete", null]);
   const exactCompatibility = applyDmarcbisEmailCompatibilityProjection(
     "example.test",
     {},
@@ -267,8 +286,8 @@ ok("serialized network envelope fits executable budget",
     timedOut.effective_requested_policy, null);
   eq("provider timeout makes core unavailable",
     timedOut.core_completeness, "unavailable");
-  ok("deterministic timeout fixture exercised the 500/750 boundaries",
-    timerAllocations.includes(500) && timerAllocations.includes(750),
+  ok("deterministic timeout fixture exercised the 500/1200 boundaries",
+    timerAllocations.includes(500) && timerAllocations.includes(1200),
     JSON.stringify(timerAllocations));
 }
 
