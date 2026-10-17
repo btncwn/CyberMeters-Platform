@@ -1,5 +1,5 @@
-// WorkspaceMenu — the workspace button at the foot of the rail and its
-// popover: the active workspace, the switch list, Manage workspaces and
+// WorkspaceMenu — the workspace card deck in the bottom-left of the shell and
+// its popover: the active workspace, the switch list, Manage workspaces and
 // Members & roles (founder, 16 Oct 2026: nothing else lives here — the
 // workspace settings are in the account menu, Related changes under Cases,
 // Scorecard and the executive dashboard under Reports). Writes the same
@@ -7,13 +7,19 @@
 // the shell follows at once. Closes on Escape and on an outside click; focus
 // returns to the button.
 import { useEffect, useRef, useState } from 'react'
-import { Building2, Check } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 
 export const WORKSPACE_MENU_ID = 'cm-workspace-menu'
 
-export default function WorkspaceMenu({ wsId, wsName, placement = 'up' }) {
+export function workspaceInitial(name) {
+  const source = String(name || '').trim()
+  return source ? source[0].toUpperCase() : '?'
+}
+
+export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
+  const mini = size === 'mini'
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState(null)
@@ -60,10 +66,9 @@ export default function WorkspaceMenu({ wsId, wsName, placement = 'up' }) {
   }
 
   const itemClass = 'flex items-center gap-2 px-4 py-2 text-[15px] text-gray-800 hover:bg-gray-50 transition-colors'
-  const position = placement === 'up' ? 'left-0 bottom-full mb-2' : 'right-0 bottom-full mb-2'
 
   return (
-    <div className="relative" ref={ref} data-testid="workspace-menu">
+    <div className={mini ? 'relative' : 'relative cm-wsdock'} ref={ref} data-testid="workspace-menu">
       <button
         ref={buttonRef}
         type="button"
@@ -72,14 +77,19 @@ export default function WorkspaceMenu({ wsId, wsName, placement = 'up' }) {
         aria-expanded={open}
         aria-controls={WORKSPACE_MENU_ID}
         aria-label={wsName ? `Workspace: ${wsName}` : 'Select a workspace'}
-        className={`cm-rail-item ${open ? 'cm-rail-item-active' : ''}`}
+        className={mini ? 'cm-wsmini' : 'cm-wsbtn'}
+        data-testid={mini ? 'workspace-mini-button' : 'workspace-dock-button'}
       >
-        <Building2 className="w-5 h-5" aria-hidden="true" />
-        <span className="cm-tip" aria-hidden="true">{wsName || 'Select a workspace'}</span>
+        {/* The card deck (founder prototype v2): a navy-to-blue card with the
+            serif initial and a WORKSPACE label, two offset white cards behind.
+            The mini card keeps the initial only. */}
+        <span className="cm-wsbtn-initial" aria-hidden="true">{workspaceInitial(wsName)}</span>
+        {!mini && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
+        {!mini && <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">{wsName ? `Workspace · ${wsName}` : 'Select a workspace'}</span>}
       </button>
 
       {open && (
-        <div id={WORKSPACE_MENU_ID} role="menu" aria-label="Workspace" className={`cm-popover ${position} w-72 max-h-[70vh] overflow-y-auto`}>
+        <div id={WORKSPACE_MENU_ID} role="menu" aria-label="Workspace" className={`cm-popover ${mini ? 'right-0 top-full mt-2 w-72' : 'left-0 bottom-full mb-3 w-[300px]'} max-h-[70vh] overflow-y-auto`}>
           <div className="px-4 pt-3 pb-2 border-b border-gray-100">
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Workspace</p>
             <p className="text-[15px] font-semibold text-gray-900 truncate" data-testid="active-workspace-name">{wsName || 'No workspace selected'}</p>

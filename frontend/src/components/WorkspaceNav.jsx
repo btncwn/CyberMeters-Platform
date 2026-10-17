@@ -1,17 +1,10 @@
-// WorkspaceNav — the 72px module rail of the app shell: one icon per area in
-// founder order (lib/moduleRegistry.js order, SERVICE_COLORS key), a dark
-// tooltip on hover/focus, the active area on a light tinted ground, and the
-// workspace button with its popover at the foot. Below the lg breakpoint the
-// rail becomes a bottom bar. The wide sidebar it replaces is gone; each
-// area's sub-pages are now the tiles on the area page (MODULE_SUBPAGES).
-import { NavLink, useLocation } from 'react-router-dom'
-import { preloadComponent } from '../utils/preload'
-import { routePreloadMap } from '../utils/preloadMap'
-import { SERVICE_COLORS } from '../theme/serviceColors'
-import { moduleIcon } from './shell/moduleIcons'
-import WorkspaceMenu from './shell/WorkspaceMenu'
-
-// ── Canonical Cyber MOT domains — the areas on the rail ─────────────────────
+// WorkspaceNav — the canonical area list of the app shell: one entry per area
+// in founder order (lib/moduleRegistry.js order, SERVICE_COLORS key) with the
+// route it opens and its sub-pages. The 72px rail that once rendered this list
+// is gone (founder prototype v2, 17 Oct 2026): the areas now show only in the
+// sheet the brand button opens (shell/AreaMenu.jsx) and as tiles on each area
+// page. This file is the data; it renders nothing.
+// ── Canonical Cyber MOT domains — the areas ─────────────────────
 // Founder order (14 Oct): strongest evidence first, down to the readiness area.
 // `items` are the area's sub-pages (route or in-page anchor), shown as tiles on
 // the area page; the area name itself opens its overview. An anchor opens the
@@ -125,41 +118,3 @@ export function subpagesForDomainKey(domainKey) {
 }
 
 export const MODULE_SUBPAGES = Object.freeze(Object.fromEntries(SERVICES.map((s) => [s.domainKey, subpagesForDomainKey(s.domainKey)])))
-
-function RailItem({ svc, active }) {
-  const t = SERVICE_COLORS[svc.key]
-  const Icon = moduleIcon(svc.key)
-  const preload = () => { const loader = routePreloadMap[svc.to]; if (loader) preloadComponent(loader) }
-  return (
-    <li>
-      <NavLink
-        to={svc.to}
-        aria-label={svc.title}
-        aria-current={active ? 'page' : undefined}
-        onMouseEnter={preload}
-        onFocus={preload}
-        className={`cm-rail-item ${active ? 'cm-rail-item-active' : ''}`}
-        style={active ? { backgroundColor: t.chip, color: t.text } : { color: t.icon }}
-        data-service-key={svc.key}
-      >
-        <Icon className="w-5 h-5" aria-hidden="true" />
-        <span className="cm-tip" aria-hidden="true">{svc.title}</span>
-      </NavLink>
-    </li>
-  )
-}
-
-export default function WorkspaceNav({ wsId, wsName }) {
-  const { pathname } = useLocation()
-  const activeKey = detectServiceKey(pathname)
-  return (
-    <nav aria-label="Modules" className="cm-rail" data-testid="module-rail">
-      <ul className="cm-rail-list">
-        {SERVICES.map((svc) => <RailItem key={svc.key} svc={svc} active={activeKey === svc.key} />)}
-      </ul>
-      <div className="cm-rail-foot">
-        <WorkspaceMenu wsId={wsId} wsName={wsName} placement="up" />
-      </div>
-    </nav>
-  )
-}

@@ -34,10 +34,15 @@ describe('product typography', () => {
     expect(css).toMatch(/\.cm-hero-title\s*\{[^}]*font-family:\s*'Computer Modern Serif'/)
   })
 
-  it('the shell canvas is an opaque white-to-sky gradient and the globe takes no pointer events', () => {
+  it('the shell canvas is an opaque white-to-sky gradient and the docks take pointer events only on their controls', () => {
     expect(css).toMatch(/\.cm-shell\s*\{[^}]*linear-gradient\(180deg,\s*#ffffff/)
     expect(css).not.toMatch(/\.cm-shell\s*\{[^}]*rgba\(/)
-    expect(css).toMatch(/\.cm-globe\s*\{[^}]*pointer-events:\s*none/)
-    expect(css).toMatch(/\.cm-globe\s*\{[^}]*opacity:\s*0\.55/)
+    // The globe is a control now (notifications), so the DOCK is inert and only
+    // the canvas inside it is a pointer target; the same holds for the workspace dock.
+    expect(css).toMatch(/\.cm-earthdock\s*\{[^}]*pointer-events:\s*none/)
+    expect(css).toMatch(/\.cm-earthdock\s*>\s*\*\s*\{[^}]*pointer-events:\s*auto/)
+    expect(css).toMatch(/\.cm-dock\s*\{[^}]*pointer-events:\s*none/)
+    expect(css).not.toMatch(/\.cm-globe\s*\{/)
+    expect(css).not.toMatch(/\.cm-rail\s*\{/)
   })
 })

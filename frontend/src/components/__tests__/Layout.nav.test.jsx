@@ -4,17 +4,22 @@ import Layout, { DIRECT_NAV, MSP_NAV, MSP_NAV_FEATURE, selectNav, roleLabelFor }
 import { api } from '../../api'
 import { useAuth } from '../../context/AuthContext'
 
-// The app shell (founder, 16 Oct 2026): a white top bar with the main menu as
-// pills, the bell and the account button; Field Guide and Billing in the
-// account menu; no scan button in the bar. The menu is chosen from the
-// account's ENTITLEMENT, never from how many workspaces or domains it has.
+// The app shell v2 (founder prototype, 17 Oct 2026): a 68px top bar with ONE
+// brand button on the left (it opens the area sheet), the main menu as pills
+// and the account initial on the right; no bell, no lone dot, no left rail.
+// Field Guide and Billing live in the account menu; no scan button in the bar.
+// The menu is chosen from the account's ENTITLEMENT, never from how many
+// workspaces or domains it has.
 
 vi.mock('../../api', () => ({
-  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn() },
+  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn(), getCyberMotDomains: vi.fn() },
   logoutWithToken: vi.fn(),
 }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }))
-vi.mock('../NotificationBell', () => ({ default: () => <button type="button" aria-label="Notifications" /> }))
+vi.mock('../shell/EarthDock', () => ({
+  default: ({ phone }) => <div data-testid="earth-dock" data-phone={String(Boolean(phone))} />,
+  EARTH_PHONE_QUERY: '(max-width: 639.98px)',
+}))
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
@@ -22,9 +27,17 @@ const DIRECT_FEATURES = ['scheduled_scans', 'alerts', 'pdf_reports', 'business_r
 const PRO_FEATURES = [...DIRECT_FEATURES, 'multi_workspace', 'team_members', 'vendor_risk', 'executive_dashboard', 'audit_logs']
 const MSP_FEATURES = [...PRO_FEATURES, 'portfolio_monitoring', 'white_label']
 
-function renderLayout(usage, { user = { name: 'Taylor Owner', email: 'owner@example.co.uk', plan: 'professional' }, path = '/dashboard', workspace = null } = {}) {
+// jsdom has no matchMedia: the shell is wide (≥1280px, docks in the gutters)
+// unless a test asks for the compact bar.
+function mockViewport(wide) {
+  window.matchMedia = vi.fn().mockReturnValue({ matches: wide, addEventListener: vi.fn(), removeEventListener: vi.fn() })
+}
+
+function renderLayout(usage, { user = { name: 'Taylor Owner', email: 'owner@example.co.uk', plan: 'professional' }, path = '/dashboard', workspace = null, wide = true } = {}) {
+  mockViewport(wide)
   useAuth.mockReturnValue({ user, logout: vi.fn(), isAuthenticated: true, isLoading: false })
   api.getWorkspaces.mockResolvedValue({ workspaces: [] })
+  api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: [] })
   if (usage instanceof Promise) api.getAccountUsage.mockReturnValue(usage)
   else if (usage instanceof Error) api.getAccountUsage.mockRejectedValue(usage)
   else api.getAccountUsage.mockResolvedValue(usage)
@@ -138,8 +151,12 @@ describe('Layout top bar — shape', () => {
     expect(within(h).queryByRole('link', { name: 'Field Guide' })).not.toBeInTheDocument()
     expect(within(h).queryByRole('link', { name: 'Billing' })).not.toBeInTheDocument()
     expect(within(h).queryByText('Customer A')).not.toBeInTheDocument()
-    expect(within(h).getByRole('link', { name: 'CyberMeters home' })).toHaveAttribute('href', '/dashboard')
-    expect(within(h).getByRole('button', { name: 'Notifications' })).toBeInTheDocument()
+    // The brand is ONE button that opens the areas; no bell and no lone dot in the bar.
+    const brand = within(h).getByRole('button', { name: 'CyberMeters — open areas' })
+    expect(brand).toHaveTextContent('CyberMeters')
+    expect(brand).toHaveAttribute('aria-haspopup', 'menu')
+    expect(within(h).queryByRole('button', { name: /Notifications/ })).not.toBeInTheDocument()
+    expect(within(h).queryByRole('link', { name: 'CyberMeters home' })).not.toBeInTheDocument()
   })
 
   it('the account button shows the initial and opens Field Guide, Billing, Account & security, Settings and Sign out', async () => {
@@ -207,19 +224,48 @@ describe('Layout top bar — shape', () => {
     expect(await screen.findByTestId('login')).toBeInTheDocument()
   })
 
-  it('renders the module rail as the first column, the globe behind the content column, and a skip link', () => {
-    renderLayout({ features: DIRECT_FEATURES })
-    const rail = screen.getByRole('navigation', { name: 'Modules' })
-    const column = screen.getByRole('banner').parentElement
-    expect(column.className.split(' ')).toContain('cm-shell-column')
-    // Rail before the column, globe after it: the column paints above the globe.
-    expect(rail.compareDocumentPosition(column) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(column.compareDocumentPosition(screen.getByTestId('shell-globe')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getByTestId('shell-globe')).toHaveAttribute('aria-hidden', 'true')
+  it('has no rail: the areas show only in the sheet the brand opens; the docks and the skip link are present', () => {
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' } })
+    expect(screen.queryByRole('navigation', { name: 'Modules' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('module-rail')).not.toBeInTheDocument()
+    expect(screen.queryByText('Email Protection')).not.toBeInTheDocument()
+    fireEvent.click(within(header()).getByRole('button', { name: 'CyberMeters — open areas' }))
+    const sheet = screen.getByRole('menu', { name: 'Areas' })
+    expect(within(sheet).getAllByRole('menuitem')).toHaveLength(8)
+    expect(within(sheet).getByText('Email Protection')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu', { name: 'Areas' })).not.toBeInTheDocument()
+
+    // Workspace card deck bottom-left, the globe (notifications) bottom-right.
+    const dock = screen.getByTestId('workspace-dock')
+    expect(within(dock).getByRole('button', { name: 'Workspace: Customer A' })).toHaveClass('cm-wsbtn')
+    expect(screen.getByTestId('earth-dock')).toBeInTheDocument()
     expect(screen.getByText('Skip to content')).toHaveAttribute('href', '#main')
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main')
     for (const a of within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link')) {
       expect(a.className.split(' ')).toContain('cm-pill')
     }
+  })
+
+  it('below 1280px no dock is rendered: a compact bell and a 36px workspace card sit in the top bar instead', async () => {
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' }, wide: false })
+    expect(screen.queryByTestId('earth-dock')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-dock')).not.toBeInTheDocument()
+    const h = header()
+    const mini = within(h).getByRole('button', { name: 'Workspace: Customer A' })
+    expect(mini).toHaveClass('cm-wsmini')
+    expect(within(h).getByTestId('compact-bell')).toHaveAccessibleName('Notifications')
+    fireEvent.click(mini)
+    expect(await screen.findByRole('menu', { name: 'Workspace' })).toBeInTheDocument()
+  })
+
+  it('the workspace dock opens the existing workspace popover', async () => {
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' } })
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A' }, { id: 'ws_b', name: 'Customer B' }] })
+    fireEvent.click(within(screen.getByTestId('workspace-dock')).getByRole('button', { name: 'Workspace: Customer A' }))
+    const menu = screen.getByRole('menu', { name: 'Workspace' })
+    expect(await within(menu).findByRole('menuitem', { name: /Customer B/ })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Manage workspaces' })).toHaveAttribute('href', '/workspaces')
+    expect(within(menu).getByRole('menuitem', { name: 'Members & roles' })).toHaveAttribute('href', '/ws/members')
   })
 })

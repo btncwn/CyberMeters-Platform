@@ -402,7 +402,6 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
                   : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read.'
                   : (entry.freshness_reason || (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.'))}
               </span>
-              {workspaceName && <span>· {workspaceName}</span>}
             </div>
           </div>
           <div className="flex flex-col items-stretch lg:items-end gap-3 shrink-0">

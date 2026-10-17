@@ -20,9 +20,15 @@ function formatDate(str) {
     .toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function relativeTime(str) {
-  if (!str) return ''
-  const diff = Date.now() - new Date(str.replace(' ', 'T') + 'Z').getTime()
+// Relative age of a stored timestamp, or '' when the value is missing or
+// cannot be parsed — the hero drops the "· … ago" part rather than render
+// "NaNd ago". Exported for its test.
+export function relativeTime(str, nowMs = Date.now()) {
+  if (typeof str !== 'string' || !str.trim()) return ''
+  const iso = str.includes('T') ? str : str.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(str) ? '' : 'Z')
+  const ms = new Date(iso).getTime()
+  if (!Number.isFinite(ms)) return ''
+  const diff = Math.max(0, nowMs - ms)
   const m = Math.floor(diff / 60000)
   if (m < 1) return 'just now'
   if (m < 60) return `${m}m ago`
@@ -414,7 +420,7 @@ export default function Dashboard() {
         <h1 id="home-question" className="cm-hero-title">Where is {activeWorkspaceName || 'your organisation'} exposed today?</h1>
         <p className="text-[15px] text-gray-500 mt-3">
           {latestScan
-            ? `Last assessment of ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
+            ? [`Last assessment of ${latestScan.domain}`, relativeTime(latestScan.created_at)].filter(Boolean).join(' · ')
             : 'No assessment has been recorded in this workspace yet.'}
         </p>
         <form
