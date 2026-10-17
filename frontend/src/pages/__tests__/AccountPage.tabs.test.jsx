@@ -127,9 +127,20 @@ describe('AccountPage tabs', () => {
     expect(screen.getByText('Trial ended')).toBeInTheDocument()
   })
 
-  it('Privacy & data embeds the privacy page without its own header', async () => {
+  it('Privacy & data embeds the privacy page without its own header, even when the account profile cannot be read', async () => {
+    api.getAccountProfile.mockRejectedValue(new Error('profile unavailable'))
     renderAt('/account/privacy')
     await screen.findByTestId('account-panel-privacy')
     expect(screen.getByTestId('privacy-embedded')).toHaveTextContent('true')
+    expect(screen.queryByText('profile unavailable')).toBeNull()
+  })
+
+  it('Notifications renders without waiting on the account load; Profile still reports a failed read', async () => {
+    api.getAccountProfile.mockRejectedValue(new Error('profile unavailable'))
+    const first = renderAt('/account/notifications')
+    await screen.findByTestId('account-panel-notifications')
+    first.unmount()
+    renderAt('/account')
+    expect(await screen.findByText('profile unavailable')).toBeInTheDocument()
   })
 })

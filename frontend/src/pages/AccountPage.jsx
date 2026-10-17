@@ -460,6 +460,9 @@ export default function AccountPage() {
   }
 
   const tab = accountTabForPath(pathname)
+  // Notifications and Privacy & data fetch their own data; only the tabs that
+  // show the profile, company, tokens or subscription wait on the account load.
+  const needsAccountLoad = ['profile', 'company', 'security', 'billing'].includes(tab)
   const saveFeedback = (
     <>
       {/* Save feedback */}
@@ -501,11 +504,11 @@ export default function AccountPage() {
         ))}
       </nav>
 
-      {loading ? (
+      {needsAccountLoad && loading ? (
         <div className="card p-16 text-center">
           <p className="text-sm text-gray-400">Loading…</p>
         </div>
-      ) : loadError ? (
+      ) : needsAccountLoad && loadError ? (
         <div className="card p-8 text-center">
           <p className="text-sm text-red-700">{loadError}</p>
         </div>
