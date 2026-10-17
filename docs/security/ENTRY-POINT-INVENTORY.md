@@ -426,9 +426,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^/` | 47 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 101 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 153 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 58 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 112 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 164 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/website-sign-in.js`
 

@@ -46,7 +46,12 @@ export const SERVICES = [
   {
     key: 'website', domainKey: 'website_security', title: 'Website Security', to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
-    items: [],
+    items: [
+      { hash: '#website-observations', label: 'Observations', desc: 'HTTPS, headers and cookies from the latest scan', tab: 'overview' },
+      { hash: '#exposure-checks', label: 'Exposure checks', desc: 'Public content and management surfaces checked', tab: 'overview' },
+      { hash: '#pages-checked', label: 'Pages checked', desc: 'Public pages observed on your site' },
+      { hash: '#sign-in-settings', label: 'Sign-in settings', desc: 'Set up and review signed-in checks' },
+    ],
   },
   {
     key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',

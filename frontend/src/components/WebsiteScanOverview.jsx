@@ -89,7 +89,7 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
   const evidenceUrl = scan ? `/scans/${encodeURIComponent(scan.id)}?view=technical#website-evidence` : null
 
   return (
-    <section aria-label="Website scan overview" className="card mb-8 overflow-hidden">
+    <section id="website-observations" aria-label="Website scan overview" className="card mb-8 overflow-hidden scroll-mt-28">
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 px-6 py-5">
         <div><p className="text-sm font-semibold" style={{ color: colors.text }}>Website protection overview</p><h2 className="section-title mt-1">What did the latest scan observe?</h2></div>
         {latest.size > 1 && <label className="max-w-full text-sm text-gray-600">Recent scan site
@@ -123,7 +123,14 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
           <Link className="btn-secondary" to={evidenceUrl}>View latest scan evidence</Link>
           <Link className="btn-primary" to={`/scans/new?domain=${encodeURIComponent(scan.domain)}`}>Recheck this website</Link>
         </div>}
-        {report && <ExternalExposureChecks exposure={report.modules?.external_exposure} domain={scan?.domain} scanId={scan?.id} />}
+        <div id="exposure-checks" className="scroll-mt-28">
+          {report
+            ? <ExternalExposureChecks exposure={report.modules?.external_exposure} domain={scan?.domain} scanId={scan?.id} />
+            : <section aria-label="Exposure checks" className="mt-6 border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-semibold text-gray-900">Exposure checks</h3>
+                <p className="mt-2 text-base text-gray-600">{reportPending || loading ? 'Loading recorded checks…' : 'No exposure check result is available from the latest scan.'}</p>
+              </section>}
+        </div>
         {scans.length >= 20 && <p className="mt-4 text-sm text-gray-500">Site selection uses this workspace’s 20 most recent scan records. <Link className="underline" to="/scans">View scan history</Link></p>}
       </div>
     </section>

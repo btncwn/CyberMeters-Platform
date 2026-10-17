@@ -235,7 +235,7 @@ export default function WebsiteSignInSettings({ workspaceId }) {
 
   const domains = data?.domains || []
   return (
-    <section className="card p-5 mb-6" aria-label="Signed-in scanning">
+    <section id="sign-in-settings" className="card p-5 mb-6 scroll-mt-28" aria-label="Signed-in scanning">
       <h2 className="section-title mb-1">Signed-in scanning</h2>
       <p className="text-sm text-gray-600 mb-3">
         Give CyberMeters a test account and it will also check pages behind your site’s sign-in — the pages your

@@ -23,7 +23,18 @@ import {
   getWebsiteSecurityCondition, listWebsiteSecurityEvents,
 } from "../engines/website-security-lifecycle.js";
 import { listWebsitePages } from "../engines/website-pages.js";
+import { resolveRemediation } from "../engines/remediation-registry.js";
 import { pageMeta, paginationParams } from "../lib/util.js";
+
+function withRegistryAction(item) {
+  const resolution = resolveRemediation({ finding_type: item.condition_key, domain_key: "website_security" });
+  return {
+    ...item,
+    recommended_action: resolution.status === "resolved" ? resolution.recommended_action : null,
+    owner_type: resolution.status === "resolved" ? resolution.owner_type : null,
+    verification_method: resolution.status === "resolved" ? resolution.verification_method : null,
+  };
+}
 
 const WS_SCOPE_NOTE =
   "Externally observed website evidence only — passive HTTPS/header inspection and no application testing. Pages behind a "
@@ -137,7 +148,7 @@ export async function websiteSecurityRoutes(rctx) {
       const total = await countWebsiteSecurityConditions(env, wsId, filters);
       return json({
         workspace_id: wsId,
-        items,
+        items: items.map(withRegistryAction),
         pagination: pageMeta({ items, limit, offset, total }),
         scope_note: WS_SCOPE_NOTE,
       });
@@ -161,7 +172,7 @@ export async function websiteSecurityRoutes(rctx) {
         .prepare(`SELECT id, case_type, status, remediation_id FROM managed_cases WHERE id = ? AND workspace_id = ?`)
         .bind(rec.linked_case_id, wsId).first().catch(() => null);
     }
-    return json({ item: rec, events, linked_case, scope_note: WS_SCOPE_NOTE });
+    return json({ item: withRegistryAction(rec), events, linked_case, scope_note: WS_SCOPE_NOTE });
   }
 
   return json({ error: "Not found" }, 404);
