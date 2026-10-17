@@ -62,9 +62,17 @@ function fmtRelative(isoStr) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function NotificationBell() {
+export const NOTIFICATION_PANEL_ID = 'cm-notification-panel'
+
+// `trigger` (optional) renders the control that opens the panel in place of
+// the bell button — the shell passes the globe. `variant="earth"` positions
+// the panel in the bottom-right corner and grows it out of the globe (CSS
+// transform-origin at the globe's centre). The data flow — load, poll, mark
+// read, failure truth, request generations — is identical in both variants.
+export default function NotificationBell({ trigger = null, variant = 'bell' } = {}) {
   const wsId    = localStorage.getItem('cybermeters_workspace_id')
   const navigate = useNavigate()
+  const earth = variant === 'earth'
 
   const [open,          setOpen]         = useState(false)
   const [notifications, setNotifications] = useState([])
@@ -176,8 +184,12 @@ export default function NotificationBell() {
     }
   }
 
-  // If no workspace selected, render a plain non-interactive bell
+  const hasUnread = unreadCount > 0
+
+  // If no workspace selected, render a plain non-interactive control: the
+  // custom trigger with nothing to open, or the bell.
   if (!wsId) {
+    if (trigger) return <div className="relative" ref={ref}>{trigger({ open: false, toggle: () => {}, unreadCount: 0, hasUnread: false, panelId: NOTIFICATION_PANEL_ID })}</div>
     return (
       <button className="relative w-11 h-11 flex items-center justify-center rounded-[8px] text-white hover:bg-white/10 transition-colors" aria-label="Notifications">
         <Bell className="w-[22px] h-[22px]" />
@@ -185,25 +197,36 @@ export default function NotificationBell() {
     )
   }
 
-  const hasUnread = unreadCount > 0
+  const toggle = () => setOpen(v => !v)
 
   return (
     <div className="relative" ref={ref}>
-      {/* Bell button */}
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="relative w-11 h-11 flex items-center justify-center rounded-[8px] text-white hover:bg-white/10 transition-colors"
-        aria-label={`Notifications${hasUnread ? ` (${unreadCount} unread)` : ''}`}
-      >
-        <Bell className="w-[22px] h-[22px]" />
-        {hasUnread && (
-          <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-[#a9f2e5] border-2 border-[#071B40]" />
-        )}
-      </button>
+      {trigger ? trigger({ open, toggle, unreadCount, hasUnread, panelId: NOTIFICATION_PANEL_ID }) : (
+        <button
+          onClick={toggle}
+          className="relative w-11 h-11 flex items-center justify-center rounded-[8px] text-white hover:bg-white/10 transition-colors"
+          aria-label={`Notifications${hasUnread ? ` (${unreadCount} unread)` : ''}`}
+          aria-expanded={open}
+          aria-controls={NOTIFICATION_PANEL_ID}
+        >
+          <Bell className="w-[22px] h-[22px]" />
+          {hasUnread && (
+            <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-[#a9f2e5] border-2 border-[#071B40]" />
+          )}
+        </button>
+      )}
 
       {/* Panel */}
       {open && (
-        <div className="fixed left-4 right-4 mt-2 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+        <div
+          id={NOTIFICATION_PANEL_ID}
+          role="dialog"
+          aria-label="Notifications"
+          data-testid="notification-panel"
+          className={earth
+            ? 'cm-notif bg-white rounded-[22px] shadow-xl border border-gray-100 z-50 overflow-hidden'
+            : 'fixed left-4 right-4 mt-2 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden'}
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <div className="flex items-center gap-2">
@@ -221,7 +244,7 @@ export default function NotificationBell() {
                   disabled={markingAll}
                   className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-800 font-medium px-2 py-1 rounded-lg hover:bg-brand-50 transition-colors disabled:opacity-50"
                 >
-                  All read
+                  {earth ? 'Mark all read' : 'All read'}
                 </button>
               )}
               <button
@@ -363,7 +386,7 @@ export default function NotificationBell() {
               onClick={() => setOpen(false)}
               className="text-xs font-medium text-brand-700 hover:text-brand-800 transition-colors"
             >
-              View all →
+              {earth ? 'See all activity →' : 'View all →'}
             </Link>
           </div>
         </div>
