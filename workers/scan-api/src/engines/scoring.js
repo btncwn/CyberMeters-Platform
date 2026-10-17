@@ -7,6 +7,7 @@
 import { assetFingerprintSignals } from "./asset-intel.js";
 import { resolveDnsResolution } from "./attack-surface-signal-completeness.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
+import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
 import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
@@ -1145,10 +1146,17 @@ export function computeScore(modules, domain) {
   const brandMod = modules.brand_monitoring !== undefined
     ? modules.brand_monitoring
     : runTyposquatModule(domain);
+  // Enrichment-aware admission (brand-validation-state.js): a candidate that
+  // carries CyberMeters' own DNS result is a finding only when it resolves and
+  // the customer has not closed it; an unchecked or inactive candidate never
+  // is. An open confirmed-abuse case is a finding regardless of the module-level
+  // validation gate — the case is the customer's confirmed record.
   let brandScoreDeduction = 0;
   for (const c of (brandMod?.domains || [])) {
-    if (brandMod?.candidates_validated === false) continue;
-    if (!['high', 'critical'].includes(c.risk_level)) continue;
+    const openAbuseCase = brandCandidateHasOpenAbuseCase(c);
+    if (brandMod?.candidates_validated === false && !openAbuseCase) continue;
+    if (!openAbuseCase && !['high', 'critical'].includes(c.risk_level)) continue;
+    if (!brandCandidateIsLive(c)) continue;
     const isIdn = c.variant_type === 'homoglyph_idn' ||
       c.idn_homograph?.is_homograph === true ||
       c.idn_homograph?.visually_confusable === true;
@@ -1157,17 +1165,40 @@ export function computeScore(modules, domain) {
       : (c.variant_type === 'hyphen_keyword' || c.variant_type === 'prefix_keyword')
         ? 'brand_lookalike_detected'
         : 'brand_typosquat_detected';
-    const scoreImpact = c.risk_level === 'critical' ? -5 : -3;
+    const caseSeverity = String(c.open_abuse_case?.severity || '').toLowerCase();
+    const severity = openAbuseCase && (caseSeverity === 'critical' || c.risk_level === 'critical')
+      ? 'critical'
+      : (c.risk_level === 'critical' ? 'critical' : 'high');
+    const scoreImpact = severity === 'critical' ? -5 : -3;
     const riskSignals = (c.risk_reasons || []).join(', ') || 'none';
+    const dnsLive = c.dns_resolves === 1 || c.dns_resolves === true;
+    const enrichmentEvidence = c.dns_resolves === undefined ? [] : [
+      { label: 'DNS Resolves', value: dnsLive ? 'yes (CyberMeters DNS probe)' : c.dns_resolves === null ? 'not yet checked' : 'no' },
+      ...(c.https_available === 1 || c.https_available === true
+        ? [{ label: 'HTTPS', value: 'served' }]
+        : c.https_available === 0 || c.https_available === false
+          ? [{ label: 'HTTPS', value: 'not served' }]
+          : []),
+      ...(c.last_checked_at ? [{ label: 'Last Checked', value: c.last_checked_at }] : []),
+    ];
+    const caseEvidence = openAbuseCase ? [
+      { label: 'Managed Case', value: c.open_abuse_case.case_id || 'open' },
+      { label: 'Case Status',  value: c.open_abuse_case.status },
+    ] : [];
+    const variantLabel = String(c.variant_type || 'lookalike').replace(/_/g, ' ');
     findings.push({
       id:          findingId,
-      title:       isIdn
-        ? `Visually confusable IDN lookalike observed: ${c.candidate_domain}`
-        : `Brand lookalike domain detected: ${c.candidate_domain}`,
-      severity:    c.risk_level === 'critical' ? 'critical' : 'high',
-      description: isIdn
-        ? `The domain ${c.candidate_domain} is visually confusable with the protected brand under CyberMeters' bounded product policy. This is a lookalike signal, not proof of abuse. Observed risk signals: ${riskSignals}.`
-        : `The domain ${c.candidate_domain} is a ${c.variant_type.replace(/_/g, ' ')} variant of your brand. Risk signals: ${riskSignals}.`,
+      title:       openAbuseCase
+        ? `Confirmed brand abuse under management: ${c.candidate_domain}`
+        : isIdn
+          ? `Visually confusable IDN lookalike observed: ${c.candidate_domain}`
+          : `Brand lookalike domain detected: ${c.candidate_domain}`,
+      severity,
+      description: openAbuseCase
+        ? `The domain ${c.candidate_domain} has an open managed case in which abuse was confirmed (${c.open_abuse_case.status.replace(/_/g, ' ')}). CyberMeters tracks the takedown; the registrar or provider actions it.`
+        : isIdn
+          ? `The domain ${c.candidate_domain} is visually confusable with the protected brand under CyberMeters' bounded product policy. This is a lookalike signal, not proof of abuse.${dnsLive ? ' CyberMeters\' own DNS probe resolved it.' : ''} Observed risk signals: ${riskSignals}.`
+          : `The domain ${c.candidate_domain} is a ${variantLabel} variant of your brand.${dnsLive ? ' CyberMeters\' own DNS probe resolved it.' : ''} Risk signals: ${riskSignals}.`,
       evidence: [
         { label: 'Candidate Domain', value: c.candidate_domain },
         ...(isIdn && c.unicode_domain
@@ -1175,11 +1206,13 @@ export function computeScore(modules, domain) {
           : []),
         { label: 'Variant Type',     value: c.variant_type     },
         { label: 'Risk Level',       value: c.risk_level       },
+        ...enrichmentEvidence,
+        ...caseEvidence,
       ],
       score_impact:       scoreImpact,
       finding_type:       'finding',
-      confidence:         c.confidence ?? 40,
-      validation_quality: c.validation_quality ?? 'weak',
+      confidence:         openAbuseCase ? 90 : dnsLive ? 80 : (c.confidence ?? 40),
+      validation_quality: openAbuseCase ? 'strong' : dnsLive ? 'good' : (c.validation_quality ?? 'weak'),
     });
     brandScoreDeduction += Math.abs(scoreImpact);
   }

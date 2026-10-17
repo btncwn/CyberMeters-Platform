@@ -565,6 +565,9 @@ export async function upsertBrandAssets(domainId, brandMod, env) {
 
   for (const { workspace_id } of wsRows) {
     for (const c of brandMod.domains) {
+      // Case-only entries merged by brand-validation-state.js are not this
+      // scan's candidates; their asset rows already exist and keep their bytes.
+      if (c?.generated_this_scan === false) continue;
       try {
         const similarity = brandSimilarityScore(c.candidate_domain, inferredBrand);
         const idn = buildBrandIdnEvidence(c.candidate_domain, inferredBrand);
