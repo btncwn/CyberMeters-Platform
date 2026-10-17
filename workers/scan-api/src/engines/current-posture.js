@@ -20,6 +20,14 @@ import {
   WEBSITE_REDIRECT_WITHHELD_MESSAGE,
 } from "./phase5-evidence.js";
 
+export function latestScoreWithheld(latestProvisional) {
+  const withheld = Boolean(latestProvisional && latestProvisional.display_score == null);
+  return {
+    latest_score_withheld: withheld,
+    latest_score_withheld_reasons: withheld && latestProvisional.message ? [latestProvisional.message] : [],
+  };
+}
+
 // scope: { workspaceId } (latest across the workspace's linked domains) or
 // { domainId } (a single domain). Returns:
 //   { state: 'established'|'not_established',
@@ -181,6 +189,10 @@ export async function getCurrentPosturePresentation(env, scope) {
     authoritative_scan_id: established ? (authoritativeRaw?.scan_id ?? null) : null,
     latest_provisional: latestProvisional,
     latest_provisional_scan_id: latestProvisional ? (latestRaw?.scan_id ?? null) : null,
+    // The latest assessment owns the current score presentation. A historical
+    // authoritative score remains available above, but must not be advertised
+    // as today's score when the latest assessment explicitly withheld it.
+    ...latestScoreWithheld(latestProvisional),
     posture_message: established ? null : POSTURE_NOT_ESTABLISHED_MESSAGE,
   };
 }

@@ -56,6 +56,16 @@ describe('laneForCase (pure)', () => {
 })
 
 describe('Operations view — lanes', () => {
+  it('uses the current assignee instead of a persisted owner-missing title suffix', async () => {
+    api.getCases.mockResolvedValue({ cases: [mk('cert', 'assigned', {
+      domain_key: 'certificates_trust', title: 'Certificate follow-up: cybermeters.com (owner missing)', owner_ref: 'Turhan Acar',
+    })] })
+    const b = await board()
+    await waitFor(() => expect(count(b, 'triage')).toBe('1'))
+    expect(b.getByRole('link', { name: 'Certificate follow-up: cybermeters.com' })).toBeInTheDocument()
+    expect(b.getByText(/Owner: Turhan Acar/)).toBeInTheDocument()
+    expect(b.queryByText(/owner missing/)).not.toBeInTheDocument()
+  })
   it('opens on Triage with counts on every lane and the Triage cases listed', async () => {
     const b = await board()
     await waitFor(() => expect(count(b, 'triage')).toBe('6'))

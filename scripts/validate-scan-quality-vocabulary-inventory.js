@@ -150,9 +150,10 @@ const EXPECTED = Object.freeze({
     // Module Findings adds registry-backed display fields above the existing
     // executive-dashboard queries. Their SQL source lines each move by nine;
     // query text, predicate counts and classifications remain unchanged.
-    fingerprint: "4570c24266f3ed32a38b64581fac9e334da08644c10847f93b0f770d83d3e401",
+    // Honesty PR shifts the dashboard SQL sites while keeping all 40 quality predicates and 22 sinks.
+    fingerprint: "5ce7d8b8fdf0f762b983874ee0a827bd7823cb2d4bccfea1f93761a5eabf5362",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "56315bf312b0bae44aac276edcd7371b07430ae0e6ff1ca61067bae920f62a1f",
+    resolved_query_sink_fingerprint: "27978eda6fa022f5d2498cf2540ebf86c32b7167a5fe7e878d6cd42ebc79948c",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -267,13 +268,11 @@ const EXPECTED = Object.freeze({
     // Attack Surface evidence adds two direct reads of the recorded scan quality.
     // Phase-local authority reads scan_quality once in the domain resolver;
     // the two-tree direct-read diff has this sole addition and no removals.
-    // SHELL-V2 SCAN-INFORMATION SUCCESSION: 127 -> 126 (same 47 files). ONE read
-    // genuinely REMOVED, not relocated: ScanDetail.jsx `scan.scan_quality`, the
-    // argument of the retired assessmentBandLabel() call in the Scan Information
-    // panel; the row's label is now the constant "Assessment band" and a withheld
-    // band still says so in the value. Two-tree --dump-current diff keyed by
-    // file:kind:slot:snippet (origin/main vs this head): no other delta.
-    runtime: { occurrence_count: 126, source_file_count: 47, fingerprint: "20a63df405bf802ce467b537b16eb6e770c9e147daf1438572881d63dd247586" },
+    // SHELL-V2 SCAN-INFORMATION SUCCESSION removed one retired assessment-band
+    // read in ScanDetail.jsx. Honesty status adds one direct scan quality read
+    // in the same file so the sidebar and title agree on partial results.
+    // The two-tree direct-read diff must show those two exact changes only.
+    runtime: { occurrence_count: 127, source_file_count: 47, fingerprint: "34b71f645041bd921b6f7fa718731e8f9b29b5cf3808bb847e2acc2a0b4a3055" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -334,7 +333,8 @@ const EXPECTED = Object.freeze({
   // both SQL snippets and every runtime direct read match the main-tree dump.
   // MCP TLS evidence projection shifts one existing scan_quality SQL read
   // from line 381 to 432; the two-tree diff has no SQL read membership change.
-  sql_reads: { projection_occurrences: 24, fingerprint: "e00ed7eb39fbac3ea37d1a86abb92db4c01cdf8ea09ba33d7ef7826d790f9ab2" },
+  // Route lines moved; the same 24 scan-quality SQL projection reads remain.
+  sql_reads: { projection_occurrences: 24, fingerprint: "ed0d0bbb478b62c610dbe6b7348e3fed444cc9c1de2bcf0625bb6c50c51919e4" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

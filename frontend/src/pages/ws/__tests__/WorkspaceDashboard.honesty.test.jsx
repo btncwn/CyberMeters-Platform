@@ -106,6 +106,20 @@ describe('WorkspaceDashboard evidence presentation', () => {
     expect(score.queryByText('100')).not.toBeInTheDocument()
   })
 
+  it('withholds the old number and band when the latest assessment withheld its score', async () => {
+    const reason = 'The Cyber Metrics Score is withheld because TLS checks did not complete.'
+    const score = await dashboard({
+      state: 'established', authoritative: established(100),
+      latest_provisional: { ...provisional(), display_score: null, message: reason },
+      latest_score_withheld: true, latest_score_withheld_reasons: [reason],
+    })
+    expect(score.getByText('Score withheld — assessment incomplete')).toBeInTheDocument()
+    expect(score.getByRole('listitem')).toHaveTextContent(reason)
+    expect(score.queryByText('100')).not.toBeInTheDocument()
+    expect(score.queryByText('Excellent')).not.toBeInTheDocument()
+    expect(score.queryByText('90')).not.toBeInTheDocument()
+  })
+
   it('shows a complete assessment without adding a provisional state', async () => {
     const score = await dashboard({ state: 'established', authoritative: established(), latest_provisional: null })
 

@@ -97,7 +97,6 @@ export const PLAN_FEATURES = {
     "scheduled_scans",    // can create scheduled scans
     "alerts",             // email + in-app alert notifications
     "pdf_reports",        // PDF report generation and download
-    "multi_workspace",    // can create more than 1 workspace
     "team_members",       // can invite workspace members
     // ── Pre-existing gates ────────────────────────────────────────────────
     "business_risk_score",
@@ -107,7 +106,6 @@ export const PLAN_FEATURES = {
     "scheduled_scans",
     "alerts",
     "pdf_reports",
-    "multi_workspace",
     "team_members",
     "business_risk_score",
     "cyber_essentials",

@@ -12,7 +12,7 @@ import { parseServerDate } from '../utils/dates'
  */
 
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { CheckCircle, ChevronDown, Trash2, Copy } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -164,7 +164,7 @@ function PlanLimitsCard({ planLimits }) {
       {plan === 'free' || plan === 'starter' ? (
         <div className="mt-4 pt-4 border-t border-gray-50">
           <p className="text-xs text-brand-700 font-medium">Upgrade for higher limits →</p>
-          <p className="text-xs text-gray-400 mt-0.5">Billing available in an upcoming release.</p>
+          <Link to="/billing" className="text-xs text-brand-700 mt-0.5 inline-block">View billing and plans →</Link>
         </div>
       ) : null}
     </div>
@@ -597,7 +597,7 @@ export default function AccountPage() {
                   <p className="text-xs text-brand-700 leading-relaxed">
                     Unlock unlimited domains, advanced reporting, and MSP portfolio features.
                   </p>
-                  <p className="text-xs text-brand-400 mt-2">Billing available in an upcoming release.</p>
+                  <Link to="/billing" className="text-xs text-brand-700 mt-2 inline-block">View billing and plans →</Link>
                 </div>
               </Section>
 

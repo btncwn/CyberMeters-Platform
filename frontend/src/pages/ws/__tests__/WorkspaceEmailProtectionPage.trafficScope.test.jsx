@@ -1,9 +1,9 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EmailProtectionOverview, MxRecordsCard } from '../WorkspaceEmailProtectionPage'
+import { EmailProtectionOverview, EmailPostureHero, BecExposure, MxRecordsCard } from '../WorkspaceEmailProtectionPage'
 import { api } from '../../../api'
 
-vi.mock('../../../api', () => ({ BASE: 'https://api.example.test/api', api: { getDmarcIngestEndpoint: vi.fn() } }))
+vi.mock('../../../api', () => ({ BASE: 'https://api.example.test/api', api: { getDmarcIngestEndpoint: vi.fn(), getBecExposureScore: vi.fn(), verifyDmarcDns: vi.fn() } }))
 
 const senders = { senders: [{ id: 'sender-a' }], summary: { total_messages: 119, aligned_messages: 119, failed_messages: 0 } }
 const tile = (name) => within(screen.getByText(name).parentElement)
@@ -12,6 +12,19 @@ const show = (dmarc) => render(<EmailProtectionOverview wsId="test-workspace" do
 beforeEach(() => { api.getDmarcIngestEndpoint.mockResolvedValue({ endpoint: null }) })
 
 describe('Email overview message evidence scope', () => {
+  it('separates auto-ingested DMARC compliance from uploaded BEC evidence and shows the BEC score once', async () => {
+    api.getBecExposureScore.mockResolvedValue({ exposure_score: 24, exposure_level: 'low', evidence: { pass_rate: null, total_messages: 0, reports_received: false }, reasons: [], recommended_actions: [] })
+    api.verifyDmarcDns.mockResolvedValue({ status: 'verified', policy: 'none' })
+    render(<>
+      <EmailPostureHero wsId="test-workspace" domain="example.test" dmarc={{ traffic_by_source: { auto_ingested: { total_messages: 46, pass_rate: 100 }, customer_uploaded: { total_messages: 0, pass_rate: null } } }} />
+      <BecExposure wsId="test-workspace" domain="example.test" />
+    </>)
+    expect(screen.getByText('Automatically ingested RUA · DMARC compliance')).toBeInTheDocument()
+    expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(screen.getByText(/of 46 messages passed/)).toBeInTheDocument()
+    expect(await screen.findByText('Customer-uploaded pass rate: Not measured')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByText(/24\/100/)).toHaveLength(1))
+  })
   it('keeps reporting-window totals and alignment counts together despite a larger sender inventory', () => {
     show({ period_days: 30, traffic: { total_messages: 33, aligned_messages: 31, failed_messages: 2 } })
     expect(tile('Messages observed').getByText('33')).toBeInTheDocument()

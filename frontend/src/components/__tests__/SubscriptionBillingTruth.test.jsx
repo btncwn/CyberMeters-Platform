@@ -141,7 +141,20 @@ test('billing page advertises no retired Vendor Risk / Supply Chain Intelligence
   expect(container.textContent).not.toMatch(/Vendor Risk/i)
   expect(container.textContent).not.toMatch(/Supply Chain Intelligence/i)
   // The gated feature is still advertised — under its honest label.
-  expect(screen.getByText('Third-party technology detection')).toBeInTheDocument()
+  expect(screen.getByText('Vendor relationships and supply chain views')).toBeInTheDocument()
+})
+
+test('feature list follows plan limits and entitlements, never a static included/not-included grid', async () => {
+  api.getWorkspaceSubscription.mockResolvedValue(subFixture({
+    plan: 'starter', limits: { workspaces: 1, domains: 1, users: 3, history_days: 90 },
+    features: ['scheduled_scans', 'alerts', 'multi_workspace'],
+  }))
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage()
+  expect(await screen.findByText('Scheduled scans')).toBeInTheDocument()
+  expect(screen.queryByText('Multiple workspaces')).not.toBeInTheDocument()
+  expect(screen.queryByText('Third-party technology detection')).not.toBeInTheDocument()
+  expect(screen.queryByText('Not included:')).not.toBeInTheDocument()
 })
 
 test('PlanGate upgrade wall for vendor_risk uses the honest label, no retired claims', () => {
@@ -152,7 +165,7 @@ test('PlanGate upgrade wall for vendor_risk uses the honest label, no retired cl
       </PlanGate>
     </MemoryRouter>,
   )
-  expect(screen.getByText(/Third-party technology detection requires an upgrade/)).toBeInTheDocument()
+  expect(screen.getByText(/Vendor relationships and supply chain views requires an upgrade/)).toBeInTheDocument()
   expect(container.textContent).not.toMatch(/Vendor Risk/i)
   expect(container.textContent).not.toMatch(/Supply Chain Intelligence/i)
 })

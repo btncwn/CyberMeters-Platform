@@ -4,7 +4,7 @@ import { generateTrialWorkspacePdf } from "../engines/plan-usage.js";
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #1).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { buildCyberEssentialsReadiness } from "../engines/ce-readiness.js";
+import { buildCyberEssentialsReadiness, presentCyberEssentialsQuestionnaireReadiness } from "../engines/ce-readiness.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, CE_QUESTION_SET_PROVENANCE, mergeReadiness } from "../lib/cyber-essentials.js";
 import { buildWorkspaceExecutivePdf } from "../engines/pdf.js";
 import { readLatestWorkspaceSnapshots } from "../engines/report-snapshot.js";
@@ -273,8 +273,8 @@ export async function workspaceAnalyticsRoutes(rctx) {
 
       const readiness = await buildCyberEssentialsReadiness(wsId, env);
       if (!readiness) return json({ error: 'Database error' }, 500);
-      // Additive: merge self-attestation answers with the measured categories
-      // (measured wins on contradiction). Never break base readiness if this fails.
+      // A failed questionnaire read cannot publish an external-only grade as a
+      // complete five-control readiness verdict.
       try {
         const arows = await env.cybermeters_db
           .prepare(`SELECT control_key, question_key, answer FROM cyber_essentials_answers WHERE workspace_id = ?`)
@@ -291,8 +291,10 @@ export async function workspaceAnalyticsRoutes(rctx) {
           question_set_version: CE_QUESTION_SET_VERSION,
           controls: mergeReadiness(measured, answers),
         };
-      } catch { /* self-assessment is additive; base readiness stands */ }
-      return json(readiness);
+        return json(presentCyberEssentialsQuestionnaireReadiness(readiness, answers));
+      } catch {
+        return json({ error: "Questionnaire could not be read" }, 500);
+      }
     }
 
     // ── Executive Security Scorecard Routes ──────────────────────────────────

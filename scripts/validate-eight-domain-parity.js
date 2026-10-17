@@ -226,7 +226,8 @@ const cleanComplete = () => ({
   const env = {
     cybermeters_db: { prepare(sql) { return { bind() { return {
       all: async () => ({ results: sql.includes("s.scan_quality='complete'") ? [older] : [] }),
-      first: async () => sql.includes("FROM scans s") ? newer : null,
+      first: async () => sql.includes("FROM scans s") ? newer
+        : sql.includes("FROM shadow_it_inventory") ? { n: 1 } : null,
     }; } }; } },
     cybermeters_reports: { get: async (key) => {
       const id = key.match(/^reports\/(.+)\.json$/)?.[1];

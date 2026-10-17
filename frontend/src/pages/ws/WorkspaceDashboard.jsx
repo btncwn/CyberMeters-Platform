@@ -634,6 +634,14 @@ function WorkspaceDashboardContent({ wsId, wsName }) {
             </div>
             <div className="card px-6 py-4 text-center" role="region" aria-label="Security score">
               <p className="label mb-1">Security Score</p>
+              {posture?.latest_score_withheld ? (
+                <>
+                  <p className="text-sm font-semibold text-gray-700">Score withheld — assessment incomplete</p>
+                  <ul className="mt-2 max-w-xs list-disc pl-4 text-left text-xs text-gray-600">
+                    {(posture.latest_score_withheld_reasons || []).map((reason, index) => <li key={index}>{reason}</li>)}
+                  </ul>
+                </>
+              ) : <>
               {posture?.authoritative?.label && authoritative.state === 'established' && (
                 <p className="text-xs text-gray-500 mb-1">{posture.authoritative.label}</p>
               )}
@@ -647,6 +655,7 @@ function WorkspaceDashboardContent({ wsId, wsName }) {
                   <CanonicalScore assessment={posture.latest_provisional} />
                 </div>
               )}
+              </>}
             </div>
           </div>
 
