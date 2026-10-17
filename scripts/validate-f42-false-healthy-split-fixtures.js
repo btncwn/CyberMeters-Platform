@@ -261,7 +261,8 @@ assertNoFalseHealthy("F42_BAR4_UNIFORM_530", await observe(UNIFORM_530));
      typeof r.website?.state === "string" && r.website?.domain_key === "website_security");
   ok("F42_BAR6_GRADER_NAMES_THE_INCOMPLETE_MODULES",
      ["headers", "technology_detection"].every(name =>
-       r.scan_quality.modules_incomplete.some(item => item.module === name)) &&
+       r.scan_quality.modules_incomplete.some(item =>
+         item.module === name && item.incomplete_reason === "origin_not_observed")) &&
      !r.scan_quality.modules_skipped.includes("headers"),
      JSON.stringify(r.scan_quality.modules_incomplete));
 }

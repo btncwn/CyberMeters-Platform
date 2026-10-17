@@ -381,8 +381,8 @@ const F42_MUTANTS = Object.freeze([
       // Technology: an edge error page is published as the customer's stack.
       "F42_BAR1_NO_TECHNOLOGY_FROM_EDGE_PAGE", "F42_BAR1_TECH_INCOMPLETE",
       "F42_BAR1_EDGE_PAGE_IS_NOT_CLOUDFLARE_STACK_EVIDENCE",
-      // The grader must stop naming the unobserved modules.
-      "F42_BAR6_GRADER_NAMES_THE_UNOBSERVED_MODULES",
+      // The grader must preserve the unobserved-origin reason for attempted modules.
+      "F42_BAR6_GRADER_NAMES_THE_INCOMPLETE_MODULES",
     ],
     forbidKilled: [
       // Retained verbatim from the pre-F-48 requireKilled set — not deleted.
