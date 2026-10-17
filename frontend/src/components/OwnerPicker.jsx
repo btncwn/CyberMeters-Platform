@@ -105,7 +105,7 @@ export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, 
       {!canManage && (
         <p className="text-xs text-slate-400 mt-1">Only workspace admins and owners can change the accountable owner.</p>
       )}
-      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+      {error && <p className="text-xs text-red-700 mt-2">{error}</p>}
     </div>
   )
 }

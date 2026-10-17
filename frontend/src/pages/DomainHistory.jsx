@@ -139,12 +139,12 @@ export default function DomainHistory() {
                         </span>
                       )}
                     </div>
-                    <p className="mono text-xs text-gray-300 mt-1.5 truncate">{scan.id}</p>
+                    <p className="mono text-xs text-gray-600 mt-1.5 truncate">{scan.id}</p>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-gray-400 flex items-center gap-1">
                         {formatDate(scan.created_at)}
                       </span>
-                      <span className="text-xs text-gray-300">{relativeTime(scan.created_at)}</span>
+                      <span className="text-xs text-gray-600">{relativeTime(scan.created_at)}</span>
                     </div>
                   </div>
                 </li>

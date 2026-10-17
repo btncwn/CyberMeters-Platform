@@ -261,7 +261,7 @@ export default function ShadowItInventoryPage() {
       </div>
 
       {loading && <p className="text-sm text-slate-400">Loading…</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-700">{error}</p>}
       {/* Action-level failure. Rendered ABOVE the inventory and deliberately not
           part of the table's render gate, so a failed action never removes the
           list the customer is working in. */}
@@ -333,7 +333,7 @@ export default function ShadowItInventoryPage() {
                       <div className="text-xs text-slate-500 mt-1">{onboardingMeta(it.onboarding_status).label}</div>
                     )}
                     {removalMeta(it.removal_status, it.removal_verified) && (
-                      <div className={`text-xs mt-0.5 ${removalMeta(it.removal_status, it.removal_verified).tone === 'red' ? 'text-red-600' : removalMeta(it.removal_status, it.removal_verified).tone === 'amber' ? 'text-brand-700' : 'text-slate-500'}`}>
+                      <div className={`text-xs mt-0.5 ${removalMeta(it.removal_status, it.removal_verified).tone === 'red' ? 'text-red-700' : removalMeta(it.removal_status, it.removal_verified).tone === 'amber' ? 'text-brand-700' : 'text-slate-500'}`}>
                         {removalMeta(it.removal_status, it.removal_verified).label}
                       </div>
                     )}

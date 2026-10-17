@@ -40,7 +40,7 @@ function selectWorkspace(navigate, workspaceId, workspaceName) {
 // RatingBadge renders the CANONICAL Cyber Metrics Score band vocabulary via the
 // mirror module (M5.e) — one label/tone source, unknown stays neutral.
 function RatingBadge({ rating }) {
-  if (!rating) return <span className="text-gray-300 text-xs">—</span>
+  if (!rating) return <span className="text-gray-600 text-xs">—</span>
   const meta = bandMeta(String(rating).toLowerCase())
   const cfg = { label: meta.label, cls: meta.pill }
   return (
@@ -73,7 +73,7 @@ function fmtDay(str) {
 }
 
 function ScorePill({ score }) {
-  if (score == null) return <span className="text-gray-300 text-sm font-semibold">—</span>
+  if (score == null) return <span className="text-gray-600 text-sm font-semibold">—</span>
   return <span className={`text-sm font-bold ${metaForScore(score).text}`}>{score}</span>
 }
 
@@ -103,10 +103,10 @@ function StatusDot({ status }) {
 
 function SectionError({ message, onRetry }) {
   return (
-    <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-3 text-sm text-red-600">
+    <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 flex items-center gap-3 text-sm text-red-700">
       <span>{message}</span>
       {onRetry && (
-        <button onClick={onRetry} className="ml-auto btn-ghost text-red-500 hover:text-red-600 py-0.5 px-2">
+        <button onClick={onRetry} className="ml-auto btn-ghost text-red-700 hover:text-red-800 py-0.5 px-2">
           Retry
         </button>
       )}
@@ -230,12 +230,12 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
                 <td className="text-center">
                   {(ws.critical_findings ?? 0) > 0
                     ? <span className="badge-critical">{ws.critical_findings}</span>
-                    : <span className="text-gray-300 text-xs">0</span>}
+                    : <span className="text-gray-600 text-xs">0</span>}
                 </td>
                 <td className="text-center">
                   {(ws.high_findings ?? 0) > 0
                     ? <span className="badge-high">{ws.high_findings}</span>
-                    : <span className="text-gray-300 text-xs">0</span>}
+                    : <span className="text-gray-600 text-xs">0</span>}
                 </td>
                 <td className="text-gray-500 text-sm">{fmtDate(ws.last_scan_at)}</td>
                 <td className="text-gray-500 text-sm">{fmtDate(ws.last_report_at)}</td>
@@ -314,7 +314,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-semibold text-gray-500">{alert.workspace_name}</span>
-                      <span className="text-xs text-gray-300">·</span>
+                      <span className="text-xs text-gray-600">·</span>
                       <span className="text-xs text-gray-400 font-mono">{(alert.type || '').replace(/_/g, ' ')}</span>
                     </div>
                     <p className="text-sm font-medium text-gray-800 mt-0.5 truncate">{assetLifecycleClaimDisplay({ ...alert, event_type: alert.type }).title}</p>
@@ -322,7 +322,7 @@ function AlertsSection({ alerts, loading, error, onRetry }) {
                       <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{assetLifecycleClaimDisplay({ ...alert, event_type: alert.type }).description}</p>
                     )}
                   </div>
-                  <div className="shrink-0 flex items-center gap-1 text-xs text-gray-300">
+                  <div className="shrink-0 flex items-center gap-1 text-xs text-gray-600">
                     {fmtDateTime(alert.created_at)}
                   </div>
                 </div>
@@ -355,7 +355,7 @@ function TrendsSection({ trend, loading, error, onRetry }) {
   const first = trend[0]?.average_score
   const last  = trend[trend.length - 1]?.average_score
   const diff  = last != null && first != null ? Math.round(last - first) : null
-  const trendColor = diff == null ? '' : diff > 0 ? 'text-brand-700' : diff < 0 ? 'text-red-500' : 'text-gray-400'
+  const trendColor = diff == null ? '' : diff > 0 ? 'text-brand-700' : diff < 0 ? 'text-red-700' : 'text-gray-400'
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">

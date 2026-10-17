@@ -157,7 +157,7 @@ function CandidateRow({ c, busy, onClassify }) {
     <div className={`border-b border-gray-100 ${closed ? 'opacity-70' : ''}`}>
       <div className="px-4 py-3 grid grid-cols-12 gap-3 items-center">
         <button onClick={() => setOpen(o => !o)} className="col-span-12 sm:col-span-4 flex items-center gap-2 text-left min-w-0">
-          {open ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />}
+          {open ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-600 shrink-0" />}
           <span className="min-w-0">
             <span className="block mono text-sm text-gray-900 truncate">{c.candidate_domain || '—'}</span>
             {c.unicode_domain && c.unicode_domain !== c.candidate_domain && (

@@ -444,7 +444,7 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
             >
               {cleanup
                 ? <ToggleRight className="w-9 h-9 text-brand-700" />
-                : <ToggleLeft  className="w-9 h-9 text-gray-300" />
+                : <ToggleLeft  className="w-9 h-9 text-gray-600" />
               }
             </button>
           </div>

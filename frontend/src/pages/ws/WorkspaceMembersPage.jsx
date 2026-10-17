@@ -183,7 +183,7 @@ function RoleSelector({ currentRole, memberId, workspaceId, callerRole, onChange
           ? <RefreshCw className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 animate-spin pointer-events-none" />
           : <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />}
       </div>
-      {err && <p className="text-xs text-red-600 mt-1">{err}</p>}
+      {err && <p className="text-xs text-red-700 mt-1">{err}</p>}
     </div>
   )
 }
@@ -368,7 +368,7 @@ export default function WorkspaceMembersPage() {
                               <button
                                 onClick={() => removeMember(member.id)}
                                 disabled={removingId === member.id}
-                                className="inline-flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700 hover:text-red-800 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
                                 title="Remove member"
                               >
                                 {removingId === member.id && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
@@ -432,7 +432,7 @@ export default function WorkspaceMembersPage() {
                           <button
                             onClick={() => cancelInvitation(inv.id)}
                             disabled={cancellingId === inv.id}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-red-800 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
                             title="Cancel invitation"
                           >
                             {cancellingId === inv.id && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}

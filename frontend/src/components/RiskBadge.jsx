@@ -19,7 +19,7 @@ const BADGE_CLASS = {
 }
 
 export default function RiskBadge({ level }) {
-  if (!level) return <span className="text-gray-300 text-xs">—</span>
+  if (!level) return <span className="text-gray-600 text-xs">—</span>
   const cls = BADGE_CLASS[String(level).toLowerCase()] ?? 'badge-unknown'
   return <span className={cls}>{level}</span>
 }

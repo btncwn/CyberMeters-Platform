@@ -72,7 +72,7 @@ export default function ThirdPartyPage() {
       {assets.length === 0 ? (
         <div className="card py-16 text-center">
           <p className="text-sm text-gray-400">No third-party SaaS services detected yet.</p>
-          <p className="text-xs text-gray-300 mt-1">Run a scan to discover external dependencies.</p>
+          <p className="text-xs text-gray-600 mt-1">Run a scan to discover external dependencies.</p>
         </div>
       ) : (
         <div className="space-y-8">

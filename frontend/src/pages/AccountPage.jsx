@@ -105,7 +105,7 @@ function UsageBar({ label, used, limit, note }) {
     <div className="mb-3 last:mb-0">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-gray-600">{label}</span>
-        <span className={`text-xs font-semibold ${full ? 'text-red-600' : near ? 'text-brand-700' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold ${full ? 'text-red-700' : near ? 'text-brand-700' : 'text-gray-500'}`}>
           {used} / {limit >= 999 ? '∞' : limit}
           {note && <span className="ml-1 font-normal text-gray-400">{note}</span>}
         </span>
@@ -415,7 +415,7 @@ export default function AccountPage() {
         </div>
       ) : loadError ? (
         <div className="card p-8 text-center">
-          <p className="text-sm text-red-600">{loadError}</p>
+          <p className="text-sm text-red-700">{loadError}</p>
         </div>
       ) : (
         <form onSubmit={handleSave}>
@@ -520,7 +520,7 @@ export default function AccountPage() {
                 {/* Save feedback */}
                 {saveError && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
-                    <p className="text-xs text-red-600">{saveError}</p>
+                    <p className="text-xs text-red-700">{saveError}</p>
                   </div>
                 )}
                 {saveOk && (
@@ -549,7 +549,7 @@ export default function AccountPage() {
                 {!subscription ? (
                   <div className="text-center py-6">
                     <p className="text-sm text-gray-400">No subscription found.</p>
-                    <p className="text-xs text-gray-300 mt-1">Your account is on the free plan.</p>
+                    <p className="text-xs text-gray-600 mt-1">Your account is on the free plan.</p>
                   </div>
                 ) : (
                   <div className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
@@ -610,7 +610,7 @@ export default function AccountPage() {
                 )}
                 {mfaError && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
-                    <p className="text-xs text-red-600">{mfaError}</p>
+                    <p className="text-xs text-red-700">{mfaError}</p>
                   </div>
                 )}
 
@@ -645,7 +645,7 @@ export default function AccountPage() {
                         type="button"
                         onClick={() => { setMfaStep('disable'); setMfaError(null) }}
                         disabled={mfaBusy}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 text-red-700 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
                       >
                         Disable MFA
                       </button>
@@ -833,7 +833,7 @@ export default function AccountPage() {
 
                   {tokenError && (
                     <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100">
-                      <p className="text-xs text-red-600">{tokenError}</p>
+                      <p className="text-xs text-red-700">{tokenError}</p>
                     </div>
                   )}
 
@@ -864,7 +864,7 @@ export default function AccountPage() {
                                   type="button"
                                   onClick={() => handleRevokeToken(token.id)}
                                   disabled={tokenBusy}
-                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-800 hover:bg-red-50 disabled:opacity-50"
                                   title="Revoke token"
                                   aria-label="Revoke token"
                                 >

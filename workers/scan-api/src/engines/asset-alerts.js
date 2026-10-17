@@ -464,7 +464,7 @@ export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHos
     critical: "#dc2626",
     high:     "#ea580c",
     medium:   "#d97706",
-    info:     "#00876A",
+    info:     "#117362",
   };
   const color = SEVERITY_COLOR[severity] || SEVERITY_COLOR.info;
   const quality = scanCompletionQualityDisclosure(scanQuality);
@@ -588,7 +588,7 @@ function buildAssetChangeEmail(domain, scanId, severity, color, quality, assetsU
     ? `<tr><td style="padding:2px 12px 2px 0;color:#6b7280;font-size:13px;vertical-align:top;white-space:nowrap">${escapeEmailHtml(label)}</td><td style="padding:2px 0;font-size:13px;color:#111827">${escapeEmailHtml(value)}</td></tr>`
     : "";
   const changeHtml = changes.map((change) => {
-    const changeColor = { critical: "#dc2626", high: "#ea580c", medium: "#d97706" }[change.severity] || "#00876A";
+    const changeColor = { critical: "#dc2626", high: "#ea580c", medium: "#d97706" }[change.severity] || "#117362";
     return `<div style="border:1px solid #e5e7eb;border-left:4px solid ${changeColor};border-radius:8px;padding:12px 14px;margin:0 0 12px">
       <p style="margin:0 0 6px;font-size:14px;font-weight:600;color:#111827">${escapeEmailHtml(change.title)}${change.hostname ? ` <span style="font-weight:400;color:#374151">— ${escapeEmailHtml(change.hostname)}</span>` : ""}</p>
       <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:${changeColor};text-transform:uppercase">${escapeEmailHtml(change.severity || "info")}</p>

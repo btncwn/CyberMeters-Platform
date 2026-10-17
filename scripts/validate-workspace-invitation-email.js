@@ -24,7 +24,7 @@
 // Node 24+.
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (...p) => fs.readFileSync(path.join(root, ...p), "utf8");
@@ -123,6 +123,42 @@ guard(
   (s) => s.replace("We email the invitee an accept link. You can also share the generated link manually as a backup.",
                    "No email will be sent. Share the generated invite link manually."),
 );
+
+// ── INV-E8 The role carries the right article: a viewer, an analyst, an admin ──
+const membersMod = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "workspace-members.js")).href);
+ok("INV-E8 roleWithArticle: a viewer / an analyst / an admin / an owner",
+   membersMod.roleWithArticle("viewer") === "a viewer" && membersMod.roleWithArticle("analyst") === "an analyst" &&
+   membersMod.roleWithArticle("admin") === "an admin" && membersMod.roleWithArticle("owner") === "an owner" &&
+   membersMod.roleWithArticle("") === "a member");
+{
+  const mail = membersMod.buildInvitationEmail({ workspaceName: "Acme", role: "analyst", acceptUrl: "https://app.example/invitations/t", expiresAt: "2026-10-24T00:00:00Z" });
+  ok("INV-E8 invitation text and HTML say 'as an analyst' (never 'as a analyst')",
+     /as an analyst\./.test(mail.text) && /as <strong>an analyst<\/strong>\./.test(mail.html) && !/as a analyst|as a <strong>/.test(mail.text + mail.html));
+  const viewer = membersMod.buildInvitationEmail({ workspaceName: "Acme", role: "viewer", acceptUrl: "https://app.example/invitations/t" });
+  ok("INV-E8 invitation says 'as a viewer'", /as a viewer\./.test(viewer.text) && /as <strong>a viewer<\/strong>\./.test(viewer.html));
+  // ── INV-E9 Aqua scheme: aqua button with dark ink, aqua-ink links; no old green, no white on aqua ──
+  ok("INV-E9 invitation button is aqua #a9f2e5 with #081f1c ink",
+     /<a href="https:\/\/app\.example\/invitations\/t" style="[^"]*background:#a9f2e5;color:#081f1c[^"]*">Accept invitation<\/a>/.test(mail.html));
+  ok("INV-E9 invitation wordmark and link use the aqua ink #117362", (mail.html.match(/#117362/g) || []).length >= 2);
+  ok("INV-E9 invitation HTML carries no old green and no white text on the aqua ground",
+     !/#0a7c5c|#00876a/i.test(mail.html) && !/background:#a9f2e5[^"]*color:#fff/i.test(mail.html));
+  ok("INV-E9 invitation secondary text is at least 14px and gray-600 or darker",
+     !/font-size:1[0-3]px/.test(mail.html) && !/color:#(999|bbb|ccc|ddd)\b/i.test(mail.html));
+}
+guard(
+  "INV-E8 invitation copy uses roleWithArticle for the role",
+  membersSrc,
+  (s) => /const roleText\s*=\s*roleWithArticle\(role\)/.test(s) && /on CyberMeters as \$\{roleText\}\./.test(s),
+  (s) => s.replace("const roleText   = roleWithArticle(role);", "const roleText   = `a ${role}`;"),
+);
+// Every customer email template in scan-api follows the same scheme.
+for (const file of [
+  ["routes", "auth.js"], ["lib", "lifecycle-email.js"], ["engines", "alerts.js"], ["engines", "asset-alerts.js"],
+]) {
+  const src = read("workers", "scan-api", "src", ...file);
+  ok(`INV-E9 ${file.join("/")} carries no old green (#0a7c5c / #00876A)`, !/#0a7c5c|#00876a/i.test(src));
+  ok(`INV-E9 ${file.join("/")} puts no white text on the aqua ground`, !/#a9f2e5[^"'`]{0,80}color:\s*(#fff\b|#ffffff|white)/i.test(src));
+}
 
 // ── Regression: existing fail-closed rate limits must remain intact ───────────
 ok("invite hourly rate limit remains fail-closed",

@@ -131,12 +131,12 @@ export async function authRoutes(rctx) {
             "A sign-up attempt used your CyberMeters email",
             `Hi,\n\nSomeone just tried to create a CyberMeters account with your email address, but you already have an account — so nothing was created or changed.\n\nIf this was you, simply sign in:\n${notifyBase}/login\n\nForgotten your password?\n${notifyBase}/forgot-password\n\nIf this wasn't you, no action is needed.\n\nThe CyberMeters Team`,
             `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
-              <h2 style="color:#00876A">A sign-up attempt used your email</h2>
+              <h2 style="color:#117362">A sign-up attempt used your email</h2>
               <p>Someone just tried to create a CyberMeters account with your email address, but you already have an account — so nothing was created or changed.</p>
               <p style="margin:28px 0">
-                <a href="${notifyBase}/login" style="background:#00876A;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Sign in</a>
+                <a href="${notifyBase}/login" style="background:#a9f2e5;color:#081f1c;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Sign in</a>
               </p>
-              <p style="color:#6b7280;font-size:14px">Forgotten your password? <a href="${notifyBase}/forgot-password" style="color:#00876A">Reset it here</a>. If this wasn't you, no action is needed.</p>
+              <p style="color:#6b7280;font-size:14px">Forgotten your password? <a href="${notifyBase}/forgot-password" style="color:#117362">Reset it here</a>. If this wasn't you, no action is needed.</p>
             </body></html>`,
             env,
             "HELLO_EMAIL_FROM",
@@ -1169,14 +1169,14 @@ export async function authRoutes(rctx) {
             `If you didn't request this, you can ignore this email — your password won't change.\n\n` +
             `— The CyberMeters team`;
           const html = `<!DOCTYPE html><html lang="en"><body style="font-family:Arial,sans-serif;color:#111;max-width:560px;margin:40px auto;padding:0 20px">` +
-            `<div style="margin-bottom:24px"><span style="font-weight:700;font-size:18px;color:#0a7c5c">CyberMeters</span></div>` +
+            `<div style="margin-bottom:24px"><span style="font-weight:700;font-size:18px;color:#117362">CyberMeters</span></div>` +
             `<h2 style="font-size:20px;margin-bottom:8px">Reset your password</h2>` +
-            `<p style="color:#555;margin-bottom:24px">Hi ${nameHtml},<br><br>` +
+            `<p style="color:#374151;margin-bottom:24px">Hi ${nameHtml},<br><br>` +
             `You requested a password reset. Click the button below to set a new password.<br>` +
             `This link expires in <strong>1 hour</strong>.</p>` +
-            `<a href="${resetUrl}" style="display:inline-block;background:#0a7c5c;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Reset password</a>` +
-            `<p style="margin-top:32px;font-size:13px;color:#999">Or copy this URL into your browser:<br><span style="color:#0a7c5c">${resetUrl}</span></p>` +
-            `<p style="margin-top:40px;font-size:12px;color:#bbb">If you didn't request this, ignore this email — your account is safe.</p>` +
+            `<a href="${resetUrl}" style="display:inline-block;background:#a9f2e5;color:#081f1c;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Reset password</a>` +
+            `<p style="margin-top:32px;font-size:14px;color:#4b5563">Or copy this URL into your browser:<br><span style="color:#117362">${resetUrl}</span></p>` +
+            `<p style="margin-top:40px;font-size:14px;color:#4b5563">If you didn't request this, ignore this email — your account is safe.</p>` +
             `</body></html>`;
 
           const resetDelivery = await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [user.email]);

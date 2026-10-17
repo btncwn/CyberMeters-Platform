@@ -104,7 +104,7 @@ function AddDomainModal({ workspaceId, onAdded, onClose }) {
               />
             </div>
             {domain && !valid && (
-              <p className="text-xs text-red-500 mt-1.5">Enter a valid domain (e.g. example.com)</p>
+              <p className="text-xs text-red-700 mt-1.5">Enter a valid domain (e.g. example.com)</p>
             )}
           </div>
           <div className="flex gap-3 pt-1">
@@ -654,7 +654,7 @@ export default function WorkspaceDetailPage() {
                         <button
                           onClick={() => handleRemove(d.domain_id, d.domain)}
                           disabled={isRemoving}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
                           title="Remove from workspace"
                           aria-label="Remove from workspace"
                         >

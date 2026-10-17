@@ -186,7 +186,7 @@ function CreateFirstWorkspaceState() {
           A workspace holds the domains, scans, and reports for one organisation or client.
           Create your first workspace to begin monitoring your website, email and certificate security.
         </p>
-        <p className="text-xs text-gray-300 mb-8">Takes less than a minute · No credit card required</p>
+        <p className="text-xs text-gray-600 mb-8">Takes less than a minute · No credit card required</p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Link to="/onboarding" className="btn-primary">
             Get Started

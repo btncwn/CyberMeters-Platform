@@ -41,7 +41,7 @@ function DeliveryStatus({ channel }) {
   }
   const ok = channel.last_delivery_status === 'ok'
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium ${ok ? 'text-brand-700' : 'text-red-600'}`}>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${ok ? 'text-brand-700' : 'text-red-700'}`}>
       {ok ? 'Delivering' : 'Last delivery failed'}
       {channel.failure_count > 1 && !ok && <span className="text-gray-400">({channel.failure_count} in a row)</span>}
     </span>
@@ -197,7 +197,7 @@ export default function WorkspaceAlertsPage() {
                   </div>
                   <div className="hidden sm:block"><DeliveryStatus channel={ch} /></div>
                   {testResult[ch.id] && (
-                    <span className={`text-xs font-semibold ${testResult[ch.id] === 'ok' ? 'text-brand-700' : 'text-red-600'}`}>
+                    <span className={`text-xs font-semibold ${testResult[ch.id] === 'ok' ? 'text-brand-700' : 'text-red-700'}`}>
                       {testResult[ch.id] === 'ok' ? 'Test delivered ✓' : 'Test failed'}
                     </span>
                   )}
@@ -214,7 +214,7 @@ export default function WorkspaceAlertsPage() {
                   <button
                     onClick={() => handleDelete(ch.id)}
                     disabled={Boolean(busy[ch.id])}
-                    className="text-gray-300 hover:text-red-600 disabled:opacity-50"
+                    className="text-gray-600 hover:text-red-800 disabled:opacity-50"
                     title="Remove channel"
                     aria-label="Remove channel"
                   >
@@ -262,7 +262,7 @@ export default function WorkspaceAlertsPage() {
                 Cancel
               </button>
             </div>
-            {formError && <p className="text-xs text-red-600 mt-2">{formError}</p>}
+            {formError && <p className="text-xs text-red-700 mt-2">{formError}</p>}
           </form>
         )}
       </section>

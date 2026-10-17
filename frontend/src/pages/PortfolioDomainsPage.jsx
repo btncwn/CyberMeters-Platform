@@ -104,7 +104,7 @@ function DomainRow({ row }) {
             <ul className="mt-2 space-y-1">
               {row.attention_reasons.map((r, i) => (
                 <li key={`${r.domain_key}-${r.kind}-${i}`} className="text-xs text-gray-600 flex gap-2">
-                  <span className="text-gray-300 mt-0.5">•</span>
+                  <span className="text-gray-600 mt-0.5">•</span>
                   <span>{r.detail}</span>
                 </li>
               ))}
@@ -314,10 +314,10 @@ export default function PortfolioDomainsPage() {
                 {sortDisplayDomains(summary.by_domain).map((d) => (
                   <tr key={d.domain_key}>
                     <td className="font-medium text-gray-800">{d.display_name}</td>
-                    <td className={d.issue_detected ? 'text-red-600 font-semibold' : 'text-gray-400'}>{d.issue_detected}</td>
+                    <td className={d.issue_detected ? 'text-red-700 font-semibold' : 'text-gray-400'}>{d.issue_detected}</td>
                     <td className="text-gray-600">{d.assessed_healthy}</td>
                     <td className={d.unknown ? 'text-slate-600 font-semibold' : 'text-gray-400'}>{d.unknown}</td>
-                    <td className={d.worsening ? 'text-red-600 font-semibold' : 'text-gray-400'}>{d.worsening}</td>
+                    <td className={d.worsening ? 'text-red-700 font-semibold' : 'text-gray-400'}>{d.worsening}</td>
                     <td className={d.stale ? 'text-brand-700 font-semibold' : 'text-gray-400'}>{d.stale}</td>
                     <td className="text-gray-600">{d.open_cases}</td>
                   </tr>

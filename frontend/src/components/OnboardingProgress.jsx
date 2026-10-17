@@ -35,7 +35,7 @@ function StepDot({ done, active, number }) {
   }
   return (
     <div className="w-7 h-7 rounded-full border-2 border-gray-200 flex items-center justify-center shrink-0">
-      <span className="text-xs font-semibold text-gray-300">{number}</span>
+      <span className="text-xs font-semibold text-white/80">{number}</span>
     </div>
   )
 }

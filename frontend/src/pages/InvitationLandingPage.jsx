@@ -326,10 +326,10 @@ export default function InvitationLandingPage() {
         <div className="bg-white rounded-2xl shadow-xs border border-gray-100 overflow-hidden">
           {/* Header band */}
           <div className="bg-brand-200 px-8 py-6">
-            <h1 className="text-2xl font-bold text-white mb-1">
+            <h1 className="text-2xl font-bold text-brand-900 mb-1">
               You've been invited to join a workspace
             </h1>
-            <p className="text-brand-100 text-sm">
+            <p className="text-brand-900/80 text-sm">
               {preview.invited_by_name} has invited you to collaborate on CyberMeters.
             </p>
           </div>
@@ -427,7 +427,7 @@ export default function InvitationLandingPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-gray-300 pb-4">
+        <p className="text-center text-xs text-gray-600 pb-4">
           CyberMeters — Attack Surface Management &amp; Security Posture Platform
         </p>
       </main>

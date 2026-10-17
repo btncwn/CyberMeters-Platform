@@ -12,11 +12,11 @@ const RATING_CFG = {
   excellent: { label: bandMeta('excellent').label, cls: 'bg-brand-50 text-brand-700 border-brand-100'  },
   good:      { label: bandMeta('good').label,      cls: 'bg-brand-200 text-brand-900 border-brand-200'  },
   moderate:  { label: bandMeta('moderate').label,  cls: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'  },
-  high:      { label: bandMeta('high').label,      cls: 'bg-red-50 text-red-600 border-red-100' },
+  high:      { label: bandMeta('high').label,      cls: 'bg-red-50 text-red-700 border-red-100' },
   critical:  { label: bandMeta('critical').label,  cls: 'bg-red-50 text-red-700 border-red-100'        },
 }
 function RatingBadge({ rating }) {
-  if (!rating) return <span className="text-gray-300 text-xs">—</span>
+  if (!rating) return <span className="text-gray-600 text-xs">—</span>
   const cfg = RATING_CFG[rating.toLowerCase()] ?? { label: rating, cls: 'bg-gray-50 text-gray-500 border-gray-100' }
   return (
     <span className={`text-xs font-bold px-2 py-0.5 rounded-full border capitalize ${cfg.cls}`}>

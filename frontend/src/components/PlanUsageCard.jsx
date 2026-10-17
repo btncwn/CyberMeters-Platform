@@ -96,7 +96,7 @@ function UsageBar({ label, used, limit, note }) {
           {label}
           {note && <span className="text-gray-400">{note}</span>}
         </span>
-        <span className={`text-xs font-semibold ${full ? 'text-red-600' : near ? 'text-brand-700' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold ${full ? 'text-red-700' : near ? 'text-brand-700' : 'text-gray-500'}`}>
           {used} / {infinite ? '∞' : limit}
         </span>
       </div>

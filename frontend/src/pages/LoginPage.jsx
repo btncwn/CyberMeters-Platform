@@ -189,7 +189,7 @@ export default function LoginPage() {
             <p className="text-sm text-gray-500 mb-6">Enter your credentials to continue.</p>
 
             {error && (
-              <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+              <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
                 {error}
               </div>
             )}
@@ -309,7 +309,7 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2.5 px-4 py-3 mb-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+              <div className="flex items-center gap-2.5 px-4 py-3 mb-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
                 {error}
               </div>
             )}
@@ -372,7 +372,7 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2.5 px-4 py-3 mb-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+              <div className="flex items-center gap-2.5 px-4 py-3 mb-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
                 {error}
               </div>
             )}

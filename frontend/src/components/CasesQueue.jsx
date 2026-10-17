@@ -52,7 +52,7 @@ export default function CasesQueue({ workspaceId, domainKey, onDomainChange }) {
       </div>
 
       {loading && <p className="text-sm text-slate-400">Loading…</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-700">{error}</p>}
       {!loading && !error && cases.length === 0 && (
         <p className="text-sm text-slate-400">No managed cases yet. Cases open automatically when a service detects an issue that needs remediation.</p>
       )}
