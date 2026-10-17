@@ -112,13 +112,14 @@ ok("module (success) → the re-check keeps what each address family answered, b
 
 globalThis.fetch = realFetch;
 
-// ── 7. buildScanQuality — incomplete exposure forces partial + skipped ────────
+// ── 7. buildScanQuality — incomplete exposure forces partial, not skipped ────
 const qPartial = buildScanQuality({
   dns: { resolves: true }, ssl: {}, headers: { accessible: true }, email_security: {},
   asset_exposure: { checked: 5, reachable: 0, incomplete: true, incomplete_reason: "subrequest_budget_exhausted" },
 });
 ok("scan_quality → partial when exposure incomplete", qPartial.status === "partial");
-ok("scan_quality → asset_exposure listed as skipped", qPartial.modules_skipped.includes("asset_exposure"));
+ok("scan_quality → attempted asset_exposure not listed as skipped", !qPartial.modules_skipped.includes("asset_exposure") &&
+  qPartial.modules_incomplete.some(item => item.module === "asset_exposure"));
 
 const qComplete = buildScanQuality({
   dns: { resolves: true }, ssl: {}, headers: { accessible: true }, email_security: {},

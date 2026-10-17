@@ -189,9 +189,8 @@ ok("C1_SURFACE_INCOMPLETE_LIST_EXISTS", Array.isArray(sq503.modules_incomplete))
 eq("C1_SURFACE_INCOMPLETE_CARRIES_MODULE_AND_REASON",
    sq503.modules_incomplete,
    [{ module: "headers", incomplete_reason: "origin_error_no_serviceable_response" }]);
-// Compatibility: the legacy list is unchanged, so existing consumers do not shift.
-ok("C1_SURFACE_LEGACY_SKIPPED_LIST_UNCHANGED",
-   (sq503.modules_skipped || []).includes("headers"));
+ok("C1_SURFACE_ATTEMPTED_MODULE_NOT_SKIPPED",
+   !(sq503.modules_skipped || []).includes("headers"));
 // A null/absent reason would let a surface fall back to a bare module name and lose
 // the marker. Requires the ENTRY to exist and the reason to be a non-empty string:
 // an empty list previously satisfied a bare `!== null` via undefined, which is

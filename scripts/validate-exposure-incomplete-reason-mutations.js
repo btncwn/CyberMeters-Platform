@@ -34,25 +34,22 @@ const once = (source, from, to, label) => {
   return source.replace(from, to);
 };
 
-// The production defect, restored on each side of the boundary it crossed.
-const FALSE_SENTENCE_RESTORED = Object.freeze([
-  "X1_MODULE_CARRIES_REASON",
-  "X1_CARD_NO_FALSE_BUDGET_SENTENCE",
-  "X1_CARD_STATES_THE_REASON",
-]);
-
+// A completed HTTP phase with comparable checks now has an independent card
+// path; dropping the reason cannot restore the old false budget sentence there.
+// These mutants still require the reader and projection to carry the reason.
+// The X5 phase-gate mutations in the semantic validator protect the new path.
 // Frozen BEFORE running anything. Runtime results may not edit this table.
 const MUTANTS = Object.freeze([
   {
     id: "XM1",
-    defect: "reader returns no incomplete_reason, so a finished job reads as cut off by the budget (the original defect)",
+    defect: "reader drops the completed job's incomplete_reason before projection",
     file: "jobs",
     mutate: (s) => once(s,
       "    incomplete_reason:exposureIncompleteReason(httpComplete?'complete':row.state,coverage,checks.length),",
       "    incomplete_reason:null,", "XM1"),
     expect: [
       "X1_READ_REASON_INCONCLUSIVE",
-      ...FALSE_SENTENCE_RESTORED,
+      "X1_MODULE_CARRIES_REASON",
       "X2_READ_CANCELLED_REASON",
       "X2_READ_BUDGET_EXHAUSTED_REASON",
     ],
@@ -65,7 +62,7 @@ const MUTANTS = Object.freeze([
       "    incomplete_reason: carriedIncompleteReason(receipt.incomplete_reason),",
       "    incomplete_reason: null,", "XM2"),
     expect: [
-      ...FALSE_SENTENCE_RESTORED,
+      "X1_MODULE_CARRIES_REASON",
       "X2_MODULE_UNKNOWN_REASON_FAILS_CLOSED",
     ],
   },

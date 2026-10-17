@@ -190,7 +190,9 @@ for (const mode of ["edge_522", "edge_530"]) {
     t.report?.scan_quality?.status === "partial" && t.persistedQuality === "partial",
     JSON.stringify({ rep: t.report?.scan_quality?.status, d1: t.persistedQuality }));
   ok(`T5 ${mode}: SSL appears in canonical incompleteness metadata`,
-    (t.report?.scan_quality?.modules_skipped || []).includes("ssl") &&
+    (t.report?.scan_quality?.modules_incomplete || []).some((item) =>
+      item.module === "ssl" && item.incomplete_reason === "https_origin_not_observed") &&
+    !(t.report?.scan_quality?.modules_skipped || []).includes("ssl") &&
     (t.report?.scan_quality?.warnings || []).some((w) => /ssl/.test(w)),
     JSON.stringify(t.report?.scan_quality));
   const ws = t.domainStates.website_security || {};

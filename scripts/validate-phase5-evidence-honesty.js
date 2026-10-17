@@ -207,12 +207,13 @@ ok("A2 scan completed terminally", engine.dbStatus === "completed");
 ok("A3 scan quality remains partial",
   engine.quality === "partial" && engine.reportQuality === "partial");
 ok("A4 only Email Intelligence and its derived risk consumer are incomplete",
-  engine.scanQuality?.modules_skipped?.includes("email_security_intelligence") &&
-    !engine.scanQuality?.modules_skipped?.includes("cve_intelligence") &&
-    !engine.scanQuality?.modules_skipped?.includes("known_exploited_vulnerabilities") &&
-    engine.scanQuality.modules_skipped.every((key) =>
-      ["email_security_intelligence", "risk_intelligence", "remediation_plan"].includes(key)),
-  JSON.stringify(engine.scanQuality?.modules_skipped));
+  engine.scanQuality?.modules_incomplete?.some((item) => item.module === "email_security_intelligence") &&
+    !engine.scanQuality.modules_incomplete.some((item) =>
+      ["cve_intelligence", "known_exploited_vulnerabilities"].includes(item.module)) &&
+    engine.scanQuality.modules_incomplete.every((item) =>
+      ["email_security_intelligence", "risk_intelligence", "remediation_plan"].includes(item.module)) &&
+    !engine.scanQuality.modules_skipped.includes("email_security_intelligence"),
+  JSON.stringify(engine.scanQuality));
 ok("A5 vulnerability matching is stated outside the check pack, never deferred",
   engine.cve?.outcome === "not_in_check_pack" && engine.kev?.outcome === "not_in_check_pack");
 ok("A6 the customer projection carries the pack statement and nothing to publish",

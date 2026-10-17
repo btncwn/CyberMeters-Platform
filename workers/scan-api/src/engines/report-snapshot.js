@@ -68,7 +68,9 @@ import {
 } from "./dmarc-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-10-16.1";
+// 2026-10-17.1 separates attempted incomplete modules from genuinely skipped modules in
+// the frozen customer evidence-completeness record.
+export const SNAPSHOT_BUILDER_VERSION = "2026-10-17.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -920,7 +922,14 @@ export function composeSnapshot({
   const overallSummary =
     `Across your external posture: ${healthy} assessed healthy, ${issues} with issues detected, ` +
     `and ${attention} needing further evidence, customer input or monitoring.`;
-  const skippedModules = Array.isArray(scanQuality?.modules_skipped) ? scanQuality.modules_skipped : [];
+  // Older stored reports put attempted-but-incomplete modules in the skipped
+  // list. Do not carry that false execution claim into a new customer snapshot.
+  const incompleteModules = Array.isArray(scanQuality?.modules_incomplete) ? scanQuality.modules_incomplete : [];
+  const attemptedIncomplete = new Set(incompleteModules
+    .filter(item => report?.modules?.[item?.module]?.incomplete === true)
+    .map(item => item.module));
+  const skippedModules = Array.isArray(scanQuality?.modules_skipped)
+    ? scanQuality.modules_skipped.filter(name => !attemptedIncomplete.has(name)) : [];
   const notFullyAssessed = domainEntries
     .filter((d) => !["assessed_healthy", "issue_detected"].includes(d.state))
     .map((d) => ({
@@ -1076,6 +1085,7 @@ export function composeSnapshot({
             message: entry.message,
           })),
         modules_skipped: skippedModules,
+        modules_incomplete: incompleteModules,
         phase5_evidence: phase5Projection.evidence,
         skipped_score_bearing_modules:
           phase5Projection.skipped_score_bearing_modules ?? [],
