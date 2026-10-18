@@ -38,9 +38,9 @@
 
 struct opts {
     const char *control, *protocol, *cipher, *group, *hostname, *alpn, *trust;
-    unsigned timeout, max_connections;
+    unsigned timeout, max_connections, mail_probe;
 };
-static struct opts opt = {"handshake", "tls1_2", NULL, NULL, NULL, "none", NULL, 10000, 1};
+static struct opts opt = {"handshake", "tls1_2", NULL, NULL, NULL, "none", NULL, 10000, 1, 0};
 static const char *protocols[] = {"ssl2","ssl3","tls1","tls1_1","tls1_2","tls1_3",NULL};
 static const char *controls[] = {"catalog","handshake","certificate","renegotiation","resumption","fallback","compression","heartbleed","robot","ccs",NULL};
 static const char *state="uncertain", *reason="engine_error";
@@ -112,11 +112,14 @@ static int args(int argc,char **argv) {
         else if(!strcmp(k,"--timeout-ms")) {bit=64;if(!number(v,25000,&opt.timeout))return 0;}
         else if(!strcmp(k,"--max-connections")) {bit=128;if(!number(v,64,&opt.max_connections))return 0;}
         else if(!strcmp(k,"--trust-bundle")) {bit=256;opt.trust=v;if(v[0]!='/'||strlen(v)>1024)return 0;}
+        else if(!strcmp(k,"--mail-probe")) {bit=512;if(strcmp(v,"true"))return 0;opt.mail_probe=1;}
         else return 0;
         if(seen&bit)return 0;
         seen|=bit;
     }
-    return 1;
+    return !opt.mail_probe || (!strcmp(opt.control,"certificate") &&
+        !strcmp(opt.protocol,"tls1_2") && !strcmp(opt.alpn,"none") &&
+        opt.max_connections==1 && opt.timeout<=10000);
 }
 static void append(const char *fmt,...) {
     va_list ap;int n;
@@ -328,6 +331,20 @@ static int do_handshake(SSL *ssl,BIO *wire) {
         reason=peer_alert?"peer_alert":"handshake_failed";return 0;
     }
 }
+/* QUIT is the sole SMTP command sent inside a completed TLS session. */
+static void mail_quit(SSL *ssl,BIO *wire) {
+    if(!opt.mail_probe||!ssl||!connected)return;
+    static const char quit[]="QUIT\r\n";
+    for(;;) {
+        int written=SSL_write(ssl,quit,sizeof(quit)-1);
+        int error=written>0?SSL_ERROR_NONE:SSL_get_error(ssl,written);
+        if(!drain(wire))return;
+        if(written==(int)sizeof(quit)-1)return;
+        if(error==SSL_ERROR_WANT_WRITE)continue;
+        if(error==SSL_ERROR_WANT_READ){if(!receive(wire))return;continue;}
+        return;
+    }
+}
 static int start_tls(SSL_CTX *ctx,SSL_SESSION *session,SSL **out,BIO **wire) {
     BIO *inside=NULL;SSL *s=SSL_new(ctx);
     if(!s||!BIO_new_bio_pair(&inside,FRAME_MAX,wire,FRAME_MAX)){SSL_free(s);reason="engine_error";return 0;}
@@ -422,7 +439,7 @@ static SSL_CTX *context(void) {
     if(method)ctx=SSL_CTX_new(method);
 #else
     int version=!strcmp(opt.protocol,"tls1_3")?TLS1_3_VERSION:!strcmp(opt.protocol,"tls1_2")?TLS1_2_VERSION:0;
-    if(version){ctx=SSL_CTX_new(TLS_client_method());if(ctx){SSL_CTX_set_min_proto_version(ctx,version);SSL_CTX_set_max_proto_version(ctx,version);}}
+    if(version){ctx=SSL_CTX_new(TLS_client_method());if(ctx){SSL_CTX_set_min_proto_version(ctx,version);SSL_CTX_set_max_proto_version(ctx,opt.mail_probe?TLS1_3_VERSION:version);}}
 #endif
     if(!ctx){state="unexecutable";reason="protocol_unavailable";return NULL;}
     SSL_CTX_set_verify(ctx,SSL_VERIFY_NONE,NULL);
@@ -1065,6 +1082,7 @@ int main(int argc,char **argv) {
         finished=1;state="accepted";reason="handshake_completed";
         if(!strcmp(opt.control,"renegotiation"))assess_renegotiation(ssl,wire);
         else if(!strcmp(opt.control,"resumption"))assess_resumption(ctx,&ssl,&wire);
+        else mail_quit(ssl,wire);
     } else if(peer_alert){
         if(peer_alert==86&&!strcmp(opt.control,"fallback")){state="rejected";reason="fallback_rejected";}
         else if(peer_alert==70&&(!strcmp(opt.control,"handshake")||!strcmp(opt.control,"certificate"))){

@@ -3376,7 +3376,7 @@ function Toast({ toast, onClose }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-export function MxRecordsCard({ intelligence }) {
+export function MxRecordsCard({ intelligence, transport }) {
   const records = intelligence?.starttls?.mx_records ?? intelligence?.mx_records
   return <div className="card p-5" data-testid="email-mx-records">
     <h3 className="text-sm font-semibold text-gray-900">MX records</h3>
@@ -3391,8 +3391,38 @@ export function MxRecordsCard({ intelligence }) {
         </li>)}
       </ul>
     )}
-    <p className="text-xs text-gray-500 mt-2">These are DNS MX records from the scan. SMTP STARTTLS was not tested here.</p>
+    <p className="text-xs text-gray-500 mt-2">These are DNS MX records from the scan. {transport?.coverage?.tested ? 'See the mail transport test below.' : 'Mail transport was not tested in this scan.'}</p>
   </div>
+}
+
+const mailDateFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
+export function MailTransportCard({ transport, mtaSts, tlsRpt }) {
+  const hosts = Array.isArray(transport?.hosts) ? transport.hosts : []
+  const enforce = mtaSts?.policy_found === true && mtaSts?.mode === 'enforce'
+  return <section className="card p-5" data-testid="mail-transport-encryption">
+    <h3 className="text-sm font-semibold text-gray-900">Mail transport encryption</h3>
+    <p className="text-xs text-gray-600 mt-2">One address per mail server is tested. Other addresses are not assessed here. Offering STARTTLS does not prove that all mail delivery is encrypted. Mandatory encrypted delivery requires an active MTA-STS enforce policy.</p>
+    {hosts.length === 0 ? <p className="text-sm text-gray-600 mt-3">Mail servers were not tested in this scan.</p> :
+      <ul className="mt-3 space-y-3 text-sm">
+        {hosts.map(host => <li key={host.host} className="border-t border-gray-100 pt-3">
+          <p className="font-medium text-gray-900 break-all">{host.host}</p>
+          {host.tested_address && <p className="text-xs text-gray-500 break-all">Tested address: {host.tested_address}</p>}
+          <p className="text-gray-600">{host.state === 'tested' ? 'STARTTLS offered · TLS handshake completed' :
+            host.state === 'not_offered' ? 'STARTTLS not offered' :
+            host.reason === 'starttls_rejected' ? 'STARTTLS offered; server rejected the upgrade' :
+            'Not tested — connection or TLS evidence unavailable'}</p>
+          {host.state === 'tested' && <p className="text-xs text-gray-600 mt-1">
+            {host.tls_version || 'TLS version not recorded'} · {host.cipher || 'Cipher not recorded'}
+            {host.cipher_class === 'weak' ? ' · weak cipher' : ''} · Hostname {host.certificate_hostname_match === true ? 'matched' : host.certificate_hostname_match === false ? 'mismatched' : 'not assessed'}
+            {' · '}Chain {host.chain_validity || 'not assessed'} · Certificate expires {host.certificate_expires_at ? mailDateFormat.format(parseServerDate(host.certificate_expires_at)) : 'not recorded'}
+          </p>}
+        </li>)}
+      </ul>}
+    <div className="mt-4 border-t border-gray-100 pt-3 space-y-1 text-xs text-gray-600">
+      <p>MTA-STS: {enforce ? 'enforce policy observed; DNS activation not separately checked' : mtaSts?.policy_found ? `${mtaSts.mode || 'policy'} policy observed` : 'enforcement not confirmed'}.</p>
+      <p>TLS-RPT: {tlsRpt?.record_found ? 'reporting record observed' : 'reporting record not confirmed'}.</p>
+    </div>
+  </section>
 }
 
 export default function WorkspaceEmailProtectionPage() {
@@ -3808,8 +3838,9 @@ export default function WorkspaceEmailProtectionPage() {
               <BimiCard readiness={es.bimi_readiness} />
               <MtaStsCard detail={es.mta_sts_detail} />
               <TlsRptCard detail={es.tls_rpt_detail} />
-              <MxRecordsCard intelligence={report?.modules?.email_security_intelligence} />
+              <MxRecordsCard intelligence={report?.modules?.email_security_intelligence} transport={report?.modules?.mail_transport} />
             </div>
+            <div className="mt-4"><MailTransportCard transport={report?.modules?.mail_transport} mtaSts={es.mta_sts_detail} tlsRpt={es.tls_rpt_detail} /></div>
           </section>
 
           {/* 4. Auto-fix registry — every gap + the exact fix */}

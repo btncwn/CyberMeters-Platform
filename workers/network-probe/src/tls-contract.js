@@ -13,8 +13,9 @@ export function validateTlsAssessmentRequest(input, now = Date.now()) {
   if (!exact(input, ['schema_version','request_id','workspace_id','scan_id','domain_id','domain','endpoint','scope','checks','deadline_at','max_connections','max_bytes'])) return fail('invalid_request');
   if (input.schema_version !== 'tls-assessment-request-v1') return fail('unknown_schema');
   for (const key of ['request_id','workspace_id','scan_id','domain_id']) if (!id(input[key])) return fail('invalid_identity');
+  const mailMx = input.scope?.kind === 'mail_mx';
   if (!isProbeHostname(input.domain) || !isProbeHostname(input.endpoint?.hostname) ||
-      !(input.endpoint.hostname === input.domain || input.endpoint.hostname.endsWith('.' + input.domain))) return fail('invalid_domain');
+      (!mailMx && !(input.endpoint.hostname === input.domain || input.endpoint.hostname.endsWith('.' + input.domain)))) return fail('invalid_domain');
   const e = input.endpoint;
   if (!exact(e, ['hostname','sni','address','port','transport','application_protocol','dns_addresses','dns_observed_at']) ||
       e.transport !== 'tcp' || e.sni !== e.hostname || !isPublicProbeAddress(e.address) ||
@@ -25,12 +26,14 @@ export function validateTlsAssessmentRequest(input, now = Date.now()) {
       e.dns_addresses.some(address => !isPublicProbeAddress(address)) ||
       !e.dns_addresses.includes(e.address)) return fail('invalid_endpoint');
   if (!exact(input.scope, ['kind','service_authorization_id','generation','special_consent','consent_version']) ||
-      !['standard_https','authorized_service'].includes(input.scope.kind) ||
+      !['standard_https','authorized_service','mail_mx'].includes(input.scope.kind) ||
       !Number.isSafeInteger(input.scope.generation) || input.scope.generation < 0 ||
       typeof input.scope.special_consent !== 'boolean' ||
       (input.scope.special_consent ? input.scope.consent_version !== TLS_SPECIAL_CONSENT_VERSION : input.scope.consent_version !== null) ||
       (input.scope.kind === 'standard_https'
         ? (e.application_protocol !== 'https' || e.port !== 443 || input.scope.service_authorization_id !== null)
+        : mailMx ? (e.application_protocol !== 'smtp' || e.port !== 25 || input.scope.service_authorization_id !== null ||
+          input.scope.special_consent || input.scope.generation !== 0)
         : !id(input.scope.service_authorization_id))) return fail('invalid_scope');
   if (!isoTime(input.deadline_at) || Date.parse(input.deadline_at) <= now ||
       Date.parse(input.deadline_at) > now + TLS_SLICE_LIMITS.durationMs) return fail('invalid_deadline');
@@ -39,6 +42,9 @@ export function validateTlsAssessmentRequest(input, now = Date.now()) {
   if (!Number.isSafeInteger(input.max_connections) || input.max_connections < 1 || input.max_connections > connectionLimit ||
       !Number.isSafeInteger(input.max_bytes) || input.max_bytes < 4096 || input.max_bytes > TLS_SLICE_LIMITS.bytes) return fail('invalid_budget');
   if (!Array.isArray(input.checks) || input.checks.length < 1 || input.checks.length > TLS_SLICE_LIMITS.checks) return fail('invalid_checks');
+  if (mailMx && (input.checks.length !== 1 || input.checks[0]?.control !== 'certificate' ||
+      input.checks[0]?.protocol !== 'tls1_2' || input.checks[0]?.cipher_id !== null ||
+      input.max_connections !== 1 || Date.parse(input.deadline_at) > now + 10_000)) return fail('invalid_mail_mx');
   const seen = new Set();
   for (const check of input.checks) {
     if (!exact(check, ['control','protocol','cipher_id']) || !TLS_CONTROLS.includes(check.control) || !TLS_PROTOCOLS.includes(check.protocol) ||
@@ -155,7 +161,7 @@ export function validateTlsEngineResult(value, check, { requireSandbox = true } 
   return { ok: true };
 }
 
-function projectTlsResult(check, raw, { requireSandbox }) {
+function projectTlsResult(check, raw, { requireSandbox, mailMx }) {
   const observed = isoTime(raw?.observed_at);
   const pt = raw?.physical_telemetry;
   if (!keys(raw,['check','engine_result','reason','observed_at','physical_telemetry']) ||
@@ -166,8 +172,9 @@ function projectTlsResult(check, raw, { requireSandbox }) {
       !integer(pt.bytes_received,TLS_SLICE_LIMITS.bytes + TLS_SLICE_LIMITS.overreadBytes) ||
       !integer(pt.duration_ms,TLS_SLICE_LIMITS.durationMs + 1000)) throw new Error('result_shape');
   if (raw.engine_result === null) {
-    if (!choice(raw.reason,['budget_exhausted','deadline_exhausted','engine_unavailable','dns_authority_changed'])) throw new Error('unrun_reason');
-    return { ...check, state: raw.reason === 'engine_unavailable' ? 'unexecutable' : 'uncertain', reason: raw.reason,
+    if (!choice(raw.reason,['budget_exhausted','deadline_exhausted','engine_unavailable','dns_authority_changed',
+      ...(mailMx ? ['starttls_unavailable','starttls_rejected','starttls_greeting'] : [])])) throw new Error('unrun_reason');
+    return { ...check, state: raw.reason === 'starttls_unavailable' ? 'rejected' : raw.reason === 'engine_unavailable' ? 'unexecutable' : 'uncertain', reason: raw.reason,
       observed_at: raw.observed_at, engine: null, evidence: null, physical_telemetry: pt };
   }
   if (raw.reason !== null) throw new Error('unexpected_reason');
@@ -210,7 +217,8 @@ export function projectTlsCollectorReceipt(request, raw, { now = Date.now(), req
       Math.abs(telemetry.duration_ms - (Date.parse(raw.finished_at) - Date.parse(raw.started_at))) > 1000 ||
       telemetry.bytes_sent + telemetry.bytes_received > request.max_bytes + TLS_SLICE_LIMITS.overreadBytes)
     throw new Error('collector_cost');
-  const results = raw.results.map((row,index) => projectTlsResult(request.checks[index],row,{requireSandbox}));
+  const results = raw.results.map((row,index) => projectTlsResult(request.checks[index],row,
+    {requireSandbox,mailMx:request.scope.kind==='mail_mx'}));
   for (const key of ['connections','bytes_sent','bytes_received']) {
     if (results.reduce((sum,row) => sum + row.physical_telemetry[key],0) !== telemetry[key]) throw new Error('collector_cost_conflict');
   }

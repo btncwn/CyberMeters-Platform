@@ -34,6 +34,7 @@ for(const [from,to] of [
 ])source=source.replaceAll(from,to);
 source=source.replace('!publicAddress(endpoint.address)',"!(endpoint.address === '127.0.0.1' || endpoint.address === '127.0.0.2' || endpoint.address === '::1')");
 source=source.replace('resolve4(endpoint.hostname), resolve6(endpoint.hostname)',"Promise.resolve(['127.0.0.1']), Promise.resolve(['::1'])");
+source=source.replace('resolveMx(input.domain)',"Promise.resolve([{exchange:'localhost'}])");
 const {__runTlsCollector}=await import('data:text/javascript,'+encodeURIComponent(source));
 const profile={requests:0,checks:0,connections:0,bytes_sent:0,bytes_received:0,states:{}};
 async function measuredCollector(request){
@@ -123,6 +124,56 @@ async function checkMailUpgrade(request,application,variant='valid') {
   const projected=projectTlsCollectorReceipt(input,raw,{requireSandbox:false});
   assert.equal(projected.results[0].state,variant==='valid'?'accepted':'uncertain');
 }
+async function checkMailMx(request,variant) {
+  let connections=0, quit=0, unexpected=0;
+  let quitResolve;
+  const quitReceived=new Promise(resolve=>{quitResolve=resolve;});
+  const fixture=createServer(socket=>{
+    connections++;
+    sockets.add(socket);socket.once('close',()=>sockets.delete(socket));socket.on('error',()=>{});
+    socket.write('220 local mail fixture\r\n');
+    let phase='ehlo';
+    socket.on('data',function plaintext(chunk){
+      const line=chunk.toString('ascii');
+      if(phase==='ehlo'&&line.startsWith('EHLO ')){
+        phase='upgrade';socket.write(variant==='absent'?'250 localhost\r\n':'250-localhost\r\n250 STARTTLS\r\n');
+      }else if(variant==='absent'&&line==='QUIT\r\n'){
+        quit++;quitResolve();socket.end('221 goodbye\r\n');
+      }else if(phase==='upgrade'&&line==='STARTTLS\r\n'){
+        phase='tls';socket.off('data',plaintext);
+        socket.write('220 begin TLS\r\n',()=>{
+          const secure=new TLSSocket(socket,{isServer:true,secureContext:context});
+          secure.on('data',data=>{
+            if(data.toString('ascii')==='QUIT\r\n'){quit++;quitResolve();}
+            else unexpected++;
+            secure.end('221 goodbye\r\n');
+          });
+          secure.on('error',()=>{});
+        });
+      }else{unexpected++;socket.destroy();}
+    });
+  });
+  extraServers.push(fixture);
+  await new Promise((resolve,reject)=>fixture.once('error',reject).listen(0,'127.0.0.1',resolve));
+  const mail={...request,request_id:`local_mail_${variant}`,
+    endpoint:{...request.endpoint,port:fixture.address().port},
+    scope:{kind:'mail_mx',service_authorization_id:null,generation:0,special_consent:false,consent_version:null},
+    checks:[{control:'certificate',protocol:'tls1_2',cipher_id:null}],
+    deadline_at:new Date(Date.now()+10000).toISOString(),max_connections:1};
+  const raw=await measuredCollector(mail);
+  assert.equal(connections,1,'mail probe must use one TCP connection');
+  assert.equal(raw.telemetry.connections,1);
+  assert.equal(raw.results[0].reason,variant==='absent'?'starttls_unavailable':null,JSON.stringify(raw.results[0]));
+  if(variant==='present'){
+    assert.equal(raw.results[0].engine_result?.authenticated_finished,true);
+    assert.equal(raw.results[0].engine_result?.negotiated?.version,'tls1_3');
+  }
+  assert.equal(projectTlsCollectorReceipt(mail,raw,{requireSandbox:false}).results[0].state,
+    variant==='absent'?'rejected':'accepted');
+  await Promise.race([quitReceived,new Promise(resolve=>setTimeout(resolve,1000))]);
+  assert.equal(quit,1,'mail probe must send one QUIT');
+  assert.equal(unexpected,0,'mail probe must not send message commands');
+}
 try{
   await new Promise((resolve,reject)=>server.once('error',reject).listen(0,'127.0.0.1',resolve));
   const port=server.address().port;
@@ -193,6 +244,8 @@ try{
   await checkMailUpgrade(request,'pop3');
   await checkMailUpgrade(request,'imap','missing');
   await checkMailUpgrade(request,'pop3','rejected');
+  await checkMailMx(request,'present');
+  await checkMailMx(request,'absent');
   if(process.env.CM_TLS_TEST_PROFILE==='1')console.log('TLS parent profile: '+JSON.stringify(profile));
   console.log('TLS parent: SMTP/IMAP/POP3 STARTTLS refusal cases, IPv4/IPv6 TLS divergence, TLS 1.3 cipher routing, physical accounting and DNS escape block'+
     (runtimeRoot?'':', pinned OpenSSL SMTP STARTTLS parity')+' passed');
