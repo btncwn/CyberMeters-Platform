@@ -304,6 +304,42 @@ if (customDomains.length === 1) {
   ok("the CSP connect-src allows the canonical API host",
      csp.includes(`https://${CANONICAL}`),
      "the browser would block every API call to the documented base");
+
+  // Cookieless public-website analytics (18 Oct 2026): the CSP allows exactly the
+  // beacon script host and its report endpoint — no wildcard, no extra origin —
+  // and the beacon URL lives in ONE component, which renders it only on public
+  // routes of the production hosts.
+  const directive = (name) => ((csp.match(new RegExp(`${name}([^;]*)`)) || ["", ""])[1]).trim().split(/\s+/);
+  ok("the CSP script-src allows the analytics beacon script host",
+     directive("script-src").includes("https://static.cloudflareinsights.com"));
+  ok("the CSP connect-src allows the analytics report endpoint",
+     directive("connect-src").includes("https://cloudflareinsights.com"));
+  ok("the CSP adds no wildcard analytics origin",
+     !/\*\.cloudflareinsights\.com|https:\/\/\*/.test(csp) && !directive("script-src").includes("'unsafe-inline'"));
+  const srcRoot = path.join(root, "frontend", "src");
+  const beaconFiles = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "__tests__") walk(f); }
+      else if (/\.(jsx?|tsx?)$/.test(e.name) && fs.readFileSync(f, "utf8").includes("static.cloudflareinsights.com")) beaconFiles.push(path.relative(root, f));
+    }
+  })(srcRoot);
+  ok("the analytics beacon is referenced by exactly one component",
+     beaconFiles.length === 1 && beaconFiles[0] === path.join("frontend", "src", "components", "PublicWebAnalytics.jsx"),
+     beaconFiles.join(", "));
+  const beaconSrc = fs.readFileSync(path.join(srcRoot, "components", "PublicWebAnalytics.jsx"), "utf8");
+  // The public site token is defined once (the committed default) and may be
+  // overridden by VITE_CF_ANALYTICS_TOKEN; it is never repeated elsewhere.
+  const tokenLiterals = (beaconSrc.match(/['"][0-9a-f]{32}['"]/gi) || []);
+  ok("the analytics site token is defined in exactly one place, with the build override",
+     tokenLiterals.length === 1 && /export const DEFAULT_SITE_TOKEN = '[0-9a-f]{32}'/.test(beaconSrc) &&
+     /import\.meta\.env\.VITE_CF_ANALYTICS_TOKEN \|\| DEFAULT_SITE_TOKEN/.test(beaconSrc),
+     tokenLiterals.join(", "));
+  ok("the beacon is the provider's deferred module script",
+     /script\.type = 'module'/.test(beaconSrc) && /script\.defer = true/.test(beaconSrc));
+  ok("the beacon does not follow client-side navigation into the app (spa: false)",
+     /spa:\s*false/.test(beaconSrc));
 }
 
 // ── 5. No secret may enter the template ──────────────────────────────────────

@@ -7,6 +7,7 @@ import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 import MaintenanceOverlay from './components/MaintenanceOverlay'
 import MailtoAssist from './components/MailtoAssist'
 import { isPreviewHost } from './utils/siteLinks'
+import PublicWebAnalytics from './components/PublicWebAnalytics'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
@@ -284,6 +285,7 @@ export default function App() {
         </ChunkErrorBoundary>
         <MaintenanceOverlay />
         <MailtoAssist />
+        <PublicWebAnalytics />
       </AuthProvider>
     </BrowserRouter>
   )
