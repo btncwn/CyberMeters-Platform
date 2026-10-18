@@ -5,8 +5,6 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { validateExposureReceipt } from '../workers/network-probe/src/exposure-contract.js';
 import { EXPOSURE_RULES } from '../shared/exposure/catalog.js';
 import { exposureIdentity } from '../shared/exposure/redaction.js';
@@ -304,6 +302,8 @@ const output=process.argv.indexOf('--output');if(output>=0)writeFileSync(process
 console.log(JSON.stringify(metrics));
 // Plan sizing and per-domain completeness carry their own fixtures and source
 // mutants; run them here so CI executes them with the queue harness.
+const { spawnSync }=await import('node:child_process');
+const { fileURLToPath }=await import('node:url');
 const repoRoot=fileURLToPath(new URL('..',import.meta.url));
 const planTests=spawnSync(process.execPath,['--test','workers/scan-api/test/exposure-plan-sizing.test.js',
   'workers/scan-api/test/exposure-phase-budget.test.js'],{cwd:repoRoot,stdio:'inherit',timeout:120000});
