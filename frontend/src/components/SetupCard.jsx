@@ -4,7 +4,7 @@
 // reporting is connected (#673's definition: an inbound report has been received
 // AND the DMARC DNS record verifies) — and renders nothing once every step is Done.
 // Statuses are never invented: an unknown flag reads as a step still to take.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 
@@ -58,15 +58,17 @@ export async function readSetupFlags(wsId) {
   return { hasDomain, hasScan, dmarcConnected }
 }
 
-export default function SetupCard({ workspaceId }) {
+export default function SetupCard({ workspaceId, onFlags }) {
   const [state, setState] = useState({ workspaceId: null, flags: null })
+  const onFlagsRef = useRef(onFlags)
+  onFlagsRef.current = onFlags
 
   useEffect(() => {
     if (!workspaceId) return undefined
     let alive = true
     Promise.resolve().then(() => readSetupFlags(workspaceId))
-      .then((flags) => { if (alive) setState({ workspaceId, flags }) })
-      .catch(() => { if (alive) setState({ workspaceId, flags: {} }) })
+      .then((flags) => { if (alive) { setState({ workspaceId, flags }); onFlagsRef.current?.(workspaceId, flags) } })
+      .catch(() => { if (alive) { setState({ workspaceId, flags: {} }); onFlagsRef.current?.(workspaceId, {}) } })
     return () => { alive = false }
   }, [workspaceId])
 

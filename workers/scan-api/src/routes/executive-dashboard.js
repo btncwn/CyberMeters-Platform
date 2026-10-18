@@ -4,6 +4,8 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
+import { withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
+export { withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
 import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
 import { resolveRemediation } from "../engines/remediation-registry.js";
 import { evidenceFreshness } from "../engines/cyber-mot-state-history.js";
@@ -36,16 +38,6 @@ export function withEvidenceFreshness(domains) {
     });
     return { ...d, evidence_freshness: f.freshness, evidence_age_days: f.age_days, freshness_reason: f.reason, finding_details };
   });
-}
-
-export function withShadowItInventoryCount(domains, count, hasScan) {
-  if (!hasScan) return domains;
-  const total = Number(count);
-  if (!Number.isSafeInteger(total) || total < 0) throw new Error("Invalid inventory count");
-  return domains.map((entry) => entry.domain_key === "shadow_it_unmanaged_technology"
-    ? { ...entry, evidence_count: total,
-        summary: `${total} externally observed technologies/services in the current inventory; compare against your approved inventory in Shadow IT.` }
-    : entry);
 }
 
 export async function executiveDashboardRoutes(rctx) {

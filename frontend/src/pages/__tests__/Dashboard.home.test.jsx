@@ -11,6 +11,7 @@ vi.mock('../../api', () => ({
   api: {
     getWorkspaces: vi.fn(), getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceScorecard: vi.fn(),
     getCyberMotDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(),
+    getWorkspaceSummary: vi.fn(), getDmarcIngestEndpoint: vi.fn(), verifyDmarcDns: vi.fn(),
   },
 }))
 vi.mock('../../components/OnboardingProgress', () => ({ default: () => null }))
@@ -44,9 +45,19 @@ beforeEach(() => {
   api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', summary: '2 issues.' }, attack_surface: { state: 'assessed_healthy', last_assessed_at: '2026-10-12T09:00:00Z', evidence_freshness: 'stale' } }) })
   api.getCases.mockResolvedValue({ cases: [] })
   api.getScanReport.mockResolvedValue({ cyber_mot_domains: null })
+  api.getWorkspaceSummary.mockResolvedValue({ latest_score: 82 })
+  api.getDmarcIngestEndpoint.mockResolvedValue({ endpoint: { last_inbound_at: null } })
+  api.verifyDmarcDns.mockResolvedValue({ status: 'verified' })
 })
 
 describe('Home screen', () => {
+  it('uses the setup connection proof before recommending the next email action', async () => {
+    api.getDmarcIngestEndpoint.mockResolvedValue({ endpoint: { last_inbound_at: '2026-10-18T00:00:00Z' } })
+    renderHome()
+    const action = within(await screen.findByTestId('next-action'))
+    await waitFor(() => expect(action.getByText(/connected DMARC reporting/)).toBeInTheDocument())
+    expect(action.queryByText(/Connect Email Protection/)).not.toBeInTheDocument()
+  })
   it('asks where the workspace is exposed, names the last assessment, and lists the posture from the backend', async () => {
     renderHome()
     expect(await screen.findByRole('heading', { level: 1, name: 'Where is Customer A exposed today?' })).toHaveClass('cm-hero-title')

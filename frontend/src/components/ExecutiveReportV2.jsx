@@ -3,7 +3,7 @@ import CyberMotDomains from './CyberMotDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
 import { bandMeta } from '../lib/score-presentation'
-import { scoreHeadline, provisionalScoreLabel } from '../lib/scoreHonesty'
+import { scoreHeadline, SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
 import {
   HOW_TO_READ_REPORT,
   customerEvidenceText,
@@ -351,7 +351,8 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
   const bri = report.business_risk_indicator || {}
   // Score honesty: the backend's provisional flag / withheld band decide; a
   // withheld score is explanation-first and never the ring.
-  const scoreView = scoreHeadline({ score: cms.value, rating: cms.rating, provisional: cms.provisional, message: cms.message, scanQuality: cms.quality })
+  const scoreView = scoreHeadline({ score: cms.value, rating: cms.rating, provisional: cms.provisional,
+    message: cms.message, scanQuality: report.evidence_completeness?.scan_quality ?? cms.quality })
   const summary = report.executive_summary || {}
   const branding = report.branding
   const methodology = report.methodology || {}
@@ -443,7 +444,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
               ? (
                 <div data-testid="executive-score-withheld">
                   <p className="text-sm text-gray-700 leading-relaxed">{customerEvidenceText(scoreView.explanation)}</p>
-                  <p className="text-xs text-gray-600 mt-1">{provisionalScoreLabel(scoreView.score)} · not a final result</p>
+                  <p className="text-xs text-gray-600 mt-1">{SCORE_PENDING_LABEL}</p>
                 </div>
               )
               : cms.message && <p className="text-xs text-brand-700">{customerEvidenceText(cms.message)}</p>}

@@ -28,6 +28,7 @@
 // exposed as completed.
 
 import { resolveCyberMotDomainStates, CYBER_MOT_RESOLVER_VERSION } from "./cyber-mot-domains.js";
+import { withShadowItInventoryCount } from "./shadow-it-inventory-count.js";
 import {
   hasUnvalidatedBrandFinding,
   projectUnvalidatedBrandReportForCustomer,
@@ -598,6 +599,7 @@ export function composeSnapshot({
   supersedesSnapshotId,
   builtAt,
   reconstruction = false, // strict historical reconstruction (founder policy)
+  shadowInventoryCount = null,
 }) {
   const reportForCustomer = projectUnvalidatedBrandReportForCustomer(projectDmarcReportForCustomer(
     projectTlsReportForCustomer(report ?? {}),
@@ -628,7 +630,10 @@ export function composeSnapshot({
   );
 
   // Canonical producers — verbatim, never second-guessed.
-  const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });
+  const resolvedDomains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });
+  const domains = shadowInventoryCount == null
+    ? resolvedDomains
+    : withShadowItInventoryCount(resolvedDomains, shadowInventoryCount, true);
   const businessRisk = deriveScanBusinessRisk(reportForCustomer);
   const brandScoreUnreliable = hasUnvalidatedBrandFinding(report);
   const baseAssessment = resolveAssessmentPresentation({
@@ -1300,6 +1305,10 @@ export async function buildScanReportSnapshot(env, opts = {}) {
     const dmarcPolicyEvidence = await sealDmarcPolicyEvidence(
       report?.modules?.dmarc_core ?? null,
     );
+    const shadowInventoryCount = reconstruction ? null : (await env.cybermeters_db
+      .prepare("SELECT COUNT(*) AS n FROM shadow_it_inventory WHERE workspace_id = ?")
+      .bind(workspaceId).first())?.n;
+    if (!reconstruction && !Number.isSafeInteger(shadowInventoryCount)) throw new Error("Shadow IT inventory count unavailable");
     const snapshot = composeSnapshot({
       snapshotId, workspaceId, domainId, scanId, domain,
       report,
@@ -1312,6 +1321,7 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       supersedesSnapshotId,
       builtAt: new Date().toISOString(),
       reconstruction,
+      shadowInventoryCount,
     });
 
     const body = JSON.stringify(snapshot, null, 2);

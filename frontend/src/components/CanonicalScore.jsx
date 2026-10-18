@@ -1,4 +1,5 @@
 import { canonicalScoreView } from '../lib/canonical-score-presentation'
+import { SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
 
 function establishedTone(rating) {
   if (rating === 'excellent' || rating === 'good') {
@@ -29,15 +30,9 @@ export default function CanonicalScore({ assessment }) {
 
   if (view.state === 'provisional') {
     return (
-      <div className="max-w-[16rem]" aria-label={`Score ${view.score}, provisional. ${view.reason}`}>
-        {/* Explanation first; the number is secondary and labelled provisional. */}
+      <div className="max-w-[16rem]" aria-label={`${SCORE_PENDING_LABEL}. ${view.reason}`}>
         <p className="text-xs text-brand-700 leading-tight">{view.reason}</p>
-        <div className="inline-flex items-center gap-1.5 mt-1">
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border bg-transparent text-brand-700 border-[1.5px] border-brand-700">
-            {view.score}
-          </span>
-          <span className="text-xs font-semibold text-brand-700">Provisional</span>
-        </div>
+        <p className="text-xs font-semibold text-brand-700 mt-1">{SCORE_PENDING_LABEL}</p>
       </div>
     )
   }

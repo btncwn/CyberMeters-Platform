@@ -77,8 +77,8 @@ const EXPECTED = Object.freeze({
     // the partial/degraded check that keeps a withheld score from being a
     // headline. Two-tree --dump-current diff (origin/main vs this head) keyed by
     // file:kind:slot:snippet shows no other comparison delta.
-    comparison_occurrences: 60,
-    source_file_count: 27,
+    comparison_occurrences: 64,
+    source_file_count: 28,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -116,7 +116,9 @@ const EXPECTED = Object.freeze({
     // pinned, so real additions/removals still fail while line-only edits do not.
     // TLS release: the historical customer projector consumes effective
     // quality, and the aggregate now checks the projected complete state.
-    fingerprint: "680c43dd29b42e0e0c408bfa2589a8c5c687d46e614ca93a32f85bd1482d87e7",
+    // PR-A2: three additive PDF checks and one IntelligencePage check suppress
+    // numeric scores on partial reports. No comparison was removed.
+    fingerprint: "b90ee408310fda6c894291898ad27ae4958062120598778a3682849f70af5f50",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -158,9 +160,11 @@ const EXPECTED = Object.freeze({
     // query text, predicate counts and classifications remain unchanged.
     // Honesty PR: current-posture +8 lines (#1), workspace-analytics +2 (#2),
     // executive-dashboard +21 (#4); the same 40 predicates and 22 sinks remain.
-    fingerprint: "5ce7d8b8fdf0f762b983874ee0a827bd7823cb2d4bccfea1f93761a5eabf5362",
+    // PR-A2: extracting the shared Shadow IT count helper moves six existing
+    // executive-dashboard query sites eight lines; query text is unchanged.
+    fingerprint: "4c26d906dec113343b3ad6722f79cd8e78bc65e18f02a486eeef56092e269539",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "27978eda6fa022f5d2498cf2540ebf86c32b7167a5fe7e878d6cd42ebc79948c",
+    resolved_query_sink_fingerprint: "b4c8272a22fb8a549739b7a4d73f6c515c7abddb4eca8c26e2b432a552fe8824",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -219,7 +223,7 @@ const EXPECTED = Object.freeze({
   // TLS quality: the new quality projector joins the runtime set, 33 -> 34.
   // MCP discovery, status, and projection routes join the governed runtime set.
   // 37 -> 38: frontend/src/lib/scoreHonesty.js (score-honesty succession above).
-  runtime_source_file_count: 38,
+  runtime_source_file_count: 39,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -285,7 +289,9 @@ const EXPECTED = Object.freeze({
     // scoreHonesty.js destructures `scanQuality`, and ScanDetail.jsx passes
     // `report?.scan_quality` / `scan?.scan_quality` to it — the backend's recorded
     // quality, never a verdict decided here.
-    runtime: { occurrence_count: 130, source_file_count: 48, fingerprint: "0cefe718d59e4db10af81b7dca6dd43fe60f66d33ec8da232742b4f9d40afa69" },
+    // PR-A2: four additive PDF reads plus one executive and three Intelligence
+    // presentation reads of backend quality; no direct read was removed.
+    runtime: { occurrence_count: 138, source_file_count: 48, fingerprint: "7547348d3848b67bbf7826e1e7280b972b5c95c996ebbd18b053516ce7d9de6c" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

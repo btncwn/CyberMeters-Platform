@@ -5,7 +5,7 @@ import ExternalExposureChecks from '../ExternalExposureChecks'
 
 const exposure = {
   source: 'external_exposure', observed_at: '2026-10-13T09:00:00Z',
-  coverage: { completed: 8, pending: 2, blocked: 1, not_applicable: 3, budget_exhausted: 4, uncertain: 1 },
+  coverage: { completed: 8, pending: 2, blocked: 1, not_applicable: 3, budget_exhausted: 4, uncertain: 1, recorded_total: 15 },
   costs: { requests: 12, redirects: 1, retries: 0, bytes_decoded: 4096, duration_ms: 500 },
   findings: [{ id: 'stable-1', severity: 'high', title: 'Configuration credential exposed', exposure: {
     affected_url: 'https://example.com/.env', observation: 'Credential-shaped configuration was observed.',
@@ -24,7 +24,7 @@ describe('Public content evidence', () => {
   })
   it('combines completed, blocked and unfinished counts without exposing accounting tiles', () => {
     mount(exposure)
-    expect(screen.getByText('8 checks completed · 1 blocked · 7 not completed this scan')).toBeInTheDocument()
+    expect(screen.getByText('8 checks completed · 1 blocked · 6 not completed this scan (of 15 recorded checks)')).toBeInTheDocument()
     for (const label of ['Budget reached', 'Not determined', 'Recorded request cost']) expect(screen.queryByText(label)).toBeNull()
     expect(screen.getByText(/https:\/\/example.com\/\.env/)).toBeInTheDocument()
     expect(screen.getByText(/validity was not tested/)).toBeInTheDocument()
@@ -34,8 +34,9 @@ describe('Public content evidence', () => {
     expect(screen.getByRole('link', { name: 'Recheck this website' })).toHaveAttribute('href', '/scans/new?domain=example.com')
   })
   it('renders the observed receipt distribution without dropping unfinished checks', () => {
-    mount({ ...exposure, coverage: { completed: 133, blocked: 4, pending: 160, budget_exhausted: 12, uncertain: 244 } })
-    expect(screen.getByText('133 checks completed · 4 blocked · 416 not completed this scan')).toBeInTheDocument()
+    mount({ ...exposure, coverage: { completed: 371, blocked: 5, pending: 0, budget_exhausted: 169, uncertain: 8, recorded_total: 384, omitted_checks: 169 } })
+    expect(screen.getByText('371 checks completed · 5 blocked · 8 not completed this scan (of 384 recorded checks)')).toBeInTheDocument()
+    expect(screen.getByText('169 additional checks were outside this scan’s recorded set.')).toBeInTheDocument()
   })
   it('renders observation text literally, without creating executable markup', () => {
     const value = structuredClone(exposure)

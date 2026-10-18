@@ -2923,6 +2923,16 @@ export function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPres
   )
 }
 
+export function dmarcTrafficSourceLabel(dmarc) {
+  const sources = dmarc?.traffic_by_source
+  const automatic = Number(sources?.auto_ingested?.total_messages) || 0
+  const uploaded = Number(sources?.customer_uploaded?.total_messages) || 0
+  if (automatic > 0 && uploaded > 0) return 'automatically received RUA and customer-uploaded reports'
+  if (automatic > 0) return 'automatically received RUA reports'
+  if (uploaded > 0) return 'customer-uploaded reports'
+  return 'report source not recorded'
+}
+
 export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData, onGotoSetup, onGotoSenders }) {
   const [endpoint, setEndpoint] = useState(null)
   const [liveStatus, setLiveStatus] = useState(null)
@@ -2958,7 +2968,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
   const messages       = dmarc?.traffic?.total_messages ?? null
   const aligned        = dmarc?.traffic?.aligned_messages ?? null
   const unaligned      = dmarc?.traffic?.failed_messages ?? null
-  const trafficPeriod  = `${dmarc?.period_days ? `Last ${dmarc.period_days} days` : 'Selected reporting window'} · automatic and customer-uploaded reports`
+  const trafficPeriod  = `${dmarc?.period_days ? `Last ${dmarc.period_days} days` : 'Selected reporting window'} · ${dmarcTrafficSourceLabel(dmarc)}`
   const hasData        = (messages || 0) > 0 || (sendersCount || 0) > 0
 
   let state

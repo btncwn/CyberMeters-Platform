@@ -939,6 +939,10 @@ async function main() {
   };
   ok("composeSnapshot is deterministic (same inputs → identical JSON)",
      JSON.stringify(composeSnapshot(pureArgs)) === JSON.stringify(composeSnapshot(pureArgs)));
+  const inventorySnapshot = composeSnapshot({ ...pureArgs, shadowInventoryCount: 6 });
+  const shadow = inventorySnapshot.domains.find((entry) => entry.domain_key === "shadow_it_unmanaged_technology");
+  ok("snapshot Shadow IT count uses the same workspace inventory grain as the live page",
+     shadow?.evidence_count === 6 && /^6 externally observed technologies\/services in the current inventory/.test(shadow.summary));
 
   const b3Report = makeReport("scanB3", "domX", "pure.example", {
     findings: [
@@ -1077,8 +1081,8 @@ async function main() {
       {
         name: "insufficient evidence promoted to healthy (resolver second-guessed)",
         file: srcPath("engines", "report-snapshot.js"),
-        from: "  const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });",
-        to:   "  const domains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials }).map((d) => (d.state === \"evidence_insufficient\" || d.state === \"provisional\" || d.state === \"not_yet_assessed\" ? { ...d, state: \"assessed_healthy\" } : d));",
+        from: "  const resolvedDomains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });",
+        to:   "  const resolvedDomains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials }).map((d) => (d.state === \"evidence_insufficient\" || d.state === \"provisional\" || d.state === \"not_yet_assessed\" ? { ...d, state: \"assessed_healthy\" } : d));",
       },
       {
         name: "methodology stamp dropped from the snapshot",

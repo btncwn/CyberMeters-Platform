@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/react'
+import { vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { PlanGate, PlanUsageCard, PlanBadge } from '../PlanUsageCard'
+import { api } from '../../api'
 
 // Billing-state rendering: the frontend half of the contract the backend
 // pipeline test proves server-side (403 {error:'plan_feature_required',
@@ -29,6 +31,19 @@ function renderGateWithLocation(error) {
 }
 
 describe('PlanGate (billing state rendering)', () => {
+  it('uses entitlement additions for the Professional audit-log upgrade list', async () => {
+    const getPlans = vi.spyOn(api, 'getBillingPlans').mockResolvedValue({ plans: [
+      { key: 'starter', limits: { domains: 1 }, features: ['cyber_essentials', 'pdf_reports'] },
+      { key: 'professional', limits: { domains: 3 }, features: ['cyber_essentials', 'pdf_reports', 'audit_logs', 'executive_dashboard'] },
+    ] })
+    try {
+      renderGate({ error: 'plan_feature_required', feature: 'audit_logs', required_plan: 'professional' })
+      expect(await screen.findByText('Professional Includes')).toBeInTheDocument()
+      expect(screen.getByText('Workspace Audit Logs')).toBeInTheDocument()
+      expect(screen.getByText('3 monitored domains')).toBeInTheDocument()
+      expect(screen.queryByText('Cyber Essentials Readiness')).not.toBeInTheDocument()
+    } finally { getPlans.mockRestore() }
+  })
   it('renders the upgrade wall for a plan_feature_required API error', () => {
     renderGate({ error: 'plan_feature_required', feature: 'audit_logs', required_plan: 'professional' })
     expect(screen.getByText(/requires an upgrade/i)).toBeInTheDocument()
