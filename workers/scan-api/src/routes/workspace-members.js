@@ -7,6 +7,7 @@
 import { getEffectivePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { generateInviteToken, hashToken } from "../lib/auth-crypto.js";
+import { maskEmail } from "../lib/invitation-return.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
 import { createId, isValidEmail } from "../lib/util.js";
@@ -630,7 +631,7 @@ export async function workspaceMembersRoutes(rctx) {
         const tokenHash = await hashToken(rawToken);
         const invite = await env.cybermeters_db
           .prepare(`
-            SELECT wi.role, wi.status, wi.expires_at,
+            SELECT wi.role, wi.status, wi.expires_at, wi.email AS invited_email,
                    w.name AS workspace_name,
                    u.name AS invited_by_name, u.email AS invited_by_email
             FROM workspace_invitations wi
@@ -644,12 +645,22 @@ export async function workspaceMembersRoutes(rctx) {
 
         if (!invite) return json({ error: "Invitation not found" }, 404);
 
+        // A signed-in visitor learns only whether THEIR account matches; the public
+        // page shows the invited address masked, never in full (18 Oct 2026).
+        let signedInMatches = null;
+        try {
+          const viewer = await requireAuth(request, env);
+          if (viewer?.email) signedInMatches = viewer.email.trim().toLowerCase() === String(invite.invited_email || "").trim().toLowerCase();
+        } catch { signedInMatches = null; }
+
         return json({
           workspace_name:   invite.workspace_name,
           invited_by_name:  invite.invited_by_name || invite.invited_by_email || "A team member",
           role:             invite.role,
           expires_at:       invite.expires_at,
           status:           invite.status,
+          invited_email_masked: maskEmail(invite.invited_email),
+          signed_in_matches: signedInMatches,
         });
       } catch (e) {
         return serverError("api", e);

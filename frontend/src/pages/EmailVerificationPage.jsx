@@ -6,17 +6,28 @@
  *
  *   /verify-email?success=1          — token was valid; account is now active
  *   /verify-email?error=<reason>     — token was invalid or expired
+ *   …&next=/invitations/cmi_<hex>    — an invited signup: after verifying, sign-in
+ *                                      returns to the invitation (P1, 18 Oct 2026).
+ *                                      Only that exact allow-listed shape is used.
  */
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link, useNavigate } from 'react-router-dom'
 import AuthShell from '../components/AuthShell'
 import { api } from '../api'
+import { safeInvitationPath, tokenFromInvitationPath, rememberPendingInvite } from '../lib/invitationFlow'
 
 export default function EmailVerificationPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const success = searchParams.get('success') === '1'
   const errorCode = searchParams.get('error')
+  // The invitation this signup came from, if any — allow-listed, never free-form.
+  const invitationReturn = safeInvitationPath(searchParams.get('next'))
+  useEffect(() => {
+    const token = tokenFromInvitationPath(invitationReturn)
+    if (token) rememberPendingInvite(token)
+  }, [invitationReturn])
+  const loginState = invitationReturn ? { from: { pathname: invitationReturn } } : undefined
 
   // Map server-provided reason codes to calm, customer-friendly copy. A raw code
   // (e.g. "token_expired") should never reach the screen; unknown codes fall back
@@ -48,14 +59,14 @@ export default function EmailVerificationPage() {
       setCountdown(prev => {
         if (prev <= 1) {
           clearInterval(interval)
-          navigate('/login', { replace: true })
+          navigate('/login', { replace: true, state: loginState })
           return 0
         }
         return prev - 1
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [success, navigate])
+  }, [success, navigate, loginState?.from?.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleResend(e) {
     e.preventDefault()
@@ -63,7 +74,7 @@ export default function EmailVerificationPage() {
     setResendLoading(true)
     setResendError(false)
     try {
-      await api.resendVerification(resendEmail.trim().toLowerCase())
+      await api.resendVerification(resendEmail.trim().toLowerCase(), invitationReturn)
       setResendDone(true)
     } catch {
       setResendError(true)
@@ -84,7 +95,7 @@ export default function EmailVerificationPage() {
             <p className="text-sm text-gray-500 mb-6">
               Your email address has been verified. You can now sign in to CyberMeters.
             </p>
-            <Link to="/login" className="btn-primary w-full justify-center">
+            <Link to="/login" state={loginState} className="btn-primary w-full justify-center">
               Sign in
             </Link>
             <p className="text-xs text-gray-400 mt-3">
@@ -129,7 +140,7 @@ export default function EmailVerificationPage() {
               </form>
             )}
 
-            <Link to="/login" className="text-sm text-brand-700 font-semibold hover:underline">
+            <Link to="/login" state={loginState} className="text-sm text-brand-700 font-semibold hover:underline">
               Back to sign in
             </Link>
           </>

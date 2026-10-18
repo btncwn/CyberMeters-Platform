@@ -168,5 +168,37 @@ ok("invite hourly rate limit remains fail-closed",
 ok("invite daily rate limit remains fail-closed",
    /consumeApiRateLimit\(env, inviteScopes, "invite_send_daily", 25, 86400, \{ failClosed: true \}\)/.test(membersSrc));
 
+// ── INV-E10 The invitation survives signup → verification (P1, 18 Oct 2026) ───
+// The return path rides inside the verification link and is accepted ONLY as
+// /invitations/cmi_<64 hex>, so it can never become an open redirect; the public
+// preview shows the invited address masked and tells a signed-in visitor only
+// whether their own account matches.
+{
+  const ret = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "invitation-return.js")).href);
+  const T = `cmi_${"e".repeat(64)}`;
+  ok("INV-E10 allow-list accepts exactly /invitations/cmi_<64 hex>", ret.safeInvitationReturn(`/invitations/${T}`) === `/invitations/${T}`);
+  ok("INV-E10 allow-list rejects off-site, traversal, query, other paths and malformed tokens",
+     ["https://evil.example/x", "//evil.example", `/invitations/${T}/../admin`, `/invitations/${T}?a=1`, "/dashboard", "/invitations/abc",
+      `/invitations/cmi_${"E".repeat(64)}`, "", null, undefined, 42].every((v) => ret.safeInvitationReturn(v) === null));
+  ok("INV-E10 masked address keeps first and last character and the domain",
+     ret.maskEmail("Casey@Example.co.uk") === "c\u2022\u2022\u2022y@example.co.uk" && ret.maskEmail("ab@x.io") === "a\u2022\u2022\u2022@x.io" && ret.maskEmail("nope") === null);
+  const authSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "routes", "auth.js"), "utf8");
+  ok("INV-E10 signup and resend put only an allow-listed return path into the verification link",
+     (authSrc.match(/safeInvitationReturn\(body\.return_to\)/g) || []).length === 2 &&
+     (authSrc.match(/&next=\$\{encodeURIComponent\((signupReturn|resendReturn)\)\}/g) || []).length === 2);
+  ok("INV-E10 the verify endpoint passes only an allow-listed `next` back to the app",
+     /const verifyReturn = safeInvitationReturn\(url\.searchParams\.get\("next"\)\);\s*if \(verifyReturn\) dest\.searchParams\.set\("next", verifyReturn\);/.test(authSrc));
+  ok("INV-E10 the public preview returns the invited address masked, never in full",
+     /invited_email_masked: maskEmail\(invite\.invited_email\)/.test(membersSrc) && !/invited_email:\s*invite\.invited_email/.test(membersSrc));
+  ok("INV-E10 the preview tells a signed-in visitor only whether their own account matches",
+     /signed_in_matches: signedInMatches/.test(membersSrc));
+}
+guard(
+  "INV-E10 an unvalidated return path cannot reach the verification link",
+  fs.readFileSync(path.join(root, "workers", "scan-api", "src", "routes", "auth.js"), "utf8"),
+  (s) => /const signupReturn\s*= safeInvitationReturn\(body\.return_to\);/.test(s),
+  (s) => s.replace("const signupReturn   = safeInvitationReturn(body.return_to);", "const signupReturn   = body.return_to;"),
+);
+
 console.log(`\nvalidate-workspace-invitation-email: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

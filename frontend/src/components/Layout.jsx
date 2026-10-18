@@ -116,6 +116,53 @@ function usePrimaryDomain(wsId) {
 }
 
 const PLAN_LABELS = { free: 'Free plan', starter: 'Starter plan', professional: 'Professional plan', business: 'Business plan', enterprise: 'MSP plan' }
+/**
+ * The account menu's plan line (P1, 18 Oct 2026). A paid plan names itself. A
+ * user whose access comes from membership — the active workspace is someone
+ * else's and they have no paid plan — reads "Member of <workspace> · plan managed
+ * by <owner>". "Free plan" stays only for owners on the free plan and for users
+ * with no memberships and no subscription.
+ */
+export function planLabelFor({ user = null, workspaces = [], activeWsId = null, ownerName = null } = {}) {
+  const plan = String(user?.plan || '').toLowerCase()
+  if (plan && plan !== 'free' && PLAN_LABELS[plan]) return PLAN_LABELS[plan]
+  const list = Array.isArray(workspaces) ? workspaces : []
+  const active = list.find((w) => w?.id === activeWsId) || null
+  const memberOf = active && active.role && active.role !== 'owner'
+    ? active
+    : (!list.some((w) => w?.role === 'owner') ? list.find((w) => w?.role && w.role !== 'owner') : null)
+  if (memberOf) return `Member of ${memberOf.name} · plan managed by ${ownerName || 'the workspace owner'}`
+  return plan === 'free' ? 'Free plan' : null
+}
+
+// The memberships and the active workspace's owner name, for the plan line.
+function useMembershipPlanLabel(user, wsId) {
+  const [workspaces, setWorkspaces] = useState([])
+  const [ownerName, setOwnerName] = useState(null)
+  useEffect(() => {
+    let alive = true
+    Promise.resolve().then(() => api.getWorkspaces())
+      .then((d) => { if (alive) setWorkspaces(Array.isArray(d?.workspaces) ? d.workspaces : []) })
+      .catch(() => { if (alive) setWorkspaces([]) })
+    return () => { alive = false }
+  }, [wsId])
+  const active = workspaces.find((w) => w?.id === wsId)
+  const needsOwner = Boolean(active && active.role && active.role !== 'owner')
+  useEffect(() => {
+    let alive = true
+    setOwnerName(null)
+    if (!needsOwner) return undefined
+    Promise.resolve().then(() => api.getWorkspaceMembers(wsId))
+      .then((d) => {
+        const owner = (d?.members || []).find((m) => m?.role === 'owner')
+        if (alive) setOwnerName(owner?.name || null)
+      })
+      .catch(() => { if (alive) setOwnerName(null) })
+    return () => { alive = false }
+  }, [needsOwner, wsId])
+  return planLabelFor({ user, workspaces, activeWsId: wsId, ownerName })
+}
+
 export function roleLabelFor(user) {
   const plan = String(user?.plan || '').toLowerCase()
   return PLAN_LABELS[plan] || null
@@ -137,6 +184,7 @@ export default function Layout() {
   const nav = selectNav(useAccountFeatures())
   const wide = useWideLayout()
   const primaryDomain = usePrimaryDomain(wsId)
+  const planLabel = useMembershipPlanLabel(user, wsId)
   useEffect(() => {
     function sync() {
       setWsId(localStorage.getItem('cybermeters_workspace_id'))
@@ -178,7 +226,7 @@ export default function Layout() {
                 <EarthButton />
               </div>
             </SafeBoundary>
-            <ProfileMenu roleLabel={roleLabelFor(user)} />
+            <ProfileMenu roleLabel={planLabel} />
           </div>
         </div>
       </header>

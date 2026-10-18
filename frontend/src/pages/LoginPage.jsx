@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { safeInvitationPath } from '../lib/invitationFlow'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import AuthShell from '../components/AuthShell'
 import { useAuth } from '../context/AuthContext'
@@ -152,10 +153,18 @@ export default function LoginPage() {
     }
   }
 
-  // After a successful login, redirect new users (no workspaces) to onboarding.
+  // After a successful login, redirect new users (no workspaces) to onboarding —
+  // unless they came for an invitation (P1, 18 Oct 2026): an invitation return
+  // path always wins, so an invited person who just verified their email lands
+  // on the accept screen, not on "Create your first workspace".
   async function navigateAfterLogin(token, user) {
     clearMicrosoftMcpContinuation()
     login(token, user)
+    const invitation = safeInvitationPath(from)
+    if (invitation) {
+      navigate(invitation, { replace: true })
+      return
+    }
     try {
       const wsData = await api.getWorkspaces()
       if ((wsData?.workspaces?.length ?? 0) === 0) {

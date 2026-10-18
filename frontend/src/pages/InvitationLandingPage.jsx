@@ -14,22 +14,31 @@ import { parseServerDate, formatDay } from '../utils/dates'
  *  5. Handle all error states: expired, already used, invalid token.
  *  6. On success: set active workspace + redirect to workspace dashboard.
  *
- * Token preservation:
- *  - Sign In  → navigate to /login with state.from pointing back here
- *               (LoginPage already reads state.from.pathname).
- *  - Sign Up  → save token to localStorage (cybermeters_pending_invite),
- *               navigate to /signup; Dashboard picks it up after first load.
+ * Token preservation (P1, 18 Oct 2026):
+ *  - Sign In  → /login with state.from pointing back here; login returns here
+ *               even when the account has no workspace yet.
+ *  - Sign Up  → the token rides to /signup, then inside the verification link
+ *               (allow-listed /invitations/cmi_<hex> only), so verifying on any
+ *               device lands back on this page. It is also remembered locally as
+ *               a safety net for the pending-invitation banner.
+ *
+ * Email mismatch: "Join Workspace" is hidden, the invited address is shown
+ * masked (the server masks it), and the one action is "Sign out and continue
+ * as the invited address". No raw API error string ever reaches the screen.
  */
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { api } from '../api'
+import { api, logoutWithToken } from '../api'
+import { TOKEN_KEY } from '../context/authKeys'
+import {
+  INVITATION_ERRORS, invitationErrorKind, rememberPendingInvite, clearPendingInvite,
+} from '../lib/invitationFlow'
 import CyberMetersLogoMark from '../components/CyberMetersLogo'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const PENDING_INVITE_KEY    = 'cybermeters_pending_invite'
 const JOINED_VIA_INVITE_KEY = 'cybermeters_joined_via_invite'
 
 const ROLE_LABELS = {
@@ -108,7 +117,7 @@ function StatusBanner({ type, children }) {
 export default function InvitationLandingPage() {
   const { token }  = useParams()
   const navigate   = useNavigate()
-  const { isAuthenticated, isLoading: authLoading, user } = useAuth()
+  const { isAuthenticated, isLoading: authLoading, user, logout } = useAuth()
 
   const [preview,   setPreview]   = useState(null)   // { workspace_name, invited_by_name, role, expires_at, status }
   const [loading,   setLoading]   = useState(true)
@@ -126,8 +135,11 @@ export default function InvitationLandingPage() {
       try {
         const data = await api.getInvitationPreview(token)
         setPreview(data)
+        // Safety net: remember a live invitation so login and onboarding can offer it.
+        if (data?.status === 'pending') rememberPendingInvite(token)
       } catch (e) {
-        setLoadError(e.message || 'Invitation not found.')
+        // Never the server's raw string — the mapped, customer wording only.
+        setLoadError(INVITATION_ERRORS[invitationErrorKind(e)] || INVITATION_ERRORS.not_found)
       } finally {
         setLoading(false)
       }
@@ -141,6 +153,9 @@ export default function InvitationLandingPage() {
   const alreadyUsed    = preview && preview.status === 'accepted'
   const cancelled      = preview && preview.status === 'cancelled'
   const [wrongEmailMsg, setWrongEmailMsg] = useState(null)
+  // Mismatch: the server says the signed-in account is not the invited one, or a
+  // Join attempt came back as an email mismatch (older API without the flag).
+  const emailMismatch = isAuthenticated && (preview?.signed_in_matches === false || Boolean(wrongEmailMsg))
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -149,9 +164,19 @@ export default function InvitationLandingPage() {
   }
 
   function handleSignUp() {
-    // Save pending invite so Dashboard can redirect after signup
-    localStorage.setItem(PENDING_INVITE_KEY, token)
-    navigate('/signup')
+    // The token rides to signup (and from there inside the verification link).
+    rememberPendingInvite(token)
+    navigate('/signup', { state: { invitationToken: token } })
+  }
+
+  function handleSignOutAndContinue() {
+    // Sign out, then come back to this same invitation so sign-in / sign-up opens
+    // for the invited address.
+    const currentToken = localStorage.getItem(TOKEN_KEY)
+    logout()
+    if (currentToken) logoutWithToken(currentToken)
+    setWrongEmailMsg(null)
+    navigate(`/invitations/${token}`, { replace: true })
   }
 
   async function handleJoin() {
@@ -170,14 +195,13 @@ export default function InvitationLandingPage() {
       }
       // Signal to Dashboard that this is a team-joined session → show onboarding card
       localStorage.setItem(JOINED_VIA_INVITE_KEY, 'true')
+      clearPendingInvite()
       setJoined(true)
     } catch (e) {
-      const msg = e.message || 'Failed to join workspace.'
-      if (msg.toLowerCase().includes('email')) {
-        setWrongEmailMsg(msg)
-      } else {
-        setJoinError(msg)
-      }
+      // Plain English only — "Unauthorized", status codes and server strings never render.
+      const kind = invitationErrorKind(e)
+      if (kind === 'email_mismatch') setWrongEmailMsg(INVITATION_ERRORS.email_mismatch)
+      else setJoinError(INVITATION_ERRORS[kind])
     } finally {
       setJoining(false)
     }
@@ -211,10 +235,8 @@ export default function InvitationLandingPage() {
         <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
           <div className="card auth-card text-center">
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation not found</h1>
-            <p className="text-sm text-gray-400 mb-6">
-              This invitation link is invalid or has already been removed. Ask the workspace owner to send a new invitation.
-            </p>
+            <h1 className="text-xl font-bold text-gray-900 mb-2">Invitation not available</h1>
+            <p className="text-sm text-gray-600 mb-6" data-testid="invitation-load-error">{loadError}</p>
             <button onClick={() => navigate('/login')} className="btn-primary w-full justify-center">
               Go to Sign In
             </button>
@@ -357,6 +379,13 @@ export default function InvitationLandingPage() {
               </p>
             </div>
 
+            {/* Which address the invitation was sent to — masked by the server. */}
+            {preview.invited_email_masked && (
+              <p className="text-sm text-gray-700" data-testid="invited-address">
+                Sent to <strong className="font-semibold">{preview.invited_email_masked}</strong>
+              </p>
+            )}
+
             {/* Expiry */}
             {preview.expires_at && (
               <p className="text-xs text-gray-400 flex items-center gap-1.5">
@@ -364,16 +393,22 @@ export default function InvitationLandingPage() {
               </p>
             )}
 
-            {/* Error banners */}
+            {/* Error banner — mapped wording only */}
             {joinError && <StatusBanner type="error">{joinError}</StatusBanner>}
-            {wrongEmailMsg && (
-              <StatusBanner type="warning">
-                This invitation was sent to a different email address. Sign in with the correct account or ask for a new invitation.
-              </StatusBanner>
-            )}
 
             {/* ── CTAs ───────────────────────────────────────────────────── */}
-            {isAuthenticated ? (
+            {emailMismatch ? (
+              /* Signed in as someone else: no Join at all, one way forward. */
+              <div className="pt-2 space-y-3" data-testid="invitation-mismatch">
+                <StatusBanner type="warning">
+                  This invitation was sent to {preview.invited_email_masked ? <strong>{preview.invited_email_masked}</strong> : 'a different email address'}.
+                  {' '}You are signed in as <strong>{user?.email}</strong>.
+                </StatusBanner>
+                <button onClick={handleSignOutAndContinue} className="btn-primary w-full justify-center">
+                  Sign out and continue as the invited address
+                </button>
+              </div>
+            ) : isAuthenticated ? (
               /* Logged-in user */
               <div className="pt-2">
                 <p className="text-xs text-gray-400 mb-4">

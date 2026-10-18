@@ -369,10 +369,12 @@ export const api = {
   // ── Authentication ────────────────────────────────────────────────────────
 
   /** POST /api/auth/signup */
-  authSignup: (email, password, name) =>
+  // returnTo: an allow-listed /invitations/cmi_<hex> path; the Worker carries it
+  // inside the verification link so an invited signup lands back on the invitation.
+  authSignup: (email, password, name, returnTo = null) =>
     request('/auth/signup', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify(returnTo ? { email, password, name, return_to: returnTo } : { email, password, name }),
     }),
 
   /** POST /api/auth/login  → { token, user } */
@@ -407,10 +409,10 @@ export const api = {
   startMicrosoftSignIn: (binding) => signInHandshake('/auth/microsoft/start', { binding }),
 
   /** POST /api/auth/resend-verification → { success } */
-  resendVerification: (email) =>
+  resendVerification: (email, returnTo = null) =>
     request('/auth/resend-verification', {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify(returnTo ? { email, return_to: returnTo } : { email }),
     }),
 
   /** POST /api/auth/forgot-password → { success, message } */

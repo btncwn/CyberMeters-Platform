@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
+import { safeInvitationPath } from './lib/invitationFlow'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
@@ -103,8 +104,12 @@ const WorkspaceRetentionPage        = lazy(() => import('./pages/ws/WorkspaceRet
 
 function PublicOnlyRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
   if (isLoading) return null
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />
+  // A signed-in visitor leaves /login and /signup — for the invitation they came
+  // for when there is one (allow-listed path only), otherwise for Overview. Without
+  // this, signing in after email verification raced past the invitation (P1).
+  if (isAuthenticated) return <Navigate to={safeInvitationPath(location.state?.from) || '/dashboard'} replace />
   return children
 }
 

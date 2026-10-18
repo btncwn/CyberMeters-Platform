@@ -8,6 +8,7 @@
 // index.js; returns a Response when a route matches, or null so the main
 // router continues.
 import { getEffectivePlan } from "../engines/entitlements.js";
+import { safeInvitationReturn } from "../lib/invitation-return.js";
 import { decryptTotpSecret, encryptTotpSecret, generateEmailVerificationToken, generateMfaChallengeToken, generatePasswordResetToken, generateRecoveryCodes, generateSessionToken, getEmailVerificationTokenStatus, hashToken, isEmailVerificationResendCoolingDown, verifyRecoveryCode } from "../lib/auth-crypto.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -176,7 +177,9 @@ export async function authRoutes(rctx) {
         // Send verification email (fire-and-forget — signup succeeds even if email fails)
         const frontendUrl    = env.FRONTEND_URL || "https://app.cybermeters.com";
         const workerBase     = url.origin;
-        const verifyLink     = `${workerBase}/api/auth/verify-email?token=${verificationToken}`;
+        // An invited signup carries its invitation back through verification (allow-listed).
+        const signupReturn   = safeInvitationReturn(body.return_to);
+        const verifyLink     = `${workerBase}/api/auth/verify-email?token=${verificationToken}${signupReturn ? `&next=${encodeURIComponent(signupReturn)}` : ""}`;
         const displayName    = name || email.split("@")[0];
         const displayNameHtml = escapeEmailHtml(displayName);
         const verificationDelivery = await sendCustomerEmail(
@@ -437,6 +440,10 @@ export async function authRoutes(rctx) {
       const frontendUrl = env.FRONTEND_URL || "https://app.cybermeters.com";
       const token = url.searchParams.get("token") || "";
       const dest = new URL("/verify-email", frontendUrl);
+      // The invitation return path rides along on every outcome (success, expired,
+      // invalid) so the page can resend or continue to the invitation. Allow-listed.
+      const verifyReturn = safeInvitationReturn(url.searchParams.get("next"));
+      if (verifyReturn) dest.searchParams.set("next", verifyReturn);
 
       if (!token) {
         dest.searchParams.set("error", "Missing verification token");
@@ -590,7 +597,8 @@ export async function authRoutes(rctx) {
         if ((tokenUpdate.meta?.changes ?? 0) !== 1) return json({ success: true });
 
         const workerBase  = url.origin;
-        const verifyLink  = `${workerBase}/api/auth/verify-email?token=${newToken}`;
+        const resendReturn = safeInvitationReturn(body.return_to);
+        const verifyLink  = `${workerBase}/api/auth/verify-email?token=${newToken}${resendReturn ? `&next=${encodeURIComponent(resendReturn)}` : ""}`;
         const displayName = userRow.name || email.split("@")[0];
         const displayNameHtml = escapeEmailHtml(displayName);
         const verificationDelivery = await sendCustomerEmail(
