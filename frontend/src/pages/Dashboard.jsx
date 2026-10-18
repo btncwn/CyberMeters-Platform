@@ -6,6 +6,7 @@ import Spinner from '../components/Spinner'
 import PostureCard          from '../components/overview/PostureCard'
 import { NextActionCard } from '../components/overview/SecurityOverview'
 import SetupCard from '../components/SetupCard'
+import { useWorkspaceRole } from '../hooks/useWorkspaceRole'
 import { formatDate } from '../utils/dates'
 import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
@@ -273,6 +274,9 @@ export default function Dashboard() {
   const [activeWorkspaceName, setActiveWorkspaceName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
   const [loadedWorkspaceId,   setLoadedWorkspaceId]   = useState(null)
 
+  // Members who cannot add domains are not offered the scan box (18 Oct 2026).
+  const { canScanNewDomain, scanAccess } = useWorkspaceRole(activeWorkspaceId)
+
   const reportFetchedForRef = useRef(null) // tracks which scan ID we fetched report for
   const requestGeneration = useRef(0)
   const navigate = useNavigate()
@@ -410,7 +414,7 @@ export default function Dashboard() {
 
       {/* While setup is incomplete, the steps that lived on /services sit here
           (founder, 17 Oct 2026); the card renders nothing once every step is Done. */}
-      <SetupCard workspaceId={activeWorkspaceId} onFlags={(workspaceId, flags) => setSetupState({ workspaceId, flags })} />
+      {canScanNewDomain && <SetupCard workspaceId={activeWorkspaceId} onFlags={(workspaceId, flags) => setSetupState({ workspaceId, flags })} />}
 
       {/* Invited to another workspace: offered here too, never auto-accepted. */}
       <PendingInvitationBanner />
@@ -422,6 +426,7 @@ export default function Dashboard() {
         <p className="text-[15px] text-gray-500 mt-3">
           {lastAssessmentLabel(latestScan)}
         </p>
+        {canScanNewDomain && (
         <form
           className="cm-hero-input mt-6"
           aria-label="Start a scan"
@@ -442,6 +447,13 @@ export default function Dashboard() {
           />
           <button type="submit" className="btn-primary rounded-full px-5 py-2">Scan</button>
         </form>
+        )}
+        {/* A member who may rescan verified domains but not add new ones. */}
+        {scanAccess === 'rescan' && (
+          <div className="mt-6 flex justify-center">
+            <Link to="/scans/new" className="btn-secondary rounded-full px-5 py-2" data-testid="dashboard-rescan">Rescan a verified domain</Link>
+          </div>
+        )}
         <div className="mt-4 flex justify-center">
           <button onClick={() => load(true)} disabled={refreshing} className="btn-ghost text-xs">
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />

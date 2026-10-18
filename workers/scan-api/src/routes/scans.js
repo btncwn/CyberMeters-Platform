@@ -206,9 +206,25 @@ export async function scanRoutes(rctx) {
       // interrupted failed reports via the recovery spread — an honesty defect.)
       const initialScanQuality = null;
 
-      // Register domain — reuse existing row for same (user_id, domain) pair.
+      // Reuse the record this workspace already holds for the domain (a verified
+      // link first). Proof of control is per (workspace_id, domain_id), so a
+      // member rescanning a domain someone else added and verified scans THAT
+      // record — before this, an analyst's rescan minted a fresh unverified row
+      // under their own user_id and was refused (18 Oct 2026). Only this
+      // workspace's links are read, and scan:create was checked above.
+      const linkedDomain = await env.cybermeters_db
+        .prepare(
+          `SELECT d.id FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id
+           WHERE wd.workspace_id = ? AND d.domain = ?
+           ORDER BY CASE WHEN wd.verification_status = 'verified' THEN 0 ELSE 1 END, d.id
+           LIMIT 1`
+        )
+        .bind(workspaceId, domain)
+        .first();
+
+      // Otherwise reuse the caller's own row for the same (user_id, domain) pair.
       // Scoped by user_id to prevent cross-user domain aliasing.
-      const existingDomain = await env.cybermeters_db
+      const existingDomain = linkedDomain || await env.cybermeters_db
         .prepare(`SELECT id FROM domains WHERE domain = ? AND user_id = ? LIMIT 1`)
         .bind(domain, userId)
         .first();

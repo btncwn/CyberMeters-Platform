@@ -195,6 +195,43 @@ const scanCount = (wsId) => db.prepare("SELECT COUNT(*) n FROM scans WHERE works
     /isWorkspaceDomainVerified\(env, workspaceId, domainId\)/.test(gate) && /domain_verification_required/.test(gate));
 }
 
+// ── 9b. A member rescans the workspace's OWN verified record (18 Oct 2026) ──
+// An analyst holds scan:create. Rescanning a domain the owner added and verified
+// must scan that exact record — never mint a fresh unverified row under the
+// analyst's user_id (which was refused, and left a stray workspace link). A
+// viewer is still refused, and an unverified link still blocks the analyst.
+{
+  await seedUser("u3", "u3@example.co.uk");
+  await seedUser("u4", "u4@example.co.uk");
+  for (const [ws, uid, role] of [["ws_ver", "u3", "analyst"], ["ws_unv", "u3", "analyst"], ["ws_ver", "u4", "viewer"]]) {
+    db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?,?,?)").run(ws, uid, role);
+  }
+  const domainRows = () => db.prepare("SELECT COUNT(*) n FROM domains WHERE domain='shared.co.uk'").get().n;
+  const links = (ws) => db.prepare("SELECT COUNT(*) n FROM workspace_domains WHERE workspace_id=?").get(ws).n;
+  // The owner's scan from section 3 has finished (one active scan per domain).
+  db.prepare("UPDATE scans SET status='completed' WHERE workspace_id='ws_ver'").run();
+  const before = { scans: scanCount("ws_ver"), rows: domainRows(), links: links("ws_ver") };
+  const r = await call("/api/scan", tok.u3, "POST", { domain: "shared.co.uk", workspace_id: "ws_ver" });
+  ok(`analyst rescan of the workspace's verified domain accepted (got ${r.status})`, r.status === 202 || r.status === 200);
+  eq("analyst rescan → scan row created", scanCount("ws_ver"), before.scans + 1);
+  const latest = db.prepare("SELECT domain_id FROM scans WHERE workspace_id='ws_ver' ORDER BY rowid DESC LIMIT 1").get();
+  eq("analyst rescan scans the workspace's verified record", latest?.domain_id, "dom_u1");
+  eq("analyst rescan mints no domain row of its own", domainRows(), before.rows);
+  eq("analyst rescan adds no workspace link", links("ws_ver"), before.links);
+
+  const unv = { scans: scanCount("ws_unv"), links: links("ws_unv") };
+  const r2 = await call("/api/scan", tok.u3, "POST", { domain: "shared.co.uk", workspace_id: "ws_unv" });
+  eq("analyst on an unverified workspace link → still 403", r2.status, 403);
+  eq("analyst on an unverified link → verification required", r2.body.error, "domain_verification_required");
+  eq("analyst on an unverified link → no scan row", scanCount("ws_unv"), unv.scans);
+  eq("analyst on an unverified link → no extra link", links("ws_unv"), unv.links);
+
+  const v = scanCount("ws_ver");
+  const r3 = await call("/api/scan", tok.u4, "POST", { domain: "shared.co.uk", workspace_id: "ws_ver" });
+  eq("viewer rescan → 403", r3.status, 403);
+  eq("viewer rescan → no scan row", scanCount("ws_ver"), v);
+}
+
 // ── 10. Auth still required before the gate (no oracle regression) ───────────
 {
   const r = await call("/api/scan", null, "POST", { domain: "shared.co.uk", workspace_id: "ws_ver" });
