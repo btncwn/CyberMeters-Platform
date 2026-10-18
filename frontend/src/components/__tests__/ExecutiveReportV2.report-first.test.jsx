@@ -270,8 +270,10 @@ describe('ExecutiveReportV2 report-first corrective', () => {
     const text = container.textContent
     expect(text.indexOf('Priority Actions')).toBeLessThan(text.indexOf('Email Protection'))
     expect(text.indexOf('Recommended Actions')).toBeLessThan(text.indexOf('Assessment Score'))
-    expect(text.indexOf('Fourth action')).toBeLessThan(text.indexOf('81'))
-    expect(screen.getByText('81')).toBeInTheDocument()
+    expect(text.indexOf('Fourth action')).toBeLessThan(text.indexOf('Assessment Score'))
+    const score = screen.getByRole('heading', { name: 'Assessment Score' }).closest('section')
+    expect(within(score).getByText('Score available after a complete scan')).toBeInTheDocument()
+    expect(within(score).queryByText('81')).not.toBeInTheDocument()
   })
 
   it('renders backend-owned coverage, severity, confidence and evidence grade without reclassifying observations', () => {
