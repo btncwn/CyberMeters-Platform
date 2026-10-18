@@ -4,6 +4,11 @@ import { api } from '../api'
 import { formatDate, formatDay, parseServerDate } from '../utils/dates'
 import InternalIdCopyButton from './InternalIdCopyButton'
 
+const GROUPED_ALERT_LABELS = {
+  cyber_essentials_readiness: 'Cyber Essentials alerts',
+  shadow_it_unmanaged_technology: 'Shadow IT alerts',
+}
+
 function fmtTime(str) {
   if (!str) return '—'
   const d = parseServerDate(str)
@@ -115,10 +120,10 @@ export default function ActivityTimeline({ workspaceId }) {
     { value: 'brand_protection_alert',   label: 'Brand Protection alerts' },
     { value: 'attack_surface_alert',     label: 'Attack Surface alerts' },
     { value: 'certificates_trust_alert', label: 'Certificate alerts' },
-    { value: 'cyber_essentials_alerts',  label: 'Cyber Essentials alerts' },
+    { value: 'cyber_essentials_alerts',  label: GROUPED_ALERT_LABELS.cyber_essentials_readiness },
     { value: 'website_security_alert',   label: 'Website Security alerts' },
     { value: 'identity_exposure_alert',  label: 'Identity Exposure alerts' },
-    { value: 'shadow_it_alerts',         label: 'Shadow IT alerts' },
+    { value: 'shadow_it_alerts',         label: GROUPED_ALERT_LABELS.shadow_it_unmanaged_technology },
   ]
 
   return (
