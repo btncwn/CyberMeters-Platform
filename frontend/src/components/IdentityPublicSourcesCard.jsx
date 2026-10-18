@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/dates'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
@@ -44,7 +45,7 @@ export default function IdentityPublicSourcesCard({ workspaceId }) {
     {data?.can_manage && data.domains?.length === 0 && <p className="text-sm text-gray-500 mt-3">Verify a domain to check its public files.</p>}
     {data?.checks?.slice(0, 5).map(check => <article key={check.id} className="border-t border-gray-100 py-4 mt-2">
       <p className="text-sm font-medium break-all">{check.result.source_url}</p>
-      <p className="text-xs text-gray-500 mt-1">{new Date(check.created_at).toLocaleString()} · {check.result.coverage === 'partial' ? 'Partial check' : 'Bounded check'}</p>
+      <p className="text-xs text-gray-500 mt-1">{formatDate(check.created_at)} · {check.result.coverage === 'partial' ? 'Partial check' : 'Bounded check'}</p>
       <p className="text-sm mt-2">{check.result.findings.length ? `${check.result.findings.length} key candidate(s) need review` : check.result.state === 'unavailable' ? 'Source could not be assessed' : 'No supported key pattern observed in the files checked'}</p>
       {check.result.findings.map((finding, index) => <div key={finding.fingerprint + ':' + index} className="mt-3 rounded-lg bg-transparent border border-[1.5px] border-brand-700 p-3 text-sm">
         <p className="font-semibold">{finding.label} — candidate</p>

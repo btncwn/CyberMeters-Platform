@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/dates'
 import { Link } from 'react-router-dom'
 import PublicSiteHeader from '../components/PublicSiteHeader'
 import PublicSiteFooter from '../components/PublicSiteFooter'
@@ -119,7 +120,7 @@ export default function StatusPage() {
           </div>
 
           <p className="mt-6 text-xs text-gray-400">
-            {checkedAt ? `Checked ${checkedAt.toLocaleTimeString()}` : 'Checking…'}
+            {checkedAt ? `Checked ${formatDate(checkedAt)}` : 'Checking…'}
             {version ? ` · version ${version}` : ''} · auto-refreshes every 30s.
           </p>
         </div>

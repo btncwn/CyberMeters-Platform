@@ -76,12 +76,17 @@ describe('ScanDetail — active scan status block', () => {
     expect(api.getScanReport).not.toHaveBeenCalled()
   })
 
-  it('the header carries the domain and the status chip but never the raw scan id', async () => {
+  it('the dated header keeps the domain and status visible but never prints the raw scan id', async () => {
     api.getWorkspaceScans.mockResolvedValue({ scans: [] })
     renderPage(active('queued', 1000))
     await screen.findByTestId('scan-progress')
     expect(screen.queryByText('scan_active_1234567890abcdef')).toBeNull()
-    expect(screen.getByTestId('scan-id-short')).toHaveTextContent('scan_acti…cdef')
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('cybermeters.com')
+    for (const button of screen.getAllByRole('button', { name: 'Copy scan ID' })) {
+      expect(button).toHaveAttribute('title', 'scan_active_1234567890abcdef')
+    }
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(heading).toHaveTextContent(/^Scan — \d{1,2} [A-Z][a-z]{2} 20\d{2}, \d{2}:\d{2}$/)
+    expect(heading.parentElement).toHaveTextContent('Queued')
+    expect(screen.getByText('cybermeters.com')).toBeInTheDocument()
   })
 })

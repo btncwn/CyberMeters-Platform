@@ -20,3 +20,34 @@ export function parseServerDate(value) {
   // Anything else (ISO with Z/offset, date-only, epoch strings) — native parse
   return new Date(s)
 }
+
+const DATE_TIME = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric', month: 'short', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+const DATE_ONLY = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric', month: 'short', year: 'numeric',
+})
+
+export function formatDate(value, fallback = '—', options = {}) {
+  const date = parseServerDate(value)
+  if (!date || !Number.isFinite(date.getTime())) return fallback
+  if (options.timeZone === 'UTC') return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC',
+  }).format(date)
+  return DATE_TIME.format(date)
+}
+
+export function formatDay(value, fallback = '—', options = {}) {
+  const date = parseServerDate(value)
+  if (!date || !Number.isFinite(date.getTime())) return fallback
+  // A calendar-only value has no local time to convert across midnight.
+  return options.timeZone === 'UTC' || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))
+    ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date)
+    : DATE_ONLY.format(date)
+}
+
+export function formatNumber(value) {
+  return new Intl.NumberFormat('en-GB').format(value)
+}

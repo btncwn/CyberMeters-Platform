@@ -1,4 +1,4 @@
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
@@ -117,7 +117,7 @@ export default function WorkspaceScorecard() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Executive Scorecard</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {wsName} · Generated {report ? parseServerDate(report.generated_at).toLocaleString() : '—'}
+            {wsName} · Generated {formatDate(report?.generated_at)}
           </p>
         </div>
         <div className="flex items-center gap-3">

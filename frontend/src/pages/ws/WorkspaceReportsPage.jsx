@@ -1,4 +1,4 @@
-import { parseServerDate } from '../../utils/dates'
+import { formatDate, formatDay } from '../../utils/dates'
 import { reportPeriodLabel, reportFileName } from '../../lib/reportDisplay'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
@@ -7,16 +7,12 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import ReportSnapshotHistory from '../../components/ReportSnapshotHistory'
+import InternalIdCopyButton from '../../components/InternalIdCopyButton'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDateTime(str) {
-  if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return parseServerDate(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  return formatDate(str)
 }
 
 function fmtType(type) {
@@ -61,10 +57,7 @@ const SCHEDULE_TYPES = [
 const FREQ_LABELS = { weekly: 'Weekly', monthly: 'Monthly', quarterly: 'Quarterly' }
 
 function fmtNextRun(str) {
-  if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  const d = parseServerDate(s)
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatDay(str)
 }
 
 // ── Scheduled Reports Card ────────────────────────────────────────────────────
@@ -259,8 +252,6 @@ function WorkspaceReports({ wsId, wsName }) {
   const [scansError,   setScansError]   = useState(null)
   const [scanRetry,    setScanRetry]    = useState(0)
   const [showTypeMenu, setShowTypeMenu] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleting,     setDeleting]     = useState(false)
   const typeMenuRef = useRef(null)
   const mounted = useRef(false)
   const requestId = useRef(0)
@@ -370,22 +361,6 @@ function WorkspaceReports({ wsId, wsName }) {
     }
   }
 
-  async function handleDeleteReport() {
-    if (!wsId || !deleteTarget || deleting) return
-    setDeleting(true)
-    setGenError(null)
-    try {
-      await api.deleteWorkspaceReport(wsId, deleteTarget.id)
-      setReports(prev => prev.filter(r => r.id !== deleteTarget.id))
-      setDeleteTarget(null)
-      await load(true)
-    } catch (e) {
-      setGenError(e.message)
-    } finally {
-      setDeleting(false)
-    }
-  }
-
   const pendingCount = reports.filter(r => r.status === 'pending' || r.status === 'running').length
   const completedCount = reports.filter(r => r.status === 'completed').length
 
@@ -462,7 +437,7 @@ function WorkspaceReports({ wsId, wsName }) {
           <select id="report-scan" value={scanId} onChange={e => { setScanId(e.target.value); setGeneratedReport(null) }}
             disabled={scansLoading || generating} className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm">
             <option value="">{scansLoading ? 'Loading scans…' : 'Choose a scan'}</option>
-            {scans.map(scan => <option key={scan.id} value={scan.id}>{scan.domain} · {fmtDateTime(scan.created_at)} · {scan.id.slice(-8)}</option>)}
+            {scans.map(scan => <option key={scan.id} value={scan.id}>{scan.domain} · {fmtDateTime(scan.created_at)}</option>)}
           </select>
           <p className="text-sm text-gray-500 mt-2">Executive summary of this scan only. Download its technical PDF from the scan details.</p>
           {scansError && <p role="alert" className="text-sm text-red-700 mt-2">{scansError} <button onClick={() => setScanRetry(v => v + 1)} className="underline">Retry scan list</button></p>}
@@ -528,7 +503,6 @@ function WorkspaceReports({ wsId, wsName }) {
                   <th className="text-left">Period</th>
                   <th className="text-center">Status</th>
                   <th className="text-left">Generated At</th>
-                  <th className="text-left">Created At</th>
                   <th className="text-center">Actions</th>
                 </tr>
               </thead>
@@ -544,6 +518,7 @@ function WorkspaceReports({ wsId, wsName }) {
                       <span className="block max-w-64 truncate text-sm text-gray-600" title={reportPeriodLabel(report)}>
                         {reportPeriodLabel(report)}
                       </span>
+                      <InternalIdCopyButton id={report.id} label="report" />
                     </td>
                     <td className="text-center">
                       <StatusBadge status={report.status} />
@@ -554,11 +529,6 @@ function WorkspaceReports({ wsId, wsName }) {
                           ? 'In progress…'
                           : fmtDateTime(report.generated_at)
                         }
-                      </span>
-                    </td>
-                    <td>
-                      <span className="text-sm text-gray-400">
-                        {fmtDateTime(report.created_at)}
                       </span>
                     </td>
                     <td className="text-center">
@@ -575,13 +545,6 @@ function WorkspaceReports({ wsId, wsName }) {
                         ) : (
                           <span className="text-xs text-gray-600">—</span>
                         )}
-                        <button
-                          onClick={() => setDeleteTarget(report)}
-                          disabled={deleting}
-                          className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-red-700 hover:text-red-800 disabled:opacity-50"
-                        >
-                          Delete
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -595,41 +558,6 @@ function WorkspaceReports({ wsId, wsName }) {
       {/* Scheduled Reports */}
       <ScheduledReportsCard wsId={wsId} />
       <ReportSnapshotHistory wsId={wsId} />
-
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 bg-gray-900/30 flex items-center justify-center px-4">
-          <div className="w-full max-w-md rounded-xl bg-white border border-gray-100 shadow-xl p-6">
-            <div className="flex items-start gap-3">
-              <div className="min-w-0">
-                <h2 className="text-sm font-bold text-gray-900">Delete this report permanently?</h2>
-                <div className="mt-3 space-y-1 text-sm">
-                  <p className="break-all"><span className="text-gray-400">Report:</span> <span className="font-medium text-gray-800">{reportPeriodLabel(deleteTarget)}</span></p>
-                  <p><span className="text-gray-400">Created:</span> <span className="font-medium text-gray-800">{fmtDateTime(deleteTarget.created_at)}</span></p>
-                  <p><span className="text-gray-400">Type:</span> <span className="font-medium text-gray-800">{fmtType(deleteTarget.report_type)}</span></p>
-                </div>
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteReport}
-                disabled={deleting}
-                className="btn-primary bg-red-600 hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? 'Deleting…' : 'Delete Report'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </WsPage>
   )

@@ -1,4 +1,4 @@
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDate, formatDay } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
@@ -72,13 +72,13 @@ function IdentityAssetCard({ asset }) {
         <p className="mt-2 break-all text-xs text-gray-500">
           {claim.reachability.endpoint}
           {claim.reachability.http_status != null && ` · HTTP ${claim.reachability.http_status}`}
-          {claim.reachability.measured_at && ` · ${parseServerDate(claim.reachability.measured_at).toLocaleString()}`}
+          {claim.reachability.measured_at && ` · ${formatDate(claim.reachability.measured_at)}`}
         </p>
       )}
 
       <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-xs text-gray-400">
-        <span>First seen: {asset.first_seen ? parseServerDate(asset.first_seen).toLocaleDateString() : '—'}</span>
-        <span>Last seen: {asset.last_seen  ? parseServerDate(asset.last_seen).toLocaleDateString()  : '—'}</span>
+        <span>First seen: {asset.first_seen ? formatDay(asset.first_seen) : '—'}</span>
+        <span>Last seen: {asset.last_seen  ? formatDay(asset.last_seen)  : '—'}</span>
       </div>
     </div>
   )

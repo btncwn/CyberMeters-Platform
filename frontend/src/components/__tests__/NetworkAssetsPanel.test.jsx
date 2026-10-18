@@ -138,6 +138,8 @@ describe('Network assets customer workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View evidence' }))
     const detail = await screen.findByLabelText('Network scan evidence')
     await within(detail).findByText('SSH')
+    expect(within(detail).getByRole('button', { name: 'Copy scan ID' })).toHaveAttribute('title', 'run-1')
+    expect(within(detail).queryByText('run-1')).not.toBeInTheDocument()
     expect(within(detail).getByText('3 planned · 2 attempted · 1 completed · 1 not run')).toBeInTheDocument()
     expect(within(detail).getByText(/Partial coverage/)).toBeInTheDocument()
     expect(within(detail).getAllByRole('row')).toHaveLength(4)

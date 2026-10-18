@@ -1,5 +1,6 @@
 import LiveTlsEvidence from './LiveTlsEvidence'
 import { customerEvidenceText } from '../lib/evidenceStrengthDisplay'
+import { formatDate } from '../utils/dates'
 
 const STATE_STYLE = {
   observed: 'border-blue-200 bg-blue-50 text-blue-800',
@@ -37,7 +38,7 @@ function observedAt(signal) {
   const value = signal?.provenance && typeof signal.provenance === 'object' ? signal.provenance.observed_at : null
   const date = value ? new Date(value) : null
   return date && !Number.isNaN(date.getTime())
-    ? date.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC'
+    ? formatDate(date, '—', { timeZone: 'UTC' }) + ' UTC'
     : null
 }
 

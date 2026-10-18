@@ -5,19 +5,20 @@
 // this file lays them out and never derives a state, a severity or a verdict.
 // Full detail stays on the scan page; the links point there.
 import { Link } from 'react-router-dom'
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDay, formatDate } from '../utils/dates'
+import { customerReasonText } from '../lib/customerReasonText'
 import { severityMeta, scanQualityMeta, toneClass } from '../lib/websiteSecurityDisplay'
 import { isNotInCheckPack, isPhase5EvidenceAvailable, phase5KnownCount } from '../lib/phase5EvidencePresentation'
 import ExternalExposureChecks from './ExternalExposureChecks'
 
-const date = (value) => value ? String(value).slice(0, 16).replace('T', ' ') : 'Not recorded'
+const date = (value) => formatDate(value, 'Not recorded')
 const day = (value) => {
   if (!value) return 'Not recorded'
   const d = parseServerDate(value)
-  return Number.isFinite(d?.getTime()) ? d.toLocaleDateString(undefined, { dateStyle: 'medium' }) : 'Not recorded'
+  return Number.isFinite(d?.getTime()) ? formatDay(d) : 'Not recorded'
 }
 const count = (value) => Number.isInteger(value) && value >= 0 ? value : 'Not recorded'
-const words = (value) => String(value || '').replace(/_/g, ' ')
+const words = (value) => customerReasonText(value).replace(/_/g, ' ')
 
 /** Names the deterministic critical-prefix pass found in DNS (backend list, verbatim). */
 export function criticalNamesFromReport(report) {

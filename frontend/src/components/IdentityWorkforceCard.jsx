@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { formatDate } from '../utils/dates'
 
-const when = value => value ? new Date(value).toLocaleString() : 'Not available'
+const when = value => value ? formatDate(value, 'Not available') : 'Not available'
 const statusLabel = {
   previewed: 'Awaiting your confirmation', applying: 'Outcome unresolved — check before another request',
   provider_accepted: 'Microsoft accepted the request', uncertain: 'Provider outcome uncertain', not_completed: 'Request not completed',

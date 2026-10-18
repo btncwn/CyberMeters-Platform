@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { formatDay, parseServerDate } from '../utils/dates'
 import { SOURCE_LABEL, coverageSummary, pageFacts, pageStatusMeta, sensitiveLabel } from '../lib/websitePagesDisplay'
 
 // "Pages checked" — the bounded important-page inventory for this workspace.
@@ -8,7 +8,7 @@ import { SOURCE_LABEL, coverageSummary, pageFacts, pageStatusMeta, sensitiveLabe
 
 function fmt(value) {
   const d = parseServerDate(value)
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null
+  return d && !Number.isNaN(d.getTime()) ? formatDay(d) : null
 }
 
 function PageRow({ page }) {

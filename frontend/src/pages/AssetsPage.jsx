@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDate, formatDay } from '../utils/dates'
 import CasesQueue from '../components/CasesQueue'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
@@ -22,12 +22,11 @@ import AttackSurfaceScanEvidence, { criticalNamesFromReport, criticalPrefixCover
 
 function fmtDate(iso) {
   if (!iso) return '—'
-  return parseServerDate(iso).toLocaleDateString(undefined, { dateStyle: 'medium' })
+  return formatDay(iso)
 }
 
 function fmtDateTime(iso) {
-  if (!iso) return '—'
-  return parseServerDate(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDate(iso)
 }
 
 // ── Badges ─────────────────────────────────────────────────────────────────────

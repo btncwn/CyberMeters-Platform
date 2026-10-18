@@ -5,16 +5,12 @@ import { api } from '../api'
 import VerificationStatusBadge from '../components/VerificationStatusBadge'
 import OneClickDnsButton from '../components/OneClickDnsButton'
 import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
+import { formatDate } from '../utils/dates'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(str) {
-  if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  return formatDate(str)
 }
 
 function CopyField({ label, value }) {

@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDate, formatDay } from '../utils/dates'
 import { assetSourceLabel } from '../lib/assetSourceLabel'
 
 // Why a name is in the inventory and what was measured for it. Every sentence
@@ -11,14 +11,14 @@ import { assetSourceLabel } from '../lib/assetSourceLabel'
 function fmtDate(value) {
   const d = parseServerDate(value)
   return d && !Number.isNaN(d.getTime())
-    ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    ? formatDay(d)
     : null
 }
 
 function fmtDateTime(value) {
   const d = parseServerDate(value)
   return d && !Number.isNaN(d.getTime())
-    ? d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    ? formatDate(d)
     : null
 }
 

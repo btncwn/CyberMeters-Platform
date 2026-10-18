@@ -443,9 +443,20 @@ export async function executiveDashboardRoutes(rctx) {
         const limit     = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 100);
         const offset    = parseBoundedInteger(url.searchParams.get("offset"), 0, 0, 100000);
         const eventType = url.searchParams.get("event_type") || null;
+        const groupedTypes = eventType === "cyber_essentials_alerts"
+          ? ["cyber_essentials_alert", "cyber_essentials_readiness_alert"]
+          : eventType === "shadow_it_alerts"
+            ? ["shadow_it_alert", "shadow_it_unmanaged_technology_alert"]
+            : null;
 
         let query, binds;
-        if (eventType) {
+        if (groupedTypes) {
+          query = `SELECT id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at
+                   FROM audit_events
+                   WHERE workspace_id = ? AND event_type IN (?, ?)
+                   ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+          binds = [workspaceId, ...groupedTypes, limit, offset];
+        } else if (eventType) {
           query = `SELECT id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at
                    FROM audit_events
                    WHERE workspace_id = ? AND event_type = ?

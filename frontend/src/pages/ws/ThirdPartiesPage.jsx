@@ -7,7 +7,7 @@
 // composite is said to be unavailable, never shown as 0, "initial" or "low".
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, GitBranch, Package2, Shield, Zap } from 'lucide-react'
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDay } from '../../utils/dates'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -83,7 +83,7 @@ const COLUMNS = [
   { key: 'status',     label: 'Status',   render: v => (
     <span className={`text-xs font-semibold capitalize ${v === 'active' ? 'text-brand-700' : 'text-gray-400'}`}>{v}</span>
   )},
-  { key: 'last_seen',  label: 'Last Seen', render: v => v ? parseServerDate(v).toLocaleDateString() : '—' },
+  { key: 'last_seen',  label: 'Last Seen', render: v => v ? formatDay(v) : '—' },
 ]
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

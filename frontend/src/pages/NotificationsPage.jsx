@@ -1,3 +1,4 @@
+import { formatDay } from '../utils/dates'
 /**
  * NotificationsPage — full notification history with filters, mark-read,
  * and click-through navigation to the relevant scan.
@@ -79,7 +80,7 @@ function fmtRelative(isoStr) {
   if (hrs < 24)  return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   if (days < 7)  return `${days}d ago`
-  return new Date(s).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDay(s)
 }
 
 // ── Severity filter pills ─────────────────────────────────────────────────────

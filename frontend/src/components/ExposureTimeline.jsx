@@ -1,3 +1,4 @@
+import { formatDate, formatDay } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
@@ -62,11 +63,11 @@ function dayLabel(str) {
   const today = new Date().toISOString().slice(0, 10)
   const key = d.toISOString().slice(0, 10)
   if (key === today) return 'Today'
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })
+  return formatDay(d)
 }
 function fmtTime(str) {
   const d = toDate(str)
-  return d ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''
+  return d ? formatDate(d) : ''
 }
 
 // Group a reverse-chron list into [{ key, label, events }] preserving order.

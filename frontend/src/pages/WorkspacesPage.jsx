@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDay } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { RefreshCw, X } from 'lucide-react'
@@ -12,9 +12,7 @@ import DeletedWorkspacesPanel from '../components/DeletedWorkspacesPanel'
 function formatDate(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return parseServerDate(s).toLocaleDateString(undefined, {
-    month: 'short', day: 'numeric', year: 'numeric',
-  })
+  return formatDay(s)
 }
 
 // ── Create Workspace Modal ────────────────────────────────────────────────────

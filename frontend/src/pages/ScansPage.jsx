@@ -5,12 +5,8 @@ import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
-
-function formatDate(str) {
-  if (!str) return '—'
-  return new Date(str.replace(' ', 'T') + 'Z')
-    .toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
+import InternalIdCopyButton from '../components/InternalIdCopyButton'
+import { formatDate } from '../utils/dates'
 
 // Statuses that indicate a scan is still in progress and the list needs to refresh.
 const ACTIVE_STATUSES = new Set(['queued', 'running', 'processing'])
@@ -128,7 +124,7 @@ export default function ScansPage() {
                     <div className="flex items-center gap-2.5">
                       <div>
                         <p className="font-semibold text-gray-900">{scan.domain}</p>
-                        <p className="mono text-xs text-gray-600 truncate max-w-[200px]">{scan.id}</p>
+                        <InternalIdCopyButton id={scan.id} label="scan" />
                       </div>
                     </div>
                   </td>

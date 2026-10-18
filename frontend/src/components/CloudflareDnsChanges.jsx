@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDate } from '../utils/dates'
 
 const ACTIONS = {
   spf_publish: 'Publish missing SPF',
@@ -33,7 +33,7 @@ const ERRORS = {
 }
 const date = value => {
   const parsed = parseServerDate(value)
-  return parsed && Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : 'Not recorded'
+  return parsed && Number.isFinite(parsed.getTime()) ? formatDate(parsed, 'Not recorded') : 'Not recorded'
 }
 const list = value => value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
 

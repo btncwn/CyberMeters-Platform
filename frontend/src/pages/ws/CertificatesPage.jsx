@@ -1,3 +1,4 @@
+import { formatDay } from '../../utils/dates'
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -72,7 +73,7 @@ function HttpsChip({ row }) {
 const COLUMNS = [
   { key: 'domain', label: 'Domain / Hostname', render: v => <span className="font-medium text-sm text-gray-900 mono">{v || '—'}</span> },
   { key: 'issuer', label: 'Issuer', render: v => <span className="text-xs text-gray-500">{v || '—'}</span> },
-  { key: 'expires_at', label: 'Expires', render: v => <span className="text-xs text-gray-500">{v ? new Date(v).toLocaleDateString() : '—'}</span> },
+  { key: 'expires_at', label: 'Expires', render: v => <span className="text-xs text-gray-500">{v ? formatDay(v) : '—'}</span> },
   {
     key: 'days_until_expiry', label: 'Days remaining',
     render: v => { const { label, cls } = expiryStatus(v); return <span className={`text-xs ${cls}`}>{label}</span> },
@@ -83,7 +84,7 @@ const COLUMNS = [
     key: 'last_scan', label: 'Last scan',
     render: (v, row) => {
       const t = row.last_scan_at || row.last_seen || row.scanned_at || null
-      return <span className="text-xs text-gray-400">{t ? new Date(t).toLocaleDateString() : '—'}</span>
+      return <span className="text-xs text-gray-400">{t ? formatDay(t) : '—'}</span>
     },
   },
 ]

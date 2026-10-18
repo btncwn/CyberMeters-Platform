@@ -98,7 +98,7 @@ describe('AssetsPage — latest scan evidence on Findings', () => {
   it('summarises public-content exposure and the deep TLS assessment, and repeats the check pack statement on outside vulnerability data', async () => {
     await renderFindings()
     const exposure = await screen.findByLabelText('Public content and management surfaces')
-    expect(within(exposure).getByText('Completed').nextSibling).toHaveTextContent('4')
+    expect(within(exposure).getByText('4 checks completed · 0 blocked · 0 not completed this scan')).toBeInTheDocument()
     expect(within(exposure).getByText(/No exposure findings in the recorded checks/)).toBeInTheDocument()
 
     const tls = screen.getByLabelText('TLS security assessment')
@@ -126,7 +126,8 @@ describe('AssetsPage — latest scan evidence on Findings', () => {
     const reg = await screen.findByLabelText('Domain registration')
     expect(within(reg).getByText(/The registry did not answer this scan \(lookup failed\)/)).toBeInTheDocument()
     expect(within(reg).queryByText('Registrar')).not.toBeInTheDocument()
-    expect(screen.getByTestId('critical-prefix-coverage')).toHaveTextContent('0 found among 3 of 8 checked; the check did not finish (subrequest budget exhausted)')
+    expect(screen.getByTestId('critical-prefix-coverage')).toHaveTextContent('0 found among 3 of 8 checked; the check did not finish (the scan request budget was reached)')
+    expect(screen.getByTestId('critical-prefix-coverage')).not.toHaveTextContent('subrequest budget exhausted')
     expect(screen.queryByText('Critical name')).not.toBeInTheDocument()
     expect(within(screen.getByLabelText('TLS security assessment')).getByText(/Deep TLS checks were not recorded in this scan/)).toBeInTheDocument()
     const vuln = screen.getByLabelText('Outside vulnerability data')

@@ -1,3 +1,5 @@
+import { customerReasonText } from './customerReasonText'
+
 export const EVIDENCE_STRENGTH = Object.freeze({
   L0: 'Limited',
   L1: 'Limited',
@@ -24,7 +26,7 @@ const RUNTIME_TRUST_STORE = /\b(context|store)\s+Node\.js bundled Mozilla CA roo
 const BARE_RUNTIME_TRUST_STORE = /\bNode\.js bundled Mozilla CA roots(?:\s*\(?v\d+(?:\.\d+)*\)?)?/gi
 
 export function customerEvidenceText(value) {
-  return String(value || '')
+  return customerReasonText(value)
     .replace(RUNTIME_TRUST_STORE, '$1 (the Mozilla CA root store)')
     .replace(BARE_RUNTIME_TRUST_STORE, 'the Mozilla CA root store')
     .replace(/\s*\(RFC\s+\d+\)/gi, '')

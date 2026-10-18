@@ -1,4 +1,4 @@
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDate, formatNumber, formatDay } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
@@ -1112,7 +1112,7 @@ function KevSection({ kev, assessmentMessage = null }) {
       />
 
       <div className="px-5 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-        <span className="text-xs text-gray-400">Catalog: {kev.checked?.toLocaleString() ?? '—'} entries</span>
+        <span className="text-xs text-gray-400">Catalog: {kev.checked == null ? '—' : formatNumber(kev.checked)} entries</span>
         <span className="text-xs text-gray-400">Source: CISA KEV</span>
       </div>
 
@@ -1258,7 +1258,7 @@ export default function IntelligencePage() {
             >
               {scans.map(s => (
                 <option key={s.id} value={s.id}>
-                  {s.domain} — {parseServerDate(s.created_at).toLocaleDateString()}
+                  {s.domain} — {formatDay(s.created_at)}
                 </option>
               ))}
             </select>
@@ -1311,7 +1311,7 @@ export default function IntelligencePage() {
               </span>
               <span className="text-gray-600">·</span>
               <span className="text-gray-400 text-xs">
-                {parseServerDate(storedScanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                {formatDate(storedScanObj.created_at)}
               </span>
               <Link to={`/scans/${storedScanObj.id}`} className="btn-ghost ml-auto text-xs gap-1">
                 Full Report

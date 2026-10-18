@@ -293,7 +293,8 @@ describe('ScanDetail canonical report availability', () => {
         },
       })
     })
-    expect(await screen.findByRole('heading', { name: 'b.example', level: 1 }))
+    expect(await screen.findByText('b.example')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^Scan — 30 Jul 2026, \d{2}:00$/, level: 1 }))
       .toBeInTheDocument()
     expect(screen.getByText('Preparing Scan B report.')).toBeInTheDocument()
 
@@ -309,7 +310,8 @@ describe('ScanDetail canonical report availability', () => {
         report_availability: ready,
       })
     })
-    expect(screen.getByRole('heading', { name: 'b.example', level: 1 }))
+    expect(screen.getByText('b.example')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^Scan — 30 Jul 2026, \d{2}:00$/, level: 1 }))
       .toBeInTheDocument()
     expect(screen.getByText('Preparing Scan B report.')).toBeInTheDocument()
     expect(screen.queryByText('a1.example')).toBeNull()

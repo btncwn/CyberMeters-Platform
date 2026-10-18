@@ -1,11 +1,14 @@
 import { Link } from 'react-router-dom'
 import { severityMeta, toneClass } from '../lib/websiteSecurityDisplay'
+import { formatDate } from '../utils/dates'
 
-const COVERAGE = [
-  ['completed', 'Completed'], ['pending', 'Waiting'], ['blocked', 'Blocked'],
-  ['not_applicable', 'Not applicable'], ['budget_exhausted', 'Budget reached'], ['uncertain', 'Not determined'],
-]
-const date = (value) => value ? String(value).slice(0, 16).replace('T', ' ') : 'Not recorded'
+const date = (value) => formatDate(value, 'Not recorded')
+
+export function exposureCoverageSentence(coverage) {
+  const count = key => Number.isInteger(coverage?.[key]) && coverage[key] >= 0 ? coverage[key] : 0
+  const incomplete = count('pending') + count('budget_exhausted') + count('uncertain')
+  return `${count('completed')} checks completed · ${count('blocked')} blocked · ${incomplete} not completed this scan`
+}
 
 // Render only the receipt's safe evidence projection, as text. Never render response
 // bodies, arbitrary HTML, raw headers, query parameters or credential values.
@@ -16,12 +19,7 @@ export default function ExternalExposureChecks({ exposure, domain, scanId }) {
     <h3 className="text-lg font-semibold text-gray-900">Public content and management surfaces</h3>
     <p className="mt-2 text-base leading-relaxed text-gray-600">Checks for exposed configuration, development files, backups and operational information. A visible sign-in screen is not proof of unauthorised access.</p>
     {!available || !exposure.coverage ? <p className="mt-3 text-base text-gray-600">These checks were not recorded in this scan. No conclusion is available.</p> : <>
-      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {COVERAGE.map(([key, label]) => <div key={key} className="rounded-lg border border-gray-200 p-3">
-          <dt className="text-sm text-gray-600">{label}</dt>
-          <dd className="mt-1 text-base font-semibold">{Number.isInteger(exposure.coverage[key]) && exposure.coverage[key] >= 0 ? exposure.coverage[key] : 'Not recorded'}</dd>
-        </div>)}
-      </dl>
+      <p className="mt-4 text-base font-semibold text-gray-900">{exposureCoverageSentence(exposure.coverage)}</p>
       {exposure.coverage.pending_assets > 0 && <p className="mt-3 text-sm text-gray-600">{exposure.coverage.pending_assets} additional assets are waiting for their turn in the rotating scan schedule.</p>}
       <p className="mt-3 text-sm text-gray-600">Observed: {date(exposure.observed_at)}. Waiting, blocked and incomplete checks cannot confirm that a previous finding was fixed.</p>
       {!findings.length && <p className="mt-3 text-base text-gray-600">No exposure findings in the recorded checks. Coverage above shows what was and was not assessed; this is not a guarantee that the site is secure.</p>}
@@ -46,7 +44,6 @@ export default function ExternalExposureChecks({ exposure, domain, scanId }) {
           </div>
         </details>
       })}
-      <details className="mt-4 text-sm text-gray-600"><summary className="cursor-pointer font-medium">Recorded request cost</summary><p className="mt-2">Requests: {exposure.costs?.requests ?? 'Not recorded'} · Redirects: {exposure.costs?.redirects ?? 'Not recorded'} · Retries: {exposure.costs?.retries ?? 'Not recorded'} · Response bytes: {exposure.costs?.bytes_decoded ?? 'Not recorded'} · Duration: {exposure.costs?.duration_ms != null ? `${exposure.costs.duration_ms} ms` : 'Not recorded'}</p></details>
     </>}
   </section>
 }

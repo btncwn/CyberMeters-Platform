@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { sortDisplayDomains } from '../lib/cyberMotDisplay'
 import { PlanGate } from '../components/PlanUsageCard'
+import { formatDate } from '../utils/dates'
 import {
   domainStateMeta, freshnessMeta, hasScore, priorityMeta, toneClass, trendMeta,
 } from '../lib/portfolioDomainDisplay'
@@ -335,7 +336,7 @@ export default function PortfolioDomainsPage() {
 
       {data?.generated_at && (
         <div className="text-xs text-gray-400 mt-4 flex items-center gap-1">
-          Generated {new Date(data.generated_at).toLocaleString('en-GB')}
+          Generated {formatDate(data.generated_at)}
         </div>
       )}
     </div>

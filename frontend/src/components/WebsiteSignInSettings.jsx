@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDate } from '../utils/dates'
 import {
   PAUSED_REASON_TEXT, PROOF_TEXT, SIGN_IN_METHOD_LABEL, SIGNED_IN_PAGE_STATUS, sessionFacts, signInErrorText, signInOutcomeMeta,
   signedInCoverageText, signedInPageFacts,
@@ -13,7 +13,7 @@ import { sensitiveLabel } from '../lib/websitePagesDisplay'
 
 function fmt(value) {
   const d = parseServerDate(value)
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null
+  return d && !Number.isNaN(d.getTime()) ? formatDate(d) : null
 }
 
 const TONE = { ok: 'bg-brand-200 text-brand-900', warn: 'bg-transparent text-brand-700', muted: 'bg-gray-100 text-gray-700' }

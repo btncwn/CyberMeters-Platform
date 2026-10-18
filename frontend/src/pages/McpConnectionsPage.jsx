@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BASE } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { formatDate } from '../utils/dates'
+import InternalIdCopyButton from '../components/InternalIdCopyButton'
 
 const MCP_ENDPOINT = (() => {
   try {
@@ -134,8 +136,9 @@ export default function McpConnectionsPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="font-semibold text-gray-900">{displayClient(connection.client_id)}</p>
+                    <InternalIdCopyButton id={connection.id} label="connection" />
                     <p className="text-sm text-gray-600">
-                      {connection.portfolio_read ? 'Selected portfolio access' : `Workspace: ${connection.workspace_name || connection.workspace_id}`}
+                      {connection.portfolio_read ? 'Selected portfolio access' : `Workspace: ${connection.workspace_name || 'Name unavailable'}`}
                       {' · '}{Array.isArray(connection.scopes) ? connection.scopes.join(', ') : 'Scope unavailable'}
                     </p>
                     {connection.portfolio_read && Array.isArray(connection.selected_workspaces) &&
@@ -143,11 +146,11 @@ export default function McpConnectionsPage() {
                         <summary className="cursor-pointer">Selected workspaces ({connection.selected_workspaces.length})</summary>
                         <ul className="mt-1 ml-5 list-disc">
                           {connection.selected_workspaces.map((workspace) =>
-                            <li key={workspace.workspace_id}>{workspace.workspace_name || workspace.workspace_id}</li>)}
+                            <li key={workspace.workspace_id}>{workspace.workspace_name || 'Name unavailable'} <InternalIdCopyButton id={workspace.workspace_id} label="workspace" /></li>)}
                         </ul>
                       </details>}
                     <p className="text-xs text-gray-500">
-                      {connection.last_used_at ? `Last used: ${connection.last_used_at}` : 'Not used yet'}
+                      {connection.last_used_at ? `Last used: ${formatDate(connection.last_used_at)}` : 'Not used yet'}
                       {' · '}Status: {connection.status}
                     </p>
                   </div>

@@ -1,3 +1,4 @@
+import { formatNumber } from '../utils/dates'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { monthLabel, storageText, usageRows } from '../lib/workspaceUsageDisplay'
@@ -37,7 +38,7 @@ export default function WorkspaceUsageCard({ workspaceId }) {
             {usageRows(data).map((r) => (
               <div key={r.key} className="rounded-sm border border-gray-100 p-3">
                 <dt className="text-xs font-medium text-gray-500">{r.label}</dt>
-                <dd className="text-2xl font-semibold text-gray-900">{r.value.toLocaleString()}</dd>
+                <dd className="text-2xl font-semibold text-gray-900">{formatNumber(r.value)}</dd>
                 <dd className="text-xs text-gray-500">{r.sub}</dd>
                 {r.allowance && <dd className="text-xs text-gray-500 mt-1">Plan: {r.allowance} (shared)</dd>}
               </div>

@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { X, Loader, RefreshCw } from 'lucide-react'
 import { api } from '../api'
+import InternalIdCopyButton from '../components/InternalIdCopyButton'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -318,7 +319,7 @@ function WorkspaceRow({ workspace, onRequested }) {
     <div className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0">
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-gray-900 truncate">{workspace.name}</p>
-        <p className="text-xs text-gray-400 truncate">{workspace.id}</p>
+        <InternalIdCopyButton id={workspace.id} label="workspace" />
       </div>
 
       {submitted ? (

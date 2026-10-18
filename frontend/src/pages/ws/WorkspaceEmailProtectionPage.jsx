@@ -1,4 +1,4 @@
-import { parseServerDate } from '../../utils/dates'
+import { parseServerDate, formatDate, formatNumber, formatDay } from '../../utils/dates'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, RefreshCw, X } from 'lucide-react'
@@ -715,7 +715,7 @@ function fmtDate(str) {
   if (!str) return '—'
   const d = new Date(str.includes('T') ? str : str.replace(' ', 'T') + 'Z')
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatDay(d)
 }
 
 const COMPLETED = new Set(['completed'])
@@ -924,7 +924,7 @@ function ChangeReviewQueue({ wsId }) {
                 <span className="font-semibold text-gray-900">{c.to_policy}</span>
               </span>
               <span className="text-xs text-gray-400">
-                requested by {c.requested_by || 'unknown'} · {c.age_hours}h ago
+                requested by {c.requested_by || 'unknown'} · {formatDate(c.created_at)}
               </span>
             </div>
             {typeof c.evidence?.score === 'number' && (
@@ -980,9 +980,9 @@ function DmarcSummaryPanel({ summary }) {
         </div>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {tile('Total messages', (t.total_messages ?? 0).toLocaleString(), 'observed')}
-        {tile('Aligned', (t.aligned_messages ?? 0).toLocaleString(), 'passed SPF/DKIM', 'text-brand-700')}
-        {tile('Failed', (t.failed_messages ?? 0).toLocaleString(), 'failed alignment', (t.failed_messages ?? 0) > 0 ? 'text-red-700' : '')}
+        {tile('Total messages', formatNumber(t.total_messages ?? 0), 'observed')}
+        {tile('Aligned', formatNumber(t.aligned_messages ?? 0), 'passed SPF/DKIM', 'text-brand-700')}
+        {tile('Failed', formatNumber(t.failed_messages ?? 0), 'failed alignment', (t.failed_messages ?? 0) > 0 ? 'text-red-700' : '')}
         {tile('Pass rate', `${t.pass_rate ?? 0}%`, 'aligned share')}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1012,9 +1012,9 @@ function DmarcSummaryPanel({ summary }) {
             <div style={{ width: `${(d.reject || 0) / dispTotal * 100}%` }} className="bg-red-500" />
           </div>
           <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-gray-300" />None</span><span className="font-semibold">{(d.none ?? 0).toLocaleString()}</span></div>
-            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-brand-700" />Quarantine</span><span className="font-semibold">{(d.quarantine ?? 0).toLocaleString()}</span></div>
-            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-red-500" />Reject</span><span className="font-semibold">{(d.reject ?? 0).toLocaleString()}</span></div>
+            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-gray-300" />None</span><span className="font-semibold">{formatNumber(d.none ?? 0)}</span></div>
+            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-brand-700" />Quarantine</span><span className="font-semibold">{formatNumber(d.quarantine ?? 0)}</span></div>
+            <div className="flex justify-between"><span className="flex items-center gap-2 text-gray-600"><span className="w-2 h-2 rounded-full bg-red-500" />Reject</span><span className="font-semibold">{formatNumber(d.reject ?? 0)}</span></div>
           </div>
         </div>
         {/* Business risk */}
@@ -1044,9 +1044,9 @@ function SenderRow({ sender, onClassify, classifying }) {
           <span className="text-sm text-gray-700 capitalize">{sender.provider_guess || 'unknown'}</span>
           {sender.provider_confidence && <span className="block text-xs text-gray-400">{sender.provider_confidence} confidence</span>}
         </td>
-        <td className="text-right"><span className="text-sm font-semibold text-gray-900">{(sender.total_messages ?? 0).toLocaleString()}</span></td>
+        <td className="text-right"><span className="text-sm font-semibold text-gray-900">{formatNumber(sender.total_messages ?? 0)}</span></td>
         <td className="text-right"><span className={`text-sm font-semibold ${(sender.pass_rate ?? 0) < 90 ? 'text-red-700' : 'text-gray-900'}`}>{sender.pass_rate ?? 0}%</span></td>
-        <td className="text-right"><span className={`text-sm ${(sender.failed_messages ?? 0) > 0 ? 'text-red-700 font-semibold' : 'text-gray-400'}`}>{(sender.failed_messages ?? 0).toLocaleString()}</span></td>
+        <td className="text-right"><span className={`text-sm ${(sender.failed_messages ?? 0) > 0 ? 'text-red-700 font-semibold' : 'text-gray-400'}`}>{formatNumber(sender.failed_messages ?? 0)}</span></td>
         <td><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border capitalize ${riskCls}`}>{sender.risk_level || 'low'}</span></td>
         <td><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${cls.pill}`}>{cls.label}</span></td>
         <td className="text-right"><ChevronDown className={`w-4 h-4 text-gray-600 inline transition-transform ${open ? 'rotate-180' : ''}`} /></td>
@@ -1071,11 +1071,11 @@ function SenderRow({ sender, onClassify, classifying }) {
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-600">
                     <div className="rounded-md bg-gray-50 border border-gray-100 p-2">
                       <span className="font-semibold text-gray-700">SPF aligned</span>
-                      <span className="block tabular-nums">{sender.spf_aligned_rate ?? 0}% · {(sender.spf_aligned_messages ?? 0).toLocaleString()} msg</span>
+                      <span className="block tabular-nums">{sender.spf_aligned_rate ?? 0}% · {formatNumber(sender.spf_aligned_messages ?? 0)} msg</span>
                     </div>
                     <div className="rounded-md bg-gray-50 border border-gray-100 p-2">
                       <span className="font-semibold text-gray-700">DKIM aligned</span>
-                      <span className="block tabular-nums">{sender.dkim_aligned_rate ?? 0}% · {(sender.dkim_aligned_messages ?? 0).toLocaleString()} msg</span>
+                      <span className="block tabular-nums">{sender.dkim_aligned_rate ?? 0}% · {formatNumber(sender.dkim_aligned_messages ?? 0)} msg</span>
                     </div>
                   </div>
                   {sender.auto_reasons?.length > 0 && (
@@ -1397,7 +1397,7 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
             ) : result.imported ? (
               <div className="flex items-start gap-2">
                 <p className="text-sm text-gray-700">
-                  Imported <b>{result.records_imported}</b> record(s) · <b>{(result.messages_imported ?? 0).toLocaleString()}</b> message(s) ·
+                  Imported <b>{result.records_imported}</b> record(s) · <b>{formatNumber(result.messages_imported ?? 0)}</b> message(s) ·
                   <b> {result.sources_updated}</b> sending source(s) updated.
                 </p>
               </div>
@@ -1421,7 +1421,7 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
 function fmtUnixDay(sec) {
   if (!sec) return '—'
   try {
-    return new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    return formatDay(new Date(sec * 1000))
   } catch { return '—' }
 }
 
@@ -1476,7 +1476,7 @@ function DmarcReportHistory({ wsId, domain }) {
             <p className="px-6 pt-4 text-xs text-gray-500">
               <span className="font-bold text-gray-800 tabular-nums">{totals.reports}</span> report{totals.reports === 1 ? '' : 's'} from{' '}
               <span className="font-bold text-gray-800 tabular-nums">{totals.reporters}</span> reporter{totals.reporters === 1 ? '' : 's'} covering{' '}
-              <span className="font-bold text-gray-800 tabular-nums">{(totals.total_messages || 0).toLocaleString('en-GB')}</span> messages
+              <span className="font-bold text-gray-800 tabular-nums">{formatNumber(totals.total_messages || 0)}</span> messages
               {totals.first_seen ? <> since <span className="font-semibold text-gray-700">{fmtUnixDay(totals.first_seen)}</span></> : null}
             </p>
           )}
@@ -1498,7 +1498,7 @@ function DmarcReportHistory({ wsId, domain }) {
                     <td className="py-2.5 pr-4 text-xs text-gray-600 whitespace-nowrap">
                       {fmtUnixDay(r.date_range_begin)}{r.date_range_end && r.date_range_end !== r.date_range_begin ? ` – ${fmtUnixDay(r.date_range_end)}` : ''}
                     </td>
-                    <td className="py-2.5 pr-4 text-right tabular-nums text-gray-800">{(r.message_count || 0).toLocaleString('en-GB')}</td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums text-gray-800">{formatNumber(r.message_count || 0)}</td>
                     <td className={`py-2.5 pr-4 text-right tabular-nums font-bold ${passCls(r.pass_rate)}`}>
                       {r.pass_rate == null ? '—' : `${r.pass_rate}%`}
                     </td>
@@ -1556,7 +1556,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   const inboundAddress = endpoint?.inbound_address || null
   const ruaValue = endpoint?.rua_mailto || (inboundAddress ? `rua=mailto:${inboundAddress}` : null)
   const lastInbound = endpoint?.last_inbound_at
-  const fmt = (t) => (t ? parseServerDate(t).toLocaleString() : null)
+  const fmt = (t) => (t ? formatDate(t) : null)
   // DNS-verified = the live DMARC record (from the latest scan) lists our address.
   // "Connected" requires BOTH this AND a received report — same rule as the top
   // overview, so the two panels never contradict each other.
@@ -1652,7 +1652,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                 <div className="space-y-3 pt-1">
                   <p className="text-xs text-gray-500 leading-relaxed">
                     Inbound RUA is the recommended setup. A signed upload key is useful for scripts or MSP automation that
-                    POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? parseServerDate(endpoint.last_signed_upload_at).toLocaleString() : 'never'}</b>.
+                    POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? formatDate(endpoint.last_signed_upload_at) : 'never'}</b>.
                   </p>
                   {rawToken && (
                     <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-3 space-y-2">
@@ -1772,8 +1772,8 @@ function TlsRptHealthCard({ wsId, domain }) {
         </div>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.total_sessions.toLocaleString()}</p><p className="text-xs text-gray-400">sessions</p></div>
-        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.failed_sessions.toLocaleString()}</p><p className="text-xs text-gray-400">failed</p></div>
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{formatNumber(data.total_sessions)}</p><p className="text-xs text-gray-400">sessions</p></div>
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{formatNumber(data.failed_sessions)}</p><p className="text-xs text-gray-400">failed</p></div>
         <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.report_count}</p><p className="text-xs text-gray-400">reports</p></div>
       </div>
       {data.top_failures?.length > 0 && (
@@ -1783,7 +1783,7 @@ function TlsRptHealthCard({ wsId, domain }) {
             {data.top_failures.map((f, i) => (
               <div key={i} className="flex items-center justify-between text-xs">
                 <span className="text-gray-700 font-medium">{(f.result_type || 'unknown').replace(/-/g, ' ')}</span>
-                <span className="text-gray-400 tabular-nums">{(f.sessions || 0).toLocaleString()} sessions</span>
+                <span className="text-gray-400 tabular-nums">{formatNumber(f.sessions || 0)} sessions</span>
               </div>
             ))}
           </div>
@@ -2205,7 +2205,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {ramp.compliance.pass_rate == null ? 'no reports yet'
-                        : `${ramp.compliance.total_messages.toLocaleString()} messages`}
+                        : `${formatNumber(ramp.compliance.total_messages)} messages`}
                     </p>
                   </div>
                 )}
@@ -2250,10 +2250,10 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Projected impact</p>
                           <p className="text-sm text-gray-700 mt-1 leading-relaxed">
                             Advancing to {rec.next_step.label} would affect about{' '}
-                            <span className="font-bold tabular-nums">{(rec.projected_impact.affected_messages || 0).toLocaleString()}</span>
+                            <span className="font-bold tabular-nums">{formatNumber(rec.projected_impact.affected_messages || 0)}</span>
                             {' '}message{rec.projected_impact.affected_messages === 1 ? '' : 's'} ({rec.projected_impact.affected_percentage || 0}%),
                             including{' '}
-                            <span className="font-bold tabular-nums">{(rec.projected_impact.legitimate_affected_messages || 0).toLocaleString()}</span>
+                            <span className="font-bold tabular-nums">{formatNumber(rec.projected_impact.legitimate_affected_messages || 0)}</span>
                             {' '}from legitimate senders.
                           </p>
                           {rec.projected_impact.insufficient_data && (
@@ -2465,7 +2465,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   const vm = VERIFY_MSG[verifyState]
 
   const providerCopy = DNS_PROVIDERS.find(p => p.id === provider)?.copy
-  const fmt = (t) => (t ? parseServerDate(t).toLocaleString() : null)
+  const fmt = (t) => (t ? formatDate(t) : null)
 
   // Per-step completion — explicitly non-linear.
   const steps = ['Choose DNS provider', 'Copy DNS record', 'Verify setup', 'Wait for reports', 'Connected']
@@ -2578,7 +2578,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
                   <p className="text-sm text-brand-800">Connected — DMARC reports are arriving and your DNS record is verified for {domain}.</p>
                   <p className="text-xs text-gray-600">
                     Last report received: <b className="text-gray-700">{fmt(endpoint.last_inbound_at)}</b>.
-                    {typeof totalMessages === 'number' && totalMessages > 0 && <> {totalMessages.toLocaleString()} message(s) observed so far.</>} Your sender inventory has started below.
+                    {typeof totalMessages === 'number' && totalMessages > 0 && <> {formatNumber(totalMessages)} message(s) observed so far.</>} Your sender inventory has started below.
                   </p>
                 </div>
               ) : receiving ? (
@@ -2608,7 +2608,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
 // do I do next?" Fetches the ingestion endpoint and derives DNS-verified from
 // the latest scan's DMARC record (refined by a live check). Never shows
 // "Connected" unless the CyberMeters RUA is in DNS AND a report has arrived.
-function epFmt(t) { return t ? parseServerDate(t).toLocaleString() : null }
+function epFmt(t) { return t ? formatDate(t) : null }
 
 function EpStatusChecklist({ items }) {
   const ICON = {
@@ -2642,7 +2642,7 @@ function EpMetric({ label, explanation, value }) {
       <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
       <p className="text-xs text-gray-500 mt-1 leading-snug">{explanation}</p>
       <p className={`text-[14px] font-bold mt-2 tabular-nums ${known ? 'text-gray-800' : 'text-gray-400'}`}>
-        {known ? (typeof value === 'number' ? value.toLocaleString() : value) : 'Waiting'}
+        {known ? (typeof value === 'number' ? formatNumber(value) : value) : 'Waiting'}
       </p>
     </div>
   )
@@ -2857,7 +2857,7 @@ export function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPres
           <p className={`text-3xl font-black mt-1 tabular-nums ${cCol}`}>{hasCompliance ? `${passRate}%` : '—'}</p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             {hasCompliance
-              ? `of ${total.toLocaleString()} messages passed SPF/DKIM alignment over the reporting window.`
+              ? `of ${formatNumber(total)} messages passed SPF/DKIM alignment over the reporting window.`
               : staleScan ? 'Re-scan to measure compliance against your newly published DMARC record.'
               : 'Not measured yet — connect DMARC reporting to see who is sending as you.'}
           </p>
@@ -3274,7 +3274,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
 
   const tiles = [
     { label: 'Reports received', value: reportsReceived === null ? 'Unknown' : reportsReceived ? 'Yes' : 'No', tone: reportsReceived ? 'ok' : 'na' },
-    { label: 'Latest report period', value: lastReportPeriod ? new Date(Number(lastReportPeriod) * 1000).toLocaleDateString() : reportsReceived === false ? 'Not yet' : 'Not available' },
+    { label: 'Latest report period', value: lastReportPeriod ? formatDay(new Date(Number(lastReportPeriod) * 1000)) : reportsReceived === false ? 'Not yet' : 'Not available' },
     { label: 'DNS verification', value: dnsLabel, tone: dnsVerified === false ? 'warn' : dnsVerified ? 'ok' : 'na' },
   ]
   if (bec) tiles.push({ label: 'Customer-uploaded BEC pass rate', value: passRate != null ? `${passRate}%` : 'Not measured', tone: passRate == null ? 'na' : passRate < 90 ? 'warn' : 'ok' })
@@ -3313,7 +3313,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
                 <div key={t.label} className="rounded-xl border border-gray-200 bg-white px-3 py-2.5">
                   <p className="text-xs font-semibold text-gray-700 leading-snug">{t.label}</p>
                   <p className={`text-[14px] font-bold mt-1 tabular-nums ${t.tone === 'warn' ? 'text-brand-700' : t.tone === 'ok' ? 'text-brand-700' : t.tone === 'na' ? 'text-gray-400' : 'text-gray-800'}`}>
-                    {typeof t.value === 'number' ? t.value.toLocaleString() : t.value}
+                    {typeof t.value === 'number' ? formatNumber(t.value) : t.value}
                   </p>
                 </div>
               ))}
@@ -3344,7 +3344,7 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
                 {(passRate != null || failed != null) && (
                   <p className="text-xs text-gray-500 mt-2 leading-relaxed">
                     {passRate != null && <>DMARC pass rate <b className="text-gray-700">{passRate}%</b>. </>}
-                    {failed != null && <><b className="text-gray-700">{Number(failed).toLocaleString()}</b> message(s) failed alignment. </>}
+                    {failed != null && <><b className="text-gray-700">{formatNumber(Number(failed))}</b> message(s) failed alignment. </>}
                     Reports can arrive from previous or partial DMARC configurations, so review senders before tightening policy.
                   </p>
                 )}

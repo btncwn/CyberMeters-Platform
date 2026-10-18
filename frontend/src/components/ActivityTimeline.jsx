@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
+import { formatDate, formatDay, parseServerDate } from '../utils/dates'
+import InternalIdCopyButton from './InternalIdCopyButton'
+
+const GROUPED_ALERT_LABELS = {
+  cyber_essentials_readiness: 'Cyber Essentials alerts',
+  shadow_it_unmanaged_technology: 'Shadow IT alerts',
+}
 
 function fmtTime(str) {
   if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  const d = new Date(s)
+  const d = parseServerDate(str)
   const now = new Date()
   const diffMs = now - d
   const diffMin = Math.floor(diffMs / 60000)
@@ -15,15 +21,12 @@ function fmtTime(str) {
   if (diffH < 24)   return `${diffH}h ago`
   const diffD = Math.floor(diffH / 24)
   if (diffD < 7)    return `${diffD}d ago`
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatDay(str)
 }
 
 function fmtFull(str) {
   if (!str) return '—'
-  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  return formatDate(str)
 }
 
 function EventRow({ event }) {
@@ -35,9 +38,7 @@ function EventRow({ event }) {
           {actor && <span className="font-medium text-gray-900">{actor} </span>}
           {event.description || event.event_type.replace(/_/g, ' ')}
         </p>
-        {event.entity_id && (
-          <p className="text-xs text-gray-400 font-mono mt-0.5 truncate">{event.entity_id}</p>
-        )}
+        {event.entity_id && <InternalIdCopyButton id={event.entity_id} label="activity reference" />}
       </div>
       <time
         className="text-xs text-gray-400 shrink-0 mt-0.5"
@@ -119,12 +120,10 @@ export default function ActivityTimeline({ workspaceId }) {
     { value: 'brand_protection_alert',   label: 'Brand Protection alerts' },
     { value: 'attack_surface_alert',     label: 'Attack Surface alerts' },
     { value: 'certificates_trust_alert', label: 'Certificate alerts' },
-    { value: 'cyber_essentials_alert',   label: 'Cyber Essentials alerts' },
-    { value: 'cyber_essentials_readiness_alert', label: 'Cyber Essentials Readiness alerts' },
+    { value: 'cyber_essentials_alerts',  label: GROUPED_ALERT_LABELS.cyber_essentials_readiness },
     { value: 'website_security_alert',   label: 'Website Security alerts' },
     { value: 'identity_exposure_alert',  label: 'Identity Exposure alerts' },
-    { value: 'shadow_it_alert',          label: 'Shadow IT alerts' },
-    { value: 'shadow_it_unmanaged_technology_alert', label: 'Shadow IT & Unmanaged Technology alerts' },
+    { value: 'shadow_it_alerts',         label: GROUPED_ALERT_LABELS.shadow_it_unmanaged_technology },
   ]
 
   return (

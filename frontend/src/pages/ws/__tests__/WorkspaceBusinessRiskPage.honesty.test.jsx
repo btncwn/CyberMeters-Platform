@@ -63,8 +63,9 @@ describe('WorkspaceBusinessRiskPage partial-scan honesty', () => {
     await waitFor(() => expect(screen.getByText('Business Risk Score unavailable')).toBeInTheDocument())
     expect(screen.getByText('Last complete Business Risk Score')).toBeInTheDocument()
     expect(screen.getByText(/Historical\/stale/)).toBeInTheDocument()
-    expect(document.body.textContent).toContain('scan-partial')
-    expect(document.body.textContent).toContain('scan-complete')
+    expect(screen.getAllByRole('button', { name: 'Copy scan ID' }).map(button => button.title)).toEqual(['scan-partial', 'scan-complete'])
+    expect(document.body.textContent).not.toContain('scan-partial')
+    expect(document.body.textContent).not.toContain('scan-complete')
   })
 
   it('does not render the historical B/medium result as the current grade or band', async () => {

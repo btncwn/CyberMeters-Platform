@@ -1,3 +1,4 @@
+import { formatDay } from '../../utils/dates'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   ShieldAlert, RefreshCw, Eye, X,
@@ -20,7 +21,7 @@ function asList(v) {
 function fmtDate(v) {
   if (!v) return null
   const d = new Date(typeof v === 'number' ? v : (String(v).includes('T') ? v : v.replace(' ', 'T') + 'Z'))
-  return isNaN(d) ? null : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return isNaN(d) ? null : formatDay(d)
 }
 function isRecent(v, days = 7) {
   if (!v) return false

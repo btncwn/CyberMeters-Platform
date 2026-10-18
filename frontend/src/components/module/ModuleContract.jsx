@@ -1,3 +1,4 @@
+import { formatDay } from '../../utils/dates'
 // ModuleContract — the page contract every area page follows. The area page
 // (founder, 16 Oct 2026) opens with a serif title, the area's description, the
 // backend evidence word and a filter box, then four tabs:
@@ -68,12 +69,6 @@ export function tabForLocation(params, hash) {
 }
 
 const SEVERITY_TONE = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-brand-700', low: 'text-blue-700', info: 'text-gray-600' }
-
-function formatDay(value) {
-  if (!value) return null
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-}
 
 /** Reads the area's resolver row and its cases. Missing API functions and failed reads are errors, never empty success. */
 export function useModuleContract(workspaceId, domainKey) {
@@ -212,7 +207,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   const guide = guidePathForDomainKey(domainKey)
   const casesPath = casesPathForDomainKey(domainKey)
   const limitations = read ? (entry.limitations || []).map(customerEvidenceText).filter(Boolean) : []
-  const assessed = read ? formatDay(entry.last_assessed_at || entry.freshness) : null
+  const assessed = read ? formatDay(entry.last_assessed_at || entry.freshness, null) : null
   const open = cases.filter((c) => ['action_required', 'in_progress', 'ready_to_verify', 'recurring'].includes(caseStatus(c)))
   const filteredCases = cases.filter((c) => matchesFilter(`${c.title || ''} ${c.domain || ''} ${c.source_finding_type || ''} ${c.case_type || ''}`, query))
   const filteredOpen = open.filter((c) => filteredCases.includes(c))
@@ -258,8 +253,8 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       </p>
       {read && (
         <p className="text-xs text-gray-500 mt-1">
-          {entry.freshness_reason || (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.')}
-          {entry.coverage ? ` Coverage: ${entry.coverage}.` : ''}
+          {entry.freshness_reason ? customerEvidenceText(entry.freshness_reason) : (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.')}
+          {entry.coverage ? ` Coverage: ${customerEvidenceText(entry.coverage)}.` : ''}
         </p>
       )}
     </Section>
@@ -405,7 +400,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
               <span>
                 {domainsRequest === 'loading' ? 'Reading the latest assessment…'
                   : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read.'
-                  : (entry.freshness_reason || (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.'))}
+                  : (entry.freshness_reason ? customerEvidenceText(entry.freshness_reason) : (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.'))}
               </span>
             </div>
           </div>

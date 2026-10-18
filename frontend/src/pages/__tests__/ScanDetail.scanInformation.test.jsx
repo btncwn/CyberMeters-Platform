@@ -1,13 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import ScanDetail, { shortScanId } from '../ScanDetail'
+import ScanDetail from '../ScanDetail'
 import { api } from '../../api'
+import { formatDate } from '../../utils/dates'
 
 // Scan Information panel (founder, 17 Oct 2026): label | value grid whose value
 // column has min-width 0 and wraps anywhere, so nothing is clipped at the right
-// edge; the scan id is shortened on one line with a Copy button carrying the
-// full id (tooltip too); status and band chips never break onto two lines.
+// edge; the scan id is available only via a copy control and tooltip;
+// status and band chips never break onto two lines.
 
 vi.mock('../../api', () => ({
   api: {
@@ -39,29 +40,19 @@ async function renderPage() {
 
 beforeEach(() => { vi.clearAllMocks() })
 
-describe('shortScanId', () => {
-  it('keeps the prefix and the tail on one line, leaves short ids alone', () => {
-    expect(shortScanId(FULL_ID)).toBe('scan_bc7a…b732')
-    expect(shortScanId('scan_4f100e6d')).toBe('scan_4f100e6d')
-    expect(shortScanId(null)).toBe('')
-  })
-})
-
 describe('Scan Information panel', () => {
-  it('shortens the id in monospace with the full id as tooltip and copy payload', async () => {
+  it('titles the scan by date and keeps its ID only in copy controls and tooltips', async () => {
     const writeText = vi.fn().mockResolvedValue()
     Object.assign(navigator, { clipboard: { writeText } })
     const panel = await renderPage()
-    const short = within(panel).getByTestId('scan-id-short')
-    expect(short).toHaveTextContent('scan_bc7a…b732')
-    expect(short).toHaveClass('mono', 'whitespace-nowrap')
-    expect(short).toHaveAttribute('title', FULL_ID)
-    const copy = within(panel).getByRole('button', { name: `Copy scan ID ${FULL_ID}` })
+    expect(screen.getByRole('heading', { name: `Scan — ${formatDate(scan.created_at)}` })).toBeInTheDocument()
+    const copy = within(panel).getByRole('button', { name: 'Copy scan ID' })
     expect(copy).toHaveAttribute('title', FULL_ID)
     fireEvent.click(copy)
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(FULL_ID))
     expect(await within(panel).findByText('Copied')).toBeInTheDocument()
     expect(within(panel).queryByText(FULL_ID)).toBeNull()
+    expect(screen.queryByText(/scan_bc7a/)).toBeNull()
   })
 
   it('lays rows out as a label | value grid whose value wraps anywhere, and keeps chips on one line', async () => {

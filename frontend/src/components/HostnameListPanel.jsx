@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { parseServerDate, formatDay } from '../utils/dates'
 
 // "Hostnames you know about" — per verified domain, a list of hostnames every
 // scan asks DNS about. The backend owns parsing, scope and every outcome; a
@@ -26,7 +26,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 function fmt(value) {
   const d = parseServerDate(value)
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null
+  return d && !Number.isNaN(d.getTime()) ? formatDay(d) : null
 }
 
 /** One sentence per fact the backend reported about an upload. */

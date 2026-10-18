@@ -1,10 +1,10 @@
-import { parseServerDate } from '../utils/dates'
+import { formatDate, parseServerDate } from '../utils/dates'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
 const time = value => {
   if (typeof value !== 'string' && !(Number.isSafeInteger(value) && value >= 0)) return 'Not recorded'
   const parsed = typeof value === 'number' ? new Date(value * 1000) : parseServerDate(value)
-  return Number.isFinite(parsed?.getTime()) ? `${parsed.toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })} UTC` : 'Not recorded'
+  return Number.isFinite(parsed?.getTime()) ? `${formatDate(parsed, 'Not recorded', { timeZone: 'UTC' })} UTC` : 'Not recorded'
 }
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
 const endpoint = value => value?.address ? `${value.address.includes(':') ? `[${value.address}]` : value.address}:${value.port ?? '?'}` : 'Not recorded'

@@ -583,7 +583,9 @@ runMutant({
     const targetFailure =
       stdout.includes(`ScanDetail canonical report availability > ${targetTest}`) &&
       /FAIL\s+.*ScanDetail canonical report availability > keeps Scan B state/.test(stderr) &&
-      /Unable to find an accessible element with the role "heading" and name "b\.example"/
+      // The dated heading is shared by both fixtures; the B-domain label is the
+      // exact state marker that disappears when the stale A response wins.
+      /Unable to find an element with the text: b\.example\./
         .test(stderr) &&
       (stderr.match(/\bFAIL\s+/g) || []).length === 1 &&
       (stderr.match(/TestingLibraryElementError:/g) || []).length === 1;

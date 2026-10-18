@@ -434,7 +434,7 @@ const GUIDE_AREA_DEFINITIONS = [
     title: 'Brand Protection',
     shortTitle: 'Brand Protection',
     route: '/ws/brand-monitoring',
-    summary: 'Domains registered to look like yours, and the case workflow for getting them taken down.',
+    summary: 'Domains registered to look like yours, and the case workflow for preparing and tracking takedown requests.',
     intro: 'Criminals register domains that look like yours to send email and host pages in your name. This area watches for look-alike registrations, explains how each one resembles your domain, and tracks the takedown you pursue with the registrar or provider.',
     covers: [
       'Brand Protection covers look-alike domains: typosquats, character substitutions that look identical in a browser, and other variations of your registered domain. Each detection becomes a case you can own, work and close.',
