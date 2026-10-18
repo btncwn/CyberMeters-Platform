@@ -8,7 +8,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
-import ModuleContract from '../../components/module/ModuleContract'
+import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
 import {
   SHADOW_IT_FIRST_OBSERVATION_LABEL,
   classificationMeta, monitoringMeta, ownershipMeta, onboardingMeta, removalMeta,
@@ -225,6 +225,12 @@ export default function ShadowItInventoryPage() {
 
   const items = data?.items || []
   const counts = data?.counts || {}
+  const goToAnchor = useAreaAnchor()
+  // Overview lists the unclassified items themselves (founder, 18 Oct 2026): the
+  // first five, and "See all" opens the inventory filtered to them.
+  const unclassified = items.filter((it) => it.classification === 'unreviewed')
+  const seeAllUnclassified = () => { setFilter('unreviewed'); goToAnchor('shadow-it-inventory') }
+  const isEmpty = !loading && !error && items.length === 0 && !filter
 
   if (!wsLoading && !workspaceId) return <NoWorkspaceSelected />
 
@@ -235,20 +241,51 @@ export default function ShadowItInventoryPage() {
         workspaceId={workspaceId}
         workspaceName={workspaceName}
         description={SHADOW_IT_SCOPE_NOTE}
-        overview={(
-          /* Backend counts per classification — the customer's own record of what is
-             approved, rejected or excepted; observation is never a verdict. */
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" data-testid="shadow-it-classification-counts">
-            {['unreviewed', 'approved', 'rejected', 'exception', 'retired'].map((c) => (
-              <div key={c} className="card p-4">
-                <p className="text-[15px] font-semibold text-gray-900 leading-snug">{classificationMeta(c).label}</p>
-                <p className="text-[14px] font-bold mt-2 leading-none tabular-nums text-gray-800">{loading ? '…' : error ? '—' : (counts[c] ?? 0)}</p>
-              </div>
-            ))}
+        /* The area template (18 Oct 2026): the backend's classification counts are
+           "What we observed" — the customer's own record, never a verdict. */
+        figures={loading || error ? null : ['unreviewed', 'approved', 'rejected', 'exception'].map((c) => ({
+          key: c, label: classificationMeta(c).label, value: counts[c] ?? 0,
+        }))}
+        nextAction={isEmpty ? {
+          title: 'No externally observed technology yet',
+          body: 'This page fills after a scan correlates the vendors and services seen for your domains.',
+          label: 'Run a scan',
+          to: '/scans/new',
+        } : (!loading && !error && (counts.unreviewed ?? 0) > 0) ? {
+          title: `${counts.unreviewed} item${counts.unreviewed === 1 ? '' : 's'} not yet classified`,
+          body: 'Approve, reject or record an exception for each, so CyberMeters knows what you expect to see.',
+          label: 'Classify items',
+          onClick: seeAllUnclassified,
+        } : null}
+        overview={isEmpty ? (
+          <div className="card p-6" data-testid="shadow-it-empty">
+            <p className="text-sm text-gray-700">This page fills after a scan correlates the vendors and services seen for your domains.</p>
           </div>
+        ) : (
+          <section className="card p-5" aria-labelledby="shadow-it-unclassified-heading" data-testid="shadow-it-unclassified">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 id="shadow-it-unclassified-heading" className="text-sm font-semibold text-gray-900">Not yet classified</h3>
+              {unclassified.length > 0 && <button type="button" onClick={seeAllUnclassified} className="text-sm font-semibold text-brand-700 hover:text-brand-800">See all {counts.unreviewed ?? unclassified.length}</button>}
+            </div>
+            {loading && <p className="text-sm text-gray-600 mt-2">Loading…</p>}
+            {error && <p className="text-sm text-red-700 mt-2">{error}</p>}
+            {!loading && !error && unclassified.length === 0 && <p className="text-sm text-gray-600 mt-2">Every observed item has a classification.</p>}
+            {!loading && !error && unclassified.length > 0 && (
+              <ul className="mt-2 divide-y divide-gray-100">
+                {unclassified.slice(0, 5).map((it) => (
+                  <li key={it.inventory_item_id} className="flex items-center justify-between gap-3 py-2" data-testid="shadow-it-unclassified-item">
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-gray-900 break-words">{it.display_name}</span>
+                      <span className="block text-xs text-gray-600 capitalize">{(it.category || 'Uncategorised').replace(/_/g, ' ')}{it.last_seen_at ? ` · last seen ${it.last_seen_at.slice(0, 10)}` : ''}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         )}
       >
-      <div className="flex flex-wrap items-center gap-2 my-4">
+      <div id="shadow-it-inventory" className="flex flex-wrap items-center gap-2 my-4 scroll-mt-24">
         {['', 'unreviewed', 'approved', 'rejected', 'exception', 'retired'].map((c) => (
           <button
             key={c || 'all'}

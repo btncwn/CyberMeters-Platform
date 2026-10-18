@@ -62,6 +62,21 @@ export const reports = { reports: [
 
 const json = (body, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
+export const shadowItInventory = {
+  items: ['Mailchimp', 'Typeform', 'Calendly', 'Trello', 'Hotjar', 'Intercom'].map((name, i) => ({
+    inventory_item_id: `inv_${i}`, display_name: name, category: 'saas_tool', classification: 'unreviewed',
+    monitoring_status: 'observed', last_seen_at: '2026-10-16T08:00:00Z',
+  })),
+  counts: { unreviewed: 6, approved: 0, rejected: 0, exception: 0, retired: 0 },
+}
+export const ceAnswers = {
+  questions: [{ control_key: 'firewalls', label: 'Firewalls', questions: [
+    { key: 'fw_boundary', text: 'Do you have a boundary firewall?', label: 'Do you have a boundary firewall?', question: 'Do you have a boundary firewall?' },
+    { key: 'fw_default_pw', text: 'Have default firewall passwords been changed?', label: 'Have default firewall passwords been changed?', question: 'Have default firewall passwords been changed?' },
+  ] }],
+  answers: {},
+}
+
 export async function installAppMock(page, { notificationCount = 4 } = {}) {
   await page.route(`${API_BASE}/**`, (route) => {
     const u = new URL(route.request().url())
@@ -79,6 +94,13 @@ export async function installAppMock(page, { notificationCount = 4 } = {}) {
     if (p === `/workspaces/${workspace.id}/reports`) return route.fulfill(json(reports))
     if (p === `/workspaces/${workspace.id}/scheduled-reports`) return route.fulfill(json({ scheduled_reports: [] }))
     if (p.includes('/notifications')) return route.fulfill(json(notifications(notificationCount)))
+    // Area pages (PR-C): Shadow IT with six unclassified items, Identity empty, CE unanswered.
+    if (p === `/workspaces/${workspace.id}/shadow-it/inventory`) return route.fulfill(json(shadowItInventory))
+    if (p === `/workspaces/${workspace.id}/certificates`) return route.fulfill(json({ certificates: [] }))
+    if (p === `/workspaces/${workspace.id}/certificates/timeline`) return route.fulfill(json({ timeline: [] }))
+    if (p === `/workspaces/${workspace.id}/identity-surfaces`) return route.fulfill(json({ items: [], counts: {} }))
+    if (p === `/workspaces/${workspace.id}/cyber-essentials/answers`) return route.fulfill(json(ceAnswers))
+    if (p === `/workspaces/${workspace.id}/cyber-essentials-readiness`) return route.fulfill(json({ status: 'not_assessed', self_assessment: { controls: [] } }))
     return route.fulfill(json({ error: 'Not available in this check.' }, 404))
   })
 }

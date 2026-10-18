@@ -48,8 +48,11 @@ describe('WebsiteSecurityPage — workspace resolution', () => {
     expect(document.getElementById('website-observations')).toBeInTheDocument()
     expect(document.getElementById('exposure-checks')).toBeInTheDocument()
     overview.unmount()
-    mount()
+    const findings = mount()
     expect(document.getElementById('pages-checked')).toBeInTheDocument()
+    findings.unmount()
+    // Sign-in settings are configuration: the Settings tab of the area template (18 Oct 2026).
+    mount('/ws/website-security?tab=settings')
     expect(document.getElementById('sign-in-settings')).toBeInTheDocument()
   })
 

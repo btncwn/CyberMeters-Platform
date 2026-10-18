@@ -26,8 +26,9 @@ describe('WorkspaceNav (area list)', () => {
 
   it('exposes each area’s sub-pages as absolute tiles (anchors resolve against the area page)', () => {
     expect(subpagesForDomainKey('email_protection').map(t => t.to)).toEqual([
-      '/ws/email-protection#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail',
-      '/ws/email-protection#connect-reporting', '/ws/email-protection#lifecycle-history',
+      // DMARC setup and connect-reporting live on the Settings tab of the area template (18 Oct 2026).
+      '/ws/email-protection?tab=settings#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail',
+      '/ws/email-protection?tab=settings#connect-reporting', '/ws/email-protection#lifecycle-history',
     ])
     expect(subpagesForDomainKey('attack_surface')[0]).toEqual({ label: 'Timeline', desc: 'What appeared, changed or disappeared', to: '/exposure', anchor: false })
     // The scan intelligence page is reachable from the Attack Surface area (16 Oct 2026).
@@ -46,14 +47,14 @@ describe('WorkspaceNav (area list)', () => {
     expect(detectServiceKey('/ws/supply-chain')).toBe('shadow_it')
     expect(subpagesForDomainKey('shadow_it_unmanaged_technology').map(t => t.to)).toEqual(['/ws/saas-exposure', '/ws/third-parties'])
     // A summary block that lives on Overview is reached with the tab stated.
-    expect(subpagesForDomainKey('brand_protection').find((t) => t.label === 'Brand Findings').to).toBe('/ws/brand-monitoring?tab=overview#brand-summary')
+    expect(subpagesForDomainKey('brand_protection').find((t) => t.label === 'Protected brand').to).toBe('/ws/brand-monitoring?tab=settings#protected-brand')
     expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Expiry Risk').to).toBe('/ws/certificates?tab=overview#cert-expiry')
     expect(subpagesForDomainKey('certificates_trust').find((t) => t.label === 'Inventory').to).toBe('/ws/certificates#cert-inventory')
     expect(subpagesForDomainKey('website_security').map(t => t.to)).toEqual([
       '/ws/website-security?tab=overview#website-observations',
       '/ws/website-security?tab=overview#exposure-checks',
       '/ws/website-security#pages-checked',
-      '/ws/website-security#sign-in-settings',
+      '/ws/website-security?tab=settings#sign-in-settings',
     ])
     expect(subpagesForDomainKey('nope')).toEqual([])
     expect(Object.keys(MODULE_SUBPAGES)).toEqual(MODULES.map(m => m.domainKey))

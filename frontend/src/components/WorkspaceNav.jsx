@@ -16,10 +16,11 @@ const SERVICE_DEFINITIONS = [
     key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
     match: p => p.startsWith('/ws/email-protection'),
     items: [
-      { hash: '#dmarc-setup',       label: 'DMARC Setup',          desc: 'Policy, alignment and the hosted record' },
+      // Configuration lives on the Settings tab of the area template (18 Oct 2026).
+      { hash: '#dmarc-setup',       label: 'DMARC Setup',          desc: 'Policy, alignment and the hosted record', tab: 'settings' },
       { hash: '#sender-inventory',  label: 'Sender Inventory',     desc: 'Every source seen sending as your domain' },
       { hash: '#auth-detail',       label: 'Authentication Detail', desc: 'SPF, DKIM and DMARC as observed' },
-      { hash: '#connect-reporting', label: 'Connect reporting', desc: 'Set up DMARC report delivery' },
+      { hash: '#connect-reporting', label: 'Connect reporting', desc: 'Set up DMARC report delivery', tab: 'settings' },
       { hash: '#lifecycle-history', label: 'Lifecycle history', desc: 'Changes to reporting and senders' },
     ],
   },
@@ -49,7 +50,7 @@ const SERVICE_DEFINITIONS = [
       { hash: '#website-observations', label: 'Observations', desc: 'HTTPS, headers and cookies from the latest scan', tab: 'overview' },
       { hash: '#exposure-checks', label: 'Exposure checks', desc: 'Public content and management surfaces checked', tab: 'overview' },
       { hash: '#pages-checked', label: 'Pages checked', desc: 'Public pages observed on your site' },
-      { hash: '#sign-in-settings', label: 'Sign-in settings', desc: 'Set up and review signed-in checks' },
+      { hash: '#sign-in-settings', label: 'Sign-in settings', desc: 'Set up and review signed-in checks', tab: 'settings' },
     ],
   },
   {
@@ -88,7 +89,8 @@ const SERVICE_DEFINITIONS = [
     match: p => p.startsWith('/ws/brand-monitoring'),
     items: [
       { hash: '#typosquats',        label: 'Typosquat Candidates', desc: 'Lookalike domains observed' },
-      { hash: '#brand-summary',     label: 'Brand Findings',       desc: 'What the brand checks established', tab: 'overview' },
+      // The brand counts are the template's always-visible figures; the editor lives on Settings (18 Oct 2026).
+      { hash: '#protected-brand',   label: 'Protected brand',      desc: 'The brand names and domains the checks run against', tab: 'settings' },
     ],
   },
   {
@@ -120,7 +122,8 @@ export function subpagesForDomainKey(domainKey) {
   return svc.items.map((item) => ({
     label: item.label,
     desc: item.desc || '',
-    to: item.to || `${svc.to}${item.tab === 'overview' ? '?tab=overview' : ''}${item.hash}`,
+    // A tile names the tab that holds its section when that is not Findings (the anchor default).
+    to: item.to || `${svc.to}${item.tab ? `?tab=${item.tab}` : ''}${item.hash}`,
     anchor: Boolean(item.hash),
   }))
 }

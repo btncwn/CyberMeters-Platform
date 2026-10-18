@@ -1,19 +1,22 @@
 import { formatDay } from '../../utils/dates'
-// ModuleContract — the page contract every area page follows. The area page
-// (founder, 16 Oct 2026) opens with a serif title, the area's description, the
-// backend evidence word and a filter box, then four tabs:
+// ModuleContract — the ONE template every /ws/<area> page renders (founder,
+// 18 Oct 2026), in this order:
 //
-//   Overview    — the area's sub-page tiles, the page's own summary blocks
-//                 (statistic cards, coverage honesty, open-case panel — the
-//                 `overview` prop) and the summary: Scope, Evidence state and
-//                 Risk. Lists never live here (Executive, 16 Oct 2026).
-//   Findings    — the page's own findings body (the lists) and the recommended
-//                 action
-//   Cases       — the managed cases and verification
-//   Field Guide — the Field Guide section
+//   1. Header — serif title · one-sentence scope · evidence-state badge ·
+//      "Last assessed" (and the page's own header controls).
+//   2. "What we observed" — 3–4 key figures at most: the page's `figures`, or
+//      the area row's own counts (findings, evidence observed, highest
+//      severity, coverage). Never invented.
+//   3. "Do this next" — ONE recommended action card with ONE button: the page's
+//      `nextAction`, or the first mapped finding's canonical remediation
+//      (title + recommended action from the registry). No repeated CTAs.
+//   4. Findings · Open cases · Verification — three clickable counts that open
+//      the Findings and Cases tabs.
+//   5. Tabs: Overview · Findings · Cases · Settings · Field Guide. Settings holds
+//      anything configurable (the page's `settings` prop).
+//   6. Scope & limits — small, at the bottom.
 //
-// The eight contract sections keep their order and ids (MODULE_CONTRACT_SECTIONS);
-// each is reached through exactly one tab.
+// Lists never live on Overview (Executive, 16 Oct 2026).
 //
 // The page keeps its own findings body (passed as children); the contract
 // renders the framing sections from backend values only: the area's resolver
@@ -37,22 +40,61 @@ import { moduleIcon } from '../shell/moduleIcons'
 import { OWNER_LABELS } from '../../data/remediation'
 
 export const MODULE_CONTRACT_SECTIONS = Object.freeze([
-  { id: 'module-scope',          n: 1, label: 'Scope' },
-  { id: 'module-evidence-state', n: 2, label: 'Evidence state' },
-  { id: 'module-risk',           n: 3, label: 'Risk' },
+  { id: 'module-observed',       n: 1, label: 'What we observed' },
+  { id: 'module-next',           n: 2, label: 'Do this next' },
+  { id: 'module-counts',         n: 3, label: 'Findings, cases and verification' },
   { id: 'module-findings',       n: 4, label: 'Findings' },
   { id: 'module-recommended',    n: 5, label: 'Recommended action' },
   { id: 'module-cases',          n: 6, label: 'Managed case' },
   { id: 'module-verification',   n: 7, label: 'Verification' },
-  { id: 'module-guide',          n: 8, label: 'Field Guide' },
+  { id: 'module-settings',       n: 8, label: 'Settings' },
+  { id: 'module-guide',          n: 9, label: 'Field Guide' },
+  { id: 'module-scope',          n: 10, label: 'Scope & limits' },
 ])
 
 export const MODULE_TABS = Object.freeze([
   { id: 'overview', label: 'Overview' },
   { id: 'findings', label: 'Findings' },
   { id: 'cases',    label: 'Cases' },
+  { id: 'settings', label: 'Settings' },
   { id: 'guide',    label: 'Field Guide' },
 ])
+
+const COVERAGE_WORDS = { complete: 'Complete', partial: 'Partial', degraded: 'Degraded' }
+const STILL_TO_ASSESS = new Set(['not_yet_assessed', 'not_assessed', 'evidence_insufficient', 'unavailable', 'unknown'])
+
+/**
+ * The default "What we observed" figures from the area row — the backend's own
+ * counts, nothing derived. A page may pass its own (max 4) instead.
+ */
+export function defaultFigures(entry) {
+  if (!entry) return []
+  const severity = String(entry.highest_severity || '').toLowerCase()
+  return [
+    { key: 'findings', label: 'Findings', value: typeof entry.finding_count === 'number' ? entry.finding_count : '—', explanation: 'In the latest assessment' },
+    { key: 'evidence', label: 'Evidence observed', value: typeof entry.evidence_count === 'number' ? entry.evidence_count : '—', explanation: 'Checks that returned usable evidence' },
+    { key: 'severity', label: 'Highest severity', value: severity ? severity[0].toUpperCase() + severity.slice(1) : 'None recorded', explanation: 'Across this area’s findings', tone: SEVERITY_TONE[severity] },
+    { key: 'coverage', label: 'Coverage', value: COVERAGE_WORDS[String(entry.coverage || '').toLowerCase()] || 'Not recorded', explanation: 'How much of this area the scan could check' },
+  ]
+}
+
+/**
+ * The ONE "Do this next" action. A page's own `nextAction` wins; otherwise the
+ * first finding the canonical remediation registry maps (its title and its
+ * recommended action), then honest fallbacks. Always exactly one button.
+ */
+export function resolveNextAction({ nextAction = null, entry = null, request = 'loading', guide = '/guide' } = {}) {
+  if (nextAction) return nextAction
+  if (request === 'loading') return { title: 'Reading the latest assessment…', body: null, label: null }
+  if (request !== 'ok' || !entry) return { title: 'The latest assessment could not be read', body: 'Nothing is assumed in the meantime. A new scan reads this area again.', label: 'Run a scan', to: '/scans/new' }
+  const mapped = (entry.finding_details || []).find((d) => d?.status === 'resolved' && d.recommended_action)
+  if (mapped) return { title: mapped.customer_title, body: mapped.recommended_action, label: 'Review this finding', tab: 'findings', source: 'registry' }
+  if ((entry.finding_count ?? 0) > 0) return { title: 'Review the findings in the latest assessment', body: 'No registered remediation is mapped for these findings yet, so none is invented here.', label: 'Review findings', tab: 'findings' }
+  if (STILL_TO_ASSESS.has(String(entry.state || '').toLowerCase())) return { title: 'Run a scan to assess this area', body: 'The latest assessment could not establish this area yet.', label: 'Run a scan', to: '/scans/new' }
+  // No finding is only an all-clear when the scan could check the whole area.
+  if (String(entry.coverage || '').toLowerCase() !== 'complete') return { title: 'No issue found in what could be checked', body: 'Coverage was not complete, so this is not an all-clear. A new scan checks the rest.', label: 'Run a scan', to: '/scans/new' }
+  return { title: 'Nothing to fix from the latest assessment', body: 'CyberMeters keeps monitoring and will raise anything new.', label: 'Open the Field Guide', to: guide }
+}
 const TAB_IDS = MODULE_TABS.map((t) => t.id)
 
 /**
@@ -186,7 +228,7 @@ function SubpageTiles({ domainKey, tiles, theme, summaries = null }) {
  *   recommendedAction  — optional node the page already derives from its own backend data (shown in section 5)
  *   children           — the page's findings body (section 4)
  */
-export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, tileSummaries = null, recommendedAction = null, children }) {
+export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, tileSummaries = null, recommendedAction = null, figures = null, nextAction = null, settings = null, children }) {
   const module = moduleForDomainKey(domainKey)
   const theme = moduleTheme(domainKey)
   const [params, setParams] = useSearchParams()
@@ -233,47 +275,72 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   }
 
   const scopeSection = (
-    <Section section={S['module-scope']} theme={theme}>
-      <p className="text-sm font-semibold text-gray-900">{module?.title || domainKey}</p>
-      <p className="text-xs text-gray-600 mt-1 leading-relaxed">{workspaceName ? `Workspace: ${workspaceName}.` : 'Selected workspace.'}{' '}{read && entry.description ? customerEvidenceText(entry.description) : ''}</p>
+    <section id="module-scope" aria-labelledby="module-scope-heading" className="border-t border-gray-100 pt-4" data-testid="module-scope">
+      <h2 id="module-scope-heading" className="text-xs font-semibold text-gray-600">Scope &amp; limits</h2>
+      <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+        {workspaceName ? `Workspace: ${workspaceName}.` : 'Selected workspace.'}{' '}
+        {read && entry.description ? customerEvidenceText(entry.description) : (module?.fallback || '')}
+        {read && entry.coverage ? ` Coverage: ${COVERAGE_WORDS[String(entry.coverage).toLowerCase()] || customerEvidenceText(entry.coverage)}.` : ''}
+      </p>
       {limitations.length > 0 && (
-        <ul className="mt-2 space-y-1 text-xs text-gray-500 list-disc pl-4">
+        <ul className="mt-1 space-y-0.5 text-xs text-gray-600 list-disc pl-4">
           {limitations.map((l, i) => <li key={i}>{l}</li>)}
         </ul>
       )}
-    </Section>
+    </section>
   )
-  const evidenceSection = (
-    <Section section={S['module-evidence-state']} theme={theme}>
-      <StatusChip status={evidenceStatus} size="md" />
-      <p className="text-xs text-gray-600 mt-2 leading-relaxed">
-        {domainsRequest === 'loading' ? 'Reading the latest assessment…'
-          : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read. Nothing is assumed in the meantime.'
-          : (summary || 'No summary was recorded for this area.')}
-      </p>
-      {read && (
-        <p className="text-xs text-gray-500 mt-1">
-          {entry.freshness_reason ? customerEvidenceText(entry.freshness_reason) : (assessed ? `Last assessed ${assessed}.` : 'No assessment date recorded.')}
-          {entry.coverage ? ` Coverage: ${customerEvidenceText(entry.coverage)}.` : ''}
-        </p>
-      )}
-    </Section>
-  )
-  const riskSection = (
-    <Section section={S['module-risk']} theme={theme}>
-      {read ? (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-          <dt className="text-xs text-gray-500">Highest severity</dt>
-          <dd className={`text-sm font-bold ${entry.highest_severity ? 'capitalize' : ''} ${SEVERITY_TONE[String(entry.highest_severity || '').toLowerCase()] || 'text-gray-600'}`}>{entry.highest_severity || 'None recorded'}</dd>
-          <dt className="text-xs text-gray-500">Findings</dt>
-          <dd className="text-sm font-bold tabular-nums text-gray-900">{typeof entry.finding_count === 'number' ? entry.finding_count : '—'}</dd>
-          <dt className="text-xs text-gray-500">Open cases</dt>
-          <dd className="text-sm font-bold tabular-nums text-gray-900">{casesRequest === 'ok' ? caseSummary.open : '—'}</dd>
+  const shownFigures = (Array.isArray(figures) && figures.length ? figures : (read ? defaultFigures(entry) : [])).slice(0, 4)
+  const observedSection = (
+    <section id="module-observed" aria-labelledby="module-observed-heading" data-testid="module-observed">
+      <h2 id="module-observed-heading" className="section-title" style={theme ? { color: theme.text } : undefined}>What we observed</h2>
+      {shownFigures.length ? (
+        <dl className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {shownFigures.map((f) => (
+            <div key={f.key || f.label} className="card p-4" data-testid="module-figure">
+              <dt className="text-sm font-semibold text-gray-900 leading-snug">{f.label}</dt>
+              {f.explanation && <dd className="text-xs text-gray-600 mt-0.5 leading-snug">{f.explanation}</dd>}
+              <dd className={`text-lg font-bold mt-1 tabular-nums ${f.tone || 'text-gray-900'}`}>{f.value ?? '—'}</dd>
+            </div>
+          ))}
         </dl>
       ) : (
-        <p className="text-xs text-gray-600 leading-relaxed">Risk is stated only from a read assessment. {domainsRequest === 'loading' ? 'Reading…' : 'Not available right now.'}</p>
+        <p className="text-sm text-gray-600 mt-2">{domainsRequest === 'loading' ? 'Reading the latest assessment…' : 'The latest assessment could not be read. Nothing is assumed in the meantime.'}</p>
       )}
-    </Section>
+    </section>
+  )
+  const next = resolveNextAction({ nextAction, entry, request: domainsRequest === 'ok' && !entry ? 'error' : domainsRequest, guide: guide || '/guide' })
+  const nextSection = (
+    <section id="module-next" aria-labelledby="module-next-heading" className="card p-5 border-l-4" style={theme ? { borderLeftColor: theme.icon } : undefined} data-testid="module-next">
+      <h2 id="module-next-heading" className="text-xs font-semibold text-gray-600">Do this next</h2>
+      <div className="mt-1 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold text-gray-900" data-testid="module-next-title">{next.title}</p>
+          {next.body && <p className="text-sm text-gray-700 mt-1 leading-relaxed">{customerEvidenceText(next.body)}</p>}
+        </div>
+        {next.label && (next.to
+          ? <Link to={next.to} className="btn-primary shrink-0" data-testid="module-next-action">{next.label}</Link>
+          : <button type="button" onClick={next.onClick || (() => selectTab(next.tab || 'findings'))} className="btn-primary shrink-0" data-testid="module-next-action">{next.label}</button>)}
+      </div>
+    </section>
+  )
+  const awaitingVerification = (caseSummary.byWord?.ready_to_verify || 0)
+  const countsSection = (
+    <section id="module-counts" aria-label="Findings, open cases and verification" data-testid="module-counts">
+      <ul className="grid grid-cols-3 gap-3">
+        {[
+          { key: 'findings', label: 'Findings', value: read && typeof entry.finding_count === 'number' ? entry.finding_count : '—', tab: 'findings', hint: 'Open the Findings tab' },
+          { key: 'cases', label: 'Open cases', value: casesRequest === 'ok' ? caseSummary.open : '—', tab: 'cases', hint: 'Open the Cases tab' },
+          { key: 'verification', label: 'Verification', value: casesRequest === 'ok' ? awaitingVerification : '—', tab: 'cases', hint: 'Cases ready to verify — open the Cases tab' },
+        ].map((c) => (
+          <li key={c.key}>
+            <button type="button" onClick={() => selectTab(c.tab)} className="card card-hover w-full p-4 text-left" aria-label={`${c.label}: ${c.value}. ${c.hint}`} data-testid={`module-count-${c.key}`}>
+              <span className="block text-sm font-semibold text-gray-900">{c.label}</span>
+              <span className="block text-lg font-bold tabular-nums text-gray-900 mt-0.5">{c.value}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
   const findingsSection = (
     <Section section={S['module-findings']} theme={theme}>
@@ -377,6 +444,16 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       </div>
     </Section>
   )
+  const settingsSection = (
+    <Section section={S['module-settings']} theme={theme}>
+      {settings ? <div className="space-y-6" data-testid="module-settings-body">{settings}</div> : (
+        <div className="card p-5 text-sm text-gray-600 leading-relaxed">
+          Nothing to configure in this area. Where alerts go is set per workspace under{' '}
+          <Link to="/ws/alerts" className="font-semibold text-brand-700 hover:text-brand-800">Alert channels</Link>.
+        </div>
+      )}
+    </Section>
+  )
   const guideSection = (
     <Section section={S['module-guide']} theme={theme}>
       <div className="card p-5 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -419,7 +496,17 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
           </div>
         </div>
         {aside}
-        <div role="tablist" aria-label="Area sections" className="cm-tabs mt-5">
+      </header>
+
+      {/* 2–4: what we observed, the one next action, the three counts — above the tabs, on every tab. */}
+      <div className="space-y-4" data-testid="module-first-screen">
+        {observedSection}
+        {nextSection}
+        {countsSection}
+      </div>
+
+      <div>
+        <div role="tablist" aria-label="Area sections" className="cm-tabs">
           {MODULE_TABS.map((t) => (
             <button
               key={t.id}
@@ -437,18 +524,13 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
             </button>
           ))}
         </div>
-      </header>
+      </div>
 
       <div id="module-tabpanel" role="tabpanel" aria-labelledby={`module-tab-${tab}`} tabIndex={0} className="space-y-8">
         {tab === 'overview' && (
           <>
-            <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} summaries={tileSummaries} />
             {overview && <div className="space-y-6" data-testid="module-overview">{overview}</div>}
-            <div className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6" data-testid="module-summary">
-              {scopeSection}
-              {evidenceSection}
-              {riskSection}
-            </div>
+            <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} summaries={tileSummaries} />
           </>
         )}
         {tab === 'findings' && (
@@ -463,8 +545,12 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
             {verificationSection}
           </>
         )}
+        {tab === 'settings' && settingsSection}
         {tab === 'guide' && guideSection}
       </div>
+
+      {/* 6: scope & limits — small, at the bottom of every tab. */}
+      {scopeSection}
     </div>
   )
 }

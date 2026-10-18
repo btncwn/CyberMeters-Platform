@@ -39,14 +39,14 @@ beforeEach(() => {
 })
 
 describe('ModuleContract — head and tabs', () => {
-  it('reaches all four tabs with Tab, arrows, Home and End', async () => {
+  it('reaches all five tabs with Tab, arrows, Home and End', async () => {
     const user = userEvent.setup()
     renderPage()
     const overview = screen.getByRole('tab', { name: 'Overview' })
     for (let i = 0; i < 30 && document.activeElement !== overview; i++) await user.tab()
     expect(overview).toHaveFocus()
 
-    for (const name of ['Findings', 'Cases', 'Field Guide', 'Overview']) {
+    for (const name of ['Findings', 'Cases', 'Settings', 'Field Guide', 'Overview']) {
       await user.keyboard('{ArrowRight}')
       const target = screen.getByRole('tab', { name })
       expect(target).toHaveFocus()
@@ -73,14 +73,14 @@ describe('ModuleContract — head and tabs', () => {
     expect(tabs.map(t => t.textContent)).toEqual(MODULE_TABS.map(t => t.label))
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
     const tiles = within(screen.getByTestId('module-tiles')).getAllByRole('link')
-    expect(tiles.map(t => t.getAttribute('href'))).toEqual(['/ws/email-protection#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail', '/ws/email-protection#connect-reporting', '/ws/email-protection#lifecycle-history'])
-    // Overview (founder, 16 Oct 2026): the tiles and the summary card only — no
-    // numbered strip, no findings, cases, verification or guide sections here.
+    expect(tiles.map(t => t.getAttribute('href'))).toEqual(['/ws/email-protection?tab=settings#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail', '/ws/email-protection?tab=settings#connect-reporting', '/ws/email-protection#lifecycle-history'])
+    // The template (founder, 18 Oct 2026): what we observed, the one next action
+    // and the three counts above the tabs; Overview itself carries only the
+    // page's own blocks and the tiles; scope & limits at the bottom.
     expect(screen.queryByTestId('body')).not.toBeInTheDocument()
-    expect(screen.queryByRole('navigation', { name: 'On this page' })).not.toBeInTheDocument()
     const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())
-    expect(headings).toEqual(['Scope', 'Evidence state', 'Risk'])
-    expect(within(screen.getByTestId('module-summary')).getAllByRole('heading', { level: 2 })).toHaveLength(3)
+    expect(headings).toEqual(['What we observed', 'Do this next', 'Scope & limits'])
+    expect(screen.getByTestId('module-counts')).toBeInTheDocument()
   })
 
   it('switches tabs through the URL: Findings shows the body and the action, Cases the cases, Field Guide the guide', async () => {
@@ -88,18 +88,18 @@ describe('ModuleContract — head and tabs', () => {
     expect(screen.getByRole('tab', { name: 'Findings' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByTestId('body')).toBeInTheDocument()
     expect(screen.queryByTestId('module-tiles')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['Findings', 'Recommended action'])
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['What we observed', 'Do this next', 'Findings', 'Recommended action', 'Scope & limits'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
     expect(screen.getByRole('tab', { name: 'Cases' })).toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByText('DMARC policy is p=none')).toBeInTheDocument()
     expect(screen.queryByTestId('body')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['Managed case', 'Verification'])
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['What we observed', 'Do this next', 'Managed case', 'Verification', 'Scope & limits'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Field Guide' }))
     expect(screen.getByRole('link', { name: 'Open the Field Guide' })).toHaveAttribute('href', '/guide/email-protection')
     expect(screen.queryByText('DMARC policy is p=none')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['Field Guide'])
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['What we observed', 'Do this next', 'Field Guide', 'Scope & limits'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
     expect(screen.getByTestId('module-tiles')).toBeInTheDocument()
@@ -124,16 +124,18 @@ describe('ModuleContract — head and tabs', () => {
     }
   })
 
-  it('renders the page\'s overview blocks on Overview only, between the tiles and the summary card', () => {
-    renderPage('/ws/email-protection', { overview: <div data-testid="page-overview">seven statistic cards</div> })
-    const panel = screen.getByRole('tabpanel')
-    const order = [...panel.querySelectorAll('[data-testid]')].map((el) => el.dataset.testid)
-    expect(order.indexOf('module-tiles')).toBeLessThan(order.indexOf('module-overview'))
-    expect(order.indexOf('module-overview')).toBeLessThan(order.indexOf('module-summary'))
+  it('renders the page\'s overview blocks on Overview only, before the tiles, after the first-screen blocks', () => {
+    renderPage('/ws/email-protection', { overview: <div data-testid="page-overview">the page's own overview</div> })
+    const contract = screen.getByTestId('module-contract')
+    const order = [...contract.querySelectorAll('[data-testid]')].map((el) => el.dataset.testid)
+    expect(order.indexOf('module-observed')).toBeLessThan(order.indexOf('module-next'))
+    expect(order.indexOf('module-next')).toBeLessThan(order.indexOf('module-counts'))
+    expect(order.indexOf('module-counts')).toBeLessThan(order.indexOf('module-overview'))
+    expect(order.indexOf('module-overview')).toBeLessThan(order.indexOf('module-tiles'))
+    expect(order.indexOf('module-tiles')).toBeLessThan(order.indexOf('module-scope'))
     expect(within(screen.getByTestId('module-overview')).getByTestId('page-overview')).toBeInTheDocument()
     expect(screen.queryByTestId('body')).not.toBeInTheDocument()
-    // The summary card's three headings are still the only level-2 headings on Overview.
-    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['Scope', 'Evidence state', 'Risk'])
+    expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['What we observed', 'Do this next', 'Scope & limits'])
     fireEvent.click(screen.getByRole('tab', { name: 'Findings' }))
     expect(screen.queryByTestId('page-overview')).not.toBeInTheDocument()
     expect(screen.getByTestId('body')).toBeInTheDocument()
@@ -262,7 +264,7 @@ describe('ModuleContract — head and tabs', () => {
       '/ws/website-security?tab=overview#website-observations',
       '/ws/website-security?tab=overview#exposure-checks',
       '/ws/website-security#pages-checked',
-      '/ws/website-security#sign-in-settings',
+      '/ws/website-security?tab=settings#sign-in-settings',
     ])
     expect(screen.getByRole('heading', { level: 1, name: 'Website Security' })).toBeInTheDocument()
   })

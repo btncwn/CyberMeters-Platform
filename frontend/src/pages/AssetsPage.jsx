@@ -2,7 +2,7 @@ import { parseServerDate, formatDate, formatDay } from '../utils/dates'
 import CasesQueue from '../components/CasesQueue'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { RefreshCw, Server, AlertTriangle, Globe, Cloud, Shield, Activity, X, Layers } from 'lucide-react'
+import { RefreshCw, Cloud, X } from 'lucide-react'
 import { api } from '../api'
 import ModuleContract from '../components/module/ModuleContract'
 import Spinner from '../components/Spinner'
@@ -628,6 +628,14 @@ export default function AssetsPage() {
         domainKey="attack_surface"
         workspaceId={workspaceId}
         workspaceName={workspaceName}
+        /* The area template (18 Oct 2026): four inventory counts are "What we
+           observed" — the backend's lifecycle counts, never the legacy active flag. */
+        figures={summary ? [
+          { key: 'observed', label: 'Seen in latest scan', value: summary.lifecycle_counts?.observed ?? '—', explanation: 'Found through DNS or a web service in the latest assessment' },
+          { key: 'removed', label: 'No longer observed', value: summary.lifecycle_counts?.confirmed_removed ?? '—', explanation: 'Not seen for at least 48 hours across repeated scans; not proof it was removed' },
+          { key: 'services', label: 'Exposed services', value: summary.exposed_services ?? '—', explanation: 'Internet-facing services to review', tone: (summary.exposed_services ?? 0) > 0 ? 'text-brand-700' : undefined },
+          { key: 'takeover', label: 'Takeover risks', value: summary.takeover_risks ?? '—', explanation: 'Possible subdomain takeovers', tone: (summary.takeover_risks ?? 0) > 0 ? 'text-red-700' : undefined },
+        ] : null}
         description="Your externally reachable hosts and services, tracked across scans: what appeared, what changed and what is exposed."
         /* The "Network assets" page tile (Findings · #network-assets) carries an
            honest one-liner from the network panel's own API. */
@@ -647,19 +655,6 @@ export default function AssetsPage() {
                 <span className="font-semibold">Error:</span> {error}
               </div>
             )}
-            {/* ── Summary cards — the Overview answer, never a list ───────── */}
-            {summary && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-testid="attack-surface-stats">
-                <StatCard icon={Layers}        label="Total assets"     explanation="Everything in this workspace's inventory" value={summary.total_assets} />
-                <StatCard icon={Shield}        label="Seen in latest scan" explanation="Found through DNS or a web service in the latest assessment" value={summary.lifecycle_counts?.observed} />
-                <StatCard icon={Activity}      label="No longer observed" explanation="Not seen for at least 48 hours across repeated scans; not proof it was removed" value={summary.lifecycle_counts?.confirmed_removed} tone="neutral" />
-                <StatCard icon={Server}        label="Subdomains"       explanation="Hostnames mapped under your domains"    value={summary.subdomains} tone="info" />
-                <StatCard icon={Globe}         label="Exposed services" explanation="Internet-facing services to review"     value={summary.exposed_services} warning={(summary.exposed_services ?? 0) > 0} />
-                <StatCard icon={Cloud}         label="Cloud assets"     explanation="Cloud storage and buckets found"        value={summary.cloud_storage_assets} tone="info" />
-                <StatCard icon={AlertTriangle} label="Takeover risks"   explanation="Possible subdomain takeovers"           value={summary.takeover_risks} danger={(summary.takeover_risks ?? 0) > 0} />
-              </div>
-            )}
-
             {/* Coverage honesty: which signals the latest scan did and did not observe. */}
             <AttackSurfaceAssurance
               presentations={assurance}
@@ -734,7 +729,18 @@ export default function AssetsPage() {
             <p className="text-xs text-gray-500" data-testid="critical-prefix-coverage">{criticalCoverage} A critical name is tagged in the table; the tag records that the name answers in DNS, not that it is exposed.</p>
           )}
 
-          {/* ── Asset table ───────────────────────────────────────────────── */}
+          {/* ── Asset lifecycle table ─────────────────────────────────────── */}
+          {/* One reading guide for the whole table (founder, 18 Oct 2026), never repeated per row. */}
+          <details className="card p-4 text-sm text-gray-700" data-testid="asset-lifecycle-howto">
+            <summary className="cursor-pointer font-semibold text-gray-900">How to read this</summary>
+            <dl className="mt-3 space-y-2">
+              <div><dt className="font-medium text-gray-900">Observed</dt><dd className="text-gray-600">Seen in the latest assessment through DNS or a web service.</dd></div>
+              <div><dt className="font-medium text-gray-900">Not observed in this scan</dt><dd className="text-gray-600">Missing from the latest assessment only; one scan is not enough to say it went away.</dd></div>
+              <div><dt className="font-medium text-gray-900">No longer externally observed</dt><dd className="text-gray-600">Not seen for at least 48 hours across repeated scans. That is not proof it was removed.</dd></div>
+              <div><dt className="font-medium text-gray-900">Not assessed</dt><dd className="text-gray-600">No assessment has recorded this name yet.</dd></div>
+              <div><dt className="font-medium text-gray-900">Latest evidence</dt><dd className="text-gray-600">How the name was found and, where measured, the network it answers from. Open a row for the full record.</dd></div>
+            </dl>
+          </details>
           <div className="card p-0 overflow-hidden">
             {filtered.length === 0 ? (
               <div className="text-center py-12 text-sm text-gray-400">
@@ -746,12 +752,9 @@ export default function AssetsPage() {
                   <thead>
                     <tr>
                       <th>Hostname</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th>Source</th>
-                      <th>Network</th>
-                      <th>Risk</th>
-                      <th>Last Seen</th>
+                      <th>Lifecycle state</th>
+                      <th>Latest evidence</th>
+                      <th>Last seen</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -769,13 +772,19 @@ export default function AssetsPage() {
                           {criticalNames.has(String(asset.hostname || '').toLowerCase()) && (
                             <span className="ml-2 inline-flex items-center rounded-full border border-red-100 bg-red-50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-700" title="Found by the critical-name DNS pass in the latest scan">Critical name</span>
                           )}
+                          {/* Type and risk stay with the name, so neither is lost from the row. */}
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <TypeBadge type={asset.asset_type} />
+                            <RiskBadge level={asset.risk_level} />
+                          </span>
                         </td>
-                        <td><TypeBadge type={asset.asset_type} /></td>
                         <td><StatusPill asset={asset} /></td>
-                        <td className="text-xs text-gray-500">{assetSourceLabel(asset.source)}</td>
-                        <td className="text-xs text-gray-500">{hostingNetworkShort(asset.hosting_network)?.text ?? '—'}</td>
-                        <td><RiskBadge level={asset.risk_level} /></td>
-                        <td className="text-xs text-gray-500">{fmtDate(asset.last_seen)}</td>
+                        <td className="text-xs text-gray-600">
+                          {assetSourceLabel(asset.source)}
+                          {/* The network the name answers from, or a dash when it was not checked. */}
+                          <span className="block text-gray-600">{hostingNetworkShort(asset.hosting_network)?.text ?? '—'}</span>
+                        </td>
+                        <td className="text-xs text-gray-600">{fmtDate(asset.last_seen)}</td>
                       </tr>
                     ))}
                   </tbody>
