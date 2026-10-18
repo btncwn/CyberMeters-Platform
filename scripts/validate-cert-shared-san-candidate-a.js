@@ -608,8 +608,10 @@ const parity = states.map(parityOutputs);
 // rendered PDF bytes move from e0c2559c… to 4e120f57….
 // The 2026-10-18.1 resolver boundary changes this fixture's methodology stamp
 // in the snapshot and PDF. Its SAN evidence hash stays ebd729ca….
-const GOLDEN_F13 = "a2876f26f080614d6357f5edd65775c95bd76ce3f43e288fcace3f1cacc1a640";
-const GOLDEN_F14 = "ed3cc90404c8b99d21cf31b2226503ee5e7ba9aec6774fda20aaf71b8a968fea";
+// Resolver 2026-10-18.2 changes the report methodology stamp; the underlying
+// shared-SAN evidence golden above remains byte-identical.
+const GOLDEN_F13 = "e7f66eaeef6c42244ccf663a111f08516ef8e9c68fff31ece5f2140475734529";
+const GOLDEN_F14 = "2fe7f50a10a8caec4526a73921d2f827c7d4c9bbde9a527daee33cab29cba39c";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

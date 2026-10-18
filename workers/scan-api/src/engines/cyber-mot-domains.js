@@ -114,7 +114,9 @@ import {
 // `2026-10-17.5`: bounded soft-404 proof, resolver fallback and scoped TLS plan.
 // `2026-10-18.1`: terminal unavailable and non-resolving hosts cannot resolve
 // Attack Surface or Website Security as healthy without assessable content.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-18.1";
+// `2026-10-18.2`: domains use their own complete evidence when another phase
+// is incomplete; DNS absence is execution coverage, not a web-service verdict.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-18.2";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -294,13 +296,22 @@ function moduleAttempted(report, name, skippedSet) {
 }
 
 function completedHttpDomainDespiteOtherBudget(report, domain, skippedSet) {
-  if (!['website_security', 'attack_surface'].includes(domain.domain_key) ||
-      report?.modules?.external_exposure?.quality !== 'complete') return false;
+  if (!['website_security', 'attack_surface'].includes(domain.domain_key)) return false;
+  const exposure = report?.modules?.external_exposure;
+  const coverage = exposure?.coverage;
+  const dnsAbsenceOnly = domain.domain_key === 'attack_surface' && exposure?.phase_state === 'complete' &&
+    coverage?.hosts_total > 0 && coverage.hosts_checked === coverage.hosts_total &&
+    coverage.completed > 0 && (coverage.non_resolving_hosts > 0 || coverage.not_applicable_hosts > 0) &&
+    coverage.deferred_prior_findings === 0 &&
+    ['pending', 'blocked', 'budget_exhausted', 'uncertain', 'omitted_checks', 'pending_assets', 'target_unavailable_hosts']
+      .every(key => coverage[key] === 0);
+  if (exposure?.quality !== 'complete' && !dnsAbsenceOnly) return false;
   const quality = report?.scan_quality;
   if (!['partial', 'degraded'].includes(quality?.status) ||
       (quality.degradations || []).length > 0) return false;
   const unrelated = domain.domain_key === 'website_security'
-    ? new Set(['tls_assessment', 'asset_exposure']) : new Set(['tls_assessment']);
+    ? new Set(['tls_assessment', 'asset_exposure']) : new Set(dnsAbsenceOnly
+      ? ['tls_assessment', 'external_exposure'] : ['tls_assessment']);
   const incomplete = Array.isArray(quality.modules_incomplete) ? quality.modules_incomplete : [];
   const skipped = Array.isArray(quality.modules_skipped) ? quality.modules_skipped : [];
   if (!incomplete.length && !skipped.length) return false;
@@ -311,6 +322,21 @@ function completedHttpDomainDespiteOtherBudget(report, domain, skippedSet) {
   if (warnings.some(warning => !allowedWarnings.has(warning))) return false;
   return domain.modules.filter(name => !unrelated.has(name))
     .every(name => moduleAssessed(report, name, skippedSet));
+}
+
+function completeDomainDespiteUnrelatedPhase(report, domain, skippedSet) {
+  if (!['email_protection', 'brand_protection'].includes(domain.domain_key)) return false;
+  const quality = report?.scan_quality;
+  if (!['partial', 'degraded'].includes(quality?.status) || (quality.degradations || []).length) return false;
+  const incomplete = Array.isArray(quality.modules_incomplete) ? quality.modules_incomplete.map(item => item?.module) : [];
+  const skipped = Array.isArray(quality.modules_skipped) ? quality.modules_skipped : [];
+  const other = new Set([...incomplete, ...skipped]);
+  if (!other.size || [...other].some(name => !name || domain.modules.includes(name))) return false;
+  const allowedWarnings = new Set([...other].flatMap(name => [
+    `Module incomplete: ${name}`, `Module skipped (subrequest budget): ${name}`]));
+  if ((quality.warnings || []).some(warning => !allowedWarnings.has(warning))) return false;
+  return domain.required.every(name => moduleAssessed(report, name, skippedSet)) &&
+    domain.modules.every(name => report?.modules?.[name] == null || moduleAssessed(report, name, skippedSet));
 }
 
 /**
@@ -332,7 +358,8 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
   const provisional = quality != null && quality !== "complete";
 
   const resolveDomain = (d) => {
-    const localComplete = provisional && completedHttpDomainDespiteOtherBudget(report, d, skippedSet);
+    const localComplete = provisional && (completedHttpDomainDespiteOtherBudget(report, d, skippedSet) ||
+      completeDomainDespiteUnrelatedPhase(report, d, skippedSet));
     const domainProvisional = provisional && !localComplete;
     const monitoringCoverage = resolveSignalMonitoringCoverage(
       report?.monitoring_states,
@@ -377,6 +404,8 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       monitoring_state: monitoringCoverage.state,
       monitoring_signals: monitoringCoverage.signals,
     };
+    if (d.domain_key === 'attack_surface' && report?.modules?.external_exposure?.coverage?.non_resolving_hosts > 0)
+      base.limitations.push('A name did not resolve in DNS; its web service was not assessed and earlier findings on that name remain open.');
 
     // No scan at all → honest not-yet-assessed for every domain.
     if (!report) {
@@ -578,7 +607,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       const dmarcLevel = dmarcState?.enforcement_level ?? null;
       const contribution = dmarcLevel ? DMARC_MOT_CONTRIBUTION[dmarcLevel] : null;
       if (contribution === "issue_detected") {
-        const caveat = anyRequiredInsufficient || provisional;
+        const caveat = anyRequiredInsufficient || domainProvisional;
         base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
         base.coverage = caveat ? "partial" : (quality || "complete");
         base.highest_severity = base.highest_severity || "medium";
@@ -628,11 +657,29 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.summary = `${identitySummary} Account compromise and sign-in controls were not evaluated.`;
       return base;
     }
+    const exposureCoverage = report?.modules?.external_exposure?.coverage;
+    if (['attack_surface', 'website_security'].includes(d.domain_key) &&
+        exposureCoverage?.hosts_total > exposureCoverage?.hosts_checked) {
+      const checked = exposureCoverage.hosts_checked;
+      const total = exposureCoverage.hosts_total;
+      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.coverage = "partial";
+      base.summary = `${checked} of ${total} hosts checked this scan; the rest rotate on the next scans. Unchecked hosts have no current security verdict.`;
+      return base;
+    }
+    if (d.domain_key === "attack_surface" && exposureCoverage?.deferred_prior_findings > 0) {
+      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.coverage = "partial";
+      base.summary = `${exposureCoverage.deferred_prior_findings} prior exposure finding${exposureCoverage.deferred_prior_findings === 1 ? '' : 's'} could not be retested because the host did not resolve. No finding was cleared.`;
+      return base;
+    }
     if (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
-      .some((asset) => asset?.probe_status === "not_applicable")) {
+      .some((asset) => asset?.probe_status === "not_applicable") &&
+      !(report?.modules?.asset_exposure?.assets || []).some(asset => asset?.http_assessed === true ||
+        asset?.probe_status == null && asset?.status >= 200 && asset?.status < 500)) {
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "partial";
-      base.summary = "Some names have no address in DNS. HTTP was not tested for those names; no healthy web-service conclusion is made.";
+      base.summary = "The recorded names have no address in DNS. No reachable host was assessed, so web-service posture remains unknown.";
       return base;
     }
     const unavailableHosts = (report?.modules?.asset_exposure?.assets || [])

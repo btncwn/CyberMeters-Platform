@@ -1208,6 +1208,10 @@ function ReportView({ report, queuedAt = null, waivers = {}, onWaive = null, onU
         <div className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent px-4 py-3 flex items-start gap-3 text-sm text-brand-700">
           <div>
             <p className="font-semibold">Scan coverage {scan_quality.status}</p>
+            {Number.isInteger(modules?.external_exposure?.coverage?.hosts_total) &&
+              modules.external_exposure.coverage.hosts_checked < modules.external_exposure.coverage.hosts_total && (
+                <p className="text-xs mt-0.5">{modules.external_exposure.coverage.hosts_checked} of {modules.external_exposure.coverage.hosts_total} hosts checked this scan; the rest rotate on the next scans. Unchecked hosts have no current security verdict.</p>
+              )}
             {skippedModules.length > 0 && (
               <p className="text-xs mt-0.5">
                 Checks not completed: {skippedModules.slice(0, 4).map(customerEvidenceText).join(', ')}

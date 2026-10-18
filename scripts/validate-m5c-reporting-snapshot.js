@@ -253,8 +253,8 @@ async function main() {
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
   ok("current resolver methodology stamp is independently pinned",
-     CYBER_MOT_RESOLVER_VERSION === "2026-10-18.1" &&
-     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-18.1");
+     CYBER_MOT_RESOLVER_VERSION === "2026-10-18.2" &&
+     snap1?.methodology?.cyber_mot_resolver_version === "2026-10-18.2");
   // 2026-10-13.1: outside vulnerability data left the check pack, so no
   // exploited-vulnerability match can move the score (scoring.js).
   ok("the Cyber Metrics score methodology stamp is independently pinned",
@@ -492,7 +492,7 @@ async function main() {
   const isolatedAttackSurface = isolatedPartialSnapshot.domains
     .find((domain) => domain.domain_key === "attack_surface");
   ok("domain-local grade isolation preserves intact Email evidence on a subdomain-partial scan",
-     isolatedEmail?.state === "provisional" &&
+     isolatedEmail?.state === "assessed_healthy" &&
      isolatedEmail?.evidence_grade?.grade === "L1");
   ok("domain-local grade isolation still caps the affected Attack Surface domain and overall conclusion",
      isolatedAttackSurface?.evidence_grade?.grade === "L0" &&
@@ -972,7 +972,7 @@ async function main() {
   ok("new B3 snapshot observation cannot acquire domain issue authority from severity",
      !b3Website?.finding_ids?.includes("csp_weak_policy"));
   ok("new B3 snapshot stamps resolver and score methodologies independently",
-     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-18.1" &&
+     b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-18.2" &&
      b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-10-16.1");
 
   // ── Report ──────────────────────────────────────────────────────────────────
@@ -1058,7 +1058,7 @@ async function main() {
         name: "unrelated partial module globally caps every domain Evidence Grade",
         file: srcPath("engines", "report-snapshot.js"),
         from: "  if (intrinsicallyInsufficientState || ownRequiredEvidenceIncomplete || monitoringIncomplete) {",
-        to:   "  if (entry?.coverage !== \"complete\" || intrinsicallyInsufficientState || ownRequiredEvidenceIncomplete || monitoringIncomplete) {",
+        to:   "  if (report?.scan_quality?.status !== \"complete\" || intrinsicallyInsufficientState || ownRequiredEvidenceIncomplete || monitoringIncomplete) {",
       },
       {
         name: "CT observation relabelled as a live certificate verification",

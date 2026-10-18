@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import ExternalExposureChecks from '../ExternalExposureChecks'
+import ExternalExposureChecks, { hostCoverageLabel } from '../ExternalExposureChecks'
 
 const exposure = {
   source: 'external_exposure', observed_at: '2026-10-13T09:00:00Z',
@@ -37,6 +37,26 @@ describe('Public content evidence', () => {
     mount({ ...exposure, coverage: { completed: 371, blocked: 5, pending: 0, budget_exhausted: 169, uncertain: 8, recorded_total: 384, omitted_checks: 169 } })
     expect(screen.getByText('371 checks completed · 5 blocked · 8 not completed this scan (of 384 recorded checks)')).toBeInTheDocument()
     expect(screen.getByText('169 additional checks were outside this scan’s recorded set.')).toBeInTheDocument()
+  })
+  it('names the rotating host coverage and keeps unchecked hosts without a current verdict', () => {
+    mount({ ...exposure, coverage: { ...exposure.coverage, hosts_checked: 4, hosts_total: 9, pending_assets: 5 },
+      host_coverage: [{ hostname: 'api.example.com', checked_this_scan: true, evidence_state: 'checked',
+        last_checked_at: '2026-10-18T17:47:20Z' },
+      { hostname: 'staging.example.com', checked_this_scan: false, evidence_state: 'awaiting_rotation',
+        last_checked_at: null }] })
+    expect(screen.getByText(/4 of 9 hosts checked this scan; the rest rotate on the next scans/)).toBeInTheDocument()
+    expect(screen.getByText(/Unchecked hosts have no current security verdict/)).toBeInTheDocument()
+    expect(screen.getByText(/Host coverage and last checked/)).toBeInTheDocument()
+    expect(screen.getByText(/staging.example.com/)).toBeInTheDocument()
+  })
+  it('never words a non-resolving or failing host as a plain check', () => {
+    expect(hostCoverageLabel({ checked_this_scan: true, evidence_state: 'host_does_not_resolve' }))
+      .toBe('No DNS address this scan; content not assessed')
+    expect(hostCoverageLabel({ checked_this_scan: true, evidence_state: 'target_unavailable' }))
+      .toBe('Server unavailable this scan; content not assessed')
+    expect(hostCoverageLabel({ checked_this_scan: true, evidence_state: 'checked' })).toBe('Checked this scan')
+    expect(hostCoverageLabel({ checked_this_scan: false, evidence_state: 'awaiting_rotation' }))
+      .toBe('Awaiting rotation; no current verdict')
   })
   it('renders observation text literally, without creating executable markup', () => {
     const value = structuredClone(exposure)

@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { validateExposureReceipt } from '../workers/network-probe/src/exposure-contract.js';
 import { EXPOSURE_RULES } from '../shared/exposure/catalog.js';
 import { exposureIdentity } from '../shared/exposure/redaction.js';
@@ -300,3 +302,9 @@ check(shared.sql.prepare('SELECT max(n) max_requests FROM (SELECT sum(charged_re
 const metrics={kind:'controlled_synthetic_queue',live_customer_domains:0,synthetic_asset_jobs:1000,deliveries:2000,collector_calls:load.calls,completed:sums.jobs,charged_requests:sums.requests,charged_bytes:sums.bytes,elapsed_ms:legacyElapsed,fairness_initial_assets_seen:assets.slice(0,1000).filter(a=>seen.has(a.hostname)).length,shared_content:{synthetic_jobs:1000,tenants:10,deliveries:4000,content_collector_calls:contentCalls,exposure_collector_calls:shared.calls,completed:sharedTotals.jobs,charged_requests:sharedTotals.requests,charged_bytes:sharedTotals.bytes,elapsed_ms:Math.round(performance.now()-sharedStart),transport:'controlled_receipts_not_live_network'},assertions};
 const output=process.argv.indexOf('--output');if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify(metrics,null,2)+'\n');
 console.log(JSON.stringify(metrics));
+// Plan sizing and per-domain completeness carry their own fixtures and source
+// mutants; run them here so CI executes them with the queue harness.
+const repoRoot=fileURLToPath(new URL('..',import.meta.url));
+const planTests=spawnSync(process.execPath,['--test','workers/scan-api/test/exposure-plan-sizing.test.js',
+  'workers/scan-api/test/exposure-phase-budget.test.js'],{cwd:repoRoot,stdio:'inherit',timeout:120000});
+if(planTests.status!==0){console.error('exposure plan sizing tests failed');process.exit(1);}

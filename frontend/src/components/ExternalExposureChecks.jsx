@@ -17,6 +17,23 @@ export function exposureCoverageSentence(coverage, checks = null) {
   return `${completed} checks completed · ${blocked} blocked · ${incomplete} not completed this scan (of ${total} recorded checks)`
 }
 
+export function hostRotationSentence(coverage) {
+  const total = coverage?.hosts_total
+  const checked = coverage?.hosts_checked
+  if (!Number.isInteger(total) || !Number.isInteger(checked) || total <= 0 || checked < 0 || checked >= total) return null
+  return `${checked} of ${total} hosts checked this scan; the rest rotate on the next scans`
+}
+
+// The backend owns the host evidence state; this only words it. A name with no
+// DNS address or a server that kept failing was observed this scan, but its
+// content was not assessed, so neither reads as a plain "checked".
+export function hostCoverageLabel(host) {
+  if (host?.evidence_state === 'host_does_not_resolve') return 'No DNS address this scan; content not assessed'
+  if (host?.evidence_state === 'target_unavailable') return 'Server unavailable this scan; content not assessed'
+  if (host?.checked_this_scan) return 'Checked this scan'
+  return 'Awaiting rotation; no current verdict'
+}
+
 // Render only the receipt's safe evidence projection, as text. Never render response
 // bodies, arbitrary HTML, raw headers, query parameters or credential values.
 export default function ExternalExposureChecks({ exposure, domain, scanId }) {
@@ -28,7 +45,13 @@ export default function ExternalExposureChecks({ exposure, domain, scanId }) {
     {!available || !exposure.coverage ? <p className="mt-3 text-base text-gray-600">These checks were not recorded in this scan. No conclusion is available.</p> : <>
       <p className="mt-4 text-base font-semibold text-gray-900">{exposureCoverageSentence(exposure.coverage, exposure.checks)}</p>
       {exposure.coverage.omitted_checks > 0 && <p className="mt-2 text-sm text-gray-600">{exposure.coverage.omitted_checks} additional checks were outside this scan’s recorded set.</p>}
-      {exposure.coverage.pending_assets > 0 && <p className="mt-3 text-sm text-gray-600">{exposure.coverage.pending_assets} additional assets are waiting for their turn in the rotating scan schedule.</p>}
+      {hostRotationSentence(exposure.coverage) && <p className="mt-3 text-sm font-medium text-gray-700">{hostRotationSentence(exposure.coverage)}. Unchecked hosts have no current security verdict.</p>}
+      {Array.isArray(exposure.host_coverage) && exposure.host_coverage.length > 0 && <details className="mt-3 text-sm text-gray-700">
+        <summary className="cursor-pointer font-medium">Host coverage and last checked</summary>
+        <ul className="mt-2 space-y-1">{exposure.host_coverage.map(host => <li key={host.hostname} className="break-words">
+          <strong>{host.hostname}</strong> · {hostCoverageLabel(host)} · Last checked: {date(host.last_checked_at)}
+        </li>)}</ul>
+      </details>}
       <p className="mt-3 text-sm text-gray-600">Observed: {date(exposure.observed_at)}. Waiting, blocked and incomplete checks cannot confirm that a previous finding was fixed.</p>
       {!findings.length && <p className="mt-3 text-base text-gray-600">No exposure findings in the recorded checks. Coverage above shows what was and was not assessed; this is not a guarantee that the site is secure.</p>}
       {findings.map((finding) => {

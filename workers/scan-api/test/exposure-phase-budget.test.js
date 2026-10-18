@@ -211,7 +211,7 @@ test('finished but inconclusive HTTP cites its own evidence gap, not TLS budget'
   modules: {external_exposure: externalExposureModule(exposure),
     headers: {}, ssl: {https_available: true}, dns: {}}, findings: []};
   const website = resolveCyberMotDomainStates(report).find(item => item.domain_key === 'website_security');
-  assert.equal(website.state, 'evidence_insufficient');
-  assert.match(website.summary, /external_exposure: checks inconclusive/);
+  assert.equal(website.state, 'provisional');
+  assert.match(website.summary, /1 of 380 external content checks were conclusive/);
   assert.doesNotMatch(website.summary, /budget exhausted/);
 });
