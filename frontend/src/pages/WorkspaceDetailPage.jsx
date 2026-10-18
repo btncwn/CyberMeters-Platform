@@ -8,7 +8,8 @@ import ErrorAlert from '../components/ErrorAlert'
 import StatusBadge from '../components/StatusBadge'
 import CanonicalScore from '../components/CanonicalScore'
 import { WorkspaceReportBranding } from '../components/ReportBranding'
-import { canonicalDomainInput, isValidDomainSyntax } from '../lib/newScanVerification'
+import { canonicalDomainInput, isValidDomainSyntax, isAuthoritativeVerified } from '../lib/newScanVerification'
+import { roleCan, scanAccessFor } from '../lib/workspaceRole'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -381,6 +382,11 @@ export default function WorkspaceDetailPage() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
+  // An unknown role is offered what it always was; the backend still decides.
+  const scanAccess = scanAccessFor(workspace?.role)
+  const canAddDomain = roleCan(workspace?.role, 'domain:add') !== false
+  const canRemoveDomain = roleCan(workspace?.role, 'domain:remove') !== false
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -445,9 +451,11 @@ export default function WorkspaceDetailPage() {
                 : 'Export PDF'
               }
             </button>
-            <button onClick={() => setShowAdd(true)} className="btn-primary">
-              Add Domain
-            </button>
+            {canAddDomain && (
+              <button onClick={() => setShowAdd(true)} className="btn-primary">
+                Add Domain
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -541,7 +549,9 @@ export default function WorkspaceDetailPage() {
         </div>
       )}
 
-      {/* Domains table */}
+      {/* Domains table. What each role is offered comes from the one role rule:
+          admins add, remove and scan any domain; an analyst rescans verified
+          domains only; a viewer reads (18 Oct 2026). */}
       <div className="card overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <div>
@@ -550,20 +560,28 @@ export default function WorkspaceDetailPage() {
               {domains.length} domain{domains.length !== 1 ? 's' : ''} in this workspace
             </p>
           </div>
-          <button onClick={() => setShowAdd(true)} className="btn-ghost text-brand-700">
-            Add Domain
-          </button>
+          {canAddDomain && (
+            <button onClick={() => setShowAdd(true)} className="btn-ghost text-brand-700">
+              Add Domain
+            </button>
+          )}
         </div>
 
         {domains.length === 0 ? (
           <div className="px-6 py-12 flex flex-col items-center text-center">
             <h3 className="font-semibold text-gray-700 mb-1">No domains yet</h3>
-            <p className="text-sm text-gray-400 mb-4">
-              Add a domain to start tracking its security posture.
-            </p>
-            <button onClick={() => setShowAdd(true)} className="btn-secondary">
-              Add your first domain
-            </button>
+            {canAddDomain ? (
+              <>
+                <p className="text-sm text-gray-400 mb-4">
+                  Add a domain to start tracking its security posture.
+                </p>
+                <button onClick={() => setShowAdd(true)} className="btn-secondary">
+                  Add your first domain
+                </button>
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">A workspace admin adds and verifies domains.</p>
+            )}
           </div>
         ) : (
           <table className="data-table">
@@ -580,6 +598,8 @@ export default function WorkspaceDetailPage() {
               {domains.map(d => {
                 const dState = scanState[d.domain] || 'idle'
                 const isRemoving = removing[d.domain_id]
+                const offerScan = scanAccess === 'full'
+                  || (scanAccess === 'rescan' && isAuthoritativeVerified(d, { domain_id: d.domain_id }))
                 return (
                   <tr key={d.domain_id}>
                     {/* Domain */}
@@ -622,14 +642,14 @@ export default function WorkspaceDetailPage() {
                           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-700 bg-brand-50 rounded-lg">
                             Queued
                           </span>
-                        ) : (
+                        ) : offerScan ? (
                           <button
                             onClick={() => handleScanNow(d.domain)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
                           >
-                            Scan Now
+                            {scanAccess === 'full' ? 'Scan Now' : 'Rescan'}
                           </button>
-                        )}
+                        ) : null}
 
                         {/* View scan report if available */}
                         {d.last_scan_id && (
@@ -642,7 +662,7 @@ export default function WorkspaceDetailPage() {
                         )}
 
                         {/* Remove */}
-                        <button
+                        {canRemoveDomain && <button
                           onClick={() => handleRemove(d.domain_id, d.domain)}
                           disabled={isRemoving}
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
@@ -650,7 +670,7 @@ export default function WorkspaceDetailPage() {
                           aria-label="Remove from workspace"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>

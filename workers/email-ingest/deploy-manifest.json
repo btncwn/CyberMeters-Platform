@@ -1,7 +1,7 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.10.18-target-outcomes.226f19315149",
+  "app_version": "2026.10.18-role-aware-scan.226f19315149",
   "closure_sha256": "226f193151496c9c72c73f1442b145126fcef9b250caf2eae0c4b5c4cb38b694",
   "closure_file_count": 103,
   "scan_api_file_count": 100,

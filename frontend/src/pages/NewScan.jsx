@@ -6,6 +6,10 @@ import Spinner from '../components/Spinner'
 import DomainVerificationPanel from '../components/DomainVerificationPanel'
 import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 import { useWorkspace } from '../hooks/useWorkspace'
+import { useWorkspaceRole } from '../hooks/useWorkspaceRole'
+import { isForbidden, scanNotPermittedMessage, RESCAN_ONLY_MESSAGE } from '../lib/workspaceRole'
+import RescanVerifiedDomains from '../components/RescanVerifiedDomains'
+import { MODULES } from '../lib/moduleRegistry'
 import {
   canStartScan, isValidDomainSyntax, canonicalDomainInput, matchWorkspaceDomain, domainHintFor, safeErrorMessage,
   isVerificationRequired, isPlanOrRateLimit, dnsInstructionFrom, checkFailureMessage,
@@ -13,13 +17,21 @@ import {
   isAuthoritativeVerified, verifyResponseClaimsSuccess, VERIFY_UNCONFIRMED_MESSAGE,
 } from '../lib/newScanVerification'
 
-// Framed as Intelligence Engines (business capabilities), not internal detectors.
-const CHECKS = [
-  { label: 'Attack Surface Intelligence',  desc: 'Exposed assets, DNS, certificates and website security'   },
-  { label: 'Business Email Intelligence',  desc: 'SPF, DKIM and DMARC checks for spoofing and phishing exposure' },
-  { label: 'Brand Intelligence',           desc: 'Lookalike and typosquatting domains impersonating you'    },
-  { label: 'Executive Intelligence',       desc: 'A scored Executive Report with prioritized next steps'    },
-]
+// What a scan looks at, by the eight customer-facing areas (names and order from
+// the module registry). Presentation only — the areas' states come from the
+// backend after the scan. Brand Protection and Cyber Essentials say what they
+// need beyond a scan rather than implying the scan covers it alone.
+const SCAN_COVERAGE = Object.freeze({
+  email_protection: 'SPF, DKIM, DMARC and mail-server records for the domain.',
+  attack_surface: 'Subdomains, DNS and externally visible services.',
+  website_security: 'HTTPS, redirects, security headers and cookie flags.',
+  identity_exposure: 'Identity-provider relationships and sign-in hostnames visible from outside.',
+  shadow_it_unmanaged_technology: 'SaaS, vendor and third-party script observations.',
+  certificates_trust: 'Certificate expiry and the HTTPS trust posture.',
+  brand_protection: 'Lookalike domains, once a protected brand profile is set up.',
+  cyber_essentials_readiness: 'External evidence for readiness; the questionnaire is answered separately.',
+})
+export const SCAN_AREAS = MODULES.map((m) => ({ key: m.domainKey, label: m.title, desc: SCAN_COVERAGE[m.domainKey] }))
 
 
 export default function NewScan() {
@@ -37,6 +49,14 @@ export default function NewScan() {
   const [dns, setDns]         = useState(null)
   const [checkNote, setCheckNote] = useState(null)
   const { wsId } = useWorkspace()
+  // A refusal from the domain or scan endpoints (403) — the same calm state as a
+  // role that cannot add domains, never a red error with a Retry.
+  const [refused, setRefused] = useState(false)
+  const { scanAccess, ownerName } = useWorkspaceRole(wsId, { refused })
+  // 'full' — the form; 'rescan' — this workspace's verified domains only (an
+  // analyst); 'none' — read access only (a viewer, or any refusal).
+  const access = refused ? 'none' : scanAccess
+  const notPermitted = access !== 'full'
   const navigate = useNavigate()
 
   // Clicking "New Scan" in the header while already on this page resets the form
@@ -141,7 +161,8 @@ export default function NewScan() {
       // Adding the domain can hit the plan's domain limit. That is shown once, by
       // the global upgrade prompt (cybermeters:plan-limit) — never a second time
       // as a red "Something went wrong" with a Retry that cannot succeed.
-      if (isPlanOrRateLimit(e)) setError(null)
+      if (isForbidden(e)) { setRefused(true); setError(null) }
+      else if (isPlanOrRateLimit(e)) setError(null)
       else setError(safeErrorMessage(e))
       setState('valid_unverified')
     }
@@ -233,6 +254,7 @@ export default function NewScan() {
       setState('check_failed'); setCheckNote(verifyFailureNote(res))
     } catch (e) {
       // A rejected promise must NEVER leave the UI unchanged.
+      if (isForbidden(e)) { setRefused(true); setState('valid_unverified'); return }
       setState('check_failed'); setCheckNote(checkFailureMessage(e))
     }
   }
@@ -268,6 +290,8 @@ export default function NewScan() {
         // exact record it gated on, so we never guess.
         setGated({ domain_id: e.domain_id, workspace_id: e.workspace_id })
         setState('valid_unverified'); setError(null)
+      } else if (isForbidden(e)) {
+        setRefused(true); setError(null); setState(valid ? 'valid_unverified' : 'idle')
       } else if (!isPlanOrRateLimit(e)) {
         // safeErrorMessage guarantees a machine code never reaches the customer.
         setError(safeErrorMessage(e)); setState(valid ? 'valid_unverified' : 'idle')
@@ -287,16 +311,40 @@ export default function NewScan() {
 
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">New Scan</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Assess any domain from the outside. We'll map its external exposure and turn it into a clear Executive Report — usually within a few minutes.
-        </p>
+        {!notPermitted && (
+          <p className="text-sm text-gray-400 mt-1">
+            Assess any domain from the outside. We'll map its external exposure and turn it into a clear Executive Report — usually within a few minutes.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Form */}
         <div className="lg:col-span-2 card-md p-8">
-          {success ? (
+          {access === 'rescan' ? (
+            <div className="py-2" data-testid="scan-rescan-only">
+              <h2 className="text-base font-bold text-gray-900">Rescan a verified domain</h2>
+              <p className="text-sm text-gray-600 mt-2 leading-relaxed">{RESCAN_ONLY_MESSAGE}</p>
+              <div className="mt-5">
+                <RescanVerifiedDomains wsId={wsId} preferred={params.get('domain')} onRefused={() => setRefused(true)} />
+              </div>
+              {wsId && (
+                <Link to={`/workspaces/${wsId}`} className="inline-flex mt-4 text-sm font-medium text-brand-700 underline">
+                  See all domains in this workspace
+                </Link>
+              )}
+            </div>
+          ) : notPermitted ? (
+            <div className="py-6" data-testid="scan-not-permitted">
+              <h2 className="text-base font-bold text-gray-900">Scans are started by workspace admins</h2>
+              <p className="text-sm text-gray-600 mt-2 leading-relaxed">{scanNotPermittedMessage(ownerName)}</p>
+              <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                You can still read every assessment, finding and report in this workspace.
+              </p>
+              <Link to="/dashboard" className="btn-secondary mt-5 inline-flex">Back to Overview</Link>
+            </div>
+          ) : success ? (
             <div className="flex flex-col items-center justify-center py-12 text-center gap-5">
               <div>
                 <p className="text-gray-900 font-bold text-xl">Scan Queued Successfully</p>
@@ -427,9 +475,9 @@ export default function NewScan() {
         {/* Sidebar */}
         <div className="space-y-4">
           <div className="card p-5">
-            <h3 className="text-sm font-bold text-gray-900 mb-4">What's included</h3>
-            <ul className="space-y-4">
-              {CHECKS.map(({ label, desc }) => (
+            <h3 className="text-sm font-bold text-gray-900 mb-4">What a scan looks at</h3>
+            <ul className="space-y-4" data-testid="scan-areas">
+              {SCAN_AREAS.map(({ label, desc }) => (
                 <li key={label} className="flex items-start gap-3">
                   <div>
                     <p className="text-sm font-semibold text-gray-900 leading-tight">{label}</p>
@@ -440,6 +488,7 @@ export default function NewScan() {
             </ul>
           </div>
 
+          {!notPermitted && (
           <div className="card p-4">
             <h3 className="label mb-3">Example Domains</h3>
             <div className="space-y-1">
@@ -455,6 +504,7 @@ export default function NewScan() {
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

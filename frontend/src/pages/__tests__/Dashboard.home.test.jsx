@@ -10,7 +10,7 @@ import { api } from '../../api'
 vi.mock('../../api', () => ({
   api: {
     getWorkspaces: vi.fn(), getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceScorecard: vi.fn(),
-    getCyberMotDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(),
+    getCyberMotDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(), getWorkspaceMembers: vi.fn(),
     getWorkspaceSummary: vi.fn(), getDmarcIngestEndpoint: vi.fn(), verifyDmarcDns: vi.fn(),
   },
 }))
@@ -93,5 +93,38 @@ describe('Home screen', () => {
     renderHome()
     const card = within(await screen.findByTestId('posture-card'))
     await waitFor(() => expect(card.getAllByText('Error')).toHaveLength(8))
+  })
+})
+
+describe('scan box by workspace role (18 Oct 2026)', () => {
+  it.each(['analyst', 'viewer'])('an %s member is not offered the scan box', async (role) => {
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role }] })
+    api.getWorkspaceMembers.mockResolvedValue({ members: [{ role: 'owner', name: 'Taylor Owner' }] })
+    renderHome()
+    await screen.findByRole('heading', { level: 1, name: 'Where is Customer A exposed today?' })
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Start a scan' })).toBeNull())
+    expect(screen.queryByRole('textbox', { name: 'Domain to scan' })).toBeNull()
+    expect(screen.queryByTestId('setup-card')).toBeNull()
+  })
+  it('an analyst is offered Rescan a verified domain; a viewer is not', async () => {
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'analyst' }] })
+    const { unmount } = renderHome()
+    expect(await screen.findByTestId('dashboard-rescan')).toHaveAttribute('href', '/scans/new')
+    unmount()
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'viewer' }] })
+    api.getWorkspaceMembers.mockResolvedValue({ members: [{ role: 'owner', name: 'Taylor Owner' }] })
+    renderHome()
+    await screen.findByRole('heading', { level: 1, name: 'Where is Customer A exposed today?' })
+    await waitFor(() => expect(api.getWorkspaceMembers).toHaveBeenCalled())
+    expect(screen.queryByTestId('dashboard-rescan')).toBeNull()
+  })
+  it.each(['owner', 'admin'])('an %s keeps the scan box', async (role) => {
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role }] })
+    renderHome()
+    await screen.findByRole('heading', { level: 1, name: 'Where is Customer A exposed today?' })
+    await waitFor(() => expect(api.getWorkspaces).toHaveBeenCalled())
+    expect(screen.getByRole('form', { name: 'Start a scan' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Domain to scan' })).toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-rescan')).toBeNull()
   })
 })

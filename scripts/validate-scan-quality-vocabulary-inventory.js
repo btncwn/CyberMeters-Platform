@@ -356,7 +356,10 @@ const EXPECTED = Object.freeze({
   // from line 381 to 432; the two-tree diff has no SQL read membership change.
   // Current-posture's one SQL projection moves from line 56 to 64 (#1);
   // the same 24 projected reads remain.
-  sql_reads: { projection_occurrences: 24, fingerprint: "ed0d0bbb478b62c610dbe6b7348e3fed444cc9c1de2bcf0625bb6c50c51919e4" },
+  // Scan creation reuses the workspace's linked domain record, shifting two
+  // scans.js projections by 16 lines (407/934 -> 423/950); the two-tree diff
+  // shows no SQL read membership or snippet change.
+  sql_reads: { projection_occurrences: 24, fingerprint: "f76407a6c2cf1160c645614f64e83b776c89c900df7feb106c8135ae6e9fb447" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

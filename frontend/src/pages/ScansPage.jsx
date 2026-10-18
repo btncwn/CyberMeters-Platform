@@ -7,6 +7,8 @@ import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
 import { formatDate } from '../utils/dates'
+import { useWorkspaceRole } from '../hooks/useWorkspaceRole'
+import { scanNotPermittedMessage, RESCAN_ONLY_MESSAGE } from '../lib/workspaceRole'
 
 // Statuses that indicate a scan is still in progress and the list needs to refresh.
 const ACTIVE_STATUSES = new Set(['queued', 'running', 'processing'])
@@ -19,6 +21,11 @@ export default function ScansPage() {
   const [refreshing, setRefreshing] = useState(false)
   const pollRef = useRef(null)
   const navigate = useNavigate()
+  // New Scan is offered only to roles that can add domains; a member who may
+  // rescan verified domains is offered Rescan instead (18 Oct 2026).
+  const [wsId] = useState(() => localStorage.getItem('cybermeters_workspace_id'))
+  const { scanAccess, ownerName } = useWorkspaceRole(wsId)
+  const canScanNewDomain = scanAccess === 'full'
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -60,9 +67,16 @@ export default function ScansPage() {
             {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             Refresh
           </button>
-          <Link to="/scans/new" className="btn-primary">
-            New Scan
-          </Link>
+          {canScanNewDomain && (
+            <Link to="/scans/new" className="btn-primary">
+              New Scan
+            </Link>
+          )}
+          {scanAccess === 'rescan' && (
+            <Link to="/scans/new" className="btn-primary">
+              Rescan a domain
+            </Link>
+          )}
         </div>
       </div>
 
@@ -82,10 +96,18 @@ export default function ScansPage() {
                   Brand Protection, and Certificates &amp; Trust, then turns the evidence into a scored Executive Report in minutes. Run your first
                   Cyber MOT to start monitoring what is visible from outside.
                 </p>
+                {scanAccess === 'rescan' && (
+                  <p className="text-sm text-gray-600 mt-2" data-testid="scan-rescan-only">{RESCAN_ONLY_MESSAGE}</p>
+                )}
+                {scanAccess === 'none' && (
+                  <p className="text-sm text-gray-600 mt-2" data-testid="scan-not-permitted">{scanNotPermittedMessage(ownerName)}</p>
+                )}
               </div>
-              <Link to="/scans/new" className="btn-primary shrink-0 inline-flex items-center gap-2">
-                New Scan
-              </Link>
+              {scanAccess !== 'none' && (
+                <Link to="/scans/new" className="btn-primary shrink-0 inline-flex items-center gap-2">
+                  {canScanNewDomain ? 'New Scan' : 'Rescan a domain'}
+                </Link>
+              )}
             </div>
             {/* What you get */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-gray-100 pt-6">

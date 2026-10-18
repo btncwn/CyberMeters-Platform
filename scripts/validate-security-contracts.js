@@ -102,6 +102,25 @@ async function main() {
     }
   }
   ok("rbac: permissions are monotonic across the role ladder", monotonic);
+  // The frontend's one role rule (frontend/src/lib/workspaceRole.js) only decides
+  // what the UI offers, but it must never disagree with this matrix: for every
+  // role and every permission it mirrors, its answer equals the backend's.
+  const FE = await import(pathToFileURL(path.join(repoRoot, "frontend", "src", "lib", "workspaceRole.js")).href);
+  const fePerms = Object.keys(FE.PERMISSION_MIN_ROLE);
+  ok("rbac: the frontend role ladder is the backend's", JSON.stringify(FE.ROLE_RANK) === JSON.stringify({ viewer: 0, analyst: 1, admin: 2, owner: 3 }));
+  ok("rbac: the frontend mirrors domain:add, domain:verify, domain:remove and scan:create",
+     ["domain:add", "domain:verify", "domain:remove", "scan:create"].every((p) => fePerms.includes(p)));
+  ok("rbac: the frontend role rule agrees with the backend for every role and mirrored permission",
+     fePerms.every((p) => ROLES.every((r) => FE.roleCan(r, p) === S.hasWorkspacePermission(r, p))));
+  ok("rbac: only owners and admins are offered scanning a new domain",
+     ROLES.filter((r) => FE.canScanNewDomain(r)).join(",") === "admin,owner");
+  // Rescanning an already-verified domain needs scan:create alone, so it is
+  // offered to exactly the roles the backend grants scan:create (18 Oct 2026).
+  ok("rbac: rescanning a verified domain is offered exactly where the backend grants scan:create",
+     ROLES.every((r) => FE.canRescanVerifiedDomain(r) === S.hasWorkspacePermission(r, "scan:create")));
+  ok("rbac: scan access is full for owner/admin, rescan for analyst, none for viewer",
+     JSON.stringify(Object.fromEntries(ROLES.map((r) => [r, FE.scanAccessFor(r)])))
+       === JSON.stringify({ viewer: "none", analyst: "rescan", admin: "full", owner: "full" }));
   // Token scope: a read-scoped token cannot perform a write permission even as owner.
   ok("rbac: read-scoped token cannot manage (even owner)", !S.hasWorkspacePermission("owner", "workspace:manage", "read"));
   ok("rbac: session (no token scope) owner can manage", S.hasWorkspacePermission("owner", "workspace:manage", undefined));
