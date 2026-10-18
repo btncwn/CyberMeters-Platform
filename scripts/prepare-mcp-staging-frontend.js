@@ -11,8 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "frontend/dist");
 const sourceHeaders = path.join(root, "frontend/public/_headers");
 const outputHeaders = path.join(dist, "_headers");
-const sourceConnect = "connect-src 'self' https://api.cybermeters.com https://api.stripe.com;";
-const stagingConnect = "connect-src 'self' https://api-staging.cybermeters.com https://api.stripe.com;";
+const sourceConnect = "connect-src 'self' https://api.cybermeters.com https://api.stripe.com https://cloudflareinsights.com;";
+const stagingConnect = "connect-src 'self' https://api-staging.cybermeters.com https://api.stripe.com https://cloudflareinsights.com;";
 const stagingApiBase = "https://api-staging.cybermeters.com/api";
 
 function assertRegularFile(file) {

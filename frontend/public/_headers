@@ -6,10 +6,16 @@
 # (not /index.html) because the SPA fallback in _redirects serves index.html
 # for deep links like /dashboard, and header rules match the REQUEST path,
 # not the file served. Asset paths detach and override it below.
+# The CSP allows the cookieless analytics beacon (script from
+# static.cloudflareinsights.com, reports to cloudflareinsights.com) site-wide: in
+# a single-page app the first document's CSP governs every later route, and "/"
+# is both the marketing landing page and the signed-in app on different hosts,
+# so a per-path CSP would not scope anything. The beacon itself renders only on
+# public-website routes (src/components/PublicWebAnalytics.jsx).
 /*
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Frame-Options: DENY
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.cybermeters.com https://api.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self' https://checkout.stripe.com; worker-src 'self' blob:
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://js.stripe.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.cybermeters.com https://api.stripe.com https://cloudflareinsights.com; frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self' https://checkout.stripe.com; worker-src 'self' blob:
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
