@@ -101,6 +101,10 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("A incomplete: narrative states coverage is incomplete / not confirmation",
      t.includes("Coverage is incomplete") && t.includes("limited to the evidence available"));
   ok("A incomplete: provisional wording preserved", t.includes("Provisional") || t.includes("provisional"));
+  const technical = latin1(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(mkSnap({ complete: false }))));
+  ok("A incomplete: both executive and technical PDFs withhold the numeric score",
+     t.includes("Score available after a complete scan") && !t.includes("78 / 100") &&
+     technical.includes("Score available after a complete scan") && !technical.includes("78 / 100"));
   // Missing evidence never healthy: at least one domain reads 'Evidence insufficient', none of the
   // not-fully-assessed domains reads 'no material issue observed'.
   ok("A incomplete: missing evidence rendered as insufficient, never healthy",
@@ -306,14 +310,16 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   // section is "2. External posture coverage" and the evidence line "Posture
   // summary basis". With only the wording files reverted to their previous
   // text, both prior goldens (47bfa7b6…, 75773ac6…) reproduce exactly.
+  // The incomplete golden now hides the numeric score; the complete golden is unchanged.
   const executiveGolden = {
-    false: "722967f6a033ef85dafea6786a8b6c5e53a531af262795ddd5a395d849ee32fb",
+    false: "3a88ea2825b147a4c070e5c7e936ae912e8a19c64b6eaaabb354bc4b6624a0f4",
     true: "698094fe042ccaf2aeb3c23b2e1a33710501540b822bcfbb7cad54c6cadb5030",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));
+    const digest = crypto.createHash("sha256").update(bytes).digest("hex");
     ok(`executive byte golden: complete=${complete}`,
-      crypto.createHash("sha256").update(bytes).digest("hex") === executiveGolden[complete]);
+      digest === executiveGolden[complete], digest);
   }
   const snap = mkSnap({ complete: false });
   snap.snapshot.scan_id = "scan-decision-fixture";

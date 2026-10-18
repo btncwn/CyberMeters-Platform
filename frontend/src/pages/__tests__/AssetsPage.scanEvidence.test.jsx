@@ -98,7 +98,7 @@ describe('AssetsPage — latest scan evidence on Findings', () => {
   it('summarises public-content exposure and the deep TLS assessment, and repeats the check pack statement on outside vulnerability data', async () => {
     await renderFindings()
     const exposure = await screen.findByLabelText('Public content and management surfaces')
-    expect(within(exposure).getByText('4 checks completed · 0 blocked · 0 not completed this scan')).toBeInTheDocument()
+    expect(within(exposure).getByText('4 checks completed · 0 blocked · 0 not completed this scan (of 4 recorded checks)')).toBeInTheDocument()
     expect(within(exposure).getByText(/No exposure findings in the recorded checks/)).toBeInTheDocument()
 
     const tls = screen.getByLabelText('TLS security assessment')

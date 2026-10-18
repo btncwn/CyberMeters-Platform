@@ -7,7 +7,7 @@ import { getAcademyArticleForFinding } from '../data/academy'
 import { buildRemediationIntelligence, PRIORITY_LABELS } from '../data/remediation'
 import StatusBadge from '../components/StatusBadge'
 import ScanProgress from '../components/ScanProgress'
-import { scoreHeadline, provisionalScoreLabel } from '../lib/scoreHonesty'
+import { scoreHeadline, SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
 import { rememberSample } from '../lib/scanDuration'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -1137,7 +1137,7 @@ function BusinessRiskCard({ businessRisk }) {
 
 // ── Report View ──────────────────────────────────────────────────────────────
 
-function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) {
+function ReportView({ report, queuedAt = null, waivers = {}, onWaive = null, onUnwaive = null }) {
   const { cyber_metrics_score: score, risk_level, assessment, findings, recommendations, modules, scan_quality, cyber_mot_domains } = report
 
   // Sprint 10A: split findings into actionable vs informational.
@@ -1148,7 +1148,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
   // counting as open — but are never hidden.
   const actionableFindings = allActionable.filter(f => !(f.id && waivers[f.id]))
   const waivedFindings     = allActionable.filter(f => f.id && waivers[f.id])
-  const duration = durationSeconds(report.started_at, report.completed_at)
+  const duration = durationSeconds(queuedAt || report.started_at, report.completed_at)
   // The backend's assessment envelope decides whether the score is a headline.
   const heroHeadline = scoreHeadline({
     score: Number.isFinite(assessment?.display_score) ? assessment.display_score : (Number.isFinite(score) ? score : null),
@@ -1183,9 +1183,7 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
               : (
                 <div className="max-w-[16rem] text-center" data-testid="hero-score-withheld">
                   <p className="text-sm text-gray-700 leading-relaxed">{heroHeadline.explanation || 'Score not established for this scan.'}</p>
-                  {heroHeadline.mode === 'withheld' && (
-                    <p className="text-xs text-gray-600 mt-2">{provisionalScoreLabel(heroHeadline.score)}</p>
-                  )}
+                  {heroHeadline.mode === 'withheld' && <p className="text-xs text-gray-600 mt-2">{SCORE_PENDING_LABEL}</p>}
                 </div>
               )}
           </div>
@@ -1744,10 +1742,10 @@ export default function ScanDetail() {
                     {(reportV2 && report)
                       ? (reportTab === 'executive'
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                       : (reportV2
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                     }
                   </div>
                 ) : null
@@ -1781,19 +1779,15 @@ export default function ScanDetail() {
                   {/* The run finishing and its checks all completing are two facts. */}
                   <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} />} />
                   {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} />} />}
-                  {/* Score honesty: a withheld or provisional score is never a headline.
-                      The backend's explanation reads first; the number follows, small
-                      and labelled provisional. */}
+                  {/* The backend decides finality; an incomplete assessment has no customer-facing number. */}
                   {headline.mode === 'established' && (
                     <KV label="Score" value={<span className="font-bold text-brand-700" data-testid="scan-score-headline">{headline.score} / 100</span>} />
                   )}
                   {headline.mode === 'withheld' && (
-                    <KV label="Provisional Score" value={(
+                    <KV label="Score" value={(
                       <span className="block" data-testid="scan-score-withheld">
                         <span className="block text-sm font-normal text-gray-700 leading-relaxed">{headline.explanation}</span>
-                        <span className="block text-xs font-normal text-gray-600 mt-1">
-                          <span>{headline.score} / 100</span> · provisional, not a final result
-                        </span>
+                        <span className="block text-xs font-normal text-gray-600 mt-1">{SCORE_PENDING_LABEL}</span>
                       </span>
                     )} />
                   )}
@@ -1809,9 +1803,8 @@ export default function ScanDetail() {
                       {assessmentReason}
                     </div>
                   )}
-                  <KV label="Created"   value={formatDate(scan.created_at)} />
-                  {report?.started_at   && <KV label="Started"   value={formatDate(report.started_at)} />}
-                  {report?.completed_at && <KV label="Completed" value={formatDate(report.completed_at)} />}
+                  <KV label="Queued" value={formatDate(scan.created_at)} />
+                  {report?.completed_at && <KV label="Assessed" value={formatDate(report.completed_at)} />}
                 </div>
               </div>
 

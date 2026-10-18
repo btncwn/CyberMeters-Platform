@@ -9,6 +9,7 @@ import SetupCard from '../components/SetupCard'
 import { formatDate } from '../utils/dates'
 import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
+import { SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
 
 // The home screen (founder, 16 Oct 2026): the question, the last assessment,
 // the scan input, the "Your external posture" card (every area with the
@@ -38,7 +39,7 @@ function assessedScan(scan) {
     && assessment?.provisional === false
     && assessment?.display_rating != null
     && Number.isFinite(assessment?.display_score)
-  return { score, authoritative, comparable: authoritative && assessment?.comparable === true,
+  return { score: authoritative ? score : null, authoritative, comparable: authoritative && assessment?.comparable === true,
     rating: authoritative ? assessment.display_rating : null }
 }
 
@@ -262,6 +263,7 @@ export default function Dashboard() {
   const [error,         setError]         = useState(null)
   const [refreshing,    setRefreshing]    = useState(false)
   const [domainCount,   setDomainCount]   = useState(null)
+  const [setupState,    setSetupState]    = useState(null)
   // null = unknown (still loading), true/false once resolved
   const [hasWorkspaces, setHasWorkspaces] = useState(null)
   const [scanInput,     setScanInput]     = useState('')
@@ -315,6 +317,7 @@ export default function Dashboard() {
     setScorecard(null)
     setMotRequest('loading')
     setDomainCount(null)
+    setSetupState(null)
     setHasWorkspaces(null)
     setError(null)
     setLoadedWorkspaceId(null)
@@ -400,13 +403,14 @@ export default function Dashboard() {
   }
 
   const hasCompletedScan = ins.completed.length > 0
+  const dmarcConnected = setupState?.workspaceId === activeWorkspaceId ? setupState.flags.dmarcConnected : null
 
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-8">
 
       {/* While setup is incomplete, the steps that lived on /services sit here
           (founder, 17 Oct 2026); the card renders nothing once every step is Done. */}
-      <SetupCard workspaceId={activeWorkspaceId} />
+      <SetupCard workspaceId={activeWorkspaceId} onFlags={(workspaceId, flags) => setSetupState({ workspaceId, flags })} />
 
       {/* Invited to another workspace: offered here too, never auto-accepted. */}
       <PendingInvitationBanner />
@@ -460,7 +464,7 @@ export default function Dashboard() {
 
       {/* The next thing to do, from real signals only — the same ladder the
           workspace overview uses (one component, one place). */}
-      <NextActionCard signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0 }} />
+      <NextActionCard signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0, dmarcConnected }} />
 
       {/* Recent Scans (compact) */}
       {scans.length > 0 && (
@@ -479,18 +483,15 @@ export default function Dashboard() {
                 className="flex items-center gap-4 px-6 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors group"
               >
                 <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
-                {/* Explanation first: the state word leads; a provisional number
-                    follows small and labelled, never as a headline. */}
+                {/* A partial assessment has no customer-facing numeric score. */}
                 <span className="flex items-center gap-1.5 text-xs text-gray-500">
                   <span>{scan.status === 'completed' && !scanAssessment.authoritative
                     ? scan.scan_quality === 'complete' ? 'Provisional result' : 'Partial results'
                     : scan.status}</span>
                 </span>
-                {scanAssessment.score !== null && (
-                  <span className={`shrink-0 ${scanAssessment.authoritative ? 'text-brand-700' : 'text-brand-700 rounded-md border-[1.5px] border-brand-700 px-1.5'} ${scanAssessment.authoritative ? 'text-sm font-bold' : 'text-xs font-medium py-0.5'}`}>
-                    {scanAssessment.score}{scanAssessment.authoritative ? '' : ' provisional'}
-                  </span>
-                )}
+                {scan.status === 'completed' && <span className="shrink-0 text-xs font-medium text-gray-600">
+                  {scanAssessment.authoritative ? scanAssessment.score : SCORE_PENDING_LABEL}
+                </span>}
                 <span className="text-xs text-gray-400 hidden sm:block shrink-0">{formatDate(scan.created_at)}</span>
               </li>
               )

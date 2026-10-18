@@ -16,7 +16,7 @@ const targetRel = "frontend/src/pages/ScanDetail.jsx";
 const targetFile = path.join(root, targetRel);
 const validator = path.join(root, "scripts", "validate-scan-detail-presentation.js");
 
-const EXPECTED_MUTANTS = 8;
+const EXPECTED_MUTANTS = 9;
 // The direct Website Security evidence link and the shared partial-result
 // status each add one pinned render assertion.
 const VALIDATOR_ASSERTIONS = 30;
@@ -187,7 +187,17 @@ const mutants = [
   const assessmentScore = Number.isFinite(storedScore)
     ? storedScore
     : null`,
-    expectedFailures: [AST_RAW_SCORE, AST_CANONICAL_SCORE, UI_A, UI_F, UI_F_NULL_SCORE, UI_F_SUPPRESSED, UI_F2_WITHHELD],
+    expectedFailures: [AST_RAW_SCORE, AST_CANONICAL_SCORE, UI_F],
+  },
+  {
+    name: "partial Scan Information reveals the retained numeric score",
+    anchor: `{headline.mode === 'established' && (
+                    <KV label="Score" value={<span className="font-bold text-brand-700" data-testid="scan-score-headline">{headline.score} / 100</span>} />
+                  )}`,
+    replacement: `{assessmentScore !== null && (
+                    <KV label="Score" value={<span className="font-bold text-brand-700" data-testid="scan-score-headline">{assessmentScore} / 100</span>} />
+                  )}`,
+    expectedFailures: [UI_A],
   },
 ];
 

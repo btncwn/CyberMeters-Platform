@@ -24,6 +24,11 @@ const cards = () => screen.getAllByRole('article')
 const chipOf = (card) => card.querySelector('[data-status]').dataset.status
 
 describe('SecurityOverview — one overview for every persona', () => {
+  it('does not recommend connecting DMARC after the shared setup source says connected', () => {
+    expect(recommendedNextAction({ domainCount: 1, hasCompletedScan: true, dmarcConnected: true }).text).toMatch(/connected DMARC reporting/)
+    expect(recommendedNextAction({ domainCount: 1, hasCompletedScan: true, dmarcConnected: false }).text).toMatch(/Connect Email Protection/)
+    expect(recommendedNextAction({ domainCount: 1, hasCompletedScan: true, dmarcConnected: null }).text).not.toMatch(/Connect Email Protection/)
+  })
   it('renders the eight areas in founder order with a Field Guide link and an area link each', () => {
     show()
     const list = cards()

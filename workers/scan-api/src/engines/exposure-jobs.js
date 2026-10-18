@@ -643,7 +643,7 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   const httpComplete=row.cursor>=plan.checks.length && plan.content_state!=='pending' &&
     (row.state==='complete'||row.state==='budget_exhausted'&&Boolean(plan.tls));
   const notApplicableHosts=(Array.isArray(plan.hosts_not_applicable)?plan.hosts_not_applicable:[]).filter(h=>typeof h?.hostname==='string');
-  const coverage={completed:0,pending:0,blocked:0,not_applicable:0,budget_exhausted:plan.omitted_checks||0,uncertain:0,pending_assets:plan.pending_assets||0,
+  const coverage={completed:0,pending:0,blocked:0,not_applicable:0,budget_exhausted:plan.omitted_checks||0,uncertain:0,recorded_total:checks.length,omitted_checks:plan.omitted_checks||0,pending_assets:plan.pending_assets||0,
     not_applicable_hosts:notApplicableHosts.length};
   for(const check of checks){
     if(check.comparable)coverage.completed++;

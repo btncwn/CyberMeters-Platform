@@ -69,7 +69,7 @@ export function moduleObservations(domainKey, { scorecard, critical = 0, high = 
 
 // The next thing to do, from real signals only — the same ladder the dashboard
 // used, now in one place so both overview surfaces say the same thing.
-export function recommendedNextAction({ domainCount, hasCompletedScan, scorecard, critical = 0 } = {}) {
+export function recommendedNextAction({ domainCount, hasCompletedScan, scorecard, critical = 0, dmarcConnected = null } = {}) {
   const cr = scorecard?.certificate_risks?.risk_level
   const brand = scorecard?.brand_risks
   if (domainCount === 0) return { text: 'Add your first domain so CyberMeters can start monitoring it.', cta: 'Add a domain', to: '/ws/domains' }
@@ -77,7 +77,8 @@ export function recommendedNextAction({ domainCount, hasCompletedScan, scorecard
   if (cr && ['high', 'critical'].includes(cr)) return { text: 'Certificate trust needs attention — review expiry and HTTPS posture.', cta: 'Review certificates', to: '/ws/certificates' }
   if (brand && (brand.high ?? 0) > 0) return { text: 'High-risk lookalike domains detected — review brand candidates.', cta: 'Review brand candidates', to: '/ws/brand-monitoring' }
   if (critical > 0) return { text: 'Critical findings on your attack surface — review and remediate.', cta: 'Review attack surface', to: '/assets' }
-  return { text: 'Connect Email Protection to measure impersonation exposure and receive DMARC reports.', cta: 'Open Email Protection', to: '/ws/email-protection' }
+  if (dmarcConnected === false) return { text: 'Connect Email Protection to measure impersonation exposure and receive DMARC reports.', cta: 'Open Email Protection', to: '/ws/email-protection' }
+  return { text: dmarcConnected === true ? 'Review the sender activity from your connected DMARC reporting.' : 'Review Email Protection and its reporting status.', cta: 'Open Email Protection', to: '/ws/email-protection' }
 }
 
 /** The "Recommended next action" strip — one component for the home screen and the workspace overview. */

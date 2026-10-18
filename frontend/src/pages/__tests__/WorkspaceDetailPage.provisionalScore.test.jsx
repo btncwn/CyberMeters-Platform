@@ -111,15 +111,15 @@ describe('WorkspaceDetailPage canonical domain score presentation', () => {
     ['blackbullbarbers.co.uk', 100, 'partial'],
     ['cybermeters.com', 85, 'degraded'],
     ['sheshire.co.uk', 85, 'partial'],
-  ])('%s preserves %i and visibly labels it Provisional', async (hostname, score, quality) => {
+  ])('%s hides %i until the assessment is complete', async (hostname, score, quality) => {
     renderPage([domainRow(hostname, {
       legacyScore: score,
       assessment: provisional(score, quality),
     })])
 
     const row = within(await rowFor(hostname))
-    expect(row.getByText(String(score))).toBeInTheDocument()
-    expect(row.getByText('Provisional')).toBeInTheDocument()
+    expect(row.queryByText(String(score))).not.toBeInTheDocument()
+    expect(row.getByText('Score available after a complete scan')).toBeInTheDocument()
     expect(row.getByText(/This score is provisional\./)).toBeInTheDocument()
   })
 

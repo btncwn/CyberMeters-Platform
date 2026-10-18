@@ -18,10 +18,11 @@ const targetFile = path.join(frontend, "src", "pages", "IntelligencePage.jsx");
 const frontendRequire = createRequire(path.join(frontend, "package.json"));
 const ts = frontendRequire("typescript");
 
-const EXPECTED_ASSERTIONS = 28;
+const EXPECTED_ASSERTIONS = 29;
 const UI_TEST_TITLES = Object.freeze([
   "A: partial raw excellent/99 with null canonical rating and score fails closed",
-  "B: partial canonical provisional score remains visible with an explicit label",
+  "B: partial canonical provisional score stays hidden even when raw number exists",
+  "B2: partial scan quality withholds an apparently final assessment",
   "C: complete authoritative canonical good assessment remains visible",
   "D: comparable true exposes canonical score and finding history",
   "D2: unavailable DMARC is neutral not re-observed evidence and never Resolved",
@@ -393,7 +394,7 @@ const expectedInventory = {
   raw_report_score_band: 0,
   display_rating: 1,
   display_score: 2,
-  provisional: 5,
+  provisional: 6,
   changes_comparable: 1,
   overall_risk_level: 1,
   modules_skipped: 0,
@@ -468,10 +469,10 @@ const customerText = node => {
 };
 const sourceStrings = new Set(allNodes.map(customerText).filter(Boolean));
 ok(
-  "AST: provisional score requires canonical provisional === true and explicit customer copy",
+  "AST: provisional score requires canonical provisional === true and nonnumeric customer copy",
   provisionalStrictTrue.length === 1 &&
-    sourceStrings.has("Provisional Score") && sourceStrings.has("Provisional score ") &&
-    sourceStrings.has("Final rating withheld"),
+    sourceStrings.has("Score available after a complete scan") &&
+    !sourceStrings.has("Provisional Score") && !sourceStrings.has("Provisional score "),
   `strict gates=${provisionalStrictTrue.length}`,
 );
 

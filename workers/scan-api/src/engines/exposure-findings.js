@@ -70,7 +70,7 @@ export function externalExposureModule(receipt) {
     hosts_not_applicable: (Array.isArray(receipt.hosts_not_applicable) ? receipt.hosts_not_applicable : [])
       .filter(host => typeof host?.hostname === 'string' && HOST_RE.test(host.hostname) && host.reason === 'authoritative_no_address')
       .map(host => ({ hostname: host.hostname, reason: host.reason, observed_at: Number.isFinite(Date.parse(host.observed_at)) ? new Date(host.observed_at).toISOString() : null })),
-    coverage: receipt.coverage ? Object.fromEntries([...COVERAGE_KEYS, 'pending_assets', 'not_applicable_hosts'].map(key => [key, Number.isInteger(receipt.coverage[key]) && receipt.coverage[key] >= 0 ? receipt.coverage[key] : null])) : null,
+    coverage: receipt.coverage ? Object.fromEntries([...COVERAGE_KEYS, 'recorded_total', 'omitted_checks', 'pending_assets', 'not_applicable_hosts'].map(key => [key, Number.isInteger(receipt.coverage[key]) && receipt.coverage[key] >= 0 ? receipt.coverage[key] : null])) : null,
     checks, findings: [],
     costs: receipt.costs ? Object.fromEntries(COST_KEYS.map(key => [key, Number.isFinite(receipt.costs[key]) && receipt.costs[key] >= 0 ? receipt.costs[key] : null])) : null,
     observed_at: Number.isFinite(Date.parse(receipt.observed_at)) ? new Date(receipt.observed_at).toISOString() : null,

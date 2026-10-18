@@ -31,7 +31,9 @@
  * for PlanGate to render the upgrade wall. Any other error falls through.
  */
 
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../api'
 import { customerCodeLabel } from '../lib/customerReasonText'
 
 // ── Plan display config ──────────────────────────────────────────────────────
@@ -51,6 +53,7 @@ const FEATURE_LABELS = {
   business_risk_score: 'Business Risk Score',
   executive_dashboard:'Executive Dashboard',
   cyber_essentials:    'Cyber Essentials Readiness',
+  audit_logs:          'Workspace Audit Logs',
   // Honest external-observation label — the retired vendor-risk marketing
   // claim must not be advertised on billing/upgrade surfaces.
   vendor_risk:         'Vendor relationships and supply chain views',
@@ -59,15 +62,21 @@ const FEATURE_LABELS = {
   msp_dashboard:       'MSP Dashboard',
 }
 
-// What each required plan unlocks (shown in the upgrade CTA).
-// Domain allowances MUST match the locked canonical ladder (Starter 1 /
-// Professional 3 / Business 10 included) in docs/PRICING-POLICY.md — this card
-// is an upgrade wall, so wrong numbers are mis-selling.
-const PLAN_FEATURES = {
-  starter:      ['Business Risk Score', 'Executive PDF Reports', '1 monitored domain'],
-  professional: ['Cyber Essentials Readiness', 'Third-party technology detection', 'Up to 3 monitored domains'],
-  business:     ['Portfolio Risk Monitoring', 'White Label Reports', '10 monitored domains included'],
-  enterprise:   ['MSP Dashboard', 'Built for client portfolios', 'Dedicated support'],
+// The billing endpoint publishes the runtime PLAN_FEATURES / PLAN_LIMITS.
+// Show only additions at this tier, never a feature already in a lower plan.
+export function upgradePlanHighlights(plans, requiredPlan) {
+  if (!Array.isArray(plans)) return []
+  const index = PLAN_ORDER.indexOf(requiredPlan)
+  const current = plans.find((p) => p.key === requiredPlan)
+  if (index < 1 || !current || !Array.isArray(current.features)) return []
+  const previous = plans.find((p) => p.key === PLAN_ORDER[index - 1])
+  const previousFeatures = new Set(previous?.features || [])
+  const result = current.features.filter((key) => !previousFeatures.has(key) && FEATURE_LABELS[key]).map((key) => FEATURE_LABELS[key])
+  const domains = current.limits?.domains
+  if (Number.isInteger(domains) && domains > 0 && domains !== previous?.limits?.domains) {
+    result.push(`${domains} monitored domain${domains === 1 ? '' : 's'}`)
+  }
+  return result
 }
 
 // ── PlanBadge ────────────────────────────────────────────────────────────────
@@ -180,10 +189,20 @@ export function PlanUsageCard({ planLimits, className = '' }) {
  */
 export function PlanGate({ error, children, feature: featureOverride, requiredPlan: planOverride }) {
   const navigate = useNavigate()
+  const [billingPlans, setBillingPlans] = useState(null)
 
   // Detect gate trigger — support both thrown Error objects and parsed API bodies
   const apiError = error?.error ?? error?.code ?? ''
   const isGated  = apiError === 'plan_feature_required'
+
+  useEffect(() => {
+    if (!isGated) return undefined
+    let alive = true
+    Promise.resolve().then(() => api.getBillingPlans())
+      .then((value) => { if (alive) setBillingPlans(value?.plans ?? null) })
+      .catch(() => { if (alive) setBillingPlans(null) })
+    return () => { alive = false }
+  }, [isGated])
 
   if (!isGated) return children
 
@@ -191,7 +210,7 @@ export function PlanGate({ error, children, feature: featureOverride, requiredPl
   const requiredPlan = planOverride ?? error?.required_plan ?? 'starter'
   const featureLabel = FEATURE_LABELS[featureKey] ?? customerCodeLabel(featureKey) ?? 'This feature'
   const planCfg      = PLAN_CFG[requiredPlan] ?? PLAN_CFG.starter
-  const planFeatures = PLAN_FEATURES[requiredPlan] ?? []
+  const planFeatures = upgradePlanHighlights(billingPlans, requiredPlan)
 
   // Ordered plan index for "plans above" display
   const planIdx  = PLAN_ORDER.indexOf(requiredPlan)
@@ -214,7 +233,7 @@ export function PlanGate({ error, children, feature: featureOverride, requiredPl
         {planFeatures.length > 0 && (
           <div className={`rounded-xl border ${planCfg.border} ${planCfg.bg} px-5 py-4 mb-6 text-left`}>
             <p className={`text-xs font-semibold uppercase tracking-wider mb-3 ${planCfg.text}`}>
-              {planCfg.label} includes
+              {planCfg.label} Includes
             </p>
             <ul className="space-y-2">
               {planFeatures.map(f => (

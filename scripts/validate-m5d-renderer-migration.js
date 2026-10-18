@@ -173,6 +173,7 @@ async function main() {
   seedScan("scan1", "ws1", "dom1", "2026-07-15 09:05:00");
   const report1 = makeReport("scan1", "dom1", "shared.example", "2026-07-15T09:05:00.000Z");
   store.set("reports/scan1.json", JSON.stringify(report1));
+  db.prepare("INSERT INTO shadow_it_inventory (id, workspace_id, canonical_technology_key, display_name, first_seen_at, last_seen_at) VALUES ('sii1','ws1','observed_service','Observed service',datetime('now'),datetime('now'))").run();
   db.prepare(`INSERT INTO managed_cases (id, workspace_id, case_type, domain_key, domain, finding_id, remediation_id, severity, status, evidence_json, recommended_actions_json, created_at, updated_at)
               VALUES ('mc1','ws1','email_case','email_protection','shared.example','email_missing_spf','email.spf.publish','high','open','{}','[]',datetime('now'),datetime('now'))`).run();
   const b1 = await rs.buildScanReportSnapshot(env, {
@@ -327,8 +328,9 @@ async function main() {
      JSON.stringify(ce));
   const pdfTextLines = [...pdfRes.text.matchAll(/\((.*?)\) Tj/g)].map((match) => match[1]).join(" ");
   ok("one observed Shadow IT service is counted with the inventory comparison guidance",
-     /1 externally observed technologies\/services; compare against your approved inventory in Shadow IT\./.test(shadow?.state_reason || "") &&
-     /1 externally observed technologies\/services; compare against your approved inventory in Shadow IT\./.test(pdfTextLines));
+     /1 externally observed technologies\/services in the current inventory; compare against your approved inventory in Shadow IT\./.test(shadow?.state_reason || "") &&
+     /1 externally observed technologies\/services in the current inventory; compare against your approved inventory in Shadow IT\./.test(pdfTextLines),
+     `state_reason=${JSON.stringify(shadow?.state_reason)}; summary=${JSON.stringify(shadow?.summary)}; pdf=${pdfTextLines.includes("1 externally observed technologies/services")}`);
   ok("appendix stamps the current CE question set and explains the absence of answer versions",
      technicalAppendix.includes("Cyber Essentials current question set: 2026-07-16") &&
      technicalAppendix.includes("Cyber Essentials answered question set versions: No questionnaire answers recorded") &&
@@ -690,8 +692,8 @@ async function main() {
       {
         name: "product-policy band relabelled as Security rating",
         file: srcPath("engines", "pdf.js"),
-        from: "  if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });",
-        to:   "  if (o.score_band) w.text(`Security rating: ${o.score_band}`, { size: 11 });",
+        from: "  if (!scoreWithheld && o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });",
+        to:   "  if (!scoreWithheld && o.score_band) w.text(`Security rating: ${o.score_band}`, { size: 11 });",
       },
       {
         name: "provisional Scan Information band loses its qualifier",
@@ -706,10 +708,10 @@ async function main() {
         to:   "A complete RFC 9989 organisational-domain tree-walk is not recorded",
       },
       {
-        name: "Shadow IT observed count uses the stale field",
-        file: srcPath("engines", "cyber-mot-domains.js"),
-        from: "m.observed_total",
-        to:   "m.count",
+        name: "Shadow IT customer count diverges from the inventory",
+        file: srcPath("engines", "shadow-it-inventory-count.js"),
+        from: "summary: `${total} externally observed technologies/services in the current inventory; compare against your approved inventory in Shadow IT.`",
+        to:   "summary: `${total - 1} externally observed technologies/services in the current inventory; compare against your approved inventory in Shadow IT.`",
       },
       {
         name: "completed questionnaire promotes the full CE API domain to healthy",

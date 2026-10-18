@@ -107,6 +107,8 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
   h.setJob('complete', results);
   const receipt = await readExposureForScan(h.env, { workspaceId: h.scan.workspace_id, scanId: h.scan.id });
   eq('X1_READ_COVERAGE_MATCHES_PRODUCTION', [receipt.coverage.completed, receipt.coverage.uncertain, receipt.coverage.blocked, receipt.coverage.pending], [1, 377, 3, 0]);
+  eq('X1_RECORDED_TOTAL_EXCLUDES_OUT_OF_SCOPE', receipt.coverage.recorded_total, results.length);
+  eq('X1_PROJECTED_TOTAL_EXCLUDES_OUT_OF_SCOPE', externalExposureModule(receipt).coverage.recorded_total, results.length);
   eq('X1_READ_QUALITY_PARTIAL', receipt.quality, 'partial');
   eq('X1_READ_JOB_STATE_IS_FINISHED', receipt.job_state, 'complete');
   eq('X1_READ_REASON_INCONCLUSIVE', receipt.incomplete_reason, 'checks_inconclusive');

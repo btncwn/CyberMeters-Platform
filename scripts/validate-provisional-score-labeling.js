@@ -98,7 +98,7 @@ const provisionalView = canonicalScoreView(resolveAssessmentPresentation({
   scanQuality: 'partial',
   status: 'completed',
 }))
-eq('frontend contract preserves canonical provisional 100', provisionalView.score, 100)
+eq('frontend contract withholds canonical provisional 100', provisionalView.score, null)
 eq('frontend contract visibly classifies canonical provisional state', provisionalView.state, 'provisional')
 const establishedView = canonicalScoreView(established)
 eq('frontend contract preserves canonical established value', establishedView.score, 82)
@@ -151,12 +151,13 @@ ok('shared renderer delegates to the explicit-state frontend contract',
   /canonicalScoreView\(assessment\)/.test(component) &&
     /assessment\?\.state/.test(frontendContract) &&
     /state\s*===\s*['"]provisional['"]/.test(frontendContract))
-ok('shared renderer visibly emits the Provisional label', />Provisional</.test(component))
+ok('shared renderer gives provisional evidence a nonnumeric customer label',
+  /\{SCORE_PENDING_LABEL\}/.test(component) && !/>Provisional</.test(component))
 ok('shared renderer fails missing or malformed state to a dash',
   /Current posture not yet established\./.test(frontendContract) && component.includes('—'))
-ok('Executive Report and PDF retain canonical provisional wording parity',
+ok('Executive Report retains canonical provisional state while PDF withholds its number',
   /provisional:\s*assessment\.provisional \?\? null/.test(executiveReport) &&
-    /Provisional Score/.test(pdf))
+    /Score available after a complete scan/.test(pdf) && !/Provisional Score/.test(pdf))
 ok('Cyber Metrics Score algorithm and methodology identity match this release',
   /score \+= f\.score_impact;/.test(scoring) &&
     /CYBER_METRICS_SCORE_METHODOLOGY_VERSION\s*=\s*"2026-10-16\.1"/.test(scoring))

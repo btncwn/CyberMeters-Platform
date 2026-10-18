@@ -25,6 +25,14 @@ describe('Email overview message evidence scope', () => {
     expect(await screen.findByText('Customer-uploaded pass rate: Not measured')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByText(/24\/100/)).toHaveLength(1))
   })
+  it('labels the 46-message traffic block from the auto-received RUA source', () => {
+    show({ period_days: 30, traffic: { total_messages: 46, aligned_messages: 46, failed_messages: 0 },
+      traffic_by_source: { auto_ingested: { total_messages: 46 }, customer_uploaded: { total_messages: 0 } } })
+    const observed = tile('Messages observed')
+    expect(observed.getByText('46')).toBeInTheDocument()
+    expect(observed.getByText(/automatically received RUA reports/)).toBeInTheDocument()
+    expect(observed.queryByText(/customer-uploaded reports/)).not.toBeInTheDocument()
+  })
   it('keeps reporting-window totals and alignment counts together despite a larger sender inventory', () => {
     show({ period_days: 30, traffic: { total_messages: 33, aligned_messages: 31, failed_messages: 2 } })
     expect(tile('Messages observed').getByText('33')).toBeInTheDocument()

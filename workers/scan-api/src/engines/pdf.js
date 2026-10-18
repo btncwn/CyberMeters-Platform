@@ -643,15 +643,16 @@ function sectionAssessmentScore(w, snap) {
   const ec0 = o.evidence_completeness || {};
   w.heading("Assessment Score");
   evidenceBasisLine(w, "Score basis", o.assessment_evidence_grade);
-  const scoreWithheld = o.cyber_metrics_score == null;
+  const scoreWithheld = o.cyber_metrics_score == null || o.assessment?.provisional === true ||
+    (ec0.scan_quality != null && ec0.scan_quality !== "complete");
   const scoreText = scoreWithheld
-    ? "Not available for this assessment"
+    ? "Score available after a complete scan"
     : `${o.cyber_metrics_score} / 100`;
   // A withheld score is not a provisional number; it is labelled plainly and
   // carries the frozen reason the score was withheld, never a bare dash.
-  const scoreLabel = !scoreWithheld && o.assessment?.provisional ? "Provisional Score" : "Cyber Metrics Score";
+  const scoreLabel = "Cyber Metrics Score";
   w.text(`${scoreLabel}: ${scoreText}`, { size: 14, bold: true });
-  if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });
+  if (!scoreWithheld && o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });
   if (o.assessment?.message) w.prose(customerBodyText(o.assessment.message), { size: 9, color: "0.45 0.35 0.10" });
   const withheldReason = scoreWithheld && Array.isArray(o.not_fully_assessed)
     ? o.not_fully_assessed.find((entry) => entry?.domain_key === "cyber_metrics_score")?.reason
@@ -1688,9 +1689,14 @@ function executiveSummary(w, reads) {
 
 function executiveScore(w, snap) {
   const o = snap.overall || {};
-  if (!Number.isFinite(o.cyber_metrics_score)) return;
+  const quality = o.evidence_completeness?.scan_quality ?? snap.snapshot?.scan_quality;
+  if (!Number.isFinite(o.cyber_metrics_score) || o.assessment?.provisional === true ||
+      quality !== "complete") {
+    w.text("Score available after a complete scan", { size: 10, bold: true });
+    return;
+  }
   w.keepTogether(44);
-  w.text(`${o.assessment?.provisional ? "Provisional score" : "Cyber Metrics Score"}: ${o.cyber_metrics_score} / 100${o.score_band ? ` | recorded band: ${o.score_band}` : ""}`, { size: 10, bold: true });
+  w.text(`Cyber Metrics Score: ${o.cyber_metrics_score} / 100${o.score_band ? ` | recorded band: ${o.score_band}` : ""}`, { size: 10, bold: true });
   w.prose(executiveCoverageIncomplete(snap)
     ? "This website only. Incomplete coverage; this score is not an overall assurance of security."
     : "This website only; not a workspace average or assurance of security.", { size: 8, width: 115 });

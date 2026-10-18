@@ -189,20 +189,21 @@ function NoWorkspaceState() {
 
 // ── Summary cards (6 key metrics) ────────────────────────────────────────────
 
-function canonicalAssessmentPresentation(assessment) {
+function canonicalAssessmentPresentation(assessment, scanQuality) {
+  const provisional = assessment?.provisional === true || scanQuality?.status !== 'complete'
   const score = Number.isFinite(assessment?.display_score)
     ? assessment.display_score
     : null
-  const band = bandMeta(assessment?.display_rating)
+  const band = bandMeta(provisional ? null : assessment?.display_rating)
   return {
     score,
     band,
-    provisional: assessment?.provisional === true,
+    provisional,
   }
 }
 
-function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
-  const cms = canonicalAssessmentPresentation(assessment)
+function SummaryBar({ assessment, scanQuality, domain, emailIntel, remPlan, kev, cve }) {
+  const cms = canonicalAssessmentPresentation(assessment, scanQuality)
 
   const emailPublishable = isPhase5EvidenceAvailable(emailIntel)
   const cvePublishable   = isPhase5EvidenceAvailable(cve)
@@ -225,12 +226,12 @@ function SummaryBar({ assessment, domain, emailIntel, remPlan, kev, cve }) {
   const stats = [
     {
       // A withheld score is not a provisional number: it keeps the plain label.
-      label:   cms.provisional && cms.score != null ? 'Provisional Score' : 'Cyber Metrics Score',
-      value:   cms.score != null ? String(cms.score) : '—',
+      label:   'Cyber Metrics Score',
+      value:   cms.provisional ? '—' : cms.score != null ? String(cms.score) : '—',
       sub:     cms.provisional
-        ? (cms.score == null ? 'Withheld · scan incomplete' : `Provisional · ${domain || '/100'}`)
+        ? 'Score available after a complete scan'
         : (domain || '/100'),
-      color:   cms.score == null ? '#9CA3AF' : cms.band.color,
+      color:   cms.provisional || cms.score == null ? '#9CA3AF' : cms.band.color,
       mono:    false,
     },
     {
@@ -1230,7 +1231,7 @@ export default function IntelligencePage() {
   // The scan-list row is navigation metadata only. All customer assessment
   // presentation comes from the report's canonical frozen assessment contract.
   const assessment = report?.assessment ?? null
-  const assessmentPresentation = canonicalAssessmentPresentation(assessment)
+  const assessmentPresentation = canonicalAssessmentPresentation(assessment, report?.scan_quality)
   const contextDomain = report?.domain || storedScanObj?.domain || null
 
   return (
@@ -1305,8 +1306,8 @@ export default function IntelligencePage() {
               </span>
               <span className="text-gray-600">·</span>
               <span className="text-gray-500">
-                {assessmentPresentation.provisional && assessmentPresentation.score != null
-                  ? <>Score withheld · <span className="text-xs">{'Provisional score '}{assessmentPresentation.score}/100</span></>
+                {assessmentPresentation.provisional
+                  ? 'Score available after a complete scan'
                   : <>Score {assessmentPresentation.score ?? '—'}/100</>}
               </span>
               <span className="text-gray-600">·</span>
@@ -1322,6 +1323,7 @@ export default function IntelligencePage() {
           {/* Summary cards: 6 key metrics */}
           <SummaryBar
             assessment={assessment}
+            scanQuality={report.scan_quality}
             domain={contextDomain}
             emailIntel={modules.email_security_intelligence}
             remPlan={modules.remediation_plan}

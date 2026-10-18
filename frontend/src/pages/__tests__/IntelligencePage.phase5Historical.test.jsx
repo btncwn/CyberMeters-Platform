@@ -154,24 +154,33 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     await renderFixture()
 
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
-    expect(screen.getByText('Score —/100')).toBeInTheDocument()
+    expect(screen.getAllByText('Score available after a complete scan').length).toBeGreaterThan(0)
     // A withheld score keeps the plain label; it is not a provisional number.
     expect(within(summaryMetric('Cyber Metrics Score')).getByText('—')).toBeInTheDocument()
-    expect(within(summaryMetric('Cyber Metrics Score')).getByText('Withheld · scan incomplete')).toBeInTheDocument()
+    expect(within(summaryMetric('Cyber Metrics Score')).getByText('Score available after a complete scan')).toBeInTheDocument()
     expect(screen.queryByText('Provisional Score')).not.toBeInTheDocument()
     expectRawStoredAssessmentHidden()
     expect(screen.queryByText('99')).not.toBeInTheDocument()
   })
 
-  it('B: partial canonical provisional score remains visible with an explicit label', async () => {
+  it('B: partial canonical provisional score stays hidden even when raw number exists', async () => {
     const report = reportFixture({
       assessment: { ...PARTIAL_ASSESSMENT, display_score: 85 },
     })
     await renderFixture({ report })
 
-    expect(screen.getByText('Provisional score 85/100')).toBeInTheDocument()
-    expect(within(summaryMetric('Provisional Score')).getByText('85')).toBeInTheDocument()
+    expect(screen.getAllByText('Score available after a complete scan').length).toBeGreaterThan(0)
+    expect(within(summaryMetric('Cyber Metrics Score')).getByText('—')).toBeInTheDocument()
+    expect(screen.queryByText('Provisional score 85/100')).not.toBeInTheDocument()
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
+    expectRawStoredAssessmentHidden()
+  })
+
+  it('B2: partial scan quality withholds an apparently final assessment', async () => {
+    await renderFixture({ report: reportFixture({ assessment: COMPLETE_ASSESSMENT }) })
+    expect(within(summaryMetric('Cyber Metrics Score')).getByText('Score available after a complete scan')).toBeInTheDocument()
+    expect(screen.queryByText('Score 82/100')).not.toBeInTheDocument()
+    expect(within(summaryMetric('Cyber Metrics Score')).queryByText('82')).not.toBeInTheDocument()
     expectRawStoredAssessmentHidden()
   })
 
@@ -333,7 +342,8 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     await renderFixture({ report })
 
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
-    expect(screen.getByText('Score —/100')).toBeInTheDocument()
+    expect(within(summaryMetric('Cyber Metrics Score')).getByText('Score available after a complete scan')).toBeInTheDocument()
+    expect(screen.queryByText('Score 99/100')).not.toBeInTheDocument()
     expect(screen.queryByText('99')).not.toBeInTheDocument()
     expectRawStoredAssessmentHidden()
   })
@@ -358,7 +368,8 @@ describe('IntelligencePage canonical assessment and history presentation', () =>
     await renderFixture({ report })
 
     expect(screen.getAllByText('Not assessed').length).toBeGreaterThan(0)
-    expect(screen.getByText('Score —/100')).toBeInTheDocument()
+    expect(within(summaryMetric('Cyber Metrics Score')).getByText('Score available after a complete scan')).toBeInTheDocument()
+    expect(screen.queryByText('Score 99/100')).not.toBeInTheDocument()
     expect(screen.queryByText('surprising-new-band')).not.toBeInTheDocument()
     expect(screen.queryByText('Surprising Risk')).not.toBeInTheDocument()
     expectRawStoredAssessmentHidden()

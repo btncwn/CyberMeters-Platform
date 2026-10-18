@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.10.18-invitation-flow.931ed055b64a",
-  "closure_sha256": "931ed055b64a8b2b0be0765285926310963ab9a1ae944336fe4171d34adfb242",
-  "closure_file_count": 102,
-  "scan_api_file_count": 99,
+  "app_version": "2026.10.18-pr-a2-honesty.84c646d3d93d",
+  "closure_sha256": "84c646d3d93dd497638fe228893c0f6be55385b55a5552ac93953bb896356a56",
+  "closure_file_count": 103,
+  "scan_api_file_count": 100,
   "files": [
     "shared/cyber-essentials-questions.js",
     "shared/exposure/catalog.js",
@@ -85,6 +85,7 @@
     "workers/scan-api/src/engines/scoring.js",
     "workers/scan-api/src/engines/security-headers-config.js",
     "workers/scan-api/src/engines/sender-classification.js",
+    "workers/scan-api/src/engines/shadow-it-inventory-count.js",
     "workers/scan-api/src/engines/signal-monitoring-state.js",
     "workers/scan-api/src/engines/tls-evidence.js",
     "workers/scan-api/src/engines/tls-quality.js",

@@ -49,14 +49,14 @@ describe('Dashboard TLS quality honesty', () => {
 
   it('does not let an older complete scan make the newest partial TLS result authoritative or comparable', () => {
     const result = deriveInsights(scans, null)
-    expect(result).toMatchObject({ score: 100, riskLevel: null,
+    expect(result).toMatchObject({ score: null, riskLevel: null,
       postureProvisional: true, postureEstablished: false, scanQuality: 'partial' })
     expect(result.trend.map(point => point.value)).toEqual([82])
   })
 
   it('does not grant a final rating when the row says complete but monitoring evidence is provisional', () => {
     const result = deriveInsights([monitoringProvisional, ...scans], null)
-    expect(result).toMatchObject({ score: 100, riskLevel: null,
+    expect(result).toMatchObject({ score: null, riskLevel: null,
       postureProvisional: true, postureEstablished: false, scanQuality: 'degraded' })
     expect(result.trend.map(point => point.value)).toEqual([82])
     expect(result.partialCompleted).toBe(2)
@@ -74,7 +74,8 @@ describe('Dashboard TLS quality honesty', () => {
   it('never shows a provisional result as rated: no score ring, and the recent-scan row says provisional', async () => {
     render(<MemoryRouter><Dashboard /></MemoryRouter>)
     const recent = within((await screen.findByText('Recent Scans', {}, { timeout: 5000 })).closest('.card'))
-    expect(recent.getByText('100 provisional')).toBeInTheDocument()
+    expect(recent.getByText('Score available after a complete scan')).toBeInTheDocument()
+    expect(recent.queryByText('100 provisional')).not.toBeInTheDocument()
     expect(recent.getByText('Partial results')).toBeInTheDocument()
     // The home screen (16 Oct 2026) carries no score ring, no trend and no rating word.
     expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
@@ -90,7 +91,8 @@ describe('Dashboard TLS quality honesty', () => {
       cyber_metrics_score: 100, findings: [], cyber_mot_domains: [] })
     render(<MemoryRouter><Dashboard /></MemoryRouter>)
     const recent = within((await screen.findByText('Recent Scans', {}, { timeout: 5000 })).closest('.card'))
-    expect(recent.getAllByText('100 provisional')).toHaveLength(2)
+    expect(recent.getAllByText('Score available after a complete scan')).toHaveLength(2)
+    expect(recent.queryByText('100 provisional')).not.toBeInTheDocument()
     expect(recent.getByText('Provisional result')).toBeInTheDocument()
     expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
     expect(screen.queryByText('Good')).not.toBeInTheDocument()

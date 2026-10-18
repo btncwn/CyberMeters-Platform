@@ -19,7 +19,7 @@ export function canonicalScoreView(assessment) {
     assessment?.provisional === false && assessment?.authoritative === true
 
   if (provisional) {
-    return { state: 'provisional', score, rating: null, reason }
+    return { state: 'provisional', score: null, rating: null, reason }
   }
   if (established) {
     return {

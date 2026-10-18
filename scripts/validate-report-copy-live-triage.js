@@ -473,7 +473,7 @@ function ok(name, cond, detail = "") {
     read,
   ));
   ok("D3 PDF: withheld score is not printed as the stale numeric result",
-    /Not available for this assessment/.test(pdfText) && !/92 \/ 100/.test(pdfText));
+    /Score available after a complete scan/.test(pdfText) && !/92 \/ 100/.test(pdfText));
   ok("D3 PDF: the canonical suppression cause is customer-visible",
     /attack surface/.test(pdfText));
 

@@ -19,7 +19,7 @@ vi.mock('../../api', () => ({
 vi.mock('../../components/ExecutiveReportV2', () => ({ default: () => <div>Executive report</div> }))
 
 const FULL_ID = 'scan_bc7a4cd9-9b7e-4d2a-8c5f-0a1b2c3db732'
-const scan = { id: FULL_ID, domain: 'a-rather-long-business-name-with-hyphens.co.uk', status: 'completed', score: 82, rating: 'good', scan_quality: 'complete', created_at: '2026-10-16T09:00:00Z' }
+const scan = { id: FULL_ID, domain: 'a-rather-long-business-name-with-hyphens.co.uk', status: 'completed', score: 82, rating: 'good', scan_quality: 'complete', created_at: '2026-10-16T08:55:00Z' }
 const report = {
   scan_id: FULL_ID, domain: scan.domain, status: 'completed', cyber_metrics_score: 82, risk_level: 'good',
   assessment: { quality: 'complete', provisional: false, authoritative: true, comparable: true, display_score: 82, display_rating: 'good' },
@@ -41,6 +41,15 @@ async function renderPage() {
 beforeEach(() => { vi.clearAllMocks() })
 
 describe('Scan Information panel', () => {
+  it('includes the exposure pre-phase from queue time through assessment completion', async () => {
+    const panel = await renderPage()
+    expect(within(panel).getByText('Queued')).toBeInTheDocument()
+    expect(within(panel).getByText(formatDate(scan.created_at))).toBeInTheDocument()
+    expect(within(panel).getByText('Assessed')).toBeInTheDocument()
+    expect(within(panel).getByText(formatDate(report.completed_at))).toBeInTheDocument()
+    expect(within(panel).queryByText('Started')).not.toBeInTheDocument()
+    expect(screen.getByText('6m 31s')).toBeInTheDocument()
+  })
   it('titles the scan by date and keeps its ID only in copy controls and tooltips', async () => {
     const writeText = vi.fn().mockResolvedValue()
     Object.assign(navigator, { clipboard: { writeText } })
@@ -95,22 +104,20 @@ async function renderScore(s, r) {
 }
 
 describe('Scan Information — score honesty', () => {
-  it('partial + withheld: explanation first, no headline 100 / 100, the number small and labelled provisional', async () => {
+  it('partial + withheld: explanation first and no numeric score anywhere on the scan page', async () => {
     const panel = await renderScore(scoreScan(), scoreReport(withheldAssessment))
     expect(within(panel).queryByTestId('scan-score-headline')).toBeNull()
-    expect(within(panel).queryByText('100 / 100', { selector: '.font-bold' })).toBeNull()
+    expect(within(panel).queryByText('100 / 100')).toBeNull()
     const block = within(panel).getByTestId('scan-score-withheld')
-    const explanation = within(block).getByText(withheldAssessment.message)
-    const number = within(block).getByText('100 / 100')
-    expect(explanation.compareDocumentPosition(number) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(number.parentElement).toHaveClass('text-xs')
-    expect(number.parentElement).toHaveTextContent('provisional')
-    expect(within(panel).getByText('Provisional Score')).toBeInTheDocument()
+    expect(within(block).getByText(withheldAssessment.message)).toBeInTheDocument()
+    expect(within(block).getByText('Score available after a complete scan')).toBeInTheDocument()
+    expect(within(panel).getByText('Score')).toBeInTheDocument()
     expect(within(panel).getByTestId('scan-band-chip')).toHaveTextContent('Withheld until a complete scan')
     // The technical report hero follows the same rule.
     const hero = screen.getByTestId('hero-score-withheld')
     expect(hero).toHaveTextContent(withheldAssessment.message)
-    expect(hero).toHaveTextContent('Provisional score 100 / 100')
+    expect(hero).toHaveTextContent('Score available after a complete scan')
+    expect(hero).not.toHaveTextContent('100 / 100')
     expect(screen.queryByText('/100')).toBeNull()
   })
 
