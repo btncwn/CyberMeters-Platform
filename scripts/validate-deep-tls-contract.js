@@ -201,3 +201,4 @@ try {
 } finally {clearTimeout(abortTimer);clearTimeout(guardTimer);}
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
 await import('./p1b-single-domain-engine-fixture.js');
+await import('./mail-transport-fixture.js');
