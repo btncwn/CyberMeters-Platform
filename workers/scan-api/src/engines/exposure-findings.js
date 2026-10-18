@@ -9,7 +9,8 @@ export const EXPOSURE_FINDING_PREFIX = 'external_exposure_';
 const KEY = /^external_exposure_([a-z][a-z0-9-]+)__([a-f0-9]{64})$/;
 const SAFE_INDICATORS = new Set(EXPOSURE_INDICATORS);
 const COST_KEYS = ['requests', 'redirects', 'retries', 'bytes_wire', 'bytes_decoded', 'duration_ms', 'charged_requests', 'charged_bytes', 'unknown_attempts', 'attempts'];
-const COVERAGE_KEYS = ['completed', 'pending', 'blocked', 'not_applicable', 'budget_exhausted', 'uncertain'];
+const COVERAGE_KEYS = ['completed', 'pending', 'blocked', 'not_applicable', 'budget_exhausted', 'uncertain',
+  'target_unavailable_hosts', 'non_resolving_hosts', 'execution_complete_hosts'];
 const INCOMPLETE_REASONS = new Set(EXPOSURE_INCOMPLETE_REASONS);
 const JOB_STATES = new Set(['pending', 'running', 'complete', 'cancelled', 'budget_exhausted']);
 const HOST_RE = /^[a-z0-9.-]{1,253}$/i;
@@ -44,7 +45,7 @@ export function evaluateExposureCondition(key, module) {
 export function externalExposureModule(receipt) {
   if (!receipt || receipt.source !== 'external_exposure') return {
     source: 'external_exposure', version: EXPOSURE_CATALOG_VERSION, quality: 'not_recorded',
-    job_state: null, phase_state: null, incomplete_reason: null, hosts_not_applicable: [],
+    job_state: null, phase_state: null, incomplete_reason: null, hosts_not_applicable: [], host_outcomes: [],
     coverage: null, checks: [], findings: [], costs: null, observed_at: null,
   };
   const projectHit = (hit) => hit ? {
@@ -70,6 +71,14 @@ export function externalExposureModule(receipt) {
     hosts_not_applicable: (Array.isArray(receipt.hosts_not_applicable) ? receipt.hosts_not_applicable : [])
       .filter(host => typeof host?.hostname === 'string' && HOST_RE.test(host.hostname) && host.reason === 'authoritative_no_address')
       .map(host => ({ hostname: host.hostname, reason: host.reason, observed_at: Number.isFinite(Date.parse(host.observed_at)) ? new Date(host.observed_at).toISOString() : null })),
+    host_outcomes: (Array.isArray(receipt.host_outcomes) ? receipt.host_outcomes : [])
+      .filter(host => typeof host?.hostname === 'string' && HOST_RE.test(host.hostname) &&
+        ['target_unavailable', 'host_does_not_resolve'].includes(host.state))
+      .map(host => ({ hostname: host.hostname, state: host.state,
+        reason: ['server_error', 'edge_origin_unreachable', 'authoritative_no_address'].includes(host.reason) ? host.reason : 'unavailable',
+        statuses: Array.isArray(host.statuses) ? host.statuses.filter(status => Number.isInteger(status) && status >= 500 && status <= 599).slice(0, 2) : [],
+        skipped_checks: Number.isInteger(host.skipped_checks) && host.skipped_checks >= 0 ? host.skipped_checks : 0,
+        observed_at: Number.isFinite(Date.parse(host.observed_at)) ? new Date(host.observed_at).toISOString() : null })),
     coverage: receipt.coverage ? Object.fromEntries([...COVERAGE_KEYS, 'recorded_total', 'omitted_checks', 'pending_assets', 'not_applicable_hosts'].map(key => [key, Number.isInteger(receipt.coverage[key]) && receipt.coverage[key] >= 0 ? receipt.coverage[key] : null])) : null,
     checks, findings: [],
     costs: receipt.costs ? Object.fromEntries(COST_KEYS.map(key => [key, Number.isFinite(receipt.costs[key]) && receipt.costs[key] >= 0 ? receipt.costs[key] : null])) : null,

@@ -110,9 +110,11 @@ import {
 // an unrelated phase ran out of budget. A changed favourable conclusion from
 // the same frozen report is a methodology boundary.
 // `2026-10-17.4`: completed HTTP and TLS phases with conclusive subset evidence
-// `2026-10-17.5`: bounded soft-404 proof, resolver fallback and scoped TLS plan
 // resolve provisionally instead of claiming that their checks did not run.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-17.5";
+// `2026-10-17.5`: bounded soft-404 proof, resolver fallback and scoped TLS plan.
+// `2026-10-18.1`: terminal unavailable and non-resolving hosts cannot resolve
+// Attack Surface or Website Security as healthy without assessable content.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-10-18.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -271,7 +273,8 @@ function moduleAssessed(report, name, skippedSet) {
   if (m == null) return false;
   if (name === "external_exposure") {
     const c = m.coverage;
-    return c?.completed > 0 && !(c.pending_assets > 0) && ["pending", "blocked", "budget_exhausted", "uncertain"].every((key) => c[key] === 0);
+    return m.quality === 'complete' && c?.completed > 0 && !(c.pending_assets > 0) &&
+      ["pending", "blocked", "budget_exhausted", "uncertain", "target_unavailable_hosts", "non_resolving_hosts", "not_applicable_hosts"].every((key) => c[key] === 0);
   }
   if (name === "tls_assessment") return m.quality === "complete" && m.coverage?.completed > 0;
   if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return false;
@@ -525,7 +528,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       // UI whether the evidence behind it was provisional.
       const caveat = anyRequiredInsufficient || domainProvisional || signalCoverageLimited
         || (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
-          .some((asset) => asset?.probe_status === "not_applicable"))
+          .some((asset) => ["not_applicable", "target_unavailable"].includes(asset?.probe_status)))
         || brandPendingChecks > 0;
       base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
       base.coverage = caveat ? "partial" : (localComplete ? "complete" : quality || "complete");
@@ -632,6 +635,20 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.summary = "Some names have no address in DNS. HTTP was not tested for those names; no healthy web-service conclusion is made.";
       return base;
     }
+    const unavailableHosts = (report?.modules?.asset_exposure?.assets || [])
+      .filter((asset) => asset?.probe_status === "target_unavailable");
+    const contentHostOutcomes = report?.modules?.external_exposure?.host_outcomes || [];
+    if ((d.domain_key === "attack_surface" && unavailableHosts.length > 0) ||
+        (d.domain_key === "website_security" && contentHostOutcomes.length > 0 &&
+          !(report?.modules?.external_exposure?.coverage?.completed > 0))) {
+      const edge = [...unavailableHosts, ...contentHostOutcomes].some((host) => host.reason === "edge_origin_unreachable");
+      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.coverage = "partial";
+      base.summary = edge
+        ? "Cloudflare could not reach this host's origin during this scan. Its content and security posture remain unknown."
+        : "A host was unavailable or did not resolve during this scan. Its content and security posture remain unknown.";
+      return base;
+    }
     // A finished phase with a conclusive subset is useful evidence, even when
     // other checks were blocked, inconclusive or omitted. It cannot establish a
     // healthy whole-domain verdict; keep the unassessed remainder explicit.
@@ -647,7 +664,10 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.state = CYBER_MOT_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.evidence_count += 1;
-      base.summary = `${conclusive} of ${checked} external content checks were conclusive; ${blocked} were blocked by authentication, rate limiting or a challenge. Other inconclusive or unplanned checks and assets awaiting rotation prevent a complete Website Security conclusion.`;
+      const edge = contentHostOutcomes.some(host => host.reason === "edge_origin_unreachable");
+      base.summary = `${conclusive} of ${checked} external content checks were conclusive; ${blocked} were blocked by authentication, rate limiting or a challenge. Other inconclusive or unplanned checks and assets awaiting rotation prevent a complete Website Security conclusion.` +
+        (edge ? " Cloudflare could not reach this host's origin during this scan." :
+          contentHostOutcomes.length > 0 ? " An unavailable or non-resolving host's content remains unknown." : "");
       return base;
     }
     if (d.domain_key === "certificates_trust" && anyRequiredInsufficient &&

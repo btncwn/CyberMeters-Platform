@@ -75,7 +75,7 @@ export async function createBoundedHttpSession(input,dependencies={},configurati
           response=incoming;
           if(!peerChecked)return finish('peer_address_mismatch');
           result.status=incoming.statusCode;
-          for(const key of ['content-type','content-encoding','location','content-range','sourcemap','x-sourcemap',...(configuration.headerNames||[])])if(typeof incoming.headers[key]==='string')result.headers[key]=incoming.headers[key].slice(0,2048);
+          for(const key of ['content-type','content-encoding','location','content-range','sourcemap','x-sourcemap','server',...(configuration.headerNames||[])])if(typeof incoming.headers[key]==='string')result.headers[key]=incoming.headers[key].slice(0,2048);
           if(configuration.retainCookies&&Array.isArray(incoming.headers['set-cookie']))result.headers['set-cookie']=incoming.headers['set-cookie'].slice(0,20);
           if([301,302,303,307,308].includes(result.status))return finish();
           const encoding=(incoming.headers['content-encoding']||'identity').toLowerCase().trim();

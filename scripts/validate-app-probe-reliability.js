@@ -173,8 +173,11 @@ mod = await runExposureModule("example.com", ["a.example.com"]);
 ok("B5 success → reachable>0, not incomplete", mod.reachable === 1 && !mod.incomplete);
 setFetch(() => htmlResponse(503));
 mod = await runExposureModule("example.com", ["a.example.com", "b.example.com"]);
-ok("B5b all 5xx (answered, not content-assessed) → incomplete (server_error), reachable 0",
-  mod.incomplete === true && mod.incomplete_reason === "server_error" && mod.reachable === 0);
+ok("B5b repeated 5xx → execution complete, content unknown, both statuses retained",
+  !mod.incomplete && mod.checked === 2 && mod.reachable === 0 &&
+  mod.assets.every(asset => asset.probe_status === "target_unavailable" && asset.http_assessed === false &&
+    JSON.stringify(asset.server_error_statuses) === "[503,503]") &&
+  runAdminSurfaceModule({ asset_exposure: mod }).evidence_status === "not_assessed");
 const twelveTargets = Array.from({ length: 12 }, (_, index) => `target-${index}.example.com`);
 const flakyHost = twelveTargets[7];
 let flakyCalls = 0;
@@ -193,9 +196,10 @@ setFetch(url => {
   return htmlResponse(200, "<title>Observed service</title>");
 });
 mod = await runExposureModule("example.com", twelveTargets, { retryDelay: async () => {} });
-ok("B5d repeated target error stays an assessed target error, never skipped or complete",
-  mod.checked === 12 && mod.assets.length === 12 && mod.incomplete_reason === "server_error" &&
-  mod.not_assessed_count === 1 && persistentCalls === 2 && mod.assets.find(asset => asset.host === flakyHost)?.probe_status === "server_error");
+ok("B5d repeated target error completes execution but leaves this host unassessed",
+  mod.checked === 12 && mod.assets.length === 12 && !mod.incomplete && persistentCalls === 2 &&
+  mod.assets.find(asset => asset.host === flakyHost)?.probe_status === "target_unavailable" &&
+  JSON.stringify(mod.assets.find(asset => asset.host === flakyHost)?.server_error_statuses) === "[503,503]");
 // Production-regression repro (P1, 19-20 Jul 2026): a real domain whose subdomain list
 // contains mail-only / no-origin names — reachable sites plus CF-edge 522/530 answers.
 // The pass is COMPLETE: every host got an authoritative disposition.
@@ -208,11 +212,13 @@ setFetch((url) => {
 mod = await runExposureModule("example.com", ["www.example.com", "api.example.com", "app.example.com", "reports.example.com", "send.example.com"]);
 ok("B8 CF-edge 52x/530 hosts (no origin serves there) → NOT incomplete, reachable counts real sites",
   !mod.incomplete && mod.reachable === 2 && mod.checked === 5);
-// A genuine origin 5xx mixed in still degrades the pass — the #185 contract holds.
+// A genuine origin 5xx mixed in completes execution but leaves content unknown.
 setFetch((url) => (new URL(url).hostname === "dead.example.com" ? edgeResponse(530) : htmlResponse(503)));
 mod = await runExposureModule("example.com", ["dead.example.com", "sick.example.com"]);
-ok("B9 mixed edge-530 + genuine 503 → incomplete (server_error) — origin 5xx contract preserved",
-  mod.incomplete === true && mod.incomplete_reason === "server_error");
+ok("B9 mixed edge-530 + genuine 503 → terminal unknown content, not healthy",
+  !mod.incomplete && mod.assets.some(asset => asset.probe_status === "target_unavailable" &&
+    JSON.stringify(asset.server_error_statuses) === "[503,503]") &&
+  runAdminSurfaceModule({ asset_exposure: mod }).evidence_status === "not_assessed");
 // mix: one reachable, one timed out → incomplete (the timed-out host was NOT assessed).
 // Route by hostname (probeAsset issues https+http per host and allSettled interleaves).
 setFetch((url) => (new URL(url).hostname === "slow.example.com" ? timeoutError() : htmlResponse(200, "<title>x</title>")));
@@ -246,8 +252,9 @@ ok("C7 end-to-end: all-timeout exposure → admin unavailable (never healthy)",
 setFetch(() => htmlResponse(503));
 const err5xxMod = await runExposureModule("example.com", ["a.example.com"]);
 setFetch(realFetch);
-ok("C8 end-to-end: all-5xx exposure → admin unavailable (server error is not clean)",
-  runAdminSurfaceModule({ asset_exposure: err5xxMod }).evidence_status === "unavailable");
+ok("C8 end-to-end: all-5xx exposure → admin not assessed (never healthy)",
+  !err5xxMod.incomplete && err5xxMod.assets[0]?.probe_status === "target_unavailable" &&
+  runAdminSurfaceModule({ asset_exposure: err5xxMod }).evidence_status === "not_assessed");
 // An all-CF-edge pass is an authoritative negative (same class as all-refused B4):
 // the module completed, nothing serves content, no admin surface is publicly exposed.
 setFetch(() => edgeResponse(530));
@@ -478,26 +485,30 @@ const mfetch = (fn, run, dnsFixture = false) => { const prev = globalThis.fetch;
     m.anchor && r === "assessed_healthy");
 }
 
-// M13: 5xx dropped from the not-assessed set → an all-5xx pass reads complete/clean.
+// M13: the terminal host is omitted from the admin evidence gate, so an
+// all-5xx pass falsely reads assessed healthy despite unknown content.
 {
   const m = await mutant(ASSET_SRC,
-    'const NOT_ASSESSED = new Set(["not_executed", "timed_out", "server_error"]);',
-    'const NOT_ASSESSED = new Set(["not_executed", "timed_out"]);');
+    'exposureAssets.some((asset) => ["not_applicable", "target_unavailable"].includes(asset.probe_status))',
+    'exposureAssets.some((asset) => asset.probe_status === "not_applicable")');
   const r = m.anchor ? await mfetch(() => htmlResponse(503), () => m.mod.runExposureModule("example.com", ["a.example.com"])) : null;
-  ok("mutation M13 (5xx not counted not-assessed) → all-5xx pass falsely complete — CAUGHT",
-    m.anchor && !r.incomplete);
+  ok("mutation M13 (terminal host omitted from admin gate) → all-5xx falsely healthy — CAUGHT",
+    m.anchor && r.assets[0]?.probe_status === "target_unavailable" &&
+    m.mod.runAdminSurfaceModule({ asset_exposure: r }).evidence_status === "assessed_healthy");
 }
-// M14: 5xx no longer marked server_error in probeAsset → module can't see it.
+// M14: 5xx no longer marked server_error in probeAsset → retry and terminal
+// unknown evidence are lost, so admin falsely reads healthy.
 {
   const m = await mutant(ASSET_SRC,
     "...(status >= 500 ? classifyServerErrorStatus(status, server) : {}),",
     "");
   const r = m.anchor ? await mfetch(() => htmlResponse(503), () => m.mod.runExposureModule("example.com", ["a.example.com"])) : null;
-  ok("mutation M14 (5xx server_error marker removed) → all-5xx pass falsely complete — CAUGHT",
-    m.anchor && !r.incomplete);
+  ok("mutation M14 (5xx server_error marker removed) → all-5xx falsely healthy — CAUGHT",
+    m.anchor && r.assets[0]?.probe_status !== "target_unavailable" &&
+    m.mod.runAdminSurfaceModule({ asset_exposure: r }).evidence_status === "assessed_healthy");
 }
 // M15: classifier treats EVERY 5xx as edge-synthesised → a genuine all-503 origin
-// error pass falsely reads complete (breaks the #185 contract → B5b/A11 would fail).
+// error pass falsely reads healthy (breaks the terminal unknown-content contract).
 {
   // PR-A1 re-point: the range test moved into `inEdgeSet` when the predicate was
   // narrowed to (520..527)||530. Widening it to every 5xx must still be caught.
@@ -505,8 +516,9 @@ const mfetch = (fn, run, dnsFixture = false) => { const prev = globalThis.fetch;
     "  const inEdgeSet = (code >= CF_EDGE_STATUS_MIN && code <= CF_EDGE_STATUS_MAX) ||\n    code === CF_EDGE_STATUS_EXTRA;",
     "  const inEdgeSet = code >= 500;");
   const r = m.anchor ? await mfetch(() => edgeResponse(503), () => m.mod.runExposureModule("example.com", ["a.example.com"])) : null;
-  ok("mutation M15 (edge range widened to all 5xx) → genuine origin 503 falsely complete — CAUGHT",
-    m.anchor && !r.incomplete);
+  ok("mutation M15 (edge range widened to all 5xx) → genuine origin 503 falsely healthy — CAUGHT",
+    m.anchor && r.assets[0]?.probe_status === "origin_unreachable" &&
+    m.mod.runAdminSurfaceModule({ asset_exposure: r }).evidence_status === "assessed_healthy");
 }
 // M16: classifier drops the Server:cloudflare signature requirement → a bare 530 from
 // a non-Cloudflare host falsely reads authoritative (A16 would fail).
@@ -518,16 +530,17 @@ const mfetch = (fn, run, dnsFixture = false) => { const prev = globalThis.fetch;
   ok("mutation M16 (edge signature check removed) → unsigned 530 falsely origin_unreachable — CAUGHT",
     m.anchor && r.probe_status === "origin_unreachable");
 }
-// M17: edge branch removed (revert to blanket server_error) → REINTRODUCES the P1:
-// a mail-only-subdomain pass (synthetic CF 530) marks the module incomplete and every
-// scan permanently partial (A13/B8/D6 would fail).
+// M17: edge branch removed (revert to blanket server_error) → the synthetic
+// 530 is misclassified as a terminal unknown-content target.
 {
   const m = await mutantDep(FETCHOBS_SRC, ASSET_SRC,
     "  if (isCloudflareEdgeSynthesised(status, server)) {",
     "  if (false) {");
   const r = m.anchor ? await mfetch(() => edgeResponse(530), () => m.mod.runExposureModule("example.com", ["reports.example.com"])) : null;
-  ok("mutation M17 (edge branch removed — the 19 Jul P1 reintroduced) → edge-530 pass falsely incomplete — CAUGHT",
-    m.anchor && r.incomplete === true && r.incomplete_reason === "server_error");
+  ok("mutation M17 (edge branch removed) → edge-530 pass falsely terminal-unknown — CAUGHT",
+    m.anchor && r.assets[0]?.probe_status === "target_unavailable" &&
+    JSON.stringify(r.assets[0]?.server_error_statuses) === "[530,530]" &&
+    m.mod.runAdminSurfaceModule({ asset_exposure: r }).evidence_status === "not_assessed");
 }
 // M18: removing the one-target retry leaves a transient 5xx as a partial scan.
 {

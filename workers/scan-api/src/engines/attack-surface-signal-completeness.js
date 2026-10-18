@@ -286,6 +286,7 @@ function resolveHttpHttpsService(modules) {
   const exposure = modules?.asset_exposure;
   const assets = exposure?.assets || [];
   const noHttp = assets.filter((asset) => asset?.probe_status === "not_applicable").length;
+  const unavailable = assets.filter((asset) => asset?.probe_status === "target_unavailable").length;
   const reachable = assets.filter((asset) => asset?.reachable === true);
   if (reachable.length > 0) {
     return signal("observed", "http_https_service_observed", {
@@ -294,6 +295,7 @@ function resolveHttpHttpsService(modules) {
       limitations: [
         ...(exposure?.incomplete === true ? [exposure.incomplete_reason || "some_hosts_unassessed"] : []),
         ...(noHttp ? [`${noHttp}_dns_absent_targets_http_not_assessed`] : []),
+        ...(unavailable ? [`${unavailable}_targets_unavailable_content_unknown`] : []),
       ],
     });
   }
@@ -318,6 +320,9 @@ function resolveHttpHttpsService(modules) {
       sources: ["http_probe"], limitations: [`${noHttp}_dns_absent_targets_http_not_assessed`],
     });
   }
+  if (unavailable > 0) return signal("incomplete", "target_unavailable_content_unknown", {
+    sources: ["http_probe"], limitations: [`${unavailable}_targets_unavailable_content_unknown`],
+  });
   if (finiteCount(exposure.checked) === 0) {
     return signal("not_assessed", "no_http_https_targets", {
       sources: ["http_probe"],
@@ -374,6 +379,7 @@ function resolveExposureAdminSurface(modules) {
   const exposure = modules?.asset_exposure;
   const admin = modules?.admin_surface_detection;
   const noHttp = (exposure?.assets || []).filter((asset) => asset?.probe_status === "not_applicable").length;
+  const unavailable = (exposure?.assets || []).filter((asset) => asset?.probe_status === "target_unavailable").length;
   const coverage = exposure?.probe_coverage || null;
   const coverageState = normalizeBoundedCoverageState(coverage?.coverage_state);
   const exposureSignal = (state, reason, detail = {}) => signal(state, reason, {
@@ -392,6 +398,7 @@ function resolveExposureAdminSurface(modules) {
       limitations: [
         ...(exposure?.incomplete === true ? [exposure.incomplete_reason || "some_hosts_unassessed"] : []),
         ...(noHttp ? [`${noHttp}_dns_absent_targets_http_not_assessed`] : []),
+        ...(unavailable ? [`${unavailable}_targets_unavailable_content_unknown`] : []),
       ],
     });
   }
@@ -417,6 +424,9 @@ function resolveExposureAdminSurface(modules) {
       limitations: [`${noHttp}_dns_absent_targets_http_not_assessed`],
     });
   }
+  if (unavailable > 0) return exposureSignal("incomplete", "target_unavailable_content_unknown", {
+    sources: ["http_probe", "asset_exposure_fingerprint"], limitations: [`${unavailable}_targets_unavailable_content_unknown`],
+  });
   if (finiteCount(exposure?.checked) === 0) {
     return exposureSignal("not_assessed", "no_exposure_admin_targets", {
       sources: ["http_probe", "asset_exposure_fingerprint"],

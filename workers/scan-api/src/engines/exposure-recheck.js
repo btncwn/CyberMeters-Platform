@@ -93,6 +93,8 @@ export function classifyExposureHost(findingType, asset) {
     case "timed_out": return { outcome: "timed_out" };
     case "origin_unreachable": return { outcome: "no_origin", status: Number.isInteger(asset.status) ? asset.status : null };
     case "server_error": return { outcome: "server_error", status: Number.isInteger(asset.status) ? asset.status : null };
+    case "target_unavailable": return { outcome: "server_error", status: Number.isInteger(asset.status) ? asset.status : null,
+      statuses: Array.isArray(asset.server_error_statuses) ? asset.server_error_statuses.slice(0, 2) : [] };
     default: break;
   }
   const status = asset.status;

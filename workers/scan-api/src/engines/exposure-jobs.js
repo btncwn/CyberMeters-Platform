@@ -29,7 +29,8 @@ export const EXPOSURE_JOB_LIMITS = Object.freeze({
 const NO_ADDRESS_DNS_REASONS=new Set(['dns_name_without_address','authoritative_a_aaaa_absence']);
 const NO_ADDRESS_HTTP_REASON='http_not_applicable_no_address';
 export const EXPOSURE_INCOMPLETE_REASONS=Object.freeze(['authority_lost','budget_exhausted','checks_not_finished','checks_inconclusive',
-  'checks_blocked','check_budget_exhausted','assets_awaiting_rotation','http_not_applicable_no_address','no_checks_planned']);
+  'checks_blocked','check_budget_exhausted','assets_awaiting_rotation','http_not_applicable_no_address','host_does_not_resolve',
+  'target_unavailable','no_checks_planned']);
 const terminal = state => ['complete','cancelled','budget_exhausted'].includes(state);
 const changed = result => result?.meta?.changes === 1;
 const json = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
@@ -120,6 +121,9 @@ export function exposureIncompleteReason(state,coverage,plannedChecks) {
   if(state==='budget_exhausted')return 'budget_exhausted';
   if(state!=='complete')return 'checks_not_finished';
   if(coverage.uncertain>0)return 'checks_inconclusive';
+  if(coverage.target_unavailable_hosts>0)return 'target_unavailable';
+  if(coverage.non_resolving_hosts>0)return 'host_does_not_resolve';
+  if(coverage.not_applicable_hosts>0)return 'http_not_applicable_no_address';
   if(coverage.blocked>0)return 'checks_blocked';
   if(coverage.budget_exhausted>0)return 'check_budget_exhausted';
   if(coverage.pending>0)return 'checks_not_finished';
@@ -175,7 +179,7 @@ async function createJob(env, scan, now, dispatch) {
     for(const check of planned.checks||[])checks.push({rule_id:check.ruleId||check.rule_id,url:check.url});
   }
   const exposureCheckLimit=env.TLS_ASSESSMENT_MODE==='evidence-v1'?384:EXPOSURE_JOB_LIMITS.checks;
-  const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,exposureCheckLimit),hosts,
+  const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,exposureCheckLimit),hosts,host_outcomes:[],
     exposure_check_limit:exposureCheckLimit,
     pending_assets:Math.max(0,(assetCount?.total||0)-hosts.filter(host=>candidates.some(a=>a.hostname===host)).length-notApplicable.length),
     hosts_not_applicable:notApplicable,discovered_hosts:[],
@@ -579,7 +583,16 @@ export async function processExposureMessage(body,env,deps={}) {
     for(const key of ['requests','redirects','retries','bytes_wire','bytes_decoded','duration_ms'])costs[key]=(costs[key]||0)+t[key];
     plan.retest_checks=unresolvedExposureChecks(plan.retest_checks||[],receipt.results);
     const results=[...json(row.results_json,[]),...receipt.results.map(r=>({...r,observed_at:receipt.finished_at}))];
-    if(!contentPhase&&Array.isArray(receipt.baseline)){
+    if(!contentPhase&&receipt.host_outcome){
+      // The collector proved a terminal host outcome with one DNS resolution or
+      // two 5xx control responses. No catalogue path on that host was tested.
+      const removed=plan.checks.filter((check,index)=>index>=row.cursor&&new URL(check.url).origin===origin);
+      plan.checks=plan.checks.filter((check,index)=>index<row.cursor||new URL(check.url).origin!==origin);
+      plan.host_outcomes=[...(plan.host_outcomes||[]),{hostname:new URL(origin).hostname,
+        state:receipt.host_outcome.state,reason:receipt.host_outcome.reason,
+        statuses:receipt.host_outcome.statuses,skipped_checks:removed.length,observed_at:receipt.finished_at}];
+    }
+    if(!contentPhase&&!receipt.host_outcome&&Array.isArray(receipt.baseline)){
       const baselines=Array.isArray(plan.http_baselines)?plan.http_baselines.filter(item=>item.origin!==origin):[];
       plan.http_baselines=[...baselines,{origin,controls:receipt.baseline,observed_at:receipt.finished_at}].slice(-32);
     }
@@ -598,7 +611,7 @@ export async function processExposureMessage(body,env,deps={}) {
     }
     if(!contentPhase)plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...(receipt.discoveries?.hosts||[])])].filter(h=>safeHost(h,row.domain)).slice(0,128);
     growExposureJobBudget(plan);
-    const cursor=contentPhase?0:row.cursor+checks.length;
+    const cursor=contentPhase?0:row.cursor+(receipt.host_outcome?0:checks.length);
     const state=cursor>=plan.checks.length && (!plan.tls || plan.tls.cursor>=plan.tls.selected.length)?'complete':'pending';
     // Receipt + progress + refund are one atomic, fenced commit. A late result
     // from a replaced process cannot refund its already-charged reservation.
@@ -643,8 +656,12 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   const httpComplete=row.cursor>=plan.checks.length && plan.content_state!=='pending' &&
     (row.state==='complete'||row.state==='budget_exhausted'&&Boolean(plan.tls));
   const notApplicableHosts=(Array.isArray(plan.hosts_not_applicable)?plan.hosts_not_applicable:[]).filter(h=>typeof h?.hostname==='string');
+  const hostOutcomes=(Array.isArray(plan.host_outcomes)?plan.host_outcomes:[]).filter(h=>
+    typeof h?.hostname==='string'&&['target_unavailable','host_does_not_resolve'].includes(h.state));
   const coverage={completed:0,pending:0,blocked:0,not_applicable:0,budget_exhausted:plan.omitted_checks||0,uncertain:0,recorded_total:checks.length,omitted_checks:plan.omitted_checks||0,pending_assets:plan.pending_assets||0,
-    not_applicable_hosts:notApplicableHosts.length};
+    not_applicable_hosts:notApplicableHosts.length,target_unavailable_hosts:hostOutcomes.filter(h=>h.state==='target_unavailable').length,
+    non_resolving_hosts:hostOutcomes.filter(h=>h.state==='host_does_not_resolve').length,
+    execution_complete_hosts:hostOutcomes.length};
   for(const check of checks){
     if(check.comparable)coverage.completed++;
     else if(check.state==='blocked')coverage.blocked++;
@@ -655,10 +672,12 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   }
   // job_state says whether the job FINISHED; quality and incomplete_reason say
   // whether what it observed can support a conclusion. They are different facts.
-  return {source:'external_exposure',version:'1',quality:httpComplete&&checks.every(r=>r.comparable)?'complete':'partial',
+  return {source:'external_exposure',version:'1',quality:httpComplete&&checks.every(r=>r.comparable)&&
+    hostOutcomes.length===0&&notApplicableHosts.length===0?'complete':'partial',
     job_state:row.state,phase_state:httpComplete?'complete':row.state,
     incomplete_reason:exposureIncompleteReason(httpComplete?'complete':row.state,coverage,checks.length),
     hosts_not_applicable:notApplicableHosts.map(h=>({hostname:h.hostname,reason:h.reason,observed_at:h.evidence?.observed_at||null})),
+    host_outcomes:hostOutcomes,
     page_discovery:plan.content_state==='complete'?plan.page_discovery:null,
     coverage,checks,hostname_references:{candidates:(plan.discovered_hosts||[]).map(hostname=>({hostname,sources:['exposure_content']}))},costs:{...json(row.costs_json,{}),charged_requests:row.charged_requests,charged_bytes:row.charged_bytes,
       unknown_attempts:row.unknown_attempts,attempts:row.attempts},observed_at:row.updated_at};

@@ -614,6 +614,9 @@ function httpRemovalSignal(asset) {
   if (asset.probe_status === "timed_out") {
     return { state: "unavailable", reason: asset.reason || "http_probe_timeout", evidence_count: 0 };
   }
+  if (asset.probe_status === "target_unavailable") {
+    return { state: "unavailable", reason: asset.reason || "server_error", evidence_count: 0 };
+  }
   if (asset.probe_status === "origin_unreachable" || asset.reachable === false && asset.status == null) {
     return { state: "not_observed", reason: asset.reason || "http_service_not_observed", evidence_count: 0 };
   }
@@ -676,7 +679,8 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     : { ...opts, fetcher: makeDefaultProbeFetch(opts.cache) };
 
   const retryServerError = async (host, first) => {
-    if (first?.probe_status !== "server_error") return first;
+    const edgeOriginFailure = first?.probe_status === "origin_unreachable" && [522, 523].includes(first.status);
+    if (first?.probe_status !== "server_error" && !edgeOriginFailure) return first;
     const wait = typeof opts.retryDelay === "function"
       ? opts.retryDelay
       : (ms, signal) => new Promise((resolve, reject) => {
@@ -691,10 +695,18 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     try {
       await wait(2000, opts.signal);
       if (opts.signal?.aborted) return first;
-      return await probeAsset(host, probeOpts);
+      const second = await probeAsset(host, probeOpts);
+      if (Number.isInteger(second?.status) && second.status >= 500 &&
+          ["server_error", "origin_unreachable"].includes(second.probe_status)) {
+        const statuses = [first.status, second.status];
+        return { ...second, probe_status: "target_unavailable", http_assessed: false,
+          reason: statuses.every(status => [522, 523].includes(status)) ? "edge_origin_unreachable" : "server_error",
+          server_error_statuses: statuses };
+      }
+      return second;
     } catch {
-      // Keep the observed target error if the retry cannot run or also fails.
-      return first;
+      // A missing second status cannot prove persistent 5xx.
+      return edgeOriginFailure ? { ...first, probe_status: "server_error", http_assessed: false } : first;
     }
   };
 
@@ -990,7 +1002,7 @@ export function runAdminSurfaceModule(modules) {
     evidence_status = "unavailable";                  // ran, but probes/evidence incomplete or failed
   } else if (exposureAssets.length === 0) {
     evidence_status = "not_assessed";                 // no hosts were probed — empty ≠ observed-clean
-  } else if (exposureAssets.some((asset) => asset.probe_status === "not_applicable")) {
+  } else if (exposureAssets.some((asset) => ["not_applicable", "target_unavailable"].includes(asset.probe_status))) {
     evidence_status = "not_assessed";                 // DNS absence is not an HTTP/admin re-observation
   } else {
     evidence_status = "assessed_healthy";             // completed, hosts probed, zero verified admin surfaces

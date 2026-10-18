@@ -654,7 +654,7 @@ export function moduleCompletionGate(modules, scanQuality) {
   }
   // Completed DNS absence is not a repeated HTTP measurement and cannot close
   // an exposure case, including root/legacy cases without an asset lifecycle row.
-  if ((modules?.asset_exposure?.assets || []).some((asset) => asset?.probe_status === "not_applicable")) {
+  if ((modules?.asset_exposure?.assets || []).some((asset) => ["not_applicable", "target_unavailable"].includes(asset?.probe_status))) {
     incomplete.add("asset_exposure");
     incomplete.add("admin_surface_detection");
   }

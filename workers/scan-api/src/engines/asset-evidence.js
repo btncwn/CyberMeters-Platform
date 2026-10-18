@@ -311,6 +311,7 @@ function notChecked({ dns, service, probe, root, host }) {
     // service, or any finding that rests on it, was assessed.
     gaps.push({ part: "service", reason: NOT_REQUESTED_REASON[attempts[0].outcome] || "request_budget" });
   }
+  if (probe?.probe_status === "target_unavailable") gaps.push({ part: "content", reason: probe.reason || "server_error" });
   if ((dns?.AAAA?.addresses || []).length > 0 && service) gaps.push({ part: "service_ipv6", reason: "address_family_not_recorded" });
   return gaps;
 }
