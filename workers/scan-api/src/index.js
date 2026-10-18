@@ -1368,6 +1368,9 @@ const ACCOUNT_PURGE_TABLES = [
   { table: "api_tokens",            column: "user_id" },
   { table: "mfa_challenges",        column: "user_id" },
   { table: "customer_profiles",     column: "owner_user_id" },
+  // Migration 126 keeps the pre-016 table; a profile copied from it must not
+  // outlive the account in its legacy copy.
+  { table: "customer_profiles_legacy_pre016", column: "owner_user_id" },
 ];
 
 // FK edges into users(id) that the account purge does NOT remove. These may
