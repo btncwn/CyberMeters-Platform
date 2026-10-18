@@ -603,7 +603,10 @@ const parity = states.map(parityOutputs);
 // exposure phase, so only the methodology stamps move its golden bytes.
 // P1b mints resolver 2026-10-17.5. This certificate-only fixture has no
 // exposure, TLS, or DMARC signal; the changed methodology stamp moves both bytes.
-const GOLDEN_F13 = "e0c2559ccd6703f1756ec43fee22591d38670f4fb3062d3fe4f729e29629c763";
+// PR-A2 withholds provisional numeric scores from the customer PDF. This
+// certificate-only fixture's F14 snapshot remains byte-identical; only F13's
+// rendered PDF bytes move from e0c2559c… to 4e120f57….
+const GOLDEN_F13 = "4e120f57b00ceeb46ac9d717585dbba97849f36156fad311f35fd63c04e9b54e";
 const GOLDEN_F14 = "12c70b94aba89a0df292e631db8f4627e3726452e6fa834d473ed66018feb035";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
