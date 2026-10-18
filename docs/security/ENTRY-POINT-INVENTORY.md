@@ -136,19 +136,19 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/api/auth/me` | 389 | account | ✓ | requireAuth |
 | POST | `/api/auth/logout` | 402 | public-or-global | public | — |
 | GET | `/api/auth/verify-email` | 439 | public-or-global | public | — |
-| POST | `/api/auth/resend-verification` | 534 | public-or-global | public | — |
-| POST | `/api/auth/microsoft/start` | 657 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/login` | 718 | public-or-global | public | — |
-| GET | `/api/auth/microsoft/callback` | 738 | public-or-global | public | — |
-| POST | `/api/auth/exchange` | 999 | public-or-global | public | — |
-| POST | `/api/auth/forgot-password` | 1114 | public-or-global | public | — |
-| POST | `/api/auth/reset-password` | 1216 | public-or-global | public | — |
-| GET | `/api/auth/mfa/status` | 1372 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/setup` | 1394 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/verify-setup` | 1435 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/challenge` | 1509 | public-or-global | public | — |
-| POST | `/api/auth/mfa/recovery-code` | 1610 | public-or-global | public | — |
-| POST | `/api/auth/mfa/disable` | 1707 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/resend-verification` | 549 | public-or-global | public | — |
+| POST | `/api/auth/microsoft/start` | 672 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/login` | 733 | public-or-global | public | — |
+| GET | `/api/auth/microsoft/callback` | 753 | public-or-global | public | — |
+| POST | `/api/auth/exchange` | 1014 | public-or-global | public | — |
+| POST | `/api/auth/forgot-password` | 1129 | public-or-global | public | — |
+| POST | `/api/auth/reset-password` | 1231 | public-or-global | public | — |
+| GET | `/api/auth/mfa/status` | 1387 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/setup` | 1409 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/verify-setup` | 1450 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/challenge` | 1524 | public-or-global | public | — |
+| POST | `/api/auth/mfa/recovery-code` | 1625 | public-or-global | public | — |
+| POST | `/api/auth/mfa/disable` | 1722 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/billing.js`
 
@@ -227,8 +227,8 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/^\/api\/domains\/([^/` | 192 | public-or-global | ✓ | requireAuth |
 | POST | `/^\/api\/domains\/([^/` | 299 | public-or-global | ✓ | requireAuth |
 | POST | `/^\/api\/domains\/([^/` | 346 | public-or-global | ✓ | requireAuth |
-| GET | `/^\/api\/domains\/([^/` | 719 | public-or-global | ✓ | requireAuth, requireDomainRole |
-| POST | `/^\/api\/domains\/([^/` | 759 | public-or-global | ✓ | requireAuth, requireDomainRole |
+| GET | `/^\/api\/domains\/([^/` | 721 | public-or-global | ✓ | requireAuth, requireDomainRole |
+| POST | `/^\/api\/domains\/([^/` | 761 | public-or-global | ✓ | requireAuth, requireDomainRole |
 
 ### `workers/scan-api/src/routes/email-protection.js`
 

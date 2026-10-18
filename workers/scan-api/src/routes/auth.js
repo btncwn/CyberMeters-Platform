@@ -186,11 +186,11 @@ export async function authRoutes(rctx) {
           "Verify your CyberMeters email address",
           `Hi ${displayName},\n\nPlease verify your email address by clicking the link below:\n\n${verifyLink}\n\nThis link expires in 24 hours.\n\nIf you did not create a CyberMeters account, you can safely ignore this email.\n\nThe CyberMeters Team`,
           `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
-            <h2 style="color:#1d4ed8">Verify your email address</h2>
+            <h2 style="color:#111827">Verify your email address</h2>
             <p>Hi ${displayNameHtml},</p>
             <p>Thanks for signing up for CyberMeters. Please verify your email address to activate your account.</p>
             <p style="margin:32px 0">
-              <a href="${verifyLink}" style="background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Verify email address</a>
+              <a href="${verifyLink}" style="display:inline-block;background:#a9f2e5;color:#081f1c;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600">Verify email address</a>
             </p>
             <p style="color:#6b7280;font-size:14px">This link expires in 24 hours. If you did not create a CyberMeters account, you can safely ignore this email.</p>
           </body></html>`,
@@ -518,7 +518,22 @@ export async function authRoutes(rctx) {
         }).catch(() => {});
 
         // Lifecycle: welcome / getting-started (once per user; verified address).
-        await sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: userRow.id, to: userRow.email }).catch(() => {});
+        // A domain the person already added to a workspace they own and has not
+        // verified yet turns the welcome into "your domain is ready to verify".
+        let welcomeDomain = null;
+        try {
+          const pending = await env.cybermeters_db
+            .prepare(`SELECT d.domain FROM workspace_domains wd
+                        JOIN domains d    ON d.id = wd.domain_id
+                        JOIN workspaces w ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+                       WHERE w.owner_user_id = ?
+                         AND COALESCE(wd.verification_status, '') <> 'verified'
+                       ORDER BY d.domain ASC LIMIT 1`)
+            .bind(userRow.id)
+            .first();
+          welcomeDomain = pending?.domain || null;
+        } catch { /* the plain welcome still goes out */ }
+        await sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: userRow.id, to: userRow.email, domain: welcomeDomain }).catch(() => {});
 
         dest.searchParams.set("success", "1");
         return Response.redirect(dest.toString(), 302);
@@ -605,11 +620,11 @@ export async function authRoutes(rctx) {
           "Verify your CyberMeters email address",
           `Hi ${displayName},\n\nPlease verify your email address by clicking the link below:\n\n${verifyLink}\n\nThis link expires in 24 hours.\n\nIf you did not request this email, you can safely ignore it.\n\nThe CyberMeters Team`,
           `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
-            <h2 style="color:#1d4ed8">Verify your email address</h2>
+            <h2 style="color:#111827">Verify your email address</h2>
             <p>Hi ${displayNameHtml},</p>
             <p>Click below to verify your CyberMeters email address and activate your account.</p>
             <p style="margin:32px 0">
-              <a href="${verifyLink}" style="background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Verify email address</a>
+              <a href="${verifyLink}" style="display:inline-block;background:#a9f2e5;color:#081f1c;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600">Verify email address</a>
             </p>
             <p style="color:#6b7280;font-size:14px">This link expires in 24 hours. If you did not request this, you can safely ignore this email.</p>
           </body></html>`,

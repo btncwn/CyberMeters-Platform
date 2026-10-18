@@ -22,7 +22,8 @@ const domain = {
   name: 'blackbullbarbers.co.uk',
   domain: 'blackbullbarbers.co.uk',
   verification_status: 'verified',
-  verification_token: 'cm-verify-e2e',
+  // The server issues 48 hex characters; the page shows nothing else as a record.
+  verification_token: '0123456789abcdef'.repeat(3),
   created_at: '2026-07-08T09:05:00.000Z',
 }
 
@@ -313,8 +314,9 @@ test('customer lifecycle: signup, onboarding, scan, email protection, billing, d
   await page.getByRole('button', { name: /add domain/i }).click()
   await expect(page.getByText(new RegExp(`First domain:.*${domain.domain}`, 'i'))).toBeVisible()
 
-  await page.getByRole('button', { name: /get dns record/i }).click()
+  // The DNS record is prepared by itself when step 3 opens — nothing to ask for.
   await expect(page.getByText(`cybermeters-verification=${domain.verification_token}`)).toBeVisible()
+  await expect(page.getByRole('button', { name: /get dns record/i })).toHaveCount(0)
   await page.getByRole('button', { name: /verify ownership/i }).click()
   await expect(page.getByText(/domain ownership is verified/i)).toBeVisible()
 

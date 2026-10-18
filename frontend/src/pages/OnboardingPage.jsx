@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
@@ -9,6 +9,7 @@ import OneClickDnsButton from '../components/OneClickDnsButton'
 import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
 import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
+import { onboardingActionError, verifyOutcomeCopy, VERIFY_RECORD_REFRESHED } from '../lib/onboardingCopy'
 
 function domainIdOf(domain) {
   return domain?.domain_id || domain?.id
@@ -20,6 +21,17 @@ function domainNameOf(domain) {
 
 function isVerified(domain, verifyResult) {
   return domain?.verification_status === 'verified' || verifyResult?.success === true
+}
+
+// The record value only ever comes from the server-issued token for THIS
+// workspace's link: the issue response, or the link row in the workspace's
+// domain list. Anything else (e.g. the legacy per-user domain row) is ignored.
+const TOKEN_VALUE = /^cybermeters-verification=[0-9a-f]{32,128}$/
+
+function linkRecordValue(domain) {
+  const token = domain?.verification_token
+  const value = token ? `cybermeters-verification=${token}` : ''
+  return TOKEN_VALUE.test(value) ? value : ''
 }
 
 function scanIdOf(scan) {
@@ -138,15 +150,19 @@ export default function OnboardingPage() {
   const [domainName, setDomainName] = useState(() => {
     try { return localStorage.getItem(PENDING_SIGNUP_DOMAIN_KEY) || '' } catch { return '' }
   })
-  const [verificationInstructions, setVerificationInstructions] = useState(null)
+  // { domainId, value } from the issue call, until the domain list carries it.
+  const [issuedRecord, setIssuedRecord] = useState(null)
+  // 'idle' | 'preparing' | 'failed' — the record is prepared automatically.
+  const [recordState, setRecordState] = useState('idle')
+  const preparingFor = useRef(null)
   const [verifyResult, setVerifyResult] = useState(null)
+  const [verifyNote, setVerifyNote] = useState(null)
   const [firstScan, setFirstScan] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
+  const selectedId = domainIdOf(selectedDomain)
+  const dnsValue = (selectedId && issuedRecord?.domainId === selectedId ? issuedRecord.value : '') || linkRecordValue(selectedDomain)
   // One-click verification for the current token (re-fetched when a new one is issued).
-  const oneClick = useDomainConnectOffer(
-    domainIdOf(selectedDomain), workspace?.id,
-    verificationInstructions?.dns?.value || verificationInstructions?.token || selectedDomain?.verification_token,
-  )
+  const oneClick = useDomainConnectOffer(selectedId, workspace?.id, dnsValue || null)
 
   async function load() {
     setLoading(true)
@@ -178,13 +194,26 @@ export default function OnboardingPage() {
       setSelectedDomain(domainList[0] || null)
       setScans(scanData.scans || [])
     } catch (e) {
-      setError(e.message)
+      setError(onboardingActionError('load', e))
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => { load() }, [])
+
+  // Re-read the workspace's own domain list — the authoritative link rows the
+  // backend verifies against — keeping the same domain selected.
+  async function refreshDomains(keepId) {
+    if (!workspace?.id) return null
+    const refreshed = await api.getWorkspaceDomains(workspace.id).catch(() => null)
+    const list = refreshed?.domains
+    if (!list) return null
+    setDomains(list)
+    const keep = list.find(item => domainIdOf(item) === keepId) || list[0] || null
+    setSelectedDomain(keep)
+    return keep
+  }
 
   const completedScan = useMemo(
     () => scans.find(scan => scanIdOf(scan) === scanIdOf(firstScan))
@@ -242,7 +271,7 @@ export default function OnboardingPage() {
       localStorage.setItem('cybermeters_workspace_id', ws.id)
       localStorage.setItem('cybermeters_workspace_name', ws.name)
     } catch (e) {
-      setError(e.message)
+      setError(onboardingActionError('workspace', e))
     } finally {
       setActionLoading(null)
     }
@@ -263,41 +292,65 @@ export default function OnboardingPage() {
       setDomainName('')
       try { localStorage.removeItem(PENDING_SIGNUP_DOMAIN_KEY) } catch { /* ignore */ } // handoff consumed
     } catch (e) {
-      setError(e.message)
+      setError(onboardingActionError('domain', e))
     } finally {
       setActionLoading(null)
     }
   }
 
-  async function generateVerification() {
-    const id = domainIdOf(selectedDomain)
-    if (!id) return
-    setActionLoading('verification')
-    setError(null)
+  // Issue the DNS record for THIS workspace's link. Runs by itself when step 3
+  // opens without one, so nobody has to ask for the record.
+  async function prepareRecord(id) {
+    if (!id || !workspace?.id) return false
+    preparingFor.current = id
+    setRecordState('preparing')
     try {
-      const data = await api.generateDomainVerification(id)
-      setVerificationInstructions(data)
-      const refreshed = await api.getDomain(id).catch(() => null)
-      if (refreshed?.domain) setSelectedDomain(refreshed.domain)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setActionLoading(null)
+      const data = await api.generateDomainVerification(id, workspace.id)
+      if (data?.already_verified) {
+        setVerifyResult({ success: true })
+        await refreshDomains(id)
+        setRecordState('idle')
+        return true
+      }
+      const value = data?.dns?.value || (data?.token ? `cybermeters-verification=${data.token}` : '')
+      if (!TOKEN_VALUE.test(value)) throw new Error('unusable verification record')
+      setIssuedRecord({ domainId: id, value })
+      setRecordState('idle')
+      await refreshDomains(id)
+      return true
+    } catch {
+      setRecordState('failed')
+      return false
     }
   }
+
+  const needsRecord = Boolean(workspace?.id && selectedId) && !isVerified(selectedDomain, verifyResult) && !dnsValue
+  useEffect(() => {
+    if (needsRecord && recordState === 'idle' && preparingFor.current !== selectedId) prepareRecord(selectedId)
+  }, [needsRecord, recordState, selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function verifyDomain() {
-    const id = domainIdOf(selectedDomain)
+    const id = selectedId
     if (!id) return
     setActionLoading('verify')
-    setError(null)
+    setVerifyNote(null)
     try {
-      const data = await api.verifyDomain(id)
-      setVerifyResult(data)
-      const refreshed = await api.getDomain(id).catch(() => null)
-      if (refreshed?.domain) setSelectedDomain(refreshed.domain)
+      const data = await api.verifyDomain(id, workspace?.id)
+      if (data?.success === true) {
+        setVerifyResult(data)
+        await refreshDomains(id)
+      } else {
+        setVerifyNote(verifyOutcomeCopy(data))
+      }
     } catch (e) {
-      setVerifyResult({ success: false, message: e.message })
+      if (e?.outcome === 'no_token') {
+        // The link had no record: prepare one now and say so plainly.
+        preparingFor.current = null
+        const ok = await prepareRecord(id)
+        setVerifyNote(ok ? VERIFY_RECORD_REFRESHED : null)
+      } else {
+        setVerifyNote(verifyOutcomeCopy(e))
+      }
     } finally {
       setActionLoading(null)
     }
@@ -314,7 +367,7 @@ export default function OnboardingPage() {
       const refreshed = await api.getWorkspaceScans(workspace.id).catch(() => ({ scans: [] }))
       setScans(refreshed.scans || [])
     } catch (e) {
-      setError(e.message)
+      setError(onboardingActionError('scan', e))
     } finally {
       setActionLoading(null)
     }
@@ -339,10 +392,7 @@ export default function OnboardingPage() {
     )
   }
 
-  const dnsHost = verificationInstructions?.dns?.host || (selectedDomainName ? `_cybermeters.${selectedDomainName}` : '')
-  const dnsValue = verificationInstructions?.dns?.value
-    || (verificationInstructions?.token ? `cybermeters-verification=${verificationInstructions.token}` : '')
-    || (selectedDomain?.verification_token ? `cybermeters-verification=${selectedDomain.verification_token}` : '')
+  const dnsHost = selectedDomainName ? `_cybermeters.${selectedDomainName}` : ''
 
   return (
     <div className="max-w-(--breakpoint-lg) mx-auto px-6 py-8 space-y-6">
@@ -427,44 +477,51 @@ export default function OnboardingPage() {
         ) : steps.verification ? (
           <p className="text-sm text-brand-700 font-medium">Domain ownership is verified.</p>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4" data-testid="onboarding-verify">
             <p className="text-sm text-gray-500">
               Add the CyberMeters TXT record to your DNS, then verify ownership.
             </p>
-            {(verificationInstructions || selectedDomain?.verification_token) && (
-              <OneClickDnsButton offer={oneClick} />
-            )}
-            {(verificationInstructions || selectedDomain?.verification_token) && (
-              <dl className="rounded-xl border border-gray-200 divide-y divide-gray-100">
-                {[['Type', 'TXT'], ['Host', dnsHost], ['TXT Value', dnsValue]].map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-1 sm:grid-cols-[110px_minmax(0,1fr)_auto] gap-1 sm:gap-4 items-start sm:items-center px-4 py-3">
-                    <dt className="text-xs font-semibold uppercase tracking-widest text-gray-500">{label}</dt>
-                    <dd className="min-w-0"><code className="text-sm text-gray-800 break-all">{value}</code></dd>
-                    <dd>{label !== 'Type' && <CopyButton value={value} />}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-            {verifyResult && !verifyResult.success ? (
-              <p role="status" className="text-sm text-brand-700 bg-transparent border border-[1.5px] border-brand-700 rounded-xl p-3">
-                {verifyResult.message || 'Verification is not complete yet. DNS changes can take time to propagate.'}
+            {dnsValue ? (
+              <>
+                <OneClickDnsButton offer={oneClick} />
+                <dl className="rounded-xl border border-gray-200 divide-y divide-gray-100" data-testid="onboarding-dns-record">
+                  {[['Type', 'TXT'], ['Host', dnsHost], ['TXT Value', dnsValue]].map(([label, value]) => (
+                    <div key={label} className="grid grid-cols-1 sm:grid-cols-[110px_minmax(0,1fr)_auto] gap-1 sm:gap-4 items-start sm:items-center px-4 py-3">
+                      <dt className="text-xs font-semibold uppercase tracking-widest text-gray-500">{label}</dt>
+                      <dd className="min-w-0"><code className="text-sm text-gray-800 break-all">{value}</code></dd>
+                      <dd>{label !== 'Type' && <CopyButton value={value} />}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="text-sm text-gray-600">
+                  Where to add it: in the DNS settings at your domain or hosting provider. If someone else manages your domain, send them the host and value above.
+                </p>
+              </>
+            ) : recordState === 'failed' ? (
+              <p role="status" className="text-sm text-gray-800 bg-gray-50 border border-gray-300 rounded-xl p-3" data-testid="onboarding-record-failed">
+                {onboardingActionError('record')}
               </p>
-            ) : (verificationInstructions || selectedDomain?.verification_token) ? (
-              <p role="status" className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-xl p-3">
-                Not verified yet. Add the record at your DNS provider, then select Verify Ownership. DNS changes can take time to appear; you can check again at any time.
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-gray-600" data-testid="onboarding-record-preparing">
+                <Spinner size="sm" /> Preparing your DNS record…
+              </div>
+            )}
+            {verifyNote && (
+              <p role="status" className="text-sm text-gray-800 bg-gray-50 border border-gray-300 rounded-xl p-3" data-testid="onboarding-verify-note">
+                {verifyNote}
               </p>
-            ) : null}
-            <p className="text-sm text-gray-600">
-              Where to add it: in the DNS settings at your domain or hosting provider. If someone else manages your domain, send them the host and value above.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={generateVerification} className="btn-secondary" disabled={actionLoading === 'verification'}>
-                {actionLoading === 'verification' ? 'Preparing...' : 'Get DNS Record'}
-              </button>
-              <button onClick={verifyDomain} className="btn-primary" disabled={actionLoading === 'verify'}>
-                {actionLoading === 'verify' ? 'Verifying...' : 'Verify Ownership'}
-              </button>
-              <Link to={`/domains/${domainIdOf(selectedDomain)}/verify`} className="btn-ghost">
+            )}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {dnsValue ? (
+                <button onClick={verifyDomain} className="btn-primary" disabled={actionLoading === 'verify'}>
+                  {actionLoading === 'verify' ? 'Checking…' : 'Verify ownership'}
+                </button>
+              ) : recordState === 'failed' ? (
+                <button onClick={() => prepareRecord(selectedId)} className="btn-primary">
+                  Try again
+                </button>
+              ) : null}
+              <Link to={`/domains/${selectedId}/verify`} className="text-sm font-medium text-brand-700 hover:text-brand-800 underline underline-offset-2">
                 Advanced verification
               </Link>
             </div>

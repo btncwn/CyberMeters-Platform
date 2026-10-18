@@ -321,6 +321,17 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
   switch (type) {
     case "lifecycle_welcome":
       subject = "Welcome to CyberMeters";
+      if (domain) {
+        // The person already added a domain before confirming their email.
+        heading = "Your domain is ready to verify";
+        paras = [
+          `${dom} is in your workspace. Verify that you control it to unlock its full findings.`,
+          "Verification is one DNS TXT record. It proves control and changes nothing else.",
+          `After that, run your first Cyber MOT across: ${DOMAINS_LINE}`,
+        ];
+        ctaLabel = "Verify your domain"; ctaPath = "/onboarding";
+        break;
+      }
       heading = "Welcome to CyberMeters";
       paras = [
         "CyberMeters helps you understand your whole external posture from one workspace.",
