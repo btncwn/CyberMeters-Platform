@@ -9,6 +9,7 @@ import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
 import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
 import NetworkAssetsPanel from '../components/NetworkAssetsPanel'
+import NetworkAssetsSummary, { NETWORK_ASSETS_TILE_TO } from '../components/NetworkAssetsSummary'
 import HostnameListPanel from '../components/HostnameListPanel'
 import AssetEvidence from '../components/AssetEvidence'
 import { assetLifecycleClaimDisplay, projectedCountDisplay } from '../lib/assetLifecycleClaimDisplay'
@@ -629,6 +630,9 @@ export default function AssetsPage() {
         workspaceId={workspaceId}
         workspaceName={workspaceName}
         description="Your externally reachable hosts and services, tracked across scans: what appeared, what changed and what is exposed."
+        /* The "Network assets" page tile (Findings · #network-assets) carries an
+           honest one-liner from the network panel's own API. */
+        tileSummaries={{ [NETWORK_ASSETS_TILE_TO]: <NetworkAssetsSummary workspaceId={workspaceId} /> }}
         actions={(
           <button onClick={() => load(true)} disabled={refreshing || loading} className="btn-secondary shrink-0">
             {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}

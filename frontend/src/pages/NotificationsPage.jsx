@@ -12,6 +12,7 @@
  * when metadata provides a safe in-app target.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { presentNotificationMessage } from '../lib/scoreHonesty'
 import { useNavigate, Link } from 'react-router-dom'
 import { api } from '../api'
 import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
@@ -158,7 +159,7 @@ function NotificationCard({ n, onMarkRead }) {
               {n.title}
             </p>
             {n.message && (
-              <p className="text-sm text-gray-400 mt-0.5 leading-relaxed">{n.message}</p>
+              <p className="text-sm text-gray-400 mt-0.5 leading-relaxed">{presentNotificationMessage(n.message)}</p>
             )}
             {/* Parity with the alert email: the recommendation is a separate,
                 backend-owned sentence — never re-derived or re-worded here. */}

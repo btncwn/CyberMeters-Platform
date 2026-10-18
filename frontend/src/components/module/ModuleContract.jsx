@@ -148,7 +148,7 @@ function Section({ section, theme, children, className = '' }) {
 
 const S = Object.fromEntries(MODULE_CONTRACT_SECTIONS.map((s) => [s.id, s]))
 
-function SubpageTiles({ domainKey, tiles, theme }) {
+function SubpageTiles({ domainKey, tiles, theme, summaries = null }) {
   const Icon = moduleIcon(moduleForDomainKey(domainKey)?.colourKey)
   if (tiles.length === 0) return null
   return (
@@ -163,6 +163,9 @@ function SubpageTiles({ domainKey, tiles, theme }) {
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] font-semibold text-gray-900">{t.label}</span>
                 {t.desc && <span className="block text-xs text-gray-500 truncate">{t.desc}</span>}
+                {/* A page may add one honest line of its own data under a tile (e.g. the
+                    network-assets count); the backend's numbers, never derived here. */}
+                {summaries?.[t.to] ?? null}
               </span>
               <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
             </Link>
@@ -183,10 +186,12 @@ function SubpageTiles({ domainKey, tiles, theme }) {
  *   overview           — the page's own summary blocks for the Overview tab: statistic cards,
  *                        coverage honesty and open-case panels, rendered between the tiles and
  *                        the Scope/Evidence/Risk summary. Never a list — lists are Findings.
+ *   tileSummaries      — optional { [tile.to]: node } adding one line of the page's own backend data
+ *                        under that sub-page tile on Overview
  *   recommendedAction  — optional node the page already derives from its own backend data (shown in section 5)
  *   children           — the page's findings body (section 4)
  */
-export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, recommendedAction = null, children }) {
+export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, tileSummaries = null, recommendedAction = null, children }) {
   const module = moduleForDomainKey(domainKey)
   const theme = moduleTheme(domainKey)
   const [params, setParams] = useSearchParams()
@@ -442,7 +447,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       <div id="module-tabpanel" role="tabpanel" aria-labelledby={`module-tab-${tab}`} tabIndex={0} className="space-y-8">
         {tab === 'overview' && (
           <>
-            <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} />
+            <SubpageTiles domainKey={domainKey} tiles={tiles} theme={theme} summaries={tileSummaries} />
             {overview && <div className="space-y-6" data-testid="module-overview">{overview}</div>}
             <div className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6" data-testid="module-summary">
               {scopeSection}

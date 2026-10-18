@@ -6,6 +6,9 @@ import { api } from '../api'
 import { getAcademyArticleForFinding } from '../data/academy'
 import { buildRemediationIntelligence, PRIORITY_LABELS } from '../data/remediation'
 import StatusBadge from '../components/StatusBadge'
+import ScanProgress from '../components/ScanProgress'
+import { scoreHeadline, provisionalScoreLabel } from '../lib/scoreHonesty'
+import { rememberSample } from '../lib/scanDuration'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
@@ -1174,6 +1177,14 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
   const actionableFindings = allActionable.filter(f => !(f.id && waivers[f.id]))
   const waivedFindings     = allActionable.filter(f => f.id && waivers[f.id])
   const duration = durationSeconds(report.started_at, report.completed_at)
+  // The backend's assessment envelope decides whether the score is a headline.
+  const heroHeadline = scoreHeadline({
+    score: Number.isFinite(assessment?.display_score) ? assessment.display_score : (Number.isFinite(score) ? score : null),
+    rating: assessment ? (assessment.display_rating ?? null) : (risk_level ?? null),
+    provisional: assessment?.provisional,
+    message: [assessment?.suppression_reason, assessment?.message].find((v) => typeof v === 'string' && v.trim()) ?? null,
+    scanQuality: scan_quality?.status ?? null,
+  })
   const showQualityWarning = scan_quality?.status === 'degraded' || scan_quality?.status === 'partial'
   const incompleteModules = scan_quality?.modules_incomplete || []
   const incompleteNames = new Set(incompleteModules.map(m => m?.module).filter(Boolean))
@@ -1195,7 +1206,16 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
           {/* Ring */}
           <div className="flex flex-col items-center justify-center gap-2 px-8 py-6 sm:border-r border-gray-100 sm:min-w-[180px]">
             <span className="label text-xs">Cyber Metrics Score</span>
-            <ScoreRing score={score} riskLevel={risk_level} />
+            {heroHeadline.mode === 'established'
+              ? <ScoreRing score={heroHeadline.score} riskLevel={risk_level} />
+              : (
+                <div className="max-w-[16rem] text-center" data-testid="hero-score-withheld">
+                  <p className="text-sm text-gray-700 leading-relaxed">{heroHeadline.explanation || 'Score not established for this scan.'}</p>
+                  {heroHeadline.mode === 'withheld' && (
+                    <p className="text-xs text-gray-600 mt-2">{provisionalScoreLabel(heroHeadline.score)}</p>
+                  )}
+                </div>
+              )}
           </div>
 
           {/* Quick counts */}
@@ -1381,6 +1401,14 @@ export default function ScanDetail() {
   // enhancement — the report renders identically if they cannot be loaded.
   const activeWsId   = typeof window !== 'undefined' ? localStorage.getItem('cybermeters_workspace_id') : null
   const reportDomain = report?.domain || scan?.domain || null
+
+  // A completed report records when the run started and finished; remember
+  // its duration so the next queued scan can say how long it usually takes.
+  useEffect(() => {
+    if (report?.started_at && report?.completed_at) {
+      rememberSample({ workspaceId: activeWsId, scanId: id, domain: reportDomain, startedAt: report.started_at, completedAt: report.completed_at })
+    }
+  }, [report, id, activeWsId, reportDomain])
 
   useEffect(() => {
     if (!activeWsId || !reportDomain) { setWaivers({}); return }
@@ -1607,6 +1635,13 @@ export default function ScanDetail() {
   const assessmentReason = [assessment?.suppression_reason, assessment?.message]
     .find((value) => typeof value === 'string' && value.trim()) ?? null
   const assessmentBand = bandMeta(assessmentRating)
+  const headline = scoreHeadline({
+    score: assessmentScore,
+    rating: assessmentRating,
+    provisional: assessment?.provisional,
+    message: assessmentReason,
+    scanQuality: report?.scan_quality?.status ?? scan?.scan_quality ?? null,
+  })
 
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
@@ -1629,11 +1664,10 @@ export default function ScanDetail() {
           {/* Page header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <h1 className="text-xl font-bold text-gray-900 truncate">{scan.domain}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-bold text-gray-900 break-words min-w-0">{scan.domain}</h1>
                 <StatusBadge status={scan.status} quality={scan.scan_quality} />
               </div>
-              <p className="mono text-xs text-gray-500">{scan.id}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button onClick={() => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`)} className="btn-secondary">
@@ -1651,15 +1685,7 @@ export default function ScanDetail() {
             </div>
           </div>
 
-          {/* Active banner */}
-          {isActive && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-transparent border border-[1.5px] border-brand-700 rounded-xl text-sm">
-              <Spinner size="sm" />
-              <span className="text-brand-700 font-medium">
-                Scan is {scan.status} — auto-refreshing every {POLL_MS / 1000}s
-              </span>
-            </div>
-          )}
+          {/* The active state is said once, in the main column (ScanProgress). */}
 
           {/* Main grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1766,13 +1792,7 @@ export default function ScanDetail() {
                   </div>
                 </div>
               ) : (
-                <div className="card flex flex-col items-center gap-4 py-20 text-center">
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">Scan in progress</p>
-                    <p className="text-xs text-gray-400 mt-1">Results will appear here once complete</p>
-                  </div>
-                  <Spinner />
-                </div>
+                <ScanProgress scan={scan} workspaceId={activeWsId} pollSeconds={POLL_MS / 1000} />
               )}
             </div>
 
@@ -1784,16 +1804,27 @@ export default function ScanDetail() {
                 <SectionHeader title="Scan Information" />
                 <div>
                   <KV label="Scan ID"   value={<ScanIdValue id={scan.id} />} />
-                  <KV label="Domain"    value={scan.domain} />
+                  <KV label="Domain"    value={<span className="break-words" data-testid="scan-info-domain">{scan.domain}</span>} />
                   {/* The run finishing and its checks all completing are two facts. */}
                   <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} />} />
                   {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} />} />}
-                  <KV label={assessment?.provisional === true && assessmentScore !== null ? 'Provisional Score' : 'Score'} value={
-                    assessmentScore !== null
-                      ? <span className={`font-bold ${assessment?.provisional === true ? 'text-gray-700' : 'text-brand-700'}`}>{assessmentScore} / 100</span>
-                      : '—'
-                  } />
-                  {/* Short label (founder, 17 Oct 2026); a withheld band says so in the value. */}
+                  {/* Score honesty: a withheld or provisional score is never a headline.
+                      The backend's explanation reads first; the number follows, small
+                      and labelled provisional. */}
+                  {headline.mode === 'established' && (
+                    <KV label="Score" value={<span className="font-bold text-brand-700" data-testid="scan-score-headline">{headline.score} / 100</span>} />
+                  )}
+                  {headline.mode === 'withheld' && (
+                    <KV label="Provisional Score" value={(
+                      <span className="block" data-testid="scan-score-withheld">
+                        <span className="block text-sm font-normal text-gray-700 leading-relaxed">{headline.explanation}</span>
+                        <span className="block text-xs font-normal text-gray-600 mt-1">
+                          <span>{headline.score} / 100</span> · provisional, not a final result
+                        </span>
+                      </span>
+                    )} />
+                  )}
+                  {headline.mode === 'none' && <KV label="Score" value="—" />}
                   <KV label="Assessment band" value={
                     <span className={`inline-flex whitespace-nowrap text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentBand.pill}`} data-testid="scan-band-chip">
                       {/* A provisional assessment withholds its band; say so instead of "Not assessed". */}
