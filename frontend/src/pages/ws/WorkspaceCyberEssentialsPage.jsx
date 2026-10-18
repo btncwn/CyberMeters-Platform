@@ -625,18 +625,14 @@ export default function WorkspaceCyberEssentialsPage() {
           workspaceId={wsId}
           workspaceName={wsName}
           description="Save self-declared answers for this workspace and combine them with external Cyber MOT evidence for readiness guidance and gap analysis."
-          aside={(
-            <div className="card mt-4 p-4 max-w-md">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold text-gray-900">Question progress</span>
-                <span className="text-sm font-bold tabular-nums text-brand-700">{progress.answered}/{progress.total}</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full rounded-full bg-brand-200 transition-all" style={{ width: `${progress.pct}%` }} />
-              </div>
-              {savedAt && <p className="mt-2 text-xs text-gray-400">Saved {formatDate(savedAt)}</p>}
-            </div>
-          )}
+          /* The area template (18 Oct 2026): until every question is answered, the
+             questionnaire IS the next action — one card, one button. */
+          nextAction={progress.total > 0 && progress.answered < progress.total ? {
+            title: progress.answered === 0 ? 'Answer the readiness questionnaire' : 'Finish the readiness questionnaire',
+            body: `${progress.answered} of ${progress.total} questions answered. Your answers are self-declared and combine with external Cyber MOT evidence for readiness guidance.`,
+            label: 'Start questionnaire',
+            to: '/ws/cyber-essentials?tab=findings#questionnaire',
+          } : null}
           overview={(
             <>
               {/* The readiness indicator and which controls external evidence can
@@ -689,7 +685,8 @@ export default function WorkspaceCyberEssentialsPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-gray-900">Save self-declared answers</p>
-                    <p className="text-xs text-gray-500">Readiness output refreshes after save.</p>
+                    <p className="text-xs text-gray-500">Readiness output refreshes after save. {progress.answered} of {progress.total} answered.</p>
+                    {savedAt && <p className="mt-1 text-xs text-gray-600">Saved {formatDate(savedAt)}</p>}
                   </div>
                   <button type="button" onClick={saveAnswers} disabled={saving} className="btn-primary disabled:cursor-not-allowed disabled:opacity-50">
                     {saving && <Loader2 className="h-4 w-4 animate-spin" />}

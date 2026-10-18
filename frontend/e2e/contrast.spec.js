@@ -39,7 +39,9 @@ for (const vp of VIEWPORTS) {
     test.use({ viewport: { width: vp.width, height: vp.height }, reducedMotion: 'reduce' })
 
     test(`signed-in routes read at ${vp.name}`, async ({ page, context }) => {
-      test.setTimeout(240_000)
+      // ~55 routes in one test; it shares workers with the area-page pass (PR-C), so the
+      // budget allows for contention. Only the time limit changed — every route and rule stays.
+      test.setTimeout(480_000)
       await seedSession(context)
       await installAppMock(page)
       const failures = []

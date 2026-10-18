@@ -1,5 +1,5 @@
 // The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../api'
@@ -48,7 +48,7 @@ async function renderPage(tab = 'findings') {
   api.getWorkspaceScans.mockResolvedValue({ scans: [] })
   render(<MemoryRouter initialEntries={[`/assets?tab=${tab}`]}><AssetsPage /></MemoryRouter>)
   if (tab === 'findings') await screen.findByText('app.example.com')
-  else await screen.findByTestId('attack-surface-stats')
+  else await waitFor(() => expect(screen.getAllByTestId('module-figure')).toHaveLength(4))
 }
 
 beforeEach(() => {
@@ -66,19 +66,28 @@ describe('AssetsPage status wording', () => {
     expect(screen.queryByText(/Legacy/)).not.toBeInTheDocument()
   })
 
-  it('counts lifecycle states, not the legacy active flag — on the Overview tab, where the statistic cards live', async () => {
+  it('counts lifecycle states, not the legacy active flag — in "What we observed"', async () => {
     await renderPage('overview')
-    expect(screen.getByText('Seen in latest scan', { selector: 'p' })).toBeInTheDocument()
-    expect(screen.getByText('No longer observed', { selector: 'p' })).toBeInTheDocument()
+    const figures = screen.getAllByTestId('module-figure')
+    const seen = figures.find((f) => f.querySelector('dt').textContent === 'Seen in latest scan')
+    const gone = figures.find((f) => f.querySelector('dt').textContent === 'No longer observed')
+    expect(seen).toHaveTextContent('1')
+    expect(gone).toHaveTextContent('1')
+    expect(gone).toHaveTextContent('not proof it was removed')
     expect(screen.queryByText('Active inventory across this workspace')).not.toBeInTheDocument()
     // Overview carries the summary, never the asset list; Findings the reverse.
     expect(screen.queryByText('app.example.com')).not.toBeInTheDocument()
   })
 
-  it('keeps the statistic cards off the Findings tab', async () => {
+  it('shows at most four figures (the old seven-card grid is gone) and one reading guide above the lifecycle table', async () => {
     await renderPage()
     expect(screen.queryByTestId('attack-surface-stats')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('module-figure')).toHaveLength(4)
     expect(screen.getByText('Asset Timeline')).toBeInTheDocument()
+    expect(screen.getAllByTestId('asset-lifecycle-howto')).toHaveLength(1)
+    expect(screen.getByText('How to read this')).toBeInTheDocument()
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent)
+    expect(headers.slice(0, 4)).toEqual(['Hostname', 'Lifecycle state', 'Latest evidence', 'Last seen'])
   })
 
   it('filters the table by lifecycle state', async () => {

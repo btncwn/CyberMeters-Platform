@@ -3006,7 +3006,7 @@ export function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, send
   const modeChip = { ok: 'bg-brand-50 text-brand-700 border-brand-100', info: 'bg-blue-50 text-blue-700 border-blue-100', na: 'bg-gray-50 text-gray-500 border-gray-200' }[modeCfg.tone]
 
   const next = state === 'connected'
-    ? { text: 'Review your sender inventory.', cta: 'View sender inventory', act: onGotoSenders }
+    ? { text: 'Review your sender inventory.', cta: 'Review sender inventory', act: onGotoSenders }
     : state === 'waiting'
       ? { text: 'Your DNS is ready — reports will appear automatically once providers send them.', cta: null }
       : { text: 'Add the CyberMeters RUA address to your DMARC record, then verify.', cta: 'Go to DMARC setup', act: onGotoSetup }
@@ -3571,7 +3571,7 @@ export default function WorkspaceEmailProtectionPage() {
 
   const hasReports = dmarc && ((dmarc.traffic?.total_messages || 0) > 0 || (dmarc.senders?.total || 0) > 0)
 
-  const gotoSetup   = () => goToAnchor('dmarc-setup')
+  const gotoSetup   = () => goToAnchor('dmarc-setup', { tab: 'settings' })
   const gotoSenders = () => goToAnchor('sender-inventory')
 
   // Migration 088's history (mig 088). Workspace-scoped, not per-domain: a hosted record
@@ -3594,10 +3594,47 @@ export default function WorkspaceEmailProtectionPage() {
     document.getElementById('lifecycle-history')?.scrollIntoView({ block: 'start' })
   }, [lifecycle])
 
+  // Settings tab (the area template, 18 Oct 2026): everything configurable about
+  // reporting — connection status, ingestion, the DMARC setup wizard, connecting
+  // report delivery and importing a report by hand.
+  const emailReady = domainScans.length > 0 && !reportLoading && Boolean(es) && !moduleErrored && !notApplicable
+  const emailSettings = !emailReady ? (
+    <EmptyCard
+      title="Nothing to configure yet"
+      body={domainScans.length === 0 ? 'Email reporting settings appear after a scan of a domain in this workspace.' : 'Email reporting settings appear once the latest scan returns email-security data for this domain.'}
+    />
+  ) : (
+    <div className="space-y-6">
+      <EmailProtectionOverview
+        wsId={wsId}
+        domain={selectedDomain}
+        dmarcDetail={es?.dmarc_detail}
+        dmarc={dmarc}
+        senderData={senderData}
+        onGotoSetup={gotoSetup}
+        onGotoSenders={gotoSenders}
+      />
+      <DmarcIngestionStatus wsId={wsId} domain={selectedDomain} onGotoSetup={gotoSetup} onGotoSenders={gotoSenders} />
+      <div id="dmarc-setup" className="scroll-mt-20">
+        <DmarcSetupWizard
+          wsId={wsId}
+          domain={selectedDomain}
+          dmarcDetail={es?.dmarc_detail}
+          hasScanData
+          totalMessages={dmarc?.traffic?.total_messages ?? null}
+        />
+      </div>
+      <div id="connect-reporting" className="scroll-mt-20">
+        <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} dmarcDetail={es?.dmarc_detail} />
+      </div>
+      <section id="report-import" className="scroll-mt-20">
+        <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
+      </section>
+    </div>
+  )
+
   const headerActions = (
     <>
-        <button onClick={gotoSetup} className="btn-primary text-sm">Review DMARC setup</button>
-        <button onClick={gotoSenders} className="btn-secondary text-sm">View sender inventory</button>
         {domainScans.length > 1 && (
           <div className="relative">
             <select
@@ -3624,14 +3661,20 @@ export default function WorkspaceEmailProtectionPage() {
         workspaceName={wsName}
         description={selectedDomain ? `Monitor DMARC alignment, sender authentication and report ingestion for ${selectedDomain}.` : 'Monitor DMARC alignment, sender authentication and report ingestion for your domains.'}
         actions={headerActions}
+        nextAction={domainScans.length === 0 ? {
+          title: 'Run a scan to start email protection',
+          body: 'This page fills after a scan of a domain in this workspace: DMARC, SPF, DKIM and BIMI guidance.',
+          label: 'Run a scan',
+          to: '/scans/new',
+        } : null}
+        settings={emailSettings}
         overview={
           // The posture summary — the same guards as the body, so Overview never
           // shows a hero for a domain whose email module did not run.
           domainScans.length === 0 ? (
             <EmptyCard
               title="No email authentication guidance yet"
-              body="Run a scan on a domain in this workspace to generate DMARC, SPF, DKIM and BIMI guidance."
-              action={<Link to="/scans/new" className="btn-primary">Run a scan</Link>}
+              body="This page fills after a scan of a domain in this workspace: DMARC, SPF, DKIM and BIMI guidance."
             />
           ) : reportLoading ? (
             <EmptyCard title="Loading email posture…" body="Fetching the latest scan report for this domain." />
@@ -3646,45 +3689,13 @@ export default function WorkspaceEmailProtectionPage() {
               body={es.applicability?.reason ? `${es.applicability.reason}. This domain is not expected to send mail, so email-authentication findings are not raised.` : 'This domain is not expected to send mail, so email guidance does not apply.'} />
           ) : (
             <>
-              <ZoneHeader title="Your email posture" hint="Can attackers spoof this domain — and what is the business impact?" />
-
-              {/* 0·hero — compliance % + policy + business exposure in one glance */}
-              <EmailPostureHero
-                wsId={wsId}
-                domain={selectedDomain}
-                dmarc={dmarc}
-                policyJourney={es?.policy_journey}
-                dmarcPresentation={
-                  dmarc?.dmarc_policy_presentation ||
-                  report?.dmarc_policy_presentation
-                }
-                onGoto={goToAnchor}
-              />
-
-              <DmarcPolicyEvidenceCard
-                presentation={
-                  dmarc?.dmarc_policy_presentation ||
-                  report?.dmarc_policy_presentation
-                }
-                showTechnical
-              />
-
-              {/* 0. Connection status, checklist, ingestion + metrics — the customer answer */}
-              <EmailProtectionOverview
-                wsId={wsId}
-                domain={selectedDomain}
-                dmarcDetail={es?.dmarc_detail}
-                dmarc={dmarc}
-                senderData={senderData}
-                onGotoSetup={gotoSetup}
-                onGotoSenders={gotoSenders}
-              />
-
-              {/* 0b. BEC Exposure Score (backend source of truth; higher = worse) */}
+              {/* The area template (18 Oct 2026): Overview reduces to the BEC exposure
+                  card — rendered once. The posture figures are "What we observed", the
+                  one action is "Do this next"; connection status, ingestion, the DMARC
+                  setup wizard and report import are configuration (Settings tab); the
+                  journey, senders, sender validation, report history and records are
+                  their own sections on Findings. */}
               <BecExposure wsId={wsId} domain={selectedDomain} />
-
-              {/* 0c. DMARC report ingestion status (reports_received vs DNS verified) */}
-              <DmarcIngestionStatus wsId={wsId} domain={selectedDomain} onGotoSetup={gotoSetup} onGotoSenders={gotoSenders} />
             </>
           )
         }
@@ -3695,8 +3706,7 @@ export default function WorkspaceEmailProtectionPage() {
       {domainScans.length === 0 ? (
         <EmptyCard
           title="No email authentication guidance yet"
-          body="Run a scan on a domain in this workspace to generate DMARC, SPF, DKIM and BIMI guidance."
-          action={<Link to="/scans/new" className="btn-primary">Run a scan</Link>}
+          body="This page fills after a scan of a domain in this workspace: DMARC, SPF, DKIM and BIMI guidance."
         />
       ) : reportLoading ? (
         <EmptyCard title="Loading email posture…" body="Fetching the latest scan report for this domain." />
@@ -3716,6 +3726,12 @@ export default function WorkspaceEmailProtectionPage() {
           {/* The posture hero, evidence card, connection overview, BEC exposure and
               ingestion status are the Overview tab's summary; the journey, senders,
               setup and detail lists stay here. */}
+          {/* The DMARC policy evidence — kept on Findings (moved from the old Overview). */}
+          <DmarcPolicyEvidenceCard
+            presentation={dmarc?.dmarc_policy_presentation || report?.dmarc_policy_presentation}
+            showTechnical
+          />
+
           <ZoneHeader title="Requested-policy journey" hint="Where you are, and the evidence to review before requesting stronger receiver handling." />
 
           {/* 1. DMARC journey */}
@@ -3764,32 +3780,18 @@ export default function WorkspaceEmailProtectionPage() {
             <EmailLifecycleHistory data={lifecycle} error={lifecycleError} />
           </div>
 
-          {/* 2c. PRIMARY PATH — guided DMARC setup wizard */}
-          <div id="dmarc-setup" className="scroll-mt-20">
-            <DmarcSetupWizard
-              wsId={wsId}
-              domain={selectedDomain}
-              dmarcDetail={es?.dmarc_detail}
-              hasScanData={Boolean(es) && !moduleErrored && !notApplicable}
-              totalMessages={dmarc?.traffic?.total_messages ?? null}
-            />
-          </div>
+          {/* Sender validation — its own section (the DMARC setup wizard, connect
+              reporting and report import moved to the Settings tab, 18 Oct 2026). */}
+          <section id="sender-validation" className="scroll-mt-20 space-y-3" aria-labelledby="sender-validation-heading">
+            <ZoneHeader title="Sender validation" hint="Check whether a sending source passes SPF and DKIM for this domain — no waiting for reports." />
+            <InstantSourceValidator wsId={wsId} domain={selectedDomain} />
+          </section>
 
-          {/* 2c-2. Instant sender validation — no waiting for reports */}
-          <InstantSourceValidator wsId={wsId} domain={selectedDomain} />
-
-          {/* 2d. Connect DMARC reporting (inbound RUA status + signed upload advanced) */}
-          <div id="connect-reporting" className="scroll-mt-20">
-            <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} dmarcDetail={es?.dmarc_detail} />
-          </div>
-
-          {/* 2e. SECONDARY — manual DMARC report import */}
-          <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
-
-          {/* 2f. DMARC report history */}
-          <div id="report-history" className="scroll-mt-20">
+          {/* DMARC report history — its own section. */}
+          <section id="report-history" className="scroll-mt-20 space-y-3">
+            <ZoneHeader title="Report history" hint="The DMARC aggregate reports received or imported for this domain." />
             <DmarcReportHistory wsId={wsId} domain={selectedDomain} />
-          </div>
+          </section>
 
           <ZoneHeader title="Authentication detail & reference" hint="Records, status and how email risk connects to the rest of your attack surface." />
 

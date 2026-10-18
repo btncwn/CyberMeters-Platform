@@ -130,6 +130,7 @@ export default function IdentityExposurePage() {
 
   const items = data?.items || []
   const counts = data?.counts || {}
+  const isEmpty = !loading && !error && items.length === 0 && !filter
 
   if (!wsLoading && !workspaceId) return <NoWorkspaceSelected />
 
@@ -141,12 +142,20 @@ export default function IdentityExposurePage() {
         workspaceName={workspaceName}
         description="Review and own provider relationships and possible identity-facing hostnames for your domains."
         actions={<Link to="/ws/identity-assets" className="btn-secondary inline-flex text-sm">People &amp; evidence →</Link>}
-        overview={(
+        /* The area template (18 Oct 2026): a real empty state — one sentence on what
+           fills this page, and the one button that does it in "Do this next". */
+        nextAction={isEmpty ? {
+          title: 'No identity records yet',
+          body: 'This page fills after a scan finds a provider relationship or a possible identity-facing hostname for a monitored domain.',
+          label: 'Run a scan',
+          to: '/scans/new',
+        } : null}
+        overview={isEmpty ? (
+          <div className="card p-6" data-testid="identity-empty">
+            <p className="text-sm text-gray-700">This page fills after a scan finds a provider relationship or a possible identity-facing hostname for a monitored domain.</p>
+          </div>
+        ) : (
           <>
-            {/* Coverage honesty: what this area observes and what it never claims. */}
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              {IDENTITY_SCOPE_NOTE}
-            </div>
             {/* Backend counts per classification — the customer's own record, not a verdict. */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" data-testid="identity-classification-counts">
               {CLASS_FILTERS.filter((c) => c !== '').map((c) => (

@@ -144,17 +144,14 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
         workspaceId={workspaceId}
         workspaceName={workspaceName}
         description="Review HTTPS, browser protections and cookie evidence. Track findings through to verification."
-        actions={(
-          <>
-            <Link className="btn-primary" to="/scans/new">Run a scan</Link>
-            <Link className="btn-secondary" to={CASES}>Managed cases</Link>
-            <button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>
-          </>
-        )}
+        /* The area template (18 Oct 2026): "Do this next" is the one action and
+           the counts open Cases, so the header keeps only Refresh; sign-in
+           settings are configuration and live on the Settings tab. */
+        actions={<button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>}
         overview={<WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />}
+        settings={<WebsiteSignInSettings workspaceId={workspaceId} />}
       >
       <WebsitePagesChecked workspaceId={workspaceId} refresh={refresh} />
-      <WebsiteSignInSettings workspaceId={workspaceId} />
       <div className="mb-4"><h2 className="section-title">Tracked findings</h2><p className="mt-1 text-base text-gray-600">Across this workspace. Open a finding for its evidence, managed case and recheck.</p></div>
       {data?.scope_note && <details className="mb-5 text-sm text-gray-600"><summary className="cursor-pointer font-medium">What this checks</summary><p className="mt-2 max-w-3xl leading-relaxed">{data.scope_note}</p></details>}
       <div className="mb-4 flex flex-wrap items-center gap-3">

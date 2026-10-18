@@ -2,17 +2,13 @@ import { formatDay } from '../../utils/dates'
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Lock, AlertTriangle, XCircle, ShieldCheck, Clock,
-} from 'lucide-react'
-import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
-import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
+import ModuleContract from '../../components/module/ModuleContract'
 import RiskBadge from '../../components/RiskBadge'
-import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import CertificateAssuranceSummary from '../../components/CertificateAssuranceSummary'
 import { OWNER_LABELS } from '../../data/remediation'
@@ -273,8 +269,6 @@ export default function CertificatesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
   const requestGeneration = useRef(0)
-  const goToAnchor = useAreaAnchor()
-  const scrollToIssues = () => goToAnchor('cert-actions')
 
   const load = useCallback(async () => {
     const generation = ++requestGeneration.current
@@ -317,7 +311,6 @@ export default function CertificatesPage() {
   const checkFailed = certs.filter(c =>
     ['hostname_match', 'trust_store_validation'].some(key => c.certificate_assurance?.signals?.[key]?.check?.outcome === 'failed')
   ).length
-  const needsReview  = certs.filter(c => ['high', 'critical'].includes(c.certificate_risk_level)).length
   const l2Findings   = certs.flatMap(c => (c.findings || []).filter(f => f.type !== 'unknown').map(f => ({ ...f, domain: c.domain })))
   const anomalies    = certs.flatMap(c => (c.anomalies || []).map(a => ({ ...a, domain: c.domain })))
   const buckets      = bucketCounts(certs)
@@ -348,33 +341,28 @@ export default function CertificatesPage() {
         workspaceId={wsId}
         workspaceName={wsName}
         description="The certificate each website presented when CyberMeters connected: whether it matches the name, when it expires and whether it is trusted."
-        actions={(
-          <>
-            <button onClick={scrollToIssues} className="btn-primary text-sm" disabled={!hasData}>Review certificate risks</button>
-            <Link to="/scans/new" className="btn-secondary text-sm">Run scan</Link>
-          </>
-        )}
-        aside={<TlsAuthorizationSettings key={wsId} workspaceId={wsId} />}
+        /* The area template (18 Oct 2026): the four key counts are "What we
+           observed"; the one action is "Do this next"; the TLS scan permissions
+           form is configuration, so it lives on the Settings tab. */
+        figures={hasData ? [
+          { key: 'certificates', label: 'Certificates', value: certs.length, explanation: 'Presented by your websites' },
+          { key: 'expiring', label: 'Expiring within 30 days', value: expiringSoon, explanation: 'Validity window ends soon', tone: expiringSoon > 0 ? 'text-brand-700' : undefined },
+          { key: 'expired', label: 'Expired', value: expired, explanation: 'Past the validity window', tone: expired > 0 ? 'text-red-700' : undefined },
+          { key: 'failed', label: 'Name or trust failed', value: checkFailed, explanation: 'Did not match the name or chain to a trusted root', tone: checkFailed > 0 ? 'text-red-700' : undefined },
+        ] : null}
+        nextAction={!hasData && !loading ? { title: 'Run a scan to start certificate and trust monitoring', body: 'CyberMeters reads the certificate each website presents, checks its name, expiry and trust, and says which checks it could not run.', label: 'Run a scan', to: '/scans/new' } : null}
+        settings={<TlsAuthorizationSettings key={wsId} workspaceId={wsId} />}
         overview={!hasData && !loading ? (
-          /* 8 · Empty state — the same sentence on both tabs */
+          /* 8 · Empty state — the explanation only; the one button is "Do this next". */
           <div className="card p-10 text-center">
-            <p className="text-base font-bold text-gray-900 mb-1">Run a scan to start certificate and trust monitoring</p>
-            <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
+            <p className="text-base font-bold text-gray-900 mb-1">No certificate has been read yet</p>
+            <p className="text-sm text-gray-600 max-w-md mx-auto">
               CyberMeters reads the certificate your website presents when it connects, checks its name, expiry and trust, and says which checks it could not run. Past certificates and certificates on names it did not connect to are not listed.
             </p>
-            <Link to="/scans/new" className="btn-primary mx-auto inline-flex">Run scan</Link>
+
           </div>
         ) : (
           <>
-            {/* 2 · Summary cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <StatCard icon={Lock}        label="Certificates"      value={certs.length} />
-              <StatCard icon={Clock}       label="Expiring (<30d)"   value={expiringSoon} warning={expiringSoon > 0} />
-              <StatCard icon={XCircle}     label="Expired"           value={expired}      danger={expired > 0} />
-              <StatCard icon={AlertTriangle} label="Name or trust failed" value={checkFailed} danger={checkFailed > 0} />
-              <StatCard icon={ShieldCheck} label="Needs review"      value={needsReview}  warning={needsReview > 0} />
-            </div>
-
             {/* 3 · Certificate expiry risk buckets */}
             <div id="cert-expiry" className="card p-6 scroll-mt-20">
               <h2 className="font-semibold text-gray-900 mb-4">Certificate expiry risk</h2>
@@ -406,7 +394,7 @@ export default function CertificatesPage() {
           <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
             CyberMeters reads the certificate your website presents when it connects, checks its name, expiry and trust, and says which checks it could not run. Past certificates and certificates on names it did not connect to are not listed.
           </p>
-          <Link to="/scans/new" className="btn-primary mx-auto inline-flex">Run scan</Link>
+
         </div>
       ) : (
         <>

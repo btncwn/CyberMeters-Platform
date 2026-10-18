@@ -1,9 +1,6 @@
 import { formatDay } from '../../utils/dates'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import {
-  ShieldAlert, RefreshCw, Eye, X,
-  ChevronDown, ChevronRight, Globe, Search,
-} from 'lucide-react'
+import { RefreshCw, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -655,32 +652,25 @@ export default function BrandMonitoringPage() {
         workspaceId={wsId}
         workspaceName={wsName}
         description="Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals."
-        actions={(
-          <>
-            <button onClick={scrollToQueue} className="btn-primary text-sm">Review suspicious domains</button>
-            <button onClick={() => { setEditing(true); goToAnchor('protected-brand', { tab: 'overview' }) }} className="btn-secondary text-sm">Update protected brand</button>
-          </>
-        )}
-        overview={(
-          <>
-            {/* 2 · Protected brand — the profile the checks run against */}
-            <div id="protected-brand" className="scroll-mt-20">
-              <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
-            </div>
-
-            {/* 3 · Risk overview (label-led, numbers below & smaller) */}
-            <div id="brand-summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 scroll-mt-20">
-              <StatCard icon={Globe}       label="Lookalike candidates" explanation="Domains resembling your brand"        value={metrics.lookalike} />
-              <StatCard icon={Globe}       label="Active DNS"           explanation={
-                metrics.uncheckedDns > 0
-                  ? `${metrics.uncheckedDns} not yet checked${metrics.inactiveDns > 0 ? ` · ${metrics.inactiveDns} inactive` : ''}`
-                  : (metrics.inactiveDns > 0 ? `${metrics.inactiveDns} checked, not resolving` : 'Candidates currently resolving')
-              } value={metrics.activeDns} tone={metrics.activeDns > 0 ? 'info' : undefined} />
-              <StatCard icon={ShieldAlert} label="High-risk candidates" explanation="May need immediate review"            value={metrics.highRisk}   danger={metrics.highRisk > 0} />
-              <StatCard icon={Eye}         label="Suspicious"           explanation="Flagged for impersonation risk"       value={metrics.suspicious} warning={metrics.suspicious > 0} />
-              <StatCard icon={Search}      label="Unreviewed"           explanation="Awaiting your classification"         value={metrics.unreviewed} warning={metrics.unreviewed > 0} />
-            </div>
-          </>
+        /* The area template (18 Oct 2026): four candidate counts are "What we
+           observed"; the protected-brand editor is configuration, so it lives
+           on the Settings tab; the one action is "Do this next". */
+        figures={[
+          { key: 'lookalike', label: 'Lookalike candidates', value: metrics.lookalike, explanation: 'Domains resembling your brand' },
+          { key: 'high', label: 'High-risk candidates', value: metrics.highRisk, explanation: 'May need immediate review', tone: metrics.highRisk > 0 ? 'text-red-700' : undefined },
+          { key: 'suspicious', label: 'Suspicious', value: metrics.suspicious, explanation: 'Flagged for impersonation risk', tone: metrics.suspicious > 0 ? 'text-brand-700' : undefined },
+          { key: 'unreviewed', label: 'Unreviewed', value: metrics.unreviewed, explanation: 'Awaiting your classification', tone: metrics.unreviewed > 0 ? 'text-brand-700' : undefined },
+        ]}
+        nextAction={metrics.unreviewed > 0 ? {
+          title: `${metrics.unreviewed} lookalike candidate${metrics.unreviewed === 1 ? '' : 's'} await${metrics.unreviewed === 1 ? 's' : ''} your classification`,
+          body: 'Classify each candidate so CyberMeters keeps tracking the ones that matter and stops raising the ones you own.',
+          label: 'Review candidates',
+          onClick: scrollToQueue,
+        } : null}
+        settings={(
+          <div id="protected-brand" className="scroll-mt-20">
+            <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
+          </div>
         )}
       >
       {/* 4 · Recommended actions */}
