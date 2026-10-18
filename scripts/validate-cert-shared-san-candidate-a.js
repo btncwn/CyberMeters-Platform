@@ -606,8 +606,10 @@ const parity = states.map(parityOutputs);
 // PR-A2 withholds provisional numeric scores from the customer PDF. This
 // certificate-only fixture's F14 snapshot remains byte-identical; only F13's
 // rendered PDF bytes move from e0c2559c… to 4e120f57….
-const GOLDEN_F13 = "4e120f57b00ceeb46ac9d717585dbba97849f36156fad311f35fd63c04e9b54e";
-const GOLDEN_F14 = "12c70b94aba89a0df292e631db8f4627e3726452e6fa834d473ed66018feb035";
+// The 2026-10-18.1 resolver boundary changes this fixture's methodology stamp
+// in the snapshot and PDF. Its SAN evidence hash stays ebd729ca….
+const GOLDEN_F13 = "a2876f26f080614d6357f5edd65775c95bd76ce3f43e288fcace3f1cacc1a640";
+const GOLDEN_F14 = "ed3cc90404c8b99d21cf31b2226503ee5e7ba9aec6774fda20aaf71b8a968fea";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

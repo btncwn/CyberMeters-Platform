@@ -39,8 +39,26 @@ export async function runExposureCollector(input, dependencies={}) {
       const response=await fetchBounded(`${input.origin}/.cybermeters-missing-${token}${suffix}`);
       controls.push(response);
       if(!response.error&&!response.truncated)telemetry.controls_completed++;
+      // The first negative control performs the bounded A/AAAA resolution.
+      // An authoritative no-address answer needs no HTTP path requests.
+      if(controls.length===1&&response.error==='dns_no_address')break;
+      if(controls.length===1&&response.status>=500&&response.status<=599)
+        await new Promise(resolve=>setTimeout(resolve,2000));
     }
     const baseline=controls.map(summary);
+    const noAddress=controls[0]?.error==='dns_no_address';
+    const twoServerErrors=controls.length===2&&controls.every(response=>!response.error&&!response.truncated&&response.status>=500&&response.status<=599);
+    const hostOutcome=noAddress?{state:'host_does_not_resolve',reason:'authoritative_no_address',statuses:[]}:
+      twoServerErrors?{state:'target_unavailable',reason:controls.every(response=>[522,523].includes(response.status)&&
+        String(response.headers?.server||'').trim().toLowerCase()==='cloudflare')?'edge_origin_unreachable':'server_error',
+        statuses:controls.map(response=>response.status)}:null;
+    if(hostOutcome){
+      const finished=Date.now();telemetry.duration_ms=finished-started;
+      return {schema_version:'exposure-receipt-v1',request_id:input.request_id,workspace_id:input.workspace_id,
+        scan_id:input.scan_id,origin:input.origin,started_at:new Date(started).toISOString(),finished_at:new Date(finished).toISOString(),
+        baseline,host_outcome:hostOutcome,discoveries:{paths:[],hosts:[]},quality:'partial',results:[],telemetry,
+        limitations:['listed_paths_only','no_authentication_or_exploitation','transport_overread_is_counted']};
+    }
     const results=[];
     const discoveredPaths=new Set(),discoveredHosts=new Set();
     for(const check of input.checks){
@@ -68,7 +86,7 @@ export async function runExposureCollector(input, dependencies={}) {
         ...(evaluated.state==='not_present_soft404'?{response_summary:observed}:{})});
     }
     const finished=Date.now();telemetry.duration_ms=finished-started;
-    return {schema_version:'exposure-receipt-v1',request_id:input.request_id,workspace_id:input.workspace_id,scan_id:input.scan_id,origin:input.origin,started_at:new Date(started).toISOString(),finished_at:new Date(finished).toISOString(),baseline,discoveries:{paths:[...discoveredPaths],hosts:[...discoveredHosts]},quality:results.every(row=>row.comparable)&&!telemetry.byte_limit_exceeded?'complete':'partial',results,telemetry,limitations:['listed_paths_only','no_authentication_or_exploitation','transport_overread_is_counted']};
+    return {schema_version:'exposure-receipt-v1',request_id:input.request_id,workspace_id:input.workspace_id,scan_id:input.scan_id,origin:input.origin,started_at:new Date(started).toISOString(),finished_at:new Date(finished).toISOString(),baseline,host_outcome:null,discoveries:{paths:[...discoveredPaths],hosts:[...discoveredHosts]},quality:results.every(row=>row.comparable)&&!telemetry.byte_limit_exceeded?'complete':'partial',results,telemetry,limitations:['listed_paths_only','no_authentication_or_exploitation','transport_overread_is_counted']};
   }finally{session.close();}
 }
 

@@ -181,6 +181,37 @@ test('control read failure cannot produce a positive or closeable negative',asyn
   });
 });
 
+test('one authoritative no-address resolution ends the host without path requests',async()=>{
+  let lookups=0;
+  const request=input();
+  const receipt=await runExposureCollector(request,{resolve:async()=>{lookups++;return [];}});
+  assert.deepEqual(validateExposureReceipt(request,receipt),{ok:true});
+  assert.equal(lookups,2,'one A/AAAA resolution');
+  assert.equal(receipt.telemetry.requests,0);
+  assert.equal(receipt.results.length,0);
+  assert.deepEqual(receipt.host_outcome,{state:'host_does_not_resolve',reason:'authoritative_no_address',statuses:[]});
+  assert.equal(receipt.quality,'partial');
+});
+
+test('two genuine 5xx responses finish execution with both statuses and unknown content',async()=>{
+  for(const statuses of [[500,503],[522,523]])await fixture((req,res)=>{
+    const status=statuses[req.url.endsWith('.txt')?1:0];
+    res.writeHead(status,{'content-type':'text/html',server:status>=522?'cloudflare':'fixture'});
+    res.end('Temporarily unavailable');
+  },async(deps,seen)=>{
+    const request=input();
+    const receipt=await collect(deps,request);
+    assert.deepEqual(receipt.host_outcome,{state:'target_unavailable',
+      reason:statuses[0]===522?'edge_origin_unreachable':'server_error',statuses});
+    assert.equal(receipt.results.length,0);
+    assert.equal(receipt.telemetry.requests,2);
+    assert.equal(seen.length,2,'no catalogue path was requested');
+    assert.equal(receipt.quality,'partial');
+    const forged=structuredClone(receipt);forged.host_outcome.statuses[1]=200;
+    assert.equal(validateExposureReceipt(request,forged).ok,false);
+  });
+});
+
 test('revocation also interrupts a pending DNS resolver without a connection attempt',async()=>{
   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),40);
   try{const receipt=await collect({signal:controller.signal,resolve:()=>new Promise(()=>{})});assert.equal(receipt.telemetry.requests,0);assert.ok(receipt.telemetry.duration_ms<500);}finally{clearTimeout(timer);}

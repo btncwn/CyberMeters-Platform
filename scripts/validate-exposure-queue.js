@@ -137,6 +137,44 @@ function contentReceipt(input,{paths=[],results=[]}={}){
  check(await readExposureForScan(h.env,{workspaceId:'foreign',scanId:scan.id})===null);
  check((await processExposureMessage({...body,workspace_id:'foreign'},h.env,{collect:h.collect})).outcome==='identity_mismatch');
 }
+// A terminal host result is stored once, removes unrun path checks without
+// charging them, and leaves an earlier content condition waiting for a retest.
+for(const outcome of [
+  {state:'host_does_not_resolve',reason:'authoritative_no_address',statuses:[],requests:0},
+  {state:'target_unavailable',reason:'server_error',statuses:[500,503],requests:2},
+  {state:'target_unavailable',reason:'edge_origin_unreachable',statuses:[522,523],requests:2},
+]){
+ const h=harness(),{body,scan}=h.seed(`terminal_${outcome.state}_${outcome.reason}`,{count:1});
+ const first=h.sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scan.id);
+ const plan=JSON.parse(first.plan_json);
+ const original=plan.checks[0];
+ plan.checks=EXPOSURE_RULES.flatMap(rule=>rule.paths.map(path=>({rule_id:rule.id,url:`https://${scan.domain}${path}`})));
+ check(plan.checks.length===134);
+ plan.retest_checks=[original];
+ h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(plan),scan.id);
+ const terminalReceipt=async(_env,input)=>{
+  const stamp=new Date().toISOString();
+  const summary=status=>({status,content_type:status?'text/html':null,body_length:status?20:0,normalized_length:status?20:0,
+    body_sha256:status?'0'.repeat(64):null,normalized_sha256:status?'0'.repeat(64):null});
+  const receipt={schema_version:'exposure-receipt-v1',request_id:input.request_id,workspace_id:input.workspace_id,scan_id:input.scan_id,origin:input.origin,
+    started_at:stamp,finished_at:stamp,baseline:outcome.statuses.length?outcome.statuses.map(summary):[summary(0)],
+    host_outcome:{state:outcome.state,reason:outcome.reason,statuses:outcome.statuses},quality:'partial',results:[],
+    telemetry:{requests:outcome.requests,redirects:0,retries:0,bytes_wire:outcome.requests*20,bytes_decoded:outcome.requests*20,
+      duration_ms:0,byte_limit_exceeded:false,controls_completed:outcome.requests},
+    discoveries:{paths:[],hosts:[]},limitations:['listed_paths_only','no_authentication_or_exploitation','transport_overread_is_counted']};
+  assert.deepEqual(validateExposureReceipt(input,receipt),{ok:true});return receipt;
+ };
+ const result=await processExposureMessage(body,h.env,{collect:terminalReceipt});
+ const stored=h.sql.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=?').get(scan.id),next=JSON.parse(stored.plan_json);
+ check(result.outcome==='complete'&&stored.cursor===0&&next.checks.length===0);
+ check(next.host_outcomes.length===1&&next.host_outcomes[0].skipped_checks===134);
+ check(JSON.stringify(next.retest_checks)===JSON.stringify([original]));
+ check(stored.charged_requests===outcome.requests);
+ const report=await readExposureForScan(h.env,{workspaceId:scan.workspace_id,scanId:scan.id});
+ check(report.quality==='partial'&&report.incomplete_reason===outcome.state);
+ check(report.coverage.execution_complete_hosts===1&&report.coverage.completed===0);
+ check(report.host_outcomes[0].statuses.join(',')===outcome.statuses.join(','));
+}
 {
  const h=harness(),{body,scan}=h.seed('foreign_pending');
  const before=h.sql.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=?').get(scan.id);
