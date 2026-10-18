@@ -18,7 +18,7 @@ const validator = path.join(root, "scripts", "validate-intelligence-page-present
 
 const EXPECTED_MUTANTS = 9;
 const EXPECTED_LEGACY_SURVIVORS = 2;
-const VALIDATOR_ASSERTIONS = 28;
+const VALIDATOR_ASSERTIONS = 29;
 const SUMMARY_PREFIX = "IntelligencePage presentation:";
 
 const AST_INVENTORY = "AST: assessment-critical field inventory is pinned across the local closure";
@@ -26,12 +26,12 @@ const AST_RAW_RATING = "AST: raw stored scan.rating cannot feed IntelligencePage
 const AST_RAW_SCORE = "AST: raw stored scan.score cannot feed IntelligencePage or child helpers";
 const AST_RATING = "AST: canonical display_rating reaches bandMeta label metadata and is never printed raw";
 const AST_SCORE = "AST: only finite canonical display_score reaches both score renderers";
-const AST_PROVISIONAL = "AST: provisional score requires canonical provisional === true and explicit customer copy";
 const AST_REASON = "AST: non-comparable reason is backend-verbatim priority with no frontend cause inference";
 const AST_GATE = "AST: all historical claims require changes.comparable === true";
 const AST_POSITIVE = "AST: comparable=true score/change/unchanged positive path remains reachable";
 const UI_A = "UI: A: partial raw excellent/99 with null canonical rating and score fails closed";
-const UI_B = "UI: B: partial canonical provisional score remains visible with an explicit label";
+const UI_B = "UI: B: partial canonical provisional score stays hidden even when raw number exists";
+const UI_B2 = "UI: B2: partial scan quality withholds an apparently final assessment";
 const UI_C = "UI: C: complete authoritative canonical good assessment remains visible";
 const UI_E = "UI: E: comparable false suppresses every historical claim";
 const UI_F1 = "UI: F1: null comparable fails closed";
@@ -85,19 +85,15 @@ const summaryTotals = output => {
   return match ? { pass: Number(match[1]), fail: Number(match[2]), total: Number(match[3]) } : null;
 };
 
-const presentationAnchor = "  const assessmentPresentation = canonicalAssessmentPresentation(assessment)";
-const bandAnchor = "  const band = bandMeta(assessment?.display_rating)";
-const scoreAnchor = `  const score = Number.isFinite(assessment?.display_score)
-    ? assessment.display_score
-    : null`;
+const presentationAnchor = "  const assessmentPresentation = canonicalAssessmentPresentation(assessment, report?.scan_quality)";
+const bandAnchor = "  const band = bandMeta(provisional ? null : assessment?.display_rating)";
 const comparableAnchor = "  if (changes.comparable !== true) {";
 const positiveAnchor = "  const previousScore = Number.isFinite(changes.previous_score) ? changes.previous_score : null";
-// Retargeted (follow-up PR, 18 Oct 2026): the same context-strip score span, now
-// explanation-first ("Score withheld · Provisional score N/100"). The mutant still
-// inserts a raw-score helper immediately after it; expected failures are unchanged.
+// The context strip now withholds provisional numbers. A raw-score helper
+// inserted after it must still fail the source and rendered-output guards.
 const contextScoreAnchor = `              <span className="text-gray-500">
-                {assessmentPresentation.provisional && assessmentPresentation.score != null
-                  ? <>Score withheld · <span className="text-xs">{'Provisional score '}{assessmentPresentation.score}/100</span></>
+                {assessmentPresentation.provisional
+                  ? 'Score available after a complete scan'
                   : <>Score {assessmentPresentation.score ?? '—'}/100</>}
               </span>`;
 const reasonAnchor = `function nonComparableReason(assessment, scanQuality) {
@@ -121,7 +117,7 @@ const mutants = [
     ...assessment,
     display_rating: assessment?.display_rating ?? storedScanObj?.rating ?? null,
   })`,
-    expectedFailures: [AST_INVENTORY, AST_RAW_RATING, AST_RATING, UI_A, UI_B, UI_I],
+    expectedFailures: [AST_INVENTORY, AST_RAW_RATING, AST_RATING, UI_C],
   },
   {
     name: "destructured raw stored score bypass replaces canonical context score",
@@ -131,7 +127,7 @@ const mutants = [
     ...canonicalAssessmentPresentation(assessment),
     score: Number.isFinite(storedScore) ? storedScore : null,
   }`,
-    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_A, UI_B, UI_C, UI_I, UI_J],
+    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_C],
   },
   {
     name: "explicit comparable gate is removed",
@@ -159,14 +155,10 @@ const mutants = [
     expectedFailures: [AST_INVENTORY, AST_RATING, UI_C],
   },
   {
-    name: "canonical provisional numeric score is suppressed",
-    anchor: scoreAnchor,
-    replacement: `  const score = assessment?.provisional === true
-    ? null
-    : Number.isFinite(assessment?.display_score)
-      ? assessment.display_score
-      : null`,
-    expectedFailures: [AST_INVENTORY, AST_PROVISIONAL, UI_B],
+    name: "provisional summary card reveals a numeric score",
+    anchor: "      value:   cms.provisional ? '—' : cms.score != null ? String(cms.score) : '—',",
+    replacement: "      value:   cms.score != null ? String(cms.score) : '—',",
+    expectedFailures: [AST_INVENTORY, UI_B, UI_B2],
   },
   {
     name: "computed raw rating bypass defeats the legacy token guard",
@@ -176,7 +168,7 @@ const mutants = [
     display_rating: assessment?.display_rating ?? storedScanObj?.["rating"] ?? null,
   })`,
     legacyGuardSurvivor: true,
-    expectedFailures: [AST_INVENTORY, AST_RAW_RATING, AST_RATING, UI_A, UI_B, UI_I],
+    expectedFailures: [AST_INVENTORY, AST_RAW_RATING, AST_RATING, UI_C],
   },
   {
     name: "arrow JSX helper launders a computed raw score",
@@ -193,7 +185,7 @@ ${presentationAnchor}`,
       },
     ],
     legacyGuardSurvivor: true,
-    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_A, UI_B, UI_C, UI_I, UI_J],
+    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_A, UI_B, UI_B2, UI_C, UI_I, UI_J],
   },
   {
     name: "function-expression helper launders a direct raw score argument",
@@ -203,7 +195,7 @@ ${presentationAnchor}`,
     ...canonicalAssessmentPresentation(assessment),
     score: rawStoredScore(storedScanObj),
   }`,
-    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_A, UI_B, UI_C, UI_I, UI_J],
+    expectedFailures: [AST_INVENTORY, AST_RAW_SCORE, UI_C],
   },
 ];
 
