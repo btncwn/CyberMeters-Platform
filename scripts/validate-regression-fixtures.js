@@ -2898,12 +2898,15 @@ results.push(securityContract("pdf_dates_render_utc_labelled_british", () => {
   // D1 "YYYY-MM-DD HH:MM:SS" carries no zone marker but is UTC. PDFs must
   // interpret it as UTC (never host-local) and label the zone explicitly, in
   // British date style. Guards the 1-hour-shift class of bug found 2026-07-06.
+  // A report states the zone once on its cover and omits it after (19 Oct 2026).
   const bare     = scanner.pdfUtcDate("2026-07-06 14:12:48", true);
+  const unlabelled = scanner.pdfUtcDate("2026-07-06 14:12:48", true, { zone: false });
   const iso      = scanner.pdfUtcDate("2026-07-06T20:14:32.000Z", true);
   const dateOnly = scanner.pdfUtcDate("2026-07-06 14:12:48");
   return bare === "6 July 2026, 14:12 UTC" &&
     iso === "6 July 2026, 20:14 UTC" &&
     dateOnly === "6 July 2026" &&
+    unlabelled === "6 July 2026, 14:12" &&
     scanner.pdfUtcDate(null) === "" &&
     scanner.pdfUtcDate("not-a-date", true) === "not-a-date";
 }));

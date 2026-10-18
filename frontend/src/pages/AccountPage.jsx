@@ -495,7 +495,7 @@ export default function AccountPage() {
       {/* Page header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Account</h1>
-        <p className="text-sm text-gray-500 mt-1">Your profile, company, security, notifications, billing and data — one place (the old Settings page merged here).</p>
+        <p className="text-sm text-gray-500 mt-1">Your profile, company, security, notifications, billing and data.</p>
       </div>
 
       {/* Sub-tabs: the URL is the tab, so each is linkable. */}

@@ -231,6 +231,20 @@ export default function Layout() {
         </div>
       </header>
 
+      {/* The workspace deck (wide screens only) has a column of its own, so
+          it can never sit over content — at any width, any scroll position, or
+          when a long evidence line makes the page scroll sideways. It sticks to
+          the bottom of the viewport inside that column. Nothing sits bottom-right. */}
+      <div className="cm-body">
+      {wide && (
+        <aside className="cm-dock cm-dock-left" data-testid="workspace-dock" aria-label="Workspace">
+          <div className="cm-dock-card">
+            <SafeBoundary>
+              <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} />
+            </SafeBoundary>
+          </div>
+        </aside>
+      )}
       <main
         id="main"
         className="cm-main flex-1 min-w-0"
@@ -243,6 +257,7 @@ export default function Layout() {
       >
         <Outlet />
       </main>
+      </div>
 
       <footer className="cm-footer">
         <span>© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
@@ -256,15 +271,6 @@ export default function Layout() {
         </div>
       </footer>
 
-      {/* The workspace deck (wide screens only): fixed in the reserved left
-          gutter, pointer events only on the card. Nothing sits bottom-right. */}
-      {wide && (
-        <div className="cm-dock cm-dock-left" data-testid="workspace-dock">
-          <SafeBoundary>
-            <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} />
-          </SafeBoundary>
-        </div>
-      )}
     </div>
   )
 }

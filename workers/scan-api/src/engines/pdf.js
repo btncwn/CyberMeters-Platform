@@ -189,13 +189,18 @@ export function assemblePdfWithImage(streams, image) {
 /**
  * pdfUtcDate(value, withTime) — shared timestamp formatter for every PDF
  * builder. D1 timestamps ("YYYY-MM-DD HH:MM:SS") carry no zone marker but are
- * UTC; interpret them as such, and always label rendered times explicitly so a
- * reader in any timezone knows the reference. British date style, ASCII-only
- * (the hand-rolled PDF engine's fonts are ASCII-safe).
- *   pdfUtcDate("2026-07-06 14:12:48")        → "6 July 2026"
- *   pdfUtcDate("2026-07-06 14:12:48", true)  → "6 July 2026, 14:12 UTC"
+ * UTC; interpret them as such, and label the zone so a reader in any timezone
+ * knows the reference. A report states the zone once (PDF_TIME_NOTE on its
+ * cover, the same words the web report uses) and passes { zone: false } for
+ * every time after it. British date style, ASCII-only (the hand-rolled PDF
+ * engine's fonts are ASCII-safe).
+ *   pdfUtcDate("2026-07-06 14:12:48")                         → "6 July 2026"
+ *   pdfUtcDate("2026-07-06 14:12:48", true)                   → "6 July 2026, 14:12 UTC"
+ *   pdfUtcDate("2026-07-06 14:12:48", true, { zone: false })  → "6 July 2026, 14:12"
  */
-export function pdfUtcDate(value, withTime = false) {
+export const PDF_TIME_NOTE = "All times are in UTC.";
+
+export function pdfUtcDate(value, withTime = false, { zone = true } = {}) {
   if (!value) return "";
   const s = String(value);
   const d = new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.replace(" ", "T") + "Z" : s);
@@ -206,7 +211,7 @@ export function pdfUtcDate(value, withTime = false) {
   if (!withTime) return date;
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${date}, ${hh}:${mm} UTC`;
+  return `${date}, ${hh}:${mm}${zone ? " UTC" : ""}`;
 }
 
 // ── Shared layout writer ─────────────────────────────────────────────────────
@@ -968,7 +973,7 @@ function technicalFinding(w, f, snap, observation = false) {
     if (f.finding_id) identity.push(`${observation ? "Observation" : "Finding"} ID: ${f.finding_id}`);
     if (f.asset || f.hostname) identity.push(`Recorded asset: ${f.asset || f.hostname}`);
     if (identity.length) w.prose(identity.join(" | "), { size: 8, width: 112, color: "0.35 0.38 0.44" });
-    if (f.observed_at) w.text(`Observed in this assessment: ${pdfUtcDate(f.observed_at, true)}`, { size: 8, color: "0.35 0.38 0.44" });
+    if (f.observed_at) w.text(`Observed in this assessment: ${pdfUtcDate(f.observed_at, true, { zone: false })}`, { size: 8, color: "0.35 0.38 0.44" });
     if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
     const evidenceMeta = [];
     if (f.confidence != null) evidenceMeta.push(`Confidence: ${f.confidence}`);
@@ -1255,9 +1260,9 @@ function sectionDmarcTechnicalAppendix(w, presentation) {
 function sectionMethodology(w, snap) {
   const s = snap.snapshot || {};
   w.heading("Methodology & Limitations");
-  w.text(`Assessed on ${pdfUtcDate(s.as_of, true)}`, { size: 10, bold: true });
+  w.text(`Assessed on ${pdfUtcDate(s.as_of, true, { zone: false })}`, { size: 10, bold: true });
   if (s.provenance === "reconstructed_on_demand") {
-    w.proseKeep(`This report was reconstructed on ${pdfUtcDate(s.built_at, true)} from the immutable evidence recorded at assessment time.`, { size: 9, color: "0.45 0.35 0.10" });
+    w.proseKeep(`This report was reconstructed on ${pdfUtcDate(s.built_at, true, { zone: false })} from the immutable evidence recorded at assessment time.`, { size: 9, color: "0.45 0.35 0.10" });
   }
   // Formal version identifiers belong in the technical appendix below, not in
   // the main human narrative.
@@ -1424,7 +1429,7 @@ function sectionEvidenceGradeAppendix(w, snap) {
     });
     w.text(`Evidence grade: ${grade.achieved || "L0"}`, { size: 7, indent: 10, color: "0.35 0.38 0.44" });
     w.proseKeep(
-      `Source type: ${SOURCE_TYPE_TEXT[signal.source_type] || readableCode(signal.source_type) || "Not recorded"}.${observedAt ? ` Observed: ${pdfUtcDate(observedAt, true)}.` : ""}`,
+      `Source type: ${SOURCE_TYPE_TEXT[signal.source_type] || readableCode(signal.source_type) || "Not recorded"}.${observedAt ? ` Observed: ${pdfUtcDate(observedAt, true, { zone: false })}.` : ""}`,
       { size: 7, indent: 10, color: "0.35 0.38 0.44" },
     );
     w.proseKeep(
@@ -1564,7 +1569,8 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
     w.text("EXTERNAL SECURITY ASSESSMENT | TECHNICAL REPORT", { size: 8, color: "0.35 0.42 0.50" });
     w.display("Technical Security Assessment", { size: 22 });
     w.prose(s.domain || scan?.domain || "Assessment domain not recorded", { size: 16, bold: true, width: 54 });
-    w.text(`Assessed ${pdfUtcDate(s.as_of, true)}`, { size: 10 });
+    w.text(`Assessed ${pdfUtcDate(s.as_of, true, { zone: false })}`, { size: 10 });
+    w.text(PDF_TIME_NOTE, { size: 8, color: "0.35 0.38 0.44" });
     if (s.scan_id || scan?.id) w.prose(`Scan reference: ${s.scan_id || scan.id}`, { size: 8, width: 112 });
     if (s.snapshot_id) w.prose(`Snapshot reference: ${s.snapshot_id}`, { size: 8, width: 112 });
     w.gap(8);
@@ -1635,7 +1641,8 @@ function executiveIdentity(w, { branding, logoImage, workspaceName, generatedAt 
   w.text("EXTERNAL ATTACK SURFACE | DECISION BRIEF", { size: 8, color: "0.35 0.42 0.50" });
   w.display("Executive Security Report", { size: 21, gap: 7 });
   if (workspaceName) w.prose(`Workspace: ${workspaceName}`, { size: 11, bold: true, width: 76 });
-  if (generatedAt) w.text(`Generated ${pdfUtcDate(generatedAt, true)}`, { size: 9, color: "0.35 0.38 0.44" });
+  if (generatedAt) w.text(`Generated ${pdfUtcDate(generatedAt, true, { zone: false })}`, { size: 9, color: "0.35 0.38 0.44" });
+  w.text(PDF_TIME_NOTE, { size: 8, color: "0.35 0.38 0.44" });
   w.rule();
 }
 
@@ -1669,7 +1676,7 @@ function executiveSummary(w, reads) {
   w.prose("Recorded across the assessments below. This is not a complete asset inventory or a combined workspace security verdict.", { size: 9, width: 105, color: "0.35 0.38 0.44" });
   snapshots.forEach((snap, index) => {
     const identity = snap.snapshot || {};
-    w.prose(`${index === 0 ? "Latest assessed website: " : ""}${identity.domain || "Website name not recorded"} - ${pdfUtcDate(identity.as_of, true)}${executiveCoverageIncomplete(snap) ? " - incomplete coverage" : ""}`, { size: 9, width: 106 });
+    w.prose(`${index === 0 ? "Latest assessed website: " : ""}${identity.domain || "Website name not recorded"} - ${pdfUtcDate(identity.as_of, true, { zone: false })}${executiveCoverageIncomplete(snap) ? " - incomplete coverage" : ""}`, { size: 9, width: 106 });
   });
   w.gap(8);
   w.metrics([
@@ -1768,7 +1775,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
     w.newPage();
     w.display("Cyber MOT: External posture", { size: 19 });
     w.prose(r.snapshot.snapshot?.domain || "Website name not recorded", { size: 11, bold: true, width: 84 });
-    w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot?.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
+    w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot?.as_of, true, { zone: false })}`, { size: 9, color: "0.35 0.38 0.44" });
     if (r.snapshot.snapshot?.provenance === "reconstructed_on_demand") w.prose("Reconstructed from recorded evidence; historical workflow details may be unavailable.", { size: 8, width: 110 });
     w.gap(7);
     executiveScore(w, r.snapshot);

@@ -42,6 +42,11 @@ describe('product typography', () => {
     expect(css).not.toMatch(/\.cm-earthdock\s*\{/)
     expect(css).not.toMatch(/\.cm-bellbtn\s*\{/)
     expect(css).toMatch(/\.cm-dock\s*\{[^}]*pointer-events:\s*none/)
+    // The deck never floats over content (19 Oct 2026): it is a grid column of
+    // its own, sticky to the viewport bottom, never a fixed overlay.
+    expect(css).not.toMatch(/\.cm-dock[^{]*\{[^}]*position:\s*fixed/)
+    expect(css).toMatch(/\.cm-body\s*\{[^}]*display:\s*grid;\s*grid-template-columns:\s*160px minmax\(0, 1fr\)/)
+    expect(css).toMatch(/\.cm-dock-card\s*\{[^}]*position:\s*sticky;\s*bottom:\s*22px/)
     // The notification panel hangs under the globe, right-aligned, capped below the bar; the list scrolls inside.
     expect(css).toMatch(/\.cm-notif\s*\{[^}]*position:\s*absolute;\s*right:\s*0;\s*top:\s*calc\(100% \+ 10px\)/)
     expect(css).toMatch(/\.cm-notif\s*\{[^}]*max-height:\s*calc\(100dvh - 100px\)/)

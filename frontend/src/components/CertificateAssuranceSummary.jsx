@@ -1,6 +1,6 @@
 import LiveTlsEvidence from './LiveTlsEvidence'
 import { customerEvidenceText } from '../lib/evidenceStrengthDisplay'
-import { formatDate } from '../utils/dates'
+import { useEvidenceTime } from '../lib/reportTime'
 
 const STATE_STYLE = {
   observed: 'border-blue-200 bg-blue-50 text-blue-800',
@@ -34,12 +34,9 @@ const CORROBORATION_TEXT = {
 }
 const readable = (value) => String(value ?? '').replace(/_/g, ' ').trim()
 
-function observedAt(signal) {
+function observedAt(signal, time) {
   const value = signal?.provenance && typeof signal.provenance === 'object' ? signal.provenance.observed_at : null
-  const date = value ? new Date(value) : null
-  return date && !Number.isNaN(date.getTime())
-    ? formatDate(date, '—', { timeZone: 'UTC' }) + ' UTC'
-    : null
+  return value ? time(value, null) : null
 }
 
 // Published standards are cited by name; every product-policy citation collapses
@@ -63,6 +60,7 @@ const stateLabel = (signal) =>
   signal?.state_label || String(signal?.state || 'not_observed').replace(/_/g, ' ')
 
 function SignalRow({ signal, showEvidence }) {
+  const time = useEvidenceTime()
   if (!signal) return null
   const grade = signal.evidence_grade || {}
   return (
@@ -84,7 +82,7 @@ function SignalRow({ signal, showEvidence }) {
         <div className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-xs leading-relaxed text-slate-400">
           <p>
             Evidence grade {grade.achieved || 'L0'} · {SOURCE_TYPE_TEXT[signal.source_type] || readable(signal.source_type) || 'source not recorded'}
-            {observedAt(signal) ? ` · observed ${observedAt(signal)}` : ''}
+            {observedAt(signal, time) ? ` · observed ${observedAt(signal, time)}` : ''}
           </p>
           <p>
             Required corroboration: {(signal.required_corroboration || []).map((value) => CORROBORATION_TEXT[value] || readable(value)).join(', ') || 'none recorded'}

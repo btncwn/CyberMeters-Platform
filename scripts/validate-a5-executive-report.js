@@ -311,9 +311,13 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   // summary basis". With only the wording files reverted to their previous
   // text, both prior goldens (47bfa7b6…, 75773ac6…) reproduce exactly.
   // The incomplete golden now hides the numeric score; the complete golden is unchanged.
+  // Refreshed for one timezone convention (19 Oct 2026): the brief states
+  // "All times are in UTC." once under its identity and no time carries its own
+  // suffix. With only the zone suffix and that line reverted, both prior
+  // goldens (3a88ea28…, 698094fe…) reproduce exactly.
   const executiveGolden = {
-    false: "3a88ea2825b147a4c070e5c7e936ae912e8a19c64b6eaaabb354bc4b6624a0f4",
-    true: "698094fe042ccaf2aeb3c23b2e1a33710501540b822bcfbb7cad54c6cadb5030",
+    false: "0bcfb46445c570fce67d89446acfee5866c4ef28396d463041f63b90d4360352",
+    true: "1986055d445dbf0d680d0656486dff5ed286a3f0d72ac0e7ceae1dbc47b8124e",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));

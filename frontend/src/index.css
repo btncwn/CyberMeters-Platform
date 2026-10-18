@@ -612,10 +612,9 @@
 .cm-mrow-name { display: block; font-size: 16px; font-weight: 500; color: #111827; }
 .cm-mrow-state { display: block; font-size: 13px; color: #5f6368; margin-top: 2px; }
 
-/* Docks: fixed corners; pointer events only on the controls inside. */
-.cm-dock { position: fixed; z-index: 30; pointer-events: none; }
+/* The workspace deck's column: inert apart from the card inside it. */
+.cm-dock { pointer-events: none; }
 .cm-dock > * { pointer-events: auto; }
-.cm-dock-left { left: 22px; bottom: 22px; }
 /* The two white cards behind the front card belong to the WRAPPER, not the
    button: a hover transform on the button creates a stacking context, and
    negative-z-index pseudo-elements on the button itself would then paint over
@@ -684,13 +683,18 @@
   padding: 12px 24px 24px; font-size: 14px; color: #6b7280; border-top: 1px solid rgba(16, 24, 40, 0.06);
   background: rgba(255, 255, 255, 0.6);
 }
-/* Reserved gutters (≥1280px): deck 22 + 92 + gap on the left, mirrored on the
-   right so the content column stays centred. The content and the footer clear
-   the deck at every scroll position; the bottom padding is the deck height
-   (92 + 22) plus a 16px gap. Nothing is docked bottom-right. */
+/* Wide screens (≥1280px): the deck has its own 160px column (22 + 92 + the
+   offset cards + a gap) and the right side mirrors it so the content column
+   stays centred. The column is part of the layout rather than a fixed overlay,
+   so content cannot pass under the card. The card sticks 22px above the
+   viewport's bottom edge and rests above the footer on a short page. */
+.cm-body { flex: 1 1 auto; display: flex; min-width: 0; }
 @media (min-width: 1280px) {
-  .cm-main, .cm-footer { padding-left: 160px; padding-right: 160px; }
-  .cm-main { padding-bottom: 130px; }
+  .cm-body { display: grid; grid-template-columns: 160px minmax(0, 1fr); }
+  .cm-main { grid-column: 2; padding-right: 160px; }
+  .cm-footer { padding-left: 160px; padding-right: 160px; }
+  .cm-dock-left { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 0 22px 22px; }
+  .cm-dock-card { position: sticky; bottom: 22px; z-index: 30; }
 }
 @media (max-width: 1279.98px) {
   .cm-dock { display: none; }

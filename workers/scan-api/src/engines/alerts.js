@@ -822,7 +822,7 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
         await triggerAlert({
           type: "new_vendor",
           severity: "info",
-          title: `🔍 CyberMeters: ${count} new vendor${count !== 1 ? "s" : ""} discovered for ${domain}`,
+          title: `${count} new vendor${count !== 1 ? "s" : ""} discovered for ${domain}`,
           message: `Discovered new active vendor${count !== 1 ? "s" : ""}: ${newVendors.map(v => v.vendor_name).join(", ")}.`,
           relatedEntity: newVendors[0].vendor_name,
           whatChanged: `New active vendor(s) detected on your attack surface:\n${vendorListStr}`,

@@ -191,6 +191,50 @@ async function readSelectedScanReportSnapshot(workspaceId, scanId, env) {
   return read;
 }
 
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const LONG_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/**
+ * reportPeriodPhrase(type, period) → the customer's words for a report period,
+ * never the internal key: "2026-W42" → "12–18 Oct" (the ISO week, Monday to
+ * Sunday), "2026-10" → "October 2026", "2026-Q4" → "Q4 2026". Null for manual
+ * and single-scan reports, whose period is an internal key.
+ */
+export function reportPeriodPhrase(type, period) {
+  const p = typeof period === "string" ? period.trim() : "";
+  const weekly = /^(\d{4})-W(\d{2})$/.exec(p);
+  if (type === "weekly_executive" && weekly) {
+    const year = Number(weekly[1]), week = Number(weekly[2]);
+    if (week < 1 || week > 53) return null;
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const monday = new Date(jan4.getTime() - ((jan4.getUTCDay() || 7) - 1) * 86400000 + (week - 1) * 7 * 86400000);
+    const sunday = new Date(monday.getTime() + 6 * 86400000);
+    const day = (d) => `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`;
+    if (monday.getUTCFullYear() !== sunday.getUTCFullYear()) return `${day(monday)} ${monday.getUTCFullYear()} – ${day(sunday)} ${sunday.getUTCFullYear()}`;
+    if (monday.getUTCMonth() !== sunday.getUTCMonth()) return `${day(monday)} – ${day(sunday)}`;
+    return `${monday.getUTCDate()}–${day(sunday)}`;
+  }
+  const monthly = /^(\d{4})-(\d{2})$/.exec(p);
+  if (type === "monthly_executive" && monthly && Number(monthly[2]) >= 1 && Number(monthly[2]) <= 12) return `${LONG_MONTHS[Number(monthly[2]) - 1]} ${monthly[1]}`;
+  const quarterly = /^(\d{4})-Q([1-4])$/.exec(p);
+  if (type === "quarterly_executive" && quarterly) return `Q${quarterly[2]} ${quarterly[1]}`;
+  return null;
+}
+
+const REPORT_KIND = {
+  weekly_executive: "weekly executive report",
+  monthly_executive: "monthly executive report",
+  quarterly_executive: "quarterly executive report",
+  scan_snapshot: "single-scan report",
+};
+
+/** The report-ready notification, in sentence case: "Your weekly executive report for 12–18 Oct is ready to download." */
+export function reportReadyMessage(type, period) {
+  const kind = REPORT_KIND[type] || "executive report";
+  const phrase = reportPeriodPhrase(type, period);
+  return `Your ${kind}${phrase ? ` for ${phrase}` : ""} is ready to download.`;
+}
+
 export async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) {
   const {
     report_type   = 'manual',
@@ -347,7 +391,7 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
       type:     "report_generated",
       severity: "info",
       title:    `Executive report ready`,
-      message:  `${report_type.replace(/_/g, " ")} report for period ${period} is available for download.`,
+      message:  reportReadyMessage(report_type, period),
       metadata: { report_id: reportId, report_type, report_period: period },
     });
     await createAuditEvent(env, {
