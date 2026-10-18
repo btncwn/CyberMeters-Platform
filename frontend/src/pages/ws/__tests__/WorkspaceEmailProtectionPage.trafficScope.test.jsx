@@ -76,7 +76,7 @@ describe('Mail transport encryption', () => {
       certificate_hostname_match:true,chain_validity:'valid',certificate_expires_at:'2026-11-17T00:00:00.000Z'}] }}
       mtaSts={{policy_found:true,mode:'enforce'}} tlsRpt={{record_found:true}} />)
     expect(screen.getByText(/STARTTLS offered · TLS handshake completed/)).toBeInTheDocument()
-    expect(screen.getByText(/TLSv?1|tls1_3/)).toBeInTheDocument()
+    expect(screen.getByText(/TLS 1\.3/)).toBeInTheDocument()
     expect(screen.getByText(/enforce policy observed; DNS activation not separately checked/)).toBeInTheDocument()
     expect(screen.getByText(/reporting record observed/)).toBeInTheDocument()
     expect(screen.getByText(/does not prove that all mail delivery is encrypted/)).toBeInTheDocument()

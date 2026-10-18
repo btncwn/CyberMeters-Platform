@@ -3395,7 +3395,6 @@ export function MxRecordsCard({ intelligence, transport }) {
   </div>
 }
 
-const mailDateFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
 export function MailTransportCard({ transport, mtaSts, tlsRpt }) {
   const hosts = Array.isArray(transport?.hosts) ? transport.hosts : []
   const enforce = mtaSts?.policy_found === true && mtaSts?.mode === 'enforce'
@@ -3412,9 +3411,9 @@ export function MailTransportCard({ transport, mtaSts, tlsRpt }) {
             host.reason === 'starttls_rejected' ? 'STARTTLS offered; server rejected the upgrade' :
             'Not tested — connection or TLS evidence unavailable'}</p>
           {host.state === 'tested' && <p className="text-xs text-gray-600 mt-1">
-            {host.tls_version || 'TLS version not recorded'} · {host.cipher || 'Cipher not recorded'}
+            {({ tls1_2: 'TLS 1.2', tls1_3: 'TLS 1.3' })[host.tls_version] || 'TLS version not recorded'} · {host.cipher || 'Cipher not recorded'}
             {host.cipher_class === 'weak' ? ' · weak cipher' : ''} · Hostname {host.certificate_hostname_match === true ? 'matched' : host.certificate_hostname_match === false ? 'mismatched' : 'not assessed'}
-            {' · '}Chain {host.chain_validity || 'not assessed'} · Certificate expires {host.certificate_expires_at ? mailDateFormat.format(parseServerDate(host.certificate_expires_at)) : 'not recorded'}
+            {' · '}Chain {host.chain_validity || 'not assessed'} · Certificate expires {formatDate(host.certificate_expires_at, 'not recorded', { timeZone: 'UTC' })}
           </p>}
         </li>)}
       </ul>}
