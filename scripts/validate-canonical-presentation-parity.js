@@ -154,8 +154,8 @@ const files = walk(S);
   ok("Dashboard trend requires assessment comparability",
     /\.filter\(s => assessedScan\(s\)\.comparable\)/.test(dash));
   ok("Dashboard recent rows use the same authority decision",
-    /scanAssessment\.authoritative \? 'text-brand-700' : 'text-brand-700 rounded-md border-\[1\.5px\] border-brand-700 px-1\.5'/.test(dash)
-      && /scanAssessment\.score/.test(dash));
+    /scanAssessment\.authoritative \? scanAssessment\.score : SCORE_PENDING_LABEL/.test(dash)
+      && /import \{ SCORE_PENDING_LABEL \} from '\.\.\/lib\/scoreHonesty'/.test(dash));
 }
 
 // ── 5. Report + PDF delegate to the resolver (customer artifacts) ────────────
