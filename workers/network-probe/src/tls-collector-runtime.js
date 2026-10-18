@@ -1,7 +1,7 @@
 // Standalone Node program copied into the private probe container at build time.
 // Only this parent process owns DNS and TCP. The compiled TLS engines exchange
 // framed bytes over stdio and cannot choose or resolve another destination.
-import { resolve4, resolve6 } from 'node:dns/promises';
+import { resolve4, resolve6, resolveMx } from 'node:dns/promises';
 import { connect, isIP } from 'node:net';
 import { spawn } from 'node:child_process';
 
@@ -62,7 +62,12 @@ function limited(promise, ms, signal) {
     }),
   ]).finally(() => clearTimeout(timer));
 }
-async function recheckDns(endpoint, signal) {
+async function recheckDns(endpoint, signal, input) {
+  if (input.scope.kind === 'mail_mx') {
+    const records = await limited(resolveMx(input.domain), DNS_TIMEOUT_MS, signal);
+    if (!records.some(row => row.exchange?.replace(/\.$/, '').toLowerCase() === endpoint.hostname))
+      throw new Error('dns_authority_changed');
+  }
   const expected = ipKey(endpoint.address);
   const authorized = new Set(endpoint.dns_addresses.map(ipKey));
   if (!expected || !publicAddress(endpoint.address) || !authorized.has(expected)) throw new Error('scope_invalid');
@@ -143,7 +148,7 @@ async function starttls(socket, application, budget, signal) {
       send('STLS\r\n'); if (!/^\+OK[ \r]/i.test(await next())) throw new Error('starttls_rejected');
     }
     reader.detach();
-  } catch (error) { reader.detach(); throw error; }
+  } catch (error) { try { reader.detach(); } catch {} throw error; }
 }
 function engineCommand(input, check, maxConnections) {
   const activeAllowed = SPECIAL_CONTROLS_ENABLED && input.scope.special_consent === true && activeControls.has(check.control);
@@ -154,8 +159,9 @@ function engineCommand(input, check, maxConnections) {
     : check.control === 'cipher' || ['ssl2','ssl3','tls1','tls1_1'].includes(check.protocol) ? CONNECTION_BINARY.legacy : CONNECTION_BINARY.modern;
   const args = ['--control',productControl[check.control],'--protocol',check.protocol,'--max-connections',String(maxConnections),
     '--hostname',input.endpoint.sni,'--alpn',input.endpoint.application_protocol === 'https' ? 'h2-http1' : 'none',
-    '--trust-bundle','/opt/cybermeters/trust/ca-bundle.pem','--timeout-ms',String(check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000)];
+    '--trust-bundle','/opt/cybermeters/trust/ca-bundle.pem','--timeout-ms',String(input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000)];
   if (check.cipher_id !== null) args.push('--cipher',check.cipher_id);
+  if (input.scope.kind === 'mail_mx') args.push('--mail-probe','true');
   return { binary, args };
 }
 
@@ -177,7 +183,7 @@ export async function runTlsEngineCheck(input, check, budget, signal) {
     if (type === FRAME.CONNECT) {
       if (payload.length !== 0 || phase !== 'idle' || budget.connections >= budget.max_connections) throw new Error('engine_connect_invalid');
       phase = 'connecting'; lastClosed = false;
-      await recheckDns(input.endpoint, signal);
+      await recheckDns(input.endpoint, signal, input);
       budget.connections++;
       const family = isIP(input.endpoint.address);
       socket = connect({ host: input.endpoint.address, port: input.endpoint.port, family, allowHalfOpen: false });
@@ -187,7 +193,12 @@ export async function runTlsEngineCheck(input, check, budget, signal) {
         await limited(new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); }), CONNECT_TIMEOUT_MS, signal);
         if (ipKey(socket.remoteAddress) !== ipKey(input.endpoint.address)) throw new Error('peer_mismatch');
         await starttls(socket, input.endpoint.application_protocol, budget, signal);
-      } catch {
+      } catch (error) {
+        if (input.scope.kind === 'mail_mx' && /^starttls_(unavailable|rejected|greeting)$/.test(error?.message || '')) {
+          try { socket.end('QUIT\r\n'); } catch { socket.destroy(); }
+          socket = null; phase = 'idle';
+          throw error;
+        }
         socket.destroy(); socket = null; phase = 'idle'; write(FRAME.CLOSED, Buffer.from('connect_failed')); return;
       }
       phase = 'connected';
@@ -209,13 +220,15 @@ export async function runTlsEngineCheck(input, check, budget, signal) {
       // delivered, so the child will consume that barrier; allow one late CLOSE.
       if (payload.length === 0 && phase === 'idle' && lastClosed) { lastClosed = false; return; }
       if (payload.length !== 0 || phase !== 'connected') throw new Error('engine_close_invalid');
-      phase = 'closing'; socket.destroy(); onClosed('eof');
+      phase = 'closing';
+      if (input.scope.kind === 'mail_mx') socket.end(() => onClosed('eof'));
+      else { socket.destroy(); onClosed('eof'); }
     } else if (type === FRAME.RESULT) {
       if (result !== null || payload.length < 1 || payload.length > 262144 || phase !== 'idle') throw new Error('engine_result_invalid');
       result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(payload));
     } else throw new Error('engine_frame_invalid');
   };
-  const timeout = setTimeout(abort, check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000);
+  const timeout = setTimeout(abort, input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000);
   try {
     for await (const chunk of child.stdout) {
       for (const f of parseFrames(parser, chunk)) await onFrame(f);
@@ -245,7 +258,8 @@ export async function __runTlsCollector(input) {
       try { engineResult = await runTlsEngineCheck(input, check, budget, controller.signal); }
       catch (error) { reason = controller.signal.aborted ? 'deadline_exhausted'
         : error?.message === 'dns_authority_changed' || error?.message === 'scope_invalid'
-          ? 'dns_authority_changed' : 'engine_unavailable'; }
+          ? 'dns_authority_changed' : input.scope.kind === 'mail_mx' && /^starttls_(unavailable|rejected|greeting)$/.test(error?.message || '')
+            ? error.message : 'engine_unavailable'; }
       results.push({ check, engine_result: engineResult, reason, observed_at: new Date().toISOString(),
         physical_telemetry: { connections: budget.connections - before.connections, bytes_sent: budget.bytes_sent - before.bytes_sent,
           bytes_received: budget.bytes_received - before.bytes_received, duration_ms: Date.now() - checkStarted } });

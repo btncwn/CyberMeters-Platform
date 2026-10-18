@@ -1,6 +1,6 @@
 import { render, screen, within, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EmailProtectionOverview, EmailPostureHero, BecExposure, MxRecordsCard } from '../WorkspaceEmailProtectionPage'
+import { EmailProtectionOverview, EmailPostureHero, BecExposure, MxRecordsCard, MailTransportCard } from '../WorkspaceEmailProtectionPage'
 import { api } from '../../../api'
 
 vi.mock('../../../api', () => ({ BASE: 'https://api.example.test/api', api: { getDmarcIngestEndpoint: vi.fn(), getBecExposureScore: vi.fn(), verifyDmarcDns: vi.fn() } }))
@@ -58,7 +58,7 @@ describe('Email authentication MX records', () => {
   it('shows MX records from the already loaded intelligence module without claiming STARTTLS was tested', () => {
     render(<MxRecordsCard intelligence={{ starttls: { mx_records: [{ host: 'mail.example.test', priority: 10 }] } }} />)
     expect(screen.getByText('mail.example.test · priority 10')).toBeInTheDocument()
-    expect(screen.getByText(/SMTP STARTTLS was not tested here/)).toBeInTheDocument()
+    expect(screen.getByText(/Mail transport was not tested in this scan/)).toBeInTheDocument()
   })
 
   it('distinguishes unavailable MX evidence from an observed empty list', () => {
@@ -66,5 +66,38 @@ describe('Email authentication MX records', () => {
     expect(screen.getByText('MX evidence was not available in this assessment.')).toBeInTheDocument()
     view.rerender(<MxRecordsCard intelligence={{ starttls: { mx_records: [] } }} />)
     expect(screen.getByText('No MX records were recorded in this assessment.')).toBeInTheDocument()
+  })
+})
+
+describe('Mail transport encryption', () => {
+  it('shows completed STARTTLS evidence and keeps MTA-STS and TLS-RPT distinct', () => {
+    render(<MailTransportCard transport={{ hosts: [{host:'mail.example.test',state:'tested',starttls_offered:true,
+      tls_version:'tls1_3',cipher:'TLS_AES_128_GCM_SHA256',cipher_class:'not_flagged_weak',
+      certificate_hostname_match:true,chain_validity:'valid',certificate_expires_at:'2026-11-17T00:00:00.000Z'}] }}
+      mtaSts={{policy_found:true,mode:'enforce'}} tlsRpt={{record_found:true}} />)
+    expect(screen.getByText(/STARTTLS offered · TLS handshake completed/)).toBeInTheDocument()
+    expect(screen.getByText(/TLS 1\.3/)).toBeInTheDocument()
+    expect(screen.getByText(/enforce policy observed; DNS activation not separately checked/)).toBeInTheDocument()
+    expect(screen.getByText(/reporting record observed/)).toBeInTheDocument()
+    expect(screen.getByText(/does not prove that all mail delivery is encrypted/)).toBeInTheDocument()
+  })
+
+  it('shows absent STARTTLS and unreachable mail servers without a secure claim', () => {
+    render(<MailTransportCard transport={{ hosts: [
+      {host:'absent.example.test',state:'not_offered',starttls_offered:false},
+      {host:'unreachable.example.test',state:'not_tested',starttls_offered:null},
+    ] }} mtaSts={{policy_found:false}} tlsRpt={{record_found:false}} />)
+    expect(screen.getByText('STARTTLS not offered')).toBeInTheDocument()
+    expect(screen.getByText('Not tested — connection or TLS evidence unavailable')).toBeInTheDocument()
+    expect(screen.getByText(/enforcement not confirmed/)).toBeInTheDocument()
+  })
+
+  it('labels an observed weak cipher', () => {
+    render(<MailTransportCard transport={{ hosts: [{host:'weak.example.test',state:'tested',
+      tls_version:'tls1_2',cipher:'RC4-SHA',cipher_class:'weak',certificate_hostname_match:false,
+      chain_validity:'invalid'}] }} />)
+    expect(screen.getByText(/weak cipher/)).toBeInTheDocument()
+    expect(screen.getByText(/Hostname mismatched/)).toBeInTheDocument()
+    expect(screen.getByText(/Chain invalid/)).toBeInTheDocument()
   })
 })

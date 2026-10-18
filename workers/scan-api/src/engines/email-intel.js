@@ -274,11 +274,7 @@ async function checkTlsRpt(domain, opts = {}) {
   return result;
 }
 
-/**
- * STARTTLS — cannot open raw TCP sockets from Cloudflare Worker runtime.
- * Returns structured stub preserving starttls.py data model with MX records
- * from the existing DNS module so the data is still useful.
- */
+/** MX DNS evidence stays separate from the private mail transport probe. */
 function buildStarttlsStub(dnsModule) {
   const mxRecords = (dnsModule?.mx_records || []).map(r => {
     const raw    = (r.value || "").trim();
@@ -288,8 +284,8 @@ function buildStarttlsStub(dnsModule) {
     return { priority: isNaN(prio) ? 0 : prio, host };
   });
   return {
-    method:                   "not_supported_in_worker_runtime",
-    warning:                  "Raw SMTP connections to port 25 cannot be established from Cloudflare Worker runtime. STARTTLS support cannot be tested directly. Use a dedicated server-side probe for full STARTTLS validation.",
+    method:                   "mx_dns_only",
+    warning:                  "SMTP measurements, when available, are recorded in the mail transport section.",
     mx_records:               mxRecords,
     starttls_supported_hosts: null,
     starttls_failed_hosts:    null,
@@ -603,7 +599,8 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
     ? tlsRptSettled.value
     : { enabled: false, record_name: `_smtp._tls.${domain}`, record: null, reporting_uris: [], errors: ["TLS-RPT lookup failed"] };
 
-  // Step 3: STARTTLS stub (raw TCP port 25 not available in Worker)
+  // Step 3: MX DNS inventory; the private collector's mail_transport module
+  // records any live STARTTLS observation separately.
   const starttls = buildStarttlsStub(dnsModule);
 
   // Step 4: Weighted email security score (scoring.py weights: DMARC=50,SPF=20,DKIM=20,MTA-STS=5,TLS-RPT=5)
