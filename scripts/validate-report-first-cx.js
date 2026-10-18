@@ -267,10 +267,10 @@ ok('priority section contains canonical actions one to three',
   ['First action', 'Second action', 'Third action'].every((title) => priorityBlock.includes(title)))
 ok('priority section excludes the fourth action', !priorityBlock.includes('Fourth action'))
 ok('full action list remains present', recommendedStart >= 0 && recommendedBlock.includes('Fourth action'))
-ok('numeric score and assessment band follow evidence, findings and the full action list',
+ok('partial score placeholder follows evidence, findings and the full action list',
   assessmentScoreStart > recommendedStart &&
-  plain.indexOf('Provisional Score: 81 / 100') > recommendedStart &&
-  plain.indexOf('CyberMeters assessment band: good') > recommendedStart)
+  plain.indexOf('Cyber Metrics Score: Score available after a complete scan') > recommendedStart &&
+  !plain.includes('81 / 100') && !plain.includes('CyberMeters assessment band: good'))
 ok('observation severity remains visible without reclassification', plain.includes('[CRITICAL] Critical observation'))
 ok('finding confidence and evidence grade are rendered verbatim',
   plain.includes('Confidence: 91 - Evidence grade: L1'))
@@ -294,7 +294,19 @@ ok('coverage and skipped-module lines never print raw internal codes',
     labelledPlain.includes('Modules skipped: technology detection, vulnerability (CVE) checks, known exploited vulnerability (KEV) checks.') &&
     !labelledPlain.includes('cve intelligence') && !labelledPlain.includes('cve_intelligence'))
 }
-ok('score bytes remain a presentation input, not recalculated', plain.includes('Provisional Score: 81 / 100'))
+const completeScoreInput = structuredClone(snapshot)
+completeScoreInput.overall.assessment = { ...completeScoreInput.overall.assessment, authoritative: true, provisional: false }
+completeScoreInput.overall.evidence_completeness = {
+  ...completeScoreInput.overall.evidence_completeness,
+  scan_quality: 'complete', assessment_quality: 'complete', modules_skipped: [], skipped_score_bearing_modules: [],
+}
+const completeScorePlain = pdfPlainText(buildScanReportPdf(
+  { id: 'scan-report-first-cx', domain: 'example.test' },
+  { snapshot: completeScoreInput, row: { id: 'snap-report-first-cx' }, integrity: { verified: true } },
+))
+ok('score bytes remain a presentation input, not recalculated',
+  completeScorePlain.includes('Cyber Metrics Score: 81 / 100') &&
+  completeScorePlain.includes('CyberMeters assessment band: good'))
 
 // Technical presentation must stay navigable without changing evidence or scope.
 const pageTexts = (bytes) => [...new TextDecoder('latin1').decode(bytes).matchAll(/stream\n([\s\S]*?)endstream/g)]
