@@ -64,7 +64,7 @@
       "root": "workers/email-ingest",
       "package_name": "cybermeters-email-ingest",
       "package_version": "0.1.0",
-      "package_json_sha256": "b7957a3b81c43af60e1657acf360c419cc4ab006190b9ce64d9aa7bdc82c4141",
+      "package_json_sha256": "724d5e3e623efd0b9d7d750bd34539894dc15e4f02d5566f7c0054d63eea9509",
       "lockfile_version": 3,
       "lockfile_sha256": "2f4b21e0500f752db1307f708b609da21bb7c2e63a82ee79bb6008b221ec938f",
       "install_script_markers": []

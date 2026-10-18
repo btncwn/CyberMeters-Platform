@@ -45,3 +45,6 @@ local/
 # alongside them (page renders, .py generators, screenshots) that must not reach
 # repository history.
 tmp/
+
+# Email Worker closure manifest — generated at deploy time by scripts/deploy-email-ingest.sh
+workers/email-ingest/deploy-manifest.json

@@ -92,16 +92,14 @@ npx wrangler d1 execute cybermeters-db --remote --command="SELECT name FROM sqli
 ## 4. Deploy
 
 ```bash
-cd workers/scan-api
-# Bump APP_VERSION in wrangler.toml if the date rolled over
-npx wrangler deploy
+sh scripts/deploy-scan-api.sh   # stamps GIT_COMMIT + APP_VERSION (scripts/lib/release-stamp.mjs) from this checkout; never edit APP_VERSION by hand
 ```
 
 - [ ] **RECORD the printed `Current Version ID`** (rollback needs it): `________________`
 - [ ] Note the **previous** Version ID for rollback (from CHANGELOG's last entry): `________________`
 
 > The `cybermeters-email` Worker requires a separately recorded Executive deploy
-> whenever `workers/email-ingest/deploy-manifest.json` changes:
+> whenever its closure suffix in `node scripts/lib/release-stamp.mjs` moves:
 > `npm run deploy --prefix workers/email-ingest`
 
 ## 5. Post-deploy smoke test (live)

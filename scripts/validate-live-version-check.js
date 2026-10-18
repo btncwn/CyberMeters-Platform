@@ -5,20 +5,22 @@
 // never a guess); the Worker reports the commit it was deployed from only
 // when it is a full SHA; and scripts/check-live-versions.mjs tells "live",
 // "behind main (these commits are waiting)", "cannot tell" and "unreachable"
-// apart, with a cache-buster on every request. No network.
+// apart, with a cache-buster on every request, and that a Worker whose release
+// stamp is not the one its live commit gives is caught. No network.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { buildVersionManifest } = await import(pathToFileURL(path.join(root, "frontend", "version-manifest.js")).href);
-const { checkLiveVersions, assessComponent, formatReport } = await import(pathToFileURL(path.join(root, "scripts", "check-live-versions.mjs")).href);
+const { checkLiveVersions, assessComponent, formatReport, stampMatches } = await import(pathToFileURL(path.join(root, "scripts", "check-live-versions.mjs")).href);
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => { if (cond) pass++; else { fail++; console.error(`FAIL ${name}${detail ? ` — ${detail}` : ""}`); } };
 const eq = (name, got, want) => ok(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
 
 const A = "a".repeat(40), B = "b".repeat(40), C = "c".repeat(40);
+const stampOf = (commit) => `2026.10.18-${commit.slice(0, 12)}.${"d".repeat(12)}`;
 
 // ── 1. Build stamp ──────────────────────────────────────────────────────────
 eq("pages: CF_PAGES_COMMIT_SHA used", buildVersionManifest({ CF_PAGES_COMMIT_SHA: A, CF_PAGES_BRANCH: "main" }, () => B).commit, A);
@@ -35,6 +37,7 @@ const index = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "ind
 ok("worker: /health reports a full-SHA commit or null", /commit:\s+\/\^\[0-9a-f\]\{40\}\$\/\.test\(String\(env\.GIT_COMMIT \|\| ""\)\) \? env\.GIT_COMMIT : null/.test(index));
 const deploy = fs.readFileSync(path.join(root, "scripts", "deploy-scan-api.sh"), "utf8");
 ok("worker: deploy script stamps the commit it is built from", /commit=\$\(git -C "\$root" rev-parse HEAD\)/.test(deploy) && /wrangler deploy --var "GIT_COMMIT:\$commit"/.test(deploy));
+ok("worker: deploy script stamps the release stamp of that commit", /stamp=\$\(node "\$root\/scripts\/lib\/release-stamp\.mjs" --field app_version\)/.test(deploy) && /--var "APP_VERSION:\$stamp"/.test(deploy));
 ok("worker: deploy script tags the Cloudflare version with the same commit", /short=\$\(printf '%s' "\$commit" \| cut -c1-12\)/.test(deploy) && /--tag "\$short" --message "\$message"/.test(deploy));
 ok("worker: deploy script refuses uncommitted Worker sources (the stamp must be true)", /status --porcelain -- workers\/scan-api shared\)" \]; then[\s\S]*?exit 1/.test(deploy) && /^set -eu$/m.test(deploy));
 // workers/scan-api/package.json is SHA-pinned by the install-script policy — the stamp lives in the script instead.
@@ -48,6 +51,11 @@ eq("assess: later commits don't touch it", assessComponent({ liveCommit: A, main
 eq("assess: no commit reported", assessComponent({ liveCommit: null, mainCommit: B, pending: null, reachable: true }), { status: "unknown_commit", ok: false });
 eq("assess: not on main", assessComponent({ liveCommit: C, mainCommit: B, pending: null, reachable: true }), { status: "live_commit_not_on_main", ok: false });
 eq("assess: unreachable", assessComponent({ liveCommit: null, mainCommit: B, pending: null, reachable: false }), { status: "unreachable", ok: false });
+eq("assess: live = main but the stamp is wrong", assessComponent({ liveCommit: A, mainCommit: A, pending: [], reachable: true, stampOk: false }), { status: "stamp_mismatch", ok: false });
+eq("assess: unstamped component unaffected", assessComponent({ liveCommit: A, mainCommit: A, pending: [], reachable: true, stampOk: undefined }), { status: "live_at_main", ok: true });
+eq("stamp: exact deploy-time stamp matches", stampMatches(stampOf(A), stampOf(A)), true);
+eq("stamp: another commit's stamp, the dev fallback or none does not", [stampMatches(stampOf(B), stampOf(A)), stampMatches("dev", stampOf(A)), stampMatches(undefined, stampOf(A))], [false, false, false]);
+eq("stamp: a pre-deploy-time stamp is held to the closure", [stampMatches(`2026.10.18-role-aware-scan.${"d".repeat(12)}`, stampOf(A)), stampMatches(`2026.10.18-role-aware-scan.${"e".repeat(12)}`, stampOf(A))], [true, false]);
 
 // ── 4. End to end with fakes ────────────────────────────────────────────────
 function fakeGit({ main = B, ancestors = [A, B], logs = {} } = {}) {
@@ -70,7 +78,7 @@ const fakeFetch = (bodies, seen = []) => async (url) => {
 {
   const seen = [];
   const { git } = fakeGit({ logs: { frontend: "", "workers/scan-api": "1234567 feat(website): signed-in scanning\n89abcde fix(api): x" } });
-  const r = await checkLiveVersions({ git, now: () => 42, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: B }, "https://api.cybermeters.com/health": { commit: A, version: "2026.10.11-x" } }, seen) });
+  const r = await checkLiveVersions({ git, now: () => 42, stampFor: stampOf, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: B }, "https://api.cybermeters.com/health": { commit: A, version: stampOf(A) } }, seen) });
   eq("e2e: app live at main, api behind", r.components.map((c) => [c.id, c.status]), [["app", "live_at_main"], ["api", "behind_main"]]);
   eq("e2e: pending Worker commits listed", r.components[1].pending, ["1234567 feat(website): signed-in scanning", "89abcde fix(api): x"]);
   ok("e2e: overall not ok while something waits", r.ok === false);
@@ -80,14 +88,31 @@ const fakeFetch = (bodies, seen = []) => async (url) => {
 }
 {
   const { git } = fakeGit();
-  const r = await checkLiveVersions({ git, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: B }, "https://api.cybermeters.com/health": { status: "ok", version: "v", commit: null } }) });
+  const r = await checkLiveVersions({ git, stampFor: stampOf, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: B }, "https://api.cybermeters.com/health": { status: "ok", version: "v", commit: null } }) });
   eq("e2e: Worker without a commit stamp → cannot tell (not ok)", [r.components[1].status, r.ok], ["unknown_commit", false]);
-  const r2 = await checkLiveVersions({ git, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": "down", "https://api.cybermeters.com/health": { commit: B } }) });
+  const r2 = await checkLiveVersions({ git, stampFor: stampOf, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": "down", "https://api.cybermeters.com/health": { commit: B, version: stampOf(B) } }) });
   eq("e2e: unreachable app", [r2.components[0].status, r2.components[1].status, r2.ok], ["unreachable", "live_at_main", false]);
-  const r3 = await checkLiveVersions({ git: fakeGit({ ancestors: [B] }).git, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: C }, "https://api.cybermeters.com/health": { commit: B } }) });
+  const r3 = await checkLiveVersions({ git: fakeGit({ ancestors: [B] }).git, stampFor: stampOf, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: C }, "https://api.cybermeters.com/health": { commit: B, version: stampOf(B) } }) });
   eq("e2e: live commit not on main", r3.components[0].status, "live_commit_not_on_main");
-  const r4 = await checkLiveVersions({ git: fakeGit({ logs: {} }).git, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: A }, "https://api.cybermeters.com/health": { commit: A } }) });
+  const r4 = await checkLiveVersions({ git: fakeGit({ logs: {} }).git, stampFor: stampOf, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: A }, "https://api.cybermeters.com/health": { commit: A, version: stampOf(A) } }) });
   eq("e2e: later main commits that touch neither component → ok", [r4.components.map((c) => c.status), r4.ok], [["live_no_pending_changes", "live_no_pending_changes"], true]);
+  const r5 = await checkLiveVersions({ git: fakeGit().git, stampFor: stampOf, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: B }, "https://api.cybermeters.com/health": { commit: B, version: stampOf(A) } }) });
+  eq("e2e: Worker at main reporting another commit's stamp → stamp mismatch (not ok)", [r5.components[1].status, r5.ok, r5.components[1].expected_version], ["stamp_mismatch", false, stampOf(B)]);
+  ok("report: names the expected stamp", formatReport(r5).includes(`expected stamp: ${stampOf(B)}`));
+  const r6 = await checkLiveVersions({ git: fakeGit().git, stampFor: () => { throw new Error("no blob"); }, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: B }, "https://api.cybermeters.com/health": { commit: B, version: stampOf(B) } }) });
+  eq("e2e: stamp that cannot be computed fails closed", r6.components[1].status, "stamp_mismatch");
+}
+{
+  // The real default: HEAD's own stamp comes from its blobs and is accepted.
+  const { commitIdentity, expectedStampForCommit } = await import(pathToFileURL(path.join(root, "scripts", "lib", "release-stamp.mjs")).href);
+  const head = commitIdentity(root).commit;
+  const git = (args) => {
+    if (args[0] === "rev-parse") return `${head}\n`;
+    if (args[0] === "merge-base") return "";
+    return "";
+  };
+  const r = await checkLiveVersions({ git, fetchImpl: fakeFetch({ "https://app.cybermeters.com/version.json": { commit: head }, "https://api.cybermeters.com/health": { commit: head, version: expectedStampForCommit(root, head) } }) });
+  eq("e2e: default stamp check accepts the commit's own stamp", [r.components[1].status, r.ok], ["live_at_main", true]);
 }
 
 console.log(`validate-live-version-check: ${pass} passed, ${fail} failed`);
