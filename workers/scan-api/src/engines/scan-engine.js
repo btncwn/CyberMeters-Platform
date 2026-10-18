@@ -85,7 +85,7 @@ import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery
 import { persistWebsitePagesForScan } from "./website-pages.js";
 import { signInPageFindings } from "./signin-page-findings.js";
 import { readExposureForScan, readTlsAssessmentForScan } from "./exposure-jobs.js";
-import { externalExposureModule } from "./exposure-findings.js";
+import { externalExposureModule, reconcileCurrentDnsHostCoverage } from "./exposure-findings.js";
 import { tlsAssessmentFindings } from "./tls-findings.js";
 import { projectTlsScanQualityForCustomer } from "./tls-quality.js";
 import { homePageAvailabilityFindings } from "./website-availability.js";
@@ -2154,7 +2154,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Unrequested exposure coverage is outside free/legacy scan scope. Only an
     // expected durable job can contribute an explicit unavailable coverage gap.
     if (exposureReceipt || (workspaceId && durableInvocation && env.EXPOSURE_SCAN_MODE === "evidence-v1")) {
-      modules.external_exposure = externalExposureModule(exposureReceipt);
+      modules.external_exposure = reconcileCurrentDnsHostCoverage(
+        externalExposureModule(exposureReceipt), modules.asset_exposure, new Date(now()).toISOString());
     }
 
     // Phase 7a-i: hostnames the site's own robots.txt, sitemaps and scripts

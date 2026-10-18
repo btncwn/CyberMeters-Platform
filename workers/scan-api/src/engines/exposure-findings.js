@@ -10,7 +10,8 @@ const KEY = /^external_exposure_([a-z][a-z0-9-]+)__([a-f0-9]{64})$/;
 const SAFE_INDICATORS = new Set(EXPOSURE_INDICATORS);
 const COST_KEYS = ['requests', 'redirects', 'retries', 'bytes_wire', 'bytes_decoded', 'duration_ms', 'charged_requests', 'charged_bytes', 'unknown_attempts', 'attempts'];
 const COVERAGE_KEYS = ['completed', 'pending', 'blocked', 'not_applicable', 'budget_exhausted', 'uncertain',
-  'target_unavailable_hosts', 'non_resolving_hosts', 'execution_complete_hosts'];
+  'target_unavailable_hosts', 'non_resolving_hosts', 'execution_complete_hosts', 'hosts_total',
+  'hosts_checked', 'deferred_prior_findings'];
 const INCOMPLETE_REASONS = new Set(EXPOSURE_INCOMPLETE_REASONS);
 const JOB_STATES = new Set(['pending', 'running', 'complete', 'cancelled', 'budget_exhausted']);
 const HOST_RE = /^[a-z0-9.-]{1,253}$/i;
@@ -45,7 +46,7 @@ export function evaluateExposureCondition(key, module) {
 export function externalExposureModule(receipt) {
   if (!receipt || receipt.source !== 'external_exposure') return {
     source: 'external_exposure', version: EXPOSURE_CATALOG_VERSION, quality: 'not_recorded',
-    job_state: null, phase_state: null, incomplete_reason: null, hosts_not_applicable: [], host_outcomes: [],
+    job_state: null, phase_state: null, incomplete_reason: null, hosts_not_applicable: [], host_outcomes: [], host_coverage: [],
     coverage: null, checks: [], findings: [], costs: null, observed_at: null,
   };
   const projectHit = (hit) => hit ? {
@@ -79,6 +80,12 @@ export function externalExposureModule(receipt) {
         statuses: Array.isArray(host.statuses) ? host.statuses.filter(status => Number.isInteger(status) && status >= 500 && status <= 599).slice(0, 2) : [],
         skipped_checks: Number.isInteger(host.skipped_checks) && host.skipped_checks >= 0 ? host.skipped_checks : 0,
         observed_at: Number.isFinite(Date.parse(host.observed_at)) ? new Date(host.observed_at).toISOString() : null })),
+    host_coverage: (Array.isArray(receipt.host_coverage) ? receipt.host_coverage : []).slice(0, 32)
+      .filter(host => typeof host?.hostname === 'string' && HOST_RE.test(host.hostname))
+      .map(host => ({ hostname: host.hostname, checked_this_scan: host.checked_this_scan === true,
+        evidence_state: ['checked', 'awaiting_rotation', 'host_does_not_resolve', 'target_unavailable'].includes(host.evidence_state)
+          ? host.evidence_state : 'awaiting_rotation',
+        last_checked_at: Number.isFinite(Date.parse(host.last_checked_at)) ? new Date(host.last_checked_at).toISOString() : null })),
     coverage: receipt.coverage ? Object.fromEntries([...COVERAGE_KEYS, 'recorded_total', 'omitted_checks', 'pending_assets', 'not_applicable_hosts'].map(key => [key, Number.isInteger(receipt.coverage[key]) && receipt.coverage[key] >= 0 ? receipt.coverage[key] : null])) : null,
     checks, findings: [],
     costs: receipt.costs ? Object.fromEntries(COST_KEYS.map(key => [key, Number.isFinite(receipt.costs[key]) && receipt.costs[key] >= 0 ? receipt.costs[key] : null])) : null,
@@ -121,4 +128,20 @@ export function externalExposureModule(receipt) {
   }
   module.findings = [...dedupe.values()];
   return module;
+}
+
+// The HTTP job precedes the domain scan. A previous DNS observation can spare
+// path requests, but only this scan's asset probe can mark that host checked.
+export function reconcileCurrentDnsHostCoverage(exposure, assetExposure, observedAt) {
+  if (!exposure?.coverage || !Array.isArray(exposure.host_coverage)) return exposure;
+  const noAddress = new Set((assetExposure?.assets || [])
+    .filter(asset => asset?.probe_status === 'not_applicable' &&
+      asset.reason === 'authoritative_no_address' && typeof asset.host === 'string')
+    .map(asset => asset.host));
+  if (!noAddress.size) return exposure;
+  const host_coverage = exposure.host_coverage.map(host => noAddress.has(host.hostname)
+    ? {...host, checked_this_scan: true, evidence_state: 'host_does_not_resolve',
+      last_checked_at: observedAt} : host);
+  return {...exposure, host_coverage, coverage: {...exposure.coverage,
+    hosts_checked: host_coverage.filter(host => host.checked_this_scan).length}};
 }

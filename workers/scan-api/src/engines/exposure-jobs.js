@@ -12,7 +12,8 @@ import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../.
 import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
 
 export const EXPOSURE_JOB_LIMITS = Object.freeze({
-  hosts:4, checks:1024, requests:1024, bytes:64*1024*1024,
+  hosts:4,
+  requests:1024, bytes:64*1024*1024,
   workspaceRequests:4096, workspaceBytes:128*1024*1024,
   windowMs:60*60*1000, completionMs:15*60*1000, leaseMs:30000,
   attempts:150, maxPlannedAttempts:2048, failures:3, byteReservation:EXPOSURE_LIMITS.bytes+131072,
@@ -178,12 +179,19 @@ async function createJob(env, scan, now, dispatch) {
     const planned=planExposureChecks({origin,observations,previousFindings:previousFindings.map(r=>({ruleId:r.rule_id,url:r.url}))});
     for(const check of planned.checks||[])checks.push({rule_id:check.ruleId||check.rule_id,url:check.url});
   }
-  const exposureCheckLimit=env.TLS_ASSESSMENT_MODE==='evidence-v1'?384:EXPOSURE_JOB_LIMITS.checks;
-  const plan={content_state:'pending',retest_checks:previousFindings,checks:checks.slice(0,exposureCheckLimit),hosts,host_outcomes:[],
-    exposure_check_limit:exposureCheckLimit,
+  const plan={content_state:'pending',retest_checks:previousFindings,checks,hosts,host_outcomes:[],
+    exposure_check_limit:0,
     pending_assets:Math.max(0,(assetCount?.total||0)-hosts.filter(host=>candidates.some(a=>a.hostname===host)).length-notApplicable.length),
     hosts_not_applicable:notApplicable,discovered_hosts:[],
-    omitted_checks:Math.max(0,checks.length-exposureCheckLimit),catalog_version:'1'};
+    host_coverage:[...new Set([...(assets.results||[]).map(a=>a.hostname),...hosts,
+      ...notApplicable.map(a=>a.hostname)].filter(host=>safeHost(host,scan.domain)))].map(hostname=>{
+      const asset=(assets.results||[]).find(item=>item.hostname===hostname);
+      return {hostname,last_checked_at:Number.isSafeInteger(asset?.last_attempt_ms)&&asset.last_attempt_ms>0
+        ?new Date(asset.last_attempt_ms).toISOString():null};
+    }),
+    hosts_total:Math.max(assetCount?.total||0,new Set([...(assets.results||[]).map(a=>a.hostname),
+      ...hosts,...notApplicable.map(a=>a.hostname)].filter(host=>safeHost(host,scan.domain))).size),
+    omitted_checks:0,catalog_version:'1'};
   if(env.EXPOSURE_SCAN_MODE!=='evidence-v1'){
     plan.content_state='not_requested';plan.checks=[];plan.omitted_checks=0;
   }
@@ -193,13 +201,31 @@ async function createJob(env, scan, now, dispatch) {
       row.comparable===true||['soft_404_or_common_response','authentication_rate_limit_or_challenge',
         'server_or_redirect_failure'].includes(row.reason)).map(row=>{
       try{const url=new URL(row.url);return url.protocol==='https:'?url.hostname:null;}catch{return null;}
-    }).filter(Boolean))];
-    const tlsPlan=buildBudgetedTlsCheckPlan({endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
-      previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),observedHttpsHosts,scanId:scan.id,maxChecks:512});
+    }).filter(host=>host&&hosts.includes(host)))];
+    const tlsArgs={endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
+      previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),observedHttpsHosts,scanId:scan.id};
+    // Keep a bounded allowance for content references not known until the
+    // first collector slice. TLS may defer complete host groups, but cannot
+    // consume the time or bytes needed for the selected HTTP catalog.
+    const reserveHost=hosts[hosts.length-1];
+    const referenceAllowance=reserveHost?Array.from({length:32},(_,index)=>({
+      rule_id:'env-config',url:`https://${reserveHost}/cm-reference-${index}`})):[];
+    let low=0,high=512,tlsPlan=buildBudgetedTlsCheckPlan({...tlsArgs,maxChecks:0});
+    while(low<high){
+      const mid=Math.ceil((low+high)/2);
+      const candidate=buildBudgetedTlsCheckPlan({...tlsArgs,maxChecks:mid});
+      if(fitsExposureJobLimits({...plan,checks:[...plan.checks,...referenceAllowance],tls:candidate})){
+        low=mid;tlsPlan=candidate;
+      }else high=mid-1;
+    }
     plan.tls={...tlsPlan,deferred_hosts:[...tlsPlan.deferred_hosts,...(endpoints.deferred_services||[])],
       endpoints:endpoints.endpoints,gaps:endpoints.gaps,scope_generation:endpoints.scope_generation,
       omitted_services:endpoints.omitted_services,results:[],state:'pending'};
   }
+  const admitted=budgetedExposurePrefix(plan,plan.checks);
+  plan.omitted_checks+=plan.checks.length-admitted;
+  plan.checks=plan.checks.slice(0,admitted);
+  plan.exposure_check_limit=admitted;
   plan.network_budget=sizeExposureJobBudget(plan);
   await db.prepare(`INSERT OR IGNORE INTO external_exposure_jobs
     (scan_id,workspace_id,domain_id,domain,plan_json,dispatch_json,created_ms,deadline_ms,updated_at)
@@ -334,7 +360,12 @@ export function mergeWebsiteContentPlan(plan,receipt,domain) {
   const baseline=retained.filter(c=>!retests.has(c.rule_id+'|'+c.url))
     .sort((a,b)=>(priorities.get(b.rule_id+'|'+b.url)||0)-(priorities.get(a.rule_id+'|'+a.url)||0));
   const ordered=[...retained.filter(c=>retests.has(c.rule_id+'|'+c.url)),...candidates,...baseline];
-  const allowance=Math.max(0,(plan.exposure_check_limit||EXPOSURE_JOB_LIMITS.checks)-receipt.results.length);
+  // Content can reveal safe, catalog-compatible references that were unknown
+  // when the initial plan was sized. Re-size against the real candidate set;
+  // the existing hourly ceilings still decide the largest admissible prefix.
+  plan.content_result_checks=receipt.results.map(result=>({rule_id:result.rule_id,url:result.url}));
+  const allowance=budgetedExposurePrefix(plan,ordered);
+  plan.exposure_check_limit=allowance+plan.content_result_checks.length;
   plan.omitted_checks=(plan.omitted_checks||0)+Math.max(0,ordered.length-allowance);
   plan.checks=ordered.slice(0,allowance);
   plan.retest_checks=unresolvedExposureChecks(plan.retest_checks||[],receipt.results);
@@ -361,7 +392,7 @@ function nextTlsChecks(plan) { return tlsSliceAt(plan.tls?.selected,plan.tls?.cu
 // Reserve each planned collector slice, including redirects/TLS retry capacity,
 // plus 20% for uncertain attempts. Successful receipts refund unused capacity.
 // The hourly workspace ceilings remain absolute even when a plan needs more.
-export function sizeExposureJobBudget(plan) {
+export function estimateExposureJobBudget(plan) {
   const checks=Array.isArray(plan?.checks)?plan.checks:[];
   let httpSlices=0;
   const originOf=check=>{try{return new URL(check?.url).origin;}catch{return null;}};
@@ -386,10 +417,36 @@ export function sizeExposureJobBudget(plan) {
   const bytes=content*(WEBSITE_CONTENT_LIMITS.bytes+WEBSITE_CONTENT_LIMITS.overreadBytes)
     +httpSlices*EXPOSURE_JOB_LIMITS.byteReservation
     +tlsSlices*(TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes);
+  // Slices run serially. Reserve deadline margin against every collector's
+  // maximum wait, not just the median observed on a small workspace.
+  const durationMs=content*WEBSITE_CONTENT_LIMITS.durationMs+
+    httpSlices*EXPOSURE_LIMITS.durationMs+tlsSlices*TLS_SLICE_LIMITS.durationMs;
   const headroom=value=>Math.ceil(value*6/5);
-  return {requests:Math.min(EXPOSURE_JOB_LIMITS.workspaceRequests,headroom(requests)),
-    bytes:Math.min(EXPOSURE_JOB_LIMITS.workspaceBytes,headroom(bytes)),
-    attempts:Math.min(EXPOSURE_JOB_LIMITS.maxPlannedAttempts,headroom(slices))};
+  return {requests:headroom(requests),bytes:headroom(bytes),attempts:headroom(slices),
+    durationMs:headroom(durationMs)};
+}
+export function sizeExposureJobBudget(plan) {
+  const estimate=estimateExposureJobBudget(plan);
+  return {requests:Math.min(EXPOSURE_JOB_LIMITS.workspaceRequests,estimate.requests),
+    bytes:Math.min(EXPOSURE_JOB_LIMITS.workspaceBytes,estimate.bytes),
+    attempts:Math.min(EXPOSURE_JOB_LIMITS.maxPlannedAttempts,estimate.attempts)};
+}
+function fitsExposureJobLimits(plan) {
+  const estimate=estimateExposureJobBudget(plan);
+  return estimate.requests<=EXPOSURE_JOB_LIMITS.workspaceRequests&&
+    estimate.bytes<=EXPOSURE_JOB_LIMITS.workspaceBytes&&
+    estimate.attempts<=EXPOSURE_JOB_LIMITS.maxPlannedAttempts&&
+    estimate.durationMs<=(plan?.tls?30*60*1000:EXPOSURE_JOB_LIMITS.completionMs);
+}
+export function budgetedExposurePrefix(plan,candidates,checkCeiling=candidates.length+(plan?.content_result_checks?.length||0)) {
+  const contentChecks=Array.isArray(plan?.content_result_checks)?plan.content_result_checks:[];
+  let low=0,high=Math.min(candidates.length,Math.max(0,checkCeiling-contentChecks.length));
+  while(low<high){
+    const mid=Math.ceil((low+high)/2);
+    if(fitsExposureJobLimits({...plan,checks:[...contentChecks,...candidates.slice(0,mid)]}))low=mid;
+    else high=mid-1;
+  }
+  return low;
 }
 function exposureJobBudget(plan) {
   const budget=plan?.network_budget;
@@ -606,8 +663,13 @@ export async function processExposureMessage(body,env,deps={}) {
       if(candidate.source==='catalog')continue;
       const key=candidate.ruleId+'|'+candidate.url;
       if(seen.has(key))continue;seen.add(key);
-      if(plan.checks.length>=EXPOSURE_JOB_LIMITS.checks){plan.omitted_checks=(plan.omitted_checks||0)+1;continue;}
-      plan.checks.push({rule_id:candidate.ruleId,url:candidate.url});
+      const nextCheck={rule_id:candidate.ruleId,url:candidate.url};
+      const contentCount=plan.content_result_checks?.length||0;
+      if(budgetedExposurePrefix(plan,[...plan.checks,nextCheck])<plan.checks.length+1){
+        plan.omitted_checks=(plan.omitted_checks||0)+1;continue;
+      }
+      plan.checks.push(nextCheck);
+      plan.exposure_check_limit=contentCount+plan.checks.length;
     }
     if(!contentPhase)plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...(receipt.discoveries?.hosts||[])])].filter(h=>safeHost(h,row.domain)).slice(0,128);
     growExposureJobBudget(plan);
@@ -658,9 +720,33 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   const notApplicableHosts=(Array.isArray(plan.hosts_not_applicable)?plan.hosts_not_applicable:[]).filter(h=>typeof h?.hostname==='string');
   const hostOutcomes=(Array.isArray(plan.host_outcomes)?plan.host_outcomes:[]).filter(h=>
     typeof h?.hostname==='string'&&['target_unavailable','host_does_not_resolve'].includes(h.state));
+  const checkedAt=new Map();
+  for(const check of results){
+    try{
+      const hostname=new URL(check.url).hostname;
+      if(check.observed_at&&(!checkedAt.has(hostname)||check.observed_at>checkedAt.get(hostname)))checkedAt.set(hostname,check.observed_at);
+    }catch{/* A malformed historical URL cannot establish host coverage. */}
+  }
+  for(const host of hostOutcomes)if(host.observed_at)checkedAt.set(host.hostname,host.observed_at);
+  for(const host of notApplicableHosts)if(host.evidence?.scan_id===scanId&&host.evidence?.observed_at)
+    checkedAt.set(host.hostname,host.evidence.observed_at);
+  const hostCoverage=(Array.isArray(plan.host_coverage)?plan.host_coverage:[])
+    .filter(host=>typeof host?.hostname==='string'&&safeHost(host.hostname,row.domain))
+    .map(host=>({hostname:host.hostname,checked_this_scan:checkedAt.has(host.hostname),
+      last_checked_at:checkedAt.get(host.hostname)||host.last_checked_at||null,
+      evidence_state:hostOutcomes.find(item=>item.hostname===host.hostname)?.state||
+        (notApplicableHosts.some(item=>item.hostname===host.hostname&&item.evidence?.scan_id===scanId)?'host_does_not_resolve':
+          checkedAt.has(host.hostname)?'checked':'awaiting_rotation')}));
+  const deferredPriorFindings=unresolvedExposureChecks(plan.retest_checks||[],results)
+    .filter(item=>[...hostOutcomes,...notApplicableHosts].some(host=>{
+      try{return new URL(item.url).hostname===host.hostname;}catch{return false;}
+    })).length;
   const coverage={completed:0,pending:0,blocked:0,not_applicable:0,budget_exhausted:plan.omitted_checks||0,uncertain:0,recorded_total:checks.length,omitted_checks:plan.omitted_checks||0,pending_assets:plan.pending_assets||0,
     not_applicable_hosts:notApplicableHosts.length,target_unavailable_hosts:hostOutcomes.filter(h=>h.state==='target_unavailable').length,
     non_resolving_hosts:hostOutcomes.filter(h=>h.state==='host_does_not_resolve').length,
+    hosts_total:Number.isSafeInteger(plan.hosts_total)?plan.hosts_total:null,
+    hosts_checked:hostCoverage.filter(host=>host.checked_this_scan).length,
+    deferred_prior_findings:deferredPriorFindings,
     execution_complete_hosts:hostOutcomes.length};
   for(const check of checks){
     if(check.comparable)coverage.completed++;
@@ -673,11 +759,12 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   // job_state says whether the job FINISHED; quality and incomplete_reason say
   // whether what it observed can support a conclusion. They are different facts.
   return {source:'external_exposure',version:'1',quality:httpComplete&&checks.every(r=>r.comparable)&&
-    hostOutcomes.length===0&&notApplicableHosts.length===0?'complete':'partial',
+    hostOutcomes.length===0&&notApplicableHosts.length===0&&coverage.omitted_checks===0&&
+    coverage.pending_assets===0?'complete':'partial',
     job_state:row.state,phase_state:httpComplete?'complete':row.state,
     incomplete_reason:exposureIncompleteReason(httpComplete?'complete':row.state,coverage,checks.length),
     hosts_not_applicable:notApplicableHosts.map(h=>({hostname:h.hostname,reason:h.reason,observed_at:h.evidence?.observed_at||null})),
-    host_outcomes:hostOutcomes,
+    host_outcomes:hostOutcomes,host_coverage:hostCoverage,
     page_discovery:plan.content_state==='complete'?plan.page_discovery:null,
     coverage,checks,hostname_references:{candidates:(plan.discovered_hosts||[]).map(hostname=>({hostname,sources:['exposure_content']}))},costs:{...json(row.costs_json,{}),charged_requests:row.charged_requests,charged_bytes:row.charged_bytes,
       unknown_attempts:row.unknown_attempts,attempts:row.attempts},observed_at:row.updated_at};

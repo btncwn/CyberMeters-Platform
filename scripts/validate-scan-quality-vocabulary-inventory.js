@@ -77,7 +77,7 @@ const EXPECTED = Object.freeze({
     // the partial/degraded check that keeps a withheld score from being a
     // headline. Two-tree --dump-current diff (origin/main vs this head) keyed by
     // file:kind:slot:snippet shows no other comparison delta.
-    comparison_occurrences: 64,
+    comparison_occurrences: 65,
     source_file_count: 28,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -118,7 +118,9 @@ const EXPECTED = Object.freeze({
     // quality, and the aggregate now checks the projected complete state.
     // PR-A2: three additive PDF checks and one IntelligencePage check suppress
     // numeric scores on partial reports. No comparison was removed.
-    fingerprint: "b90ee408310fda6c894291898ad27ae4958062120598778a3682849f70af5f50",
+    // P1b-3 two-tree diff: cyber-mot-domains.js adds one partial/degraded
+    // membership comparison for domain-local Email/Brand evidence; none removed.
+    fingerprint: "935c9a7d3228ebc8a0a9a3f176146ad78ce3cf7d6f736645e867e950371f3b9c",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -291,7 +293,8 @@ const EXPECTED = Object.freeze({
     // quality, never a verdict decided here.
     // PR-A2: four additive PDF reads plus one executive and three Intelligence
     // presentation reads of backend quality; no direct read was removed.
-    runtime: { occurrence_count: 138, source_file_count: 48, fingerprint: "7547348d3848b67bbf7826e1e7280b972b5c95c996ebbd18b053516ce7d9de6c" },
+    // P1b-3: one added resolver read of report.scan_quality; no removals.
+    runtime: { occurrence_count: 139, source_file_count: 48, fingerprint: "bb5c5e1495e5509e2e1d739a6dce8c1b285f4f4c68aac8130552be430ef246d3" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -328,7 +331,10 @@ const EXPECTED = Object.freeze({
     // Runtime direct reads remain 127 across 47 files, and SQL remains 24.
     // P1b's real-engine fixture adds one governed direct read of the recorded
     // scan_quality (p1b-single-domain-engine-fixture.js:82); runtime reads are unchanged.
-    governance: { occurrence_count: 132, source_file_count: 43, fingerprint: "f5ecceee3bf339815caeaf4ab8b9fbda207a849c849b06ecc5c1744f7fa598ee" },
+    // P1b-3: two report.scan_quality reads in the new exposure-plan test, plus
+    // four in its own-module-incomplete mutation case (Email/Brand pushes);
+    // production reads and SQL are unchanged by this governance addition.
+    governance: { occurrence_count: 138, source_file_count: 44, fingerprint: "7337119fbe4b1b6ab6583434d3eb848e0ca87736461eaae5481fa956790a4828" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
