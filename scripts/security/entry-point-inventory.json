@@ -59,8 +59,8 @@
   ],
   "counts": {
     "total": 301,
-    "authed": 262,
-    "public_unauthed": 39,
+    "authed": 263,
+    "public_unauthed": 38,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -77,7 +77,7 @@
       },
       "public-or-global": {
         "total": 40,
-        "authed": 20
+        "authed": 21
       },
       "account": {
         "total": 26,
@@ -3866,10 +3866,12 @@
       "path_kind": "regex",
       "file": "workers/scan-api/src/routes/workspace-members.js",
       "scope": "public-or-global",
-      "auth_guards": [],
+      "auth_guards": [
+        "requireAuth"
+      ],
       "scope_helpers": [],
-      "authed": false,
-      "public_reason": "invitation token flow — opaque-token gated, pre-membership"
+      "authed": true,
+      "public_reason": null
     },
     {
       "method": "POST",

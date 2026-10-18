@@ -6,6 +6,8 @@ import Spinner from '../components/Spinner'
 import { PENDING_SIGNUP_DOMAIN_KEY } from '../utils/signupDomainHandoff'
 import { canonicalDomainInput } from '../lib/newScanVerification'
 import OneClickDnsButton from '../components/OneClickDnsButton'
+import PendingInvitationBanner from '../components/PendingInvitationBanner'
+import { pendingInviteToken } from '../lib/invitationFlow'
 import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 
 function domainIdOf(domain) {
@@ -119,6 +121,9 @@ function CopyButton({ value }) {
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
+  // An invited person with a pending invitation sees the invitation first, never
+  // "Get Started / Create your first workspace" (P1, 18 Oct 2026).
+  const [inviteState, setInviteState] = useState(() => (pendingInviteToken() ? 'checking' : 'none'))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [workspace, setWorkspace] = useState(null)
@@ -313,6 +318,17 @@ export default function OnboardingPage() {
     } finally {
       setActionLoading(null)
     }
+  }
+
+  if (inviteState === 'checking' || inviteState === 'offer') {
+    return (
+      <div className="max-w-(--breakpoint-lg) mx-auto px-6 py-8 space-y-6" data-testid="onboarding-invitation-first">
+        <PendingInvitationBanner onState={setInviteState} />
+        {inviteState === 'checking' && (
+          <div className="flex items-center justify-center min-h-[30vh]"><Spinner size="lg" /></div>
+        )}
+      </div>
+    )
   }
 
   if (loading) {

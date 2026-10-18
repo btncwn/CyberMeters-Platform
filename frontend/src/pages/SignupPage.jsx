@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import AuthShell from '../components/AuthShell'
 import { api } from '../api'
 import { persistSignupDomainParam, sanitizeDomainParam } from '../utils/signupDomainHandoff'
+import { invitationPathFor, pendingInviteToken } from '../lib/invitationFlow'
 
-function ResendLink({ email }) {
+function ResendLink({ email, returnTo = null }) {
   const [sent,    setSent]    = useState(false)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(false)
@@ -14,7 +15,7 @@ function ResendLink({ email }) {
     setLoading(true)
     setError(false)
     try {
-      await api.resendVerification(email)
+      await api.resendVerification(email, returnTo)
       setSent(true)
     } catch {
       setError(true)
@@ -78,6 +79,12 @@ export default function SignupPage() {
   const [loading,  setLoading]  = useState(false)
   const [done,     setDone]     = useState(false)
 
+  // An invited signup carries the invitation through verification (P1, 18 Oct 2026):
+  // the token from the invitation page (or remembered locally) becomes an
+  // allow-listed return path the Worker puts inside the verification link.
+  const location = useLocation()
+  const invitationReturn = invitationPathFor(location.state?.invitationToken) || invitationPathFor(pendingInviteToken())
+
   // Carry the Cyber MOT domain through signup → verify → onboarding.
   const [searchParams] = useSearchParams()
   const pendingDomain = sanitizeDomainParam(searchParams.get('domain'))
@@ -101,7 +108,7 @@ export default function SignupPage() {
 
     setLoading(true)
     try {
-      await api.authSignup(email.trim().toLowerCase(), password, name.trim())
+      await api.authSignup(email.trim().toLowerCase(), password, name.trim(), invitationReturn)
       setDone(true)
     } catch (err) {
       setError(err.message || 'Signup failed')
@@ -124,7 +131,7 @@ export default function SignupPage() {
           </p>
           <p className="text-xs text-gray-400">
             Didn't receive it?{' '}
-            <ResendLink email={email} />
+            <ResendLink email={email} returnTo={invitationReturn} />
           </p>
           <div className="mt-6">
             <Link to="/login" className="text-sm text-brand-700 font-semibold hover:underline">

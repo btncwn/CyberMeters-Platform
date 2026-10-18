@@ -7,6 +7,8 @@ import PostureCard          from '../components/overview/PostureCard'
 import { NextActionCard } from '../components/overview/SecurityOverview'
 import SetupCard from '../components/SetupCard'
 import { formatDate } from '../utils/dates'
+import PendingInvitationBanner from '../components/PendingInvitationBanner'
+import { pendingInviteToken } from '../lib/invitationFlow'
 
 // The home screen (founder, 16 Oct 2026): the question, the last assessment,
 // the scan input, the "Your external posture" card (every area with the
@@ -157,6 +159,15 @@ function buildStatusFindings(scans, failed, active, domains) {
  * oriented inside the app.
  */
 function CreateFirstWorkspaceState() {
+  // A pending invitation comes before "Create your first workspace" (P1, 18 Oct 2026).
+  const [inviteState, setInviteState] = useState(() => (pendingInviteToken() ? 'checking' : 'none'))
+  if (inviteState === 'checking' || inviteState === 'offer') {
+    return (
+      <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6" data-testid="dashboard-invitation-first">
+        <PendingInvitationBanner onState={setInviteState} />
+      </div>
+    )
+  }
   return (
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
       <div className="mb-8">
@@ -294,14 +305,8 @@ export default function Dashboard() {
 
   const load = useCallback(async (silent = false) => {
     const generation = ++requestGeneration.current
-    // Pending invite redirect — if user signed up then landed on Dashboard,
-    // pick up the stored invite token and send them to the landing page to accept.
-    const pendingInvite = localStorage.getItem('cybermeters_pending_invite')
-    if (pendingInvite) {
-      localStorage.removeItem('cybermeters_pending_invite')
-      navigate(`/invitations/${pendingInvite}`)
-      return
-    }
+    // A pending invitation is offered explicitly (PendingInvitationBanner), never
+    // by a silent redirect that consumed the token (P1, 18 Oct 2026).
 
     const wsId = activeWorkspaceId
     setScans([])
@@ -402,6 +407,9 @@ export default function Dashboard() {
       {/* While setup is incomplete, the steps that lived on /services sit here
           (founder, 17 Oct 2026); the card renders nothing once every step is Done. */}
       <SetupCard workspaceId={activeWorkspaceId} />
+
+      {/* Invited to another workspace: offered here too, never auto-accepted. */}
+      <PendingInvitationBanner />
 
       {/* Home (founder, 16 Oct 2026): the question, the last assessment, the
           scan input, then what the latest assessment could establish. */}

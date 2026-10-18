@@ -1,6 +1,6 @@
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import Layout, { DIRECT_NAV, MSP_NAV, MSP_NAV_FEATURE, selectNav, roleLabelFor } from '../Layout'
+import Layout, { DIRECT_NAV, MSP_NAV, MSP_NAV_FEATURE, selectNav, roleLabelFor, planLabelFor } from '../Layout'
 import { api } from '../../api'
 import { useAuth } from '../../context/AuthContext'
 
@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext'
 // workspaces or domains it has.
 
 vi.mock('../../api', () => ({
-  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn(), getCyberMotDomains: vi.fn(), getWorkspaceDomains: vi.fn() },
+  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn(), getCyberMotDomains: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceMembers: vi.fn() },
   logoutWithToken: vi.fn(),
 }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }))
@@ -88,6 +88,20 @@ describe('selectNav (pure)', () => {
 
   it('no two items in one menu share a destination', () => {
     for (const menu of [DIRECT_NAV, MSP_NAV]) expect(new Set(menu.map(i => i.to)).size).toBe(menu.length)
+  })
+
+  it('plan line: member vs owner vs no membership (18 Oct 2026)', () => {
+    const workspaces = [{ id: 'ws_own', name: 'Own Co', role: 'owner' }, { id: 'ws_bbb', name: 'Black Bull Barbers', role: 'analyst' }]
+    // Access through membership: the active workspace is someone else's, no paid plan.
+    expect(planLabelFor({ user: { plan: 'free' }, workspaces, activeWsId: 'ws_bbb', ownerName: 'Taylor Owner' })).toBe('Member of Black Bull Barbers · plan managed by Taylor Owner')
+    expect(planLabelFor({ user: { plan: 'free' }, workspaces: [workspaces[1]], activeWsId: null })).toBe('Member of Black Bull Barbers · plan managed by the workspace owner')
+    // Owner of the active workspace on the free plan.
+    expect(planLabelFor({ user: { plan: 'free' }, workspaces, activeWsId: 'ws_own' })).toBe('Free plan')
+    // No memberships, no subscription.
+    expect(planLabelFor({ user: { plan: 'free' }, workspaces: [], activeWsId: null })).toBe('Free plan')
+    // A paid plan names itself, even while viewing a workspace the user only belongs to.
+    expect(planLabelFor({ user: { plan: 'professional' }, workspaces, activeWsId: 'ws_bbb', ownerName: 'Taylor Owner' })).toBe('Professional plan')
+    expect(planLabelFor({ user: {}, workspaces: [], activeWsId: null })).toBeNull()
   })
 
   it('role label comes from the plan the API published', () => {
@@ -285,5 +299,18 @@ describe('Layout top bar — shape', () => {
     localStorage.setItem('cybermeters_workspace_name', 'Black Bull Barbers')
     window.dispatchEvent(new Event('storage'))
     await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('B'))
+  })
+
+  it('the account menu shows the member line for a workspace the user only belongs to', async () => {
+    renderLayout({ features: DIRECT_FEATURES }, { user: { name: 'Casey Analyst', email: 'casey@example.co.uk', plan: 'free' }, workspace: { id: 'ws_bbb', name: 'Black Bull Barbers' } })
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_bbb', name: 'Black Bull Barbers', role: 'analyst' }] })
+    api.getWorkspaceMembers.mockResolvedValue({ members: [{ role: 'owner', name: 'Taylor Owner', email: 'owner@example.co.uk' }, { role: 'analyst', name: 'Casey Analyst' }] })
+    // Re-render with the membership data in place.
+    window.dispatchEvent(new Event('storage'))
+    fireEvent.click(within(header()).getByRole('button', { name: 'Account menu' }))
+    const menu = screen.getByRole('menu', { name: 'Account' })
+    await waitFor(() => expect(within(menu).getByText('Member of Black Bull Barbers · plan managed by Taylor Owner')).toBeInTheDocument())
+    expect(within(menu).queryByText('Free plan')).toBeNull()
+    expect(document.body.textContent).not.toContain('owner@example.co.uk')
   })
 })

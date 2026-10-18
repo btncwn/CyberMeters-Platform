@@ -72,7 +72,7 @@ export default function ProfileMenu({ roleLabel = null }) {
         <div id={PROFILE_MENU_ID} role="menu" aria-label="Account" className="cm-popover right-0 top-full mt-2 w-64 max-h-[80vh] overflow-y-auto">
           <div className="px-4 pt-3 pb-2 border-b border-gray-100">
             <p className="text-[15px] font-semibold text-gray-900 truncate">{user?.name || user?.email || 'Signed in'}</p>
-            {roleLabel && <p className="text-xs text-gray-500 truncate">{roleLabel}</p>}
+            {roleLabel && <p className="text-xs text-gray-500 leading-snug break-words" data-testid="profile-plan-line">{roleLabel}</p>}
           </div>
           <div className="py-1">
             <Link role="menuitem" to="/guide" onClick={() => close({ refocus: true })} className={itemClass}>Field Guide</Link>
