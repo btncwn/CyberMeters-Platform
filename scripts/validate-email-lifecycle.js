@@ -371,6 +371,21 @@ await group("15 compatibility behavior", async () => {
     must(email.subject && email.text && email.html, `template missing for ${type}`);
   }
   must(real.LIFECYCLE_TYPES.size === 6, "lifecycle type set drifted");
+  // Welcome: a domain added before email confirmation turns it into "ready to
+  // verify" (escaped, linked to onboarding); without one it is the plain welcome.
+  const ready = real.buildLifecycleEmail("lifecycle_welcome", { origin: env.FRONTEND_URL, domain: "a<b>.example" });
+  must(ready.html.includes("Your domain is ready to verify") && ready.html.includes("a&lt;b&gt;.example") &&
+    !ready.html.includes("a<b>.example") && ready.text.includes(`${env.FRONTEND_URL}/onboarding`) &&
+    ready.subject === "Welcome to CyberMeters", "welcome-with-domain variant missing");
+  const plain = real.buildLifecycleEmail("lifecycle_welcome", { origin: env.FRONTEND_URL });
+  must(plain.html.includes("Welcome to CyberMeters") && !plain.html.includes("ready to verify"), "plain welcome changed");
+  // The email-address verification messages (signup + resend) wear the same
+  // brand as the lifecycle emails: dark heading, mint button with dark text.
+  const authSource = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "routes", "auth.js"), "utf8");
+  must((authSource.match(/<h2 style="color:#111827">Verify your email address<\/h2>/g) || []).length === 2 &&
+    (authSource.match(/background:#a9f2e5;color:#081f1c;[^"]*">Verify email address<\/a>/g) || []).length === 2 &&
+    !authSource.includes("#1d4ed8") && ready.html.includes("background:#a9f2e5;color:#081f1c"),
+    "verification email brand differs from the welcome email");
   const failed = await real.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "usr_ok" });
   const welcome = db.prepare("SELECT * FROM lifecycle_email_events WHERE type='lifecycle_welcome'").get();
   must(failed.reason === "missing_api_key" && welcome.status === "failed", "safe failure compatibility broke");

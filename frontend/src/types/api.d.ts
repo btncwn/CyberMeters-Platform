@@ -55,6 +55,8 @@ export interface ApiError extends Error {
   readiness?: unknown;
   /** Canonical report read/presentation state returned by scan report routes. */
   report_availability?: ReportAvailability;
+  /** Canonical domain-verification outcome from POST /domains/:id/verify (e.g. 'no_token'). */
+  outcome?: string;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────

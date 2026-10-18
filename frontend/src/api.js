@@ -262,6 +262,9 @@ async function request(path, options = {}) {
     // from hosted-DMARC policy changes) so callers can branch without
     // string-matching on messages.
     if (err.code) httpError.code = err.code
+    // Canonical domain-verification outcome (e.g. 'no_token'), so callers map
+    // it to their own copy instead of showing the server's text.
+    if (typeof err.outcome === 'string') httpError.outcome = err.outcome
     if (err.readiness) httpError.readiness = err.readiness
     if (err.report_availability) httpError.report_availability = err.report_availability
     // Domain-ownership gate: carry the EXACT record the server gated on, so the

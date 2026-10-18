@@ -165,11 +165,13 @@ const scanCount = (wsId) => db.prepare("SELECT COUNT(*) n FROM scans WHERE works
   eq("init: legacy domains row NOT mutated (read-only compat)", legacy.verification_status, "unverified");
 }
 
-// ── 7. Verify with no token on the link → 400 'No verification token found' ──
+// ── 7. Verify with no token on the link → 400 no_verification_token ─────────
 {
   const r = await call("/api/domains/dom_u2/verify", tok.u2, "POST", { workspace_id: "ws_u2" });
   eq("verify without a token → 400", r.status, 400);
-  ok("verify → advisory message", /No verification token found/.test(r.body.error || ""));
+  ok("verify → machine code + outcome, no route text", r.body.code === "no_verification_token" &&
+    r.body.outcome === "no_token" && /does not have a DNS record/.test(r.body.error || "") &&
+    !/\/api\/|Call POST/.test(JSON.stringify(r.body)));
 }
 
 // ── 8. isWorkspaceDomainVerified helper is exact + fails closed ──────────────

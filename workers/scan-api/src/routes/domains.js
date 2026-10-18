@@ -444,8 +444,10 @@ export async function domainRoutes(rctx) {
             verification_status: "failed",
             outcome: VERIFICATION_OUTCOMES.NO_TOKEN,
             request_id: requestId,
-            error: "No verification token found. Call POST /api/domains/:id/verification first.",
-            message: "Start verification for this domain to get its DNS record, then try again.",
+            // Plain words, never a route name: `error` reaches customers as-is.
+            error: "This domain does not have a DNS record to check yet. Prepare its DNS record, then try again.",
+            code: "no_verification_token",
+            message: "This domain does not have a DNS record to check yet. Prepare its DNS record, then try again.",
           }, 400);
         }
 
@@ -770,7 +772,8 @@ export async function domainRoutes(rctx) {
         if (!domRow) return json({ error: "Domain not found" }, 404);
         if (!domRow.verification_token) {
           return json({
-            error: "No verification token. Call POST /api/domains/:id/verification first.",
+            error: "This domain does not have a DNS record to check yet. Prepare its DNS record, then try again.",
+            code: "no_verification_token",
           }, 400);
         }
         const domain   = domRow.domain;
