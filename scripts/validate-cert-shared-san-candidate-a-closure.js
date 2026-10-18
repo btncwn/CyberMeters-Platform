@@ -11,7 +11,7 @@
 // asserts Candidate A's actual invariants: the introduction commit itself moved
 // nothing (historical, from git blobs), the projector and routes/scans.js stay
 // OUT of the derived closure (constraint C1), and the current tree passes the
-// canonical deploy-traceability governance (digest vs manifest/APP_VERSION).
+// canonical deploy-traceability governance (deploy-time release stamp).
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -143,10 +143,14 @@ function appVersion(bytes, label) {
 //       closure (list, counts, digest) nor either APP_VERSION, measured from
 //       immutable git blobs, so "Candidate A caused no drift" stays executable;
 //   (2) PLACEMENT — the projector and routes/scans.js are OUT of the closure
-//       derived from the current tree (constraint C1; catches any relocation);
+//       derived from the current tree, and no closure file (the persisted
+//       report snapshot included) reads or writes the projection's output
+//       field shared_san_assessment (constraint C1; catches any relocation or
+//       leak of the read-time projection into stored or email-path bytes);
 //   (3) GOVERNANCE — the current tree passes the canonical email-worker deploy
-//       traceability validator, so any un-coordinated closure byte change
-//       (digest vs manifest/APP_VERSION) still fails here.
+//       traceability validator. The release stamp is a deploy-time value, so
+//       this proves deploy traceability, not that a closure byte is unchanged;
+//       Candidate A's own closure invariant is the placement check above.
 let failed = false;
 try {
   const head = git(["rev-parse", "HEAD"]);
@@ -201,8 +205,13 @@ try {
       JSON.stringify(introApps) === JSON.stringify(introParentApps);
 
     const current = measure(currentRead);
+    // The projection's output is a read-time presentation field: no file the
+    // email Worker bundles (report snapshot included) may read or write it.
+    const projectionConsumers = current.files.filter((file) =>
+      /\bshared_san_assessment\b/.test(currentRead(file).toString("utf8")));
     const placement = !current.files.includes(projector) &&
-      !current.files.includes("workers/scan-api/src/routes/scans.js");
+      !current.files.includes("workers/scan-api/src/routes/scans.js") &&
+      projectionConsumers.length === 0;
 
     const trace = spawnSync(process.execPath, [
       path.join(root, "scripts", "validate-email-worker-deploy-traceability.js"),
@@ -218,6 +227,7 @@ try {
       introduction_parent_closure: { ...introParent, app_versions: introParentApps },
       current_closure: current,
       placement_clean: placement,
+      projection_consumers_in_closure: projectionConsumers,
       deploy_traceability_exit: trace.status,
     };
     if (process.argv.includes("--print")) {
