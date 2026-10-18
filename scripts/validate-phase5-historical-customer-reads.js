@@ -814,16 +814,13 @@ const validatorRejects = (script) => {
 };
 const mutations = [
   {
-    name: "M1 IntelligencePage restores stale D1 score/rating",
+    name: "M1 IntelligencePage restores a stale D1 score in the scan strip",
     edits: [{
       target: INTELLIGENCE,
-      from: "  const assessmentPresentation = canonicalAssessmentPresentation(assessment)\n",
-      to: `  const assessmentPresentation = canonicalAssessmentPresentation({
-    ...assessment,
-    display_score: assessment?.display_score ?? storedScanObj?.score ?? null,
-    display_rating: assessment?.display_rating ?? storedScanObj?.rating ?? null,
-  })
-`,
+      from: `                {assessmentPresentation.provisional
+                  ? 'Score available after a complete scan'
+                  : <>Score {assessmentPresentation.score ?? '—'}/100</>}`,
+      to: `                <>Score {storedScanObj?.score ?? '—'}/100</>`,
     }],
     survived: () => runChild("frontend").passed === false,
   },

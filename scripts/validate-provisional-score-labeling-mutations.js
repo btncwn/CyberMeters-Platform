@@ -20,7 +20,7 @@ const files = {
   scoring: 'workers/scan-api/src/engines/scoring.js',
 }
 
-const EXPECTED_MUTANTS = 15
+const EXPECTED_MUTANTS = 16
 const EXPECTED_INVALID_CONTROLS = 2
 const EXPECTED_ASSERTIONS = 57
 const SUMMARY_PREFIX = 'provisional-score-labeling:'
@@ -39,7 +39,7 @@ const A = Object.freeze({
   malformedStringValue: 'malformed 85 never becomes zero',
   malformedObjectValue: 'malformed [object Object] never becomes zero',
   malformedUndefinedValue: 'malformed undefined never becomes zero',
-  frontendProvisionalValue: 'frontend contract preserves canonical provisional 100',
+  frontendProvisionalValue: 'frontend contract withholds canonical provisional 100',
   frontendProvisionalState: 'frontend contract visibly classifies canonical provisional state',
   frontendEstablishedValue: 'frontend contract preserves canonical established value',
   frontendEstablishedState: 'frontend contract does not force established evidence provisional',
@@ -112,19 +112,19 @@ const mutants = [
   {
     name: 'backend removes provisional flag', file: 'assessment',
     anchor: '    provisional:    !complete,', replacement: '    provisional:    false,',
-    expected: [A.partialHighFlag, A.degradedMediumFlag, A.partialMediumFlag, A.frontendProvisionalValue, A.frontendProvisionalState],
+    expected: [A.partialHighFlag, A.degradedMediumFlag, A.partialMediumFlag, A.frontendProvisionalState],
   },
   {
     name: 'score 100 is forced established', file: 'assessment',
     anchor: '  const state = !hasScore\n    ? ASSESSMENT_PRESENTATION_STATES.NOT_ESTABLISHED',
     replacement: '  const state = score === 100 && hasScore\n    ? ASSESSMENT_PRESENTATION_STATES.ESTABLISHED\n    : !hasScore\n      ? ASSESSMENT_PRESENTATION_STATES.NOT_ESTABLISHED',
-    expected: [A.partialHighState, A.monitoringState, A.frontendProvisionalValue, A.frontendProvisionalState],
+    expected: [A.partialHighState, A.monitoringState, A.frontendProvisionalState],
   },
   {
     name: 'incomplete evidence is treated established', file: 'assessment',
     anchor: '      : ASSESSMENT_PRESENTATION_STATES.PROVISIONAL;',
     replacement: '      : ASSESSMENT_PRESENTATION_STATES.ESTABLISHED;',
-    expected: [A.partialHighState, A.degradedMediumState, A.partialMediumState, A.monitoringState, A.frontendProvisionalValue, A.frontendProvisionalState],
+    expected: [A.partialHighState, A.degradedMediumState, A.partialMediumState, A.monitoringState, A.frontendProvisionalState],
   },
   {
     name: 'established evidence is forced provisional', file: 'assessment',
@@ -135,13 +135,19 @@ const mutants = [
   {
     name: 'frontend ignores canonical state', file: 'frontendContract',
     anchor: '  const state = assessment?.state', replacement: "  const state = 'provisional'",
-    expected: [A.frontendEstablishedValue, A.frontendEstablishedState, A.missingStateClosed, A.missingStateNumber, A.inconsistentClosed, A.inconsistentNumber, A.sharedContract],
+    expected: [A.frontendEstablishedValue, A.frontendEstablishedState, A.missingStateClosed, A.inconsistentClosed, A.sharedContract],
   },
   {
     name: 'frontend locally infers provisionality from score', file: 'frontendContract',
     anchor: "  const provisional = state === 'provisional' && score != null &&\n    assessment?.provisional === true && assessment?.authoritative === false",
     replacement: '  const provisional = score != null',
-    expected: [A.frontendEstablishedState, A.missingStateClosed, A.missingStateNumber, A.missingFlagClosed, A.missingFlagNumber, A.inconsistentClosed, A.inconsistentNumber, A.sharedContract],
+    expected: [A.frontendEstablishedValue, A.frontendEstablishedState, A.missingStateClosed, A.missingFlagClosed, A.inconsistentClosed, A.sharedContract],
+  },
+  {
+    name: 'frontend reveals the retained provisional number', file: 'frontendContract',
+    anchor: "    return { state: 'provisional', score: null, rating: null, reason }",
+    replacement: "    return { state: 'provisional', score, rating: null, reason }",
+    expected: [A.frontendProvisionalValue],
   },
   {
     name: 'missing score becomes zero', file: 'assessment',
