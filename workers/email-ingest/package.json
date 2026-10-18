@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "../scan-api/node_modules/.bin/wrangler deploy --config wrangler.toml",
+    "deploy": "sh ../../scripts/deploy-email-ingest.sh",
     "dry-run": "../scan-api/node_modules/.bin/wrangler deploy --dry-run --config wrangler.toml"
   }
 }

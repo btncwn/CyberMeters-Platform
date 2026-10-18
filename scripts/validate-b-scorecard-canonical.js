@@ -25,8 +25,8 @@ const REPORT_SNAPSHOT = process.env.SAN_B_REPORT_SNAPSHOT_PATH ||
   path.join(ENG, "report-snapshot.js");
 const ATTACK_SURFACE = process.env.SAN_B_ATTACK_SURFACE_PATH ||
   path.join(ROOT, "workers", "scan-api", "src", "routes", "attack-surface.js");
-const MANIFEST = process.env.SAN_B_MANIFEST_PATH ||
-  path.join(ROOT, "workers", "email-ingest", "deploy-manifest.json");
+const EMAIL_DEPLOY = process.env.SAN_B_EMAIL_DEPLOY_PATH ||
+  path.join(ROOT, "scripts", "deploy-email-ingest.sh");
 const EMAIL_CONFIG = process.env.SAN_B_EMAIL_WRANGLER_PATH ||
   path.join(ROOT, "workers", "email-ingest", "wrangler.toml");
 const SCAN_API_CONFIG = process.env.SAN_B_SCAN_API_WRANGLER_PATH ||
@@ -396,21 +396,19 @@ ok("SAN_B_F19", emptyScorecard !== null && emptyScorecard.certificate_risks != n
       cwd: ROOT, encoding: "utf8",
     });
     try {
+      // The email closure must include the certificate change, and its release
+      // stamp is a deploy-time value: no committed APP_VERSION that could go
+      // stale, and the email deploy passes the stamp computed from the commit.
       const computed = JSON.parse(trace.stdout);
-      const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
-      const versionMatch = fs.readFileSync(EMAIL_CONFIG, "utf8").match(/^APP_VERSION\s*=\s*"([^"]+)"\s*$/m);
-      const version = versionMatch?.[1] || "";
-      const scanVersionMatch = fs.readFileSync(SCAN_API_CONFIG, "utf8").match(/^APP_VERSION\s*=\s*"([^"]+)"\s*$/m);
-      const scanVersion = scanVersionMatch?.[1] || "";
+      const committedVersion = /^\s*APP_VERSION\s*=/m;
+      const deploy = fs.readFileSync(EMAIL_DEPLOY, "utf8");
       condition = trace.status === 0 &&
         computed.closure_sha256 !== "58c26ff6c9e4a9352a0aa2f52931541e297ca0b069f5510d5663de4bc3095875" &&
-        manifest.closure_sha256 === computed.closure_sha256 &&
-        manifest.closure_file_count === computed.closure_file_count &&
-        manifest.scan_api_file_count === computed.scan_api_file_count &&
-        JSON.stringify(manifest.files) === JSON.stringify(computed.files) &&
-        manifest.app_version === version &&
-        scanVersion === version &&
-        version.endsWith(`.${computed.closure_sha256.slice(0, 12)}`);
+        computed.app_version.endsWith(`.${computed.closure_sha256.slice(0, 12)}`) &&
+        !committedVersion.test(fs.readFileSync(EMAIL_CONFIG, "utf8")) &&
+        !committedVersion.test(fs.readFileSync(SCAN_API_CONFIG, "utf8")) &&
+        /stamp=\$\(node "\$root\/scripts\/lib\/release-stamp\.mjs" --field app_version/.test(deploy) &&
+        /--var "APP_VERSION:\$stamp"/.test(deploy);
     } catch { condition = false; }
   }
   ok("SAN_B_F20", condition);
@@ -572,7 +570,7 @@ const candidateBMutants = [
   },
   { id: "SAN_B_M11", expected: ["SAN_B_F15"], kind: "snapshot" },
   { id: "SAN_B_M12", expected: ["SAN_B_F17"], kind: "attack" },
-  { id: "SAN_B_M13", expected: ["SAN_B_F20"], kind: "manifest" },
+  { id: "SAN_B_M13", expected: ["SAN_B_F20"], kind: "deploy" },
   { id: "SAN_B_M14", expected: ["SAN_B_F20"], kind: "config" },
 ];
 
@@ -637,18 +635,16 @@ for (const mutant of candidateBMutants) {
         "suspicious_certificate_signals: (ci.suspicious_certificate_signals || []).filter((signal) => signal.severity !== 'info'),",
         mutant.id);
       env.SAN_B_ATTACK_SURFACE_PATH = writeMutantFile(directory, "attack-surface.js", source);
-    } else if (mutant.kind === "manifest") {
-      const shown = spawnSync("git", ["show", "9b4745706786cfed7dbc0fb61f9d01c5b818935c:workers/email-ingest/deploy-manifest.json"], {
-        cwd: ROOT, encoding: "utf8",
-      });
-      if (shown.status !== 0) throw new Error(shown.stderr);
-      env.SAN_B_MANIFEST_PATH = writeMutantFile(directory, "deploy-manifest.json", shown.stdout);
+    } else if (mutant.kind === "deploy") {
+      // The email Worker deployed without its stamp.
+      const source = replaceOne(fs.readFileSync(EMAIL_DEPLOY, "utf8"),
+        ' --var "APP_VERSION:$stamp"', "", mutant.id);
+      env.SAN_B_EMAIL_DEPLOY_PATH = writeMutantFile(directory, "deploy-email-ingest.sh", source);
       skipClosure = false;
     } else if (mutant.kind === "config") {
-      const source = fs.readFileSync(EMAIL_CONFIG, "utf8").replace(
-        /^APP_VERSION\s*=\s*"[^"]+"\s*$/m,
-        'APP_VERSION = "candidate-b.invalid-digest"',
-      );
+      // A committed stamp is back in wrangler.toml.
+      const source = replaceOne(fs.readFileSync(EMAIL_CONFIG, "utf8"),
+        "[vars]\n", '[vars]\nAPP_VERSION = "2026.10.18-candidate-b.226f19315149"\n', mutant.id);
       env.SAN_B_EMAIL_WRANGLER_PATH = writeMutantFile(directory, "wrangler.toml", source);
       skipClosure = false;
     }
