@@ -142,7 +142,7 @@ TLS_ASSESSMENT_MODE = "evidence-v1"
 # either is missing the tools say they are unavailable and run nothing.
 # Shared result links are signed with FREE_TOOLS_SHARE_KEY (Worker secret, 32+
 # random characters); without it results are shown but no link is offered.
-TURNSTILE_SITE_KEY = ""
+TURNSTILE_SITE_KEY = "0x4AAAAAAFcObUvMVo5YdbcK"
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
 # a clean 503 for every API route (except /health + /ready); flip back to "off"
 # and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.
