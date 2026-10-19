@@ -79,7 +79,7 @@ const COLUMNS = [
   { key: 'name',       label: 'Provider' },
   { key: 'category',   label: 'Category', render: v => CATEGORY_LABELS[v] ?? v ?? '—' },
   { key: 'confidence', label: 'Confidence', render: v => <span className="capitalize text-gray-600 text-xs">{v}</span> },
-  { key: 'risk_level', label: 'Risk',     render: v => <RiskBadge level={v} /> },
+  { key: 'risk_level', label: 'Tier',     render: v => <RiskBadge level={v} /> },
   { key: 'status',     label: 'Status',   render: v => (
     <span className={`text-xs font-semibold capitalize ${v === 'active' ? 'text-brand-700' : 'text-gray-400'}`}>{v}</span>
   )},
@@ -155,7 +155,7 @@ function CriticalVendorsTable({ vendors }) {
             <th className="pb-2 font-medium">Vendor</th>
             <th className="pb-2 font-medium">Category</th>
             <th className="pb-2 font-medium">Tier</th>
-            <th className="pb-2 font-medium">Risk</th>
+            <th className="pb-2 font-medium">Tier</th>
             <th className="pb-2 font-medium">Parent</th>
           </tr>
         </thead>
@@ -348,14 +348,14 @@ function Providers({ wsId }) {
     <section className="space-y-4" aria-labelledby="providers-title" id="providers">
       <div>
         <h2 id="providers-title" className="font-semibold text-gray-900">Providers behind your domain</h2>
-        <p className="text-sm text-gray-600 mt-0.5">Hosting, email, DNS, payments and other providers observed from the outside, with the risk level the backend recorded.</p>
+        <p className="text-sm text-gray-600 mt-0.5">Hosting, email, DNS, payments and other providers observed from the outside. Each shows a tier for its kind of service (payments or data storage rank above a CDN, for example). The tier is a catalogue label, not an assessment of the provider.</p>
       </div>
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={Package2} label="Active providers" value={summary.active ?? 0} />
-          <StatCard icon={Package2} label="High risk"   value={summary.by_risk?.high   ?? 0} danger={(summary.by_risk?.high   ?? 0) > 0} />
-          <StatCard icon={Package2} label="Medium risk" value={summary.by_risk?.medium ?? 0} warning={(summary.by_risk?.medium ?? 0) > 0} />
-          <StatCard icon={Package2} label="Low risk"    value={summary.by_risk?.low    ?? 0} />
+          <StatCard icon={Package2} label="High-tier services"   value={summary.by_risk?.high   ?? 0} danger={(summary.by_risk?.high   ?? 0) > 0} />
+          <StatCard icon={Package2} label="Medium-tier services" value={summary.by_risk?.medium ?? 0} warning={(summary.by_risk?.medium ?? 0) > 0} />
+          <StatCard icon={Package2} label="Low-tier services"    value={summary.by_risk?.low    ?? 0} />
         </div>
       )}
       <div className="card p-4 flex flex-wrap gap-2 items-center">

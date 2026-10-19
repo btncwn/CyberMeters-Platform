@@ -801,14 +801,13 @@ export const ARTICLES = [
       {
         heading: 'What CyberMeters Detects',
         blocks: [
-          p('CyberMeters provides third-party risk intelligence across your technology stack:'),
+          p('CyberMeters observes, from the outside, the third-party services your domains visibly rely on:'),
           li([
-            'Third-party services detected in DNS records, JavaScript includes, and web page source (tracking pixels, CDNs, analytics)',
-            'Vendor domains with poor security posture (missing email authentication, weak TLS)',
-            'Shared infrastructure between your domains and known high-risk vendor platforms',
-            'Exposure of vendor management portals (SaaS admin interfaces accessible from internet)',
-            'Vendor subprocessors identified in privacy disclosures and cookie consent banners',
+            'Services named in your DNS records, such as email, verification and SaaS records',
+            'Scripts and services your public web pages load, such as analytics, tag managers and CDNs',
+            'SaaS and identity providers your domains point to',
           ]),
+          p('It does not rate vendors or assess their security, and it does not read contracts, privacy notices or subprocessor lists. Each service shows a tier for its kind of service; that tier is a catalogue label, not an assessment of the provider.'),
         ],
       },
       {
@@ -880,14 +879,13 @@ export const ARTICLES = [
       {
         heading: 'What CyberMeters Detects',
         blocks: [
-          p('CyberMeters monitors your organisation\'s external-facing third-party dependency footprint:'),
+          p('CyberMeters observes the third-party components your public website and DNS expose:'),
           li([
-            'Third-party software components detected in web page source (JavaScript libraries, CDN-hosted scripts)',
-            'Software vendors identified in DNS, SSL certificates, and HTTP headers',
+            'Third-party scripts and CDN-hosted libraries in your public web pages',
+            'Software vendors named in your DNS records and HTTP headers',
             'Software versions that servers publish in their responses (reported as a disclosure, not as a confirmed vulnerability)',
-            'Vendor infrastructure changes that may indicate compromise (new IP, new certificate, DNS change)',
-            'MSP-managed infrastructure identified in your workspace (shared certificates, management platforms)',
           ]),
+          p('It does not detect a compromise inside a vendor, watch a vendor\'s infrastructure for changes, or identify systems an MSP manages for you.'),
         ],
       },
       {

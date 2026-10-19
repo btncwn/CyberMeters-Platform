@@ -204,12 +204,12 @@ function CreateFirstWorkspaceState() {
             desc:  'Find subdomains, exposed services and cloud assets linked to your domains.',
           },
           {
-            title: 'Continuous Risk Scoring',
+            title: 'A score with every scan',
             desc:  'Your Cyber Metrics Score updates with each scan — track improvement over time.',
           },
           {
             title: 'Executive Reporting',
-            desc:  'One-click PDF reports for stakeholders, clients, and compliance requirements.',
+            desc:  'PDF reports you can share with stakeholders and clients.',
           },
         ].map(({ title, desc }) => (
           <div key={title} className="card p-5">
