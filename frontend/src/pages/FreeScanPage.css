@@ -21,7 +21,7 @@
   color: var(--fm-text);
   background:
     var(--fm-bg);
-  font-family: 'Computer Modern Text', 'Computer Modern Serif', Georgia, serif;
+  font-family: 'CM Sans', system-ui, sans-serif;
 }
 
 .free-mot-page[data-theme="dark"] {
@@ -157,6 +157,9 @@
 .fm-domain-icon svg { width: 20px; }
 .fm-domain-card[data-state="issue_detected"] .fm-state-chip { color: var(--fm-danger); background: color-mix(in srgb, var(--fm-danger) 10%, var(--fm-surface)); }
 .fm-domain-card[data-state="monitoring_only"] .fm-state-chip { color: var(--fm-accent); background: var(--fm-accent-soft); }
+.fm-summary .fm-state-chip[data-state="issues_observed"] { color: var(--fm-danger); background: color-mix(in srgb, var(--fm-danger) 10%, var(--fm-surface)); }
+.fm-summary .fm-state-chip[data-tone="info"] { color: var(--fm-muted); background: var(--fm-surface-2); }
+.fm-summary .fm-state-chip[data-state="no_issues_observed"] { color: var(--fm-accent); background: var(--fm-accent-soft); }
 .fm-domain-card h3 { margin: 17px 0 0; font-size: 20px; letter-spacing: 0; }
 .fm-domain-count { margin: 5px 0 0; color: var(--fm-muted); font-size: 16px; font-weight: 700; }
 .fm-domain-samples { display: grid; gap: 8px; min-height: 88px; margin: 17px 0 0; padding: 0; list-style: none; }

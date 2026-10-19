@@ -73,7 +73,9 @@ export async function billingRoutes(rctx) {
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
-      const domain = (body.domain ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+      // "www." is the website, not the business domain: check the apex the
+      // account would verify (www.example.co.uk -> example.co.uk).
+      const domain = (body.domain ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\.(?=[^.]+\.)/, "");
       if (!isValidDomain(domain)) {
         return json({ error: "Please enter a valid domain (e.g. example.com)" }, 400);
       }

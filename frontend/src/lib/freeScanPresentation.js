@@ -53,6 +53,14 @@ export const FREE_SCAN_STATE_LABELS = Object.freeze({
   unavailable: 'Unavailable',
 })
 
+// Summary badge for the backend preview state (resolveFreeScanPreviewState).
+// An unknown or unsupported state reads as incomplete, never as clean.
+export const FREE_SCAN_PREVIEW_BADGES = Object.freeze({
+  issues_observed: 'Findings observed',
+  no_issues_observed: 'No findings observed',
+  evidence_incomplete: 'Evidence incomplete',
+})
+
 export const DOMAIN_STATE_LABELS = Object.freeze({
   assessed_healthy: 'Assessed — no issue observed',
   issue_detected: 'Issue observed',
@@ -138,6 +146,16 @@ function normalizedDomains(result) {
   })
 }
 
+// Every counted finding is backend-rated info. Missing or partial counts are
+// not info-only, so the headline falls back to "Issues observed".
+function infoOnly(result) {
+  const counts = result?.severity_counts || {}
+  const info = Number(counts.info) || 0
+  const rated = ['critical', 'high', 'medium', 'low']
+    .reduce((sum, key) => sum + (Number(counts[key]) || 0), 0)
+  return info > 0 && rated === 0 && info === Number(result?.total_findings)
+}
+
 export function deriveFreeScanPresentation(result) {
   const moduleEvidence = normalizedModuleEvidence(result)
   const coverageComplete = result?.evidence_coverage?.complete === true
@@ -151,6 +169,8 @@ export function deriveFreeScanPresentation(result) {
   const issuesObserved = previewState === 'issues_observed'
   const evidenceIncomplete = !coverageComplete || !previewStateRecognized || previewState === 'evidence_incomplete'
 
+  const informationalOnly = issuesObserved && infoOnly(result)
+
   let headline = 'Evidence incomplete'
   let summary = (
     result?.evidence_coverage?.messages?.filter(Boolean).join(' ') ||
@@ -159,6 +179,11 @@ export function deriveFreeScanPresentation(result) {
   if (noIssuesObserved) {
     headline = 'No issues observed in the completed preview checks'
     summary = 'The bounded preview checks completed and produced no findings. This is not a full external posture assessment.'
+  } else if (issuesObserved && informationalOnly) {
+    headline = 'Only informational signals in the preview checks'
+    summary = evidenceIncomplete
+      ? 'The completed checks recorded informational signals only, nothing rated low or above. Other checks remain incomplete or gated, so this is not a healthy verdict.'
+      : 'The completed checks recorded informational signals only, nothing rated low or above.'
   } else if (issuesObserved) {
     headline = 'Issues observed in the preview checks'
     summary = evidenceIncomplete
@@ -166,9 +191,16 @@ export function deriveFreeScanPresentation(result) {
       : 'The completed preview checks produced the findings shown below.'
   }
 
+  const badgeState = issuesObserved
+    ? 'issues_observed'
+    : noIssuesObserved ? 'no_issues_observed' : 'evidence_incomplete'
+
   return {
     coverageComplete,
     evidenceIncomplete,
+    badgeState,
+    badge: FREE_SCAN_PREVIEW_BADGES[badgeState],
+    informationalOnly,
     noIssuesObserved,
     issuesObserved,
     showScore:

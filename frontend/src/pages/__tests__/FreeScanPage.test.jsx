@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import FreeScanPage from '../FreeScanPage'
+import FreeScanPage, { apexOf } from '../FreeScanPage'
 import { deriveFreeScanPresentation } from '../../lib/freeScanPresentation'
 
 function responseFor({ moduleState, coverageState }) {
@@ -108,7 +108,7 @@ function allProbesFailedResponse() {
   return payload
 }
 
-async function renderResult(payload) {
+async function renderResult(payload, heading = 'Evidence incomplete') {
   vi.stubGlobal('fetch', vi.fn(async () => ({
     ok: true,
     json: async () => payload,
@@ -119,7 +119,27 @@ async function renderResult(payload) {
     target: { value: 'example.com' },
   })
   fireEvent.click(screen.getByRole('button', { name: /Run my free Cyber MOT/i }))
-  await screen.findByRole('heading', { name: 'Evidence incomplete' })
+  await screen.findByRole('heading', { name: heading })
+}
+
+function withFindings(severities) {
+  const payload = responseFor({ moduleState: 'completed', coverageState: 'monitoring_degraded' })
+  const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 }
+  severities.forEach(severity => { counts[severity] += 1 })
+  const shown = severities.slice(0, 2).map((severity, index) => ({
+    id: `f${index}`, severity, title: `Finding ${index}`, description: 'Observed.',
+  }))
+  return {
+    ...payload,
+    preview_state: 'issues_observed',
+    severity_counts: counts,
+    total_findings: severities.length,
+    shown_findings: shown,
+    preview_findings: shown,
+    exposed_finding_count: shown.length,
+    locked_count: severities.length - shown.length,
+    hidden_count: severities.length - shown.length,
+  }
 }
 
 afterEach(() => {
@@ -192,11 +212,37 @@ describe('FreeScanPage evidence honesty', () => {
     expect(screen.getByRole('heading', { name: 'Email Protection' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Shadow IT & Unmanaged Technology' })).toBeInTheDocument()
     expect(screen.getAllByText('Unlock to assess').length).toBeGreaterThan(0)
-    expect(screen.getByText(/canonical domain-ownership verification/i)).toBeInTheDocument()
+    expect(screen.getByText(/create a free account and verify you own the domain/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Start my 14-day trial/i })).toHaveAttribute(
       'href',
       '/signup?domain=example.com',
     )
+  })
+})
+
+describe('FreeScanPage result summary', () => {
+  it('takes the badge from the backend preview state, failing closed to incomplete', () => {
+    expect(deriveFreeScanPresentation(withFindings(['medium'])).badge).toBe('Findings observed')
+    expect(deriveFreeScanPresentation(responseFor({ moduleState: 'completed', coverageState: 'complete' })).badge)
+      .toBe('Evidence incomplete')
+    expect(deriveFreeScanPresentation({ preview_state: 'no_issues_observed', evidence_coverage: { complete: false } }).badge)
+      .toBe('Evidence incomplete')
+    expect(deriveFreeScanPresentation({ preview_state: 'something_new' }).badge).toBe('Evidence incomplete')
+  })
+
+  it('does not call informational signals issues', async () => {
+    await renderResult(withFindings(['info', 'info', 'info', 'info']), 'Only informational signals in the preview checks')
+    expect(screen.getByTestId('preview-badge')).toHaveTextContent('Findings observed')
+    expect(screen.getByTestId('preview-badge')).toHaveAttribute('data-tone', 'info')
+    expect(screen.getByText(/so this is not a healthy verdict/)).toBeInTheDocument()
+    expect(screen.queryByText('Issues observed in the preview checks')).not.toBeInTheDocument()
+    expect(screen.getByText('2 more with a free account')).toBeInTheDocument()
+  })
+
+  it('keeps the issues headline when anything is rated low or above, or counts are missing', () => {
+    expect(deriveFreeScanPresentation(withFindings(['info', 'low'])).headline).toBe('Issues observed in the preview checks')
+    const noCounts = { ...withFindings(['info']), severity_counts: undefined }
+    expect(deriveFreeScanPresentation(noCounts).headline).toBe('Issues observed in the preview checks')
   })
 })
 
@@ -218,6 +264,21 @@ describe('FreeScanPage hand-over from the landing page', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ domain: 'example.co.uk' })
     expect(window.location.search).toBe('')
     window.history.pushState({}, '', '/')
+  })
+
+  it('checks the apex for a www address, from the landing page and the form', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => responseFor({ moduleState: 'completed', coverageState: 'complete' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+    Element.prototype.scrollIntoView = vi.fn()
+    window.history.pushState({}, '', '/free-scan?domain=https://www.Example.co.uk/')
+    render(<MemoryRouter><FreeScanPage /></MemoryRouter>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ domain: 'example.co.uk' })
+    window.history.pushState({}, '', '/')
+    expect(apexOf('www.example.com')).toBe('example.com')
+    expect(apexOf('www.com')).toBe('www.com')
+    expect(apexOf('wwwexample.com')).toBe('wwwexample.com')
+    expect(apexOf('shop.www.example.com')).toBe('shop.www.example.com')
   })
 
   it('ignores an invalid domain parameter and waits for the visitor', () => {

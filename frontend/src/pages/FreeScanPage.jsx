@@ -66,7 +66,13 @@ function signupPath(domain) {
 export function domainFromQuery(search) {
   const raw = new URLSearchParams(search || '').get('domain') || ''
   const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '').replace(/\.$/, '')
-  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d) ? d : ''
+  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d) ? apexOf(d) : ''
+}
+
+// The check runs on the business domain the account would verify, so
+// www.example.co.uk becomes example.co.uk. The API applies the same rule.
+export function apexOf(domain) {
+  return domain.replace(/^www\.(?=[^.]+\.)/, '')
 }
 
 function initialTheme() {
@@ -149,7 +155,7 @@ export default function FreeScanPage() {
   const resultsRef = useRef(null)
 
   function normaliseDomain(value) {
-    return value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+    return apexOf(value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
   }
 
   function stopCycle() {
@@ -313,7 +319,7 @@ export default function FreeScanPage() {
             <div className="fm-summary__verdict">
               <span className="fm-summary__score">—</span>
               <div>
-                <span className="fm-state-chip">Evidence incomplete</span>
+                <span className="fm-state-chip" data-state={presentation.badgeState} data-tone={presentation.informationalOnly ? 'info' : undefined} data-testid="preview-badge">{presentation.badge}</span>
                 <h2 id="preview-summary-title">{presentation.headline}</h2>
                 <p>{presentation.summary}</p>
               </div>
@@ -321,7 +327,7 @@ export default function FreeScanPage() {
             <div className="fm-summary__stats">
               <div><span>Observed findings</span><strong>{result.total_findings ?? 0}</strong></div>
               <div><span>Shown now</span><strong>{exposedFindingCount}</strong></div>
-              <div><span>Sealed</span><strong>{lockedCount}</strong></div>
+              <div><span>With a free account</span><strong>{lockedCount}</strong></div>
             </div>
             <SeverityBar counts={result.severity_counts} />
           </section>
@@ -351,8 +357,8 @@ export default function FreeScanPage() {
                   </div>
                 )}
               <div className="fm-sealed">
-                <strong>{lockedCount > 0 ? `${lockedCount} more sealed` : 'Deep assessment sealed'}</strong>
-                <span>Unlock only after account creation and canonical domain-ownership verification.</span>
+                <strong>{lockedCount > 0 ? `${lockedCount} more with a free account` : 'Deep assessment sealed'}</strong>
+                <span>Shown after you create a free account and verify you own the domain.</span>
               </div>
             </div>
           </section>
