@@ -6,14 +6,14 @@ workers_dev = false
 preview_urls = false
 
 # Production host for the customer MCP endpoint and resource metadata.
-# Access stays closed until the explicit customer flag is enabled.
+# Customer access is on in production; set MCP_CUSTOMER_ENABLED = "false" to close it.
 [[routes]]
 pattern = "mcp.cybermeters.com"
 custom_domain = true
 
 [vars]
 MCP_DEPLOYMENT_TIER = "production"
-MCP_CUSTOMER_ENABLED = "false"
+MCP_CUSTOMER_ENABLED = "true"
 
 [observability]
 enabled = true
@@ -39,15 +39,14 @@ limit = 1000
 period = 60
 
 # Private RPC contracts. The named backend entrypoints are the only customer
-# data path; the public host remains closed while MCP_CUSTOMER_ENABLED=false.
+# data path; the public host is closed whenever MCP_CUSTOMER_ENABLED=false.
 [[services]]
 binding = "MCP_BACKEND"
 service = "cybermeters-platform"
 entrypoint = "McpReadService"
 remote = false
 
-# OAuth and customer reads remain closed until the separate production KV,
-# backend flags, and release gates are provisioned.
+# OAuth and customer reads are also gated by the scan-api backend flags.
 [[services]]
 binding = "MCP_AUTH"
 service = "cybermeters-platform"
