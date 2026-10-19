@@ -1614,6 +1614,17 @@ async function opsHealthHeartbeat(env) {
   }
 }
 
+// A completed or cancelled request is kept as a receipt, but its workspace_id
+// is a FOREIGN KEY: left in place it fails the parent DELETE on every retry, so
+// the workspace can never be purged. Release only those finished links, in the
+// same batch as the delete (the same single-column release as the request's
+// own pointer). A pending or purging request still owns its link and blocks.
+function releaseFinishedDeletionRequestLinks(env, workspaceId) {
+  return env.cybermeters_db
+    .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE workspace_id = ? AND status IN ('completed', 'cancelled')")
+    .bind(workspaceId);
+}
+
 async function purgeWorkspaceRequest(env, req) {
   const ws = await env.cybermeters_db
     .prepare("SELECT id, name, deleted_at, owner_user_id FROM workspaces WHERE id = ? LIMIT 1")
@@ -1679,6 +1690,7 @@ async function purgeWorkspaceRequest(env, req) {
     env.cybermeters_db
       .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE id = ? AND workspace_id = ?")
       .bind(req.id, req.workspace_id),
+    releaseFinishedDeletionRequestLinks(env, req.workspace_id),
     env.cybermeters_db
       .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id),
   ]);
@@ -1743,8 +1755,10 @@ async function purgeAccountRequest(env, req) {
     const { done } = await purgeWorkspaceData(env, owned.id);
     if (done) {
       await assertWorkspacePurgeProven(env, owned.id);
-      await env.cybermeters_db
-        .prepare("DELETE FROM workspaces WHERE id = ?").bind(owned.id).run();
+      await env.cybermeters_db.batch([
+        releaseFinishedDeletionRequestLinks(env, owned.id),
+        env.cybermeters_db.prepare("DELETE FROM workspaces WHERE id = ?").bind(owned.id),
+      ]);
       const stillOwned = await env.cybermeters_db
         .prepare("SELECT id FROM workspaces WHERE id = ? LIMIT 1").bind(owned.id).first();
       if (stillOwned) throw new Error(`owned workspace row survived deletion: ${owned.id}`);

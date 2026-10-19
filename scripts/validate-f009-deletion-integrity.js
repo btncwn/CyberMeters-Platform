@@ -518,6 +518,61 @@ async function main() {
        st?.status !== "completed");
   }
 
+  // ── Finished requests no longer pin their workspace ──────────────────────
+  // A completed request kept its workspace_id (a FOREIGN KEY), so the parent
+  // DELETE failed on every retry and the workspace could never be purged.
+  const drive = async (db, env, id) => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await processDeletionRequests(env);
+      if (db.prepare("SELECT status FROM deletion_requests WHERE id=?").get(id).status !== "purging") break;
+      db.prepare("UPDATE deletion_requests SET updated_at = datetime('now','-2 hours'), next_attempt_at = NULL WHERE id=?").run(id);
+    }
+  };
+  section = "J-workspace-finished-link";
+  {
+    const dbJ = buildDb(); const envJ = makeEnv(dbJ); seedWs(dbJ, "J");
+    dbJ.prepare("INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('drJold','workspace','uJ','wsJ','uJ','completed', datetime('now','-90 days'))").run();
+    await drive(dbJ, envJ, "drJ");
+    const st = dbJ.prepare("SELECT status, attempt_count FROM deletion_requests WHERE id='drJ'").get();
+    const old = dbJ.prepare("SELECT status, workspace_id FROM deletion_requests WHERE id='drJold'").get();
+    ok(`a workspace with an older completed request still purges (status=${st?.status}, attempts=${st?.attempt_count})`,
+       st?.status === "completed" && st?.attempt_count === 0);
+    ok("the workspace row is gone", !dbJ.prepare("SELECT id FROM workspaces WHERE id='wsJ'").get());
+    ok("the older request is kept as a receipt with only its link released",
+       old?.status === "completed" && old?.workspace_id === null);
+  }
+  section = "J-account-finished-link";
+  {
+    const dbK = buildDb(); const envK = makeEnv(dbK);
+    const run = (sql) => dbK.prepare(sql).run();
+    run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('uK','k@example.com','K','free','active',1)");
+    run("INSERT INTO workspaces (id,name,owner_user_id,deleted_at) VALUES ('wsK','Owned','uK', datetime('now','-60 days'))");
+    run("INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('drKold','workspace','uK','wsK','uK','completed', datetime('now','-90 days'))");
+    run(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('drK','account','uK',NULL,'uK','pending', ${OLD})`);
+    await drive(dbK, envK, "drK");
+    ok("an account's owned workspace with an older completed request is deleted",
+       !dbK.prepare("SELECT id FROM workspaces WHERE id='wsK'").get());
+    ok("the account purge took no failed attempt on that workspace",
+       dbK.prepare("SELECT attempt_count FROM deletion_requests WHERE id='drK'").get().attempt_count === 0);
+    ok("the older request keeps its row and status",
+       dbK.prepare("SELECT status FROM deletion_requests WHERE id='drKold'").get()?.status === "completed");
+  }
+  section = "J-live-request-keeps-link";
+  {
+    // Control: a request that is still live owns its link; it is never released
+    // and the owning account cannot delete the workspace out from under it.
+    const dbL = buildDb(); const envL = makeEnv(dbL);
+    const run = (sql) => dbL.prepare(sql).run();
+    run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('uL','l@example.com','L','free','active',1)");
+    run("INSERT INTO workspaces (id,name,owner_user_id,deleted_at) VALUES ('wsL','Owned','uL', datetime('now','-1 days'))");
+    run("INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('drLws','workspace','uL','wsL','uL','pending', datetime('now','-1 days'))");
+    run(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at) VALUES ('drL','account','uL',NULL,'uL','pending', ${OLD})`);
+    await processDeletionRequests(envL);
+    ok("a pending request's workspace link is not released",
+       dbL.prepare("SELECT workspace_id FROM deletion_requests WHERE id='drLws'").get()?.workspace_id === "wsL");
+    ok("the workspace it points at survives", !!dbL.prepare("SELECT id FROM workspaces WHERE id='wsL'").get());
+  }
+
   console.log(out.join("\n"));
   console.log(`\nF-009 deletion integrity: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);
