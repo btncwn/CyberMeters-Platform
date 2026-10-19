@@ -235,6 +235,18 @@ const registry = Object.freeze([
       anchor: "    for (const sel of [...(Array.isArray(dkimModule.selectors_found) ? dkimModule.selectors_found : []), dkimModule.selector]) {",
       replacement: "    for (const sel of [dkimModule.selector]) {" }],
   },
+  {
+    id: "SIT_M31", defect: "a lone shared verification token establishes Google Workspace", expected: ["F46"],
+    changes: [{ target: VS,
+      anchor: "            if (!check.corroboratesOnly) established = true;",
+      replacement: "            established = true;" }],
+  },
+  {
+    id: "SIT_M32", defect: "the Resend DKIM selector is not probed", expected: ["F47"],
+    changes: [{ target: EA,
+      anchor: '  "resend",\n',
+      replacement: "" }],
+  },
 ]);
 
 function sha(buffer) { return crypto.createHash("sha256").update(buffer).digest("hex"); }

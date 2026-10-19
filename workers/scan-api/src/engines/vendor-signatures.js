@@ -26,8 +26,11 @@
 //   category   - infrastructure | cloud | email_identity | hosting | saas |
 //                support | collaboration | ecommerce
 //   risk_level - low | medium | high
-//   signals[]  - array of { source, test(value):bool }
-//                Multiple sources give higher confidence.
+//   signals[]  - array of { source, test(value):bool, corroboratesOnly? }
+//                Multiple sources give higher confidence. A corroboratesOnly
+//                signal is shared with other products, so it can raise the
+//                confidence of a vendor another signal established but can
+//                never establish that vendor alone.
 
 export const VENDOR_SIGNATURES = [
 
@@ -102,7 +105,9 @@ export const VENDOR_SIGNATURES = [
       { source: "spf",    test: (v) => /_spf\.google\.com/.test(v) },
       { source: "mx",     test: (v) => /aspmx\.l\.google\.com|smtp\.google\.com|googlemail\.com/.test(v) },
       { source: "dkim",   test: (v) => /^google$/.test(v) },
-      { source: "txt",    test: (v) => /^google-site-verification=/.test(v) },
+      // Search Console, Google Cloud and others use the same token: it shows a
+      // Google property was verified, not that the domain uses Workspace.
+      { source: "txt",    test: (v) => /^google-site-verification=/.test(v), corroboratesOnly: true },
     ],
   },
   { name: "Zoho Mail",      category: "email_identity", risk_level: "low",
@@ -490,6 +495,7 @@ export function detectVendorsFromModules(modules) {
 
     for (const sig of VENDOR_SIGNATURES) {
       const evidence = [];
+      let established = false;
 
       for (const check of sig.signals) {
         const haystack = signals[check.source] || [];
@@ -497,12 +503,13 @@ export function detectVendorsFromModules(modules) {
           if (check.test(val)) {
             const detail = val.length > 120 ? val.slice(0, 120) + "…" : val;
             evidence.push({ source: check.source, detail });
+            if (!check.corroboratesOnly) established = true;
             break;  // one hit per source type per vendor is enough
           }
         }
       }
 
-      if (evidence.length === 0) continue;
+      if (!established) continue;
 
       const confidence =
         evidence.length >= 3 ? "high" :
