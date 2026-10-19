@@ -25,6 +25,7 @@ function StatusBadge({ status }) {
   const cfg = {
     completed: 'bg-brand-50 text-brand-700 border-brand-100',
     failed:    'bg-red-50 text-red-700 border-red-100',
+    skipped:   'bg-gray-50 text-gray-700 border-gray-200',
     pending:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     running:   'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   }[status] ?? 'bg-gray-50 text-gray-500 border-gray-100'
@@ -199,6 +200,13 @@ function ScheduledReportsCard({ wsId }) {
                   Next run: {fmtNextRun(sr.next_run_at)}
                   {sr.last_run_at && ` · Last: ${fmtDateTime(sr.last_run_at)}`}
                 </p>
+                {sr.last_outcome && sr.last_outcome.status !== 'completed' && (
+                  <p className={`text-xs mt-1 ${sr.last_outcome.status === 'failed' ? 'text-red-700' : 'text-gray-700'}`}>
+                    <span className="font-medium">{sr.last_outcome.title}</span>
+                    {` (${fmtDateTime(sr.last_outcome.at)}). `}
+                    {sr.last_outcome.message}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -536,7 +544,9 @@ function WorkspaceReports({ wsId, wsName }) {
                       <span className="text-sm text-gray-500 flex items-center gap-1">
                         {report.status === 'pending' || report.status === 'running'
                           ? 'In progress…'
-                          : fmtDateTime(report.generated_at)
+                          : report.status === 'skipped' && report.status_reason
+                            ? <span className="text-xs text-gray-700">{report.status_reason.message}</span>
+                            : fmtDateTime(report.generated_at)
                         }
                       </span>
                     </td>

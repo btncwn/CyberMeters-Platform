@@ -310,10 +310,10 @@ const seedSchedule = (db, id, owner, dueMs, { lastRunMs = dueMs - 864e5 } = {}) 
   catch (e) { queryRejected = e.message === "database_unavailable"; }
   ok("user reports: selection failure reaches the cron task", queryRejected);
 
-  const generated = [], updates = [], metrics = [], errors = [];
+  const generated = [], updates = [], metrics = [], errors = [], notices = [];
   const rows = [
-    { id: "sr_fail", workspace_id: "ws_fail", report_type: "weekly_executive", frequency: "weekly" },
-    { id: "sr_ok", workspace_id: "ws_ok", report_type: "weekly_executive", frequency: "weekly" },
+    { id: "sr_fail", workspace_id: "ws_fail", report_type: "weekly_executive", frequency: "weekly", consecutive_failures: 0 },
+    { id: "sr_ok", workspace_id: "ws_ok", report_type: "weekly_executive", frequency: "weekly", consecutive_failures: 2 },
   ];
   const env = {
     METRICS: { writeDataPoint(point) { metrics.push(point); } },
@@ -322,7 +322,11 @@ const seedSchedule = (db, id, owner, dueMs, { lastRunMs = dueMs - 864e5 } = {}) 
       return {
         bind(...values) { args = values; return this; },
         async all() { return { results: rows }; },
-        async run() { if (/UPDATE scheduled_reports/.test(sql)) updates.push(args); return { meta: { changes: 1 } }; },
+        async run() {
+          if (/UPDATE scheduled_reports/.test(sql)) updates.push({ sql, args });
+          if (/INSERT INTO notification_events/.test(sql)) notices.push(args);
+          return { meta: { changes: 1 } };
+        },
       };
     } },
   };
@@ -340,11 +344,68 @@ const seedSchedule = (db, id, owner, dueMs, { lastRunMs = dueMs - 864e5 } = {}) 
   } finally {
     console.error = oldError;
   }
-  ok("user reports: a failed row does not block the next row", generated.join() === "ws_fail,ws_ok" && updates.length === 1);
+  ok("user reports: a failed row does not block the next row", generated.join() === "ws_fail,ws_ok" && updates.length === 2);
+  const failUpd = updates.find((u) => u.args.at(-1) === "sr_fail"), okUpd = updates.find((u) => u.args.at(-1) === "sr_ok");
+  ok("user reports: the failure is recorded on the schedule as a reason code, never error text, and retried in an hour",
+    /last_outcome = 'failed'/.test(failUpd?.sql ?? "") && failUpd.args[0] === "generation_failed" &&
+    !failUpd.args.some((a) => String(a).includes("fixture_failure")) &&
+    failUpd.args[2] === new Date(Date.parse(now) + 3600e3).toISOString(), JSON.stringify(failUpd));
+  ok("user reports: a successful run records its outcome and clears the failure count",
+    /consecutive_failures = 0/.test(okUpd?.sql ?? "") && okUpd.args.includes("completed"), JSON.stringify(okUpd));
+  ok("user reports: the customer is told once, in plain words, that the report was not created",
+    notices.length === 1 && notices[0].includes("report_schedule_failed") &&
+    notices[0].some((a) => /We will try again automatically within the hour/.test(String(a))) &&
+    !notices[0].some((a) => String(a).includes("fixture_failure")), JSON.stringify(notices));
   ok("user reports: failed row emits one metric and an operational log",
     metrics.filter((p) => p.blobs[0] === "scheduled_report_row_failed").length === 1 &&
     errors.some((args) => String(args[0]).includes("user-scheduled-report-error")));
   ok("user reports: row failure marks the cron task failed after other rows", rejected);
+}
+
+// A repeated failure is not announced again; a plan rejection is named in the
+// customer's words; a run with no assessment is skipped, not failed.
+{
+  const now = "2026-10-19T00:00:00.000Z";
+  const updates = [], notices = [];
+  const rows = [
+    { id: "sr_again", workspace_id: "ws_a", report_type: "weekly_executive", frequency: "weekly", consecutive_failures: 3 },
+    { id: "sr_trial", workspace_id: "ws_t", report_type: "weekly_executive", frequency: "weekly", consecutive_failures: 0 },
+    { id: "sr_empty", workspace_id: "ws_e", report_type: "weekly_executive", frequency: "weekly", consecutive_failures: 1 },
+  ];
+  const env = { METRICS: { writeDataPoint() {} }, cybermeters_db: { prepare(sql) {
+    let args = [];
+    return {
+      bind(...values) { args = values; return this; },
+      async all() { return { results: rows }; },
+      async run() {
+        if (/UPDATE scheduled_reports/.test(sql)) updates.push({ sql, args });
+        if (/INSERT INTO notification_events/.test(sql)) notices.push(args);
+        return { meta: { changes: 1 } };
+      },
+    };
+  } } };
+  const generatedOpts = [];
+  const oldError = console.error;
+  console.error = () => {};
+  try {
+    await processScheduledReports(now, env, { generate: async (wsId, _env, opts) => {
+      generatedOpts.push(opts);
+      if (wsId === "ws_a") throw new Error("boom");
+      if (wsId === "ws_t") throw Object.assign(new Error("plan_limit_exceeded"), { quota: { status: 403, body: { error: "plan_limit_exceeded", reason: "trial_daily_allowance" } } });
+      return { status: "skipped", skip_reason: "no_assessment", claimed: true, id: "rpt_e" };
+    } });
+  } catch { /* two rows failed */ } finally { console.error = oldError; }
+  const by = (id) => updates.find((u) => u.args.at(-1) === id);
+  ok("user reports: the generator is told the run is scheduled", generatedOpts.every((o) => o.scheduled === true));
+  ok("user reports: a repeated failure is recorded but not announced again",
+    by("sr_again")?.args[0] === "generation_failed" && !notices.some((n) => n.includes("ws_a")));
+  ok("user reports: a trial allowance rejection is recorded and announced in its own words",
+    by("sr_trial")?.args[0] === "trial_daily_allowance" &&
+    notices.some((n) => n.includes("ws_t") && n.some((a) => /today's trial allowance is used/.test(String(a)))));
+  const empty = by("sr_empty");
+  ok("user reports: no assessment → the schedule moves on, records 'skipped' with its reason, and sends no 'generated' notice",
+    /consecutive_failures = 0/.test(empty?.sql ?? "") && empty.args.includes("skipped") && empty.args.includes("no_assessment") &&
+    !notices.some((n) => n.includes("ws_e")), JSON.stringify({ empty, notices }));
 }
 
 // The dispatch ticks between the hours dispatch scheduled scans and nothing else.

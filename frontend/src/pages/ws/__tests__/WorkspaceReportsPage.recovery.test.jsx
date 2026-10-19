@@ -261,3 +261,34 @@ it('cannot reuse scans from a workspace left while the scan list was loading', a
   expect(screen.getAllByRole('option').map(option => option.value)).toContain('new-scan')
   expect(screen.getByLabelText('Recent completed scan')).toHaveValue('')
 })
+
+it('shows why a scheduled report was not created, in the words the API gives', async () => {
+  api.getWorkspaceReports.mockResolvedValue({ reports: [] })
+  api.getScheduledReports.mockResolvedValue({ scheduled_reports: [
+    { id: 'sr_fail', report_type: 'weekly_executive', frequency: 'weekly', enabled: 1,
+      next_run_at: '2026-10-19T01:00:00Z', last_run_at: null,
+      last_outcome: { status: 'failed', reason: 'generation_failed', title: 'The report could not be created',
+        message: 'Something went wrong on our side while creating this report. We will try again automatically within the hour.',
+        at: '2026-10-19T00:00:00Z', attempts: 1 } },
+    { id: 'sr_ok', report_type: 'monthly_executive', frequency: 'monthly', enabled: 1,
+      next_run_at: '2026-11-01T00:00:00Z', last_run_at: '2026-10-01T00:00:00Z',
+      last_outcome: { status: 'completed', at: '2026-10-01T00:00:00Z' } },
+  ] })
+  render(page())
+  expect(await screen.findByText('The report could not be created')).toBeInTheDocument()
+  expect(screen.getByText(/We will try again automatically within the hour\./)).toBeInTheDocument()
+  expect(screen.getAllByText(/could not be created|not created/i)).toHaveLength(1)
+})
+
+it('a skipped archive report says why no PDF exists and offers no download', async () => {
+  api.getWorkspaceReports.mockResolvedValue({ reports: [{
+    id: 'rpt_skip', status: 'skipped', report_type: 'weekly_executive', report_period: '2026-W42',
+    created_at: '2026-10-19T00:00:00Z', generated_at: null,
+    status_reason: { reason: 'no_assessment', title: 'No assessment to report on',
+      message: 'This report was not created because no scan has completed in this workspace yet. The next one will be created once a scan has completed.' },
+  }] })
+  render(page())
+  expect(await screen.findByText(/no scan has completed in this workspace yet/)).toBeInTheDocument()
+  expect(screen.getByText('skipped')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'PDF' })).toBeNull()
+})

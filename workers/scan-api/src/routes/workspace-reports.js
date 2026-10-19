@@ -5,6 +5,7 @@
 // route matches, or null so the main router continues.
 import { calculateNextRun, checkReportLimit, computeScheduledReportNextRunAt, generateWorkspaceExecutiveReport, getEntitlementUsage, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded } from "../engines/plan-usage.js";
 import { getEffectivePlan, normalizePlan } from "../engines/entitlements.js";
+import { describeScheduledReportOutcome, presentReportRow } from "../engines/scheduled-reports.js";
 import { createAuditEvent } from "../lib/events.js";
 import { createId, pageMeta, paginationParams } from "../lib/util.js";
 
@@ -202,7 +203,7 @@ export async function workspaceReportsRoutes(rctx) {
         sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
         params.push(limit, offset);
         const { results } = await env.cybermeters_db.prepare(sql).bind(...params).all();
-        const reports = results ?? [];
+        const reports = (results ?? []).map(presentReportRow);
         return json({ reports, pagination: pageMeta({ items: reports, limit, offset }) });
       } catch (err) {
         return serverError("api", err);
@@ -371,7 +372,7 @@ export async function workspaceReportsRoutes(rctx) {
            FROM workspace_reports WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
         ).bind(reportId, wsId).first();
         if (!row) return json({ error: 'Report not found' }, 404);
-        return json({ report: row });
+        return json({ report: presentReportRow(row) });
       } catch (err) {
         return serverError("api", err);
       }
@@ -562,14 +563,19 @@ export async function workspaceReportsRoutes(rctx) {
       try {
         const { results } = await env.cybermeters_db
           .prepare(
-            `SELECT id, workspace_id, report_type, frequency, enabled, last_run_at, next_run_at, created_at
+            `SELECT id, workspace_id, report_type, frequency, enabled, last_run_at, next_run_at, created_at,
+                    last_outcome, last_outcome_reason, last_outcome_at, consecutive_failures
              FROM scheduled_reports
              WHERE workspace_id = ?
              ORDER BY created_at DESC`
           )
           .bind(wsId)
           .all();
-        return json({ scheduled_reports: results ?? [] });
+        const scheduled = (results ?? []).map(({ last_outcome, last_outcome_reason, last_outcome_at, consecutive_failures, ...sr }) => ({
+          ...sr,
+          last_outcome: describeScheduledReportOutcome({ last_outcome, last_outcome_reason, last_outcome_at, consecutive_failures }),
+        }));
+        return json({ scheduled_reports: scheduled });
       } catch (err) {
         return serverError("api", err);
       }

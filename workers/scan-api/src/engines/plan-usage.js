@@ -192,6 +192,29 @@ async function readSelectedScanReportSnapshot(workspaceId, scanId, env) {
 }
 
 const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/**
+ * coveredReportPeriod(type, now) → the period a weekly or monthly report made at
+ * `now` covers: the last COMPLETE one. A report made on Monday 19 Oct 2026 covers
+ * 12–18 Oct ("2026-W42", ISO 8601, Thursday-anchored); one made on 1 Nov 2026
+ * covers October ("2026-10"). Null for every other type. Migration 128 moved
+ * reports made before this rule to the period they actually cover.
+ */
+export function coveredReportPeriod(type, now) {
+  const at = new Date(now);
+  if (type === "weekly_executive") {
+    const d = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate() - 7));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));  // Thursday of that week
+    const year = d.getUTCFullYear();
+    const wk   = Math.ceil((((d - Date.UTC(year, 0, 1)) / 86400000) + 1) / 7);
+    return `${year}-W${String(wk).padStart(2, "0")}`;
+  }
+  if (type === "monthly_executive") {
+    const m = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() - 1, 1));
+    return `${m.getUTCFullYear()}-${String(m.getUTCMonth() + 1).padStart(2, "0")}`;
+  }
+  return null;
+}
+
 const LONG_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /**
@@ -235,11 +258,33 @@ export function reportReadyMessage(type, period) {
   return `Your ${kind}${phrase ? ` for ${phrase}` : ""} is ready to download.`;
 }
 
+async function closeReportAsSkipped(env, { reportId, workspaceId, report_type, report_period, r2Key, createdAt, retentionPolicy, reason }) {
+  const skipped = await env.cybermeters_db.prepare(
+    `UPDATE workspace_reports SET status = 'skipped', metadata_json = ?
+     WHERE id = ? AND status = 'pending'`
+  ).bind(JSON.stringify({ skip_reason: reason }), reportId).run();
+  if (skipped?.meta?.changes !== 1) throw new Error("report_claim_lost");
+  await createAuditEvent(env, {
+    workspace_id: workspaceId,
+    event_type:   "report_skipped",
+    entity_type:  "report",
+    entity_id:    reportId,
+    description:  `Scheduled ${report_type} report not created (${reason}, period ${report_period})`,
+    metadata:     { report_id: reportId, report_type, report_period, reason },
+  }).catch(() => {});
+  return {
+    id: reportId, workspace_id: workspaceId, report_type, report_period, report_key: r2Key,
+    status: "skipped", skip_reason: reason, generated_at: null, created_at: createdAt,
+    retention_policy: retentionPolicy, claimed: true,
+  };
+}
+
 export async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) {
   const {
     report_type   = 'manual',
     report_period = null,
     scan_id       = null,
+    scheduled     = false,
   } = options;
 
   const selectedRead = report_type === 'scan_snapshot'
@@ -252,18 +297,7 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
   // were workspace aggregates despite their Scan Snapshot label.
   const period = selectedRead
     ? `scan-v2-${selectedRead.row.scan_id}-${selectedRead.row.id}-${selectedRead.row.checksum_sha256}`
-    : report_period ?? (() => {
-    if (report_type === 'weekly_executive') {
-      // ISO 8601 week: YYYY-Www (Thursday-anchored)
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));  // move to Thursday
-      const year = d.getUTCFullYear();
-      const wk   = Math.ceil((((d - Date.UTC(year, 0, 1)) / 86400000) + 1) / 7);
-      return `${year}-W${String(wk).padStart(2, '0')}`;
-    }
-    if (report_type === 'monthly_executive') {
-      return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    }
+    : report_period ?? coveredReportPeriod(report_type, now) ?? (() => {
     if (report_type === 'quarterly_executive') {
       const q = Math.floor(now.getUTCMonth() / 3) + 1;
       return `${now.getUTCFullYear()}-Q${q}`;
@@ -311,6 +345,16 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
       .bind(workspaceId).first();
     if (!ws) throw new Error('Workspace not found');
     const reads = selectedRead ? [selectedRead] : await readLatestWorkspaceSnapshots(env, workspaceId);
+    // A scheduled report is never made or announced without an assessment behind
+    // it: with no completed scan the claim is closed as skipped (terminal for the
+    // period, never counted as usage) and the customer sees why. Snapshots that
+    // exist but cannot be read are a failure, retried like any other.
+    if (scheduled && !reads.some((r) => r.status === "ok")) {
+      if (reads.length > 0) throw new Error("assessment_unreadable");
+      return await closeReportAsSkipped(env, {
+        reportId, workspaceId, report_type, report_period: period, r2Key, createdAt, retentionPolicy, reason: "no_assessment",
+      });
+    }
     let branding = null, logoImage = null;
     try {
       branding = await resolveReportBrandingV2(env, { workspaceId });
@@ -491,6 +535,8 @@ export async function getWorkspaceRetentionSettings(workspaceId, env) {
   };
 }
 
+// A skipped report has no PDF, so it neither counts as a stored report nor adds
+// to the storage estimate.
 export async function getWorkspaceReportStorageMetrics(workspaceId, env) {
   const retention = await getWorkspaceRetentionSettings(workspaceId, env);
   let row;
@@ -501,7 +547,7 @@ export async function getWorkspaceReportStorageMetrics(workspaceId, env) {
                 COALESCE(SUM(report_size_bytes), 0) AS stored_bytes,
                 SUM(CASE WHEN report_size_bytes IS NULL THEN 1 ELSE 0 END) AS estimated_reports
          FROM workspace_reports
-         WHERE workspace_id = ? AND deleted_at IS NULL`
+         WHERE workspace_id = ? AND deleted_at IS NULL AND status != 'skipped'`
       )
       .bind(workspaceId)
       .first();
@@ -510,7 +556,7 @@ export async function getWorkspaceReportStorageMetrics(workspaceId, env) {
       .prepare(
         `SELECT COUNT(*) AS reports_count
          FROM workspace_reports
-         WHERE workspace_id = ? AND deleted_at IS NULL`
+         WHERE workspace_id = ? AND deleted_at IS NULL AND status != 'skipped'`
       )
       .bind(workspaceId)
       .first();
