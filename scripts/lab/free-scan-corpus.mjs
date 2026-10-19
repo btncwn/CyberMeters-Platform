@@ -23,7 +23,7 @@ import { runTechModule } from "../../workers/scan-api/src/engines/tech-scan.js";
 import { buildFreeScanEvidence } from "../../workers/scan-api/src/engines/free-scan-evidence.js";
 import { FREE_SCAN_DEADLINE_MS, FREE_SCAN_SUBREQUEST_LIMIT } from "../../workers/scan-api/src/engines/free-scan-preview.js";
 import { makeDnsCache, PhysicalSubrequestCounter } from "../../workers/scan-api/src/engines/scan-budget.js";
-import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../../workers/scan-api/src/lib/ssrf.js";
+import { resolvePublicDnsTargetWithRetry, STRICT_DNS_STATES } from "../../workers/scan-api/src/lib/ssrf.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const arg = (name, fallback = null) => {
@@ -87,11 +87,11 @@ export async function runFreeScanCorpusDomain(domain) {
   const accountingFor = (module) => physicalCounter.contextFor(`free_preview_${module}`, { signal: deadline.signal });
   let target;
   try {
-    const resolution = await resolvePublicDnsTarget(domain, dnsQuery, {
+    const resolution = await resolvePublicDnsTargetWithRetry(domain, dnsQuery, {
       cache: safetyDnsCache, accounting: accountingFor("ssrf"), signal: deadline.signal,
     });
     target = { state: resolution.state, reason: resolution.reason || "",
-      addresses: resolution.addresses || [] };
+      addresses: resolution.addresses || [], retried_after: resolution.first_reason || null };
   } catch (error) {
     target = { state: "threw", reason: typeof error?.code === "string" ? error.code : error?.name || "error", addresses: [] };
   }

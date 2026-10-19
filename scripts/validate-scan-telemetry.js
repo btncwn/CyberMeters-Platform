@@ -843,12 +843,17 @@ function d1Stub({ fail = false } = {}) {
       && /duration_ms: wrapped\.durationMs/.test(s)
       && /duration_ms: emailIntelRun\.durationMs,/.test(s),
     (s) => s.replace("duration_ms: emailIntelRun.durationMs,", "duration_ms: emailIntelRun.durationMs ?? 0,"));
+  // Both optional HEADs go through the one window-bounded optionalProbe leaf,
+  // so each guard pins that its probe uses the leaf AND the leaf charges it.
+  const optionalLeafCarriesAccounting = (s) =>
+    /const optionalProbe = async \(url, windowMs\) => \{[\s\S]{0,400}return await safeFetch\(url, \{[\s\S]{0,80}accounting,[\s\S]{0,200}\}\);/.test(s);
   sourceGuard("C1A headers bot HEAD carries accounting", headersSrc,
-    (s) => /const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180}accounting,[\s\S]{0,180}\}\);/.test(s),
-    (s) => s.replace(/(const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
+    (s) => optionalLeafCarriesAccounting(s) && /const headRes = await optionalProbe\(probeUrl, headWindowMs\);/.test(s),
+    (s) => s.replace("const headRes = await optionalProbe(probeUrl, headWindowMs);",
+      "const headRes = await safeFetch(probeUrl, { method: \"HEAD\", signal: opts.signal });"));
   sourceGuard("C1A headers www HEAD carries accounting", headersSrc,
-    (s) => /const wwwRes = await safeFetch\(wwwUrl, \{[\s\S]{0,180}accounting,[\s\S]{0,180}\}\);/.test(s),
-    (s) => s.replace(/(const wwwRes = await safeFetch\(wwwUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
+    (s) => optionalLeafCarriesAccounting(s) && /const wwwRes = await optionalProbe\(wwwUrl, wwwWindowMs\);/.test(s),
+    (s) => s.replace(/(const optionalProbe = async \(url, windowMs\) => \{[\s\S]{0,400}return await safeFetch\(url, \{[\s\S]{0,80})\s*accounting,\n/, "$1"));
   sourceGuard("C1A rejected modules cannot be marked complete", engineSrc,
     (s) => /settled\?\.status === "fulfilled" && telemetry\.outcomeOf\(settled\.value\) === "ok"[\s\S]{0,220}ctx\.markIncomplete/.test(s),
     (s) => s.replace('settled?.status === "fulfilled" && telemetry.outcomeOf(settled.value) === "ok"', "true"));

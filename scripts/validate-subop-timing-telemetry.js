@@ -50,7 +50,7 @@ const { runSslModule } = await eng("ssl-scan.js");
 const { runHeadersModule } = await eng("headers-scan.js");
 const { runSubdomainsModule } = await eng("subdomains-scan.js");
 
-const EXPECTED_ASSERTIONS = 102;
+const EXPECTED_ASSERTIONS = 107;
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
@@ -366,7 +366,7 @@ const sslOpts = (extra = {}) => ({ ...extra });
   const sub = createSubOperationTelemetry();
   const primaryOnly = await withMockFetch(
     () => runHeadersModule(FIXTURE_DOMAIN, {
-      remainingMs: () => 49_995,
+      remainingMs: () => 2_499,
       subOps: sub,
     }),
     async () => {
@@ -376,7 +376,7 @@ const sslOpts = (extra = {}) => ({ ...extra });
       return response;
     },
   );
-  eq("optional floor: only mandatory primary fetch launches below 49,996ms", fetches, 1);
+  eq("optional floor: only mandatory primary fetch launches below the 2,000ms window", fetches, 1);
   const omittedWww = primaryOnly.checked_paths.find((row) => row.label === "www_variant");
   eq("optional floor: www is explicit not_executed", omittedWww?.status, "not_executed");
   ok("optional floor: omitted row has empty observation fields",
@@ -413,12 +413,69 @@ const sslOpts = (extra = {}) => ({ ...extra });
 
   fetches = 0;
   const admitted = await withMockFetch(
-    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 49_996 }),
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 2_500 }),
     async () => { fetches += 1; return new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html" } }); },
   );
-  eq("optional floor: exact 49,996ms admits www", fetches, 2);
+  eq("optional floor: exact 2,500ms (a 2,000ms window) admits www", fetches, 2);
   ok("optional floor: admitted fast path stays complete", admitted.incomplete !== true);
   eq("optional floor: admitted www remains observed", admitted.checked_paths.find((row) => row.label === "www_variant")?.status, "ok");
+
+  // The free scan's whole deadline is 20s; a normal site must complete in it.
+  fetches = 0;
+  const freeScanSized = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 19_000 }),
+    async () => { fetches += 1; return new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html" } }); },
+  );
+  ok("optional window: a free-scan-sized deadline admits www and completes",
+    fetches === 2 && freeScanSized.incomplete !== true && freeScanSized.accessible === true);
+
+  // A www HEAD that never answers is cut by the local window, before the
+  // caller's deadline, and leaves the module honestly partial — never thrown.
+  const windowStarted = Date.now();
+  let windowCalls = 0;
+  const windowCut = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 2_600 }),
+    async (_url, init) => {
+      windowCalls += 1;
+      if (windowCalls === 1) {
+        const response = new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html", "content-security-policy": "default-src 'self'" } });
+        Object.defineProperty(response, "url", { value: `https://${FIXTURE_DOMAIN}` });
+        return response;
+      }
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+      });
+    },
+  ).catch((error) => ({ thrown: error }));
+  const windowElapsedMs = Date.now() - windowStarted;
+  const cutWww = windowCut.checked_paths?.find((row) => row.label === "www_variant");
+  ok("optional window: an elapsed window is recorded, not thrown",
+    !windowCut.thrown && cutWww?.status === "window_elapsed" && cutWww?.reason === "module_budget_insufficient");
+  ok("optional window: an elapsed window stays honestly partial",
+    windowCut.incomplete === true && windowCut.incomplete_reason === "optional_probe_budget_exhausted"
+      && windowCut.accessible === false && windowCut.primary_accessible === true);
+  ok("optional window: the cut lands inside the caller's remaining time",
+    windowElapsedMs >= 2_000 && windowElapsedMs < 2_600);
+
+  // The shared subrequest budget running out on an optional HEAD is the same
+  // honest partial, not a thrown module that discards the primary evidence.
+  let budgetCalls = 0;
+  const budgetCut = await withMockFetch(
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 19_000 }),
+    async () => {
+      budgetCalls += 1;
+      if (budgetCalls === 1) {
+        const response = new Response("ok", { status: 200, headers: { server: "origin", "content-type": "text/html" } });
+        Object.defineProperty(response, "url", { value: `https://${FIXTURE_DOMAIN}` });
+        return response;
+      }
+      throw Object.assign(new Error("synthetic budget"), { code: "scan_subrequest_budget_exhausted" });
+    },
+  ).catch((error) => ({ thrown: error }));
+  ok("optional window: an exhausted subrequest budget is recorded as a partial, not thrown",
+    !budgetCut.thrown && budgetCut.incomplete === true
+      && budgetCut.incomplete_reason === "optional_probe_budget_exhausted" && budgetCut.primary_accessible === true
+      && budgetCut.checked_paths?.find((row) => row.label === "www_variant")?.status === "subrequest_budget_exhausted");
 
   fetches = 0;
   const direct = await withMockFetch(
@@ -446,7 +503,7 @@ const sslOpts = (extra = {}) => ({ ...extra });
 
   fetches = 0;
   const challenge = await withMockFetch(
-    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 49_995 }),
+    () => runHeadersModule(FIXTURE_DOMAIN, { remainingMs: () => 2_499 }),
     async () => {
       fetches += 1;
       return new Response("challenge", {
@@ -462,10 +519,10 @@ const sslOpts = (extra = {}) => ({ ...extra });
   ok("bot/www truncation always carries incomplete=true", challenge.incomplete === true);
 
   let slowCalls = 0;
-  const remainingSequence = [49_996, 49_995];
+  const remainingSequence = [2_500, 2_499];
   const slowChallenge = await withMockFetch(
     () => runHeadersModule(FIXTURE_DOMAIN, {
-      remainingMs: () => remainingSequence.shift() ?? 49_995,
+      remainingMs: () => remainingSequence.shift() ?? 2_499,
     }),
     async () => {
       slowCalls += 1;

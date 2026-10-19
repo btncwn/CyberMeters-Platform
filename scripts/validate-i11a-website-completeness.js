@@ -165,6 +165,12 @@ ok("C1_TECH_EDGE_DOES_NOT_CLAIM_CLOUDFLARE",
    !(tEdge.technologies || []).includes("Cloudflare"));
 eq("C1_TECH_EDGE_FORCES_PARTIAL",
    buildScanQuality({ technology_detection: tEdge }).status, "partial");
+// A thrown fetch (typed timeout) observed nothing: a reason code, not free text.
+const tTimeout = await withFetch(TIMEOUT, () => runTechModule("acme.example.com"));
+ok("C1_TECH_THROWN_TIMEOUT_IS_INCOMPLETE",
+   tTimeout.incomplete === true && tTimeout.incomplete_reason === "fetch_timed_out");
+eq("C1_TECH_THROWN_TIMEOUT_FORCES_PARTIAL",
+   buildScanQuality({ technology_detection: tTimeout }).status, "partial");
 
 // CONTROL — a real origin that genuinely sits behind Cloudflare must still be
 // detected as such. Over-blocking would delete a true signal, which is the

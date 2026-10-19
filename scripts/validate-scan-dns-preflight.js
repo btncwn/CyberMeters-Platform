@@ -11,7 +11,7 @@ import { dnsQuery } from "../workers/scan-api/src/engines/dns.js";
 import { runSslModule } from "../workers/scan-api/src/engines/ssl-scan.js";
 import { runHeadersModule } from "../workers/scan-api/src/engines/headers-scan.js";
 import { runTechModule } from "../workers/scan-api/src/engines/tech-scan.js";
-import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../workers/scan-api/src/lib/ssrf.js";
+import { resolvePublicDnsTarget, resolvePublicDnsTargetWithRetry, STRICT_DNS_STATES } from "../workers/scan-api/src/lib/ssrf.js";
 
 import { deriveAttackSurfaceSignalCompleteness, deriveRemovalObservation } from "../workers/scan-api/src/engines/attack-surface-signal-completeness.js";
 import { computeSecurityPosture } from "../workers/scan-api/src/engines/posture-scoring.js";
@@ -103,6 +103,37 @@ try {
     ? { ...(await tescoShaped(TESCO_SOA)(name, type)), Answer: [{ name: "tesco.com", type: 1, data: "10.0.0.1" }] }
     : tescoShaped(TESCO_SOA)(name, type));
   ok("TESCO_SHAPED_PRIVATE_STILL_BLOCKED", tescoPrivate.state === STRICT_DNS_STATES.BLOCKED);
+  // Free-scan target retry: transient first answers get exactly one more try.
+  const flaky = (failFirst) => { let calls = 0; return { count: () => calls, resolver: async (name, type) => {
+    calls += 1;
+    if (calls === 1) return failFirst();
+    return publicDns(name, type);
+  } }; };
+  for (const [label, failFirst] of [["resolver_error", () => { throw new Error("transient"); }],
+    ["servfail", () => ({ Status: 2, TC: false })]]) {
+    const dns = flaky(failFirst);
+    const result = await resolvePublicDnsTargetWithRetry(host, dns.resolver);
+    ok(`RETRY_${label}_RECOVERS`, result.state === STRICT_DNS_STATES.PUBLIC && result.attempts === 2 && dns.count() === 4);
+  }
+  for (const [label, resolver, state] of [["private", privateDns, STRICT_DNS_STATES.BLOCKED],
+    ["no_address", (name, type) => soaNodata(name, type), STRICT_DNS_STATES.NO_ADDRESS],
+    ["public", publicDns, STRICT_DNS_STATES.PUBLIC]]) {
+    let calls = 0;
+    const result = await resolvePublicDnsTargetWithRetry(host, async (name, type) => { calls += 1; return resolver(name, type); });
+    ok(`RETRY_${label}_NOT_RETRIED`, result.state === state && calls === 2 && result.attempts === undefined);
+  }
+  {
+    let calls = 0;
+    const result = await resolvePublicDnsTargetWithRetry(host, async () => { calls += 1; throw new Error("down"); });
+    ok("RETRY_PERSISTENT_BOUNDED", result.state === STRICT_DNS_STATES.UNAVAILABLE && result.reason === "resolver_error" && calls === 4);
+  }
+  {
+    const aborted = new AbortController();
+    aborted.abort("free_scan_deadline_exhausted");
+    let calls = 0;
+    const result = await resolvePublicDnsTargetWithRetry(host, async () => { calls += 1; throw new Error("down"); }, { signal: aborted.signal });
+    ok("RETRY_NOT_AFTER_DEADLINE", result.state === STRICT_DNS_STATES.UNAVAILABLE && calls === 2);
+  }
   for (const [name, resolver] of [
     ["error", errorDns], ["missing", undefined],
     ["empty", async () => ({ Status: 0, Answer: [] })],
@@ -362,6 +393,14 @@ if (!process.argv.includes("--behavior-only") && failed === 0) {
     { id: "SOA_RNAME_UNCHECKED", file: "lib/ssrf.js",
       before: "validSoaMailbox(fields[1])", after: "true",
       expected: "RNAME_REJECT_ddd_over_255" },
+    { id: "TARGET_RETRY_DISABLED", file: "lib/ssrf.js",
+      before: "  const second = await resolvePublicDnsTarget(domain, dnsQuery, opts);",
+      after: "  const second = first;",
+      expected: "RETRY_resolver_error_RECOVERS" },
+    { id: "TARGET_RETRY_UNBOUNDED_REASONS", file: "lib/ssrf.js",
+      before: "  if (first.state !== STRICT_DNS_STATES.UNAVAILABLE || !TRANSIENT_DNS_TARGET_REASONS.has(first.reason)",
+      after: "  if (first.state === STRICT_DNS_STATES.PUBLIC",
+      expected: "RETRY_private_NOT_RETRIED" },
     { id: "SOA_AUTHORITY_UNCHECKED", file: "lib/ssrf.js",
       before: "if (terminal !== zone && !terminal.endsWith(`.${zone}`)) return false;",
       after: "if (false) return false;",

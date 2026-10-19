@@ -253,13 +253,56 @@ export function captureSetCookieRaw(headers) {
 export async function runHeadersModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
   // One redirect-following safeFetch may consume five valid 9,999ms attempts.
-  // Queue/Cron supplies a runner-owned remainingMs carrier; callers without it
-  // preserve the historical full-probe behaviour.
+  // Queue/Cron and the free scan supply a runner-owned remainingMs carrier;
+  // callers without it preserve the historical full-probe behaviour. With at
+  // least the full window left an optional probe runs unbounded as before.
+  // With less, it runs under a local timer that ends before the caller's
+  // deadline (a normal HEAD takes well under a second); if that timer fires,
+  // the probe is recorded as cut and the module stays honestly incomplete.
   const OPTIONAL_PROBE_ADMISSION_MS = 49_996;
+  const OPTIONAL_PROBE_MIN_WINDOW_MS = 2_000;
+  const OPTIONAL_PROBE_RESERVE_MS = 500;
   let optionalProbeBudgetExhausted = false;
   const canLaunchProbe = () => opts.signal?.aborted !== true;
-  const canLaunchOptionalProbe = () => canLaunchProbe()
-    && (typeof opts.remainingMs !== "function" || opts.remainingMs() >= OPTIONAL_PROBE_ADMISSION_MS);
+  // null = no local bound; 0 = not admitted; otherwise the probe's window.
+  const optionalProbeWindowMs = () => {
+    if (typeof opts.remainingMs !== "function") return null;
+    const remaining = opts.remainingMs();
+    if (remaining >= OPTIONAL_PROBE_ADMISSION_MS) return null;
+    const windowMs = remaining - OPTIONAL_PROBE_RESERVE_MS;
+    return windowMs >= OPTIONAL_PROBE_MIN_WINDOW_MS ? windowMs : 0;
+  };
+  // Runs one optional HEAD inside its window. Returns undefined when the local
+  // window or the shared subrequest budget (never the caller's signal) cut it,
+  // leaving the cause in optionalCutStatus; every other outcome is unchanged.
+  // The primary evidence already gathered survives either cut.
+  let optionalCutStatus = null;
+  const optionalProbe = async (url, windowMs) => {
+    const local = windowMs === null ? null : AbortSignal.timeout(windowMs);
+    const signal = local && opts.signal ? AbortSignal.any([opts.signal, local]) : (local || opts.signal);
+    try {
+      return await safeFetch(url, {
+        method:   "HEAD",
+        redirect: "follow",
+        accounting,
+        signal,
+        dnsResolver: opts.dnsResolver,
+        dnsCache: opts.dnsCache,
+        ...HEADER_PROBE_INIT,
+      });
+    } catch (error) {
+      if (local?.aborted && opts.signal?.aborted !== true) {
+        optionalCutStatus = "window_elapsed";
+        return undefined;
+      }
+      if (opts.signal?.aborted !== true && (error?.code === "scan_subrequest_budget_exhausted"
+          || error?.subrequestLimit === true || /too many subrequests/i.test(String(error?.message || "")))) {
+        optionalCutStatus = "subrequest_budget_exhausted";
+        return undefined;
+      }
+      throw error;
+    }
+  };
   // Track B sub-operation timing — observational only, guarded at every call so a
   // broken/absent collector can never alter probe behaviour or the module result.
   // Each row times ONE safeFetch call end to end, including the redirect hops
@@ -304,13 +347,13 @@ export async function runHeadersModule(domain, opts = {}) {
   let rawHeaderSnapshot    = {};   // all response headers for diagnostics / bot detection
   const checkedPaths       = [];
 
-  const recordUnexecutedOptional = (label, requestedUrl, method = "HEAD") => {
+  const recordUnexecutedOptional = (label, requestedUrl, method = "HEAD", status = "not_executed") => {
     optionalProbeBudgetExhausted = true;
     checkedPaths.push({
       label,
       requested_url: requestedUrl,
       method,
-      status: "not_executed",
+      status,
       reason: "module_budget_insufficient",
       final_url: null,
       status_code: null,
@@ -485,20 +528,14 @@ export async function runHeadersModule(domain, opts = {}) {
       // GET was intercepted by an edge challenge.  Try HEAD — some WAFs skip
       // challenge injection on HEAD requests, potentially returning real headers.
       if (!canLaunchProbe()) break;
-      if (!canLaunchOptionalProbe()) {
+      const headWindowMs = optionalProbeWindowMs();
+      if (headWindowMs === 0) {
         recordUnexecutedOptional("bot_head_retry", probeUrl);
       } else {
         const headSubOp = subOpBegin("probe_head_bot_retry");
-        const headRes = await safeFetch(probeUrl, {
-          method:   "HEAD",
-          redirect: "follow",
-          accounting,
-          signal: opts.signal,
-          dnsResolver: opts.dnsResolver,
-          dnsCache: opts.dnsCache,
-          ...HEADER_PROBE_INIT,
-        });
-        subOpFinish(headSubOp, headRes);
+        const headRes = await optionalProbe(probeUrl, headWindowMs);
+        subOpFinish(headSubOp, headRes || null);
+        if (headRes === undefined) recordUnexecutedOptional("bot_head_retry", probeUrl, "HEAD", optionalCutStatus);
         if (headRes) {
           const headSnapshot = snapshotHeaders(headRes.headers);
           const headBotSignals = detectBotProtection(headRes.status, headRes.url, headSnapshot);
@@ -524,21 +561,15 @@ export async function runHeadersModule(domain, opts = {}) {
     if (!domain.startsWith("www.")) {
       const wwwUrl = `${proto}://www.${domain}`;
       if (!canLaunchProbe()) break;
-      if (!canLaunchOptionalProbe()) {
+      const wwwWindowMs = optionalProbeWindowMs();
+      if (wwwWindowMs === 0) {
         recordUnexecutedOptional("www_variant", wwwUrl);
       } else {
         const wwwSubOp = subOpBegin("probe_head_www");
-        const wwwRes = await safeFetch(wwwUrl, {
-          method:   "HEAD",
-          redirect: "follow",
-          accounting,
-          signal: opts.signal,
-          dnsResolver: opts.dnsResolver,
-          dnsCache: opts.dnsCache,
-          ...HEADER_PROBE_INIT,
-        });
-        subOpFinish(wwwSubOp, wwwRes);
-        recordHeaderCheck("www_variant", wwwUrl, wwwRes, "HEAD");
+        const wwwRes = await optionalProbe(wwwUrl, wwwWindowMs);
+        subOpFinish(wwwSubOp, wwwRes || null);
+        if (wwwRes === undefined) recordUnexecutedOptional("www_variant", wwwUrl, "HEAD", optionalCutStatus);
+        else recordHeaderCheck("www_variant", wwwUrl, wwwRes, "HEAD");
       }
     }
 
