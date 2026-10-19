@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pageFileName, renderHomeHtml, renderPageHtml, renderSitemap } from '../../public-pages-html.js'
-import { APP_ORIGIN, canonicalUrl, MARKETING_ORIGIN, PUBLIC_PAGE_META, sitemapPages, staticPages } from '../publicPages.js'
+import { APP_ORIGIN, canonicalUrl, indexableAppPaths, MARKETING_ORIGIN, PUBLIC_PAGE_META, sitemapPages, staticPages } from '../publicPages.js'
 
 // Public-site SEO (19 Oct 2026): each public page's served HTML carries its own
 // title, description, share tags and canonical link; only the public site is
@@ -92,21 +92,75 @@ describe('sitemap', () => {
   })
 })
 
-describe('search engines list only the public site', () => {
+// The X-Robots-Tag a URL ends up with under public/_headers: every matching rule
+// applies top to bottom, and `! Name` detaches what an earlier rule set (the
+// Pages rules: `*` is a splat, `:name` a placeholder, absolute rules match the
+// host, path-only rules match every host).
+function headerRules(text) {
+  const rules = []
+  let current = null
+  for (const line of text.split('\n')) {
+    if (!line.trim() || line.trim().startsWith('#')) { current = null; continue }
+    if (!/^\s/.test(line)) { current = { pattern: line.trim(), lines: [] }; rules.push(current); continue }
+    current?.lines.push(line.trim())
+  }
+  return rules
+}
+function ruleMatches(pattern, url) {
+  const u = new URL(url)
+  const target = pattern.startsWith('/') ? u.pathname : `https://${u.host}${u.pathname}`
+  const re = new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/:[A-Za-z]\w*/g, '[^./]+')}$`)
+  return re.test(target)
+}
+function robotsHeader(url) {
+  let value = null
+  for (const rule of headerRules(headers)) {
+    if (!ruleMatches(rule.pattern, url)) continue
+    for (const line of rule.lines) {
+      if (/^!\s*X-Robots-Tag$/i.test(line)) value = null
+      const set = line.match(/^X-Robots-Tag:\s*(.+)$/i)
+      if (set) value = set[1]
+    }
+  }
+  return value
+}
+
+describe('search engines list the public site, pricing and the free scan', () => {
   it.each([
-    'https://app.cybermeters.com/*',
-    'https://app-staging.cybermeters.com/*',
-    'https://:project.pages.dev/*',
-    'https://:version.:project.pages.dev/*',
-  ])('%s carries X-Robots-Tag: noindex', (host) => {
-    const block = headers.split(/\n\s*\n/).find(b => b.split('\n').some(line => line.trim() === host))
-    expect(block).toBeTruthy()
-    expect(block).toMatch(/^\s+X-Robots-Tag: noindex$/m)
+    'https://app.cybermeters.com/',
+    'https://app.cybermeters.com/login',
+    'https://app.cybermeters.com/signup',
+    'https://app.cybermeters.com/dashboard',
+    'https://app.cybermeters.com/ws/cases',
+    'https://app.cybermeters.com/invitations',
+    'https://app.cybermeters.com/reset-password',
+    'https://app.cybermeters.com/pricing/annual',
+    'https://app.cybermeters.com/free-scan-results',
+    'https://app.cybermeters.com/about',
+    'https://app-staging.cybermeters.com/pricing',
+    'https://cybermeters-dashboard.pages.dev/pricing',
+    'https://bce10953.cybermeters-dashboard.pages.dev/free-scan',
+  ])('%s carries X-Robots-Tag: noindex', (url) => {
+    expect(robotsHeader(url)).toBe('noindex')
   })
 
-  it('never marks the public site noindex', () => {
-    const noindexHosts = headers.split(/\n\s*\n/).filter(b => /X-Robots-Tag/.test(b)).map(b => b.split('\n').find(l => /^https?:|^\//.test(l.trim())))
-    for (const host of noindexHosts) expect(host).not.toMatch(/^https:\/\/cybermeters\.com|^\//)
+  it.each([
+    'https://app.cybermeters.com/pricing',
+    'https://app.cybermeters.com/free-scan',
+    'https://cybermeters.com/',
+    'https://cybermeters.com/about',
+    'https://cybermeters.com/cyber-essentials-readiness',
+    'https://www.cybermeters.com/trust',
+  ])('%s carries no noindex', (url) => {
+    expect(robotsHeader(url)).toBeNull()
+  })
+
+  it('the indexable app-host pages in src/publicPages.js are exactly the _headers exceptions', () => {
+    const exceptions = headerRules(headers)
+      .filter(rule => rule.lines.some(line => /^!\s*X-Robots-Tag$/i.test(line)))
+      .map(rule => new URL(rule.pattern).pathname)
+    expect(exceptions.sort()).toEqual(indexableAppPaths().sort())
+    expect(indexableAppPaths().sort()).toEqual(['/free-scan', '/pricing'])
   })
 
   it('robots.txt lets crawlers fetch every page, so they see the noindex, and names the sitemap', () => {

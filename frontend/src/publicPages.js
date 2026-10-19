@@ -11,9 +11,11 @@ export const APP_ORIGIN = 'https://app.cybermeters.com'
 export const TITLE_SUFFIX = ' | CyberMeters'
 
 // host: where the page is served and where its canonical URL points.
-// indexable: listed in the sitemap. Every app-host page carries noindex
-// (public/_headers), so only marketing pages are indexable.
-// priority: the sitemap priority for an indexable page.
+// indexable: search engines may list it. Every other app-host page carries
+// noindex (public/_headers, whose two exceptions match the app-host pages
+// marked indexable here). The sitemap on cybermeters.com lists the indexable
+// marketing pages.
+// priority: the sitemap priority for an indexable marketing page.
 export const PUBLIC_PAGE_META = {
   '/cyber-essentials-readiness': {
     title: 'Cyber Essentials Readiness Preview',
@@ -63,12 +65,12 @@ export const PUBLIC_PAGE_META = {
   '/free-scan': {
     title: 'Free Cyber MOT — check your domain',
     description: 'A free, passive check of your domain: public DNS, HTTPS, website headers, email authentication and technology signals. It says what it could not check, and no report is stored.',
-    host: 'app', indexable: false,
+    host: 'app', indexable: true,
   },
   '/pricing': {
     title: 'Pricing',
     description: 'Every paid plan is the full Cyber MOT: external posture, alerts, managed cases, reports and remediation. Priced per monitored domain, starting with a 14-day full trial.',
-    host: 'app', indexable: false,
+    host: 'app', indexable: true,
   },
   '/login': { title: 'Sign in', host: 'app', indexable: false },
   '/signup': { title: 'Create your account', host: 'app', indexable: false },
@@ -98,12 +100,21 @@ export function staticPages() {
     .map(([path, meta]) => ({ path, ...meta, title: `${meta.title}${TITLE_SUFFIX}`, canonical: canonicalUrl(path) }))
 }
 
-/** The URLs the sitemap lists: the homepage and every indexable page. */
+/** The app-host paths search engines may list (no noindex). */
+export function indexableAppPaths() {
+  return Object.entries(PUBLIC_PAGE_META).filter(([, meta]) => meta.host === 'app' && meta.indexable).map(([path]) => path)
+}
+
+/**
+ * The URLs the sitemap on cybermeters.com lists: the homepage and every
+ * indexable marketing page. A sitemap names URLs on its own host; the
+ * indexable app-host pages are reached through links from the public site.
+ */
 export function sitemapPages() {
   return [
     { loc: `${MARKETING_ORIGIN}/`, priority: HOME_PAGE.priority },
     ...Object.entries(PUBLIC_PAGE_META)
-      .filter(([, meta]) => meta.indexable)
+      .filter(([, meta]) => meta.host === 'marketing' && meta.indexable)
       .map(([path, meta]) => ({ loc: canonicalUrl(path), priority: meta.priority })),
   ]
 }

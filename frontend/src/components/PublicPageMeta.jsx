@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { canonicalUrl, normalisePath, PUBLIC_PAGE_META, TITLE_SUFFIX } from '../publicPages'
+import { APP_ORIGIN, canonicalUrl, normalisePath, PUBLIC_PAGE_META, TITLE_SUFFIX } from '../publicPages'
 import { isMarketingHost } from '../utils/siteLinks'
 
 /**
@@ -13,11 +13,13 @@ import { isMarketingHost } from '../utils/siteLinks'
  * index.html stays the one source of the defaults: they are read from the
  * document on first use and restored on every route that is not listed (the
  * homepage and the signed-in app). Off the public site (the app host, previews)
- * a robots noindex tag backs up the X-Robots-Tag header from public/_headers.
+ * a robots noindex tag backs up the X-Robots-Tag header from public/_headers,
+ * except on the app-host pages that stay indexable (pricing, the free scan).
  */
 
 export { PUBLIC_PAGE_META, normalisePath }
 
+const APP_HOSTNAME = new URL(APP_ORIGIN).hostname
 const DESCRIPTION_TAGS = ['meta[name="description"]', 'meta[property="og:description"]', 'meta[name="twitter:description"]']
 const TITLE_TAGS = ['meta[property="og:title"]', 'meta[name="twitter:title"]']
 
@@ -74,7 +76,7 @@ export function applyPageMeta(pathname, doc = document, hostname = globalThis.lo
   const canonical = canonicalUrl(path)
   setContent(doc, 'meta[property="og:url"]', canonical ?? base.url)
   setCanonical(doc, canonical ?? base.canonical)
-  setNoindex(doc, !isMarketingHost(hostname))
+  setNoindex(doc, !isMarketingHost(hostname) && !(hostname === APP_HOSTNAME && meta?.host === 'app' && meta.indexable))
 }
 
 export function resetPageMetaDefaultsForTests() {

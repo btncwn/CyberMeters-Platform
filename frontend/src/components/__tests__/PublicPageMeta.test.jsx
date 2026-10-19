@@ -68,11 +68,25 @@ describe('public page meta', () => {
   })
 
   it('marks every page off the public site noindex, and none on it', () => {
-    applyPageMeta('/free-scan', document, 'app.cybermeters.com')
+    applyPageMeta('/signup', document, 'app.cybermeters.com')
     expect(content('meta[name="robots"]')).toBe('noindex')
     applyPageMeta('/landing', document, 'abc.cybermeters-platform.pages.dev')
     expect(content('meta[name="robots"]')).toBe('noindex')
     applyPageMeta('/trust', document, 'cybermeters.com')
     expect(document.head.querySelector('meta[name="robots"]')).toBeNull()
+  })
+
+  it('keeps pricing and the free scan indexable on the app host, after in-app navigation too', () => {
+    applyPageMeta('/login', document, 'app.cybermeters.com')
+    expect(content('meta[name="robots"]')).toBe('noindex')
+    applyPageMeta('/pricing', document, 'app.cybermeters.com')
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull()
+    applyPageMeta('/dashboard', document, 'app.cybermeters.com')
+    expect(content('meta[name="robots"]')).toBe('noindex')
+    applyPageMeta('/free-scan/', document, 'app.cybermeters.com')
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull()
+    // A preview of the same page stays out of search results.
+    applyPageMeta('/pricing', document, 'abc.cybermeters-platform.pages.dev')
+    expect(content('meta[name="robots"]')).toBe('noindex')
   })
 })
