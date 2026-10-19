@@ -114,8 +114,17 @@ export async function runTechModule(domain, opts = {}) {
         reader.cancel();
       }
     }
-  } catch {
-    return { error: "Tech module fetch failed" };
+  } catch (error) {
+    // A thrown fetch observed nothing: say so with a reason code, never as a
+    // bare error a reader could take for a completed empty result.
+    const name = String(error?.name || "");
+    return {
+      error: "Tech module fetch failed",
+      incomplete: true,
+      incomplete_reason: name === "TimeoutError" ? "fetch_timed_out"
+        : name === "AbortError" || opts.signal?.aborted === true ? "fetch_cancelled"
+          : "fetch_failed",
+    };
   }
 
   if (!res) {

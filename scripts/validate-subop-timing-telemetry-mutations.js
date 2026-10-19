@@ -19,8 +19,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers", "scan-api", "src", "engines");
 const validator = path.join(root, "scripts", "validate-subop-timing-telemetry.js");
-const EXPECTED_MUTANTS = 16;
-const EXPECTED_VALIDATOR_ASSERTIONS = 102;
+const EXPECTED_MUTANTS = 17;
+const EXPECTED_VALIDATOR_ASSERTIONS = 107;
 
 let mutantsKilled = 0;
 let failures = 0;
@@ -359,92 +359,72 @@ runMutant({
 });
 
 runMutant({
-  name: "headers bot HEAD drops the caller signal",
+  name: "headers optional HEAD drops the caller signal",
   sourceName: "headers-scan.js",
   moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
   expectedFailures: [
     "bot HEAD safeFetch receives the caller signal",
     "pending bot HEAD is cancelled by the caller signal",
-  ],
-  mutate: (source) => replaceExactlyOnce(
-    source,
-    `        const headRes = await safeFetch(probeUrl, {
-          method:   "HEAD",
-          redirect: "follow",
-          accounting,
-          signal: opts.signal,
-          dnsResolver: opts.dnsResolver,
-          dnsCache: opts.dnsCache,
-          ...HEADER_PROBE_INIT,
-        });`,
-    `        const headRes = await safeFetch(probeUrl, {
-          method:   "HEAD",
-          redirect: "follow",
-          accounting,
-          dnsResolver: opts.dnsResolver,
-          dnsCache: opts.dnsCache,
-          ...HEADER_PROBE_INIT,
-        });`,
-    "headers bot direct signal",
-  ),
-});
-
-runMutant({
-  name: "headers www HEAD drops the caller signal",
-  sourceName: "headers-scan.js",
-  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
-  expectedFailures: [
     "www HEAD safeFetch receives the caller signal",
     "pending www HEAD is cancelled by the caller signal",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `        const wwwRes = await safeFetch(wwwUrl, {
-          method:   "HEAD",
-          redirect: "follow",
-          accounting,
-          signal: opts.signal,
-          dnsResolver: opts.dnsResolver,
-          dnsCache: opts.dnsCache,
-          ...HEADER_PROBE_INIT,
-        });`,
-    `        const wwwRes = await safeFetch(wwwUrl, {
-          method:   "HEAD",
-          redirect: "follow",
-          accounting,
-          dnsResolver: opts.dnsResolver,
-          dnsCache: opts.dnsCache,
-          ...HEADER_PROBE_INIT,
-        });`,
-    "headers www direct signal",
+    "    const signal = local && opts.signal ? AbortSignal.any([opts.signal, local]) : (local || opts.signal);",
+    "    const signal = local || undefined;",
+    "headers optional caller signal",
   ),
 });
 
 runMutant({
-  name: "headers auxiliary admission boundary is off by one",
+  name: "headers elapsed optional window is thrown instead of recorded",
   sourceName: "headers-scan.js",
   moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
   expectedFailures: [
-    "optional floor: only mandatory primary fetch launches below 49,996ms",
-    "optional floor: www is explicit not_executed",
-    "optional floor: omitted row has empty observation fields",
-    "optional floor: omission makes the module honestly partial",
-    "optional floor: an omitted probe opens no sub-op row",
-    "optional floor: truncated matrix closes the existing scoring authority gate",
-    "optional floor: stronger observed primary evidence remains available",
-    "optional floor: exact truncated Headers evidence resolves scan quality partial",
-    "optional floor: unobserved www yields zero missing-header findings",
-    "optional floor: unobserved www yields zero header remediation",
-    "bot and www auxiliaries both truncate without a second fetch",
-    "bot/www truncation always carries incomplete=true",
-    "slow challenge admits bot HEAD but launches no www fetch",
-    "slow challenge makes www explicit partial evidence",
+    "optional window: an elapsed window is recorded, not thrown",
+    "optional window: an elapsed window stays honestly partial",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    "  const OPTIONAL_PROBE_ADMISSION_MS = 49_996;",
-    "  const OPTIONAL_PROBE_ADMISSION_MS = 49_995;",
-    "headers auxiliary cap-minus-one",
+    `        optionalCutStatus = "window_elapsed";
+        return undefined;`,
+    `        throw error;`,
+    "headers optional window cut",
+  ),
+});
+
+runMutant({
+  name: "headers exhausted optional budget is thrown instead of recorded",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "optional window: an exhausted subrequest budget is recorded as a partial, not thrown",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    `        optionalCutStatus = "subrequest_budget_exhausted";
+        return undefined;`,
+    `        throw error;`,
+    "headers optional budget cut",
+  ),
+});
+
+runMutant({
+  name: "headers auxiliary admission window floor is off by one",
+  sourceName: "headers-scan.js",
+  moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
+  expectedFailures: [
+    "optional floor: exact 2,500ms (a 2,000ms window) admits www",
+    "optional floor: admitted fast path stays complete",
+    "optional floor: admitted www remains observed",
+    "slow challenge admits bot HEAD but launches no www fetch",
+    "admitted stronger bot HEAD still replaces challenge evidence",
+  ],
+  mutate: (source) => replaceExactlyOnce(
+    source,
+    "  const OPTIONAL_PROBE_MIN_WINDOW_MS = 2_000;",
+    "  const OPTIONAL_PROBE_MIN_WINDOW_MS = 2_001;",
+    "headers auxiliary window floor plus-one",
   ),
 });
 
@@ -455,6 +435,8 @@ runMutant({
   expectedFailures: [
     "optional floor: omission makes the module honestly partial",
     "optional floor: exact truncated Headers evidence resolves scan quality partial",
+    "optional window: an elapsed window stays honestly partial",
+    "optional window: an exhausted subrequest budget is recorded as a partial, not thrown",
     "bot/www truncation always carries incomplete=true",
     "slow challenge makes www explicit partial evidence",
   ],
@@ -479,6 +461,7 @@ runMutant({
     "optional floor: truncated matrix closes the existing scoring authority gate",
     "optional floor: unobserved www yields zero missing-header findings",
     "optional floor: unobserved www yields zero header remediation",
+    "optional window: an elapsed window stays honestly partial",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
@@ -499,8 +482,8 @@ runMutant({
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `      status: "not_executed",`,
-    `      status: "unavailable",`,
+    `status = "not_executed") => {`,
+    `status = "unavailable") => {`,
     "headers not-executed row",
   ),
 });
@@ -511,12 +494,10 @@ runMutant({
   moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
   expectedFailures: [
     "bot and www auxiliaries both truncate without a second fetch",
-    "slow challenge admits bot HEAD but launches no www fetch",
-    "slow challenge makes www explicit partial evidence",
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `      if (!canLaunchOptionalProbe()) {
+    `      if (headWindowMs === 0) {
         recordUnexecutedOptional("bot_head_retry", probeUrl);`,
     `      if (false) {
         recordUnexecutedOptional("bot_head_retry", probeUrl);`,
@@ -529,7 +510,7 @@ runMutant({
   sourceName: "headers-scan.js",
   moduleEnv: "SUBOP_TIMING_HEADERS_MODULE_URL",
   expectedFailures: [
-    "optional floor: only mandatory primary fetch launches below 49,996ms",
+    "optional floor: only mandatory primary fetch launches below the 2,000ms window",
     "optional floor: www is explicit not_executed",
     "optional floor: omitted row has empty observation fields",
     "optional floor: omission makes the module honestly partial",
@@ -545,7 +526,7 @@ runMutant({
   ],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `      if (!canLaunchOptionalProbe()) {
+    `      if (wwwWindowMs === 0) {
         recordUnexecutedOptional("www_variant", wwwUrl);`,
     `      if (false) {
         recordUnexecutedOptional("www_variant", wwwUrl);`,
@@ -575,9 +556,9 @@ runMutant({
     source,
     `      const wwwUrl = \`${'${proto}'}://www.${'${domain}'}\`;
       if (!canLaunchProbe()) break;
-      if (!canLaunchOptionalProbe()) {`,
+      const wwwWindowMs = optionalProbeWindowMs();`,
     `      const wwwUrl = \`${'${proto}'}://www.${'${domain}'}\`;
-      if (!canLaunchOptionalProbe()) {`,
+      const wwwWindowMs = optionalProbeWindowMs();`,
     "headers pre-www abort gate",
   ),
 });

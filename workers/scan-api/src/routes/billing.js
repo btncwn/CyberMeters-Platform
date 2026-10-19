@@ -26,7 +26,7 @@ import { applyCheckoutConsentParams, findBilledStripeSubscription, getStripePric
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
-import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../lib/ssrf.js";
+import { resolvePublicDnsTargetWithRetry, STRICT_DNS_STATES } from "../lib/ssrf.js";
 import { createId, isValidDomain } from "../lib/util.js";
 
 // DNS evidence is intentionally stable for one snapshot, but an HTTP safety
@@ -171,12 +171,13 @@ export async function billingRoutes(rctx) {
       const accountingFor = (module) =>
         physicalCounter.contextFor(`free_preview_${module}`, { signal: deadline.signal });
 
-      // The public route is fail-closed on DNS uncertainty. Evidence consumers
-      // share the stable snapshot cache; target HTTP sinks share only in-flight
-      // safety questions, so every later redirect hop re-resolves the hostname.
+      // The public route is fail-closed on DNS uncertainty after one bounded
+      // retry of a transient answer. Evidence consumers share the stable
+      // snapshot cache; target HTTP sinks share only in-flight safety
+      // questions, so every later redirect hop re-resolves the hostname.
       let targetResolution;
       try {
-        targetResolution = await resolvePublicDnsTarget(domain, freeScanDnsQuery, {
+        targetResolution = await resolvePublicDnsTargetWithRetry(domain, freeScanDnsQuery, {
           cache: safetyDnsCache,
           accounting: accountingFor("ssrf"),
           signal: deadline.signal,

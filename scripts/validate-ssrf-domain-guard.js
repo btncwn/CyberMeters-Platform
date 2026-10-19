@@ -229,6 +229,47 @@ eq("resolver unavailability launches zero modules", resolverDown.moduleCalls, 0)
 eq("resolver unavailability returns an explicit verification code",
   resolverDown.body.code, "target_verification_unavailable");
 
+// One bounded retry: a transient first answer is asked once more; a definitive
+// one (private, no address, budget control error) is never asked twice.
+const countingDns = (behaviour) => {
+  const calls = [];
+  const impl = async (name, type) => {
+    calls.push(type);
+    const outcome = behaviour(calls.length, type);
+    if (outcome instanceof Error) throw outcome;
+    return outcome;
+  };
+  return { calls, impl };
+};
+const publicAnswer = (type) => ({ Status: 0, TC: false,
+  Answer: type === "A" ? [{ type: 1, data: "8.8.8.8" }] : [{ type: 28, data: "2606:4700:4700::1111" }] });
+for (const [label, first] of [
+  ["resolver error", () => new Error("transient resolver failure")],
+  ["SERVFAIL", () => ({ Status: 2, TC: false })],
+]) {
+  const dns = countingDns((n, type) => n === 1 ? first() : publicAnswer(type));
+  const recovered = await runDirectPreview({ dnsQueryImpl: dns.impl });
+  eq(`transient ${label} is retried once and admitted`, recovered.status, 200);
+  eq(`transient ${label} retry asks each family exactly once more`, dns.calls.length, 4);
+}
+{
+  const dns = countingDns(() => new Error("resolver down"));
+  const persistent = await runDirectPreview({ dnsQueryImpl: dns.impl });
+  eq("persistent resolver failure still fails closed after one retry", persistent.status, 503);
+  eq("persistent resolver failure stops at exactly two attempts", dns.calls.length, 4);
+  eq("persistent resolver failure launches zero modules", persistent.moduleCalls, 0);
+}
+for (const [label, behaviour, status] of [
+  ["private answer", (_n, type) => ({ Status: 0, TC: false, Answer: type === "A" ? [{ type: 1, data: "10.0.0.9" }] : [] }), 400],
+  ["both-families NODATA", () => ({ Status: 0, TC: false, Answer: [] }), 503],
+  ["budget control error", () => Object.assign(new Error("budget"), { code: "scan_subrequest_budget_exhausted" }), 503],
+]) {
+  const dns = countingDns(behaviour);
+  const definitive = await runDirectPreview({ dnsQueryImpl: dns.impl });
+  eq(`${label} is not retried`, dns.calls.length, 2);
+  eq(`${label} keeps its existing response`, definitive.status, status);
+}
+
 for (const addressMode of ["a_only", "aaaa_only"]) {
   const singleFamily = await runDirectPreview({ addressMode });
   eq(`${addressMode} public domain is admitted`, singleFamily.status, 200);

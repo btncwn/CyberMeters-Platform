@@ -468,3 +468,19 @@ export async function resolvePublicDnsTarget(domain, dnsQuery, opts = {}) {
     addresses: knownAddresses.map((address) => address.value),
   };
 }
+
+// A single resolver hiccup must not refuse a public page outright. One more
+// attempt is made only when the first said nothing definitive: a resolver
+// error, or an answer too incomplete to classify (SERVFAIL, truncation). A
+// block, an authoritative no-address and a public result are final, control
+// errors still throw, and the retry shares the caller's accounting and signal,
+// so it spends the same subrequest budget and deadline.
+const TRANSIENT_DNS_TARGET_REASONS = new Set(["resolver_error", "incomplete_answer"]);
+
+export async function resolvePublicDnsTargetWithRetry(domain, dnsQuery, opts = {}) {
+  const first = await resolvePublicDnsTarget(domain, dnsQuery, opts);
+  if (first.state !== STRICT_DNS_STATES.UNAVAILABLE || !TRANSIENT_DNS_TARGET_REASONS.has(first.reason)
+      || opts.signal?.aborted === true) return first;
+  const second = await resolvePublicDnsTarget(domain, dnsQuery, opts);
+  return { ...second, attempts: 2, first_reason: first.reason };
+}
