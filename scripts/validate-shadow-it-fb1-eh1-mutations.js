@@ -206,7 +206,7 @@ const registry = Object.freeze([
       replacement: '    title: "Unapproved technology with a new host or a certificate signal",' }],
   },
   {
-    id: "SIT_M24", defect: "root TXT verification tokens ignored", expected: ["F41"],
+    id: "SIT_M24", defect: "root TXT verification tokens ignored", expected: ["F41", "F46"],
     changes: [{ target: VS,
       anchor: "      if (value) signals.txt.push(value);",
       replacement: "      if (value && false) signals.txt.push(value);" }],
