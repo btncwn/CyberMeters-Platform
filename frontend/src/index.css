@@ -402,24 +402,27 @@
 @layer utilities {
   /* Computer Modern Serif for the public website headings and copy. Unmodified
    CMU web fonts, SIL Open Font License (public/fonts/computer-modern/OFL.txt).
-   Display headings use it at true size through the `font-cm` utility. */
+   Display headings use it at true size through the `font-cm` utility.
+   Each face is served as WOFF2: the same font tables repackaged losslessly
+   (no glyph removed or changed), about 30% smaller than the WOFF beside it,
+   which stays only as a fallback. */
   @font-face {
     font-family: 'Computer Modern Serif';
-    src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
+    src: url('/fonts/computer-modern/cmunrm.woff2') format('woff2'), url('/fonts/computer-modern/cmunrm.woff') format('woff');
     font-weight: 400;
     font-style: normal;
     font-display: swap;
   }
   @font-face {
     font-family: 'Computer Modern Serif';
-    src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
+    src: url('/fonts/computer-modern/cmunbx.woff2') format('woff2'), url('/fonts/computer-modern/cmunbx.woff') format('woff');
     font-weight: 700;
     font-style: normal;
     font-display: swap;
   }
   @font-face {
     font-family: 'Computer Modern Serif';
-    src: url('/fonts/computer-modern/cmunti.woff') format('woff');
+    src: url('/fonts/computer-modern/cmunti.woff2') format('woff2'), url('/fonts/computer-modern/cmunti.woff') format('woff');
     font-weight: 400;
     font-style: italic;
     font-display: swap;
@@ -430,7 +433,7 @@
    one LaTeX-paper type style everywhere, never small). */
   @font-face {
     font-family: 'Computer Modern Text';
-    src: url('/fonts/computer-modern/cmunrm.woff') format('woff');
+    src: url('/fonts/computer-modern/cmunrm.woff2') format('woff2'), url('/fonts/computer-modern/cmunrm.woff') format('woff');
     font-weight: 100 500;
     font-style: normal;
     font-display: swap;
@@ -438,7 +441,7 @@
   }
   @font-face {
     font-family: 'Computer Modern Text';
-    src: url('/fonts/computer-modern/cmunbx.woff') format('woff');
+    src: url('/fonts/computer-modern/cmunbx.woff2') format('woff2'), url('/fonts/computer-modern/cmunbx.woff') format('woff');
     font-weight: 600 900;
     font-style: normal;
     font-display: swap;
@@ -446,7 +449,7 @@
   }
   @font-face {
     font-family: 'Computer Modern Text';
-    src: url('/fonts/computer-modern/cmunti.woff') format('woff');
+    src: url('/fonts/computer-modern/cmunti.woff2') format('woff2'), url('/fonts/computer-modern/cmunti.woff') format('woff');
     font-weight: 100 500;
     font-style: italic;
     font-display: swap;
@@ -454,7 +457,7 @@
   }
   @font-face {
     font-family: 'Computer Modern Text';
-    src: url('/fonts/computer-modern/cmunbi.woff') format('woff');
+    src: url('/fonts/computer-modern/cmunbi.woff2') format('woff2'), url('/fonts/computer-modern/cmunbi.woff') format('woff');
     font-weight: 600 900;
     font-style: italic;
     font-display: swap;
@@ -463,7 +466,7 @@
   /* Code, DNS records and other literal values. */
   @font-face {
     font-family: 'Computer Modern Typewriter';
-    src: url('/fonts/computer-modern/cmuntt.woff') format('woff');
+    src: url('/fonts/computer-modern/cmuntt.woff2') format('woff2'), url('/fonts/computer-modern/cmuntt.woff') format('woff');
     font-weight: 100 900;
     font-style: normal;
     font-display: swap;

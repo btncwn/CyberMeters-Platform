@@ -19,6 +19,36 @@ describe('product typography', () => {
     expect(existsSync(resolve(fontDir, 'OFL.txt'))).toBe(true)
   })
 
+  it('serves every Computer Modern face as WOFF2 first, the unmodified WOFF only as a fallback', () => {
+    const cmDir = resolve(__dirname, '../../public/fonts/computer-modern')
+    const faces = [...css.matchAll(/src:\s*url\('\/fonts\/computer-modern\/([a-z]+)\.(woff2?)'\)\s*format\('(woff2?)'\)([^;]*);/g)]
+    expect(faces.length).toBe(8)
+    for (const [, name, ext, format, rest] of faces) {
+      expect(ext).toBe('woff2')
+      expect(format).toBe('woff2')
+      expect(rest).toContain(`url('/fonts/computer-modern/${name}.woff') format('woff')`)
+      // A lossless repackaging is smaller than the WOFF it came from.
+      expect(statSync(resolve(cmDir, `${name}.woff2`)).size).toBeLessThan(statSync(resolve(cmDir, `${name}.woff`)).size)
+    }
+  })
+
+  it('preloads only the face the homepage heading is set in', () => {
+    const html = readFileSync(resolve(__dirname, '../../index.html'), 'utf8')
+    const preloads = [...html.matchAll(/<link rel="preload"[^>]*>/g)].map(m => m[0])
+    expect(preloads).toHaveLength(1)
+    expect(preloads[0]).toContain('href="/fonts/computer-modern/cmunrm.woff2"')
+    expect(preloads[0]).toContain('type="font/woff2"')
+    expect(preloads[0]).toContain('crossorigin')
+  })
+
+  it('lets browsers keep the fonts instead of downloading them on every visit', () => {
+    const headers = readFileSync(resolve(__dirname, '../../public/_headers'), 'utf8')
+    const block = headers.match(/^\/fonts\/\*\n((?:  .*\n)+)/m)
+    expect(block).toBeTruthy()
+    expect(block[1]).toMatch(/! Cache-Control/)
+    expect(block[1]).toMatch(/Cache-Control: public, max-age=31536000, immutable/)
+  })
+
   it('loads no font from another host', () => {
     const urls = [...css.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)].map(m => m[1])
     expect(urls.length).toBeGreaterThan(0)

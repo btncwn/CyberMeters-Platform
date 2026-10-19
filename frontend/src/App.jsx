@@ -2,12 +2,11 @@ import { lazy, Suspense, useEffect } from 'react'
 import { safeInvitationPath } from './lib/invitationFlow'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import Layout from './components/Layout'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 import MaintenanceOverlay from './components/MaintenanceOverlay'
 import MailtoAssist from './components/MailtoAssist'
-import { isPreviewHost } from './utils/siteLinks'
-import PublicWebAnalytics from './components/PublicWebAnalytics'
+import { isPreviewHost, isMarketingHost as isMarketingHostname } from './utils/siteLinks'
+import { preloadableLazy } from './lib/preloadableLazy'
 import NewVersionBanner from './components/NewVersionBanner'
 import PublicPageMeta from './components/PublicPageMeta'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -29,7 +28,7 @@ const EmailVerificationPage     = lazy(() => import('./pages/EmailVerificationPa
 const McpConnectPage            = lazy(() => import('./pages/McpConnectPage'))
 const McpConnectionsPage        = lazy(() => import('./pages/McpConnectionsPage'))
 const PricingPage               = lazy(() => import('./pages/PricingPage'))
-const PublicLandingPage         = lazy(() => import('./pages/PublicLandingPage'))
+const PublicLandingPage         = preloadableLazy(() => import('./pages/PublicLandingPage'))
 const CheckoutSuccessPage       = lazy(() => import('./pages/CheckoutSuccessPage'))
 const CheckoutCancelPage        = lazy(() => import('./pages/CheckoutCancelPage'))
 const TermsPage                 = lazy(() => import('./pages/TermsPage'))
@@ -41,10 +40,14 @@ const TrustPage                 = lazy(() => import('./pages/TrustPage'))
 const AboutPage                 = lazy(() => import('./pages/AboutPage'))
 const StatusPage                = lazy(() => import('./pages/StatusPage'))
 const InvitationLandingPage     = lazy(() => import('./pages/InvitationLandingPage'))
-const FreeScanPage              = lazy(() => import('./pages/FreeScanPage'))
+const FreeScanPage              = preloadableLazy(() => import('./pages/FreeScanPage'))
 const CyberEssentialsReadinessPage = lazy(() => import('./pages/CyberEssentialsReadinessPage'))
 
 // ── Lazy-Loaded Core Protected App Pages ─────────────────────────────────
+// The signed-in shell is lazy too: it carries the top-bar globe and its map
+// data, which the public pages (homepage, free scan) never show but used to
+// download before their first paint.
+const Layout                    = lazy(() => import('./components/Layout'))
 const Dashboard                 = lazy(() => import('./pages/Dashboard'))
 const NewScan                   = lazy(() => import('./pages/NewScan'))
 const ScanDetail                = lazy(() => import('./pages/ScanDetail'))
@@ -104,6 +107,17 @@ const WorkspaceRelatedChangesPage   = lazy(() => import('./pages/ws/WorkspaceRel
 const WorkspaceRelatedChangeDetailPage = lazy(() => import('./pages/ws/WorkspaceRelatedChangeDetailPage'))
 const WorkspaceRetentionPage        = lazy(() => import('./pages/ws/WorkspaceRetentionPage'))
 
+
+// The page a first visit opens on, loaded before the first render (see
+// lib/preloadableLazy.jsx). Only the two public pages most visits start on;
+// every other route loads lazily as before. Null when there is nothing to wait for.
+export function preloadOpeningRoute(hostname, pathname) {
+  const path = String(pathname || '/').replace(/\/+$/, '') || '/'
+  if (path === '/' && isMarketingHostname(hostname)) return PublicLandingPage.load()
+  if (path === '/landing' && isPreviewHost(hostname)) return PublicLandingPage.load()
+  if (path === '/free-scan' && !isMarketingHostname(hostname)) return FreeScanPage.load()
+  return null
+}
 
 function PublicOnlyRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -287,7 +301,6 @@ export default function App() {
         </ChunkErrorBoundary>
         <MaintenanceOverlay />
         <MailtoAssist />
-        <PublicWebAnalytics />
         <NewVersionBanner />
         <PublicPageMeta />
       </AuthProvider>

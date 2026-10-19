@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PublicSiteHeader, { CONTACT } from '../components/PublicSiteHeader'
 import PublicSiteFooter from '../components/PublicSiteFooter'
-import IrisGlobe, { GLOBE, heroGlobe } from '../components/landing/IrisGlobe'
+import { GLOBE, heroGlobe } from '../components/landing/globeSizing'
 import ProductFrame from '../components/landing/ProductFrame'
 import ProductShowcase from '../components/landing/ProductShowcase'
 import ProductTour from '../components/landing/ProductTour'
 import { SERVICE_COLORS } from '../theme/serviceColors'
+import { appHostHref } from '../utils/siteLinks'
 
 const APP_URL = 'https://app.cybermeters.com'
 
@@ -122,6 +123,41 @@ const SAMPLE_ROWS = [
 
 const CONTAINER = 'mx-auto w-full max-w-[1280px] px-6 sm:px-10 lg:px-16'
 
+// The globe is decoration, so the heading paints first: its drawing code is a
+// separate download, fetched once the page has loaded and a frame is on screen.
+// Until then an empty box of the same size holds its place, so nothing moves
+// when it fades in (it already faded in from transparent).
+const IrisGlobe = lazy(() => import('../components/landing/IrisGlobe'))
+
+function useAfterPageLoad() {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    let frame = 0
+    let timer = 0
+    // Two frames: the first runs before the heading is painted, the second after.
+    const start = () => {
+      frame = window.requestAnimationFrame(() => {
+        frame = window.requestAnimationFrame(() => { timer = window.setTimeout(() => setReady(true), 0) })
+      })
+    }
+    if (document.readyState === 'complete') start()
+    else window.addEventListener('load', start, { once: true })
+    return () => {
+      window.removeEventListener('load', start)
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
+  }, [])
+  return ready
+}
+
+function DeferredGlobe(props) {
+  const painted = useAfterPageLoad()
+  const slot = <div className="relative" style={{ width: props.size, height: props.size, flexShrink: 0 }} aria-hidden="true" />
+  if (!painted) return slot
+  return <Suspense fallback={slot}><IrisGlobe {...props} /></Suspense>
+}
+
 function useMediaQuery(query) {
   const get = () => Boolean(typeof window !== 'undefined' && window.matchMedia?.(query).matches)
   const [matches, setMatches] = useState(get)
@@ -138,7 +174,7 @@ function useMediaQuery(query) {
 
 function DomainForm({ id, tone = 'dark' }) {
   return (
-    <form action="/free-scan" method="get" className="w-full max-w-[600px]">
+    <form action={appHostHref('/free-scan')} method="get" className="w-full max-w-[600px]">
       <label htmlFor={id} className="sr-only">Your domain</label>
       <div className={`flex flex-col sm:flex-row gap-2 sm:gap-0 sm:items-stretch rounded-[12px] bg-white p-1.5 ${tone === 'dark' ? 'shadow-[0_18px_50px_-20px_rgba(6,16,48,.65)]' : 'border border-[#D5DBEA] shadow-xs'}`}>
         <div className="flex items-center gap-3 flex-1 min-w-0 pl-4 h-[52px]">
@@ -208,7 +244,7 @@ function HeroStage() {
     <div ref={stageRef} className="cm-stage relative overflow-hidden text-white">
       {wide && (
         <div ref={eyeRef} className="absolute left-0 top-0 z-0 will-change-transform" style={{ width: SIZE, height: SIZE, transformOrigin: '50% 50%' }}>
-          <IrisGlobe size={SIZE} globe={globe} preferRight avoidRef={textRef} />
+          <DeferredGlobe size={SIZE} globe={globe} preferRight avoidRef={textRef} />
         </div>
       )}
       <div className="cm-legibility absolute inset-0 z-0 pointer-events-none" aria-hidden="true" />
@@ -234,7 +270,7 @@ function HeroStage() {
         </div>
         {!wide && (
           <div className="relative mx-auto mt-14 -mb-6 flex justify-center">
-            <IrisGlobe size={Math.min(560, typeof window === 'undefined' ? 560 : Math.round(window.innerWidth * 1.15))} />
+            <DeferredGlobe size={Math.min(560, typeof window === 'undefined' ? 560 : Math.round(window.innerWidth * 1.15))} />
           </div>
         )}
       </section>
@@ -267,7 +303,7 @@ function ClosingEye() {
   if (!wide) return null
   return (
     <div className="absolute right-[-140px] top-1/2 -translate-y-1/2 z-0">
-      <IrisGlobe size={620} labels={false} />
+      <DeferredGlobe size={620} labels={false} />
     </div>
   )
 }

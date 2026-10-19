@@ -7,11 +7,10 @@
 # for deep links like /dashboard, and header rules match the REQUEST path,
 # not the file served. Asset paths detach and override it below.
 # The CSP allows the cookieless analytics beacon (script from
-# static.cloudflareinsights.com, reports to cloudflareinsights.com) site-wide: in
-# a single-page app the first document's CSP governs every later route, and "/"
-# is both the marketing landing page and the signed-in app on different hosts,
-# so a per-path CSP would not scope anything. The beacon itself renders only on
-# public-website routes (src/components/PublicWebAnalytics.jsx).
+# static.cloudflareinsights.com, reports to cloudflareinsights.com) site-wide.
+# The edge adds the beacon to every HTML response on both production hosts; no
+# code in this app loads it (the manual snippet was removed on 19 Oct 2026 as a
+# duplicate). Without these two origins the browser would block that beacon.
 /*
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Frame-Options: DENY
@@ -32,6 +31,16 @@
 # revalidation. New deploys produce new URLs referenced by a fresh
 # index.html, which is never cached (rule above).
 /assets/*
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Cache-Control: public, max-age=31536000, immutable
+
+# ── Self-hosted web fonts ─────────────────────────────────────────────────
+# Without this rule the fonts inherited no-store from /* and every visit
+# downloaded them again. A font file's content never changes under its name
+# (a new cut gets a new file name), so a long cache is safe.
+/fonts/*
   ! Cache-Control
   ! Pragma
   ! Expires
