@@ -25,11 +25,13 @@ const migFiles = fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort()
 
 // Build the DB two ways: STATEMENT-level (the fix) and WHOLE-FILE (the pre-corrective bug).
 const execWhole = (db, sql) => db.exec(sql);
-function buildDb(mode) {
+// `before` stops the replay at that migration, so a postcondition can be read at the
+// point in history it describes.
+function buildDb(mode, before = null) {
   const db = new DatabaseSync(":memory:");
   db.exec(fs.readFileSync(path.join(root, "database", "schema.sql"), "utf8"));
   let terminal = null;
-  for (const f of migFiles) {
+  for (const f of migFiles.filter((f) => before === null || f < before)) {
     const raw = fs.readFileSync(path.join(migDir, f), "utf8");
     const fileSha = shaHex(raw);
     if (mode === "wholefile") {
@@ -69,8 +71,14 @@ ok("A3 045/046 postcondition: contact_email + contact_name + owner_user_id all p
 // ── 2. Right-reason mutant: WHOLE-FILE apply (the pre-corrective bug) breaks 046's index ──
 // F025-WHOLE-FILE-APPLY-RESTORED: exec each file whole → 046's first (tolerated) ALTER stops
 // the file → the DROP/CREATE partial index never runs → the R1-02 postcondition is violated.
+// Migration 126 rebuilds customer_profiles and recreates that index in every apply mode,
+// so the mutant is measured on the history before 126, against a statement-level build
+// of the same history that must still satisfy it.
 {
-  const wf = buildDb("wholefile");
+  const PRE_126 = "126-";
+  ok("M0 statement-level apply before 126 satisfies the 046 index postcondition",
+    JSON.stringify(idxShape(buildDb("statement", PRE_126).db)) === JSON.stringify({ unique: 1, partial: 1 }));
+  const wf = buildDb("wholefile", PRE_126);
   ok("M1 whole-file apply FAILS the 046 index postcondition (F025-WHOLE-FILE-APPLY-RESTORED)",
     JSON.stringify(idxShape(wf.db)) !== JSON.stringify({ unique: 1, partial: 1 }));
 }

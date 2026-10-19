@@ -183,6 +183,94 @@ ok("resolve returns null for unknown workspace", (await resolveReportBranding(en
 await call("PUT", "/api/account/report-branding", TOKA, { report_white_label: false });
 ok("white-label OFF → resolve falls back to null", (await resolveReportBranding(env, "ws_a")) === null);
 
+// ── 7. Migration 126 on the live pre-016 table ───────────────────────────────
+// Production's customer_profiles predates 016 (user_id NOT NULL UNIQUE, a
+// partial unique index on owner_user_id from 046). Captured read-only from
+// production on 19 Oct 2026. On that shape the profile upsert cannot run, so
+// branding can never be saved; 126 must make both work and end in the same
+// table the repository builds.
+const LIVE_PRE016_CUSTOMER_PROFILES = [
+  `CREATE TABLE customer_profiles (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL UNIQUE,
+    company_name TEXT,
+    website      TEXT,
+    industry     TEXT,
+    company_size TEXT,
+    country      TEXT,
+    created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TEXT DEFAULT CURRENT_TIMESTAMP, contact_email TEXT, contact_name  TEXT, owner_user_id TEXT, brand_logo TEXT, brand_accent TEXT, report_white_label INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+)`,
+  `CREATE UNIQUE INDEX idx_customer_profiles_owner
+  ON customer_profiles (owner_user_id)
+  WHERE owner_user_id IS NOT NULL`,
+  `CREATE INDEX idx_customer_profiles_user_id
+  ON customer_profiles (user_id)`,
+];
+const M126 = "126-customer-profiles-rebuild.sql";
+{
+  const live = new DatabaseSync(":memory:");
+  const tolerant = (sql) => { try { live.exec(sql); } catch { /* ordering no-ops */ } };
+  tolerant(fs.readFileSync(path.join(root, "database", "schema.sql"), "utf8"));
+  for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((f) => f.endsWith(".sql") && f < M126).sort()) {
+    tolerant(fs.readFileSync(path.join(root, "database", "migrations", f), "utf8"));
+  }
+  live.exec("DROP TABLE customer_profiles");
+  for (const sql of LIVE_PRE016_CUSTOMER_PROFILES) live.exec(sql);
+  live.exec("PRAGMA foreign_keys = ON");
+  live.prepare("INSERT INTO users (id, email, email_verified) VALUES ('u_l','l@example.co.uk',1)").run();
+  live.prepare("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, subscription_status, current_period_end) VALUES ('sub_l','u_l','ws_l','business','active', datetime('now','+30 day'))").run();
+  live.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_l','u_l',?, datetime('now','+1 day'))").run(await hashToken("tok_l"));
+  const liveEnv = { cybermeters_db: makeD1(live), ALLOWED_ORIGIN: "https://app.cybermeters.com", APP_VERSION: "test" };
+  const liveCall = async (method, p, body) => {
+    const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${p}`, {
+      method, headers: { Authorization: "Bearer tok_l", "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }), liveEnv, ctx);
+    let out = {}; try { out = await res.json(); } catch { /* */ }
+    return { status: res.status, body: out };
+  };
+  const company = { company_name: "Example MSP Ltd", company_size: "11-50", contact_email: "ops@example.co.uk" };
+
+  ok("pre-126 live shape: the company profile upsert fails (the production defect is reproduced)",
+     (await liveCall("PUT", "/api/account/company", company)).status === 500);
+
+  const m126Path = path.join(root, "database", "migrations", M126);
+  let applied = false;
+  try { live.exec(fs.existsSync(m126Path) ? fs.readFileSync(m126Path, "utf8") : ""); applied = fs.existsSync(m126Path); } catch { applied = false; }
+  ok("126 applies cleanly to the live pre-016 shape with foreign keys on", applied);
+
+  const saved = await liveCall("PUT", "/api/account/company", company);
+  ok("after 126: PUT /api/account/company succeeds (200)", saved.status === 200 && saved.body.company?.company_name === "Example MSP Ltd");
+  const resaved = await liveCall("PUT", "/api/account/company", { ...company, company_name: "Example Managed IT Ltd" });
+  ok("after 126: a second save updates the same profile (upsert, one row)",
+     resaved.status === 200 && resaved.body.company?.company_name === "Example Managed IT Ltd" &&
+     live.prepare("SELECT COUNT(*) c FROM customer_profiles WHERE owner_user_id='u_l'").get().c === 1);
+  const brand = await liveCall("PUT", "/api/account/report-branding", { brand_accent: "#7C3AED", report_white_label: true });
+  ok("after 126: the branding save succeeds (200, white-label on)",
+     brand.status === 200 && brand.body.branding?.report_white_label === true && brand.body.branding?.brand_accent === "#7C3AED");
+
+  const shape = (d) => JSON.stringify({
+    cols: d.prepare("SELECT name, type, \"notnull\", dflt_value, pk FROM pragma_table_info('customer_profiles')").all(),
+    idx: d.prepare("SELECT name, \"unique\", partial FROM pragma_index_list('customer_profiles') ORDER BY name").all()
+      .map((i) => ({ ...i, cols: d.prepare(`SELECT name FROM pragma_index_info('${i.name}')`).all() })),
+    fks: d.prepare("SELECT \"table\", \"from\", \"to\" FROM pragma_foreign_key_list('customer_profiles')").all(),
+  });
+  ok("after 126: the live and repository tables end in the same shape", shape(live) === shape(db));
+  ok("after 126: the profile no longer carries user_id and keeps country",
+     !/"name":"user_id"/.test(shape(live)) && /"name":"country"/.test(shape(live)));
+  ok("after 126: the pre-016 table is kept, not dropped",
+     live.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='customer_profiles_legacy_pre016'").get().c === 1 &&
+     db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='customer_profiles_legacy_pre016'").get().c === 1);
+  ok("after 126: no view, trigger, index or foreign key was repointed to the legacy table",
+     [live, db].every((d) =>
+       d.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE tbl_name <> 'customer_profiles_legacy_pre016' AND sql LIKE '%customer_profiles_legacy_pre016%'").get().c === 0));
+  ok("after 126: account purge removes the legacy copy too",
+     Array.isArray(worker.ACCOUNT_PURGE_TABLES) &&
+     worker.ACCOUNT_PURGE_TABLES.some((t) => t.table === "customer_profiles_legacy_pre016"));
+  live.close();
+}
+
 console.log(`\nReport branding: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("report-branding validation FAILED"); process.exit(1); }
 console.log("report-branding validation passed");
