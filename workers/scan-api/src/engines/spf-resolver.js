@@ -210,9 +210,12 @@ export function ipContainedInAnyCidr(ipString, canonicalCidrs) {
  *                                     (>1 → PermError). Ignored if rootRecord absent.
  * @param {Function} opts.lookup      async (name, type) => { status, values }
  * @param {string}   opts.nowIso      injected timestamp (scripts cannot call Date.now)
+ * @param {boolean?} opts.trace       also return `include_tree`: every record the walk
+ *                                     evaluated, with the lookups each subtree used.
+ *                                     Observation only; it changes no other field.
  * @returns {Promise<object>} snapshot fields (see SAFETY CONTRACT above)
  */
-export async function resolveSpfAuthorization({ domain, rootRecord = undefined, recordCount = undefined, lookup, nowIso }) {
+export async function resolveSpfAuthorization({ domain, rootRecord = undefined, recordCount = undefined, lookup, nowIso, trace = false }) {
   const state = {
     lookupCount: 0,
     voidCount: 0,
@@ -223,7 +226,17 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
     includeTargets: new Set(), // every include/redirect domain the walk fetched (additive evidence)
     tempError: false,
     permError: null,           // first permerror reason (string)
+    tree: null,                // root trace node when `trace` is set
   };
+
+  // One node per record the walk reached. `lookups` is what the record and
+  // everything below it cost against the 10-lookup limit; `stopped` names the
+  // error that ended the walk at this node, if any.
+  const traceNode = (name, via, record = null) => (trace
+    ? { domain: name, via, record, status: "evaluated", lookups: 0, void_lookups: 0, stopped: null, children: [] }
+    : null);
+  const traceChild = (parent, node) => { if (parent && node) parent.children.push(node); return node; };
+  const stoppedBelow = (node) => node.children.some((child) => child.stopped || stoppedBelow(child));
 
   const finish = (status) => ({
     resolution_status: status,
@@ -239,6 +252,7 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
     lookup_count: state.lookupCount,
     void_lookup_count: state.voidCount,
     resolved_at: nowIso,
+    ...(trace ? { include_tree: state.tree } : {}),
   });
 
   // Fetch + join a domain's single SPF record. Returns { record, count, status }.
@@ -295,7 +309,27 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
   };
 
   // Recursively evaluate ONE SPF record for the PASS set.
-  const evalRecord = async (name, record, count) => {
+  const evalRecord = async (name, record, count, node = null) => {
+    const lookupsBefore = state.lookupCount;
+    const voidsBefore = state.voidCount;
+    const permBefore = state.permError;
+    try {
+      await evalRecordBody(name, record, count, node);
+    } finally {
+      if (node) {
+        node.lookups = state.lookupCount - lookupsBefore;
+        node.void_lookups = state.voidCount - voidsBefore;
+        if (!permBefore && state.permError && !stoppedBelow(node)) {
+          node.stopped = state.permError;
+        }
+        if (state.tempError && !node.stopped && !stoppedBelow(node)) {
+          node.stopped = node.stopped || "temporary_dns_error";
+        }
+      }
+    }
+  };
+
+  const evalRecordBody = async (name, record, count, node) => {
     if (state.permError) return;
     if (count > 1) { state.permError = "multiple_spf_records"; return; }
     const parsed = parseSpfRecord(record, count);
@@ -374,9 +408,17 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
         state.visited.add(target);
         state.includeTargets.add(target);
         const inc = await fetchSpf(target);
-        if (inc.status === "temperror") { state.tempError = true; return; }
-        if (inc.count === 0) { if (!chargeVoid()) return; state.permError = "included_domain_no_spf"; return; }
-        await evalRecord(target, inc.record, inc.count);
+        if (inc.status === "temperror") {
+          const child = traceChild(node, traceNode(target, "include"));
+          if (child) { child.status = "temperror"; child.stopped = "temporary_dns_error"; }
+          state.tempError = true; return;
+        }
+        if (inc.count === 0) {
+          const child = traceChild(node, traceNode(target, "include"));
+          if (child) { child.status = "no_spf_record"; child.stopped = "included_domain_no_spf"; child.void_lookups = 1; }
+          if (!chargeVoid()) return; state.permError = "included_domain_no_spf"; return;
+        }
+        await evalRecord(target, inc.record, inc.count, traceChild(node, traceNode(target, "include", inc.record)));
         state.visited.delete(target);
         continue;
       }
@@ -406,9 +448,17 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
       state.visited.add(target);
       state.includeTargets.add(target);
       const red = await fetchSpf(target);
-      if (red.status === "temperror") { state.tempError = true; return; }
-      if (red.count === 0) { if (!chargeVoid()) return; state.permError = "redirect_domain_no_spf"; return; }
-      await evalRecord(target, red.record, red.count);
+      if (red.status === "temperror") {
+        const child = traceChild(node, traceNode(target, "redirect"));
+        if (child) { child.status = "temperror"; child.stopped = "temporary_dns_error"; }
+        state.tempError = true; return;
+      }
+      if (red.count === 0) {
+        const child = traceChild(node, traceNode(target, "redirect"));
+        if (child) { child.status = "no_spf_record"; child.stopped = "redirect_domain_no_spf"; child.void_lookups = 1; }
+        if (!chargeVoid()) return; state.permError = "redirect_domain_no_spf"; return;
+      }
+      await evalRecord(target, red.record, red.count, traceChild(node, traceNode(target, "redirect", red.record)));
     }
   };
 
@@ -428,7 +478,8 @@ export async function resolveSpfAuthorization({ domain, rootRecord = undefined, 
     return finish(SPF_RESOLUTION_STATUS.COMPLETE);
   }
 
-  await evalRecord(domain, root, rootCount ?? 1);
+  state.tree = traceNode(domain, "root", root);
+  await evalRecord(domain, root, rootCount ?? 1, state.tree);
 
   if (state.tempError) return finish(SPF_RESOLUTION_STATUS.TEMPERROR);
   if (state.permError) return finish(SPF_RESOLUTION_STATUS.PERMERROR);

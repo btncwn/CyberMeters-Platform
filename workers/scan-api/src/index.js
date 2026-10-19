@@ -99,6 +99,7 @@ import { dnsConnectionRoutes } from "./routes/dns-connections.js";
 import { domainRoutes } from "./routes/domains.js";
 import { workspacesCoreRoutes } from "./routes/workspaces-core.js";
 import { billingRoutes } from "./routes/billing.js";
+import { freeToolsRoutes, isFreeToolPath, processFreeToolDeferredChecks } from "./routes/free-tools.js";
 import { scanRoutes } from "./routes/scans.js";
 import { portfolioRoutes } from "./routes/portfolio.js";
 import { accountRoutes } from "./routes/account.js";
@@ -2134,7 +2135,10 @@ function buildRequestCorsHeaders(origin, method, pathname, env) {
   const isPublicStatusRead =
     PUBLIC_STATUS_PATHS.has(pathname) &&
     (method === "GET" || method === "OPTIONS");
-  if (!isPublicStatusRead) return headers;
+  // The free tools run on the public site as well as the app host.
+  const isPublicTool = isFreeToolPath(pathname) &&
+    ["GET", "POST", "OPTIONS"].includes(method);
+  if (!isPublicStatusRead && !isPublicTool) return headers;
 
   // These two public probes vary by the caller's exact Origin. Requests without
   // an Origin retain the established app header (CLI/monitor compatibility).
@@ -2146,7 +2150,7 @@ function buildRequestCorsHeaders(origin, method, pathname, env) {
   if (origin === appOrigin || PUBLIC_STATUS_ORIGINS.has(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
     if (PUBLIC_STATUS_ORIGINS.has(origin)) {
-      headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+      headers["Access-Control-Allow-Methods"] = isPublicTool ? "GET, POST, OPTIONS" : "GET, OPTIONS";
     }
     return headers;
   }
@@ -3028,6 +3032,14 @@ export default {
       if (reportsResponse) return reportsResponse;
     }
 
+    // ── Public free tools (/api/tools/*: DMARC, SPF) ───────────────────────
+    // Own gate: Turnstile, rolling per-IP limits, per-domain cap, result cache
+    // and a daily breaker (src/lib/free-tool-gate.js).
+    {
+      const toolsResponse = await freeToolsRoutes(routeCtx);
+      if (toolsResponse) return toolsResponse;
+    }
+
     // ── Billing + free-scan routes (public scan, subscription, checkout) ────
     // Extracted to src/routes/billing.js; dispatched at the original position
     // (last route group before the 404 fallback), patterns unchanged.
@@ -3058,6 +3070,7 @@ export default {
     runBrandDnsEnrichmentSweep,
     runBrandHttpEnrichmentSweep,
     triggerScheduledScan,
+    processFreeToolDeferredChecks: (env) => processFreeToolDeferredChecks(env, { consumeApiRateLimit }),
     recoverInterruptedScans: async (env) => {
       await Promise.all([recoverInterruptedScans(env), recoverNetworkScans(env)]);
     },

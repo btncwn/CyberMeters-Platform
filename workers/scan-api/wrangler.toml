@@ -137,6 +137,12 @@ TLS_ASSESSMENT_MODE = "evidence-v1"
 # WEBSITE_AUTH_KEY is the separate key ring for signed-in scanning credentials
 # ({"v":1,"active":"k1","keys":{"k1":"<base64 32 bytes>"}}), also a Worker
 # secret. Without it signed-in scanning stays unavailable (fail closed).
+# Free tools (/tools/*): the Turnstile widget's public site key. The matching
+# secret is a Worker secret: wrangler secret put TURNSTILE_SECRET_KEY. While
+# either is missing the tools say they are unavailable and run nothing.
+# Shared result links are signed with FREE_TOOLS_SHARE_KEY (Worker secret, 32+
+# random characters); without it results are shown but no link is offered.
+TURNSTILE_SITE_KEY = ""
 # Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
 # a clean 503 for every API route (except /health + /ready); flip back to "off"
 # and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.

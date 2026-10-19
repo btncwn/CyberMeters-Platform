@@ -29,20 +29,26 @@ export const DISPATCH_CRON = "10,20,30,40,50 * * * *";
 export const DISPATCH_TICK_MS = 10 * 60 * 1000;
 
 // Free previews use one-hour windows and also write the shared five-minute
-// per-IP API guard. Delete only these expired public API counter families;
+// per-IP API guard; the free tools use up to 24-hour windows. Delete only these
+// expired public API counter families;
 // login, scan admission and email rate limits are outside this policy.
 export async function cleanupExpiredPublicApiRateLimits(env, nowIso) {
   const nowMs = Date.parse(nowIso);
   if (!Number.isFinite(nowMs)) throw new TypeError("Invalid public API cleanup time");
   const freeCutoff = new Date(nowMs - (24 * 60 * 60 + 3600) * 1000).toISOString();
   const globalCutoff = new Date(nowMs - (24 * 60 * 60 + 300) * 1000).toISOString();
+  // Free tools: rolling 24-hour slots and hourly/daily windows. A row whose
+  // window started over 25 hours ago can no longer refuse anyone.
+  const toolCutoff = new Date(nowMs - (25 * 60 * 60) * 1000).toISOString();
   return env.cybermeters_db.prepare(
     `DELETE FROM api_rate_limits
      WHERE (action IN ('free_scan', 'free_scan_domain', 'free_scan_global')
             AND window_seconds = 3600 AND window_start < ?)
         OR (action IN ('global_read', 'global_write')
-            AND window_seconds = 300 AND window_start < ?)`,
-  ).bind(freeCutoff, globalCutoff).run();
+            AND window_seconds = 300 AND window_start < ?)
+        OR (action LIKE 'free!_tool!_%' ESCAPE '!'
+            AND window_seconds <= 86400 AND window_start < ?)`,
+  ).bind(freeCutoff, globalCutoff, toolCutoff).run();
 }
 
 // Due schedules are picked one account at a time: every account's oldest due
@@ -288,6 +294,14 @@ export async function runScheduled(event, env, ctx, tasks) {
 	    // hosts found by the discovery sweep have had a DNS-enrichment tick first.
 	    if (tasks.runBrandHttpEnrichmentSweep && new Date(now).getUTCHours() === 4) {
 	      ctx.waitUntil(runCronTask(env, "brand_http_enrichment", () => tasks.runBrandHttpEnrichmentSweep(env)));
+	    }
+
+	    // ── Deferred free-tool results (bounded) ─────────────────────────────
+	    // Visitors who met the free tools' daily breaker left an email for the
+	    // result. Once the budget has room, run a small batch and email them;
+	    // each address is deleted once its result is sent, or after 72 hours.
+	    if (tasks.processFreeToolDeferredChecks) {
+	      ctx.waitUntil(runCronTask(env, "free_tool_deferred_checks", () => tasks.processFreeToolDeferredChecks(env)));
 	    }
 
 	    // ── Report retention cleanup ─────────────────────────────────────────

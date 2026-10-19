@@ -11,6 +11,7 @@ export default function PublicSiteFooter({ sectionBase }) {
   const columns = [
     { title: 'Product', links: [
       { label: 'Free check', to: '/free-scan' },
+      { label: 'Free tools', to: '/tools' },
       { label: 'Areas', href: `${base}#areas` },
       { label: 'How it works', href: `${base}#how` },
       { label: 'Pricing', to: '/pricing' },

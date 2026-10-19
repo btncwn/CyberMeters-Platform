@@ -50,6 +50,73 @@ export async function rateLimitScopeId(prefix, value) {
   }
 }
 
+// Rolling window for small limits: `limit` slots per scope, each holding the
+// time it was last claimed. A request claims a slot whose claim is older than
+// the window, in one conditional UPSERT, so two concurrent requests can never
+// claim the same slot. Unlike a fixed window, a burst at the end of one window
+// cannot be followed by a second burst at the start of the next. The reset time
+// is when the oldest claim leaves the window.
+const MAX_ROLLING_SLOTS = 10;
+
+async function consumeRollingSlots(env, scopes, action, limit, windowSeconds, options) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ROLLING_SLOTS) {
+    throw new RangeError(`rolling limit must be 1-${MAX_ROLLING_SLOTS}`);
+  }
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const cutoff = new Date(nowMs - windowSeconds * 1000).toISOString();
+  const slotIds = (scope) => Array.from({ length: limit },
+    (_, slot) => rateLimitId(scope.scope, scope.scope_id, action, `slot${slot}`));
+  const denied = async (scope) => {
+    const ids = slotIds(scope);
+    const row = await env.cybermeters_db
+      .prepare(`SELECT MIN(window_start) AS oldest FROM api_rate_limits
+                WHERE id IN (${ids.map(() => "?").join(", ")}) AND window_start > ?`)
+      .bind(...ids, cutoff)
+      .first();
+    const oldestMs = Date.parse(row?.oldest ?? "");
+    const resetAt = new Date((Number.isFinite(oldestMs) ? oldestMs : nowMs) + windowSeconds * 1000).toISOString();
+    return { status: 429, body: rateLimitExceeded(action, limit, windowSeconds, resetAt) };
+  };
+
+  if (options.peek === true) {
+    for (const scope of scopes) {
+      const ids = slotIds(scope);
+      const row = await env.cybermeters_db
+        .prepare(`SELECT COUNT(*) AS active FROM api_rate_limits
+                  WHERE id IN (${ids.map(() => "?").join(", ")}) AND window_start > ?`)
+        .bind(...ids, cutoff)
+        .first();
+      if ((row?.active ?? limit) >= limit) return denied(scope);
+    }
+    return null;
+  }
+
+  for (const scope of scopes) {
+    let claimed = false;
+    for (const id of slotIds(scope)) {
+      const row = await env.cybermeters_db
+        .prepare(
+          `INSERT INTO api_rate_limits
+             (id, scope, scope_id, action, window_start, window_seconds,
+              request_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+           ON CONFLICT(id) DO UPDATE SET
+             window_start = excluded.window_start,
+             request_count = api_rate_limits.request_count + 1,
+             updated_at = datetime('now')
+           WHERE api_rate_limits.window_start <= ?
+           RETURNING id`,
+        )
+        .bind(id, scope.scope, scope.scope_id, action, nowIso, windowSeconds, cutoff)
+        .first();
+      if (row) { claimed = true; break; }
+    }
+    if (!claimed) return denied(scope);
+  }
+  return null;
+}
+
 export async function consumeApiRateLimit(
   env,
   scopes,
@@ -68,6 +135,24 @@ export async function consumeApiRateLimit(
   const { window_start, reset_at } = getRateLimitWindow(windowSeconds);
 
   try {
+    if (options.rolling === true) {
+      return await consumeRollingSlots(env, activeScopes, action, limit, windowSeconds, options);
+    }
+    if (options.peek === true) {
+      // Read-only: is this window already full? Writes nothing, so a caller can
+      // refuse before any D1 write and claim later only when work will run.
+      for (const scope of activeScopes) {
+        const id = rateLimitId(scope.scope, scope.scope_id, action, window_start);
+        const row = await env.cybermeters_db
+          .prepare("SELECT request_count FROM api_rate_limits WHERE id = ?")
+          .bind(id)
+          .first();
+        if ((row?.request_count ?? 0) >= limit) {
+          return { status: 429, body: rateLimitExceeded(action, limit, windowSeconds, reset_at) };
+        }
+      }
+      return null;
+    }
     if (options.atomic === true) {
       // Expensive manual security actions need a real concurrency/burst claim,
       // not the legacy read-then-increment approximation. One UPSERT returns the
@@ -92,6 +177,9 @@ export async function consumeApiRateLimit(
           .bind(id, scope.scope, scope.scope_id, action, window_start, windowSeconds,
             ...(saturating ? [limit] : []))
           .first();
+        // Each post-increment count is returned to exactly one request, so a
+        // caller can act once when a count crosses a threshold.
+        if (row?.request_count != null) options.onCount?.(row.request_count, scope);
         if ((row?.request_count ?? limit + 1) > limit) {
           return {
             status: 429,
