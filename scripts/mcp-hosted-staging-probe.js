@@ -291,11 +291,14 @@ async function authorize({ identity, session, clientId, callback }) {
   const started = await hostedFetch(authorizeUrl);
   status(started, 302, "Staging authorization start");
   const appRedirect = locationUrl(started, "Staging authorization start");
+  // The intent rides in the fragment (19 Oct 2026): never in a URL a server or
+  // page analytics sees.
+  const intentFragment = new URLSearchParams(appRedirect.hash.slice(1));
   check(appRedirect.origin === APP && appRedirect.pathname === "/mcp/connect" &&
-    appRedirect.searchParams.size === 1 &&
-    OPAQUE.test(appRedirect.searchParams.get("intent") ?? ""),
+    appRedirect.search === "" && intentFragment.size === 1 &&
+    OPAQUE.test(intentFragment.get("intent") ?? ""),
   "Authorization did not lead to the exact staging app intent");
-  const intent = appRedirect.searchParams.get("intent");
+  const intent = intentFragment.get("intent");
 
   const bridge = await hostedFetch(`${API}/api/mcp/oauth/browser-session`, {
     method: "POST", headers: { Origin: APP, Authorization: `Bearer ${session}`,

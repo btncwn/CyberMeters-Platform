@@ -306,7 +306,9 @@ async function processAuthorize(request, env, server, options) {
     const intent = await createMcpOAuthIntent(request, env, { ...options, budgetClaimed: true });
     if (!intent) return plain("Authorization temporarily unavailable", 503);
     return new Response(null, { status: 302, headers: {
-      ...NO_STORE, Location: `${appOrigin}/mcp/connect?intent=${intent}`,
+      // The one-time intent rides in the fragment: never sent to a server or to
+      // page analytics, and cleared from the address bar by the app on load.
+      ...NO_STORE, Location: `${appOrigin}/mcp/connect#intent=${intent}`,
       "Referrer-Policy": "no-referrer",
     } });
   }

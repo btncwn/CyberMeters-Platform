@@ -58,9 +58,9 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 301,
+    "total": 302,
     "authed": 263,
-    "public_unauthed": 38,
+    "public_unauthed": 39,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -76,7 +76,7 @@
         "authed": 65
       },
       "public-or-global": {
-        "total": 40,
+        "total": 41,
         "authed": 21
       },
       "account": {
@@ -991,6 +991,17 @@
     },
     {
       "method": "GET",
+      "path": "/api/auth/verify-email",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "email verification — token-gated, pre-auth"
+    },
+    {
+      "method": "POST",
       "path": "/api/auth/verify-email",
       "path_kind": "exact",
       "file": "workers/scan-api/src/routes/auth.js",

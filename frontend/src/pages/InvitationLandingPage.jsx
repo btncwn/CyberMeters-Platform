@@ -2,7 +2,9 @@ import { parseServerDate, formatDay } from '../utils/dates'
 /**
  * InvitationLandingPage — public, no auth required.
  *
- * Route: /invitations/:token
+ * Route: /invitations — the token arrives in the fragment (#t=…) or, for links
+ * sent before 19 Oct 2026, in the path; either way it is cleared from the address
+ * bar on load and read from router state (lib/urlSecrets.js).
  *
  * Flow:
  *  1. Load invitation preview (workspace name, role, invited-by, expiry) via
@@ -27,7 +29,8 @@ import { parseServerDate, formatDay } from '../utils/dates'
  * as the invited address". No raw API error string ever reaches the screen.
  */
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { urlSecret } from '../lib/urlSecrets'
 import { RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api, logoutWithToken } from '../api'
@@ -115,8 +118,15 @@ function StatusBanner({ type, children }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function InvitationLandingPage() {
-  const { token }  = useParams()
+  const params     = useParams()
+  const location   = useLocation()
   const navigate   = useNavigate()
+  // Router state holds the token (never the URL). A path-form address reached
+  // from inside the app is cleaned to /invitations straight away.
+  const token      = urlSecret(location, 'invitationToken') || params.token || ''
+  useEffect(() => {
+    if (params.token) navigate('/invitations', { replace: true, state: { urlSecrets: { invitationToken: params.token } } })
+  }, [params.token, navigate])
   const { isAuthenticated, isLoading: authLoading, user, logout } = useAuth()
 
   const [preview,   setPreview]   = useState(null)   // { workspace_name, invited_by_name, role, expires_at, status }
@@ -176,7 +186,7 @@ export default function InvitationLandingPage() {
     logout()
     if (currentToken) logoutWithToken(currentToken)
     setWrongEmailMsg(null)
-    navigate(`/invitations/${token}`, { replace: true })
+    navigate('/invitations', { replace: true, state: { urlSecrets: { invitationToken: token } } })
   }
 
   async function handleJoin() {

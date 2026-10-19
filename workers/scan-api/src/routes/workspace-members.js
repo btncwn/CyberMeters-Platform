@@ -284,7 +284,9 @@ export async function workspaceMembersRoutes(rctx) {
         // the accept URL inside the email; it is never logged or audited, and no
         // provider detail reaches the client.
         const inviteOrigin = getEmailFrontendOrigin(env) || "https://app.cybermeters.com";
-        const acceptUrl    = `${inviteOrigin}/invitations/${token}`;
+        // The token rides in the fragment, which browsers never send to a server
+        // or to page analytics; the page clears it from the address bar on load.
+        const acceptUrl    = `${inviteOrigin}/invitations#t=${token}`;
         const { subject, text, html } = buildInvitationEmail({
           workspaceName: workspace.name,
           role,

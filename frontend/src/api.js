@@ -411,6 +411,13 @@ export const api = {
    */
   startMicrosoftSignIn: (binding) => signInHandshake('/auth/microsoft/start', { binding }),
 
+  /**
+   * POST /api/auth/verify-email { token } → { success, outcome }.
+   * The token comes from the fragment of the emailed link, never from a URL the
+   * API sees. Throws with err.code = invalid | expired | missing | failed.
+   */
+  verifyEmail: (token) => signInHandshake('/auth/verify-email', { token }),
+
   /** POST /api/auth/resend-verification → { success } */
   resendVerification: (email, returnTo = null) =>
     request('/auth/resend-verification', {

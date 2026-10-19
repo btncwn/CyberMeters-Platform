@@ -1,3 +1,5 @@
+// First: clear any token from the address bar before other code reads the URL.
+import './lib/urlSecretsOnLoad'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App, { preloadOpeningRoute } from './App.jsx'

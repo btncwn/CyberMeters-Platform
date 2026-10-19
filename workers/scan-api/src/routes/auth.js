@@ -176,10 +176,9 @@ export async function authRoutes(rctx) {
 
         // Send verification email (fire-and-forget — signup succeeds even if email fails)
         const frontendUrl    = env.FRONTEND_URL || "https://app.cybermeters.com";
-        const workerBase     = url.origin;
         // An invited signup carries its invitation back through verification (allow-listed).
         const signupReturn   = safeInvitationReturn(body.return_to);
-        const verifyLink     = `${workerBase}/api/auth/verify-email?token=${verificationToken}${signupReturn ? `&next=${encodeURIComponent(signupReturn)}` : ""}`;
+        const verifyLink     = emailVerificationLink(env, verificationToken, signupReturn);
         const displayName    = name || email.split("@")[0];
         const displayNameHtml = escapeEmailHtml(displayName);
         const verificationDelivery = await sendCustomerEmail(
@@ -430,117 +429,35 @@ export async function authRoutes(rctx) {
       return json({ success: true });
     }
 
-    // ── GET /api/auth/verify-email ───────────────────────────────────────
-    // Validates the one-time email verification token sent during signup.
-    // On success: marks the account as verified, clears the token, redirects to
-    //   ${FRONTEND_URL}/verify-email?success=1
-    // On failure: redirects to
-    //   ${FRONTEND_URL}/verify-email?error=<reason>
+    // ── Email verification ───────────────────────────────────────────────
+    // New links open the app at /verify-email#t=<token>[&next=<invitation>]: the
+    // token stays in the fragment, the page clears it from the address bar and
+    // POSTs it here. Links already sent point at the GET form below, which keeps
+    // working; it now hands the invitation return path back in the fragment too.
+    if (request.method === "POST" && url.pathname === "/api/auth/verify-email") {
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      const token = typeof body?.token === "string" ? body.token.trim() : "";
+      const outcome = await verifyEmailToken(env, token);
+      if (outcome === "verified" || outcome === "already_verified") return json({ success: true, outcome });
+      return json({ success: false, code: outcome, error: EMAIL_VERIFICATION_ERRORS[outcome] }, 400);
+    }
+
+    // ── GET /api/auth/verify-email (links already emailed) ───────────────
+    // On success redirects to ${FRONTEND_URL}/verify-email?success=1, on failure
+    // to ${FRONTEND_URL}/verify-email?error=<reason>.
     if (request.method === "GET" && url.pathname === "/api/auth/verify-email") {
       const frontendUrl = env.FRONTEND_URL || "https://app.cybermeters.com";
-      const token = url.searchParams.get("token") || "";
       const dest = new URL("/verify-email", frontendUrl);
       // The invitation return path rides along on every outcome (success, expired,
-      // invalid) so the page can resend or continue to the invitation. Allow-listed.
+      // invalid) so the page can resend or continue to the invitation. Allow-listed,
+      // and in the fragment: it carries the invitation token.
       const verifyReturn = safeInvitationReturn(url.searchParams.get("next"));
-      if (verifyReturn) dest.searchParams.set("next", verifyReturn);
-
-      if (!token) {
-        dest.searchParams.set("error", "Missing verification token");
-        return Response.redirect(dest.toString(), 302);
-      }
-
-      try {
-        const tokenHash = await hashToken(token);
-        const userRow = await env.cybermeters_db
-          .prepare(
-            `SELECT id, email, email_verified, verification_token_expires_at
-             FROM users
-             WHERE verification_token IN (?, ?)
-             LIMIT 1`
-          )
-          .bind(tokenHash, token)
-          .first();
-
-        const tokenStatus = getEmailVerificationTokenStatus(userRow);
-        if (tokenStatus === "invalid") {
-          dest.searchParams.set("error", "Invalid or already used verification link");
-          return Response.redirect(dest.toString(), 302);
-        }
-
-        if (tokenStatus === "already_verified") {
-          // Already verified — just redirect to success
-          dest.searchParams.set("success", "1");
-          return Response.redirect(dest.toString(), 302);
-        }
-
-        if (tokenStatus === "expired") {
-          await createAuditEvent(env, {
-            user_id:     userRow.id,
-            event_type:  "USER_EMAIL_VERIFICATION_EXPIRED",
-            entity_type: "user",
-            entity_id:   userRow.id,
-            description: `Expired email verification attempted for ${userRow.email}`,
-            metadata:    { email: userRow.email },
-          }).catch(() => {});
-          dest.searchParams.set("error", "Verification link has expired. Please request a new one.");
-          return Response.redirect(dest.toString(), 302);
-        }
-
-        const verificationUpdate = await env.cybermeters_db
-          .prepare(
-            `UPDATE users
-             SET email_verified = 1,
-                 email_verified_at = datetime('now'),
-                 verification_token = NULL,
-                 verification_token_expires_at = NULL
-             WHERE id = ?
-               AND email_verified = 0
-               AND verification_token IN (?, ?)
-               AND verification_token_expires_at IS NOT NULL
-               AND unixepoch(verification_token_expires_at) > unixepoch('now')`
-          )
-          .bind(userRow.id, tokenHash, token)
-          .run();
-
-        if ((verificationUpdate.meta?.changes ?? 0) !== 1) {
-          dest.searchParams.set("error", "Invalid or already used verification link");
-          return Response.redirect(dest.toString(), 302);
-        }
-
-        await createAuditEvent(env, {
-          user_id:     userRow.id,
-          event_type:  "USER_EMAIL_VERIFIED",
-          entity_type: "user",
-          entity_id:   userRow.id,
-          description: `Email verified for ${userRow.email}`,
-          metadata:    { email: userRow.email },
-        }).catch(() => {});
-
-        // Lifecycle: welcome / getting-started (once per user; verified address).
-        // A domain the person already added to a workspace they own and has not
-        // verified yet turns the welcome into "your domain is ready to verify".
-        let welcomeDomain = null;
-        try {
-          const pending = await env.cybermeters_db
-            .prepare(`SELECT d.domain FROM workspace_domains wd
-                        JOIN domains d    ON d.id = wd.domain_id
-                        JOIN workspaces w ON w.id = wd.workspace_id AND w.deleted_at IS NULL
-                       WHERE w.owner_user_id = ?
-                         AND COALESCE(wd.verification_status, '') <> 'verified'
-                       ORDER BY d.domain ASC LIMIT 1`)
-            .bind(userRow.id)
-            .first();
-          welcomeDomain = pending?.domain || null;
-        } catch { /* the plain welcome still goes out */ }
-        await sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: userRow.id, to: userRow.email, domain: welcomeDomain }).catch(() => {});
-
-        dest.searchParams.set("success", "1");
-        return Response.redirect(dest.toString(), 302);
-      } catch (e) {
-        dest.searchParams.set("error", "Verification failed. Please try again.");
-        return Response.redirect(dest.toString(), 302);
-      }
+      if (verifyReturn) dest.hash = new URLSearchParams({ next: verifyReturn }).toString();
+      const outcome = await verifyEmailToken(env, url.searchParams.get("token") || "");
+      if (outcome === "verified" || outcome === "already_verified") dest.searchParams.set("success", "1");
+      else dest.searchParams.set("error", EMAIL_VERIFICATION_ERRORS[outcome]);
+      return Response.redirect(dest.toString(), 302);
     }
 
     // ── POST /api/auth/resend-verification ───────────────────────────────
@@ -611,9 +528,8 @@ export async function authRoutes(rctx) {
 
         if ((tokenUpdate.meta?.changes ?? 0) !== 1) return json({ success: true });
 
-        const workerBase  = url.origin;
         const resendReturn = safeInvitationReturn(body.return_to);
-        const verifyLink  = `${workerBase}/api/auth/verify-email?token=${newToken}${resendReturn ? `&next=${encodeURIComponent(resendReturn)}` : ""}`;
+        const verifyLink  = emailVerificationLink(env, newToken, resendReturn);
         const displayName = userRow.name || email.split("@")[0];
         const displayNameHtml = escapeEmailHtml(displayName);
         const verificationDelivery = await sendCustomerEmail(
@@ -990,7 +906,8 @@ export async function authRoutes(rctx) {
 
       const frontendUrl = env.FRONTEND_URL || url.origin;
       const dest = new URL("/auth/microsoft/callback", frontendUrl);
-      dest.searchParams.set("otc", otcRaw);
+      // A fragment survives the redirect but is never sent to a server.
+      dest.hash = new URLSearchParams({ otc: otcRaw }).toString();
 
       return Response.redirect(dest.toString(), 302);
     }
@@ -1181,7 +1098,9 @@ export async function authRoutes(rctx) {
 
           // Send email (non-fatal — token is in DB regardless)
           const appUrl   = getEmailFrontendOrigin(env) || "https://app.cybermeters.com";
-          const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
+          // The token rides in the fragment, which browsers never send to a server
+          // or to page analytics; the page clears it from the address bar on load.
+          const resetUrl = `${appUrl}/reset-password#t=${encodeURIComponent(resetToken)}`;
           const name     = user.name || user.email;
           const nameHtml = escapeEmailHtml(name);
           const subject  = "Reset your CyberMeters password";
@@ -1805,4 +1724,112 @@ export async function authRoutes(rctx) {
 
 
   return null;
+}
+
+// One-time email verification, shared by the POST form (new links) and the GET
+// form (links already emailed). Returns verified | already_verified | invalid |
+// expired | failed. The token is matched by hash (older rows hold it raw).
+const EMAIL_VERIFICATION_ERRORS = Object.freeze({
+  missing: "Missing verification token",
+  invalid: "Invalid or already used verification link",
+  expired: "Verification link has expired. Please request a new one.",
+  failed: "Verification failed. Please try again.",
+});
+
+async function verifyEmailToken(env, token) {
+  if (!token) return "missing";
+  try {
+    const tokenHash = await hashToken(token);
+    const userRow = await env.cybermeters_db
+      .prepare(
+        `SELECT id, email, email_verified, verification_token_expires_at
+         FROM users
+         WHERE verification_token IN (?, ?)
+         LIMIT 1`
+      )
+      .bind(tokenHash, token)
+      .first();
+
+    const tokenStatus = getEmailVerificationTokenStatus(userRow);
+    if (tokenStatus === "invalid") {
+      return "invalid";
+    }
+
+    if (tokenStatus === "already_verified") {
+      return "already_verified";
+    }
+
+    if (tokenStatus === "expired") {
+      await createAuditEvent(env, {
+        user_id:     userRow.id,
+        event_type:  "USER_EMAIL_VERIFICATION_EXPIRED",
+        entity_type: "user",
+        entity_id:   userRow.id,
+        description: `Expired email verification attempted for ${userRow.email}`,
+        metadata:    { email: userRow.email },
+      }).catch(() => {});
+      return "expired";
+    }
+
+    const verificationUpdate = await env.cybermeters_db
+      .prepare(
+        `UPDATE users
+         SET email_verified = 1,
+             email_verified_at = datetime('now'),
+             verification_token = NULL,
+             verification_token_expires_at = NULL
+         WHERE id = ?
+           AND email_verified = 0
+           AND verification_token IN (?, ?)
+           AND verification_token_expires_at IS NOT NULL
+           AND unixepoch(verification_token_expires_at) > unixepoch('now')`
+      )
+      .bind(userRow.id, tokenHash, token)
+      .run();
+
+    if ((verificationUpdate.meta?.changes ?? 0) !== 1) {
+      return "invalid";
+    }
+
+    await createAuditEvent(env, {
+      user_id:     userRow.id,
+      event_type:  "USER_EMAIL_VERIFIED",
+      entity_type: "user",
+      entity_id:   userRow.id,
+      description: `Email verified for ${userRow.email}`,
+      metadata:    { email: userRow.email },
+    }).catch(() => {});
+
+    // Lifecycle: welcome / getting-started (once per user; verified address).
+    // A domain the person already added to a workspace they own and has not
+    // verified yet turns the welcome into "your domain is ready to verify".
+    let welcomeDomain = null;
+    try {
+      const pending = await env.cybermeters_db
+        .prepare(`SELECT d.domain FROM workspace_domains wd
+                    JOIN domains d    ON d.id = wd.domain_id
+                    JOIN workspaces w ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+                   WHERE w.owner_user_id = ?
+                     AND COALESCE(wd.verification_status, '') <> 'verified'
+                   ORDER BY d.domain ASC LIMIT 1`)
+        .bind(userRow.id)
+        .first();
+      welcomeDomain = pending?.domain || null;
+    } catch { /* the plain welcome still goes out */ }
+    await sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: userRow.id, to: userRow.email, domain: welcomeDomain }).catch(() => {});
+
+    return "verified";
+  } catch (e) {
+    return "failed";
+  }
+}
+
+// The verification link in an email: the app page, with the token (and an
+// invitation return path) in the fragment, which never reaches a server log or
+// page analytics.
+function emailVerificationLink(env, token, invitationReturn) {
+  const origin = getEmailFrontendOrigin(env) || "https://app.cybermeters.com";
+  const fragment = new URLSearchParams({ t: token });
+  if (invitationReturn) fragment.set("next", invitationReturn);
+  return `${origin}/verify-email#${fragment.toString()}`;
 }

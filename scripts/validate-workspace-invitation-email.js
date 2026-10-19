@@ -96,12 +96,14 @@ ok("INV-E4 created audit is positioned after the send-failure branch",
    membersSrc.indexOf('event_type:   "workspace_invitation_created"') !== -1 &&
    membersSrc.indexOf("if (!inviteDelivery.sent)") < membersSrc.indexOf('event_type:   "workspace_invitation_created"'));
 
-// ── INV-E5 Accept link uses the canonical /invitations/:token route ───────────
+// ── INV-E5 Accept link opens /invitations with the token in the fragment ──────
+// (19 Oct 2026) The fragment is never sent to a server or to page analytics; the
+// app clears it from the address bar on load. A token back in the path fails.
 guard(
-  "INV-E5 accept URL points at /invitations/<token>",
+  "INV-E5 accept URL is /invitations#t=<token>, never the token in the path",
   membersSrc,
-  (s) => s.includes("`${inviteOrigin}/invitations/${token}`"),
-  (s) => s.replace("`${inviteOrigin}/invitations/${token}`", "`${inviteOrigin}/accept/${token}`"),
+  (s) => s.includes("`${inviteOrigin}/invitations#t=${token}`") && !s.includes("`${inviteOrigin}/invitations/${token}`"),
+  (s) => s.replace("`${inviteOrigin}/invitations#t=${token}`", "`${inviteOrigin}/invitations/${token}`"),
 );
 
 // ── INV-E6 The failure branch never leaks the raw token ───────────────────────
@@ -185,9 +187,11 @@ ok("invite daily rate limit remains fail-closed",
   const authSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "routes", "auth.js"), "utf8");
   ok("INV-E10 signup and resend put only an allow-listed return path into the verification link",
      (authSrc.match(/safeInvitationReturn\(body\.return_to\)/g) || []).length === 2 &&
-     (authSrc.match(/&next=\$\{encodeURIComponent\((signupReturn|resendReturn)\)\}/g) || []).length === 2);
-  ok("INV-E10 the verify endpoint passes only an allow-listed `next` back to the app",
-     /const verifyReturn = safeInvitationReturn\(url\.searchParams\.get\("next"\)\);\s*if \(verifyReturn\) dest\.searchParams\.set\("next", verifyReturn\);/.test(authSrc));
+     /emailVerificationLink\(env, verificationToken, signupReturn\)/.test(authSrc) &&
+     /emailVerificationLink\(env, newToken, resendReturn\)/.test(authSrc) &&
+     /if \(invitationReturn\) fragment\.set\("next", invitationReturn\);/.test(authSrc));
+  ok("INV-E10 the verify endpoint passes only an allow-listed `next` back to the app, in the fragment",
+     /const verifyReturn = safeInvitationReturn\(url\.searchParams\.get\("next"\)\);\s*if \(verifyReturn\) dest\.hash = new URLSearchParams\(\{ next: verifyReturn \}\)\.toString\(\);/.test(authSrc));
   ok("INV-E10 the public preview returns the invited address masked, never in full",
      /invited_email_masked: maskEmail\(invite\.invited_email\)/.test(membersSrc) && !/invited_email:\s*invite\.invited_email/.test(membersSrc));
   ok("INV-E10 the preview tells a signed-in visitor only whether their own account matches",

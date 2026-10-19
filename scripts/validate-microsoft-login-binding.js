@@ -101,7 +101,8 @@ async function signIn(f, browser, identity) {
   issuedCodes.set(code, { ...identity, nonce: identity.nonce ?? authorize.searchParams.get("nonce") });
   const callback = await f.send(`/api/auth/microsoft/callback?code=${code}&state=${state}`);
   const landing = callback.location ? new URL(callback.location) : null;
-  return { start, state, callback, otc: landing?.searchParams.get("otc") || null };
+  // The one-time code rides in the fragment (19 Oct 2026), never the query.
+  return { start, state, callback, otc: new URLSearchParams(landing?.hash.slice(1) || "").get("otc") || null };
 }
 const exchange = (f, otc, verifiers) => f.send("/api/auth/exchange", { method: "POST", body: { code: otc, verifiers } });
 const owner = { oid: "oid-owner", email: "owner@example.test", name: "Owner" };
@@ -116,7 +117,8 @@ const owner = { oid: "oid-owner", email: "owner@example.test", name: "Owner" };
     start.status === 200 && !start.location && authorizeUrl.startsWith(`https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize`)
       && !authorizeUrl.includes(A.verifier) && !authorizeUrl.includes(A.challenge));
   ok("callback redirects to the app with only a one-time code",
-    callback.status === 302 && callback.location.startsWith(`${APP}/auth/microsoft/callback?otc=`) && /^[0-9a-f]{64}$/.test(otc || ""));
+    callback.status === 302 && callback.location.startsWith(`${APP}/auth/microsoft/callback#otc=`) && /^[0-9a-f]{64}$/.test(otc || "")
+      && !new URL(callback.location).search.includes(otc || "-"));
   ok("callback creates no session before the browser is proven", f.count("SELECT COUNT(*) AS n FROM user_sessions") === 0);
   const result = await exchange(f, otc, [A.verifier]);
   ok("the starting browser receives a session", result.status === 200 && typeof result.data?.token === "string" && result.data?.email === owner.email, JSON.stringify(result.data));

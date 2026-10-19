@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { safeInvitationPath } from '../lib/invitationFlow'
+import { secretRoute } from '../lib/urlSecrets'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import AuthShell from '../components/AuthShell'
 import { useAuth } from '../context/AuthContext'
@@ -162,7 +163,8 @@ export default function LoginPage() {
     login(token, user)
     const invitation = safeInvitationPath(from)
     if (invitation) {
-      navigate(invitation, { replace: true })
+      const route = secretRoute(invitation)
+      navigate(route.to, { replace: true, state: route.state })
       return
     }
     try {
@@ -174,7 +176,9 @@ export default function LoginPage() {
     } catch {
       // If workspace check fails, fall through to the normal destination.
     }
-    navigate(from, { replace: true })
+    // A destination naming a secret goes as a clean path with the secret in state.
+    const route = secretRoute(from)
+    navigate(route.to, { replace: true, state: route.state })
   }
 
   function resetToPassword() {

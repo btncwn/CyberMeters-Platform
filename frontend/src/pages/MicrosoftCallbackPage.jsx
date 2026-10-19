@@ -6,7 +6,7 @@
  * Security model — two-step handoff (no tokens in URLs), bound to this browser:
  *   1. The backend GET /api/auth/microsoft/callback redirects here with only a
  *      short-lived one-time code (OTC) in the URL:
- *        /auth/microsoft/callback?otc=<64-hex-char code>
+ *        /auth/microsoft/callback#otc=<64-hex-char code>  (older redirects: ?otc=)
  *   2. This page POSTs the OTC with the verifiers this browser stored when it
  *      started the sign-in. The API releases the result only to the matching
  *      verifier, so a callback link opened in another browser cannot sign it in.
@@ -19,21 +19,25 @@
  *   ms_error — present when sign-in failed (its text is not displayed)
  */
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
 import { forgetMicrosoftLoginVerifier, microsoftLoginVerifiers } from '../lib/microsoftLoginBinding'
 import { takeMicrosoftMcpContinuation } from '../lib/mcpLoginContinuation'
+import { secretRoute, urlSecret } from '../lib/urlSecrets'
 
 export default function MicrosoftCallbackPage() {
   const [searchParams]  = useSearchParams()
   const { login }       = useAuth()
   const navigate        = useNavigate()
+  const location        = useLocation()
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    const otc     = searchParams.get('otc')
+    // The one-time code arrives in the fragment (older redirects: the query) and
+    // is cleared from the address bar on load (lib/urlSecrets.js).
+    const otc     = urlSecret(location, 'otc') || searchParams.get('otc')
     const msError = searchParams.get('ms_error')
 
     // The URL's wording is never echoed: a link could carry any text.
@@ -92,7 +96,8 @@ export default function MicrosoftCallbackPage() {
         } catch {
           // Workspace check failed — fall through to the services launcher.
         }
-        navigate(mcpDestination || '/dashboard', { replace: true })
+        const route = secretRoute(mcpDestination || '/dashboard')
+        navigate(route.to, { replace: true, state: route.state })
       })
       .catch(() => {
         setError('Sign-in could not be completed in this browser. Please sign in again.')
