@@ -250,7 +250,7 @@ export default { async fetch(request, env, ctx) {
     await resetBudget();
     const hostedStart = await fetch(hostedAuthorize, { redirect: "manual" });
     assert.equal(hostedStart.status, 302, await hostedStart.clone().text());
-    const hostedIntent = new URL(hostedStart.headers.get("Location")).searchParams.get("intent");
+    const hostedIntent = new URLSearchParams(new URL(hostedStart.headers.get("Location")).hash.slice(1)).get("intent");
     const hostedBridge = await fetch(`${origin}/api/mcp/oauth/browser-session`, {
       method: "POST", headers: { Origin: origin, Authorization: `Bearer ${sessionA}`,
         "Content-Type": "application/json" }, body: JSON.stringify({ intent: hostedIntent }),
@@ -316,7 +316,7 @@ export default { async fetch(request, env, ctx) {
       }
       const started = await fetch(authorize, { redirect: "manual" });
       assert.equal(started.status, 302, await started.clone().text());
-      const intent = new URL(started.headers.get("Location")).searchParams.get("intent");
+      const intent = new URLSearchParams(new URL(started.headers.get("Location")).hash.slice(1)).get("intent");
       assert.ok(intent);
       const bridged = await fetch(`${origin}/api/mcp/oauth/browser-session`, {
         method: "POST", headers: { Origin: origin, Authorization: `Bearer ${session}`,

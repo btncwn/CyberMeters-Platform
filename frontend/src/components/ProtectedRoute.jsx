@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { returnLocation } from '../lib/urlSecrets'
 
 /**
  * ProtectedRoute — the app's auth guard. While the session is being validated
@@ -20,7 +21,9 @@ export default function ProtectedRoute({ children }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />
+    // The return location is held in router state; a secret the page received
+    // (an MCP consent intent) goes with it, never into a URL.
+    return <Navigate to="/login" state={{ from: returnLocation(location) }} replace />
   }
 
   return children

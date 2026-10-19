@@ -176,10 +176,12 @@ export async function runTwoCustomerJourney({ root, startAt = "2026-10-20T09:00:
       const signup = await call(who, "POST", "/api/auth/signup", { email: who.email, password, name: who.name });
       step(who.label, "sign up", signup.status === 201, signup.status);
       const verifyMail = emailsTo(who.email).find((mail) => /Verify your CyberMeters email/.test(mail.subject || ""));
-      const link = verifyMail?.text?.match(/https:\/\/\S+\/api\/auth\/verify-email\?token=\S+/)?.[0];
+      // The link opens the app with the token in the fragment; the page POSTs it.
+      const link = verifyMail?.text?.match(/https:\/\/\S+\/verify-email#\S+/)?.[0];
       step(who.label, "verification email received", Boolean(link));
-      const verified = link ? await call(null, "GET", new URL(link).pathname + new URL(link).search) : null;
-      step(who.label, "email verified from the link", db.prepare("SELECT email_verified FROM users WHERE email = ?").get(who.email)?.email_verified === 1, verified?.location);
+      const fragmentToken = link ? new URLSearchParams(new URL(link).hash.slice(1)).get("t") : null;
+      const verified = fragmentToken ? await call(null, "POST", "/api/auth/verify-email", { token: fragmentToken }) : null;
+      step(who.label, "email verified from the link", db.prepare("SELECT email_verified FROM users WHERE email = ?").get(who.email)?.email_verified === 1, verified?.status);
       const login = await call(who, "POST", "/api/auth/login", { email: who.email, password });
       who.token = login.body?.token;
       step(who.label, "signed in", login.status === 200 && Boolean(who.token), login.status);

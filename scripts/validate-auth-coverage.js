@@ -233,6 +233,49 @@ async function main() {
     ok("forgot-password: known + unknown email return the SAME body (no enumeration)", JSON.stringify(known.data) === JSON.stringify(unknown.data));
   }
 
+  // ── B7: email verification — token out of the URL (19 Oct 2026) ───────────
+  // New links open the app with the token in the fragment; the app POSTs it. The
+  // GET form stays for links already emailed and hands the invitation return
+  // path back in the fragment, never the query.
+  sec("B7 email verification");
+  {
+    const db = buildDb();
+    const env = makeEnv(db);
+    const seed = await makeSeeder(db, mod);
+    const call = makeCaller(worker, env);
+    const future = new Date(Date.now() + 3600e3).toISOString();
+    const unverified = async (id, email, raw, expires = future) => {
+      seed.user(id, email);
+      seed.raw("UPDATE users SET email_verified = 0, verification_token = ?, verification_token_expires_at = ? WHERE id = ?", await hashToken(raw), expires, id);
+    };
+    const verified = (id) => db.prepare("SELECT email_verified FROM users WHERE id = ?").get(id).email_verified === 1;
+
+    await unverified("uEv1", "ev1@a.co", "ev-raw-1");
+    const first = await call("POST", "/api/auth/verify-email", null, { token: "ev-raw-1" });
+    ok("POST with the fragment token verifies the address (positive control)", first.status === 200 && first.data?.success === true && verified("uEv1"));
+    const again = await call("POST", "/api/auth/verify-email", null, { token: "ev-raw-1" });
+    ok("the token is single-use: a second POST is refused as invalid", again.status === 400 && again.data?.code === "invalid");
+    await unverified("uEv2", "ev2@a.co", "ev-raw-expired", "2000-01-01T00:00:00.000Z");
+    const expired = await call("POST", "/api/auth/verify-email", null, { token: "ev-raw-expired" });
+    ok("an expired token is refused as expired and verifies nothing", expired.status === 400 && expired.data?.code === "expired" && !verified("uEv2"));
+    const missing = await call("POST", "/api/auth/verify-email", null, {});
+    ok("a POST without a token is refused as missing", missing.status === 400 && missing.data?.code === "missing");
+    ok("the POST response never echoes the token", !JSON.stringify([first.data, again.data, expired.data]).includes("ev-raw"));
+
+    // Links already emailed: GET still verifies and redirects to the app.
+    await unverified("uEv3", "ev3@a.co", "ev-raw-legacy");
+    const invite = `/invitations/cmi_${"a".repeat(64)}`;
+    const legacy = await worker.fetch(new Request(`https://api.cybermeters.com/api/auth/verify-email?token=ev-raw-legacy&next=${encodeURIComponent(invite)}`), env, ctx);
+    const landing = new URL(legacy.headers.get("Location") || "https://invalid.example/");
+    ok("an older GET link still verifies the address", legacy.status === 302 && verified("uEv3"));
+    ok("the GET redirect lands on /verify-email?success=1", landing.pathname === "/verify-email" && landing.searchParams.get("success") === "1");
+    ok("the GET redirect carries the invitation return path only in the fragment",
+       new URLSearchParams(landing.hash.slice(1)).get("next") === invite && !landing.search.includes("next") && !landing.search.includes("cmi_"));
+    const bad = await worker.fetch(new Request("https://api.cybermeters.com/api/auth/verify-email?token=nope"), env, ctx);
+    const badLanding = new URL(bad.headers.get("Location") || "https://invalid.example/");
+    ok("an invalid GET link redirects with a plain error and no token", bad.status === 302 && badLanding.searchParams.get("error") === "Invalid or already used verification link" && !bad.headers.get("Location").includes("nope"));
+  }
+
   // ── Coverage delta ─────────────────────────────────────────────────────────
   sec("Coverage");
   const controls = {
@@ -241,8 +284,9 @@ async function main() {
     B4: "MFA TOTP valid/wrong code; challenge single-use + expiry; recovery codes single-use",
     B5: "Microsoft id_token claims (alg/aud/exp/nbf/iss/tid/oid/nonce) each enforced",
     B6: "reset token single-use (used_at) + expiring; forgot-password does not enumerate accounts",
+    B7: "email verification by POST (token from the link fragment) single-use + expiring; older GET links still verify and return the invitation path in the fragment",
   };
-  ok("all five assessable B-section controls asserted", Object.keys(controls).length === 5);
+  ok("all six assessable B-section controls asserted", Object.keys(controls).length === 6);
 
   // ── Report ─────────────────────────────────────────────────────────────────
   const bySec = {};

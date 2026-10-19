@@ -3,13 +3,16 @@ import { Link, useLocation } from 'react-router-dom'
 import { BASE } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { validMcpContinuationUrl } from '../lib/mcpContinuationUrl'
+import { urlSecret } from '../lib/urlSecrets'
 
 const INTENT = /^[A-Za-z0-9_-]{43}$/
 
 export default function McpConnectPage() {
   const { token } = useAuth()
   const location = useLocation()
-  const intent = new URLSearchParams(location.search).get('intent')
+  // The intent arrives in the fragment (older links: the query), is cleared from
+  // the address bar on load and is read from router state (lib/urlSecrets.js).
+  const intent = urlSecret(location, 'mcpIntent') || new URLSearchParams(location.search).get('intent')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 

@@ -18,11 +18,14 @@ const TOKEN = `cmi_${'b'.repeat(64)}`
 const preview = (over = {}) => ({ workspace_name: 'Black Bull Barbers', invited_by_name: 'Taylor Owner', role: 'analyst', expires_at: '2099-01-01T00:00:00Z', status: 'pending', invited_email_masked: 'c•••••r@gmail.com', ...over })
 
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}|{JSON.stringify(l.state || null)}</p> }
-function renderAt(auth) {
+// After load the token is in router state, never in the URL (lib/urlSecrets.js).
+const AT_INVITATION = { pathname: '/invitations', state: { urlSecrets: { invitationToken: TOKEN } } }
+function renderAt(auth, entry = AT_INVITATION) {
   useAuth.mockReturnValue({ isLoading: false, logout: vi.fn(), ...auth })
   return render(
-    <MemoryRouter initialEntries={[`/invitations/${TOKEN}`]}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
+        <Route path="/invitations" element={<><InvitationLandingPage /><Where /></>} />
         <Route path="/invitations/:token" element={<><InvitationLandingPage /><Where /></>} />
         <Route path="*" element={<Where />} />
       </Routes>
@@ -51,7 +54,8 @@ describe('email mismatch', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Sign out and continue as the invited address' }))
     expect(logout).toHaveBeenCalled()
     expect(logoutWithToken).toHaveBeenCalledWith('tok_x')
-    expect(screen.getByTestId('where')).toHaveTextContent(`/invitations/${TOKEN}`)
+    // Back to the same invitation: a clean path, the token in router state only.
+    expect(screen.getByTestId('where')).toHaveTextContent(`/invitations|{"urlSecrets":{"invitationToken":"${TOKEN}"}}`)
   })
 
   it('an older API without the flag: a 403 on Join switches to the mismatch screen, never the raw text', async () => {
@@ -108,5 +112,23 @@ describe('signed out', () => {
     expect(await screen.findByText('Successfully joined workspace')).toBeInTheDocument()
     expect(localStorage.getItem('cybermeters_workspace_id')).toBe('ws_bbb')
     expect(localStorage.getItem('cybermeters_pending_invite')).toBeNull()
+  })
+})
+
+describe('token never in the address', () => {
+  it('reads the token from router state and loads the preview with it', async () => {
+    api.getInvitationPreview.mockResolvedValue(preview())
+    renderAt({ isAuthenticated: false })
+    await screen.findByText('Black Bull Barbers', { exact: false })
+    expect(api.getInvitationPreview).toHaveBeenCalledWith(TOKEN)
+    expect(screen.getByTestId('where').textContent.startsWith('/invitations|')).toBe(true)
+  })
+
+  it('cleans a path-form address reached inside the app to /invitations, keeping the token', async () => {
+    api.getInvitationPreview.mockResolvedValue(preview())
+    renderAt({ isAuthenticated: false }, `/invitations/${TOKEN}`)
+    await waitFor(() => expect(screen.getByTestId('where').textContent.startsWith('/invitations|')).toBe(true))
+    expect(screen.getByTestId('where')).toHaveTextContent(TOKEN)
+    expect(api.getInvitationPreview).toHaveBeenCalledWith(TOKEN)
   })
 })

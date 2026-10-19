@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
+import { urlSecret } from '../lib/urlSecrets'
 import AuthShell from '../components/AuthShell'
 import { api } from '../api'
 
 export default function ResetPasswordPage() {
   const [searchParams]               = useSearchParams()
   const navigate                     = useNavigate()
-  const token                        = searchParams.get('token') || ''
+  const location                     = useLocation()
+  // The token arrives in the fragment (older links: ?token=), is cleared from the
+  // address bar on load and is read from router state (lib/urlSecrets.js).
+  const token                        = urlSecret(location, 'resetToken') || searchParams.get('token') || ''
 
   const [password,  setPassword]  = useState('')
   const [confirm,   setConfirm]   = useState('')

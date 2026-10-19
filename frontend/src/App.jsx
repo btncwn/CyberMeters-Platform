@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { safeInvitationPath } from './lib/invitationFlow'
+import { secretRoute, urlWithSecretsInFragment } from './lib/urlSecrets'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
@@ -126,7 +127,10 @@ function PublicOnlyRoute({ children }) {
   // A signed-in visitor leaves /login and /signup — for the invitation they came
   // for when there is one (allow-listed path only), otherwise for Overview. Without
   // this, signing in after email verification raced past the invitation (P1).
-  if (isAuthenticated) return <Navigate to={safeInvitationPath(location.state?.from) || '/dashboard'} replace />
+  if (isAuthenticated) {
+    const route = secretRoute(safeInvitationPath(location.state?.from) || '/dashboard')
+    return <Navigate to={route.to} state={route.state} replace />
+  }
   return children
 }
 
@@ -143,13 +147,14 @@ function isMarketingHost() {
 function AppHostRedirect() {
   const location = useLocation()
   useEffect(() => {
-    window.location.replace(`https://app.cybermeters.com${location.pathname}${location.search}`)
+    // A token picked up on load travels on in the fragment, never in the query.
+    window.location.replace(urlWithSecretsInFragment('https://app.cybermeters.com', location))
   }, [location])
   return <RouteLoader />
 }
 
 // App-host paths reachable from marketing pages or typed by users.
-const APP_HOST_PATHS = ['/login', '/signup', '/free-scan', '/pricing', '/dashboard', '/forgot-password', '/reset-password', '/verify-email', '/mcp/connect', '/account/mcp']
+const APP_HOST_PATHS = ['/invitations', '/login', '/signup', '/free-scan', '/pricing', '/dashboard', '/forgot-password', '/reset-password', '/verify-email', '/mcp/connect', '/account/mcp']
 
 function AppRoutes() {
   if (isMarketingHost()) {
@@ -198,6 +203,9 @@ function AppRoutes() {
         <Route path="/trust"                  element={<TrustPage />} />
         <Route path="/about"                  element={<AboutPage />} />
         <Route path="/status"                 element={<StatusPage />} />
+        {/* Invitation links carry the token in the fragment (/invitations#t=…);
+            older /invitations/<token> links are cleaned on load (lib/urlSecrets.js). */}
+        <Route path="/invitations"            element={<InvitationLandingPage />} />
         <Route path="/invitations/:token"     element={<InvitationLandingPage />} />
         <Route path="/free-scan"              element={<FreeScanPage />} />
         {/* Pull-request previews have no marketing host; show the public page here. */}

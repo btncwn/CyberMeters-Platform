@@ -34,6 +34,7 @@ const read = (...p) => fs.readFileSync(path.join(root, ...p), "utf8");
 const authSrc    = read("workers", "scan-api", "src", "routes", "auth.js");
 const membersSrc = read("workers", "scan-api", "src", "routes", "workspace-members.js");
 const lifeSrc    = read("workers", "scan-api", "src", "lib", "lifecycle-email.js");
+const mcpSrc     = read("workers", "scan-api", "src", "routes", "mcp-oauth-server.js");
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -148,6 +149,44 @@ guard(
   lifeSrc,
   (s) => /JOIN users u ON u\.id = w\.owner_user_id WHERE w\.id = \? AND w\.deleted_at IS NULL/.test(s),
   (s) => s.replace("WHERE w.id = ? AND w.deleted_at IS NULL", "WHERE w.id = ?"),
+);
+
+// ── S-1 Secrets stay out of URLs (19 Oct 2026) ────────────────────────────────
+// Page analytics and server logs see a URL's path and query. Every emailed or
+// redirected link that carries a secret carries it in the fragment, which never
+// leaves the browser; the app clears it from the address bar on load
+// (frontend/src/lib/urlSecrets.js). Each guard fails if the secret goes back
+// into the query.
+guard(
+  "S-1 password reset link carries its token in the fragment",
+  authSrc,
+  (s) => s.includes("`${appUrl}/reset-password#t=${encodeURIComponent(resetToken)}`") && !/reset-password\?token=/.test(s),
+  (s) => s.replace("`${appUrl}/reset-password#t=${encodeURIComponent(resetToken)}`", "`${appUrl}/reset-password?token=${resetToken}`"),
+);
+guard(
+  "S-1 email verification link opens the app with the token in the fragment",
+  authSrc,
+  (s) => s.includes("return `${origin}/verify-email#${fragment.toString()}`;") && !/api\/auth\/verify-email\?token=/.test(s),
+  (s) => s.replace("return `${origin}/verify-email#${fragment.toString()}`;", "return `${origin}/api/auth/verify-email?${fragment.toString()}`;"),
+);
+guard(
+  "S-1 the app verifies a fragment token by POST, the GET form stays for links already sent",
+  authSrc,
+  (s) => /request\.method === "POST" && url\.pathname === "\/api\/auth\/verify-email"[\s\S]{0,400}verifyEmailToken\(env, token\)/.test(s) &&
+         /request\.method === "GET" && url\.pathname === "\/api\/auth\/verify-email"[\s\S]{0,900}verifyEmailToken\(env, url\.searchParams\.get\("token"\)/.test(s),
+  (s) => s.replace('request.method === "POST" && url.pathname === "/api/auth/verify-email"', 'request.method === "PUT" && url.pathname === "/api/auth/verify-email"'),
+);
+guard(
+  "S-1 Microsoft sign-in hands its one-time code back in the fragment",
+  authSrc,
+  (s) => s.includes("dest.hash = new URLSearchParams({ otc: otcRaw }).toString();") && !s.includes('dest.searchParams.set("otc"'),
+  (s) => s.replace("dest.hash = new URLSearchParams({ otc: otcRaw }).toString();", 'dest.searchParams.set("otc", otcRaw);'),
+);
+guard(
+  "S-1 MCP consent intent reaches the app in the fragment",
+  mcpSrc,
+  (s) => s.includes("`${appOrigin}/mcp/connect#intent=${intent}`") && !s.includes("/mcp/connect?intent="),
+  (s) => s.replace("`${appOrigin}/mcp/connect#intent=${intent}`", "`${appOrigin}/mcp/connect?intent=${intent}`"),
 );
 
 console.log(`\nauth/session hardening: ${pass}/${pass + fail} passed`);

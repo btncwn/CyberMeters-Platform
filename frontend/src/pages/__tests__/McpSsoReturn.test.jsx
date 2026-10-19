@@ -33,6 +33,9 @@ const BINDING = 'b'.repeat(43)
 const DESTINATION = `/mcp/connect?intent=${INTENT}`
 const FROM = { pathname: '/mcp/connect', search: `?intent=${INTENT}` }
 const VERIFIER = 'v'.repeat(43)
+// The consent page is reached by a clean path; the intent travels in router
+// state, never in the URL (lib/urlSecrets.js).
+const CLEAN_MCP_RETURN = { replace: true, state: { urlSecrets: { mcpIntent: INTENT } } }
 
 function browserBinding() {
   localStorage.setItem('cm_ms_login_bindings', JSON.stringify([
@@ -59,7 +62,7 @@ describe('MCP connection return after sign-in', () => {
     fireEvent.change(screen.getByLabelText(/Email/i), { target: { value: 'u@example.com' } })
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'password' } })
     fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }))
-    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith(DESTINATION, { replace: true }))
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/mcp/connect', CLEAN_MCP_RETURN))
     expect(loginSpy).toHaveBeenCalledWith('session', { id: 'u1' })
   })
 
@@ -84,7 +87,7 @@ describe('MCP connection return after sign-in', () => {
     render(<MemoryRouter initialEntries={[`/auth/microsoft/callback?otc=${'a'.repeat(64)}`]}>
       <MicrosoftCallbackPage />
     </MemoryRouter>)
-    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith(DESTINATION, { replace: true }))
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/mcp/connect', CLEAN_MCP_RETURN))
     expect(loginSpy).toHaveBeenCalledWith('session', expect.objectContaining({ id: 'u1' }))
     expect(JSON.stringify(navigateSpy.mock.calls)).not.toContain('session')
     expect(sessionStorage.getItem('cm_ms_mcp_continuation')).toBeNull()
@@ -110,7 +113,7 @@ describe('MCP connection return after sign-in', () => {
     } }]}><LoginPage /></MemoryRouter>)
     fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: /^Verify$/i }))
-    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith(DESTINATION, { replace: true }))
+    await waitFor(() => expect(navigateSpy).toHaveBeenCalledWith('/mcp/connect', CLEAN_MCP_RETURN))
   })
 
   it('ignores a callback URL intent and a mismatched browser binding', async () => {
