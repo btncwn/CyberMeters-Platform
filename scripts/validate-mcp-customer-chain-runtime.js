@@ -213,7 +213,10 @@ export default { async fetch(request, env, ctx) {
       }
       const started = await fetch(authorize, { redirect: 'manual' });
       assert.equal(started.status, 302, await started.clone().text());
-      const intent = new URL(started.headers.get('Location')).searchParams.get('intent');
+      // The intent reaches the app in the fragment, never the query (19 Oct 2026).
+      const landing = new URL(started.headers.get('Location'));
+      assert.equal(landing.search, '');
+      const intent = new URLSearchParams(landing.hash.slice(1)).get('intent');
       assert.ok(intent);
       const bridged = await fetch(`${origin}/api/mcp/oauth/browser-session`, {
         method: 'POST', headers: { Origin: origin, Authorization: `Bearer ${session}`,
