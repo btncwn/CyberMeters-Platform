@@ -140,8 +140,11 @@ test('billing page advertises no retired Vendor Risk / Supply Chain Intelligence
   await waitFor(() => expect(screen.getByText('£19.99')).toBeInTheDocument())
   expect(container.textContent).not.toMatch(/Vendor Risk/i)
   expect(container.textContent).not.toMatch(/Supply Chain Intelligence/i)
+  // No supply-chain claim at all (SIRA 4, 19 Oct 2026): the product observes
+  // third-party services; it does not rate a supply chain.
+  expect(container.textContent).not.toMatch(/supply.chain/i)
   // The gated feature is still advertised — under its honest label.
-  expect(screen.getByText('Vendor relationships and supply chain views')).toBeInTheDocument()
+  expect(screen.getByText('Third-party services observed on your domains')).toBeInTheDocument()
 })
 
 test('feature list follows plan limits and entitlements, never a static included/not-included grid', async () => {
@@ -165,8 +168,9 @@ test('PlanGate upgrade wall for vendor_risk uses the honest label, no retired cl
       </PlanGate>
     </MemoryRouter>,
   )
-  expect(screen.getByText(/Vendor relationships and supply chain views requires an upgrade/)).toBeInTheDocument()
+  expect(screen.getByText(/Third-party services observed on your domains requires an upgrade/)).toBeInTheDocument()
   expect(container.textContent).not.toMatch(/Vendor Risk/i)
+  expect(container.textContent).not.toMatch(/supply.chain/i)
   expect(container.textContent).not.toMatch(/Supply Chain Intelligence/i)
 })
 

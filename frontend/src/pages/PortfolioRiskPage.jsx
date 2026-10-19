@@ -114,7 +114,6 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
             <th className="pb-2 font-medium">BRS</th>
             <th className="pb-2 font-medium">Risk</th>
             <th className="pb-2 font-medium">30d</th>
-            <th className="pb-2 font-medium">SC Score</th>
             <th className="pb-2 font-medium">SPOFs</th>
             <th className="pb-2 font-medium w-6" />
           </tr>
@@ -150,9 +149,6 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
               </td>
               <td className="py-2.5 pr-4">
                 <DeltaChip delta={r.score_delta_30d} />
-              </td>
-              <td className="py-2.5 pr-4 text-gray-500 text-xs">
-                {r.supply_chain_score ?? '—'}
               </td>
               <td className="py-2.5 pr-4">
                 {r.spof_count > 0 && (
@@ -350,7 +346,7 @@ export default function PortfolioRiskPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Portfolio Risk</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Multi-customer risk intelligence for MSPs and security teams.
+            Business Risk Scores for the customers you manage, side by side, from CyberMeters scans.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -472,10 +468,10 @@ export default function PortfolioRiskPage() {
 
             <div className="card p-6">
               <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
-                Shared Vendor Dependencies
+                Shared third-party services
               </h2>
               <p className="text-xs text-gray-400 mb-4">
-                Vendors used across multiple customer environments. A disruption to these providers creates portfolio-wide exposure.
+                Services observed in more than one customer environment. An outage at one of these providers would reach each of those customers.
               </p>
               <SharedDepsTable deps={data.shared_dependencies} />
             </div>
@@ -484,7 +480,7 @@ export default function PortfolioRiskPage() {
           {/* Footer note */}
           <div className="mt-6 card p-4 border border-blue-100 bg-blue-50">
             <p className="text-xs text-blue-700 leading-relaxed">
-              Portfolio risk intelligence is derived entirely from existing CyberMeters scan data. BRS scores, third-party dependency intelligence, and vendor risk data are aggregated across all accessible customer workspaces. Last calculated: {formatDate(data.calculated_at)}
+              These figures come only from existing CyberMeters scan data: Business Risk Scores and the third-party services observed in the workspaces you can access. Vendors are not rated or assessed. Last calculated: {formatDate(data.calculated_at)}
             </p>
           </div>
         </>

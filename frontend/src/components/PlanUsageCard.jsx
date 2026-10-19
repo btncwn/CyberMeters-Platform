@@ -56,7 +56,7 @@ const FEATURE_LABELS = {
   audit_logs:          'Workspace Audit Logs',
   // Honest external-observation label — the retired vendor-risk marketing
   // claim must not be advertised on billing/upgrade surfaces.
-  vendor_risk:         'Vendor relationships and supply chain views',
+  vendor_risk:         'Third-party services observed on your domains',
   portfolio_monitoring:'Portfolio Risk Monitoring',
   white_label:         'White Label Reports',
   msp_dashboard:       'MSP Dashboard',

@@ -47,7 +47,7 @@ const PLAN_META = {
     color:       'text-brand-700',
     badge:       'bg-brand-50 text-brand-700 border-brand-200',
     ring:        'border-brand-200',
-    description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, vendor relationships and supply chain views, Executive Dashboard and audit logs.',
+    description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, the third-party services observed on your domains, Executive Dashboard and audit logs.',
   },
   business: {
     label:       'Business',
@@ -87,7 +87,7 @@ const GATE_LABELS = {
   pdf_reports: 'PDF report export', multi_workspace: 'Multiple workspaces',
   team_members: 'Team member invitations', business_risk_score: 'Business Risk Score',
   cyber_essentials: 'Cyber Essentials Readiness',
-  vendor_risk: 'Vendor relationships and supply chain views',
+  vendor_risk: 'Third-party services observed on your domains',
   executive_dashboard: 'Executive Risk Dashboard', audit_logs: 'Workspace Audit Logs',
   portfolio_monitoring: 'Portfolio Monitoring', white_label: 'White-label reports',
   msp_dashboard: 'MSP Dashboard',

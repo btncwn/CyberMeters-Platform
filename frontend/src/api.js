@@ -1642,7 +1642,7 @@ export const api = {
   /** GET /api/portfolio/maturity — eight-domain worst-case maturity across customers */
   getPortfolioMaturity: () => request('/portfolio/maturity'),
 
-  /** GET /api/portfolio/risk — MSP portfolio risk intelligence */
+  /** GET /api/portfolio/risk — Business Risk Scores across the portfolio */
   getPortfolioRisk: () => request('/portfolio/risk'),
 
   /**

@@ -113,7 +113,7 @@ const GUIDE_AREA_DEFINITIONS = [
     shortTitle: 'Attack Surface',
     route: '/assets',
     summary: 'Everything on the internet that belongs to your domain, including the systems you forgot about, and the exposures an attacker would look for first.',
-    intro: 'Your attack surface is every hostname, service and record that answers to your name on the public internet. Attackers map it before they do anything else. This area maps it for you and keeps the map current, so a forgotten test server or an expiring domain never surprises you.',
+    intro: 'Your attack surface is every hostname, service and record that answers to your name on the public internet. Attackers map it before they do anything else. This area maps what CyberMeters can see from outside and updates the map with every scan, so a forgotten test server or an expiring domain is easier to spot.',
     covers: [
       'Attack Surface covers discovery (what exists), exposure (what each thing shows to the internet) and change (what appeared, disappeared or changed since last time). The Timeline shows the change history; Scans and Schedules control when CyberMeters looks.',
       'It also covers the two foundations the rest of your presence rests on: whether your DNS is signed, and whether your domain registration is about to lapse.',
@@ -310,7 +310,7 @@ const GUIDE_AREA_DEFINITIONS = [
     summary: 'The online services and third parties your public presence reveals, and whether each one is known to you and approved.',
     intro: 'Businesses run on dozens of online services, many adopted by one team without anyone else knowing. This area shows which services your domain and website visibly depend on, so you can decide which are approved, which are not, and which you did not know about.',
     covers: [
-      'Shadow IT covers the SaaS services your DNS records point at, the third-party scripts and services your website loads, and the vendor and supply-chain relationships those imply. The Approved Inventory is where you record which ones your business sanctions.',
+      'Shadow IT covers the SaaS services your DNS records point at, and the third-party scripts and services your website loads. The Approved Inventory is where you record which ones your business sanctions.',
       'Observation and approval are separate on purpose. CyberMeters observes; you classify. Approved does not mean secure, and Rejected does not mean the service is gone.',
     ],
     checks: {
@@ -321,7 +321,6 @@ const GUIDE_AREA_DEFINITIONS = [
       observed: [
         'SaaS services referenced by your DNS records, such as verification records, mail and CNAME entries.',
         'Third-party scripts and services your public website loads, and the origins your content security policy allows.',
-        'Vendor relationships implied by the above, grouped into a supply-chain view.',
         'Whether each observed service matches an entry in your Approved Inventory, and how that changes over time.',
       ],
       notObserved: [
