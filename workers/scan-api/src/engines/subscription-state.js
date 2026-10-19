@@ -153,11 +153,12 @@ export async function createWorkspaceTrialSubscription(workspaceId, ownerUserId,
     // it (so it drops out of the usage count) and creating another. Check the
     // owner's whole subscription history — soft-deleting a workspace does not
     // remove its subscription row, so a prior trial is still visible here.
+    // A failed lookup is not "no prior trial": it throws to the outer catch and
+    // no trial is granted (the workspace is still created).
     const priorTrial = await env.cybermeters_db
       .prepare(`SELECT 1 FROM subscriptions WHERE owner_user_id = ? AND trial_start IS NOT NULL LIMIT 1`)
       .bind(ownerUserId)
-      .first()
-      .catch(() => null);
+      .first();
     if (priorTrial) return; // owner already used their lifetime trial
 
     const now     = new Date();

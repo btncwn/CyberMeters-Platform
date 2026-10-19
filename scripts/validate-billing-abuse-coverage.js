@@ -41,6 +41,7 @@ import {
   resolveCanonicalSubscriptionRow, normalizePlan,
 } from "../workers/scan-api/src/engines/entitlements.js";
 import { verifyStripePriceMatchesPolicy } from "../workers/scan-api/src/engines/stripe.js";
+import { createWorkspaceTrialSubscription } from "../workers/scan-api/src/engines/subscription-state.js";
 
 let passed = 0, failed = 0, section = "General";
 const results = [];
@@ -145,6 +146,26 @@ async function main() {
   rawRow("INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, trial_start, trial_end, created_at, updated_at) VALUES ('subD2','uD2','wsD2','business','trialing','trialing', ?, ?, datetime('now'), datetime('now'))", past, past);
   const d2State = await getEffectivePlanState("uD2", env);
   ok("getEffectivePlanState → free for an expired-trial row in D1", d2State.plan === "free" && d2State.is_trial === false);
+  // One lifetime trial per owner, and the prior-trial lookup fails CLOSED.
+  const trialRows = (uid) => db.prepare("SELECT COUNT(*) AS n FROM subscriptions WHERE owner_user_id = ? AND trial_start IS NOT NULL").get(uid).n;
+  seedUser("uD2t", "d2t@a.co");
+  rawRow("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsD2t1','uD2t','WS-D2t1'), ('wsD2t2','uD2t','WS-D2t2')");
+  await createWorkspaceTrialSubscription("wsD2t1", "uD2t", env);
+  ok("first workspace starts a trial (positive control)", trialRows("uD2t") === 1);
+  await createWorkspaceTrialSubscription("wsD2t2", "uD2t", env);
+  ok("second workspace of the same owner gets no second trial", trialRows("uD2t") === 1);
+  seedUser("uD2f", "d2f@a.co");
+  rawRow("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsD2f','uD2f','WS-D2f')");
+  const lookupFailsEnv = { ...env, cybermeters_db: {
+    ...env.cybermeters_db,
+    prepare: (sql) => /trial_start IS NOT NULL/.test(sql)
+      ? { bind: () => ({ first: async () => { throw new Error("D1_ERROR: simulated read failure"); } }) }
+      : env.cybermeters_db.prepare(sql),
+  } };
+  let lookupThrew = false;
+  try { await createWorkspaceTrialSubscription("wsD2f", "uD2f", lookupFailsEnv); } catch { lookupThrew = true; }
+  ok("prior-trial lookup error grants NO trial (fails closed)", trialRows("uD2f") === 0);
+  ok("prior-trial lookup error does not break workspace creation (no throw)", lookupThrew === false);
 
   // ── D3: Stripe webhook replay is idempotent ────────────────────────────────
   sec("D3 webhook replay idempotent");
@@ -210,7 +231,7 @@ async function main() {
   sec("Coverage");
   const controls = {
     D1: "plan downgrade / cancel closes entitlement immediately (+ #239 status lockstep)",
-    D2: "trial-expiry cannot be bypassed (window + fail-closed + client field never widens)",
+    D2: "trial-expiry cannot be bypassed (window + fail-closed + client field never widens; one trial per owner, lookup error grants none)",
     D3: "webhook replay idempotent (exact dup, superseded-upgrade replay, stale period)",
     D4: "checkout fail-closed (amount/currency/interval/active/lookup/eligibility)",
   };
