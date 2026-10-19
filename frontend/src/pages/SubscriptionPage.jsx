@@ -116,11 +116,12 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
   const textB = urgent  ? 'text-red-700'  :
                 warning ? 'text-brand-700' :
                           'text-blue-600'
-  const btnBg = urgent  ? 'bg-red-600 hover:bg-red-700'     :
-                warning ? 'bg-brand-200 hover:bg-brand-300'  :
-                          'bg-brand-200 hover:bg-brand-300'
+  // A normal active button in every state; red only when the trial is ending.
+  const btnBg = urgent ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-700 hover:bg-brand-800'
 
   const endDate = trialEnd ? formatDay(trialEnd) : null
+  const remaining = Math.max(0, Math.min(14, Number(daysLeft) || 0))
+  const usedDays = 14 - remaining
 
   return (
     <div className={`rounded-2xl border p-5 ${bg}`}>
@@ -129,8 +130,8 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
           <div>
             <p className={`text-sm font-bold ${textH}`}>
               {urgent
-                ? daysLeft === 0 ? 'Your trial ends today' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left in your trial`
-                : `${daysLeft} days left in your 14-day full trial`}
+                ? remaining === 0 ? 'Your trial ends today' : `${remaining} day${remaining !== 1 ? 's' : ''} left in your trial`
+                : `${remaining} days left in your 14-day full trial`}
             </p>
             <p className={`text-xs mt-0.5 ${textB}`}>
               {endDate ? `Trial ends ${endDate}` : 'Upgrade to keep full access'}
@@ -146,17 +147,21 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
         </button>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar. The heading above is the only count, so the bar carries
+          no second "Day N of 14" figure that could disagree with it. */}
       <div className="mt-4">
-        <div className="flex items-center justify-between text-xs font-medium mb-1.5"
-             style={{ color: urgent ? '#b91c1c' : warning ? '#92400e' : '#1d4ed8' }}>
-          <span>Day {14 - daysLeft} of 14</span>
-          <span>{daysLeft} days remaining</span>
-        </div>
-        <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
+        <div
+          className="h-1.5 bg-white/60 rounded-full overflow-hidden"
+          role="progressbar"
+          aria-label="Trial time used"
+          aria-valuemin={0}
+          aria-valuemax={14}
+          aria-valuenow={usedDays}
+          aria-valuetext={`${remaining} of 14 days left`}
+        >
           <div
             className={`h-full rounded-full transition-all ${urgent ? 'bg-red-500' : warning ? 'bg-brand-700' : 'bg-blue-500'}`}
-            style={{ width: `${((14 - daysLeft) / 14) * 100}%` }}
+            style={{ width: `${(usedDays / 14) * 100}%` }}
           />
         </div>
       </div>
@@ -166,7 +171,16 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
 
 // ── Plan card ─────────────────────────────────────────────────────────────────
 
-function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, subscriptionActive, trialActive, checkoutLoading, portalPlanChange = false }) {
+// During the trial the plan's own allowance is not yet in force: say what
+// applies now (the server's trial limit) and what the plan gives after it.
+export function planCardDescription(meta, { trialActive = false, trialDomains = null } = {}) {
+  const description = meta?.description || ''
+  const n = Number(trialDomains)
+  if (!trialActive || !Number.isFinite(n) || n <= 0 || n >= 999999 || !description) return description
+  return `During the trial: ${n} monitored domain${n === 1 ? '' : 's'}. On ${meta.label}: ${description.charAt(0).toLowerCase()}${description.slice(1)}`
+}
+
+function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, subscriptionActive, trialActive, trialDomains = null, checkoutLoading, portalPlanChange = false }) {
   // A raw "active" row that the backend says no longer grants access (period
   // ended) is Expired, never a green Active.
   const scfg = statusCfg(trialActive ? 'trialing'
@@ -206,7 +220,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
               {scfg.label}
             </span>
           </div>
-          <p className="text-xs text-gray-500 mt-2 leading-relaxed max-w-sm">{meta.description}</p>
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed max-w-sm" data-testid="plan-card-description">{planCardDescription(meta, { trialActive, trialDomains })}</p>
         </div>
         {shownGbp !== null && (
           <div className="text-right shrink-0">
@@ -746,6 +760,7 @@ export default function SubscriptionPage() {
         onUpgrade={handleUpgrade}
         subscriptionActive={subscriptionActive}
         trialActive={trialActive}
+        trialDomains={limits?.domains ?? null}
         checkoutLoading={checkoutLoading || activation === 'activating' || (paidPlanChangeViaPortal && portalLoading)}
         portalPlanChange={paidPlanChangeViaPortal}
       />

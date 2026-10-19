@@ -95,9 +95,11 @@ export function PlanBadge({ plan }) {
 function UsageBar({ label, used, limit, note }) {
   const infinite = limit >= 999999
   const pct      = infinite ? 0 : limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
-  const near     = pct >= 80
-  const full     = pct >= 100
-  const barColor = full ? 'bg-red-500' : near ? 'bg-brand-700' : 'bg-brand-500'
+  // At the limit is normal use: neutral. Red only when usage exceeds it.
+  const over     = !infinite && limit > 0 && used > limit
+  const full     = !over && pct >= 100
+  const near     = !over && !full && pct >= 80
+  const barColor = over ? 'bg-red-500' : (full || near) ? 'bg-brand-700' : 'bg-brand-500'
 
   return (
     <div className="py-2.5 border-b border-gray-50 last:border-0">
@@ -106,13 +108,13 @@ function UsageBar({ label, used, limit, note }) {
           {label}
           {note && <span className="text-gray-400">{note}</span>}
         </span>
-        <span className={`text-xs font-semibold ${full ? 'text-red-700' : near ? 'text-brand-700' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold ${over ? 'text-red-700' : (full || near) ? 'text-brand-700' : 'text-gray-500'}`}>
           {used} / {infinite ? '∞' : limit}
         </span>
       </div>
       {!infinite && (
         <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+          <div className={`h-full rounded-full transition-all ${barColor}`} data-usage={over ? 'over' : full ? 'at-limit' : 'under'} style={{ width: `${pct}%` }} />
         </div>
       )}
     </div>
