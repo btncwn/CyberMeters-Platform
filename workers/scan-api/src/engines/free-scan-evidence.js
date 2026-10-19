@@ -27,12 +27,21 @@ export const FREE_SCAN_PREVIEW_STATES = Object.freeze({
   EVIDENCE_INCOMPLETE:"evidence_incomplete",
 });
 
+// `checks` says what each step looked at, so a "Completed" chip can never read
+// as more than it was. The HTTPS step is labelled for what it does: it proves the
+// site answers over HTTPS and follows the plain-HTTP redirect; it does not
+// inspect the certificate (19 Oct 2026, previously labelled "TLS").
 export const FREE_SCAN_MODULE_DEFINITIONS = Object.freeze([
-  Object.freeze({ module: "dns", label: "DNS" }),
-  Object.freeze({ module: "ssl", label: "TLS" }),
-  Object.freeze({ module: "headers", label: "Headers" }),
-  Object.freeze({ module: "email_security", label: "Email" }),
-  Object.freeze({ module: "technology_detection", label: "Technology" }),
+  Object.freeze({ module: "dns", label: "DNS",
+    checks: "Public DNS: whether the domain resolves, its mail servers and DNSSEC records." }),
+  Object.freeze({ module: "ssl", label: "HTTPS",
+    checks: "Whether the site answers over HTTPS and whether plain HTTP redirects to it. The certificate itself is not inspected in this preview." }),
+  Object.freeze({ module: "headers", label: "Headers",
+    checks: "The security headers the home page returns." }),
+  Object.freeze({ module: "email_security", label: "Email",
+    checks: "SPF and DMARC records, and DKIM keys at common selectors." }),
+  Object.freeze({ module: "technology_detection", label: "Technology",
+    checks: "Technologies and services visible from the public home page." }),
 ]);
 
 const FREE_SCAN_SIGNAL_DEFINITIONS = Object.freeze({
@@ -211,11 +220,12 @@ export function deriveFreeScanModulesScanned(moduleEvidence) {
 }
 
 export function buildFreeScanEvidence(settlements = {}) {
-  const moduleEvidence = FREE_SCAN_MODULE_DEFINITIONS.map(({ module, label }) => {
+  const moduleEvidence = FREE_SCAN_MODULE_DEFINITIONS.map(({ module, label, checks }) => {
     const settlement = settlements[module] ?? null;
     return {
       module,
       label,
+      checks,
       attempted: settlement != null,
       state: classifyFreeScanSettlement(settlement, module),
     };

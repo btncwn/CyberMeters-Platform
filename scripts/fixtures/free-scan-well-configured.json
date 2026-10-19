@@ -1,0 +1,190 @@
+{
+  "name": "well-configured",
+  "note": "Shape of a well-configured public domain (live capture, 19 Oct 2026), anonymised: DMARC p=reject with sp=reject, SPF ~all, DKIM at two selectors, HSTS preload, DNSSEC; a CSP with an unsafe script source.",
+  "domain": "well-configured.example",
+  "module_outcomes": {
+    "dns": {
+      "kind": "fulfilled",
+      "value": {
+        "resolves": true,
+        "resolves_any": true,
+        "resolution_assessed": true,
+        "has_mx": true,
+        "cross_checks": {
+          "resolver_agreement_score": 100
+        },
+        "dnssec": {
+          "enabled": true,
+          "errors": {
+            "ds": null,
+            "dnskey": null,
+            "rrsig": null
+          },
+          "ds": {
+            "present": true
+          },
+          "dnskey": {
+            "present": true
+          },
+          "rrsig": {
+            "present": true
+          }
+        }
+      }
+    },
+    "ssl": {
+      "kind": "fulfilled",
+      "value": {
+        "https_available": true,
+        "https_probe_executed": true,
+        "tls_state": "observed_present",
+        "http_redirects_to_https": true,
+        "http_redirect_chain": {
+          "http_redirect_validated": true
+        }
+      }
+    },
+    "headers": {
+      "kind": "fulfilled",
+      "value": {
+        "accessible": true,
+        "headers_assessed": true,
+        "status_code": 200,
+        "final_https": true,
+        "validation_uncertain": false,
+        "present": [
+          "strict-transport-security",
+          "content-security-policy",
+          "x-frame-options",
+          "x-content-type-options",
+          "referrer-policy",
+          "permissions-policy"
+        ],
+        "missing": [],
+        "values": {
+          "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.vendor.example",
+          "x-frame-options": "deny",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "origin",
+          "permissions-policy": "camera=(), microphone=()"
+        },
+        "header_strength": {
+          "strict-transport-security": {
+            "status": "valid",
+            "details": "max-age (≥180 days)"
+          },
+          "content-security-policy": {
+            "status": "weak",
+            "classification": "weak_script",
+            "parsed": true,
+            "actionable_weakness": true,
+            "style_only_weakness": false,
+            "dangerous_directives": [
+              "script-src"
+            ],
+            "details": "CSP contains dangerous source tokens in script-src"
+          },
+          "x-frame-options": {
+            "status": "valid",
+            "details": "X-Frame-Options: deny"
+          },
+          "x-content-type-options": {
+            "status": "valid",
+            "details": "nosniff"
+          },
+          "referrer-policy": {
+            "status": "valid",
+            "details": "origin"
+          },
+          "permissions-policy": {
+            "status": "valid",
+            "details": "Permissions-Policy present (content not validated)"
+          }
+        },
+        "checked_paths": []
+      }
+    },
+    "email_security": {
+      "kind": "fulfilled",
+      "value": {
+        "spf_evidence_status": "observed",
+        "dkim_evidence_status": "observed",
+        "dmarc_state": {
+          "evidence_status": "observed",
+          "record_presence": "present",
+          "record_validity": "valid",
+          "invalid_reason": null,
+          "policy": "reject",
+          "pct": 100,
+          "subdomain_policy": "reject",
+          "policy_source": "observed_dns"
+        },
+        "spf": {
+          "present": true,
+          "record": "v=spf1 include:_spf.mail-host.example ~all",
+          "record_count": 1,
+          "resolution_status": "complete"
+        },
+        "dmarc": {
+          "present": true,
+          "policy": "reject",
+          "record": "v=DMARC1; p=reject; sp=reject; rua=mailto:dmarc-reports@well-configured.example",
+          "record_count": 1
+        },
+        "dkim": {
+          "present": true,
+          "selector": "selector1",
+          "provider": null,
+          "selectors_probed": [
+            "default",
+            "mail",
+            "selector1",
+            "selector2"
+          ],
+          "selectors_found": [
+            "selector1",
+            "selector2"
+          ]
+        },
+        "spf_detail": {
+          "raw": "v=spf1 include:_spf.mail-host.example ~all",
+          "valid": true,
+          "record_count": 1,
+          "all_mechanism": "~all",
+          "policy_strength": "soft",
+          "includes": [
+            "_spf.mail-host.example"
+          ],
+          "warnings": []
+        },
+        "dmarc_detail": {
+          "raw": "v=DMARC1; p=reject; sp=reject; rua=mailto:dmarc-reports@well-configured.example",
+          "valid": true,
+          "record_count": 1,
+          "policy": "reject",
+          "subdomain_policy": "reject",
+          "percentage": 100,
+          "pct": 100,
+          "rua": [
+            "mailto:dmarc-reports@well-configured.example"
+          ],
+          "ruf": [],
+          "has_reporting": true,
+          "has_failure_reporting": false
+        }
+      }
+    },
+    "technology_detection": {
+      "kind": "fulfilled",
+      "value": {
+        "status_code": 200,
+        "validation_uncertain": false,
+        "technologies": [
+          "JavaScript framework"
+        ],
+        "external_scripts": []
+      }
+    }
+  }
+}
