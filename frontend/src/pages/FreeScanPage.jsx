@@ -9,12 +9,15 @@ import { Moon, Sun } from 'lucide-react'
 import { formatDate } from '../utils/dates'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
-import { BASE } from '../api'
+import { BASE, api } from '../api'
+import { useAuth } from '../context/AuthContext'
+import { findOwnWorkspaceForDomain } from '../lib/freeScanWorkspaceMatch'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 import { marketingHomeHref } from '../utils/siteLinks'
 import {
   deriveFreeScanPresentation,
   FREE_SCAN_STATE_LABELS,
+  moreInTrialCopy,
 } from '../lib/freeScanPresentation'
 import './FreeScanPage.css'
 
@@ -151,6 +154,18 @@ export default function FreeScanPage() {
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
+  const { isAuthenticated } = useAuth()
+  // Signed-in visitors only: is this domain already in one of their own
+  // workspaces? Anonymous visitors make no extra request and see the same page.
+  const [ownWorkspace, setOwnWorkspace] = useState(null)
+  const resultDomain = result?.domain || null
+  useEffect(() => {
+    setOwnWorkspace(null)
+    if (!isAuthenticated || !resultDomain) return undefined
+    let alive = true
+    findOwnWorkspaceForDomain(api, resultDomain).then((match) => { if (alive) setOwnWorkspace(match) })
+    return () => { alive = false }
+  }, [isAuthenticated, resultDomain])
   const timerRef = useRef(null)
   const resultsRef = useRef(null)
 
@@ -219,6 +234,8 @@ export default function FreeScanPage() {
   const shownFindings = result?.shown_findings || result?.preview_findings || []
   const exposedFindingCount = Number(result?.exposed_finding_count) || shownFindings.length
   const lockedCount = Number(result?.locked_count ?? result?.hidden_count) || 0
+  // Where the rest of the detail lives: the trial, or the visitor's own workspace.
+  const moreWhere = ownWorkspace ? 'in your workspace' : 'in the trial'
 
   return (
     <div className="free-mot-page" data-theme={theme}>
@@ -234,8 +251,14 @@ export default function FreeScanPage() {
             >
               {theme === 'dark' ? <Sun /> : <Moon />}
             </button>
-            <Link to="/login" className="fm-text-link">Sign in</Link>
-            <Link to={signupPath(result?.domain)} className="fm-button fm-button--small">Start free trial</Link>
+            {isAuthenticated ? (
+              <Link to="/dashboard" className="fm-button fm-button--small">Go to dashboard</Link>
+            ) : (
+              <>
+                <Link to="/login" className="fm-text-link">Sign in</Link>
+                <Link to={signupPath(result?.domain)} className="fm-button fm-button--small">Start 14-day trial</Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -327,7 +350,7 @@ export default function FreeScanPage() {
             <div className="fm-summary__stats">
               <div><span>Observed findings</span><strong>{result.total_findings ?? 0}</strong></div>
               <div><span>Shown now</span><strong>{exposedFindingCount}</strong></div>
-              <div><span>With a free account</span><strong>{lockedCount}</strong></div>
+              <div><span>{`More findings ${moreWhere}`}</span><strong>{lockedCount}</strong></div>
             </div>
             <SeverityBar counts={result.severity_counts} />
           </section>
@@ -344,7 +367,7 @@ export default function FreeScanPage() {
             <div className="fm-section-heading">
               <div>
                 <span className="fm-kicker">Evidence-backed preview</span>
-                <h2 id="preview-findings-title">A bounded finding preview. Remaining detail stays sealed.</h2>
+                <h2 id="preview-findings-title">{ownWorkspace ? 'A bounded finding preview. The full list is in your workspace.' : 'A bounded finding preview. The full list comes with the trial.'}</h2>
               </div>
               <p>No hidden finding detail is sent to the anonymous browser.</p>
             </div>
@@ -357,32 +380,56 @@ export default function FreeScanPage() {
                   </div>
                 )}
               <div className="fm-sealed">
-                <strong>{lockedCount > 0 ? `${lockedCount} more with a free account` : 'Deep assessment sealed'}</strong>
-                <span>Shown after you create a free account and verify you own the domain.</span>
+                {ownWorkspace ? (
+                  <>
+                    <strong>{lockedCount > 0 ? moreInTrialCopy(lockedCount, 'finding', moreWhere) : 'Deeper checks are in your workspace'}</strong>
+                    <span>{ownWorkspace.verified ? 'Open the workspace to see every finding.' : 'Shown in your workspace once you verify the domain.'}</span>
+                  </>
+                ) : (
+                  <>
+                    <strong>{lockedCount > 0 ? moreInTrialCopy(lockedCount) : 'Deeper checks come with the trial'}</strong>
+                    <span>Shown in your 14-day trial, once you verify you own the domain.</span>
+                  </>
+                )}
               </div>
             </div>
           </section>
 
-          <section className="fm-cta">
-            <span className="fm-kicker">Turn the snapshot into a managed Cyber MOT</span>
-            <h2>Start my 14-day trial</h2>
-            <p>
-              Verify the domain first, then unlock the full finding list, remediation, Executive PDF,
-              re-scans and ongoing monitoring.
-            </p>
-            <ol className="fm-cta__steps">
-              <li>Create your account</li>
-              <li>Add one DNS TXT record to verify {result.domain}</li>
-              <li>See each finding with the steps to fix it</li>
-            </ol>
-            <Link to={signupPath(result.domain)} className="fm-button">
-              Start my 14-day trial
-            </Link>
-            <small>No card · then from £9.99/mo · cancel anytime</small>
-          </section>
+          {ownWorkspace ? (
+            <section className="fm-cta" data-testid="free-scan-own-workspace">
+              <span className="fm-kicker">Already in your workspace</span>
+              <h2>{ownWorkspace.verified ? 'You already monitor this domain' : 'This domain is in your workspace'}</h2>
+              <p>
+                {ownWorkspace.verified
+                  ? `${result.domain} is verified in ${ownWorkspace.workspace_name}. Open the workspace for every finding, its remediation and the monitoring history.`
+                  : `${result.domain} is in ${ownWorkspace.workspace_name} but not verified yet. Finish verification there to see every finding and start monitoring.`}
+              </p>
+              <Link to={`/workspaces/${encodeURIComponent(ownWorkspace.workspace_id)}`} className="fm-button">
+                Open workspace
+              </Link>
+            </section>
+          ) : (
+            <section className="fm-cta">
+              <span className="fm-kicker">Turn the snapshot into a managed Cyber MOT</span>
+              <h2>Start my 14-day trial</h2>
+              <p>
+                Verify the domain first, then unlock the full finding list, remediation, Executive PDF,
+                re-scans and ongoing monitoring.
+              </p>
+              <ol className="fm-cta__steps">
+                <li>Create your account</li>
+                <li>Add one DNS TXT record to verify {result.domain}</li>
+                <li>See each finding with the steps to fix it</li>
+              </ol>
+              <Link to={signupPath(result.domain)} className="fm-button">
+                Start my 14-day trial
+              </Link>
+              <small>No card · then from £9.99/mo · cancel anytime</small>
+            </section>
+          )}
 
 
-          <FreeCyberMotPreviewGrid domains={presentation.domains} />
+          <FreeCyberMotPreviewGrid domains={presentation.domains} moreWhere={moreWhere} />
 
           <aside className="fm-guardrail">
             <div>

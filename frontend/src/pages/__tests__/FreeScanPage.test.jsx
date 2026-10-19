@@ -2,7 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import FreeScanPage, { apexOf } from '../FreeScanPage'
-import { deriveFreeScanPresentation } from '../../lib/freeScanPresentation'
+import { deriveFreeScanPresentation, moreInTrialCopy } from '../../lib/freeScanPresentation'
+import { api } from '../../api'
+
+const auth = vi.hoisted(() => ({ isAuthenticated: false }))
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => auth }))
+vi.mock('../../api', async (importOriginal) => ({
+  ...(await importOriginal()),
+  api: { getWorkspaces: vi.fn(), getWorkspaceDomains: vi.fn() },
+}))
 
 function responseFor({ moduleState, coverageState }) {
   const moduleEvidence = [
@@ -212,7 +220,7 @@ describe('FreeScanPage evidence honesty', () => {
     expect(screen.getByRole('heading', { name: 'Email Protection' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Shadow IT & Unmanaged Technology' })).toBeInTheDocument()
     expect(screen.getAllByText('Unlock to assess').length).toBeGreaterThan(0)
-    expect(screen.getByText(/create a free account and verify you own the domain/i)).toBeInTheDocument()
+    expect(screen.getByText('Shown in your 14-day trial, once you verify you own the domain.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Start my 14-day trial/i })).toHaveAttribute(
       'href',
       '/signup?domain=example.com',
@@ -236,7 +244,7 @@ describe('FreeScanPage result summary', () => {
     expect(screen.getByTestId('preview-badge')).toHaveAttribute('data-tone', 'info')
     expect(screen.getByText(/so this is not a healthy verdict/)).toBeInTheDocument()
     expect(screen.queryByText('Issues observed in the preview checks')).not.toBeInTheDocument()
-    expect(screen.getByText('2 more with a free account')).toBeInTheDocument()
+    expect(screen.getByText('2 more findings in the trial')).toBeInTheDocument()
   })
 
   it('keeps the issues headline when anything is rated low or above, or counts are missing', () => {
@@ -289,5 +297,78 @@ describe('FreeScanPage hand-over from the landing page', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(screen.getByPlaceholderText('yourbusiness.co.uk')).toHaveValue('')
     window.history.pushState({}, '', '/')
+  })
+})
+
+describe('FreeScanPage offer wording', () => {
+  it('uses one term for the offer and no "sealed" wording', async () => {
+    await renderResult(withFindings(['medium', 'low', 'low']), 'Issues observed in the preview checks')
+    const text = document.body.textContent
+    expect(text).not.toMatch(/sealed/i)
+    expect(text).not.toMatch(/free account/i)
+    expect(screen.getByText('More findings in the trial')).toBeInTheDocument()
+    expect(screen.getByText('A bounded finding preview. The full list comes with the trial.')).toBeInTheDocument()
+  })
+
+  it('names the unit of every "more" count, so signals never read as findings', () => {
+    expect(moreInTrialCopy(3, 'observation')).toBe('3 more public signals in the trial')
+    expect(moreInTrialCopy(1, 'observation')).toBe('1 more public signal in the trial')
+    expect(moreInTrialCopy(1, 'finding')).toBe('1 more finding in the trial')
+    expect(moreInTrialCopy(2)).toBe('2 more findings in the trial')
+  })
+})
+
+describe('FreeScanPage for a signed-in visitor', () => {
+  afterEach(() => {
+    auth.isAuthenticated = false
+    vi.mocked(api.getWorkspaces).mockReset()
+    vi.mocked(api.getWorkspaceDomains).mockReset()
+  })
+
+  it('anonymous visitors make no workspace request and keep the trial offer', async () => {
+    await renderResult(withFindings(['medium']), 'Issues observed in the preview checks')
+    expect(api.getWorkspaces).not.toHaveBeenCalled()
+    expect(api.getWorkspaceDomains).not.toHaveBeenCalled()
+    expect(screen.getByRole('link', { name: 'Start my 14-day trial' })).toHaveAttribute('href', '/signup?domain=example.com')
+    expect(screen.getByRole('link', { name: 'Start 14-day trial' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument()
+    expect(screen.queryByTestId('free-scan-own-workspace')).toBeNull()
+  })
+
+  it('replaces the trial offer when the domain is verified in one of their workspaces', async () => {
+    auth.isAuthenticated = true
+    vi.mocked(api.getWorkspaces).mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Other' }, { id: 'ws_b', name: 'Example Ltd' }] })
+    vi.mocked(api.getWorkspaceDomains).mockImplementation(async (id) => ({
+      domains: id === 'ws_b' ? [{ domain: 'www.Example.com', verification_status: 'verified' }] : [{ domain: 'unrelated.test', verification_status: 'verified' }],
+    }))
+    await renderResult(withFindings(['medium']), 'Issues observed in the preview checks')
+    expect(await screen.findByRole('heading', { name: 'You already monitor this domain' })).toBeInTheDocument()
+    expect(screen.getByText(/example\.com is verified in Example Ltd/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', '/workspaces/ws_b')
+    expect(screen.queryByRole('link', { name: 'Start my 14-day trial' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Start 14-day trial' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Go to dashboard' })).toHaveAttribute('href', '/dashboard')
+    expect(document.body.textContent).not.toMatch(/in the trial|with the trial/)
+    expect(screen.getByText('More findings in your workspace')).toBeInTheDocument()
+    expect(screen.getByText('Open the workspace to see every finding.')).toBeInTheDocument()
+  })
+
+  it('says so when the domain is in their workspace but not verified yet', async () => {
+    auth.isAuthenticated = true
+    vi.mocked(api.getWorkspaces).mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Example Ltd' }] })
+    vi.mocked(api.getWorkspaceDomains).mockResolvedValue({ domains: [{ domain: 'example.com', verification_status: 'pending' }] })
+    await renderResult(withFindings(['medium']), 'Issues observed in the preview checks')
+    expect(await screen.findByRole('heading', { name: 'This domain is in your workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', '/workspaces/ws_a')
+  })
+
+  it('keeps today\'s page when there is no match or the lookup fails', async () => {
+    auth.isAuthenticated = true
+    vi.mocked(api.getWorkspaces).mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Mine' }] })
+    vi.mocked(api.getWorkspaceDomains).mockRejectedValue(new Error('Request failed'))
+    await renderResult(withFindings(['medium']), 'Issues observed in the preview checks')
+    await waitFor(() => expect(api.getWorkspaceDomains).toHaveBeenCalledWith('ws_a'))
+    expect(screen.getByRole('link', { name: 'Start my 14-day trial' })).toBeInTheDocument()
+    expect(screen.queryByTestId('free-scan-own-workspace')).toBeNull()
   })
 })

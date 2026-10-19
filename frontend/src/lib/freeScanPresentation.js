@@ -218,3 +218,14 @@ export function deriveFreeScanPresentation(result) {
     },
   }
 }
+
+// "N more" always names its unit. A domain card can count public signals
+// (observations) while the page-level count is findings, so an unlabelled
+// "3 more" beside "0" read as a contradiction (seen live 19 Oct 2026).
+export function moreInTrialCopy(count, kind = 'finding', where = 'in the trial') {
+  const n = Math.max(0, Number(count) || 0)
+  const unit = kind === 'observation'
+    ? (n === 1 ? 'public signal' : 'public signals')
+    : (n === 1 ? 'finding' : 'findings')
+  return `${n} more ${unit} ${where}`
+}

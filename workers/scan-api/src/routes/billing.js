@@ -103,7 +103,7 @@ export async function billingRoutes(rctx) {
         // Honest copy: a free account raises limits and saves results — it is
         // not unlimited (free plan has monthly caps). Never overpromise here.
         return json({
-          error: "Too many checks from this connection. Please wait an hour, or create a free account to save your results and monitor your domain.",
+          error: "Too many checks from this connection. Please wait an hour, or start a 14-day trial to save your results and monitor your domain.",
           code: "rate_limit_exceeded",
         }, 429);
       }
@@ -143,7 +143,7 @@ export async function billingRoutes(rctx) {
       );
       if (globalLimited) {
         return json({
-          error: "Free checks are experiencing high demand right now. Please try again shortly, or create a free account to run your scan.",
+          error: "Free checks are experiencing high demand right now. Please try again shortly, or start a 14-day trial to run your scan.",
           code: "rate_limit_exceeded",
         }, 429);
       }
