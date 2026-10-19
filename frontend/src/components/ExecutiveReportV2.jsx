@@ -1,4 +1,4 @@
-import { formatDate } from '../utils/dates'
+import { formatReportTime } from '../lib/reportTime'
 import CyberMotDomains from './CyberMotDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
@@ -52,11 +52,11 @@ const BRI_PILL = {
   low:      'bg-brand-50 text-brand-700 border-brand-100',
 }
 
+// The report renders in UTC, like its PDF; the page states the zone once
+// (lib/reportTime). Bare D1 timestamps parse as UTC there too.
 function fmtDate(str) {
   if (!str) return '—'
-  const d = new Date(str.includes('T') ? str : str.replace(' ', 'T') + 'Z')
-  if (Number.isNaN(d.getTime())) return '—'
-  return formatDate(d)
+  return formatReportTime(str)
 }
 
 function EvidenceBasis({ label, assertion, className = '' }) {

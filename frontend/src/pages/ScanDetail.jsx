@@ -1,4 +1,4 @@
-import { formatDate, formatDay } from '../utils/dates'
+import { formatReportDay as formatDay, formatReportTime as formatDate, REPORT_TIME_NOTE, ReportTimeLabelled } from '../lib/reportTime'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
@@ -1618,6 +1618,7 @@ export default function ScanDetail() {
   })
 
   return (
+    <ReportTimeLabelled.Provider value={true}>
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
       <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-800 transition-colors font-medium">
         Back to Scans
@@ -1642,7 +1643,7 @@ export default function ScanDetail() {
                 <h1 className="text-xl font-bold text-gray-900 break-words min-w-0">Scan — {formatDate(scan.created_at)}</h1>
                 <StatusBadge status={scan.status} quality={scan.scan_quality} />
               </div>
-              <p className="text-xs text-gray-500">{scan.domain} · <InternalIdCopyButton id={scan.id} label="scan" /></p>
+              <p className="text-xs text-gray-500">{scan.domain} · <InternalIdCopyButton id={scan.id} label="scan" /> · <span data-testid="report-time-note">{REPORT_TIME_NOTE}</span></p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button onClick={() => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`)} className="btn-secondary">
@@ -1779,7 +1780,8 @@ export default function ScanDetail() {
                 <SectionHeader title="Scan Information" />
                 <div>
                   <KV label="Scan ID"   value={<ScanIdValue id={scan.id} />} />
-                  <KV label="Domain"    value={<span className="break-words" data-testid="scan-info-domain">{scan.domain}</span>} />
+                  {/* A domain never breaks mid-word: one line, ellipsis, full name on hover. */}
+                  <KV label="Domain"    value={<span className="block truncate" title={scan.domain} data-testid="scan-info-domain">{scan.domain}</span>} />
                   {/* The run finishing and its checks all completing are two facts. */}
                   <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} />} />
                   {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} />} />}
@@ -1841,5 +1843,6 @@ export default function ScanDetail() {
         </>
       )}
     </div>
+    </ReportTimeLabelled.Provider>
   )
 }

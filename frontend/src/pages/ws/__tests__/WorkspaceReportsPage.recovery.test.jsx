@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import WorkspaceReportsPage from '../WorkspaceReportsPage'
@@ -12,6 +12,7 @@ vi.mock('../../../api', () => ({ api: {
   downloadWorkspaceReport: vi.fn(),
   getWorkspaceScans: vi.fn(),
   generateWorkspaceReport: vi.fn(),
+  getWorkspaces: vi.fn(),
 } }))
 
 function deferred() {
@@ -49,6 +50,23 @@ it('keeps the archive as historical evidence with a dated period, ID copy and do
   expect(screen.queryByRole('button', { name: /Delete report/i })).toBeNull()
   expect(screen.queryByRole('columnheader', { name: 'Created At' })).toBeNull()
   expect(screen.queryByText('rpt_abc123')).toBeNull()
+})
+
+it.each([
+  ['owner', true],
+  ['analyst', false],
+])('an empty archive offers the guided setup only to the workspace owner (%s)', async (role, offered) => {
+  api.getWorkspaceReports.mockResolvedValue({ reports: [] })
+  api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'workspace-a', name: 'Workspace A', role }] })
+  render(page())
+  expect(await screen.findByText('No reports generated yet.')).toBeInTheDocument()
+  await waitFor(() => expect(api.getWorkspaces).toHaveBeenCalled())
+  if (offered) {
+    expect(await screen.findByRole('link', { name: 'Get Started' })).toHaveAttribute('href', '/onboarding')
+  } else {
+    expect(await screen.findByText('Reports for this workspace appear here once one is generated.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Get Started' })).toBeNull()
+  }
 })
 
 it('Retry recovers the archive and its PDF download after an initial request error', async () => {

@@ -221,6 +221,23 @@ ok("batch invalid/small falls back to default", resolveScheduledReportBatchLimit
     /generateWorkspaceExecutiveReport/.test(src) && !/buildExecutivePdf|collectPdfData|assemblePdf/.test(src));
 }
 
+// ── M. Report-ready notification names the period in the customer's words ────
+{
+  const { reportReadyMessage, reportPeriodPhrase } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "plan-usage.js")).href);
+  const weekly = reportReadyMessage(WEEKLY.report_type, WEEKLY.report_period);
+  ok("M: the scheduled weekly report reads as a date range in sentence case, never an ISO week key",
+    weekly === "Your weekly executive report for 6–12 Jul is ready to download." && !/W\d{2}|period/.test(weekly), weekly);
+  ok("M: week ranges cross months and years honestly",
+    reportPeriodPhrase("weekly_executive", "2026-W42") === "12–18 Oct" &&
+    reportPeriodPhrase("weekly_executive", "2026-W40") === "28 Sep – 4 Oct" &&
+    reportPeriodPhrase("weekly_executive", "2026-W01") === "29 Dec 2025 – 4 Jan 2026");
+  ok("M: monthly, quarterly and keyed periods",
+    reportReadyMessage("monthly_executive", "2026-10") === "Your monthly executive report for October 2026 is ready to download." &&
+    reportReadyMessage("quarterly_executive", "2026-Q4") === "Your quarterly executive report for Q4 2026 is ready to download." &&
+    reportReadyMessage("manual", "manual-20261019101500") === "Your executive report is ready to download." &&
+    reportReadyMessage("scan_snapshot", "scan-v2-scan_1-snap_1-abc") === "Your single-scan report is ready to download.");
+}
+
 // ── Observability: summary carries every required field ──────────────────────
 {
   const db = freshDb(); addWs(db, "ws0");

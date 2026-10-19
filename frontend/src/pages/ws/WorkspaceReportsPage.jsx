@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
+import { useWorkspaceRole } from '../../hooks/useWorkspaceRole'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import ReportSnapshotHistory from '../../components/ReportSnapshotHistory'
@@ -239,6 +240,8 @@ export default function WorkspaceReportsPage() {
 }
 
 function WorkspaceReports({ wsId, wsName }) {
+  // The guided setup is the owner's; members are not sent into it.
+  const { role } = useWorkspaceRole(wsId)
   const [reports,      setReports]      = useState([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
@@ -466,11 +469,17 @@ function WorkspaceReports({ wsId, wsName }) {
       {reports.length === 0 ? (
         <div className="card p-16 text-center">
           <p className="text-gray-500 font-medium mb-1">No reports generated yet.</p>
-          <p className="text-sm text-gray-400 mb-6">Complete the guided setup to create your first assessment and report.</p>
+          <p className="text-sm text-gray-400 mb-6">
+            {role === 'owner'
+              ? 'Complete the guided setup to create your first assessment and report.'
+              : 'Reports for this workspace appear here once one is generated.'}
+          </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Link to="/onboarding" className="btn-primary">
-              Get Started
-            </Link>
+            {role === 'owner' && (
+              <Link to="/onboarding" className="btn-primary">
+                Get Started
+              </Link>
+            )}
             <button
               onClick={handleGenerate}
               disabled={generating || (reportType === 'scan_snapshot' && (scansLoading || !scanId))}

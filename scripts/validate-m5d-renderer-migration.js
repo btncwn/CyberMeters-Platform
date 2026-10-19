@@ -276,6 +276,10 @@ async function main() {
      pdfRes.text.includes("Snapshot provenance: Created when the scan completed") &&
      pdfRes.text.includes(truth.methodology.cyber_mot_resolver_version) &&
      v2Res.data.methodology?.cyber_mot_resolver_version === truth.methodology.cyber_mot_resolver_version);
+  // One timezone convention, stated once on the cover (19 Oct 2026).
+  ok("PDF states its UTC convention once and labels no individual time",
+     pdfRes.text.split("All times are in UTC.").length === 2 &&
+     !/\d{2}:\d{2} UTC/.test(pdfRes.text));
   const appendixHumanLabels = [
     "Evidence source: CyberMeters product policy",
     "Repeated observation: No",
@@ -758,8 +762,8 @@ async function main() {
       {
         name: "PDF reads the request clock instead of the snapshot's as_of",
         file: srcPath("engines", "pdf.js"),
-        from: "  w.text(`Assessed on ${pdfUtcDate(s.as_of, true)}`, { size: 10, bold: true });",
-        to:   "  w.text(`Assessed on ${pdfUtcDate(new Date().toISOString(), true)}`, { size: 10, bold: true });",
+        from: "  w.text(`Assessed on ${pdfUtcDate(s.as_of, true, { zone: false })}`, { size: 10, bold: true });",
+        to:   "  w.text(`Assessed on ${pdfUtcDate(new Date().toISOString(), true, { zone: false })}`, { size: 10, bold: true });",
       },
     ];
     let mfail = 0;

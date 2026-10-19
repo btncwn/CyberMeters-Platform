@@ -139,6 +139,8 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [workspace, setWorkspace] = useState(null)
+  // Set when the caller only belongs to other people's workspaces.
+  const [memberOf, setMemberOf] = useState(null)
   const [domains, setDomains] = useState([])
   const [selectedDomain, setSelectedDomain] = useState(null)
   const [scans, setScans] = useState([])
@@ -171,8 +173,16 @@ export default function OnboardingPage() {
       const wsData = await api.getWorkspaces()
       const list = wsData.workspaces || []
       const storedId = localStorage.getItem('cybermeters_workspace_id')
-      const ws = list.find(item => item.id === storedId) || list[0] || null
+      // The setup checklist belongs to a workspace owner (19 Oct 2026): a member
+      // is never walked through setting up someone else's workspace. Use the
+      // active workspace when the caller owns it, else their first owned one;
+      // with none, show the member panel. A row without a role is the caller's
+      // own (the bootstrap workspace).
+      const owns = (item) => !item?.role || item.role === 'owner'
+      const stored = list.find(item => item.id === storedId)
+      const ws = (stored && owns(stored) ? stored : list.find(owns)) || null
       setWorkspace(ws)
+      setMemberOf(ws ? null : (stored || list[0] || null))
 
       if (!ws) {
         setDomains([])
@@ -388,6 +398,24 @@ export default function OnboardingPage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Spinner size="lg" />
+      </div>
+    )
+  }
+
+  if (memberOf) {
+    return (
+      <div className="max-w-(--breakpoint-lg) mx-auto px-6 py-8" data-testid="onboarding-member">
+        <div className="card p-8 space-y-3">
+          <h1 className="text-2xl font-bold text-gray-900">Nothing to set up</h1>
+          <p className="text-sm text-gray-600 leading-relaxed">
+            <span className="font-semibold text-gray-900">{memberOf.name}</span> is set up and managed by its owner.
+            As a member you can follow its domains, scans and reports from the overview.
+          </p>
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Link to="/dashboard" className="btn-primary">Go to overview</Link>
+            <Link to="/workspaces" className="btn-secondary">Your workspaces</Link>
+          </div>
+        </div>
       </div>
     )
   }

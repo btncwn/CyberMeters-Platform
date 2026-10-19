@@ -253,6 +253,9 @@ describe('Layout top bar — shape', () => {
     // Workspace card deck bottom-left; the globe lives in the top bar, nothing bottom-right.
     const dock = screen.getByTestId('workspace-dock')
     expect(within(dock).getByRole('button', { name: 'Workspace: Customer A' })).toHaveClass('cm-wsbtn')
+    // The deck is a layout column beside the content, not an overlay on it.
+    expect(dock.parentElement).toHaveClass('cm-body')
+    expect(dock.parentElement).toBe(screen.getByRole('main').parentElement)
     expect(screen.queryByTestId('earth-dock')).not.toBeInTheDocument()
     expect(within(header()).getByTestId('shell-earth')).toBeInTheDocument()
     expect(screen.getByText('Skip to content')).toHaveAttribute('href', '#main')

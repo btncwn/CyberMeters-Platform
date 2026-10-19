@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import LiveTlsEvidence from '../LiveTlsEvidence'
 import CertificatesPage from '../../pages/ws/CertificatesPage'
 import { api } from '../../api'
+import { ReportTimeLabelled } from '../../lib/reportTime'
 
 vi.mock('../../hooks/useWorkspace', () => ({ useWorkspace: () => ({ wsId: 'synthetic-workspace', wsName: 'Synthetic workspace' }) }))
 vi.mock('../../api', () => ({ api: { getWorkspaceCertificates: vi.fn(), getWorkspaceCertificatesTimeline: vi.fn() } }))
@@ -30,6 +31,12 @@ describe('Live TLS evidence presentation', () => {
     expect(screen.getByText('Valid against the recorded trust store')).toBeInTheDocument()
     expect(screen.getByText('Synthetic CA roots · fixture-1')).toBeInTheDocument()
     expect(container).not.toHaveTextContent('Certificate is secure')
+  })
+
+  it('inside a report that states its zone once, times carry no per-line UTC suffix', () => {
+    const { container } = render(<ReportTimeLabelled.Provider value={true}><LiveTlsEvidence evidence={fixture()} /></ReportTimeLabelled.Provider>)
+    expect(screen.getAllByText('1 Nov 2026, 00:00')).toHaveLength(2)
+    expect(container).not.toHaveTextContent('UTC')
   })
 
   it('names the server name sent (SNI), the serial number and the key of the observed leaf', () => {

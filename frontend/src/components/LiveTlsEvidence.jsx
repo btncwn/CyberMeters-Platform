@@ -1,11 +1,6 @@
-import { formatDate, parseServerDate } from '../utils/dates'
+import { useEvidenceTime } from '../lib/reportTime'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
-const time = value => {
-  if (typeof value !== 'string' && !(Number.isSafeInteger(value) && value >= 0)) return 'Not recorded'
-  const parsed = typeof value === 'number' ? new Date(value * 1000) : parseServerDate(value)
-  return Number.isFinite(parsed?.getTime()) ? `${formatDate(parsed, 'Not recorded', { timeZone: 'UTC' })} UTC` : 'Not recorded'
-}
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
 const endpoint = value => value?.address ? `${value.address.includes(':') ? `[${value.address}]` : value.address}:${value.port ?? '?'}` : 'Not recorded'
 const keyText = leaf => typeof leaf?.public_key_algorithm === 'string' && leaf.public_key_algorithm
@@ -21,6 +16,7 @@ const number = value => Number.isSafeInteger(value) && value >= 0 ? String(value
 const yesNo = value => value === true ? 'Yes' : value === false ? 'No' : 'Unknown'
 const controlName = value => typeof value === 'string' ? value.replaceAll('_', ' ').replaceAll('-', ' ') : 'Unnamed check'
 function StapledOcsp({ value }) {
+  const time = useEvidenceTime()
   if (!value || typeof value !== 'object') return <p className="text-xs text-gray-500">Stapled OCSP: not recorded.</p>
   const verified = value.signature_valid === true && value.cert_id_match === true && value.fresh === true
   const label = value.state === 'absent' ? 'No stapled response observed'
@@ -30,6 +26,7 @@ function StapledOcsp({ value }) {
   return <div className="space-y-1 text-xs"><p className="font-medium">Stapled OCSP: {label}</p><p>Signature valid: {yesNo(value.signature_valid)} · Certificate matches: {yesNo(value.cert_id_match)} · Fresh: {yesNo(value.fresh)}</p><p>This update: {time(value.this_update)} · Next update: {time(value.next_update)}</p><p className="text-gray-500">A missing or unverified staple does not establish revocation status.</p></div>
 }
 function TlsControlDetail({ row }) {
+  const time = useEvidenceTime()
   const evidence = row.evidence && typeof row.evidence === 'object' ? row.evidence : {}
   const negotiated = evidence.negotiated
   const certificates = evidence.certificates
@@ -53,6 +50,7 @@ function TlsControlDetail({ row }) {
 }
 
 export function TlsAssessmentEvidence({ assessment }) {
+  const time = useEvidenceTime()
   if (!assessment || typeof assessment !== 'object') return <p className="text-xs text-gray-500">Deep TLS checks: not recorded.</p>
   const endpoints = Array.isArray(assessment.endpoints) ? assessment.endpoints : []
   const coverage = assessment.coverage || {}
@@ -75,6 +73,7 @@ export function TlsAssessmentEvidence({ assessment }) {
 // This is an evidence view, not a second certificate verdict. A received leaf,
 // name match and validation against the named trust store are separate facts.
 export default function LiveTlsEvidence({ evidence, assessment, showEndpoints = true }) {
+  const time = useEvidenceTime()
   if (!evidence || typeof evidence !== 'object') return null
   const leaf = evidence.leaf_certificate || {}
   const collected = evidence.leaf_collected === true && leaf.collection_performed === true && leaf.collection_complete === true && typeof leaf.certificate_identity === 'string' && !!leaf.certificate_identity
