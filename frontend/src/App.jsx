@@ -8,6 +8,7 @@ import MaintenanceOverlay from './components/MaintenanceOverlay'
 import MailtoAssist from './components/MailtoAssist'
 import { isPreviewHost } from './utils/siteLinks'
 import PublicWebAnalytics from './components/PublicWebAnalytics'
+import NewVersionBanner from './components/NewVersionBanner'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
@@ -286,6 +287,7 @@ export default function App() {
         <MaintenanceOverlay />
         <MailtoAssist />
         <PublicWebAnalytics />
+        <NewVersionBanner />
       </AuthProvider>
     </BrowserRouter>
   )
