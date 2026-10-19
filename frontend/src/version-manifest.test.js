@@ -17,3 +17,14 @@ it('marks an off build as off', () => {
   plugin.generateBundle.call({ emitFile: (file) => { emitted = file } })
   expect(JSON.parse(emitted.source).mcp_beta_enabled).toBe(false)
 })
+
+it('compiles the same build id into the bundle that version.json reports', () => {
+  const plugin = versionManifest()
+  const id = JSON.parse(plugin.config().define.__APP_BUILD_ID__)
+  expect(id).toMatch(/^[0-9a-f-]{36}$/)
+  plugin.configResolved({ env: {} })
+  let emitted
+  plugin.generateBundle.call({ emitFile: (file) => { emitted = file } })
+  expect(JSON.parse(emitted.source).build_id).toBe(id)
+  expect(JSON.parse(versionManifest().config().define.__APP_BUILD_ID__)).not.toBe(id)
+})
