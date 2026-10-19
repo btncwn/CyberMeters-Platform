@@ -267,9 +267,12 @@ export default { async fetch(request, env, ctx) {
     const clientMetadata = { client_name: "Local MCP test", redirect_uris: [callback],
       grant_types: ["authorization_code", "refresh_token"], response_types: ["code"],
       token_endpoint_auth_method: "none" };
+    // A value the client sent is judged as sent: a secret-based method stays refused.
     for (const invalid of [
       { ...clientMetadata, token_endpoint_auth_method: "client_secret_basic" },
-      { ...clientMetadata, token_endpoint_auth_method: undefined },
+      { ...clientMetadata, token_endpoint_auth_method: "client_secret_post" },
+      { ...clientMetadata, grant_types: ["implicit"] },
+      { ...clientMetadata, response_types: ["token"] },
     ]) {
       await resetBudget();
       const denied = await fetch(`${origin}/oauth/register`, {
@@ -278,6 +281,19 @@ export default { async fetch(request, env, ctx) {
       });
       assert.equal(denied.status, 400, await denied.clone().text());
     }
+    // RFC 7591 defaults: a client that sends only its name and callback (the
+    // hosted connector's shape) registers as a public PKCE client, no secret.
+    await resetBudget();
+    const minimal = await fetch(`${origin}/oauth/register`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_name: "Minimal MCP client", redirect_uris: [callback] }),
+    });
+    assert.equal(minimal.status, 201, await minimal.clone().text());
+    const minimalClient = await minimal.json();
+    assert.equal(minimalClient.token_endpoint_auth_method, "none");
+    assert.deepEqual(minimalClient.grant_types, ["authorization_code"]);
+    assert.deepEqual(minimalClient.response_types, ["code"]);
+    assert.equal(minimalClient.client_secret, undefined, "a defaulted registration never receives a secret");
     await resetBudget();
     const registration = await fetch(`${origin}/oauth/register`, {
       method: "POST", headers: { "Content-Type": "application/json" },
