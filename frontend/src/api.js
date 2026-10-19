@@ -1,5 +1,6 @@
 // @ts-check
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
+import { clearAccountWorkspaceState } from './lib/activeWorkspace'
 import { friendlyHttpError } from './lib/httpErrors'
 import { customerCodeLabel } from './lib/customerReasonText'
 
@@ -89,6 +90,8 @@ export async function validateSession() {
 function handleUnauthorized() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+  // The next account to sign in on this browser starts from its own workspace.
+  clearAccountWorkspaceState()
   if (_onUnauthorized) {
     _onUnauthorized()
     // ProtectedRoute handles navigation to /login via React Router

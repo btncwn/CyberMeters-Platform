@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { setActiveWorkspace } from '../lib/activeWorkspace'
 import {
   INVITATION_ERRORS, invitationErrorKind, pendingInviteToken, clearPendingInvite,
   dismissPendingInvite, isPendingInviteDismissed,
@@ -56,9 +57,7 @@ export default function PendingInvitationBanner({ onState = () => {} }) {
       const result = await api.acceptWorkspaceInvitation(token)
       clearPendingInvite()
       if (result?.workspace_id) {
-        localStorage.setItem('cybermeters_workspace_id', result.workspace_id)
-        if (preview.workspace_name) localStorage.setItem('cybermeters_workspace_name', preview.workspace_name)
-        window.dispatchEvent(new Event('storage'))
+        setActiveWorkspace(result.workspace_id, preview.workspace_name || '')
       }
       localStorage.setItem('cybermeters_joined_via_invite', 'true')
       setState({ status: 'joined' })
