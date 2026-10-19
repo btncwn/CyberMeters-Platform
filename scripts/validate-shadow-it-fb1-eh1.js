@@ -576,6 +576,7 @@ const vendorSignatures = await import(engineUrl("vendor-signatures.js"));
 const vendorRelationship = await import(engineUrl("vendor-relationship.js"));
 const spfResolver = await import(engineUrl("spf-resolver.js"));
 const emailAnalysis = await import(engineUrl("email-analysis.js"));
+const emailScan = await import(engineUrl("email-scan.js"));
 const cyberMot = await import(engineUrl("cyber-mot-domains.js"));
 const relatedRules = await import(engineUrl("related-changes-rules.js"));
 const readRepo = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
@@ -742,9 +743,49 @@ const CSP_MODULES = { headers: { values: { "content-security-policy": "script-sr
   const dnsSrc = readRepo("workers/scan-api/src/engines/dns-scan.js");
   const txtQueries = (dnsSrc.match(/dnsQuery(?:Google)?\([^,]*, "TXT"/g) || []).length;
   verdict("F41", txtVendors.length >= 25 && result.vendors.every((v) => v.evidence.every((e) => e.source === "txt" && e.detail)) &&
-    none.vendors.length === 0 && ["Microsoft 365", "Google Workspace", "DocuSign", "Dropbox", "Slack", "OpenAI", "Meta Business", "AWS"].every((n) => names.includes(n)) &&
+    none.vendors.length === 0 && ["Microsoft 365", "DocuSign", "Dropbox", "Slack", "OpenAI", "Meta Business", "AWS"].every((n) => names.includes(n)) &&
     txtQueries === 4 && /txt_records:\s+txtRecords,/.test(dnsSrc),
     `txtVendors=${txtVendors.length} names=${json(names)} txtQueries=${txtQueries}`);
+}
+
+// F46: a google-site-verification token is shared by Search Console, Google Cloud
+// and others, so alone it never establishes Google Workspace (it corroborates a
+// Workspace MX/SPF/DKIM signal). The discovery consumer inherits the same rule.
+{
+  const token = { value: "google-site-verification=4zRcJZL2" };
+  const cloudflareMx = [{ value: "route1.mx.cloudflare.net" }];
+  const lone = vendorSignatures.detectVendorsFromModules({ dns: { txt_records: [token], mx_records: cloudflareMx },
+    email_security: { spf: { record: "v=spf1 include:_spf.mx.cloudflare.net -all" }, dkim: { selector: "resend", selectors_found: ["resend"] } } });
+  const withMx = vendorSignatures.detectVendorsFromModules({ dns: { txt_records: [token], mx_records: [{ value: "aspmx.l.google.com" }] } });
+  const mxOnly = vendorSignatures.detectVendorsFromModules({ dns: { mx_records: [{ value: "aspmx.l.google.com" }] } });
+  const workspace = withMx.vendors.find((v) => v.name === "Google Workspace");
+  const loneModules = { dns: { txt_records: [token], mx_records: cloudflareMx } };
+  const thirdParty = discovery.runThirdPartyDiscoveryModule(loneModules);
+  const saas = runSaasExposureModule({ ...loneModules, vendor_risk: vendorSignatures.detectVendorsFromModules(loneModules) });
+  const thirdPartyWithMx = discovery.runThirdPartyDiscoveryModule({ dns: { txt_records: [token], mx_records: [{ value: "aspmx.l.google.com" }] } });
+  verdict("F46", !lone.vendors.some((v) => v.name === "Google Workspace")
+    && workspace?.confidence === "medium" && json(workspace.evidence.map((e) => e.source)) === json(["mx", "txt"])
+    && mxOnly.vendors.find((v) => v.name === "Google Workspace")?.confidence === "low"
+    && !JSON.stringify(saas ?? {}).includes("Google Workspace") && !JSON.stringify(thirdParty ?? {}).includes("Google Workspace")
+    && JSON.stringify(thirdPartyWithMx ?? {}).includes("Google Workspace"),
+    `lone=${json(lone.vendors.map((v) => v.name))} withMx=${json(workspace)} saas=${json(saas)} thirdParty=${json(thirdParty)}`);
+}
+
+// F47: Resend signs on the root with the "resend" selector; the email module's
+// own probe set must find it (it is not reachable from root SPF).
+{
+  const prior = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const name = new URL(String(url)).searchParams.get("name");
+    const answer = name === "resend._domainkey.example.com" ? [{ name, type: 16, data: "\"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ\"" }] : [];
+    return Response.json({ Status: 0, TC: false, Question: [{ name, type: 16 }], Answer: answer });
+  };
+  let email;
+  try { email = await emailScan.runEmailModule("example.com", { cache: new Map() }); }
+  finally { globalThis.fetch = prior; }
+  verdict("F47", email?.dkim?.present === true && email.dkim.selector === "resend"
+    && email.dkim.selectors_probed.includes("resend") && email.dkim_evidence_status === "observed",
+    `dkim=${json(email?.dkim)} status=${email?.dkim_evidence_status}`);
 }
 
 // F42: a service authorised through a nested include is attributed from the resolver's

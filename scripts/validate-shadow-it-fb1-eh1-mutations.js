@@ -206,7 +206,7 @@ const registry = Object.freeze([
       replacement: '    title: "Unapproved technology with a new host or a certificate signal",' }],
   },
   {
-    id: "SIT_M24", defect: "root TXT verification tokens ignored", expected: ["F41"],
+    id: "SIT_M24", defect: "root TXT verification tokens ignored", expected: ["F41", "F46"],
     changes: [{ target: VS,
       anchor: "      if (value) signals.txt.push(value);",
       replacement: "      if (value && false) signals.txt.push(value);" }],
@@ -234,6 +234,18 @@ const registry = Object.freeze([
     changes: [{ target: VS,
       anchor: "    for (const sel of [...(Array.isArray(dkimModule.selectors_found) ? dkimModule.selectors_found : []), dkimModule.selector]) {",
       replacement: "    for (const sel of [dkimModule.selector]) {" }],
+  },
+  {
+    id: "SIT_M31", defect: "a lone shared verification token establishes Google Workspace", expected: ["F46"],
+    changes: [{ target: VS,
+      anchor: "            if (!check.corroboratesOnly) established = true;",
+      replacement: "            established = true;" }],
+  },
+  {
+    id: "SIT_M32", defect: "the Resend DKIM selector is not probed", expected: ["F47"],
+    changes: [{ target: EA,
+      anchor: '  "resend",\n',
+      replacement: "" }],
   },
 ]);
 

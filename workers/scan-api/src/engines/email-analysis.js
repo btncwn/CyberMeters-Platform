@@ -16,6 +16,9 @@ export const DKIM_SELECTORS = [
   "dkim", "smtp", "email", "s1", "s2",
   // Expanded generic set
   "godaddy1", "godaddy2", "pm", "postmark", "zoho", "fm1", "mc1", "relay",
+  // Resend signs with resend._domainkey on the root and authorises sending on
+  // a subdomain, so root SPF never routes discovery to it.
+  "resend",
 ];
 
 export const DKIM_PROVIDER_SELECTORS = {
