@@ -16,7 +16,9 @@ beforeEach(() => {
     <meta property="og:title" content="${HOME_TITLE}">
     <meta property="og:description" content="${HOME_DESCRIPTION}">
     <meta name="twitter:title" content="${HOME_TITLE}">
-    <meta name="twitter:description" content="${HOME_DESCRIPTION}">`
+    <meta name="twitter:description" content="${HOME_DESCRIPTION}">
+    <meta property="og:url" content="https://cybermeters.com/">
+    <link rel="canonical" href="https://cybermeters.com/">`
   document.title = HOME_TITLE
 })
 
@@ -45,13 +47,32 @@ describe('public page meta', () => {
   })
 
   it('keeps the homepage description for a page without its own', () => {
-    applyPageMeta('/terms')
-    expect(document.title).toBe('Terms of Service | CyberMeters')
+    applyPageMeta('/login')
+    expect(document.title).toBe('Sign in | CyberMeters')
     expect(content('meta[name="description"]')).toBe(HOME_DESCRIPTION)
   })
 
   it('makes no claim the product does not support', () => {
     const all = Object.values(PUBLIC_PAGE_META).map((m) => `${m.title} ${m.description || ''}`).join(' ')
     expect(all).not.toMatch(/DMARC & BEC|certified|guarantee|fully compliant|dark.?web/i)
+  })
+  it('keeps the canonical link and og:url on the page the visitor moved to', () => {
+    applyPageMeta('/about', document, 'cybermeters.com')
+    expect(document.head.querySelector('link[rel="canonical"]').getAttribute('href')).toBe('https://cybermeters.com/about')
+    expect(content('meta[property="og:url"]')).toBe('https://cybermeters.com/about')
+    applyPageMeta('/pricing', document, 'app.cybermeters.com')
+    expect(document.head.querySelector('link[rel="canonical"]').getAttribute('href')).toBe('https://app.cybermeters.com/pricing')
+    applyPageMeta('/', document, 'cybermeters.com')
+    expect(document.head.querySelector('link[rel="canonical"]').getAttribute('href')).toBe('https://cybermeters.com/')
+    expect(content('meta[property="og:url"]')).toBe('https://cybermeters.com/')
+  })
+
+  it('marks every page off the public site noindex, and none on it', () => {
+    applyPageMeta('/free-scan', document, 'app.cybermeters.com')
+    expect(content('meta[name="robots"]')).toBe('noindex')
+    applyPageMeta('/landing', document, 'abc.cybermeters-platform.pages.dev')
+    expect(content('meta[name="robots"]')).toBe('noindex')
+    applyPageMeta('/trust', document, 'cybermeters.com')
+    expect(document.head.querySelector('meta[name="robots"]')).toBeNull()
   })
 })

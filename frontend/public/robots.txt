@@ -1,23 +1,11 @@
-# CyberMeters — public marketing and legal pages are indexable;
-# the authenticated application is not.
+# CyberMeters — the public site is listed; nothing else is.
+#
+# Both hosts share this file. The app host (app.cybermeters.com) and every
+# preview host send "X-Robots-Tag: noindex" on every response (see _headers),
+# which keeps them out of search results. They are not disallowed here on
+# purpose: a crawler that may not fetch a page never sees its noindex, and could
+# still list the bare URL.
 User-agent: *
 Allow: /
-Disallow: /dashboard
-Disallow: /ws/
-Disallow: /scans
-Disallow: /workspaces
-Disallow: /reports
-Disallow: /settings
-Disallow: /account
-Disallow: /billing
-Disallow: /checkout
-Disallow: /onboarding
-Disallow: /portfolio
-Disallow: /invitations
-Disallow: /verify-email
-Disallow: /reset-password
-Disallow: /forgot-password
-Disallow: /auth/
-Disallow: /accuracy
 
 Sitemap: https://cybermeters.com/sitemap.xml

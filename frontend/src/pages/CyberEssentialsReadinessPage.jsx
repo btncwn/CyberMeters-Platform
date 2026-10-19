@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 import { CE_QUESTIONS } from '../../../shared/cyber-essentials-questions.js'
 
 const ANSWER_OPTIONS = [
@@ -179,26 +180,6 @@ function deriveReadinessResult(answers, hasCyberMotEvidence = false) {
     answeredTotal,
     totalQuestions: CONTROLS.reduce((sum, control) => sum + control.questions.length, 0),
   }
-}
-
-function Header() {
-  return (
-    <header className="sticky top-0 z-30 border-b border-gray-100 bg-white/95 backdrop-blur-sm">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-        <Link to="/" aria-label="CyberMeters home">
-          <CyberMetersLogo className="h-7" />
-        </Link>
-        <div className="flex items-center gap-3">
-          <Link to="/free-scan" className="btn-secondary hidden sm:inline-flex">
-            Run Cyber MOT first
-          </Link>
-          <Link to="/signup" className="btn-primary">
-            Create account
-          </Link>
-        </div>
-      </div>
-    </header>
-  )
 }
 
 function DisclaimerBox({ compact = false }) {
@@ -570,7 +551,8 @@ export default function CyberEssentialsReadinessPage() {
 
   return (
     <div className="min-h-screen bg-[#EEF1F6] text-gray-900">
-      <Header />
+      {/* The same header and footer as every other public page. */}
+      <PublicSiteHeader />
       {view === 'intro' && <IntroView onStart={() => setView('questions')} />}
       {view === 'questions' && (
         <QuestionnaireView
@@ -581,6 +563,7 @@ export default function CyberEssentialsReadinessPage() {
         />
       )}
       {view === 'results' && <ResultView result={result} onEdit={() => setView('questions')} />}
+      <PublicSiteFooter />
     </div>
   )
 }

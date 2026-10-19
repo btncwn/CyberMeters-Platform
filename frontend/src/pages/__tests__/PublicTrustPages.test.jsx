@@ -9,11 +9,17 @@ import TermsPage from '../TermsPage'
 import DpaPage from '../DpaPage'
 const mount = Page => render(<MemoryRouter><Page /></MemoryRouter>)
 describe('Founder and public assurance pages', () => {
-  it('identifies the actual founder/operator and openly distinguishes AI assistance from independent testing', () => {
+  it('About has its own headline and a short founder section, with no legal-entity wording (founder, 19 Oct 2026)', () => {
     mount(AboutPage)
-    expect(screen.getByRole('heading', { name: 'Built and operated by Turhan Acar' })).toBeInTheDocument()
-    expect(screen.getByText(/trading as a sole trader/)).toBeInTheDocument()
-    expect(screen.getByText(/AI-generated code and reviews still need verification/)).toHaveTextContent('not independent third-party penetration tests')
+    const h1 = screen.getByRole('heading', { level: 1 })
+    expect(h1).toHaveTextContent('Built to show what anyone can see of your business from the outside.')
+    expect(h1).not.toHaveTextContent('Know where your business is exposed')
+    expect(screen.getByRole('heading', { name: 'The founder: Turhan Acar' })).toBeInTheDocument()
+    expect(screen.getByText(/holds CompTIA Security\+ and CySA\+/)).toHaveTextContent('airport security on document and fraud checks')
+    expect(screen.getByText(/built CyberMeters to show small businesses and MSPs/)).toHaveTextContent('with the evidence behind every finding')
+    // The legal entity is the founder's decision for Terms and the footer, not About.
+    expect(document.body.textContent).not.toMatch(/sole trader|trading as|Ltd|limited company/i)
+    expect(document.body.textContent).not.toMatch(/AI assistance|AI-generated/i)
     expect(screen.getByRole('link', { name: /See our own-domain check/ })).toHaveAttribute('href', '/trust')
     expect(document.body.textContent).not.toMatch(/Scotist|100\/100|years of experience/i)
     expect(document.body.textContent).not.toMatch(/small businesses, startups|digital agencies|small teams/i)
