@@ -113,9 +113,12 @@ max_retries = 5
 [vars]
 # Customer MCP is on in production. These are the live values, so a plain
 # deploy keeps it on; set the OAuth and read flags to "false" to close it.
-# Hosted redirect allowlists and the founder identity are production secrets;
-# missing values deny authorization. Neither belongs in the public repository.
+# The founder identity is a production secret; a missing value denies
+# authorization and it never belongs in the public repository.
 MCP_DEPLOYMENT_TIER = "production"
+# Exact hosted DCR callbacks, compared by string. The Claude hosted connector
+# always registers this one fixed callback; anything else is refused.
+MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS = '["https://claude.ai/api/mcp/auth_callback"]'
 MCP_CUSTOMER_OAUTH_ENABLED = "true"
 MCP_CUSTOMER_READ_ENABLED = "true"
 MCP_OAUTH_DCR_ENABLED = "true"
