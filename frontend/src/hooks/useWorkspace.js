@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../api'
-
-const WS_ID_KEY   = 'cybermeters_workspace_id'
-const WS_NAME_KEY = 'cybermeters_workspace_name'
+import { ACTIVE_WORKSPACE_EVENT, setActiveWorkspace, WS_ID_KEY, WS_NAME_KEY } from '../lib/activeWorkspace'
 
 /**
  * useWorkspace — server-authoritative workspace selection with localStorage cache.
@@ -33,13 +31,8 @@ export function useWorkspace() {
   const didFetch = useRef(false)
 
   const setWorkspace = useCallback((id, name) => {
-    if (id) {
-      localStorage.setItem(WS_ID_KEY,   id)
-      localStorage.setItem(WS_NAME_KEY, name || '')
-    } else {
-      localStorage.removeItem(WS_ID_KEY)
-      localStorage.removeItem(WS_NAME_KEY)
-    }
+    // One writer for the active workspace, so the shell and the heading follow.
+    setActiveWorkspace(id, name)
     setWsId(id)
     setWsName(name || '')
   }, [])
@@ -91,7 +84,7 @@ export function useWorkspace() {
           // Still valid — sync name in case it changed server-side.
           setWsName(validCached.name)
           if (validCached.name !== localStorage.getItem(WS_NAME_KEY)) {
-            localStorage.setItem(WS_NAME_KEY, validCached.name)
+            setActiveWorkspace(validCached.id, validCached.name)
           }
         } else {
           // Stale or absent — fall back to server default.
@@ -121,8 +114,13 @@ export function useWorkspace() {
       setWsName(localStorage.getItem(WS_NAME_KEY) ?? '')
     }
     window.addEventListener('storage', sync)
+    window.addEventListener(ACTIVE_WORKSPACE_EVENT, sync)
     const id = setInterval(sync, 1500)
-    return () => { window.removeEventListener('storage', sync); clearInterval(id) }
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener(ACTIVE_WORKSPACE_EVENT, sync)
+      clearInterval(id)
+    }
   }, [])
 
   return { wsId, wsName, workspaces, loading, setWorkspace }

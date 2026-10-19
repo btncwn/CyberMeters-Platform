@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
+import { ACTIVE_WORKSPACE_EVENT, readActiveWorkspace } from '../lib/activeWorkspace'
 import Spinner from '../components/Spinner'
 import PostureCard          from '../components/overview/PostureCard'
 import { NextActionCard } from '../components/overview/SecurityOverview'
@@ -270,8 +271,8 @@ export default function Dashboard() {
   const [scanInput,     setScanInput]     = useState('')
 
   // Workspace isolation — read from localStorage; re-derive on storage events
-  const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => localStorage.getItem('cybermeters_workspace_id'))
-  const [activeWorkspaceName, setActiveWorkspaceName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+  const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => readActiveWorkspace().id)
+  const [activeWorkspaceName, setActiveWorkspaceName] = useState(() => readActiveWorkspace().name)
   const [loadedWorkspaceId,   setLoadedWorkspaceId]   = useState(null)
 
   // Members who cannot add domains are not offered the scan box (18 Oct 2026).
@@ -282,17 +283,21 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   // Keep workspace state in sync when the nav selector changes it
+  // Re-read on any change: another tab's `storage` event, or a switch, sign-out
+  // or validation in this tab (the in-page event). The heading always names the
+  // workspace that is active now.
   useEffect(() => {
-    function onStorage(e) {
-      if (e.key === 'cybermeters_workspace_id') {
-        setActiveWorkspaceId(e.newValue)
-      }
-      if (e.key === 'cybermeters_workspace_name') {
-        setActiveWorkspaceName(e.newValue)
-      }
+    function sync() {
+      const active = readActiveWorkspace()
+      setActiveWorkspaceId(active.id)
+      setActiveWorkspaceName(active.name)
     }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    window.addEventListener('storage', sync)
+    window.addEventListener(ACTIVE_WORKSPACE_EVENT, sync)
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener(ACTIVE_WORKSPACE_EVENT, sync)
+    }
   }, [])
 
   const loadReport = useCallback(async (scanId, generation) => {

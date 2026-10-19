@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
+import { setActiveWorkspace } from '../../lib/activeWorkspace'
 
 export const WORKSPACE_MENU_ID = 'cm-workspace-menu'
 
@@ -72,9 +73,7 @@ export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 
   }
 
   function select(ws) {
-    localStorage.setItem('cybermeters_workspace_id', ws.id)
-    localStorage.setItem('cybermeters_workspace_name', ws.name)
-    window.dispatchEvent(new Event('storage'))
+    setActiveWorkspace(ws.id, ws.name)
     close({ refocus: true })
     navigate('/dashboard')
   }

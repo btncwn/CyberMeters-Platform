@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { api } from '../api'
+import { ACTIVE_WORKSPACE_EVENT, readActiveWorkspace, validateActiveWorkspace } from '../lib/activeWorkspace'
 import { useAuth } from '../context/AuthContext'
 import { detectServiceKey } from './WorkspaceNav'
 import { SERVICE_COLORS } from '../theme/serviceColors'
@@ -174,8 +175,8 @@ export default function Layout() {
   // writes it and fires a `storage` event) — deliberately NOT the
   // useWorkspace() hook, so Layout never triggers its own workspaces fetch /
   // bootstrap on every route.
-  const [wsId, setWsId]     = useState(() => localStorage.getItem('cybermeters_workspace_id'))
-  const [wsName, setWsName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+  const [wsId, setWsId]     = useState(() => readActiveWorkspace().id)
+  const [wsName, setWsName] = useState(() => readActiveWorkspace().name)
 
   // Domain identity: the active area's accent travels as CSS variables for
   // pages that want a stronger accent on headers or tabs.
@@ -187,13 +188,26 @@ export default function Layout() {
   const planLabel = useMembershipPlanLabel(user, wsId)
   useEffect(() => {
     function sync() {
-      setWsId(localStorage.getItem('cybermeters_workspace_id'))
-      setWsName(localStorage.getItem('cybermeters_workspace_name') || '')
+      const active = readActiveWorkspace()
+      setWsId(active.id)
+      setWsName(active.name)
     }
     window.addEventListener('storage', sync)
+    window.addEventListener(ACTIVE_WORKSPACE_EVENT, sync)
     const id = setInterval(sync, 1500)
-    return () => { window.removeEventListener('storage', sync); clearInterval(id) }
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener(ACTIVE_WORKSPACE_EVENT, sync)
+      clearInterval(id)
+    }
   }, [])
+
+  // Once per signed-in account: the stored workspace must be one this account
+  // really has (another account's id, a deleted workspace or lost access fall
+  // back to a workspace it does have). One request per app load, not per route.
+  useEffect(() => {
+    if (user?.id) validateActiveWorkspace(api)
+  }, [user?.id])
 
   return (
     <div className="cm-app cm-shell min-h-screen flex flex-col">

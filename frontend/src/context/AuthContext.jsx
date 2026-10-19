@@ -10,6 +10,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { registerUnauthorizedHandler, validateSession } from '../api'
 import { TOKEN_KEY, USER_KEY } from './authKeys'
+import { clearAccountWorkspaceState } from '../lib/activeWorkspace'
 
 const AuthContext = createContext(null)
 
@@ -29,6 +30,11 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)))
 
   const login = useCallback((newToken, newUser) => {
+    // A different account (or one this browser cannot vouch for) never inherits
+    // the previous account's active workspace.
+    let previousId = null
+    try { previousId = JSON.parse(localStorage.getItem(USER_KEY) || 'null')?.id ?? null } catch { previousId = null }
+    if (!previousId || previousId !== newUser?.id) clearAccountWorkspaceState()
     localStorage.setItem(TOKEN_KEY, newToken)
     localStorage.setItem(USER_KEY, JSON.stringify(newUser))
     setToken(newToken)
@@ -38,6 +44,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_KEY)
+    clearAccountWorkspaceState()
     setToken(null)
     setUser(null)
   }, [])
