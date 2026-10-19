@@ -1,0 +1,7 @@
+{
+  "name": "cybermeters-network-probe",
+  "private": true,
+  "devDependencies": {
+    "wrangler": "4.148.0"
+  }
+}
