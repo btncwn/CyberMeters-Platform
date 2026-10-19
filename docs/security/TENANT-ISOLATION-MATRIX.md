@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 117
-- **classified:** 117
+- **schema tables:** 118
+- **classified:** 118
 - **tenant owned tables:** 113
-- **infra or identity tables:** 4
+- **infra or identity tables:** 5
 - **unclassified:** 0
-- **resource classes:** 40
+- **resource classes:** 41
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -77,6 +77,7 @@ data cannot be silently omitted.
 | deletion_lifecycle | core | direct(workspace_id) | 3 | — | — |
 | auth_sessions | auth | user(user_id) | 3 | — | — |
 | infrastructure ⁿᵗ | infra | infra | 3 | — | — |
+| free_tool_deferrals ⁿᵗ | infra | infra | 1 | — | — |
 | identity_root ⁿᵗ | auth | identity_root(id) | 1 | — | — |
 
 _ⁿᵗ = non-tenant (global infrastructure / identity root)._
@@ -107,6 +108,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **deletion_lifecycle:** workspace/user-scoped lifecycle; purge-completeness proven by validate-purge-completeness
 - **auth_sessions:** per-user auth material; token-hash keyed; not a workspace resource — covered by validate-security-contracts
 - **infrastructure:** global infrastructure — holds no tenant data
+- **free_tool_deferrals:** anonymous visitor's consented email + domain for one free-tool result; no account or workspace link; deleted once sent or after 72 hours (free-tools.test.js)
 - **identity_root:** identity root — a user owns only their own row; not a workspace resource
 
 ## Table → class index
@@ -151,6 +153,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `external_exposure_visits` | direct(workspace_id) | website_security |
 | `finding_waivers` | direct(workspace_id) | remediation_waivers |
 | `findings` | via_scan(scan_id) | findings |
+| `free_tool_deferred_checks` | infra | free_tool_deferrals |
 | `hidden_assets` | via_scan(scan_id) | assets |
 | `historical_scores` | direct(workspace_id) | reports_snapshots |
 | `hosted_dns_entries` | direct(workspace_id) | email_protection |
