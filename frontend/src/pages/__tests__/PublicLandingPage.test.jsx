@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen, within, fireEvent } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import PublicLandingPage from '../PublicLandingPage'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
@@ -55,11 +55,32 @@ describe('PublicLandingPage', () => {
     expect(screen.queryByText(/fully protected|guarantee/i)).not.toBeInTheDocument()
   })
 
-  it('keeps the animated eye decorative, out of the reading order', () => {
+  it('keeps the animated eye decorative, out of the reading order', async () => {
     const { container } = renderLanding()
-    const eyes = [...container.querySelectorAll('.cm-eye')]
-    expect(eyes.length).toBeGreaterThan(0)
-    for (const eye of eyes) expect(eye).toHaveAttribute('aria-hidden', 'true')
+    await waitFor(() => expect(container.querySelectorAll('.cm-eye').length).toBeGreaterThan(0))
+    for (const eye of container.querySelectorAll('.cm-eye')) expect(eye).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('paints the heading before the eye, holding the eye\'s place at its size so nothing moves', async () => {
+    const { container } = renderLanding()
+    // First render: the heading is there, the globe's drawing code is not yet.
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
+    expect(container.querySelector('.cm-eye')).toBeNull()
+    const eye = await waitFor(() => {
+      const found = container.querySelector('.cm-eye')
+      expect(found).not.toBeNull()
+      return found
+    })
+    expect(eye.style.width).toBe(eye.style.height)
+    expect(parseInt(eye.style.width, 10)).toBeGreaterThan(0)
+  })
+
+  it('reserves the eye\'s exact box while it loads', () => {
+    const { container } = renderLanding()
+    const slot = container.querySelector('section .relative.mx-auto > div[aria-hidden="true"]')
+    expect(slot).not.toBeNull()
+    expect(slot.style.width).toBe(slot.style.height)
+    expect(parseInt(slot.style.width, 10)).toBeGreaterThan(0)
   })
 
   it('labels the report panel as a sample in the product coverage vocabulary, with no score', () => {

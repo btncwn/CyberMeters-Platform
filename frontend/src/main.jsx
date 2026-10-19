@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
+import App, { preloadOpeningRoute } from './App.jsx'
 import { reloadForFreshAssets, clearReloadBudget } from './components/ChunkErrorBoundary.jsx'
 import './index.css'
 
@@ -12,11 +12,27 @@ window.addEventListener('vite:preloadError', (event) => {
   if (reloadForFreshAssets()) event.preventDefault()
 })
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-)
+function start() {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  )
+}
+
+// Load the opening public page first so its heading paints as soon as its code
+// arrives (no loading fallback, no extra wait). A slow or failed load never
+// holds the app back: after 3 s, or on an error, it renders as before and the
+// usual loading and error handling take over.
+const opening = preloadOpeningRoute(window.location.hostname, window.location.pathname)
+if (opening) {
+  let started = false
+  const once = () => { if (!started) { started = true; start() } }
+  opening.then(once, once)
+  window.setTimeout(once, 3000)
+} else {
+  start()
+}
 
 // Restore the stale-chunk auto-reload budget once the app has loaded and run
 // healthily for a few seconds. This lets a *later*, independent deploy auto-heal

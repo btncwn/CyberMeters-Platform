@@ -305,10 +305,11 @@ if (customDomains.length === 1) {
      csp.includes(`https://${CANONICAL}`),
      "the browser would block every API call to the documented base");
 
-  // Cookieless public-website analytics (18 Oct 2026): the CSP allows exactly the
-  // beacon script host and its report endpoint — no wildcard, no extra origin —
-  // and the beacon URL lives in ONE component, which renders it only on public
-  // routes of the production hosts.
+  // Cookieless analytics: the edge adds the beacon to every HTML response, so the
+  // CSP allows exactly the beacon script host and its report endpoint — no
+  // wildcard, no extra origin. The app's own manual snippet duplicated that
+  // beacon and was removed (19 Oct 2026): no app code may load it again, or
+  // every visit is counted twice and the beacon script is fetched twice.
   const directive = (name) => ((csp.match(new RegExp(`${name}([^;]*)`)) || ["", ""])[1]).trim().split(/\s+/);
   ok("the CSP script-src allows the analytics beacon script host",
      directive("script-src").includes("https://static.cloudflareinsights.com"));
@@ -322,24 +323,13 @@ if (customDomains.length === 1) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const f = path.join(dir, e.name);
       if (e.isDirectory()) { if (e.name !== "__tests__") walk(f); }
-      else if (/\.(jsx?|tsx?)$/.test(e.name) && fs.readFileSync(f, "utf8").includes("static.cloudflareinsights.com")) beaconFiles.push(path.relative(root, f));
+      else if (/\.(jsx?|tsx?)$/.test(e.name) && /cloudflareinsights\.com|data-cf-beacon/.test(fs.readFileSync(f, "utf8"))) beaconFiles.push(path.relative(root, f));
     }
   })(srcRoot);
-  ok("the analytics beacon is referenced by exactly one component",
-     beaconFiles.length === 1 && beaconFiles[0] === path.join("frontend", "src", "components", "PublicWebAnalytics.jsx"),
+  const indexHtml = fs.readFileSync(path.join(root, "frontend", "index.html"), "utf8");
+  ok("no app code or index.html loads the analytics beacon (the edge adds it once)",
+     beaconFiles.length === 0 && !/cloudflareinsights\.com|data-cf-beacon/.test(indexHtml),
      beaconFiles.join(", "));
-  const beaconSrc = fs.readFileSync(path.join(srcRoot, "components", "PublicWebAnalytics.jsx"), "utf8");
-  // The public site token is defined once (the committed default) and may be
-  // overridden by VITE_CF_ANALYTICS_TOKEN; it is never repeated elsewhere.
-  const tokenLiterals = (beaconSrc.match(/['"][0-9a-f]{32}['"]/gi) || []);
-  ok("the analytics site token is defined in exactly one place, with the build override",
-     tokenLiterals.length === 1 && /export const DEFAULT_SITE_TOKEN = '[0-9a-f]{32}'/.test(beaconSrc) &&
-     /import\.meta\.env\.VITE_CF_ANALYTICS_TOKEN \|\| DEFAULT_SITE_TOKEN/.test(beaconSrc),
-     tokenLiterals.join(", "));
-  ok("the beacon is the provider's deferred module script",
-     /script\.type = 'module'/.test(beaconSrc) && /script\.defer = true/.test(beaconSrc));
-  ok("the beacon does not follow client-side navigation into the app (spa: false)",
-     /spa:\s*false/.test(beaconSrc));
 }
 
 // ── 5. No secret may enter the template ──────────────────────────────────────

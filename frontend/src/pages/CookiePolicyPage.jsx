@@ -20,7 +20,7 @@ export default function CookiePolicyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Cookie Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 18 October 2026 — Version 1.2</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 19 October 2026 — Version 1.3</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             This Cookie Policy explains how CyberMeters ("<strong>we</strong>", "<strong>us</strong>") uses cookies and similar technologies when you access the CyberMeters platform at <strong>app.cybermeters.com</strong>.
           </p>
@@ -84,7 +84,7 @@ export default function CookiePolicyPage() {
           </Section>
 
           <Section title="5. Your Choices">
-            <p data-testid="cookieless-analytics"><strong className="text-gray-800">Public website analytics.</strong> We use cookieless, privacy-first analytics on our public website to count visits. No cookies, no cross-site tracking, not used inside the app.</p>
+            <p data-testid="cookieless-analytics"><strong className="text-gray-800">Visit counting.</strong> Our hosting provider counts page visits on cybermeters.com and app.cybermeters.com with cookieless, privacy-first analytics. It sets no cookies, stores nothing in your browser and does not track you across sites.</p>
             <p><strong className="text-gray-800">Browser settings.</strong> You can configure your browser to block or delete cookies and localStorage at any time. Blocking essential cookies will prevent you from signing in to the platform, as the authentication token cannot be stored.</p>
             <p><strong className="text-gray-800">Logging out.</strong> Signing out of the platform via the account menu clears your authentication token from localStorage and invalidates your session server-side.</p>
             <p><strong className="text-gray-800">Incognito / private mode.</strong> Using your browser in private mode will clear localStorage on window close. You will need to sign in again in each new private session.</p>

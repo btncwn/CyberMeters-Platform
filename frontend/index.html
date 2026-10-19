@@ -2,8 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- The .ico (26 KB, six sizes) is only for browsers without SVG icons:
+         sizes="32x32" lets the others take the 2 KB SVG instead. -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CyberMeters — Know where your business is exposed</title>
@@ -26,8 +28,8 @@
     <meta name="twitter:title" content="CyberMeters — Know where your business is exposed" />
     <meta name="twitter:description" content="Know where your business is exposed and what to do next. CyberMeters runs external security checks on your domain and says plainly what it could not check." />
     <meta name="twitter:image" content="https://cybermeters.com/og-image-v2.png" />
-    <link rel="preload" href="/fonts/computer-modern/cmunrm.woff" as="font" type="font/woff" crossorigin />
-    <link rel="preload" href="/fonts/computer-modern/cmunbx.woff" as="font" type="font/woff" crossorigin />
+    <!-- Only the face the homepage heading is set in. Other weights load when used. -->
+    <link rel="preload" href="/fonts/computer-modern/cmunrm.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <div id="root"></div>
