@@ -1,0 +1,124 @@
+# Free-scan corpus: real public domains for scripts/lab/free-scan-corpus.mjs.
+# One domain per line, then free-text tags. Tags describe why the domain is in
+# the list (as understood when it was added); the run measures what is true now.
+
+# Reported regressions
+tesco.com            uk-brand akamai escaped-soa-rname ipv4-only
+
+# Large UK brands
+sainsburys.co.uk     uk-brand co.uk
+bbc.co.uk            uk-brand co.uk
+bt.com               uk-brand
+barclays.co.uk       uk-brand bank co.uk
+hsbc.co.uk           uk-brand bank co.uk
+natwest.com          uk-brand bank
+lloydsbank.com       uk-brand bank
+marksandspencer.com  uk-brand retail
+johnlewis.com        uk-brand retail
+boots.com            uk-brand retail
+argos.co.uk          uk-brand retail co.uk
+asda.com             uk-brand retail
+waitrose.com         uk-brand retail
+ocado.com            uk-brand retail
+nationwide.co.uk     uk-brand bank co.uk
+vodafone.co.uk       uk-brand telecom co.uk
+sky.com              uk-brand telecom
+theguardian.com      uk-brand media
+rightmove.co.uk      uk-brand co.uk
+autotrader.co.uk     uk-brand co.uk
+monzo.com            uk-brand bank
+deliveroo.co.uk      uk-brand co.uk
+greggs.co.uk         uk-brand co.uk
+next.co.uk           uk-brand retail co.uk
+currys.co.uk         uk-brand retail co.uk
+royalmail.com        uk-brand
+aviva.co.uk          uk-brand insurance co.uk
+britishairways.com   uk-brand travel
+easyjet.com          uk-brand travel
+thetrainline.com     uk-brand travel
+nationalrail.co.uk   uk-brand co.uk
+
+# UK public sector and education
+gov.uk               public-sector
+nhs.uk               public-sector
+tfl.gov.uk           public-sector
+ons.gov.uk           public-sector
+parliament.uk        public-sector
+ox.ac.uk             education
+cam.ac.uk            education
+
+# Global platforms (dual-stack and CDN controls)
+google.com           global dual-stack google-mail
+microsoft.com        global m365
+apple.com            global
+amazon.co.uk         global cloudfront co.uk
+cloudflare.com       global cloudflare dual-stack
+github.com           global ipv4-only
+wikipedia.org        global dual-stack
+mozilla.org          global
+facebook.com         global dual-stack
+netflix.com          global
+shopify.com          global
+wordpress.com        global
+salesforce.com       global
+
+# UK charities (.org.uk and .org)
+oxfam.org.uk         charity org.uk
+redcross.org.uk      charity org.uk
+nspcc.org.uk         charity org.uk
+cancerresearchuk.org charity
+bhf.org.uk           charity org.uk
+ageuk.org.uk         charity org.uk
+mind.org.uk          charity org.uk
+rspca.org.uk         charity org.uk
+shelter.org.uk       charity org.uk
+nationaltrust.org.uk charity org.uk
+ramblers.org.uk      charity org.uk single-label-soa-rname
+harveys.org.uk       small-business brewery org.uk
+
+# Small and mid-sized UK businesses
+bettys.co.uk         small-business co.uk
+pipersfarm.com       small-business
+hiutdenim.co.uk      small-business co.uk
+finisterre.com       small-business
+dishoom.com          small-business hospitality
+honestburgers.co.uk  small-business hospitality co.uk
+monmouthcoffee.co.uk small-business co.uk
+daylesford.com       small-business
+nealsyarddairy.co.uk small-business co.uk
+paxtonandwhitfield.co.uk small-business co.uk
+fortnumandmason.com  mid-business retail
+hotelchocolat.com    mid-business retail
+leon.co              mid-business hospitality
+bloomandwild.com     mid-business
+freddiesflowers.com  small-business
+abelandcole.co.uk    mid-business co.uk
+riverford.co.uk      mid-business co.uk
+gousto.co.uk         mid-business co.uk
+lush.com             mid-business retail
+seasaltcornwall.com  mid-business retail
+joules.com           mid-business retail
+whitestuff.com       mid-business retail
+crewclothing.co.uk   mid-business retail co.uk
+lakeland.co.uk       mid-business retail co.uk
+cotswoldoutdoor.com  mid-business retail
+timpson.co.uk        mid-business co.uk
+majestic.co.uk       mid-business retail co.uk
+brewdog.com          mid-business
+adnams.co.uk         small-business brewery co.uk
+sharpsbrewery.co.uk  small-business brewery co.uk
+fullers.co.uk        mid-business co.uk
+yorkshiretea.co.uk   mid-business co.uk
+
+# Mail-first and consumer-mail domains (website may be absent or elsewhere)
+btinternet.com       mail-domain
+ntlworld.com         mail-domain
+blueyonder.co.uk     mail-domain co.uk
+talktalk.net         mail-domain
+hotmail.co.uk        mail-domain m365 co.uk
+yahoo.co.uk          mail-domain co.uk
+googlemail.com       mail-domain google-mail
+
+# Controls
+example.com          control reserved-example
+cybermeters-corpus-nxdomain-control.co.uk control nxdomain

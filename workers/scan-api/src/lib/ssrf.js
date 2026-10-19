@@ -232,6 +232,38 @@ function validCname(value) {
       && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));
 }
 
+// SOA RNAME is a mailbox in master-file form, not a hostname: its first label
+// is the local part and may carry RFC 1035 §5.1 escapes ("web\.admin" is the
+// mailbox web.admin@). Bounded: printable, no whitespace or master-file
+// specials, \DDD <= 255, labels 1-63 octets. One label is legal: some DNS
+// hosts publish "hostmaster.".
+function validSoaMailbox(value) {
+  const raw = typeof value === "string" ? value : "";
+  if (!raw || raw.length > 255) return false;
+  let octets = 0;
+  for (let i = 0; i < raw.length;) {
+    const ch = raw[i];
+    if (ch === "\\") {
+      const digits = raw.slice(i + 1, i + 4);
+      if (/^\d{3}$/.test(digits)) {
+        if (Number(digits) > 255) return false;
+        i += 4;
+      } else if (/^[\x21-\x2f\x3a-\x7e]$/.test(raw[i + 1] || "")) {
+        i += 2;
+      } else return false;
+      octets += 1;
+    } else if (ch === ".") {
+      if (octets === 0 || octets > 63) return false;
+      octets = 0;
+      i += 1;
+    } else if (/^[\x21-\x7e]$/.test(ch) && !"\"();".includes(ch)) {
+      octets += 1;
+      i += 1;
+    } else return false;
+  }
+  return octets <= 63;
+}
+
 // A DNS-negative result is measurement evidence, never permission to fetch.
 // Keep its proof bounded and separate from the legacy empty-sibling shape.
 function authoritativeDnsNegative(packet, family, host, answers) {
@@ -259,7 +291,7 @@ function authoritativeDnsNegative(packet, family, host, answers) {
     const zone = normalize(record.name);
     if (terminal !== zone && !terminal.endsWith(`.${zone}`)) return false;
     const fields = record.data.trim().split(/\s+/);
-    return fields.length === 7 && validCname(fields[0]) && validCname(fields[1])
+    return fields.length === 7 && validCname(fields[0]) && validSoaMailbox(fields[1])
       && fields.slice(2).every((value) => /^\d+$/.test(value) && Number(value) <= 0xffffffff);
   });
   if (!soa) return null;
