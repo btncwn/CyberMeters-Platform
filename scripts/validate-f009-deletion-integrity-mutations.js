@@ -77,15 +77,38 @@ MUTANTS.push(
     env.cybermeters_db
       .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE id = ? AND workspace_id = ?")
       .bind(req.id, req.workspace_id),
+    releaseFinishedDeletionRequestLinks(env, req.workspace_id),
     env.cybermeters_db
       .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id),
   ]);`,
     to: `  await env.cybermeters_db
     .prepare("UPDATE deletion_requests SET workspace_id = NULL WHERE id = ? AND workspace_id = ?")
     .bind(req.id, req.workspace_id).run();
+  await releaseFinishedDeletionRequestLinks(env, req.workspace_id).run();
   await env.cybermeters_db
     .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id).run();`,
     expect: "R1-01-atomic-release" },
+
+  // A finished request's workspace link is a FOREIGN KEY; without its release
+  // the parent DELETE fails on every retry and the workspace never purges.
+  { name: "M9_WORKSPACE_PATH_KEEPS_FINISHED_LINKS",
+    from: `    releaseFinishedDeletionRequestLinks(env, req.workspace_id),
+`,
+    to: ``,
+    expect: "J-workspace-finished-link" },
+
+  { name: "M10_ACCOUNT_PATH_KEEPS_FINISHED_LINKS",
+    from: `        releaseFinishedDeletionRequestLinks(env, owned.id),
+`,
+    to: ``,
+    expect: "J-account-finished-link" },
+
+  // Releasing every link (not only finished ones) would let an account delete a
+  // workspace out from under its own live request.
+  { name: "M11_RELEASES_LIVE_REQUEST_LINKS",
+    from: `WHERE workspace_id = ? AND status IN ('completed', 'cancelled')`,
+    to: `WHERE workspace_id = ?`,
+    expect: "J-live-request-keeps-link" },
 
   { name: "M7_ERROR_READS_AS_ABSENCE_AGAIN",
     from: `    .prepare("SELECT id, name, deleted_at, owner_user_id FROM workspaces WHERE id = ? LIMIT 1")
