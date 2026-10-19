@@ -1,4 +1,4 @@
-import { DOMAIN_STATE_LABELS } from '../lib/freeScanPresentation'
+import { DOMAIN_STATE_LABELS, moreInTrialCopy } from '../lib/freeScanPresentation'
 
 function countCopy(domain) {
   if (!Number.isFinite(domain.headline_count)) return 'Unlock to assess'
@@ -24,7 +24,7 @@ function SampleRow({ sample }) {
   )
 }
 
-export default function FreeCyberMotPreviewGrid({ domains = [] }) {
+export default function FreeCyberMotPreviewGrid({ domains = [], moreWhere = 'in the trial' }) {
   return (
     <section aria-labelledby="cyber-mot-grid-title">
       <div className="fm-section-heading">
@@ -68,7 +68,7 @@ export default function FreeCyberMotPreviewGrid({ domains = [] }) {
                 <div className="fm-domain-lock">
                   <span>
                     {domain.locked_count > 0
-                      ? `${domain.locked_count} more with a free account`
+                      ? moreInTrialCopy(domain.locked_count, domain.count_kind, moreWhere)
                       : 'Unlock deeper assessment after verification'}
                   </span>
                 </div>

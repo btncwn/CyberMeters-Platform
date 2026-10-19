@@ -331,7 +331,7 @@ export function buildFreeScanPreview({
     preview_state: previewState,
     limitations: {
       snapshot: "One bounded public snapshot; no monitoring history and no report is stored.",
-      ownership: "Full results require a free account and canonical domain-ownership verification.",
+      ownership: "Full results come with the 14-day trial, after canonical domain-ownership verification.",
       deep_checks: "Takeover, asset fan-out and exposed-service checks are not run anonymously.",
     },
     execution: execution ? {

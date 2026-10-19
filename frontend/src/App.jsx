@@ -9,6 +9,7 @@ import MailtoAssist from './components/MailtoAssist'
 import { isPreviewHost } from './utils/siteLinks'
 import PublicWebAnalytics from './components/PublicWebAnalytics'
 import NewVersionBanner from './components/NewVersionBanner'
+import PublicPageMeta from './components/PublicPageMeta'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
@@ -288,6 +289,7 @@ export default function App() {
         <MailtoAssist />
         <PublicWebAnalytics />
         <NewVersionBanner />
+        <PublicPageMeta />
       </AuthProvider>
     </BrowserRouter>
   )
