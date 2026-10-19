@@ -365,7 +365,10 @@ const EXPECTED = Object.freeze({
   // Scan creation reuses the workspace's linked domain record, shifting two
   // scans.js projections by 16 lines (407/934 -> 423/950); the two-tree diff
   // shows no SQL read membership or snippet change.
-  sql_reads: { projection_occurrences: 24, fingerprint: "f76407a6c2cf1160c645614f64e83b776c89c900df7feb106c8135ae6e9fb447" },
+  // Scheduled-report outcome presentation shifts three workspace-reports.js
+  // projections (233/244/248 -> 234/247/249); the two-tree diff shows the same
+  // 24 reads with unchanged file, kind and snippet.
+  sql_reads: { projection_occurrences: 24, fingerprint: "ea26d718e9c6db7a4b972f35d8e8d9d0a1cb0b15f26feba23642b110e49cb4f6" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
