@@ -11,6 +11,7 @@ import { dnsQuery } from "../workers/scan-api/src/engines/dns.js";
 import { runSslModule } from "../workers/scan-api/src/engines/ssl-scan.js";
 import { runHeadersModule } from "../workers/scan-api/src/engines/headers-scan.js";
 import { runTechModule } from "../workers/scan-api/src/engines/tech-scan.js";
+import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../workers/scan-api/src/lib/ssrf.js";
 
 import { deriveAttackSurfaceSignalCompleteness, deriveRemovalObservation } from "../workers/scan-api/src/engines/attack-surface-signal-completeness.js";
 import { computeSecurityPosture } from "../workers/scan-api/src/engines/posture-scoring.js";
@@ -36,12 +37,20 @@ const privateDns = async (_name, type) => packet(type, type === "A" ? ["127.0.0.
 const errorDns = async () => { throw new Error("synthetic DNS failure"); };
 // DNS-JSON negative answers: RFC 2308 §2.2 / RFC 7129 §2.2. These
 // fixtures are local producer-shape controls, not captured live DNS traffic.
-function soaNodata(name, type, cname = false) {
+function soaNodata(name, type, cname = false, rname = "hostmaster.example.test.") {
   return { Status: 0, TC: false, Question: [{ name: `${name}.`, type: type === "AAAA" ? 28 : 1 }],
     ...(cname ? { Answer: [{ name: `${name}.`, type: 5, data: "terminal.example.test." }] } : {}),
     Authority: [{ name: "example.test.", type: 6, TTL: 60,
-      data: "ns.example.test. hostmaster.example.test. 1 3600 600 86400 60" }] };
+      data: `ns.example.test. ${rname} 1 3600 600 86400 60` }] };
 }
+// Captured 19 Oct 2026 from cloudflare-dns.com: an IPv4-only apex whose AAAA
+// NODATA SOA carries an escaped-dot mailbox RNAME (RFC 1035 §5.1, §8).
+const tescoShaped = (soaData) => async (_name, type) => type === "A"
+  ? { Status: 0, TC: false, Question: [{ name: "tesco.com", type: 1 }],
+    Answer: [{ name: "tesco.com", type: 1, TTL: 17, data: "184.25.192.63" }] }
+  : { Status: 0, TC: false, Question: [{ name: "tesco.com", type: 28 }],
+    Authority: [{ name: "tesco.com", type: 6, TTL: 3164, data: soaData }] };
+const TESCO_SOA = "pdns194.ultradns.com. web\\.admin.uk.tesco.com. 2015040710 86400 7200 2592000 3600";
 const soaResolver = (cname = false) => async (name, type) => type === "A"
   ? (cname ? { ...packet(type, ["93.184.216.34"], name), Answer: [
     { name: `${name}.`, type: 5, data: "terminal.example.test." },
@@ -66,6 +75,34 @@ function transport(resolver, redirectHost = null) {
 async function caught(call) { try { return { value: await call() }; } catch (error) { return { error }; } }
 
 try {
+  // SOA RNAME is a mailbox: escapes are legal there and only there.
+  const tesco = await resolvePublicDnsTarget("tesco.com", tescoShaped(TESCO_SOA));
+  ok("TESCO_SHAPED_PUBLIC", tesco.state === STRICT_DNS_STATES.PUBLIC && tesco.addresses.join() === "184.25.192.63");
+  for (const [label, rname] of [["plain", "webadmin.uk.tesco.com."], ["ddd", "web\\046admin.uk.tesco.com."],
+    ["relative", "web\\.admin.uk.tesco.com"], ["single_label", "hostmaster."], ["escaped_backslash", "web\\\\.uk.tesco.com."]]) {
+    const result = await resolvePublicDnsTarget("tesco.com", tescoShaped(TESCO_SOA.replace("web\\.admin.uk.tesco.com.", rname)));
+    ok(`RNAME_ACCEPT_${label}`, result.state === STRICT_DNS_STATES.PUBLIC);
+  }
+  for (const [label, soa] of [
+    ["six_fields", "pdns194.ultradns.com. web\\.admin.uk.tesco.com. 2015040710 86400 7200 2592000"],
+    ["whitespace_rname", "pdns194.ultradns.com. web admin.uk.tesco.com. 2015040710 86400 7200 2592000 3600"],
+    ["bad_serial", "pdns194.ultradns.com. web\\.admin.uk.tesco.com. 20150407x 86400 7200 2592000 3600"],
+    ["ddd_over_255", "pdns194.ultradns.com. web\\256admin.uk.tesco.com. 2015040710 86400 7200 2592000 3600"],
+    ["dangling_escape", "pdns194.ultradns.com. web\\ 2015040710 86400 7200 2592000 3600"],
+    ["empty_label", "pdns194.ultradns.com. web..tesco.com. 2015040710 86400 7200 2592000 3600"],
+    ["empty_rname_root", "pdns194.ultradns.com. . 2015040710 86400 7200 2592000 3600"],
+    ["special_char", "pdns194.ultradns.com. web(admin).tesco.com. 2015040710 86400 7200 2592000 3600"],
+    ["long_label", `pdns194.ultradns.com. ${"a".repeat(64)}.tesco.com. 2015040710 86400 7200 2592000 3600`],
+    ["over_255", `pdns194.ultradns.com. ${Array(5).fill("a".repeat(60)).join(".")}.tesco.com. 2015040710 86400 7200 2592000 3600`],
+    ["escaped_mname", "pdns194\\.x.ultradns.com. web\\.admin.uk.tesco.com. 2015040710 86400 7200 2592000 3600"],
+  ]) {
+    const result = await resolvePublicDnsTarget("tesco.com", tescoShaped(soa));
+    ok(`RNAME_REJECT_${label}`, result.state === STRICT_DNS_STATES.UNAVAILABLE && result.reason === "incomplete_answer");
+  }
+  const tescoPrivate = await resolvePublicDnsTarget("tesco.com", async (name, type) => type === "A"
+    ? { ...(await tescoShaped(TESCO_SOA)(name, type)), Answer: [{ name: "tesco.com", type: 1, data: "10.0.0.1" }] }
+    : tescoShaped(TESCO_SOA)(name, type));
+  ok("TESCO_SHAPED_PRIVATE_STILL_BLOCKED", tescoPrivate.state === STRICT_DNS_STATES.BLOCKED);
   for (const [name, resolver] of [
     ["error", errorDns], ["missing", undefined],
     ["empty", async () => ({ Status: 0, Answer: [] })],
@@ -269,6 +306,10 @@ try {
         await functions[name](host, options);
         ok(`CALLER_${file}_${name}_SOA_${cname ? "CNAME" : "OMITTED"}_PUBLIC`, observed.length > 0);
       }
+      transport(async (name, type) => type === "A" ? publicDns(name, type)
+        : soaNodata(name, type, false, "web\\.admin.example.test."));
+      await functions[name](host, build(dnsQuery, new Map(), null, undefined, null, false, undefined, Date.now(), undefined));
+      ok(`CALLER_${file}_${name}_ESCAPED_RNAME_PUBLIC`, observed.length > 0);
       for (const [state, resolver] of [["error", errorDns], ["private", privateDns], ["public", publicDns]]) {
         transport(resolver);
         const dnsCache = new Map();
@@ -315,6 +356,12 @@ if (!process.argv.includes("--behavior-only") && failed === 0) {
       before: "function hasAuthoritativeNodata(packet, family, host, answers) {",
       after: "function hasAuthoritativeNodata(packet, family, host, answers) { return false;",
       expected: "PROBE_SOA_OMITTED_DEFAULT_PUBLIC" },
+    { id: "SOA_RNAME_AS_HOSTNAME", file: "lib/ssrf.js",
+      before: "validSoaMailbox(fields[1])", after: "validCname(fields[1])",
+      expected: "TESCO_SHAPED_PUBLIC" },
+    { id: "SOA_RNAME_UNCHECKED", file: "lib/ssrf.js",
+      before: "validSoaMailbox(fields[1])", after: "true",
+      expected: "RNAME_REJECT_ddd_over_255" },
     { id: "SOA_AUTHORITY_UNCHECKED", file: "lib/ssrf.js",
       before: "if (terminal !== zone && !terminal.endsWith(`.${zone}`)) return false;",
       after: "if (false) return false;",
