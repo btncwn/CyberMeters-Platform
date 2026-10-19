@@ -121,7 +121,12 @@ import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecy
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
 import { workspaceBrandingRoutes } from "./routes/workspace-branding.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
-import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
+import {
+  classifyScheduledReportFailure,
+  runBoundedScheduledReports,
+  SCHEDULED_REPORT_REASONS,
+  SCHEDULED_REPORT_RETRY_MS,
+} from "./engines/scheduled-reports.js";
 import { assemblePdf, buildScanReportPdf, buildWorkspaceExecutivePdf, pdfUtcDate } from "./engines/pdf.js";
 import { BILLING_PLAN_METADATA, PLAN_FEATURES, PLAN_LIMITS, getEffectivePlan, getPaymentGraceState, getPlanFeatures, getUserPlan, hasFeatureEntitlement, normalizeBillingInterval, normalizePlan } from "./engines/entitlements.js";
 import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripePriceIdForPlan, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "./engines/stripe.js";
@@ -1872,7 +1877,7 @@ async function purgeAccountRequest(env, req) {
 export async function processScheduledReports(now, env, { generate = generateWorkspaceExecutiveReport } = {}) {
   const r = await env.cybermeters_db
     .prepare(
-      `SELECT sr.id, sr.workspace_id, sr.report_type, sr.frequency
+      `SELECT sr.id, sr.workspace_id, sr.report_type, sr.frequency, sr.consecutive_failures
        FROM scheduled_reports sr
        JOIN workspaces w ON w.id = sr.workspace_id AND w.deleted_at IS NULL
        WHERE sr.enabled = 1
@@ -1889,22 +1894,29 @@ export async function processScheduledReports(now, env, { generate = generateWor
     try {
       const reportRow = await generate(sr.workspace_id, env, {
         report_type: sr.report_type,
+        scheduled:   true,
       });
 
+      // A skipped run (no assessment yet) is a finished occurrence, not a failure:
+      // the schedule moves on and shows why no report was made. A run that lost the
+      // claim to an already-skipped row gets that row back, without skip_reason.
+      const skipped = reportRow?.status === "skipped";
       const nextRunAt = computeScheduledReportNextRunAt(sr.frequency);
       await env.cybermeters_db
         .prepare(
           `UPDATE scheduled_reports
-           SET last_run_at = ?, next_run_at = ?
+           SET last_run_at = ?, next_run_at = ?,
+               last_outcome = ?, last_outcome_reason = ?, last_outcome_at = ?,
+               consecutive_failures = 0
            WHERE id = ?`
         )
-        .bind(now, nextRunAt, sr.id)
+        .bind(now, nextRunAt, skipped ? "skipped" : "completed", skipped ? (reportRow.skip_reason ?? "no_assessment") : null, now, sr.id)
         .run();
 
       // Notification + audit ONLY when THIS invocation actually generated the report.
       // A concurrent invocation that lost the occurrence claim (reportRow.claimed ===
       // false) must not emit a duplicate customer notification.
-      if (reportRow?.claimed !== false) {
+      if (reportRow?.claimed !== false && !skipped) {
         try {
           await createNotificationEvent(env, sr.workspace_id, {
             type:     "report_schedule_executed",
@@ -1927,9 +1939,10 @@ export async function processScheduledReports(now, env, { generate = generateWor
         } catch { /* non-fatal */ }
       }
 
-    } catch {
+    } catch (e) {
       // Continue with other workspaces, but expose each failure to operations.
       failedRows++;
+      await recordScheduledReportFailure(env, sr, now, classifyScheduledReportFailure(e));
       recordMetric(env, "scheduled_report_row_failed", {
         blobs: [sr.report_type || "unknown"], doubles: [1], indexes: ["user_scheduled_reports"],
       });
@@ -1939,6 +1952,46 @@ export async function processScheduledReports(now, env, { generate = generateWor
     }
   }
   if (failedRows > 0) throw new Error(`scheduled_report_rows_failed:${failedRows}`);
+}
+
+// The customer sees a failed run on the schedule itself (reason code only, worded
+// by the API) and is told once per run of failures, not on every hourly retry.
+// The retry moves an hour out so a failing schedule cannot hold the front of the
+// due queue ahead of healthy ones.
+async function recordScheduledReportFailure(env, sr, now, reason) {
+  const retryAt = new Date(Date.parse(now) + SCHEDULED_REPORT_RETRY_MS).toISOString();
+  try {
+    await env.cybermeters_db
+      .prepare(
+        `UPDATE scheduled_reports
+         SET last_outcome = 'failed', last_outcome_reason = ?, last_outcome_at = ?,
+             next_run_at = ?, consecutive_failures = consecutive_failures + 1
+         WHERE id = ?`
+      )
+      .bind(reason, now, retryAt, sr.id)
+      .run();
+  } catch {
+    console.error("[user-scheduled-report-error]", JSON.stringify({
+      scheduled_report_id: sr.id, workspace_id: sr.workspace_id, reason: "failure_not_recorded",
+    }));
+    return;
+  }
+  if (Number(sr.consecutive_failures) > 0) return;
+  await createNotificationEvent(env, sr.workspace_id, {
+    type:     "report_schedule_failed",
+    severity: "medium",
+    title:    "Scheduled report not created",
+    message:  SCHEDULED_REPORT_REASONS[reason].message,
+    metadata: { scheduled_report_id: sr.id, report_type: sr.report_type, reason, link: "/ws/reports" },
+  });
+  await createAuditEvent(env, {
+    workspace_id: sr.workspace_id,
+    event_type:   "scheduled_report_failed",
+    entity_type:  "scheduled_report",
+    entity_id:    sr.id,
+    description:  `Scheduled ${sr.report_type} report was not created (${reason})`,
+    metadata:     { scheduled_report_id: sr.id, report_type: sr.report_type, reason, next_run_at: retryAt },
+  }).catch(() => {});
 }
 
 async function cleanupExpiredReports(nowIso, env) {
