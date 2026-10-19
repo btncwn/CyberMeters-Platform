@@ -20,6 +20,6 @@ export const POSTURE_WEIGHTS = {
   email_security:   { label: 'Email Security',     pct: 20 },
   ssl_certificates: { label: 'SSL & Certificates', pct: 20 },
   attack_surface:   { label: 'Attack Surface',     pct: 25 },
-  third_party_risk: { label: 'Third-Party Risk',   pct: 15 },
+  third_party_risk: { label: 'Third-party services', pct: 15 },
   admin_exposure:   { label: 'Admin Exposure',     pct: 20 },
 };

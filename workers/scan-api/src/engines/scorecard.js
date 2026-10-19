@@ -385,11 +385,6 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
       `${saasTotal} SaaS portal${saasTotal !== 1 ? 's' : ''} exposed — login or admin access may be reachable externally.`
     );
   }
-  if ((vendorRiskMap.medium ?? 0) > 0) {
-    attentionRequired.push(
-      `${vendorRiskMap.medium} medium-risk vendor${(vendorRiskMap.medium ?? 0) !== 1 ? 's' : ''} detected in the supply chain.`
-    );
-  }
   if (brandMedRisk > 0 && brandHighRisk === 0) {
     attentionRequired.push(
       `${brandMedRisk} medium-risk typosquat domain${brandMedRisk !== 1 ? 's' : ''} found actively resolving.`
@@ -415,11 +410,6 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   if (adminTotal > 0) {
     urgent.push(
       `${adminTotal} admin surface${adminTotal !== 1 ? 's' : ''} exposed to the internet — management interfaces should not be publicly accessible.`
-    );
-  }
-  if ((vendorRiskMap.high ?? 0) > 0) {
-    urgent.push(
-      `${vendorRiskMap.high} high-risk vendor${(vendorRiskMap.high ?? 0) !== 1 ? 's' : ''} detected — supply chain exposure requires review.`
     );
   }
   if (certRiskLevel === 'critical') {
@@ -558,12 +548,13 @@ export function buildScorecardSections(scorecard) {
       data: { active_assets: scorecard.active_assets, new_assets_30d: scorecard.new_assets_30d, asset_events_30d: scorecard.asset_events_30d },
     },
     {
-      title:   'Vendor Risk',
-      status:  scorecard.vendor_risk.high > 0 ? 'critical' : scorecard.vendor_risk.medium > 0 ? 'warning' : 'ok',
+      // An observation, never a rating (SIRA 4, 19 Oct 2026): the per-vendor
+      // tier is a catalogue label for the kind of service, not an assessment.
+      title:   'Third-party services observed',
+      status:  scorecard.vendors_detected > 0 ? 'observed' : 'unknown',
       summary: scorecard.vendors_detected > 0
-        ? `${scorecard.vendors_detected} vendor${scorecard.vendors_detected !== 1 ? 's' : ''} detected.` +
-          (scorecard.vendor_risk.high > 0 ? ` ${scorecard.vendor_risk.high} high-risk.` : ' No high-risk vendors.')
-        : 'No third-party vendors detected in this scan.',
+        ? `${scorecard.vendors_detected} third-party service${scorecard.vendors_detected !== 1 ? 's' : ''} observed on your domains. This lists what was seen; it does not rate the vendors.`
+        : 'No third-party services were observed in this scan.',
       data: { total: scorecard.vendors_detected, ...scorecard.vendor_risk },
     },
     {

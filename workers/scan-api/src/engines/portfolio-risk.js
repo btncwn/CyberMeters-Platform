@@ -215,7 +215,7 @@ function generatePortfolioExecutiveSummary(stats) {
   const topShared = shared_dependencies.slice(0, 2);
   if (topShared.length > 0) {
     const shareDesc = topShared.map(d => `${d.vendor_name} (${d.workspace_count} customers)`).join(' and ');
-    parts.push(`Portfolio-wide vendor concentration exists: ${shareDesc} — a disruption to these providers would affect multiple customers simultaneously.`);
+    parts.push(`Shared third-party services: ${shareDesc}. An outage at one of these providers would reach several customers at once.`);
   }
 
   return parts.join(' ');
@@ -474,7 +474,7 @@ export async function computePortfolioRisk(workspaceIds, env) {
         severity:        r.concentration_level,
         workspace_id:    r.workspace_id,
         workspace_name:  r.workspace_name,
-        message:         `${r.workspace_name} has ${r.concentration_level} vendor concentration risk with ${r.spof_count} single point${r.spof_count !== 1 ? 's' : ''} of failure`,
+        message:         `${r.workspace_name} relies on few providers (${r.concentration_level} concentration), with ${r.spof_count} single point${r.spof_count !== 1 ? 's' : ''} of failure`,
       });
     }
 
@@ -485,7 +485,7 @@ export async function computePortfolioRisk(workspaceIds, env) {
         severity:        'high',
         workspace_id:    r.workspace_id,
         workspace_name:  r.workspace_name,
-        message:         `${r.workspace_name} has ${r.critical_vendor_count} critical vendors — elevated third-party risk`,
+        message:         `${r.workspace_name} uses ${r.critical_vendor_count} services in a high catalogue tier`,
       });
     }
   }

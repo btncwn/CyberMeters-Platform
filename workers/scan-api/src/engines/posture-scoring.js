@@ -210,13 +210,13 @@ export function computeSecurityPosture(sc, report) {
   if (vHigh > 0) {
     const cut = clamp(vHigh * 15, 0, 40);
     tpScore -= cut;
-    tpReasons.push(`${vHigh} high-risk vendor${vHigh !== 1 ? 's' : ''} in the supply chain`);
+    tpReasons.push(`${vHigh} observed service${vHigh !== 1 ? 's' : ''} in a high catalogue tier`);
     pushRem(tpRem, 'vendor_risk_detected');
   }
   if (vMed > 0) {
     const cut = clamp(vMed * 5, 0, 20);
     tpScore -= cut;
-    tpReasons.push(`${vMed} medium-risk vendor${vMed !== 1 ? 's' : ''} detected`);
+    tpReasons.push(`${vMed} observed service${vMed !== 1 ? 's' : ''} in a medium catalogue tier`);
     pushRem(tpRem, 'vendor_risk_detected');
   }
   if (tpa > 0) {
@@ -284,7 +284,7 @@ export function computeSecurityPosture(sc, report) {
     { key: 'email_security',    label: 'Email Security',     score: emailScore, weight: 0.20 },
     { key: 'ssl_certificates',  label: 'SSL & Certificates', score: sslScore,   weight: 0.20 },
     { key: 'attack_surface',    label: 'Attack Surface',     score: asScore,    weight: 0.25 },
-    { key: 'third_party_risk',  label: 'Third-Party Risk',   score: tpScore,    weight: 0.15 },
+    { key: 'third_party_risk',  label: 'Third-party services', score: tpScore,  weight: 0.15 },
     { key: 'admin_exposure',    label: 'Admin Exposure',     score: admScore,   weight: 0.20 },
   ];
 

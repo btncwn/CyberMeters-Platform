@@ -73,8 +73,8 @@ function enrichDmarc(emailMod) {
       no_record: "CRITICAL", not_observed: "UNKNOWN", not_yet_assessed: "UNKNOWN",
     };
     const MSG = {
-      reject_enforced: "Full DMARC protection active (p=reject).",
-      quarantine_enforced: "Quarantine policy is enforced at 100%. Move to p=reject for full protection.",
+      reject_enforced: "DMARC asks receivers to reject mail that fails (p=reject).",
+      quarantine_enforced: "Quarantine policy is enforced at 100%. Move to p=reject to ask receivers to reject failing mail.",
       partial_reject: "DMARC reject is not applied to all mail (pct<100 or an unprotected subdomain policy).",
       partial_quarantine: "DMARC quarantine is not applied to all mail (pct<100 or an unprotected subdomain policy).",
       monitoring: "DMARC is in reporting-only mode (p=none). Enforcement is not active.",
@@ -126,13 +126,13 @@ function enrichDmarc(emailMod) {
     message = parsed.warnings.join(" ") || "The DMARC record is invalid.";
   } else if (policy === "reject" && pct === 100) {
     status = "FULLY_PROTECTED";   riskLevel = "LOW";
-    message = "Full DMARC protection active (p=reject, pct=100).";
+    message = "DMARC asks receivers to reject mail that fails (p=reject, pct=100).";
   } else if (policy === "reject" && pct < 100) {
     status = "PARTIAL_PROTECTED"; riskLevel = "MEDIUM";
     message = `DMARC protection is partial (p=reject, pct=${pct}).`;
   } else if (policy === "quarantine" && pct === 100) {
     status = "PARTIAL_PROTECTED"; riskLevel = "MEDIUM";
-    message = "Quarantine policy is active (pct=100). Move to p=reject for full protection.";
+    message = "Quarantine policy is active (pct=100). Move to p=reject to ask receivers to reject failing mail.";
   } else if (policy === "quarantine" && pct < 100) {
     status = "PARTIAL_PROTECTED"; riskLevel = "HIGH";
     message = `Quarantine policy is partial (pct=${pct}).`;

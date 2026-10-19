@@ -1070,7 +1070,7 @@ export function composeSnapshot({
         methodology_disclosure:
           "The Business Risk Indicator is derived from externally observed scan evidence " +
           "across weighted categories (email, service health, customer trust, brand exposure, " +
-          "supply-chain signals). It is an indicator band with an explanation, not a score.",
+          "third-party service signals). It is an indicator band with an explanation, not a score.",
         evidence_grade: businessRiskEvidenceGrade,
         internal_metrics: {
           score: phase5Suppressed ? null : (businessRisk?.score ?? null),
