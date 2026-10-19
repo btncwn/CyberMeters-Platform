@@ -212,7 +212,7 @@ export async function accountRoutes(rctx) {
           env.cybermeters_db
             .prepare(
               `SELECT id, company_name, website, industry, company_size,
-                      contact_email, contact_name, created_at, updated_at
+                      contact_email, contact_name, country, created_at, updated_at
                FROM customer_profiles
                WHERE owner_user_id = ?`
             )
@@ -306,7 +306,7 @@ export async function accountRoutes(rctx) {
         const company = await env.cybermeters_db
           .prepare(
             `SELECT id, company_name, website, industry, company_size,
-                    contact_email, contact_name, created_at, updated_at
+                    contact_email, contact_name, country, created_at, updated_at
              FROM customer_profiles
              WHERE owner_user_id = ?`
           )
@@ -336,10 +336,16 @@ export async function accountRoutes(rctx) {
       const company_size  = (body.company_size  || "").trim() || null;
       const contact_name  = (body.contact_name  || "").trim() || null;
       const contact_email = (body.contact_email || "").trim().toLowerCase() || null;
+      const countrySent   = Object.hasOwn(body, "country");
+      const country       = typeof body.country === "string" ? body.country.trim() || null : null;
 
       if (!company_name) return json({ error: "company_name is required" }, 400);
       if (company_name.length > 200) return json({ error: "company_name is too long" }, 400);
       if (website && website.length > 300) return json({ error: "website is too long" }, 400);
+      if (body.country != null && typeof body.country !== "string") return json({ error: "country must be text" }, 400);
+      if (country && (country.length > 100 || /[\u0000-\u001f\u007f<>]/.test(country))) {
+        return json({ error: "country must be up to 100 characters of plain text" }, 400);
+      }
       if (contact_email && !isValidEmail(contact_email)) {
         return json({ error: "contact_email must be a valid email address" }, 400);
       }
@@ -355,8 +361,8 @@ export async function accountRoutes(rctx) {
           .prepare(
             `INSERT INTO customer_profiles
                (id, owner_user_id, company_name, website, industry, company_size,
-                contact_email, contact_name, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                contact_email, contact_name, country, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
              ON CONFLICT(owner_user_id) DO UPDATE SET
                company_name  = excluded.company_name,
                website       = excluded.website,
@@ -364,15 +370,17 @@ export async function accountRoutes(rctx) {
                company_size  = excluded.company_size,
                contact_email = excluded.contact_email,
                contact_name  = excluded.contact_name,
+               -- A client that does not send country keeps the saved value.
+               country       = CASE WHEN ? = 1 THEN excluded.country ELSE customer_profiles.country END,
                updated_at    = datetime('now')`
           )
-          .bind(companyId, user.id, company_name, website, industry, company_size, contact_email, contact_name)
+          .bind(companyId, user.id, company_name, website, industry, company_size, contact_email, contact_name, country, countrySent ? 1 : 0)
           .run();
 
         const company = await env.cybermeters_db
           .prepare(
             `SELECT id, company_name, website, industry, company_size,
-                    contact_email, contact_name, created_at, updated_at
+                    contact_email, contact_name, country, created_at, updated_at
              FROM customer_profiles
              WHERE owner_user_id = ?`
           )
@@ -386,7 +394,7 @@ export async function accountRoutes(rctx) {
           entity_id:   company?.id ?? companyId,
           description: "Company profile updated",
           metadata:    {
-            changed_fields: ["company_name", "website", "industry", "company_size", "contact_email", "contact_name"],
+            changed_fields: ["company_name", "website", "industry", "company_size", "contact_email", "contact_name", "country"],
           },
         });
         return json({ company });
