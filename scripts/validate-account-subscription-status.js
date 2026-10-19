@@ -176,12 +176,12 @@ async function billing(db, opts) { const r = await globalBillingRoutes(rctx("/ap
 {
   // /api/account/profile no longer invents an active manual subscription.
   const db = createDb([]);
-  db.exec("CREATE TABLE customer_profiles (id TEXT, owner_user_id TEXT, company_name TEXT, website TEXT, industry TEXT, company_size TEXT, contact_email TEXT, contact_name TEXT, created_at TEXT, updated_at TEXT)");
+  db.exec("CREATE TABLE customer_profiles (id TEXT, owner_user_id TEXT, company_name TEXT, website TEXT, industry TEXT, company_size TEXT, contact_email TEXT, contact_name TEXT, country TEXT, created_at TEXT, updated_at TEXT)");
   const r = await accountRoutes(rctx("/api/account/profile", db));
   const body = await r.json();
   eq("profile: no row → status none, no invented provider/email", [r.status, body.subscription.status, body.subscription.billing_provider, body.subscription.billing_email], [200, "none", null, null]);
   const db2 = createDb([row({ subscription_status: "trialing", trial_end: iso(3), current_period_end: null, stripe_subscription_id: null })]);
-  db2.exec("CREATE TABLE customer_profiles (id TEXT, owner_user_id TEXT, company_name TEXT, website TEXT, industry TEXT, company_size TEXT, contact_email TEXT, contact_name TEXT, created_at TEXT, updated_at TEXT)");
+  db2.exec("CREATE TABLE customer_profiles (id TEXT, owner_user_id TEXT, company_name TEXT, website TEXT, industry TEXT, company_size TEXT, contact_email TEXT, contact_name TEXT, country TEXT, created_at TEXT, updated_at TEXT)");
   const body2 = await (await accountRoutes(rctx("/api/account/profile", db2))).json();
   eq("profile: trial row → trialing (canonical)", body2.subscription.status, "trialing");
 }

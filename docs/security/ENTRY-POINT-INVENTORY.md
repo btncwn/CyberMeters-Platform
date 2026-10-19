@@ -91,21 +91,21 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | PATCH | `/api/account/profile` | 258 | account | ✓ | requireAuth |
 | GET | `/api/account/company` | 302 | account | ✓ | requireAuth |
 | PUT | `/api/account/company` | 322 | account | ✓ | requireAuth |
-| GET | `/api/account/report-branding` | 401 | account | ✓ | requireAuth |
-| PUT | `/api/account/report-branding` | 431 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription` | 516 | account | ✓ | requireAuth |
-| GET | `/api/account/usage` | 551 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/limits` | 572 | account | ✓ | requireAuth |
-| GET | `/api/admin/subscriptions` | 597 | admin | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/api/account/api-tokens` | 644 | account | ✓ | requireAuth |
-| POST | `/api/account/api-tokens` | 666 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 737 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 775 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 834 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 884 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 930 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1026 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1086 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/report-branding` | 409 | account | ✓ | requireAuth |
+| PUT | `/api/account/report-branding` | 439 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription` | 524 | account | ✓ | requireAuth |
+| GET | `/api/account/usage` | 559 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription/limits` | 580 | account | ✓ | requireAuth |
+| GET | `/api/admin/subscriptions` | 605 | admin | ✓ | isPlatformAdmin, requireAuth |
+| GET | `/api/account/api-tokens` | 652 | account | ✓ | requireAuth |
+| POST | `/api/account/api-tokens` | 674 | account | ✓ | requireAuth, requireWorkspaceAccess |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 745 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 783 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 842 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 892 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 938 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1034 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1094 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 

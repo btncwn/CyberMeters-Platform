@@ -7,7 +7,7 @@ import { parseServerDate, formatDay } from '../utils/dates'
  *   agency report branding) · Privacy & data.
  * One company form, one industry list, one size list: the richer lists kept,
  * the Settings page's security-contact fields folded in (saved through the
- * company-profile API alongside the account profile).
+ * company-profile API, the one source for every company field).
  *
  * Authentication: requireAuth enforced by ProtectedRoute in App.jsx.
  * Only the profile owner can write (backend enforces user_id from session).
@@ -202,14 +202,14 @@ export default function AccountPage() {
   const { user: authUser } = useAuth()
 
   // Remote state
-  const [profile,      setProfile]      = useState(null)
   const [subscription, setSubscription] = useState(null)   // singular — backend returns { subscription: {...} }
   const [planLimits,   setPlanLimits]   = useState(null)
   const [apiTokens,    setApiTokens]    = useState([])
   const [loading,      setLoading]      = useState(true)
   const [loadError,    setLoadError]    = useState(null)
 
-  // Edit form state (synced from profile on load)
+  // Edit form state: the name from the account, everything else from the
+  // company record (GET /api/account/company), the one source for the form.
   const [form, setForm] = useState({
     name:         '',
     company_name: '',
@@ -257,22 +257,11 @@ export default function AccountPage() {
           api.getMfaStatus(),
           Promise.resolve().then(() => api.getCompanyProfile()),
         ])
-        if (companyRes.status === 'fulfilled') {
-          const c = companyRes.value?.company || {}
-          setContact({ contact_name: c.contact_name || '', contact_email: c.contact_email || '' })
-        }
+        if (companyRes.status === 'fulfilled') applyCompany(companyRes.value?.company)
 
         if (profileRes.status === 'fulfilled') {
-          const { user: u, profile: p } = profileRes.value
-          setProfile(p)
-          setForm({
-            name:         u?.name         || '',
-            company_name: p?.company_name || '',
-            website:      p?.website      || '',
-            industry:     p?.industry     || '',
-            company_size: p?.company_size || '',
-            country:      p?.country      || '',
-          })
+          const u = profileRes.value?.user
+          setForm(prev => ({ ...prev, name: u?.name || '' }))
         } else {
           setLoadError(profileRes.reason?.message || 'Failed to load profile')
         }
@@ -300,6 +289,19 @@ export default function AccountPage() {
     load()
   }, [])
 
+  function applyCompany(company) {
+    const c = company || {}
+    setForm(prev => ({
+      ...prev,
+      company_name: c.company_name || '',
+      website:      c.website      || '',
+      industry:     c.industry     || '',
+      company_size: c.company_size || '',
+      country:      c.country      || '',
+    }))
+    setContact({ contact_name: c.contact_name || '', contact_email: c.contact_email || '' })
+  }
+
   function handleChange(e) {
     setSaveOk(false)
     setSaveError(null)
@@ -312,23 +314,20 @@ export default function AccountPage() {
     setContact(prev => ({ ...prev, [e.target.name]: e.target.value }))
   }
 
-  // One company form, two records behind it: the account profile (company
-  // name, website, industry, size, country) and the company profile (the
-  // same company fields plus the security contact). Both are saved together.
+  // The company form saves to the company record only, then shows what the
+  // server now holds (a fresh read), never what the form assumed it sent.
   async function handleSaveCompany(e) {
     e.preventDefault()
     setSaving(true)
     setSaveError(null)
     setSaveOk(false)
     try {
-      const [res] = await Promise.all([
-        api.updateAccountProfile(form),
-        api.updateCompanyProfile({
-          company_name: form.company_name, website: form.website, industry: form.industry, company_size: form.company_size,
-          contact_name: contact.contact_name, contact_email: contact.contact_email,
-        }),
-      ])
-      setProfile(res.profile)
+      await api.updateCompanyProfile({
+        company_name: form.company_name, website: form.website, industry: form.industry, company_size: form.company_size,
+        country: form.country, contact_name: contact.contact_name, contact_email: contact.contact_email,
+      })
+      const fresh = await api.getCompanyProfile()
+      applyCompany(fresh?.company)
       setSaveOk(true)
     } catch (err) {
       setSaveError(err.message)
@@ -343,8 +342,7 @@ export default function AccountPage() {
     setSaveError(null)
     setSaveOk(false)
     try {
-      const res = await api.updateAccountProfile(form)
-      setProfile(res.profile)
+      const res = await api.updateAccountProfile({ name: form.name })
       setSaveOk(true)
       // Sync updated name into auth context so UserMenu reflects immediately
       if (res.user && form.name !== authUser?.name) {

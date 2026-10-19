@@ -31,15 +31,18 @@ beforeEach(() => {
   vi.resetAllMocks()
   localStorage.clear()
   localStorage.setItem('cybermeters_workspace_id', 'ws1')
-  api.getAccountProfile.mockResolvedValue({ user: { name: 'Owner' }, profile: { company_name: 'Acme', website: 'https://acme.test', industry: 'Legal', company_size: '11-50', country: 'United Kingdom' } })
-  api.getCompanyProfile.mockResolvedValue({ company: { company_name: 'Acme', contact_name: 'Sam Security', contact_email: 'security@acme.test' } })
+  // The real route shapes: GET /api/account/profile returns the record as
+  // `company` (never `profile`); GET /api/account/company returns `company`.
+  const company = { company_name: 'Acme', website: 'https://acme.test', industry: 'Legal', company_size: '11-50', country: 'United Kingdom', contact_name: 'Sam Security', contact_email: 'security@acme.test' }
+  api.getAccountProfile.mockResolvedValue({ user: { name: 'Owner' }, company })
+  api.getCompanyProfile.mockResolvedValue({ company })
   api.getSubscription.mockResolvedValue({ subscription: { plan: 'business', status: 'trialing', billing_provider: 'stripe' } })
   api.getApiTokens.mockResolvedValue({ tokens: [] })
   api.getAccountUsage.mockResolvedValue({ plan: 'business', usage: { workspaces: 2 }, limits: { workspaces: 5, domains: 10, users: 5, history_days: 365 } })
   api.getMfaStatus.mockResolvedValue({ mfa_enabled: false })
   api.getBrandingProfiles.mockResolvedValue({ profiles: [], white_label_available: true })
   api.getNotificationPreferences.mockResolvedValue({ email_frequency: 'critical_only' })
-  api.updateAccountProfile.mockResolvedValue({ profile: {}, user: { name: 'Owner' } })
+  api.updateAccountProfile.mockResolvedValue({ user: { name: 'Owner' } })
   api.updateCompanyProfile.mockResolvedValue({ company: {} })
 })
 
@@ -66,7 +69,7 @@ describe('AccountPage tabs', () => {
     expect(screen.queryByDisplayValue('Acme')).toBeNull()
   })
 
-  it('Company: one form with the richer industry and size lists and the security contact; saving writes both records', async () => {
+  it('Company: one form with the richer industry and size lists and the security contact; saving writes the company record and re-reads it', async () => {
     renderAt('/account/company')
     const panel = await screen.findByTestId('account-panel-company')
     expect(screen.getByTestId('account-tab-company')).toHaveAttribute('aria-selected', 'true')
@@ -79,8 +82,9 @@ describe('AccountPage tabs', () => {
     expect(within(panel).getByDisplayValue('security@acme.test')).toBeInTheDocument()
     fireEvent.click(within(panel).getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(api.updateCompanyProfile).toHaveBeenCalledTimes(1))
-    expect(api.updateCompanyProfile).toHaveBeenCalledWith(expect.objectContaining({ company_name: 'Acme', industry: 'Legal', company_size: '11-50', contact_name: 'Sam Security', contact_email: 'security@acme.test' }))
-    expect(api.updateAccountProfile).toHaveBeenCalledTimes(1)
+    expect(api.updateCompanyProfile).toHaveBeenCalledWith(expect.objectContaining({ company_name: 'Acme', industry: 'Legal', company_size: '11-50', country: 'United Kingdom', contact_name: 'Sam Security', contact_email: 'security@acme.test' }))
+    await waitFor(() => expect(api.getCompanyProfile).toHaveBeenCalledTimes(2))
+    expect(api.updateAccountProfile).not.toHaveBeenCalled()
   })
 
   it('Security: MFA, API tokens and the embedded sessions/login history', async () => {

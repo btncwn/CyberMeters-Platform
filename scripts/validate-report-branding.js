@@ -268,6 +268,33 @@ const M126 = "126-customer-profiles-rebuild.sql";
   ok("after 126: account purge removes the legacy copy too",
      Array.isArray(worker.ACCOUNT_PURGE_TABLES) &&
      worker.ACCOUNT_PURGE_TABLES.some((t) => t.table === "customer_profiles_legacy_pre016"));
+
+  // ── 8. Company form round trip (P1, 19 Oct 2026: saved fields came back empty) ──
+  // Every field the form sends, country and the security contact included,
+  // must come back from both reads the account page uses.
+  const full = {
+    company_name: "Example Managed IT Ltd", website: "https://example.co.uk", industry: "Legal",
+    company_size: "11-50", country: "United Kingdom", contact_name: "Sam Security", contact_email: "Security@Example.co.uk",
+  };
+  const put = await liveCall("PUT", "/api/account/company", full);
+  const getCompany = await liveCall("GET", "/api/account/company");
+  const getProfile = await liveCall("GET", "/api/account/profile");
+  const expected = { ...full, contact_email: "security@example.co.uk" };
+  const sameFields = (row) => !!row && Object.entries(expected).every(([k, v]) => row[k] === v);
+  ok("company round trip: PUT returns every saved field, country included", put.status === 200 && sameFields(put.body.company));
+  ok("company round trip: GET /api/account/company returns every saved field", getCompany.status === 200 && sameFields(getCompany.body.company));
+  ok("company round trip: GET /api/account/profile returns the record as `company`, country included",
+     getProfile.status === 200 && sameFields(getProfile.body.company) && !("profile" in getProfile.body));
+  const noCountry = { ...full }; delete noCountry.country;
+  const kept = await liveCall("PUT", "/api/account/company", noCountry);
+  ok("company round trip: a save that does not send country keeps the saved country", kept.status === 200 && kept.body.company?.country === "United Kingdom");
+  const cleared = await liveCall("PUT", "/api/account/company", { ...full, country: "  " });
+  ok("company round trip: an empty country clears it", cleared.status === 200 && cleared.body.company?.country === null);
+  ok("company round trip: a country over 100 characters is rejected", (await liveCall("PUT", "/api/account/company", { ...full, country: "x".repeat(101) })).status === 400);
+  ok("company round trip: markup in country is rejected", (await liveCall("PUT", "/api/account/company", { ...full, country: "<b>UK</b>" })).status === 400);
+  ok("company round trip: a non-text country is rejected", (await liveCall("PUT", "/api/account/company", { ...full, country: 44 })).status === 400);
+  ok("company round trip: rejected saves leave the stored country unchanged",
+     live.prepare("SELECT country FROM customer_profiles WHERE owner_user_id='u_l'").get().country === null);
   live.close();
 }
 
