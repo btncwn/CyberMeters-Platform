@@ -68,7 +68,7 @@ export default function FreeCyberMotPreviewGrid({ domains = [] }) {
                 <div className="fm-domain-lock">
                   <span>
                     {domain.locked_count > 0
-                      ? `+${domain.locked_count} more — unlock with trial`
+                      ? `${domain.locked_count} more with a free account`
                       : 'Unlock deeper assessment after verification'}
                   </span>
                 </div>

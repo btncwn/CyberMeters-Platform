@@ -155,10 +155,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | POST | `/api/free-scan` | 72 | public-or-global | public | — |
-| GET | `/^\/api\/workspaces\/([^/` | 295 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/api/plans` | 363 | public-or-global | public | — |
-| POST | `/^\/api\/workspaces\/([^/` | 405 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 686 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 297 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/api/plans` | 365 | public-or-global | public | — |
+| POST | `/^\/api\/workspaces\/([^/` | 407 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 688 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/brand.js`
 

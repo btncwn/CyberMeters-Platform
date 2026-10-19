@@ -56,7 +56,7 @@ function fixtureRunners(fixture) {
   );
 }
 
-async function runRouteFixture(fixture) {
+async function runRouteFixture(fixture, runners = fixtureRunners(fixture)) {
   const request = new Request("https://app.cybermeters.com/api/free-scan", {
     method: "POST",
     headers: {
@@ -78,7 +78,7 @@ async function runRouteFixture(fixture) {
     rateLimitScopeId: async () => "fixture-scope",
     requireAuth: async () => null,
     requireWorkspaceRole: async () => null,
-    freeScanModuleRunners: fixtureRunners(fixture),
+    freeScanModuleRunners: runners,
   });
   return {
     status: response.status,
@@ -105,6 +105,20 @@ globalThis.fetch = async (input) => {
 };
 
 try {
+  // www is the website, not the business domain: the route checks the apex.
+  const wwwFixture = { ...readFixture("partial"), domain: "https://WWW.Example.com/home" };
+  const probedTargets = new Set();
+  const wwwRunners = Object.fromEntries(
+    Object.entries(fixtureRunners(wwwFixture)).map(([module, run]) => [
+      module,
+      async (target, ...rest) => { probedTargets.add(target); return run(target, ...rest); },
+    ]),
+  );
+  const www = await runRouteFixture(wwwFixture, wwwRunners);
+  eq("WWW input: real route returns 200", www.status, 200);
+  eq("WWW input: result is for the apex", www.body.domain, "example.com");
+  eq("WWW input: every probe targets the apex", [...probedTargets].join(","), "example.com");
+
   const failed = await runRouteFixture(readFixture("failed"));
   eq("FAILED fixture: real route returns 200", failed.status, 200);
   eq("FAILED fixture: rejected TLS remains failed", failed.body.module_evidence
