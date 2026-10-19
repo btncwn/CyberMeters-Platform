@@ -12,7 +12,7 @@ describe('Public About route', () => {
     vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected network request') }))
     window.history.replaceState({}, '', '/about')
     render(<App />)
-    expect(await screen.findByRole('heading', { name: 'Built and operated by Turhan Acar' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'The founder: Turhan Acar' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /See our own-domain check/ })).toHaveAttribute('href', '/trust')
     expect(fetch).not.toHaveBeenCalled()
   })

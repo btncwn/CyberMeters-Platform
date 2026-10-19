@@ -25,6 +25,24 @@
   Pragma: no-cache
   Expires: 0
 
+# ── Search engines: only the public site is listed ────────────────────────
+# One Pages project serves both hosts, so these rules match on the host. The
+# app host (sign-in, the product, and the free scan and pricing pages it
+# serves) and every preview or staging host carry noindex, so search engines
+# list only cybermeters.com. robots.txt deliberately does not block these
+# hosts: a crawler that may not fetch a page never sees its noindex.
+https://app.cybermeters.com/*
+  X-Robots-Tag: noindex
+
+https://app-staging.cybermeters.com/*
+  X-Robots-Tag: noindex
+
+https://:project.pages.dev/*
+  X-Robots-Tag: noindex
+
+https://:version.:project.pages.dev/*
+  X-Robots-Tag: noindex
+
 # ── Hashed build output: cache forever ────────────────────────────────────
 # Vite content-hashes every filename in /assets, so a URL's content can
 # never change — safe for browsers and the CDN to keep for a year without

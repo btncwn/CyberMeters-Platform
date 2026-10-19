@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import PublicSiteHeader from '../components/PublicSiteHeader'
 import PublicSiteFooter from '../components/PublicSiteFooter'
-import CyberMetersLogo from '../components/CyberMetersLogo'
 
 export default function AboutPage() {
   return <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -10,13 +9,13 @@ export default function AboutPage() {
       <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-6 sm:p-10 space-y-8">
         <header>
           <p className="eyebrow">About CyberMeters</p>
-          <h1 className="text-3xl sm:text-4xl font-bold mt-3 tracking-tight">Know where your business is exposed and what to do next.</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold mt-3 tracking-tight">Built to show what anyone can see of your business from the outside.</h1>
           <p className="text-gray-600 mt-4 leading-relaxed">CyberMeters helps you understand your external security, choose the next useful action and keep a record of what changed.</p>
         </header>
         <section className="space-y-3" aria-labelledby="founder-heading">
-          <h2 id="founder-heading" className="text-xl font-bold">Built and operated by Turhan Acar</h2>
-          <p className="text-sm text-gray-600 leading-relaxed">Turhan Acar is the founder, developer and operator of CyberMeters, trading as a sole trader. The product brings domain checks, evidence, remediation tracking and client reports into one browser-based workspace.</p>
-          <p className="text-sm text-gray-600 leading-relaxed">Development uses AI assistance alongside source review, automated tests and controlled checks. AI-generated code and reviews still need verification; they are not independent third-party penetration tests.</p>
+          <h2 id="founder-heading" className="text-xl font-bold">The founder: Turhan Acar</h2>
+          <p className="text-sm text-gray-600 leading-relaxed">Turhan Acar holds CompTIA Security+ and CySA+. Before CyberMeters, Turhan worked in airport security on document and fraud checks.</p>
+          <p className="text-sm text-gray-600 leading-relaxed">Turhan built CyberMeters to show small businesses and MSPs what is visible about them from the outside, with the evidence behind every finding.</p>
         </section>
         <section className="space-y-3" aria-labelledby="approach-heading">
           <h2 id="approach-heading" className="text-xl font-bold">Clear evidence, practical next steps</h2>

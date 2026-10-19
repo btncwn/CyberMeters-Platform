@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import versionManifest from './version-manifest.js'
+import publicPagesHtml from './public-pages-html.js'
 
 export default defineConfig({
-  plugins: [react(), versionManifest()],
+  plugins: [react(), versionManifest(), publicPagesHtml()],
   build: {
     rollupOptions: {
       output: {
