@@ -10,8 +10,9 @@ if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
+cd "$root"
+npm ci --prefix workers/network-probe --ignore-scripts
 cd "$worker_dir"
-npm ci
 
 log_file=$(mktemp)
 trap 'rm -f "$log_file"' EXIT

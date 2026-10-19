@@ -7,10 +7,11 @@
     "frontend/.npmrc",
     "workers/email-ingest/.npmrc",
     "workers/mcp-server/.npmrc",
+    "workers/network-probe/.npmrc",
     "workers/scan-api/.npmrc"
   ],
-  "expected_package_root_count": 4,
-  "expected_lock_install_marker_count": 11,
+  "expected_package_root_count": 5,
+  "expected_lock_install_marker_count": 14,
   "expected_approved_script_count": 3,
   "package_roots": [
     {
@@ -120,6 +121,42 @@
           "integrity": "sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==",
           "disposition": "deny_install_lifecycle",
           "package_json_sha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a"
+        }
+      ]
+    },
+    {
+      "root": "workers/network-probe",
+      "package_name": "cybermeters-network-probe",
+      "package_json_sha256": "513379f1f1df7d6f86264e61e7077a043eccdb3e4e90887abbf300f1099c3637",
+      "lockfile_version": 3,
+      "lockfile_sha256": "2c0f22b354602ee26fb0147bda297d88630b35e59ae446edf52c57c73c25a2bc",
+      "install_script_markers": [
+        {
+          "package_path": "node_modules/esbuild",
+          "package_name": "esbuild",
+          "version": "0.28.1",
+          "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz",
+          "integrity": "sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==",
+          "disposition": "deny_install_lifecycle",
+          "package_json_sha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a"
+        },
+        {
+          "package_path": "node_modules/fsevents",
+          "package_name": "fsevents",
+          "version": "2.3.3",
+          "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+          "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
+          "disposition": "deny_no_install_lifecycle",
+          "package_json_sha256": "500839fcc76f6c5efcb454e6614b23c26775e75e1140619fff9ca64c291aec2b"
+        },
+        {
+          "package_path": "node_modules/workerd",
+          "package_name": "workerd",
+          "version": "1.20261006.1",
+          "resolved": "https://registry.npmjs.org/workerd/-/workerd-1.20261006.1.tgz",
+          "integrity": "sha512-8MadBuffZ5NdpLwZjUmsqT5QlaKXq4gjgT6wzcKeynZTICNXyePhc+5QVoKiK7+MMhFTLNrRO2KXLlpk8Q6BkA==",
+          "disposition": "deny_install_lifecycle",
+          "package_json_sha256": "71ef84ddbd1302831f904f7db06180b2d9d184f73996ad5d4c16080a8695b1a4"
         }
       ]
     },
