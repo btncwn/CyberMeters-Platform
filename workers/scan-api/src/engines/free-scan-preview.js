@@ -24,7 +24,12 @@ import {
 } from "./free-scan-evidence.js";
 import { buildFreeScanObserved } from "./free-scan-observed.js";
 
-export const FREE_SCAN_SUBREQUEST_LIMIT = 72;
+// Sized from the free-scan corpus (scripts/lab/free-scan-corpus.mjs, 105 real
+// domains, 20 Oct 2026) run without a cap: demand p50 61, p95 71, max 80. DNS is
+// a fixed 17, email ~26 (DKIM selector fan-out), and every HTTP hop costs 3
+// (A + AAAA re-resolved for rebinding safety, then the fetch). 96 is ~1.2x the
+// observed worst case; a domain beyond it still ends honestly incomplete.
+export const FREE_SCAN_SUBREQUEST_LIMIT = 96;
 export const FREE_SCAN_DEADLINE_MS = 20_000;
 export const FREE_SCAN_EXPOSED_FINDING_LIMIT = 2;
 

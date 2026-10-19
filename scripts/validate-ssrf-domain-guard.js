@@ -17,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { isValidDomain } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "util.js")).href);
 const { billingRoutes } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "billing.js")).href);
+const { FREE_SCAN_SUBREQUEST_LIMIT } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "free-scan-preview.js")).href);
 const { safeFetch } = await import(
   pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href
 );
@@ -268,6 +269,24 @@ for (const [label, behaviour, status] of [
   const definitive = await runDirectPreview({ dnsQueryImpl: dns.impl });
   eq(`${label} is not retried`, dns.calls.length, 2);
   eq(`${label} keeps its existing response`, definitive.status, status);
+}
+
+// The budget is sized from measured demand: the corpus worst case (80
+// subrequests across the five modules, googlemail.com) must complete within
+// it, and the public execution summary reports the same limit.
+{
+  const demand = { dns: 17, ssl: 6, headers: 16, email_security: 33, technology_detection: 8 };
+  const behaviours = Object.fromEntries(Object.entries(demand).map(([module, count]) => [module, async (_domain, options) => {
+    for (let i = 0; i < count; i += 1) options.accounting.recordAttempt(module);
+    return structuredClone(safeModuleResults[module]);
+  }]));
+  const worstCase = await runDirectPreview({ moduleBehaviors: behaviours });
+  eq("measured worst-case demand (80) fits the free-scan budget", worstCase.status, 200);
+  ok("worst-case demand settles every module without a denial",
+    worstCase.body.execution?.denied_subrequests === 0
+      && worstCase.body.module_evidence?.every((entry) => entry.state !== "failed"));
+  eq("execution summary reports the canonical limit",
+    worstCase.body.execution?.subrequest_limit, FREE_SCAN_SUBREQUEST_LIMIT);
 }
 
 for (const addressMode of ["a_only", "aaaa_only"]) {
