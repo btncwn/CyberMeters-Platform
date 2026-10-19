@@ -54,7 +54,7 @@ const LOADING_STEPS = [
 
 const MODULE_LABELS = {
   dns: 'DNS',
-  ssl: 'TLS',
+  ssl: 'HTTPS',
   headers: 'Headers',
   email_security: 'Email',
   technology_detection: 'Technology',
@@ -362,6 +362,19 @@ export default function FreeScanPage() {
               </span>
             ))}
           </div>
+          {presentation.moduleEvidence.some((module) => module.checks) && (
+            <details className="fm-module-scope">
+              <summary>What these checks covered</summary>
+              <dl>
+                {presentation.moduleEvidence.filter((module) => module.checks).map((module) => (
+                  <div key={module.module} style={{ display: 'contents' }}>
+                    <dt>{module.label || MODULE_LABELS[module.module]}</dt>
+                    <dd>{module.checks}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )}
 
           <section className="fm-findings" aria-labelledby="preview-findings-title">
             <div className="fm-section-heading">

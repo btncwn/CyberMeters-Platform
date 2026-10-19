@@ -14,7 +14,7 @@ export const FREE_SCAN_EXECUTION_STATES = Object.freeze([
 const EXECUTION_STATE_SET = new Set(FREE_SCAN_EXECUTION_STATES)
 const EXPECTED_MODULES = Object.freeze([
   Object.freeze({ module: 'dns', label: 'DNS' }),
-  Object.freeze({ module: 'ssl', label: 'TLS' }),
+  Object.freeze({ module: 'ssl', label: 'HTTPS' }),
   Object.freeze({ module: 'headers', label: 'Headers' }),
   Object.freeze({ module: 'email_security', label: 'Email' }),
   Object.freeze({ module: 'technology_detection', label: 'Technology' }),
@@ -88,6 +88,8 @@ function normalizedModuleEvidence(result) {
     return {
       module: expected.module,
       label: entry?.label || expected.label,
+      // What the step looked at, worded by the API; null from an older API.
+      checks: typeof entry?.checks === 'string' ? entry.checks : null,
       attempted: entry?.attempted === true,
       state,
     }
@@ -136,6 +138,12 @@ function normalizedDomains(result) {
         : null,
       count_kind: entry?.count_kind || 'input_required',
       samples: Array.isArray(entry?.samples) ? entry.samples.slice(0, 2) : [],
+      // What the completed checks observed, worded by the API. Only well-formed
+      // statements pass; an older API sends none.
+      observed: (Array.isArray(entry?.observed) ? entry.observed : [])
+        .filter((item) => typeof item?.text === 'string' && item.text.trim() && typeof item?.id === 'string')
+        .slice(0, 8)
+        .map((item) => ({ id: item.id, text: item.text, module: typeof item.module === 'string' ? item.module : null })),
       locked_count: Number.isFinite(entry?.locked_count)
         ? Math.max(0, entry.locked_count)
         : 0,

@@ -12,6 +12,24 @@ function countCopy(domain) {
   return 'Unlock to assess'
 }
 
+// What the completed public checks observed for this domain. The wording comes
+// from the API (free-scan-observed.js); the page adds no verdict of its own.
+function ObservedList({ items }) {
+  return (
+    <div className="fm-domain-observed">
+      <span className="fm-domain-observed__title">Observed in the completed checks</span>
+      <ul>
+        {items.map((item) => (
+          <li key={item.id}>
+            <span className="fm-observed-mark" aria-hidden="true">✓</span>
+            <span>{item.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function SampleRow({ sample }) {
   return (
     <li className="fm-domain-sample">
@@ -38,6 +56,7 @@ export default function FreeCyberMotPreviewGrid({ domains = [], moreWhere = 'in 
       <div className="fm-domain-grid">
         {domains.map((domain) => {
           const stateKey = domain.display_state || domain.state
+          const observed = Array.isArray(domain.observed) ? domain.observed.filter((item) => item?.text) : []
           return (
             <article
               className="fm-domain-card"
@@ -52,17 +71,21 @@ export default function FreeCyberMotPreviewGrid({ domains = [], moreWhere = 'in 
               <h3>{domain.display_name}</h3>
               <p className="fm-domain-count">{countCopy(domain)}</p>
 
-              <ul className="fm-domain-samples">
-                {domain.samples.length > 0
-                  ? domain.samples.map((sample, index) => (
-                    <SampleRow key={sample.id || `${sample.title}-${index}`} sample={sample} />
-                  ))
-                  : (
-                    <li className="fm-domain-empty">
-                      No result is exposed for this domain in the bounded snapshot.
-                    </li>
-                  )}
-              </ul>
+              {(domain.samples.length > 0 || observed.length === 0) && (
+                <ul className="fm-domain-samples">
+                  {domain.samples.length > 0
+                    ? domain.samples.map((sample, index) => (
+                      <SampleRow key={sample.id || `${sample.title}-${index}`} sample={sample} />
+                    ))
+                    : (
+                      <li className="fm-domain-empty">
+                        No result is exposed for this domain in the bounded snapshot.
+                      </li>
+                    )}
+                </ul>
+              )}
+
+              {observed.length > 0 && <ObservedList items={observed} />}
 
               {(domain.locked_count > 0 || domain.unlock_required) && (
                 <div className="fm-domain-lock">

@@ -22,6 +22,7 @@ import {
   FREE_SCAN_MODULE_STATES,
   resolveFreeScanPreviewState,
 } from "./free-scan-evidence.js";
+import { buildFreeScanObserved } from "./free-scan-observed.js";
 
 export const FREE_SCAN_SUBREQUEST_LIMIT = 72;
 export const FREE_SCAN_DEADLINE_MS = 20_000;
@@ -140,7 +141,7 @@ function observationSamples(domainKey, modules) {
   return [];
 }
 
-function publicDomainProjection(domainState, findings, modules) {
+function publicDomainProjection(domainState, findings, modules, observed = {}) {
   const matchingFindings = (domainState.finding_ids || [])
     .map((id) => findings.find((finding) => finding.id === id))
     .filter(Boolean);
@@ -180,6 +181,9 @@ function publicDomainProjection(domainState, findings, modules) {
           ? "input_required"
           : "finding",
     samples,
+    // What the completed public checks did observe for this domain, stated as
+    // evidence (free-scan-observed.js). Empty when nothing was observed.
+    observed: observed[domainState.domain_key] || [],
     locked_count: Math.max(0, realTotal - samples.length),
     unlock_required: deepUnlock,
     summary: domainState.summary,
@@ -287,8 +291,9 @@ export function buildFreeScanPreview({
     },
   };
   const domainStates = resolveCyberMotDomainStates(report);
+  const observed = buildFreeScanObserved(modules, evidenceByModule);
   const cyberMotDomains = domainStates.map((state) =>
-    publicDomainProjection(state, normalised, modules)
+    publicDomainProjection(state, normalised, modules, observed)
   );
   const shownFindings = normalised
     .slice(0, FREE_SCAN_EXPOSED_FINDING_LIMIT)
