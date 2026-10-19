@@ -100,24 +100,29 @@ const COMPANY_SIZES = [
   { value: '1000+',    label: '1,000+ employees'   },
 ]
 
+// A new API token expires after 90 days unless "Never" is chosen explicitly.
+const DEFAULT_TOKEN_EXPIRY = '90'
+
 // ── Plan Limits Card ─────────────────────────────────────────────────────────
 
 function UsageBar({ label, used, limit, note }) {
   const pct   = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
-  const near  = pct >= 80
-  const full  = pct >= 100
-  const color = full ? 'bg-red-500' : near ? 'bg-brand-700' : 'bg-brand-500'
+  // At the limit is normal use: neutral. Red only when usage exceeds it.
+  const over  = limit > 0 && used > limit
+  const full  = !over && pct >= 100
+  const near  = !over && !full && pct >= 80
+  const color = over ? 'bg-red-500' : (full || near) ? 'bg-brand-700' : 'bg-brand-500'
   return (
     <div className="mb-3 last:mb-0">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-gray-600">{label}</span>
-        <span className={`text-xs font-semibold ${full ? 'text-red-700' : near ? 'text-brand-700' : 'text-gray-500'}`}>
+        <span className={`text-xs font-semibold ${over ? 'text-red-700' : (full || near) ? 'text-brand-700' : 'text-gray-500'}`}>
           {used} / {limit >= 999 ? '∞' : limit}
           {note && <span className="ml-1 font-normal text-gray-400">{note}</span>}
         </span>
       </div>
       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full transition-all ${color}`} data-usage={over ? 'over' : full ? 'at-limit' : 'under'} style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
@@ -221,7 +226,7 @@ export default function AccountPage() {
   const [saveOk,     setSaveOk]     = useState(false)
   const [tokenName,   setTokenName]   = useState('')
   const [tokenScope,  setTokenScope]  = useState('read')
-  const [tokenExpiry, setTokenExpiry] = useState('never')
+  const [tokenExpiry, setTokenExpiry] = useState(DEFAULT_TOKEN_EXPIRY)
   const [newToken,    setNewToken]    = useState(null)
   const [tokenBusy,   setTokenBusy]   = useState(false)
   const [tokenError,  setTokenError]  = useState(null)
@@ -380,7 +385,7 @@ export default function AccountPage() {
       setNewToken(res.token)
       setTokenName('')
       setTokenScope('read')
-      setTokenExpiry('never')
+      setTokenExpiry(DEFAULT_TOKEN_EXPIRY)
       const list = await api.getApiTokens()
       setApiTokens(list.tokens || [])
     } catch (e) {
@@ -832,11 +837,11 @@ export default function AccountPage() {
                           onChange={(e) => setTokenExpiry(e.target.value)}
                           className="input"
                         >
-                          <option value="never">Never</option>
                           <option value="7">7 days</option>
                           <option value="30">30 days</option>
                           <option value="90">90 days</option>
                           <option value="365">1 year</option>
+                          <option value="never">Never</option>
                         </select>
                       </div>
                     </div>
