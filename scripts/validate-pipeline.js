@@ -394,7 +394,9 @@ async function main() {
     "mcp_revoked_grant_cleanup",
     // PR-1 (22 Jul 2026): canonical interrupted-scan terminal recovery — the ONE
     // repair path for scans abandoned mid-flight (GET list/detail are read-only).
-    "interrupted_scan_recovery"];
+    "interrupted_scan_recovery",
+    // F1 (19 Oct 2026): free-tool results deferred while the daily breaker was on.
+    "free_tool_deferred_checks"];
   // Time-gated tasks must mirror src/cron/scheduled.js exactly, or this exact
   // name-set match fails whenever CI happens to run in the relevant window
   // (retention 02:00 UTC; ops-health 08:00 UTC; weekly digest Mon 08:00 UTC).

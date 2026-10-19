@@ -43,6 +43,9 @@ const StatusPage                = lazy(() => import('./pages/StatusPage'))
 const InvitationLandingPage     = lazy(() => import('./pages/InvitationLandingPage'))
 const FreeScanPage              = preloadableLazy(() => import('./pages/FreeScanPage'))
 const CyberEssentialsReadinessPage = lazy(() => import('./pages/CyberEssentialsReadinessPage'))
+const ToolsIndexPage            = lazy(() => import('./pages/tools/ToolsIndexPage'))
+const DmarcCheckerPage          = lazy(() => import('./pages/tools/DmarcCheckerPage'))
+const SpfCheckerPage            = lazy(() => import('./pages/tools/SpfCheckerPage'))
 
 // ── Lazy-Loaded Core Protected App Pages ─────────────────────────────────
 // The signed-in shell is lazy too: it carries the top-bar globe and its map
@@ -171,6 +174,9 @@ function AppRoutes() {
           <Route path="/about"   element={<AboutPage />} />
           <Route path="/status"  element={<StatusPage />} />
           <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
+          <Route path="/tools"   element={<ToolsIndexPage />} />
+          <Route path="/tools/dmarc-checker" element={<DmarcCheckerPage />} />
+          <Route path="/tools/spf-checker"   element={<SpfCheckerPage />} />
           {APP_HOST_PATHS.map(p => (
             <Route key={p} path={p} element={<AppHostRedirect />} />
           ))}
@@ -211,6 +217,11 @@ function AppRoutes() {
         {/* Pull-request previews have no marketing host; show the public page here. */}
         {isPreviewHost() && <Route path="/landing" element={<PublicLandingPage />} />}
         <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
+        {/* Free tools also open on the app host, so a signed-in user's session
+            applies; their canonical pages are on cybermeters.com. */}
+        <Route path="/tools"                  element={<ToolsIndexPage />} />
+        <Route path="/tools/dmarc-checker"    element={<DmarcCheckerPage />} />
+        <Route path="/tools/spf-checker"      element={<SpfCheckerPage />} />
         <Route path="/mcp/connect" element={<ProtectedRoute><McpConnectPage /></ProtectedRoute>} />
 
         {/* ── Protected app ───────────────────────────────────────────── */}

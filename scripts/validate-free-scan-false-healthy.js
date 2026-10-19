@@ -399,6 +399,15 @@ try {
   globalThis.fetch = originalFetch;
 }
 
+// The public free tools (/tools/*) share this lane: same anonymous audience,
+// same honesty rule. Their gate and engine tests run here.
+{
+  const { spawnSync } = await import("node:child_process");
+  const tools = spawnSync(process.execPath, ["--test", "workers/scan-api/test/free-tools.test.js"],
+    { cwd: root, stdio: "inherit", timeout: 180000 });
+  ok("free tools: gate, limits, cache, deferral, share and engine tests", tools.status === 0, `exit ${tools.status}`);
+}
+
 console.log(`\nFree-scan false-healthy: ${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);
 console.log("Free-scan false-healthy validation passed");

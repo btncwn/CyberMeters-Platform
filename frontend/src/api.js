@@ -372,6 +372,17 @@ async function requestBlob(path, options = {}) {
 }
 
 export const api = {
+  // ── Public free tools (/tools/*) ──────────────────────────────────────
+  // Outcome calls: a used-up allowance or a busy day is an answer the page
+  // shows calmly, not an error. A signed-in user's token rides along, so the
+  // server can skip the human check for workspace members.
+  freeToolConfig: () => outcomeCall('GET', '/tools/config'),
+  runDmarcTool: (body) => outcomeCall('POST', '/tools/dmarc/check', body),
+  runSpfTool: (body) => outcomeCall('POST', '/tools/spf/check', body),
+  deferDmarcTool: (body) => outcomeCall('POST', '/tools/dmarc/defer', body),
+  deferSpfTool: (body) => outcomeCall('POST', '/tools/spf/defer', body),
+  verifyToolShare: (token) => outcomeCall('POST', '/tools/share', { token }),
+
   // ── Authentication ────────────────────────────────────────────────────────
 
   /** POST /api/auth/signup */

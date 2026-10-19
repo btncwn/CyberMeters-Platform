@@ -39,9 +39,15 @@ describe('static HTML per public page', () => {
 
   it('covers every public marketing page and the free scan and pricing pages', () => {
     expect(staticPages().map(p => p.path).sort()).toEqual([
-      '/about', '/cookies', '/cyber-essentials-readiness', '/dpa', '/free-scan', '/pricing', '/privacy', '/status', '/support', '/terms', '/trust',
+      '/about', '/cookies', '/cyber-essentials-readiness', '/dpa', '/free-scan', '/pricing', '/privacy', '/status', '/support', '/terms',
+      '/tools', '/tools/dmarc-checker', '/tools/spf-checker', '/trust',
     ])
     expect(pageFileName('/cyber-essentials-readiness')).toBe('cyber-essentials-readiness.html')
+    // Pages serves /tools/dmarc-checker from tools/dmarc-checker.html.
+    expect(pageFileName('/tools/dmarc-checker')).toBe('tools/dmarc-checker.html')
+    expect(sitemapPages().map(p => p.loc)).toEqual(expect.arrayContaining([
+      'https://cybermeters.com/tools', 'https://cybermeters.com/tools/dmarc-checker', 'https://cybermeters.com/tools/spf-checker',
+    ]))
   })
 
   it('points a canonical link at the host each page lives on', () => {

@@ -13,9 +13,9 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 302
+- **Total entry points:** 305
 - **Auth-guarded:** 263
-- **Unauthenticated (public by design):** 39
+- **Unauthenticated (public by design):** 42
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
@@ -25,7 +25,7 @@ guard without an explicit, documented public-allowlist reason.
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
 | preflight | 3 | 0 |
-| public-or-global | 41 | 21 |
+| public-or-global | 44 | 21 |
 | unknown | 79 | 65 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
@@ -55,6 +55,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | `/webhook/` | Stripe webhook — HMAC signature verified before parse |
 | `/\/billing\/plans/` | public billing catalogue — no Stripe price IDs, no tenant data |
 | `/\/free-scan/` | public lead-gen scan — SSRF-guarded, gated preview, rate-limited |
+| `/\/api\\?\/tools\\?\//` | public free tools — Turnstile, rolling per-IP + per-domain limits, DNS-only, signed share links |
 | `/\/api\/invitations\//` | invitation token flow — opaque-token gated, pre-membership |
 | `/dmarc-ingest\|\/ingest\/\|\/rua\|\/tlsrpt\|\/inbound/` | report ingestion — endpoint-key / DMARC-trust gated (key binds the workspace) |
 | `/^OPTIONS$/` | CORS preflight — no body, no tenant data |
@@ -71,15 +72,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2716 | preflight | public | — |
-| DELETE | `(none)` | 2722 | unknown | **GAP** | — |
-| GET | `(none)` | 2722 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2722 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2722 | unknown | **GAP** | — |
-| POST | `(none)` | 2722 | unknown | **GAP** | — |
-| PUT | `(none)` | 2722 | unknown | **GAP** | — |
-| GET | `/health` | 2727 | public-or-global | public | — |
-| GET | `/ready` | 2746 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2720 | preflight | public | — |
+| DELETE | `(none)` | 2726 | unknown | **GAP** | — |
+| GET | `(none)` | 2726 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2726 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2726 | unknown | **GAP** | — |
+| POST | `(none)` | 2726 | unknown | **GAP** | — |
+| PUT | `(none)` | 2726 | unknown | **GAP** | — |
+| GET | `/health` | 2731 | public-or-global | public | — |
+| GET | `/ready` | 2750 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -285,6 +286,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/^\/api\/workspaces\/([^/` | 427 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/^\/api\/workspaces\/([^/` | 503 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/^\/api\/workspaces\/([^/` | 521 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+
+### `workers/scan-api/src/routes/free-tools.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `/api/tools/config` | 284 | public-or-global | public | — |
+| POST | `/api/tools/share` | 294 | public-or-global | public | — |
+| POST | `/^\/api\/tools\/([a-z]+)\/(check\|defer)$/` | 305 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/global-billing.js`
 

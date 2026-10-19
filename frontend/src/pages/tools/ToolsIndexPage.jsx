@@ -1,0 +1,51 @@
+import { Link } from 'react-router-dom'
+import PublicSiteFooter from '../../components/PublicSiteFooter'
+import PublicSiteHeader from '../../components/PublicSiteHeader'
+
+const TOOLS = [
+  {
+    to: '/tools/dmarc-checker',
+    name: 'DMARC checker',
+    summary: 'Whether your domain asks receivers to refuse forged email that uses it, where your reports go, and the next record to publish on the way to p=reject.',
+    checks: ['RFC 9989 (DMARCbis) policy discovery, including sp and np', 'Alignment and every tag explained', 'Authorisation of report addresses outside your domain'],
+  },
+  {
+    to: '/tools/spf-checker',
+    name: 'SPF checker',
+    summary: 'The full include tree, the 10-lookup limit, and a corrected record when something breaks SPF.',
+    checks: ['DNS lookups and lookups with no answer, against the limits', 'Duplicate records, includes that point at nothing, loops', 'What +all, ?all, ~all and -all mean for you'],
+  },
+]
+
+export default function ToolsIndexPage() {
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <PublicSiteHeader />
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-10 sm:py-12 space-y-8">
+        <header className="space-y-3">
+          <p className="eyebrow">Free tools</p>
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Free email security checks</h1>
+          <p className="text-gray-600 leading-relaxed max-w-2xl">Each tool checks one thing properly from public DNS, says plainly what it could not check, and gives you the exact record to fix it. No sign-up, and the domain you check is not saved.</p>
+        </header>
+        <ul className="grid md:grid-cols-2 gap-5">
+          {TOOLS.map((tool) => (
+            <li key={tool.to} className="rounded-2xl border border-gray-100 bg-white shadow-xs p-6 flex flex-col gap-4">
+              <div className="space-y-2">
+                <h2 className="text-xl font-bold"><Link to={tool.to} className="hover:text-brand-700">{tool.name}</Link></h2>
+                <p className="text-sm text-gray-600 leading-relaxed">{tool.summary}</p>
+              </div>
+              <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">{tool.checks.map((c) => <li key={c}>{c}</li>)}</ul>
+              <Link to={tool.to} className="btn-primary self-start mt-auto">Open the {tool.name}</Link>
+            </li>
+          ))}
+        </ul>
+        <section className="rounded-2xl border border-gray-100 bg-white p-6 space-y-3">
+          <h2 className="text-lg font-bold">Want the whole picture?</h2>
+          <p className="text-sm text-gray-600">The free check looks at your domain's DNS, HTTPS, website headers, email authentication and technology signals in one go.</p>
+          <Link to="/free-scan" className="btn-secondary inline-flex">Run the free check</Link>
+        </section>
+      </main>
+      <PublicSiteFooter />
+    </div>
+  )
+}

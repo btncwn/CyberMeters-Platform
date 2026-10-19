@@ -62,6 +62,21 @@ export const PUBLIC_PAGE_META = {
     description: 'The essential cookies and browser storage CyberMeters uses, and the cookieless visit counting on its sites.',
     host: 'marketing', indexable: true, priority: '0.4',
   },
+  '/tools': {
+    title: 'Free email security tools',
+    description: 'Free DMARC and SPF checkers that follow the current standards, say what they could not check, and give you the exact DNS record to fix each problem.',
+    host: 'marketing', indexable: true, priority: '0.8',
+  },
+  '/tools/dmarc-checker': {
+    title: 'DMARC checker',
+    description: 'Check your DMARC policy against RFC 9989 (DMARCbis): p, sp and np, alignment, report addresses and their authorisation, and the next record to publish on the way to p=reject.',
+    host: 'marketing', indexable: true, priority: '0.8',
+  },
+  '/tools/spf-checker': {
+    title: 'SPF checker',
+    description: 'See your full SPF include tree, the DNS lookups it uses against the limit of 10, duplicate or broken includes, and a corrected record you can paste.',
+    host: 'marketing', indexable: true, priority: '0.8',
+  },
   '/free-scan': {
     title: 'Free Cyber MOT — check your domain',
     description: 'A free, passive check of your domain: public DNS, HTTPS, website headers, email authentication and technology signals. It says what it could not check, and no report is stored.',

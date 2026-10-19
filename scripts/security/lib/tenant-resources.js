@@ -141,6 +141,7 @@ export const INFRA_TABLES = new Set([
   "oauth_states",           // OAuth CSRF state token, pre-auth
   "stripe_processed_events",// Stripe webhook idempotency ledger (global)
   "mcp_oauth_login_intents", // Opaque pre-consent OAuth state; no user/workspace grant exists yet
+  "free_tool_deferred_checks", // Anonymous free-tool result requests; no account or workspace link
 ]);
 
 // The 12 canonical tenant-isolation invariants (mission Phase 2).
@@ -207,6 +208,7 @@ export const RESOURCE_CLASSES = [
   { class: "deletion_lifecycle",    domain: "core",     tables: ["deletion_requests", "workspace_retention_settings", "lifecycle_email_events"], harness: false, property: false, coverage_note: "workspace/user-scoped lifecycle; purge-completeness proven by validate-purge-completeness" },
   { class: "auth_sessions",         domain: "auth",     tables: ["user_sessions", "mfa_challenges", "password_reset_tokens"], harness: false, property: false, coverage_note: "per-user auth material; token-hash keyed; not a workspace resource — covered by validate-security-contracts" },
   { class: "infrastructure",        domain: "infra",    tables: ["api_rate_limits", "oauth_states", "stripe_processed_events"], harness: false, property: false, non_tenant: true, coverage_note: "global infrastructure — holds no tenant data" },
+  { class: "free_tool_deferrals",   domain: "infra",    tables: ["free_tool_deferred_checks"], harness: false, property: false, non_tenant: true, coverage_note: "anonymous visitor's consented email + domain for one free-tool result; no account or workspace link; deleted once sent or after 72 hours (free-tools.test.js)" },
   { class: "identity_root",         domain: "auth",     tables: ["users"], harness: false, property: false, non_tenant: true, coverage_note: "identity root — a user owns only their own row; not a workspace resource" },
 ];
 

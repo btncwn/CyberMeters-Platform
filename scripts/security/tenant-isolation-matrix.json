@@ -1199,6 +1199,25 @@
       }
     },
     {
+      "class": "free_tool_deferrals",
+      "domain": "infra",
+      "tables": [
+        "free_tool_deferred_checks"
+      ],
+      "ownership": {
+        "free_tool_deferred_checks": {
+          "model": "infra",
+          "column": null
+        }
+      },
+      "non_tenant": true,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "anonymous visitor's consented email + domain for one free-tool result; no account or workspace link; deleted once sent or after 72 hours (free-tools.test.js)"
+      }
+    },
+    {
       "class": "identity_root",
       "domain": "auth",
       "tables": [
@@ -1257,6 +1276,7 @@
     "external_exposure_visits": "website_security",
     "finding_waivers": "remediation_waivers",
     "findings": "findings",
+    "free_tool_deferred_checks": "free_tool_deferrals",
     "hidden_assets": "assets",
     "historical_scores": "reports_snapshots",
     "hosted_dns_entries": "email_protection",
@@ -1338,12 +1358,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 117,
-    "classified": 117,
+    "schema_tables": 118,
+    "classified": 118,
     "tenant_owned_tables": 113,
-    "infra_or_identity_tables": 4,
+    "infra_or_identity_tables": 5,
     "unclassified": 0,
-    "resource_classes": 40,
+    "resource_classes": 41,
     "classes_with_dynamic_coverage": 17
   }
 }
