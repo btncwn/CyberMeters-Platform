@@ -64,7 +64,7 @@ export const PUBLIC_PAGE_META = {
   },
   '/tools': {
     title: 'Free security tools',
-    description: 'Free DMARC, SPF and security headers checkers that follow the current standards, say what they could not check, and give you the exact record or lines to fix each problem.',
+    description: 'Free DMARC, SPF, security headers and lookalike domain checkers that say what they could not check and give you the exact record, lines or next step for each problem.',
     host: 'marketing', indexable: true, priority: '0.8',
   },
   '/tools/dmarc-checker': {
@@ -80,6 +80,11 @@ export const PUBLIC_PAGE_META = {
   '/tools/security-headers-checker': {
     title: 'Security headers checker',
     description: 'Check which of the six browser security headers your website sends (HSTS, CSP, X-Frame-Options and more) and get ready-to-paste lines for nginx, Apache or Cloudflare.',
+    host: 'marketing', indexable: true, priority: '0.8',
+  },
+  '/tools/lookalike-domain-checker': {
+    title: 'Lookalike domain checker',
+    description: 'See which close variants of your domain (typos, look-alike letters, other endings) are registered, point at a server or can receive email, from public DNS.',
     host: 'marketing', indexable: true, priority: '0.8',
   },
   '/free-scan': {

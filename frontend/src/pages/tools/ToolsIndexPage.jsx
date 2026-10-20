@@ -21,6 +21,12 @@ const TOOLS = [
     summary: 'Which of the six browser security headers your website sends, what each one protects against, and the lines to add.',
     checks: ['HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy', 'Weak values, judged by the same rules as the full scan', 'Ready-to-paste lines for nginx, Apache and Cloudflare'],
   },
+  {
+    to: '/tools/lookalike-domain-checker',
+    name: 'Lookalike domain checker',
+    summary: 'Which close variants of your domain are registered, point at a server or can receive email.',
+    checks: ['Typos, look-alike letters and letters from other alphabets', 'Your name with words such as login, and on other endings', 'Registered, points at a server, receives email: what DNS shows, nothing more'],
+  },
 ]
 
 export default function ToolsIndexPage() {

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { cleanupExpiredPublicApiRateLimits } from "../src/cron/scheduled.js";
 import { buildDmarcToolResult, runDmarcCheck } from "../src/engines/free-tools/dmarc-check.js";
 import { buildHeadersToolResult, runHeadersCheck } from "../src/engines/free-tools/headers-check.js";
+import { LOOKALIKE_DETAIL_LIMIT, lookalikeCandidates, runLookalikeCheck } from "../src/engines/free-tools/lookalike-check.js";
 import { buildSpfToolResult, runSpfCheck } from "../src/engines/free-tools/spf-check.js";
 import { FREE_TOOL_POLICY, domainCapKey, normaliseToolDomain } from "../src/lib/free-tool-gate.js";
 import { signShareToken, verifyShareToken } from "../src/lib/free-tool-share.js";
@@ -70,6 +71,7 @@ function harness(env, overrides = {}) {
       : token === "good-spf" ? { success: true, action: "tool_spf" }
         : token === "good-dmarc-defer" ? { success: true, action: "tool_dmarc_defer" }
           : token === "good-headers" ? { success: true, action: "tool_headers" }
+            : token === "good-lookalike" ? { success: true, action: "tool_lookalike" }
           : { success: false, "error-codes": ["invalid-input-response"] }));
   });
   const cache = overrides.cache === undefined ? memoryCache() : overrides.cache;
@@ -90,6 +92,7 @@ function harness(env, overrides = {}) {
         dmarc: async (domain) => { calls.lookups += 1; return goodResult("dmarc", domain); },
         spf: async (domain) => { calls.lookups += 1; return goodResult("spf", domain); },
         headers: async (domain) => { calls.lookups += 1; return goodResult("headers", domain); },
+        lookalike: async (domain) => { calls.lookups += 1; return goodResult("lookalike", domain); },
       },
     });
   };
@@ -598,4 +601,78 @@ test("headers: like the full scan, inline styles alone are a note; unsafe script
   assert.equal(unsafeScript.next_step.title, "Tighten your Content-Security-Policy");
   assert.equal(unsafeScript.next_step.snippets, null, "no replacement policy is offered for an existing CSP");
   assert.match(unsafeScript.next_step.cautions[0], /unsafe script sources in script-src/);
+});
+
+// ── Lookalike domain checker ────────────────────────────────────────────────
+
+// A DNS stub: names in `zones` exist (with optional A/MX), `failing` throw, the rest are NXDOMAIN.
+function lookalikeDns({ zones = {}, failing = new Set() } = {}) {
+  const asked = [];
+  const dns = async (name, type) => {
+    asked.push(`${type} ${name}`);
+    if (failing.has(name)) throw new Error("DoH 502");
+    const zone = zones[name];
+    if (!zone) return { Status: 3, Answer: [] };
+    const code = { NS: 2, A: 1, AAAA: 28, MX: 15 }[type];
+    const data = { NS: zone.ns ? ["ns1.host.example."] : [], A: zone.a ? ["203.0.113.7"] : [], AAAA: [], MX: zone.mx ? [zone.mx] : [] }[type];
+    return { Status: 0, Answer: data.map((d) => ({ name, type: code, data: d })) };
+  };
+  return { dns, asked };
+}
+
+test("lookalike: candidates come from the Brand Protection generator and never include the domain itself", () => {
+  const names = lookalikeCandidates("acmebakery.co.uk").map((c) => c.domain);
+  assert.ok(names.length > 10 && names.length <= 44);
+  assert.ok(!names.includes("acmebakery.co.uk"));
+  assert.ok(names.includes("acmebakery.com"), "the same name on another ending is checked");
+});
+
+test("lookalike: registered / resolves / receives email, ordered by email first; never 'malicious'", async () => {
+  const names = lookalikeCandidates("acmebakery.co.uk").map((c) => c.domain);
+  const [withMail, withWeb, parked] = [names[0], names[1], names[2]];
+  const { dns } = lookalikeDns({ zones: {
+    [withMail]: { ns: true, a: true, mx: "10 mx.mail-host.example." },
+    [withWeb]: { ns: true, a: true },
+    [parked]: { ns: true, mx: "0 ." },
+  } });
+  const result = await runLookalikeCheck("acmebakery.co.uk", { dnsQuery: dns });
+  assert.equal(result.schema, "free-tool-lookalike.v1");
+  assert.equal(result.verdict.level, "attention", "registered is never 'at risk' on its own");
+  assert.equal(result.verdict.headline, "3 lookalike domains are registered");
+  assert.deepEqual(result.lookalikes.map((l) => l.domain), [withMail, withWeb, parked]);
+  assert.deepEqual(result.lookalikes.map((l) => [l.resolves, l.mx]), [[true, true], [true, false], [false, false]], "a null MX (0 .) receives no email");
+  const text = JSON.stringify(result);
+  assert.doesNotMatch(text, /malicious|phish|attack(er)?\b|fraudulent|scam/i);
+  assert.match(result.verdict.summary, /does not mean a name is being misused/);
+});
+
+test("lookalike: nothing registered is good; failed lookups are never 'not registered'", async () => {
+  const names = lookalikeCandidates("acmebakery.co.uk").map((c) => c.domain);
+  const clean = await runLookalikeCheck("acmebakery.co.uk", { dnsQuery: lookalikeDns().dns });
+  assert.equal(clean.verdict.level, "good");
+  const someFail = await runLookalikeCheck("acmebakery.co.uk", { dnsQuery: lookalikeDns({ failing: new Set(names.slice(0, 3)) }).dns });
+  assert.equal(someFail.verdict.level, "good");
+  assert.ok(someFail.checked.some((c) => c.state === "unknown" && /3 names could not be checked/.test(c.detail)));
+  const mostFail = await runLookalikeCheck("acmebakery.co.uk", { dnsQuery: lookalikeDns({ failing: new Set(names) }).dns });
+  assert.equal(mostFail.verdict.level, "unknown");
+  assert.equal(mostFail.lookalikes.length, 0);
+});
+
+test("lookalike: stays inside the per-check DNS budget even when every variant exists", async () => {
+  const names = lookalikeCandidates("acmebakery.co.uk").map((c) => c.domain);
+  const zones = Object.fromEntries(names.map((n) => [n, { ns: true, a: true, mx: "10 mx.example." }]));
+  const { dns, asked } = lookalikeDns({ zones });
+  const result = await runLookalikeCheck("acmebakery.co.uk", { dnsQuery: dns });
+  assert.ok(asked.length <= FREE_TOOL_POLICY.subrequestLimit, `${asked.length} questions`);
+  assert.equal(result.lookalikes.filter((l) => l.detail_checked).length, Math.min(LOOKALIKE_DETAIL_LIMIT, names.length));
+  if (names.length > LOOKALIKE_DETAIL_LIMIT) assert.ok(result.checked.some((c) => /first 24 registered names only/.test(c.detail)));
+});
+
+test("lookalike: the route checks variants of the registrable domain through the shared gate", async () => {
+  const { env } = fixture();
+  const h = harness(env);
+  const ok = await h.check("lookalike", "shop.acmebakery.co.uk", "good-lookalike");
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).tool, "lookalike");
+  assert.equal((await h.check("lookalike", "acmebakery.co.uk", "good-headers")).status, 403);
 });
