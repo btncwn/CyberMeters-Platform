@@ -1,108 +1,94 @@
 /**
  * CyberMetersLogo
  *
- * The approved CyberMeters brand mark: static metallic brackets framing a
- * gradient risk-indicator needle.
+ * The approved CyberMeters brand mark (October 2026): a graphite "<" folded
+ * strip (the C) beside an M drawn as a green → red risk gradient, turned 21° so
+ * the C and the green side come towards the viewer and the orange/red recede.
+ * Stroke 2.8 in a 45 × 32 canvas, with a subtle 3D treatment: the front strokes
+ * are lit with a fine highlight and a soft cast shadow, the back strokes darken
+ * toward the fold.
  *
  * Props:
- *   size        {number}  Height of the mark in px (default 32). Width is derived.
+ *   size        {number}  Height of the mark in px (default 32). Width is derived (45:32).
  *   showWordmark{bool}    Render "CyberMeters" wordmark beside the mark (default false).
- *   animated    {bool}    Animate the needle. Uses CSS class cm-needle-animated defined
- *                         in index.css (default false). Static on PDF/email/exports.
- *   spacing     {string}  Bracket spacing variant (default 'wide' — approved for production):
- *                           'wide'     — Variant B, increased separation '<  /  >'.
- *                           'balanced' — Variant A, moderate spacing.
- *                         Geometry is derived from SPACING_PRESETS (see below), so the
- *                         spacing can be re-tuned later by editing numbers — no markup
- *                         changes. Stroke, 45° bracket angle, needle tilt, colors and the
- *                         32px canvas are unchanged — this is a spacing/geometry refinement.
- *   darkMode    {bool}    Lighten the brackets for dark backgrounds (default false).
+ *                         With the wordmark the mark is aria-hidden; alone it is
+ *                         role="img" with aria-label="CyberMeters".
+ *   animated    {bool}    Accepted for call-site compatibility; the mark is static.
+ *   spacing     {string}  Accepted for call-site compatibility; the geometry is fixed.
+ *   darkMode    {bool}    Light C for dark backgrounds (default false).
  *   wordmarkColor{string}  Explicit wordmark colour (e.g. the brand amber on the app bar).
  *   wordmarkSize {number}  Explicit wordmark font size in px (default: half the mark size).
  *   subtitle    {bool}    Show the small "Platform" line under the wordmark (default true).
  *   className   {string}  Extra class on the root element.
  *
- * Animation note:
- *   The animated <g> uses className="cm-needle-animated" — NOT inline transformOrigin.
- *   Inline px-based transformOrigin is broken for non-32 sizes because it operates in
- *   CSS pixel space, not SVG viewBox units. The CSS class uses transform-box:fill-box
- *   so transform-origin:center always resolves to the needle's own bounding-box center
- *   (SVG point 24,16) regardless of the rendered CSS size.
+ * The polygons are the output of the approved geometry (mark(dark, size, th=-21))
+ * and match public/favicon.svg. Gradient, filter and clip IDs come from useId so
+ * several logos can share a page.
  *
  * Usage:
- *   <CyberMetersLogo size={36} showWordmark animated />  // navbar
- *   <CyberMetersLogo size={48} showWordmark animated />  // auth pages
- *   <CyberMetersLogo size={64} showWordmark animated />  // hero
+ *   <CyberMetersLogo size={30} showWordmark />            // site header
+ *   <CyberMetersLogo size={48} showWordmark />            // auth pages
+ *   <CyberMetersLogo size={34} />                         // app menu
  */
 import { useId } from 'react'
 
-// ── Bracket geometry ─────────────────────────────────────────────────────────
-//
-// Geometry is derived from three tunable numbers, NOT hard-coded point strings,
-// so the spacing can be nudged later (e.g. a midpoint between A and B) by editing
-// one value — without touching the SVG markup.
-//
-//   armOffset  — horizontal distance from canvas centre (16) to the open arm-ends.
-//                Larger = more separation between the brackets and the needle.
-//   depth      — horizontal distance from the arm-ends to the bracket tip.
-//   halfHeight — vertical distance from centre to each arm-end.
-//
-// Keeping depth === halfHeight preserves the original 45° bracket angle. The
-// 3.5 stroke and −9° needle are fixed by spec. The canvas is wider than it is
-// tall (48 × 32) so the brackets sit well apart from the needle: with armOffset
-// 13.5 the 'wide' tips land at x 2.5 / 45.5 (miter tip ≈ 0.03 / 47.97), the same
-// edge treatment the original had on its 32-wide canvas — but three times the gap.
-const SPACING_PRESETS = {
-  balanced: { armOffset: 11.5, depth: 8, halfHeight: 8 }, // moderate separation
-  wide:     { armOffset: 13.5, depth: 8, halfHeight: 8 }, // production — '<' and '>' well apart
-  // Raise armOffset to push the brackets further apart (tips stay on-canvas up to ~13.5).
-}
-
-// Canvas: 48 wide × 32 tall. Centre is (24, 16); the extra width is what lets the
-// two brackets separate from the needle without the tips overflowing.
-const CENTER_X = 24
-const CENTER_Y = 16
-const CANVAS_W = 48
+const CANVAS_W = 45
 const CANVAS_H = 32
 
-function buildBracketPoints({ armOffset, depth, halfHeight }) {
-  const round = (n) => Number(n.toFixed(2))
-  const top = round(CENTER_Y - halfHeight)
-  const bot = round(CENTER_Y + halfHeight)
-  const lArm = round(CENTER_X - armOffset)
-  const lTip = round(CENTER_X - armOffset - depth)
-  const rArm = round(CENTER_X + armOffset)
-  const rTip = round(CENTER_X + armOffset + depth)
-  return {
-    // "<" opens right toward the needle; "armTop  tip  armBottom"
-    left:  `${lArm},${top} ${lTip},${CENTER_Y} ${lArm},${bot}`,
-    right: `${rArm},${top} ${rTip},${CENTER_Y} ${rArm},${bot}`,
-  }
+// Band the strokes are trimmed to (the top and bottom lines, in perspective).
+const CLIP = '-12.07,0.22 46.03,4.89 46.03,27.11 -12.07,31.78'
+// The C: lower and upper arms of the folded strip.
+const C_LOWER = '12.26,33.15 1.84,16.00 5.60,16.00 14.78,31.43'
+const C_UPPER = '12.26,-1.15 1.84,16.00 5.60,16.00 14.78,0.57'
+// The M: two back (down) strokes and two front (up) strokes with their highlights.
+const M_BACK = [
+  { key: 'k1', points: '20.90,1.84 27.46,30.25 29.81,29.38 23.45,1.39', fold: [22.50, 3.00, 28.35, 28.53] },
+  { key: 'k3', points: '32.40,2.84 38.09,29.28 40.13,28.49 34.61,2.40', fold: [33.79, 3.91, 38.86, 27.68] },
+]
+const M_FRONT = [
+  { points: '17.22,31.18 24.07,2.12 21.54,1.22 14.47,30.72', highlight: '15.53,29.88 22.00,2.78 21.54,2.62 15.03,29.79' },
+  { points: '29.23,30.09 35.15,3.08 32.96,2.25 26.86,29.64', highlight: '27.78,28.87 33.36,3.70 32.96,3.56 27.35,28.79' },
+]
+
+const RISK_STOPS = [
+  [0, '#00C389'], [0.45, '#59D98E'], [0.58, '#EBC547'], [0.72, '#FBA94A'], [1, '#FF5A5F'],
+]
+
+// The C's two faces and the drop-shadow strength, per background.
+const TONES = {
+  light: { upper: ['#6A7787', '#4E5A69'], lower: ['#26303B', '#141A21'], shadow: 0.28 },
+  dark:  { upper: ['#FFFFFF', '#DCE2EA'], lower: ['#A3ADB9', '#7B8592'], shadow: 0.5 },
+}
+
+function Gradient({ id, coords: [x1, y1, x2, y2], stops }) {
+  return (
+    <linearGradient id={id} gradientUnits="userSpaceOnUse" x1={x1} y1={y1} x2={x2} y2={y2}>
+      {stops.map(([offset, color, opacity]) => (
+        <stop key={offset} offset={offset} stopColor={color} stopOpacity={opacity} />
+      ))}
+    </linearGradient>
+  )
 }
 
 export default function CyberMetersLogo({
   size = 32,
   showWordmark = false,
-  animated = false,
-  spacing = 'wide',
   darkMode = false,
   wordmarkColor = null,
   wordmarkSize: wordmarkSizeProp = null,
   subtitle = true,
   className = '',
 }) {
-  // Unique gradient ID — prevents conflicts when multiple instances are on the page.
+  // Unique IDs — prevents conflicts when multiple instances are on the page.
   const uid = useId().replace(/:/g, '')
-  const gradId = `cmg-${uid}`
-
-  // Bracket color. Lightens on dark backgrounds so the graphite brackets stay legible.
-  const bracketColor = darkMode ? '#E5E9F0' : '#2B3440'
-
-  const bracket = buildBracketPoints(SPACING_PRESETS[spacing] || SPACING_PRESETS.wide)
+  const id = (name) => `cm-${uid}-${name}`
+  const url = (name) => `url(#${id(name)})`
+  const tone = darkMode ? TONES.dark : TONES.light
+  const clip = url('clip')
 
   const mark = (
     <svg
-      viewBox="0 0 48 32"
+      viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       width={Math.round((size * CANVAS_W) / CANVAS_H)}
       height={size}
       fill="none"
@@ -110,59 +96,40 @@ export default function CyberMetersLogo({
       aria-label={showWordmark ? undefined : 'CyberMeters'}
       role={showWordmark ? undefined : 'img'}
       style={{ flexShrink: 0, display: 'block' }}
+      data-testid="cm-logo-mark"
     >
       <defs>
-        {/* Gradient: green (bottom / low risk) → red (top / critical risk).
-            Distribution per brand spec: 0–51% greenish, 51–64% yellowish,
-            64–100% orange/red. y1=1→y2=0 maps offset 0% to the bottom. */}
-        <linearGradient id={gradId} x1="0.5" y1="1" x2="0.5" y2="0">
-          <stop offset="0%"   stopColor="#00C389" />
-          <stop offset="51%"  stopColor="#59D98E" />
-          <stop offset="58%"  stopColor="#EBC547" />
-          <stop offset="64%"  stopColor="#FBA94A" />
-          <stop offset="82%"  stopColor="#FF9F43" />
-          <stop offset="100%" stopColor="#FF5A5F" />
-        </linearGradient>
+        <clipPath id={id('clip')}><polygon points={CLIP} /></clipPath>
+        <filter id={id('drop')} x="-10%" y="-20%" width="120%" height="150%">
+          <feDropShadow dx="0" dy="1" stdDeviation=".7" floodColor="#000" floodOpacity={tone.shadow} />
+        </filter>
+        <filter id={id('soft')} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation=".38" />
+        </filter>
+        <Gradient id={id('risk')} coords={[14.77, 16, 39.91, 16]} stops={RISK_STOPS} />
+        <Gradient id={id('upper')} coords={[12.06, 2.16, 3.74, 16]} stops={[[0, tone.upper[0]], [1, tone.upper[1]]]} />
+        <Gradient id={id('lower')} coords={[12.06, 29.84, 3.74, 16]} stops={[[0, tone.lower[0]], [1, tone.lower[1]]]} />
+        {M_BACK.map(({ key, fold }) => (
+          <Gradient key={key} id={id(key)} coords={fold} stops={[[0, '#000', 0.34], [1, '#000', 0.14]]} />
+        ))}
       </defs>
-
-      {/* Left bracket — static, square ends, metallic graphite */}
-      <polyline
-        points={bracket.left}
-        stroke={bracketColor}
-        strokeWidth="3.5"
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-      />
-
-      {/* Right bracket — static */}
-      <polyline
-        points={bracket.right}
-        stroke={bracketColor}
-        strokeWidth="3.5"
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-      />
-
-      {/*
-        Needle — the only colored/animated element.
-        Static:  SVG transform attribute (reliable, no CSS dependency).
-        Animated: className="cm-needle-animated" — see index.css.
-                  Must NOT use inline transformOrigin in CSS px: that value is in
-                  rendered CSS pixels, which differs from SVG viewBox units at every
-                  size except 32. transform-box:fill-box in the CSS class fixes this.
-      */}
-      <g
-        transform={!animated ? 'rotate(-9, 24, 16)' : undefined}
-        className={animated ? 'cm-needle-animated' : undefined}
-      >
-        <rect
-          x="22.5"
-          y="1"
-          width="3"
-          height="30"
-          rx="0"
-          fill={`url(#${gradId})`}
-        />
+      <g filter={url('drop')}>
+        <polygon points={C_LOWER} fill={url('lower')} clipPath={clip} />
+        <polygon points={C_UPPER} fill="#000" fillOpacity=".28" filter={url('soft')} transform="translate(.35,.55)" clipPath={clip} />
+        <polygon points={C_UPPER} fill={url('upper')} clipPath={clip} />
+        {M_BACK.map(({ key, points }) => (
+          <g key={key}>
+            <polygon points={points} fill={url('risk')} clipPath={clip} />
+            <polygon points={points} fill={url(key)} clipPath={clip} />
+          </g>
+        ))}
+        {M_FRONT.map(({ points, highlight }) => (
+          <g key={points}>
+            <polygon points={points} fill="#000" fillOpacity=".26" filter={url('soft')} transform="translate(.4,.6)" clipPath={clip} />
+            <polygon points={points} fill={url('risk')} clipPath={clip} />
+            <polygon points={highlight} fill="#fff" fillOpacity=".4" clipPath={clip} />
+          </g>
+        ))}
       </g>
     </svg>
   )

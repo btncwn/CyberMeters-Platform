@@ -89,6 +89,12 @@ https://:version.:project.pages.dev/*
   ! Expires
   Cache-Control: public, max-age=86400
 
+/apple-touch-icon.png
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Cache-Control: public, max-age=86400
+
 /og-image-v2.png
   ! Cache-Control
   ! Pragma
