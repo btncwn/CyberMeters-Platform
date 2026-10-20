@@ -21,18 +21,47 @@
 --   Roll the Worker back first. The rows can stay: they only make a workspace
 --   that already had history alert on new conditions, which is the intent.
 --   To undo exactly, delete the rows whose id starts with 'aa_bf132_'.
+--
+-- One INSERT per domain: Cloudflare D1 rejects a compound SELECT with eight
+-- UNION ALL terms ("too many terms in compound SELECT"), which local SQLite
+-- accepts, so the original single statement failed on the remote apply.
 
 INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
-SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, d.domain_key, datetime('now'), 0, datetime('now')
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'certificates_trust', datetime('now'), 0, datetime('now')
   FROM workspaces w
-  CROSS JOIN (
-    SELECT 'certificates_trust' AS domain_key
-    UNION ALL SELECT 'identity_exposure'
-    UNION ALL SELECT 'shadow_it_unmanaged_technology'
-    UNION ALL SELECT 'brand_protection'
-    UNION ALL SELECT 'attack_surface'
-    UNION ALL SELECT 'email_protection'
-    UNION ALL SELECT 'website_security'
-    UNION ALL SELECT 'cyber_essentials_readiness'
-  ) d
+ WHERE w.deleted_at IS NULL;
+
+INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'identity_exposure', datetime('now'), 0, datetime('now')
+  FROM workspaces w
+ WHERE w.deleted_at IS NULL;
+
+INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'shadow_it_unmanaged_technology', datetime('now'), 0, datetime('now')
+  FROM workspaces w
+ WHERE w.deleted_at IS NULL;
+
+INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'brand_protection', datetime('now'), 0, datetime('now')
+  FROM workspaces w
+ WHERE w.deleted_at IS NULL;
+
+INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'attack_surface', datetime('now'), 0, datetime('now')
+  FROM workspaces w
+ WHERE w.deleted_at IS NULL;
+
+INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'email_protection', datetime('now'), 0, datetime('now')
+  FROM workspaces w
+ WHERE w.deleted_at IS NULL;
+
+INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'website_security', datetime('now'), 0, datetime('now')
+  FROM workspaces w
+ WHERE w.deleted_at IS NULL;
+
+INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, 'cyber_essentials_readiness', datetime('now'), 0, datetime('now')
+  FROM workspaces w
  WHERE w.deleted_at IS NULL;
