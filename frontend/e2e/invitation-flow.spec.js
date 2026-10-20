@@ -9,6 +9,8 @@ import { expect, test } from '@playwright/test'
 // Secrets out of URLs (19 Oct 2026): every link carries its token in the
 // fragment, and the token is never in the address bar once a page has loaded.
 // Links sent before the change (token in the path or query) still work.
+// The API is called with the token in the POST body, never in a request URL
+// (20 Oct 2026): this mock answers only the body form.
 
 const API_BASE = 'http://127.0.0.1:8787/api'
 const TOKEN = `cmi_${'d'.repeat(64)}`
@@ -24,15 +26,16 @@ async function installMock(page, state) {
     const method = request.method()
     const body = method === 'GET' ? null : (() => { try { return JSON.parse(request.postData() || '{}') } catch { return {} } })()
     const signedIn = Boolean(request.headers().authorization)
+    if (request.url().includes(TOKEN)) state.tokenInApiUrl = request.url()
 
-    if (method === 'GET' && path === `/invitations/${TOKEN}`) {
+    if (method === 'POST' && path === '/invitations/preview' && body?.token === TOKEN) {
       return route.fulfill(json({
         workspace_name: 'Black Bull Barbers', invited_by_name: 'Taylor Owner', role: 'analyst',
         expires_at: '2099-01-01T00:00:00Z', status: state.accepted ? 'accepted' : 'pending',
         invited_email_masked: 'c•••y@example.co.uk', signed_in_matches: signedIn ? true : null,
       }))
     }
-    if (method === 'POST' && path === `/invitations/${TOKEN}/accept`) {
+    if (method === 'POST' && path === '/invitations/accept' && body?.token === TOKEN) {
       state.accepted = true
       return route.fulfill(json({ workspace_id: sharedWorkspace.id, role: 'analyst' }))
     }
@@ -95,6 +98,7 @@ test('signup → verify → sign in returns to the invitation and joins', async 
   await page.getByRole('button', { name: 'Join Workspace' }).click()
   await expect(page.getByRole('heading', { name: 'Successfully joined workspace' })).toBeVisible()
   expect(state.accepted).toBe(true)
+  expect(state.tokenInApiUrl).toBeUndefined()
 })
 
 test('links sent before the change still work, and their token leaves the address', async ({ page }) => {
