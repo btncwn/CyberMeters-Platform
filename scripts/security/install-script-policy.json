@@ -127,7 +127,7 @@
     {
       "root": "workers/network-probe",
       "package_name": "cybermeters-network-probe",
-      "package_json_sha256": "513379f1f1df7d6f86264e61e7077a043eccdb3e4e90887abbf300f1099c3637",
+      "package_json_sha256": "426e0e5ffb2288ff31d26748b6a8bd9ad8b2e7ae1b989ef1b367af45588b79ed",
       "lockfile_version": 3,
       "lockfile_sha256": "2c0f22b354602ee26fb0147bda297d88630b35e59ae446edf52c57c73c25a2bc",
       "install_script_markers": [
