@@ -235,7 +235,19 @@ function sanCoversHost(observedSans, host) {
 
 // Deterministic coverage assessment. No expected hostnames declared → "unknown"
 // (the product does not assert coverage it cannot judge).
-export function computeCoverage(expectedHostnames = [], observedSans = []) {
+export const EXPECTED_HOSTS_FROM_MONITORED_HOST = "observed_primary_host";
+
+/** The default expected hostnames: the monitored host, if it is a plain hostname. */
+export function defaultExpectedHostnames(primaryHostname) {
+  const host = lc(primaryHostname);
+  return host && !host.startsWith("*.") && /^[a-z0-9.-]+$/.test(host) ? [host] : [];
+}
+
+// `declared: false` is a list CyberMeters seeded from the monitored host: it says
+// which host must stay covered, not which other names the certificate may carry,
+// so extra SANs are listed but never make the status "unexpected" (which opens a
+// case). Only a customer's own list can make a SAN unexpected.
+export function computeCoverage(expectedHostnames = [], observedSans = [], { declared = true } = {}) {
   const expected = [...new Set((expectedHostnames || []).map(lc).filter(Boolean))];
   const observed = [...new Set((observedSans || []).map(lc).filter(Boolean))];
   if (expected.length === 0) {
@@ -251,7 +263,7 @@ export function computeCoverage(expectedHostnames = [], observedSans = []) {
   });
   let status;
   if (missing.length) status = covered.length ? "partial" : "missing";
-  else if (unexpected.length) status = "unexpected";
+  else if (unexpected.length && declared) status = "unexpected";
   else status = "complete";
   return { status, covered, missing, unexpected, wildcard_present: observed.some((s) => s.startsWith("*.")) };
 }
@@ -404,20 +416,27 @@ export async function correlateCertificateLifecycle(env, workspaceId, { now = ne
 
     if (!existing) {
       const id = newId("cl");
-      const coverage = computeCoverage([], observedSans); // no expected declared yet → "unknown"
+      // Expected hostnames start as the monitored host itself, labelled as such
+      // (expected_hostnames_source). With none, coverage stays "unknown" and the
+      // verifier can never conclude, so a customer who never opens "Expected
+      // hosts" could never have a renewal verified. The customer can edit it.
+      const seededHosts = defaultExpectedHostnames(primaryHostname);
+      const coverage = computeCoverage(seededHosts, observedSans, { declared: false });
       const rec = { id, workspace_id: workspaceId };
       await env.cybermeters_db
         .prepare(`INSERT INTO certificate_lifecycle
           (id, workspace_id, domain_id, primary_hostname, certificate_identity, fingerprint_sha256, serial_number,
            current_certificate_observation_id, previous_certificate_observation_id, issuer, not_before, not_after,
-           days_remaining, expected_hostnames_json, observed_sans_json, coverage_status, coverage_detail_json,
+           days_remaining, expected_hostnames_json, expected_hostnames_source, observed_sans_json, coverage_status, coverage_detail_json,
            ownership_status, renewal_status, renewal_readiness, renewal_due_at, renewal_start_by,
            monitoring_status, lifecycle_state, first_seen_at, last_seen_at, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, NULL, ?, ?, '[]', ?, ?, ?, 'missing', 'not_started', ?, ?, ?, 'observed', 'observed', ?, ?, ?, ?)`)
+          VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'missing', 'not_started', ?, ?, ?, 'observed', 'observed', ?, ?, ?, ?)`)
         .bind(
           id, workspaceId, domainId, primaryHostname, current.certificate_key, current.id,
           currentIssuerSignal.comparable ? currentIssuerSignal.value : null,
-          currentExpiry, renewal.days_remaining, safeJson(observedSans, "[]"), coverage.status, safeJson(coverage),
+          currentExpiry, renewal.days_remaining, safeJson(seededHosts, "[]"),
+          seededHosts.length ? EXPECTED_HOSTS_FROM_MONITORED_HOST : null,
+          safeJson(observedSans, "[]"), coverage.status, safeJson(coverage),
           renewal.readiness, currentExpiry, renewal.renewal_start_by,
           firstSeen, current.last_seen || now, now, now
         )
@@ -466,9 +485,16 @@ export async function correlateCertificateLifecycle(env, workspaceId, { now = ne
     // append-only for a future complete re-observation to reconcile.
     if (candidateChanged && !transition.replacement) continue;
 
-    const expectedHosts = parseJson(existing.expected_hostnames_json, []) || [];
+    // A record from before the default (or never edited) gets the monitored host.
+    const storedHosts = parseJson(existing.expected_hostnames_json, []) || [];
+    const seedHosts = storedHosts.length === 0 && !existing.expected_hostnames_source
+      ? defaultExpectedHostnames(existing.primary_hostname || primaryHostname)
+      : [];
+    const expectedHosts = seedHosts.length ? seedHosts : storedHosts;
     const coverage = currentSanSignal.comparable
-      ? computeCoverage(expectedHosts, observedSans)
+      ? computeCoverage(expectedHosts, observedSans, {
+        declared: !(seedHosts.length || existing.expected_hostnames_source === EXPECTED_HOSTS_FROM_MONITORED_HOST),
+      })
       : { status: "unknown", covered: [], missing: [], unexpected: [], wildcard_present: false };
     const coverageChanged = existing.coverage_status !== coverage.status;
     const set = {
@@ -483,6 +509,10 @@ export async function correlateCertificateLifecycle(env, workspaceId, { now = ne
       observed_sans_json: safeJson(observedSans, "[]"),
       coverage_status: coverage.status,
       coverage_detail_json: safeJson(coverage),
+      ...(seedHosts.length ? {
+        expected_hostnames_json: safeJson(seedHosts, "[]"),
+        expected_hostnames_source: EXPECTED_HOSTS_FROM_MONITORED_HOST,
+      } : {}),
       last_seen_at: current.last_seen || now,
       monitoring_status: existing.monitoring_status === "no_longer_observed" ? "reappeared" : "observed",
       updated_at: now,
@@ -697,7 +727,7 @@ export function buildVerificationEvidence(rec, { current, previous, now = new Da
     ? stringSet(currentSan.value)
     : [];
   const derivedCoverage = methodAppropriate
-    ? computeCoverage(expected, observedSans)
+    ? computeCoverage(expected, observedSans, { declared: rec.expected_hostnames_source !== EXPECTED_HOSTS_FROM_MONITORED_HOST })
     : { status: "unknown", covered: [], missing: [], unexpected: [], wildcard_present: false };
   const cov = methodAppropriate ? derivedCoverage.status : "unknown";
   const coverageOk = coverageAcceptable(cov);
@@ -1174,6 +1204,7 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
       if (!list) return { ok: false, code: "hostnames_required" };
       const coverage = computeCoverage(list, parseJson(rec.observed_sans_json, []) || []);
       set.expected_hostnames_json = safeJson([...new Set(list)], "[]");
+      set.expected_hostnames_source = "customer";
       set.coverage_status = coverage.status; set.coverage_detail_json = safeJson(coverage);
       eventType = "coverage_changed"; detail = { expected_count: list.length, coverage_status: coverage.status, missing: coverage.missing, unexpected: coverage.unexpected };
       break;
@@ -1420,6 +1451,8 @@ export function certificateLifecycleToApi(row) {
     replacement_recorded_at: row.replacement_recorded_at || null,
     provider: row.provider || null,
     expected_hostnames: parseJson(row.expected_hostnames_json, []) || [],
+    // "observed_primary_host": seeded from the monitored host; "customer": set by the customer.
+    expected_hostnames_source: row.expected_hostnames_source || null,
     observed_sans: parseJson(row.observed_sans_json, []) || [],
     coverage_status: row.coverage_status,
     coverage_detail: parseJson(row.coverage_detail_json, {}) || {},

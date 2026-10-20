@@ -330,17 +330,11 @@ eq(
   db.prepare("SELECT COUNT(*) AS n FROM certificate_lifecycle WHERE workspace_id='ws1'").get().n,
   1
 );
-await lifecycle.certificateLifecycleAction(
-  env,
-  "ws1",
-  ws1Lifecycle.id,
-  "set_expected_hostnames",
-  {
-    actor_id: "u1",
-    expected_hostnames: ["example.com", "www.example.com", "api.example.com"],
-    now: clock.baseline,
-  }
-);
+// The customer never declares expected hostnames here (most never will): the
+// record starts with its monitored host, labelled as such, and that alone must
+// let a real renewal verify and close the case (live finding, 20 Oct 2026).
+eq("expected hostnames start as the monitored host", ws1Lifecycle.expected_hostnames_json, JSON.stringify(["example.com"]));
+eq("...labelled as seeded from the monitored host", ws1Lifecycle.expected_hostnames_source, "observed_primary_host");
 
 async function advanceCaseCanonical(caseId) {
   for (const target of ["triaged", "assigned", "approved", "action_in_progress", "awaiting_verification"]) {
@@ -457,6 +451,8 @@ db.prepare(`UPDATE certificate_observations SET last_seen=?, scan_id='scan-3', u
 await lifecycle.correlateCertificateLifecycle(env, "ws1", { now: clock.replacement_reobserved });
 ws1Lifecycle = db.prepare("SELECT * FROM certificate_lifecycle WHERE workspace_id='ws1'").get();
 eq("later complete live re-observation verifies lifecycle", ws1Lifecycle.verification_status, "verified_replaced");
+eq("verification evidence: the seeded host is covered, extra SANs are not 'unexpected'",
+  JSON.parse(ws1Lifecycle.verification_detail_json).coverage_status, "complete");
 eq(
   "later CyberMeters re-observation closes case through verified transition",
   db.prepare("SELECT status FROM managed_cases WHERE id=?").get(ws1Lifecycle.linked_case_id).status,
