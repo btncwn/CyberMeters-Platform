@@ -71,6 +71,20 @@ export const FAIR_DUE_SCHEDULES_SQL = `
   ORDER BY account_turn ASC, next_run_at ASC, id ASC
   LIMIT ${SCHEDULED_SCAN_MAX_PER_TICK}`;
 
+// First due schedule of each workspace (in fair order) runs now; the rest wait
+// one tick. A schedule without a workspace is its own group.
+export function spreadDueSchedulesByWorkspace(rows) {
+  const seen = new Set();
+  const dueScans = [];
+  const spread = [];
+  for (const row of rows) {
+    const key = row.workspace_id || `schedule:${row.id}`;
+    if (seen.has(key)) spread.push(row);
+    else { seen.add(key); dueScans.push(row); }
+  }
+  return { dueScans, spread };
+}
+
 // The next dispatch tick after `nowMs`: where a schedule that could not start
 // this tick goes back in line.
 export function nextDispatchTickIso(nowMs) {
@@ -210,7 +224,18 @@ export async function runScheduled(event, env, ctx, tasks) {
   // Run the due scans through a bounded pool so at most SCHEDULED_SCAN_CONCURRENCY
   // full scans fan out at once — the shared 1,000-subrequest budget is never blown
   // even when many rich-domain schedules are due in the same tick.
-  const dueScans = result?.results || [];
+  // One schedule per workspace per tick: a workspace's other due schedules
+  // move to the next dispatch tick, so its domains do not all start in the
+  // same minute and contend for one hourly exposure window.
+  const { dueScans, spread } = spreadDueSchedulesByWorkspace(result?.results || []);
+  if (spread.length > 0) {
+    const nextTick = nextDispatchTickIso(Date.parse(now));
+    await Promise.all(spread.map((schedule) => env.cybermeters_db
+      .prepare(`UPDATE scheduled_scans SET next_run_at = ? WHERE id = ? AND enabled = 1 AND next_run_at IS ?`)
+      .bind(nextTick, schedule.id, schedule.next_run_at ?? null)
+      .run()
+      .catch(() => { /* still due; the next tick takes it */ })));
+  }
   if (dueScans.length > 0) {
     const nowMs = Date.parse(now);
     ctx.waitUntil(runBoundedPool(dueScans, SCHEDULED_SCAN_CONCURRENCY, (schedule) => dispatchDueSchedule(schedule, env, tasks, nowMs)));

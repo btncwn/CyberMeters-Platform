@@ -94,7 +94,7 @@ const iso = (msAgo) => new Date(NOW - msAgo).toISOString();
 const sqlite = (msAgo) => iso(msAgo).replace("T", " ").slice(0, 19); // D1 default format
 
 // ── Stub environment ─────────────────────────────────────────────────────────
-function makeEnv({ scans, r2Objects, afterSelect = null, legacyAudits = [], failBatch = false, failAudit = false }) {
+function makeEnv({ scans, r2Objects, afterSelect = null, legacyAudits = [], failBatch = false, failAudit = false, exposureJobs = [] }) {
   const state = {
     scans: scans.map((s) => ({ ...s })),
     r2: new Map(Object.entries(r2Objects || {})),
@@ -182,6 +182,12 @@ function makeEnv({ scans, r2Objects, afterSelect = null, legacyAudits = [], fail
                 const [status, since] = args;
                 const at = (v) => Date.parse(String(v).includes("T") ? String(v) : String(v).replace(" ", "T") + "Z");
                 return { n: state.scans.filter((row) => row.status === status && row.last_heartbeat_at && at(row.last_heartbeat_at) >= Date.parse(since)).length };
+              }
+              // 1a: a live external-exposure job for this scan (pending/running, inside its deadline).
+              if (/FROM external_exposure_jobs/i.test(sql)) {
+                const [scanId, nowMs] = args;
+                return exposureJobs.some((job) => job.scan_id === scanId && ["pending", "running"].includes(job.state) && job.deadline_ms > nowMs)
+                  ? { waiting: 1 } : null;
               }
               return null;
             },
@@ -822,6 +828,34 @@ for (const inherited of [{ status: "complete" }, { status: "partial" }]) {
     const summary = await recoverInterruptedScans(env, { now: NOW });
     ok("Q4 a run whose heartbeat went stale is not a moving queue: both it and the old queued scan are recovered",
       state.scans.every((row) => row.status === "failed") && summary.recovered_interrupted === 2, JSON.stringify(summary));
+  }
+}
+
+// 1a: a queued scan waiting for its workspace's exposure turn is not lost.
+{
+  const queuedRow = (id, ageMs) => ({ id, workspace_id: "ws_E", domain_id: "dom_E", domain: "wait.example",
+    status: "queued", created_at: sqlite(ageMs), last_heartbeat_at: null });
+  const placeholder = (id) => ({ [`reports/${id}.json`]: { scan_id: id, status: "queued", findings: [] } });
+  {
+    const { env, state } = makeEnv({ scans: [queuedRow("scan_e_waiting", 2 * 60 * 60 * 1000)], r2Objects: placeholder("scan_e_waiting"),
+      exposureJobs: [{ scan_id: "scan_e_waiting", state: "pending", deadline_ms: NOW + 60 * 60 * 1000 }] });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("E1 a queued scan whose exposure job is waiting inside its deadline is left waiting, even with nothing running",
+      state.scans[0].status === "queued" && summary.recovered_interrupted === 0 && summary.waiting_in_queue === 1, JSON.stringify(summary));
+  }
+  {
+    const { env, state } = makeEnv({ scans: [queuedRow("scan_e_expired", 2 * 60 * 60 * 1000)], r2Objects: placeholder("scan_e_expired"),
+      exposureJobs: [{ scan_id: "scan_e_expired", state: "pending", deadline_ms: NOW - 1 }] });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("E2 an exposure job past its deadline does not hold the scan: it is recovered as before",
+      state.scans[0].status === "failed" && summary.recovered_interrupted === 1, JSON.stringify(summary));
+  }
+  {
+    const { env, state } = makeEnv({ scans: [queuedRow("scan_e_ancient", RECOVERY_QUEUED_MAX_WAIT_MS + 60_000)], r2Objects: placeholder("scan_e_ancient"),
+      exposureJobs: [{ scan_id: "scan_e_ancient", state: "pending", deadline_ms: NOW + 60 * 60 * 1000 }] });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("E3 past the six-hour queued bound the scan is recovered whatever its exposure job says",
+      state.scans[0].status === "failed" && summary.recovered_interrupted === 1, JSON.stringify(summary));
   }
 }
 
