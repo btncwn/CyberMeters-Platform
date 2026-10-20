@@ -34,48 +34,109 @@ export function isMcpDcrLoopbackRedirect(uri) {
   } catch { return false; }
 }
 
+/**
+ * RFC 7591 §2 defaults for a registration that leaves them out. A field the
+ * client sent is kept exactly as sent, so the strict checks below still judge
+ * it. A missing token_endpoint_auth_method registers a public client ("none";
+ * PKCE is mandatory here) rather than RFC 7591's client_secret_basic, which
+ * this lane does not issue. Applied to the request body before the OAuth
+ * library reads it, because the library would otherwise default to a secret.
+ */
+export function applyMcpDcrDefaults(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return metadata;
+  return {
+    ...metadata,
+    ...(metadata.grant_types === undefined ? { grant_types: ["authorization_code"] } : {}),
+    ...(metadata.response_types === undefined ? { response_types: ["code"] } : {}),
+    ...(metadata.token_endpoint_auth_method === undefined ? { token_endpoint_auth_method: "none" } : {}),
+  };
+}
+
+// Values worth naming in a rejection log: protocol vocabulary only, never
+// anything the client chose freely.
+const LOGGABLE_VALUES = new Set(["none", "client_secret_basic", "client_secret_post",
+  "client_secret_jwt", "private_key_jwt", "authorization_code", "refresh_token",
+  "implicit", "password", "client_credentials", "code", "token", "id_token"]);
+
+function loggable(value) {
+  if (Array.isArray(value)) return value.slice(0, 4).map((item) => (LOGGABLE_VALUES.has(item) ? item : "other"));
+  if (value === undefined) return "missing";
+  return LOGGABLE_VALUES.has(value) ? value : "other";
+}
+
+function redirectHost(uri) {
+  try { return new URL(uri).host.slice(0, 120); } catch { return "unparseable"; }
+}
+
+// The first rule a registration breaks, or null. Kept in the original order.
+function dcrMetadataRejection(clientMetadata, env) {
+  if (!clientMetadata || typeof clientMetadata !== "object" || Array.isArray(clientMetadata)) {
+    return { rule: "metadata_not_object" };
+  }
+  if (new TextEncoder().encode(JSON.stringify(clientMetadata)).length > 8192) return { rule: "body_too_large" };
+  if (Object.hasOwn(clientMetadata, "software_statement")) return { rule: "software_statement_present" };
+  const name = clientMetadata.client_name;
+  if (typeof name !== "string" || name.length < 1 || name.length > 80 ||
+      /[\x00-\x1f\x7f\p{Cf}]/u.test(name)) {
+    return { rule: "client_name_invalid", field: "client_name", detail: typeof name === "string" ? `length_${name.length}` : typeof name };
+  }
+  if (clientMetadata.token_endpoint_auth_method !== "none") {
+    return { rule: "auth_method_not_none", field: "token_endpoint_auth_method", value: loggable(clientMetadata.token_endpoint_auth_method) };
+  }
+  const supported = clientMetadata.token_endpoint_auth_methods_supported;
+  if (supported !== undefined &&
+      (!Array.isArray(supported) || supported.length !== 1 || supported[0] !== "none")) {
+    return { rule: "auth_methods_supported_not_none", field: "token_endpoint_auth_methods_supported", value: loggable(supported) };
+  }
+  const redirects = clientMetadata.redirect_uris;
+  if (!Array.isArray(redirects) || redirects.length < 1 || redirects.length > 3) {
+    return { rule: "redirect_uris_count", field: "redirect_uris", detail: Array.isArray(redirects) ? `count_${redirects.length}` : typeof redirects };
+  }
+  const hosted = configuredHostedRedirects(env);
+  const refused = redirects.find((uri) =>
+    !(env?.MCP_OAUTH_DCR_LOOPBACK_ENABLED === "true" && isMcpDcrLoopbackRedirect(uri)) &&
+    !(hosted.has(uri) && isSafeHostedRedirect(uri)));
+  if (refused !== undefined) return { rule: "redirect_not_allowed", field: "redirect_uris", redirect_host: redirectHost(refused) };
+  if (new Set(redirects).size !== redirects.length) return { rule: "redirect_duplicate", field: "redirect_uris" };
+  const grants = clientMetadata.grant_types;
+  if (!Array.isArray(grants) || !grants.includes("authorization_code") || grants.length > 2 ||
+      new Set(grants).size !== grants.length ||
+      grants.some((grant) => !["authorization_code", "refresh_token"].includes(grant))) {
+    return { rule: "grant_types_invalid", field: "grant_types", value: loggable(grants) };
+  }
+  const responses = clientMetadata.response_types;
+  if (!Array.isArray(responses) || responses.length !== 1 || responses[0] !== "code") {
+    return { rule: "response_types_invalid", field: "response_types", value: loggable(responses) };
+  }
+  return null;
+}
+
+// One line per refusal: which rule, which field, the redirect host. Never the
+// IP, the client name or any free-form value the client sent.
+function logDcrRejection(rejection, clientMetadata) {
+  const firstRedirect = Array.isArray(clientMetadata?.redirect_uris) ? clientMetadata.redirect_uris[0] : undefined;
+  console.warn(JSON.stringify({
+    event: "mcp_dcr_rejected",
+    ...rejection,
+    redirect_host: rejection.redirect_host ?? (firstRedirect === undefined ? null : redirectHost(firstRedirect)),
+  }));
+}
+
 /** A guarded RFC 7591 lane for clients that cannot use CIMD. */
 export async function evaluateMcpDcrRegistration({ clientMetadata, request }, env, options = {}) {
   if (env?.MCP_OAUTH_DCR_ENABLED !== "true" || !env?.cybermeters_db ||
       request.method !== "POST" || request.headers.get("Content-Type")?.split(";")[0] !== "application/json") {
+    logDcrRejection({ rule: "registration_unavailable" }, null);
     return { code: "access_denied", description: "Registration unavailable", status: 403 };
   }
   const ip = request.headers.get("CF-Connecting-IP") ?? options.testClientIp;
   if (typeof ip !== "string" || !ip || ip.length > 64) {
+    logDcrRejection({ rule: "client_ip_unavailable" }, null);
     return { code: "temporarily_unavailable", description: "Registration unavailable", status: 503 };
   }
-  if (!clientMetadata || typeof clientMetadata !== "object" || Array.isArray(clientMetadata)) {
-    return { code: "invalid_client_metadata", description: "Invalid registration", status: 400 };
-  }
-  const body = JSON.stringify(clientMetadata);
-  if (new TextEncoder().encode(body).length > 8192 ||
-      Object.hasOwn(clientMetadata, "software_statement") ||
-      typeof clientMetadata.client_name !== "string" ||
-      clientMetadata.client_name.length < 1 || clientMetadata.client_name.length > 80 ||
-      /[\x00-\x1f\x7f\p{Cf}]/u.test(clientMetadata.client_name) ||
-      clientMetadata.token_endpoint_auth_method !== "none" ||
-      (clientMetadata.token_endpoint_auth_methods_supported !== undefined &&
-        (!Array.isArray(clientMetadata.token_endpoint_auth_methods_supported) ||
-          clientMetadata.token_endpoint_auth_methods_supported.length !== 1 ||
-          clientMetadata.token_endpoint_auth_methods_supported[0] !== "none")) ||
-      !Array.isArray(clientMetadata.redirect_uris) ||
-      clientMetadata.redirect_uris.length < 1 || clientMetadata.redirect_uris.length > 3) {
-    return { code: "invalid_client_metadata", description: "Invalid registration", status: 400 };
-  }
-  const hosted = configuredHostedRedirects(env);
-  if (clientMetadata.redirect_uris.some((uri) =>
-    !(env?.MCP_OAUTH_DCR_LOOPBACK_ENABLED === "true" && isMcpDcrLoopbackRedirect(uri)) &&
-    !(hosted.has(uri) && isSafeHostedRedirect(uri))) ||
-      new Set(clientMetadata.redirect_uris).size !== clientMetadata.redirect_uris.length ||
-      !Array.isArray(clientMetadata.grant_types) ||
-      !clientMetadata.grant_types.includes("authorization_code") ||
-      clientMetadata.grant_types.length > 2 ||
-      new Set(clientMetadata.grant_types).size !== clientMetadata.grant_types.length ||
-      clientMetadata.grant_types.some((grant) =>
-        !["authorization_code", "refresh_token"].includes(grant)) ||
-      !Array.isArray(clientMetadata.response_types) ||
-      clientMetadata.response_types.length !== 1 ||
-      clientMetadata.response_types[0] !== "code") {
+  const rejection = dcrMetadataRejection(clientMetadata, env);
+  if (rejection) {
+    logDcrRejection(rejection, clientMetadata);
     return { code: "invalid_client_metadata", description: "Invalid registration", status: 400 };
   }
   // Validate the bounded registration before charging shared capacity. A

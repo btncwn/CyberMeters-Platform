@@ -14,7 +14,7 @@ import {
   MCP_OAUTH_RESOURCE, sameMcpOAuthAuthorizationRequest,
   validMcpOAuthAuthorizationRequest,
 } from "../src/routes/mcp-oauth-admission.js";
-import { evaluateMcpDcrRegistration, isMcpDcrLoopbackRedirect } from "../src/routes/mcp-oauth-dcr.js";
+import { applyMcpDcrDefaults, evaluateMcpDcrRegistration, isMcpDcrLoopbackRedirect } from "../src/routes/mcp-oauth-dcr.js";
 import {
   drainRevokedMcpOAuthGrantBacklog, MCP_OAUTH_KV_IO_BUDGET,
   revokeMcpOAuthUserGrantsForPurge, revokeMcpOAuthUserWorkspaceConnections,
@@ -627,6 +627,67 @@ test("production DCR allowlist admits only the Claude hosted callback", async ()
     "https://evil.example/api/mcp/auth_callback",
     "http://claude.ai/api/mcp/auth_callback",
   ]) assert.equal((await register(other)).status, 400, other);
+});
+
+test("RFC 7591 defaults admit a Claude registration that omits them; sent values stay strict", async () => {
+  const { sqlite, env } = fixture();
+  env.MCP_OAUTH_DCR_ENABLED = "true";
+  env.MCP_OAUTH_DCR_LOOPBACK_ENABLED = "false";
+  env.MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS = '["https://claude.ai/api/mcp/auth_callback"]';
+  const request = new Request("https://api.cybermeters.com/oauth/register", {
+    method: "POST", headers: { "Content-Type": "application/json",
+      "CF-Connecting-IP": "203.0.113.8" }, body: "{}",
+  });
+  const claude = { client_name: "Claude", redirect_uris: ["https://claude.ai/api/mcp/auth_callback"] };
+  assert.deepEqual(applyMcpDcrDefaults(claude), { ...claude, grant_types: ["authorization_code"],
+    response_types: ["code"], token_endpoint_auth_method: "none" });
+  // A field that was sent is never replaced by a default.
+  assert.equal(applyMcpDcrDefaults({ ...claude, token_endpoint_auth_method: "client_secret_post" })
+    .token_endpoint_auth_method, "client_secret_post");
+  assert.deepEqual(applyMcpDcrDefaults({ ...claude, grant_types: ["authorization_code", "refresh_token"] })
+    .grant_types, ["authorization_code", "refresh_token"]);
+  assert.equal(applyMcpDcrDefaults(null), null);
+  assert.deepEqual(applyMcpDcrDefaults([1]), [1]);
+
+  const register = (metadata) => {
+    sqlite.exec("DELETE FROM api_rate_limits WHERE action = 'mcp_dcr_register'");
+    return evaluateMcpDcrRegistration({ request, clientMetadata: applyMcpDcrDefaults(metadata) }, env);
+  };
+  assert.equal(await register(claude), undefined);
+  assert.equal(await register({ ...claude, grant_types: ["authorization_code", "refresh_token"] }), undefined);
+
+  const logged = [];
+  const warn = console.warn;
+  console.warn = (line) => logged.push(JSON.parse(line));
+  try {
+    for (const [changed, rule, value] of [
+      [{ token_endpoint_auth_method: "client_secret_post" }, "auth_method_not_none", "client_secret_post"],
+      [{ token_endpoint_auth_method: "client_secret_basic" }, "auth_method_not_none", "client_secret_basic"],
+      [{ grant_types: ["implicit"] }, "grant_types_invalid", ["implicit"]],
+      [{ grant_types: [] }, "grant_types_invalid", []],
+      [{ response_types: ["token"] }, "response_types_invalid", ["token"]],
+      [{ token_endpoint_auth_methods_supported: ["client_secret_post"] }, "auth_methods_supported_not_none", ["client_secret_post"]],
+      [{ redirect_uris: ["https://claude.com/api/mcp/auth_callback"] }, "redirect_not_allowed", undefined],
+    ]) {
+      assert.equal((await register({ ...claude, ...changed })).status, 400, rule);
+      const entry = logged.at(-1);
+      assert.equal(entry.event, "mcp_dcr_rejected");
+      assert.equal(entry.rule, rule);
+      if (value !== undefined) assert.deepEqual(entry.value, value);
+    }
+    assert.equal(logged.at(-1).redirect_host, "claude.com");
+    assert.equal(logged[0].redirect_host, "claude.ai");
+    // The log never carries the IP, the client name or a free-form value.
+    const text = JSON.stringify(logged);
+    assert.equal(text.includes("203.0.113.8"), false);
+    assert.equal(text.includes("Claude"), false);
+    await register({ ...claude, token_endpoint_auth_method: "my-secret-scheme" });
+    assert.equal(logged.at(-1).value, "other");
+    await register({ ...claude, client_name: "x".repeat(81) });
+    assert.deepEqual([logged.at(-1).rule, logged.at(-1).detail], ["client_name_invalid", "length_81"]);
+  } finally {
+    console.warn = warn;
+  }
 });
 
 test("validated OAuth budgets limit each IP before shared emergency capacity", async () => {

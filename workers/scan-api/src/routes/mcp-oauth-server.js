@@ -20,7 +20,7 @@ import {
   mcpOAuthJson, readBoundedMcpOAuthBody, readMcpOAuthBrowserSession, readMcpOAuthIntent,
   requireMcpWebSession,
 } from "./mcp-oauth-browser.js";
-import { evaluateMcpDcrRegistration } from "./mcp-oauth-dcr.js";
+import { applyMcpDcrDefaults, evaluateMcpDcrRegistration } from "./mcp-oauth-dcr.js";
 import { drainRevokedMcpOAuthGrantBacklog } from "./mcp-oauth-purge.js";
 
 const CONNECTION_RE = /^mcpconn_[a-f0-9-]{36}$/;
@@ -537,8 +537,20 @@ export async function handleMcpOAuthRequest(request, env, ctx, options = {}) {
     }
     if (path === "/oauth/register") {
       if (env.MCP_OAUTH_DCR_ENABLED !== "true") return plain("Not found", 404);
-      if (request.method === "POST" && await readBoundedMcpOAuthBody(request.clone(), 8192) === null) {
-        return plain("Registration request too large", 413);
+      if (request.method === "POST") {
+        const registrationBody = await readBoundedMcpOAuthBody(request.clone(), 8192);
+        if (registrationBody === null) return plain("Registration request too large", 413);
+        // RFC 7591 defaults go in before the library reads the body: it would
+        // otherwise register a missing auth method as a secret-holding client.
+        let parsed;
+        try { parsed = JSON.parse(registrationBody); } catch { parsed = undefined; }
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const headers = new Headers(request.headers);
+          headers.delete("Content-Length");
+          headers.delete("Transfer-Encoding");
+          request = new Request(request.url, { method: "POST", headers,
+            body: JSON.stringify(applyMcpDcrDefaults(parsed)) });
+        }
       }
     }
     if (path === "/oauth/token") {
