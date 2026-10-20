@@ -32,9 +32,11 @@ function normalizeDmarcRuaForComparison(value) {
 
 // Preserve the customer's existing DMARC tags and policy. This helper only
 // adds the CyberMeters aggregate-reporting URI; it never recommends stronger
-// enforcement or mutates DNS.
+// enforcement or mutates DNS. It is also the first value of a hosted record, so
+// a legacy pct is never carried over: it is rewritten with its intent (a pct
+// below 100 becomes t=y, RFC 9989 Appendix A.6).
 export function buildDmarcDnsRecommendedValue(record, recommendedRua) {
-  const raw = normalizeDnsTxtValue(record);
+  const raw = withoutLegacyPct(normalizeDnsTxtValue(record));
   if (!raw) return `v=DMARC1; p=none; rua=${recommendedRua}`;
   const parts = raw.split(";").map((part) => part.trim()).filter(Boolean);
   const ruaIndex = parts.findIndex((part) => /^rua\s*=/i.test(part));
@@ -198,8 +200,14 @@ export function hostedDnsRecordToApi(row) {
     // Customer-safe issue class (K2): 'config_error' | 'temporary_issue' | null.
     issue: row.last_error || null,
     // Phase B: ramp position + self-driving state (dmarc only).
-    policy_step: step ? { index: stepIdx, policy: step.policy, pct: step.pct, label: step.label } : null,
-    next_step: nextStep ? { index: stepIdx + 1, policy: nextStep.policy, pct: nextStep.pct, label: nextStep.label } : null,
+    policy_step: step ? dmarcRampStepToApi(stepIdx) : null,
+    next_step: nextStep ? dmarcRampStepToApi(stepIdx + 1) : null,
+    // One level less strict, for a step-down control; none at the bottom.
+    previous_step: stepIdx > 0 ? dmarcRampStepToApi(stepIdx - 1) : null,
+    // The whole ladder, so a client renders it without its own copy.
+    ladder: isDmarc ? DMARC_RAMP_LADDER.map((_, index) => dmarcRampStepToApi(index)) : null,
+    // A value that still carries pct (removed by RFC 9989), with what happens to it.
+    legacy_pct: isDmarc ? legacyPctNotice(row.current_value) : null,
     autopilot: isDmarc && Number(row.autopilot) === 1,
     can_rollback: isDmarc && Boolean(row.previous_value),
     change_pending: Boolean(row.pending_value),
@@ -208,7 +216,7 @@ export function hostedDnsRecordToApi(row) {
     // what advancing one ramp step would change.
     pending_diff: isDmarc && row.pending_value ? dmarcTagDiff(row.current_value, row.pending_value) : null,
     next_step_diff: isDmarc && nextStep
-      ? dmarcTagDiff(row.current_value, buildDmarcPolicyValue(row.current_value, { policy: nextStep.policy, pct: nextStep.pct }))
+      ? dmarcTagDiff(row.current_value, buildDmarcPolicyValue(row.current_value, { policy: nextStep.policy, testing: nextStep.testing }).value)
       : null,
     policy_content: kind === "mtasts" ? row.policy_content || null : null,
     policy_path: kind === "mtasts" ? `https://mta-sts.${row.domain}/.well-known/mta-sts.txt` : null,
@@ -613,8 +621,7 @@ export async function runHostedDnsVerificationSweep(env, {
             }, resolveRampThresholds(env))) {
           await rollbackHostedDmarc(env, row, { source: "auto", fetchImpl });
         } else if (Number(row.autopilot) === 1) {
-          const stepIdx = dmarcRampStepIndex(row.current_value);
-          const nextStep = stepIdx >= 0 ? DMARC_RAMP_LADDER[stepIdx + 1] : null;
+          const nextStep = autopilotNextStep(row.current_value);
           if (nextStep) {
             const daysSince = changeMs != null
               ? Math.floor((now.getTime() - changeMs) / 86400000) : null;
@@ -624,7 +631,7 @@ export async function runHostedDnsVerificationSweep(env, {
             }, resolveRampThresholds(env));
             if (readiness.ready) {
               await applyHostedDmarcChange(env, row, {
-                policy: nextStep.policy, pct: nextStep.pct,
+                policy: nextStep.policy, testing: nextStep.testing,
                 source: "autopilot", passRateNow: rate.pass_rate, fetchImpl,
               });
             }
@@ -638,28 +645,47 @@ export async function runHostedDnsVerificationSweep(env, {
 
 // ─── Self-Driving DMARC — Phase B: policy ramp with pass-rate interlock ─────
 // We host the record AND ingest the RUA reports, so the loop can be closed:
-// advance p=none → quarantine (pct 5→25→50→100) → reject only while measured
-// compliance stays healthy, and automatically roll back to previous_value if
-// compliance drops materially after a change. Competitors host OR measure —
-// closing the loop needs both sides.
+// advance p=none → quarantine → reject only while measured compliance stays
+// healthy, and automatically roll back to previous_value if compliance drops
+// materially after a change.
+//
+// RFC 9989 (DMARC, May 2026) removed the pct tag (Appendix A.6): receivers
+// applied it reliably only at 0 and 100, and the testing tag t replaces it,
+// t=y/n corresponding to the old pct=0/100. Section 4.7: with t=y the receiver
+// is asked to apply one level below the published policy (p=quarantine; t=y →
+// no action, p=reject; t=y → quarantine). So each policy is first published
+// with t=y, then as written; the ladder never writes pct.
 
-export const DMARC_RAMP_LADDER = [
-  { policy: "none",       pct: 100, label: "Monitor only" },
-  { policy: "quarantine", pct: 5,   label: "Quarantine 5%" },
-  { policy: "quarantine", pct: 25,  label: "Quarantine 25%" },
-  { policy: "quarantine", pct: 50,  label: "Quarantine 50%" },
-  { policy: "quarantine", pct: 100, label: "Quarantine" },
-  // Graduated reject soak — the riskiest transition (quarantine→reject) must not
-  // jump straight to 100%. Percentage-ramp reject so a misclassified legitimate
-  // sender surfaces on a small slice before full enforcement.
-  { policy: "reject",     pct: 10,  label: "Reject 10%" },
-  { policy: "reject",     pct: 25,  label: "Reject 25%" },
-  { policy: "reject",     pct: 50,  label: "Reject 50%" },
-  { policy: "reject",     pct: 100, label: "Reject" },
-];
-// Index of the first reject step (used by step-snapping below).
-const DMARC_RAMP_FIRST_REJECT = 5;
-const DMARC_RAMP_LAST_QUAR = 4;
+export const DMARC_RAMP_LADDER = Object.freeze([
+  Object.freeze({ key: "none", policy: "none", testing: false, label: "Monitor only",
+    description: "No action is requested for mail that fails DMARC; reports keep arriving." }),
+  Object.freeze({ key: "quarantine_testing", policy: "quarantine", testing: true, label: "Quarantine (testing)",
+    description: "p=quarantine with t=y: receivers are asked to apply one level less, so still no action (RFC 9989 §4.7)." }),
+  Object.freeze({ key: "quarantine", policy: "quarantine", testing: false, label: "Quarantine",
+    description: "Receivers are asked to quarantine mail that fails DMARC." }),
+  Object.freeze({ key: "reject_testing", policy: "reject", testing: true, label: "Reject (testing)",
+    description: "p=reject with t=y: receivers are asked to apply one level less, so quarantine (RFC 9989 §4.7)." }),
+  Object.freeze({ key: "reject", policy: "reject", testing: false, label: "Reject",
+    description: "Receivers are asked to reject mail that fails DMARC." }),
+]);
+const DMARC_RAMP_INDEX_BY_KEY = new Map(DMARC_RAMP_LADDER.map((step, index) => [step.key, index]));
+
+/** The ladder index for a step key, or -1. */
+export function dmarcRampStepByKey(key) {
+  return DMARC_RAMP_INDEX_BY_KEY.has(key) ? DMARC_RAMP_INDEX_BY_KEY.get(key) : -1;
+}
+
+/** The change autopilot would make next ({ policy, testing }), or null at the top. */
+export function autopilotNextStep(currentValue) {
+  const index = dmarcRampStepIndex(currentValue);
+  const next = index >= 0 ? DMARC_RAMP_LADDER[index + 1] : null;
+  return next ? { policy: next.policy, testing: next.testing } : null;
+}
+
+export function dmarcRampStepToApi(index) {
+  const step = DMARC_RAMP_LADDER[index];
+  return step ? { index, key: step.key, policy: step.policy, testing: step.testing, label: step.label, description: step.description } : null;
+}
 const HOSTED_POLICY_DAILY_BUDGET = 10;   // manual + automatic changes per record per UTC day
 const RAMP_MIN_MESSAGES = 50;            // minimum 7-day volume for a confident read
 const RAMP_MIN_PASS_RATE = 97;           // % DMARC pass required to advance
@@ -668,34 +694,67 @@ const ROLLBACK_DROP_PP = 5;              // pass-rate drop (percentage points) t
 const ROLLBACK_MIN_MESSAGES = 20;        // minimum volume before a drop is trusted
 const HOSTED_CHANGE_PROPAGATION_MS = 15 * 60 * 1000; // verify grace after a value change
 
+// The policy tags of a DMARC value (lower-cased tag names, trimmed values).
+function dmarcTags(raw) {
+  const map = new Map();
+  for (const part of String(raw || "").split(";")) {
+    const m = part.trim().match(/^([a-z]+)\s*=\s*(.*)$/i);
+    if (m && !map.has(m[1].toLowerCase())) map.set(m[1].toLowerCase(), m[2].trim());
+  }
+  return map;
+}
+
+// A legacy pct below 100 (including 0) is treated as testing: Appendix A.6 maps
+// pct=0 to t=y, and 1-99 has no RFC 9989 meaning, so the less strict reading is
+// the honest one. pct=100 or no pct is the policy as written.
+function legacyPctMeansTesting(tags) {
+  if (!tags.has("pct")) return false;
+  const pct = Number(tags.get("pct"));
+  return !(Number.isInteger(pct) && pct >= 100);
+}
+
 export function dmarcRampStepIndex(raw) {
   const d = parseDmarcRecord(raw, 1);
   if (!d.valid) return -1;
-  const idx = DMARC_RAMP_LADDER.findIndex((s) => s.policy === d.policy
-    && (d.policy === "none" || s.pct === d.percentage));
-  if (idx >= 0) return idx;
-  // Off-ladder but valid (e.g. quarantine pct=60): snap to the nearest step
-  // at or below, so "next step" is always meaningful.
-  if (d.policy === "reject") {
-    for (let i = DMARC_RAMP_LADDER.length - 1; i >= DMARC_RAMP_FIRST_REJECT; i -= 1) {
-      if (d.percentage >= DMARC_RAMP_LADDER[i].pct) return i;
-    }
-    return DMARC_RAMP_FIRST_REJECT;
-  }
-  if (d.policy === "quarantine") {
-    for (let i = DMARC_RAMP_LAST_QUAR; i >= 1; i -= 1) {
-      if (d.percentage >= DMARC_RAMP_LADDER[i].pct) return i;
-    }
-    return 1;
-  }
-  return 0;
+  if (d.policy === "none") return 0;
+  const tags = dmarcTags(raw);
+  const testing = String(tags.get("t") || "").toLowerCase() === "y" || legacyPctMeansTesting(tags);
+  const key = `${d.policy}${testing ? "_testing" : ""}`;
+  return dmarcRampStepByKey(key);
 }
 
-// Token-preserving policy rewrite: only p=, sp= and pct= change; every other
-// tag (rua, ruf, adkim, aspf, fo, ri, …) is kept byte-for-byte. pct=100 is
-// omitted (the RFC default) to keep records tidy.
+/**
+ * The record without pct (RFC 9989 removed it), keeping the policy intent: a
+ * pct below 100 becomes t=y unless t is already set. Every other tag is kept
+ * byte-for-byte. A value with no pct is returned unchanged.
+ */
+export function withoutLegacyPct(raw) {
+  const parts = String(raw || "").split(";").map((p) => p.trim()).filter(Boolean);
+  const tags = dmarcTags(raw);
+  if (!tags.has("pct")) return String(raw || "");
+  const testing = legacyPctMeansTesting(tags) && !tags.has("t")
+    && ["quarantine", "reject"].includes(String(tags.get("p") || "").toLowerCase());
+  const out = [];
+  for (const part of parts) {
+    if (/^pct\s*=/i.test(part)) continue;
+    out.push(part);
+    if (testing && /^p\s*=/i.test(part)) out.push("t=y");
+  }
+  return out.join("; ");
+}
+
+/** A notice for a hosted value that still carries pct, or null. */
+export function legacyPctNotice(raw) {
+  const tags = dmarcTags(raw);
+  if (!tags.has("pct")) return null;
+  return {
+    pct: tags.get("pct"),
+    message: `This record still carries pct=${tags.get("pct")}. RFC 9989 removed pct: receivers that follow it ignore the value and apply the policy as written. CyberMeters removes it on your next policy change.`,
+  };
+}
+
 // Per-tag before→after diff of two DMARC record values — so a change is shown as
-// "p: none→quarantine, pct: 100→5", never a blind overwrite. Returns
+// "p: none→quarantine, t: (none)→y", never a blind overwrite. Returns
 // [{ tag, before, after }] for every changed/added/removed tag.
 export function dmarcTagDiff(beforeValue, afterValue) {
   const toMap = (v) => {
@@ -727,21 +786,19 @@ export function resolveRampThresholds(env = {}) {
   };
 }
 
-export function buildDmarcPolicyValue(raw, { policy, pct = 100 } = {}) {
+export function buildDmarcPolicyValue(raw, { policy, testing = false, ...rest } = {}) {
   if (!["none", "quarantine", "reject"].includes(policy)) {
     return { ok: false, error: "policy must be none, quarantine, or reject" };
   }
-  const pctNum = Number(pct);
-  if (!Number.isInteger(pctNum) || pctNum < 1 || pctNum > 100) {
-    return { ok: false, error: "pct must be an integer from 1 to 100" };
-  }
+  if (rest.pct != null) return { ok: false, error: "pct was removed by RFC 9989; use a testing step (t=y) instead." };
   const parts = String(raw || "").split(";").map((p) => p.trim()).filter(Boolean);
   if (!/^v\s*=\s*DMARC1$/i.test(parts[0] || "")) {
     return { ok: false, error: "The current value is not a valid DMARC record." };
   }
-  const kept = parts.filter((p) => !/^(p|sp|pct)\s*=/i.test(p));
+  // p, sp, t and any legacy pct are rewritten; pct is never written (RFC 9989).
+  const kept = parts.filter((p) => !/^(p|sp|pct|t)\s*=/i.test(p));
   const out = [kept[0], `p=${policy}`];
-  if (pctNum < 100) out.push(`pct=${pctNum}`);
+  if (testing === true && policy !== "none") out.push("t=y");
   out.push(...kept.slice(1));
   const value = out.join("; ").slice(0, 4096);
   const parsed = parseDmarcRecord(value, 1);
@@ -889,12 +946,14 @@ const _normTxt = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
 // either the old state or a recorded intent for the sweep reconciler — never
 // a silent divergence between DNS and D1.
 export async function applyHostedDmarcChange(env, row, {
-  policy, pct = 100, userId = null, source = "manual",
-  passRateNow = null, fetchImpl = fetch,
+  policy, testing = false, userId = null, source = "manual",
+  passRateNow = null, fetchImpl = fetch, ...rest
 } = {}) {
+  // RFC 9989 removed pct: a caller still asking for one is refused, not ignored.
+  if (rest.pct != null) return { ok: false, reason: "invalid_target", error: "pct was removed by RFC 9989." };
   if (!row?.cf_record_id) return { ok: false, reason: "not_published" };
   if (row.pending_value) return { ok: false, reason: "change_in_progress" };
-  const built = buildDmarcPolicyValue(row.current_value, { policy, pct });
+  const built = buildDmarcPolicyValue(row.current_value, { policy, testing });
   if (!built.ok) return { ok: false, reason: "invalid_target", error: built.error };
   if (_normTxt(built.value) === _normTxt(row.current_value)) {
     return { ok: false, reason: "no_change" };
@@ -940,7 +999,7 @@ export async function applyHostedDmarcChange(env, row, {
   await createAuditEvent(env, {
     workspace_id: row.workspace_id, user_id: userId,
     event_type: "hosted_dmarc_policy_changed", entity_type: "hosted_dns_record", entity_id: row.id,
-    description: `Hosted DMARC policy for ${row.domain} set to p=${policy}${pct < 100 ? ` pct=${pct}` : ""} (${source})`,
+    description: `Hosted DMARC policy for ${row.domain} set to p=${policy}${testing && policy !== "none" ? " t=y" : ""} (${source})`,
     metadata: { from: row.current_value, to: built.value, source },
   });
   // PR-B3: non-alertable by founder decision. A policy change is a confirmation
@@ -951,7 +1010,7 @@ export async function applyHostedDmarcChange(env, row, {
     event_type: EMAIL_EVENT_HOSTED_POLICY_CHANGED,
     actor_type: userId ? "customer" : "system", actor_id: userId,
     reason: `policy_${source}`,
-    detail: { from: row.current_value, to: built.value, policy, pct, source },
+    detail: { from: row.current_value, to: built.value, policy, testing: testing === true, source },
   }).catch(() => {});
   return { ok: true, value: built.value };
 }
@@ -963,15 +1022,18 @@ export async function rollbackHostedDmarc(env, row, { userId = null, source = "m
   if (!row?.previous_value) return { ok: false, reason: "nothing_to_roll_back" };
   if (!row.cf_record_id) return { ok: false, reason: "not_published" };
   if (row.pending_value) return { ok: false, reason: "change_in_progress" };
+  // Never restore pct (removed by RFC 9989): the previous value is rewritten
+  // without it, keeping its policy intent (a pct below 100 becomes t=y).
+  const restore = withoutLegacyPct(row.previous_value);
 
   const nowIso = new Date().toISOString();
   // PREPARE
   await env.cybermeters_db
     .prepare(`UPDATE hosted_dns_entries SET pending_value = ?, pending_since = ? WHERE id = ?`)
-    .bind(row.previous_value, nowIso, row.id).run();
+    .bind(restore, nowIso, row.id).run();
 
   // EXECUTE
-  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, row.previous_value, { fetchImpl });
+  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, restore, { fetchImpl });
   if (!patched.ok) {
     await env.cybermeters_db
       .prepare(`UPDATE hosted_dns_entries SET pending_value = NULL, pending_since = NULL WHERE id = ?`)
@@ -980,7 +1042,7 @@ export async function rollbackHostedDmarc(env, row, { userId = null, source = "m
   }
 
   // VERIFY — intent stays recorded on mismatch for the reconciler.
-  if (_normTxt(patched.served) !== _normTxt(row.previous_value)) {
+  if (_normTxt(patched.served) !== _normTxt(restore)) {
     return { ok: false, reason: "verify_mismatch" };
   }
 
@@ -997,7 +1059,7 @@ export async function rollbackHostedDmarc(env, row, { userId = null, source = "m
     workspace_id: row.workspace_id, user_id: userId,
     event_type: "hosted_dmarc_rolled_back", entity_type: "hosted_dns_record", entity_id: row.id,
     description: `Hosted DMARC for ${row.domain} rolled back (${source})`,
-    metadata: { restored: row.previous_value, source },
+    metadata: { restored: restore, source },
   });
   // PR-B3. The legacy path graded this inline (`source === "auto" ? "high" :
   // "medium"`) and alerted on both. The two halves are different facts and are
@@ -1016,17 +1078,17 @@ export async function rollbackHostedDmarc(env, row, { userId = null, source = "m
     await recordHostedTransition(env, row, {
       recurrence: "hosted_rolled_back_auto",
       band: nowIso, reason: "compliance_dropped_after_policy_change",
-      detail: { restored: row.previous_value, source },
+      detail: { restored: restore, source },
     }).catch(() => {});
   } else {
     await recordHostedTransition(env, row, {
       event_type: EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL,
       actor_type: userId ? "customer" : "system", actor_id: userId,
       reason: "customer_rolled_back",
-      detail: { restored: row.previous_value, source },
+      detail: { restored: restore, source },
     }).catch(() => {});
   }
-  return { ok: true, value: row.previous_value };
+  return { ok: true, value: restore };
 }
 
 // Reconciler (H1): settles a stranded write-ahead intent using the Cloudflare

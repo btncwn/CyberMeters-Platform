@@ -1090,7 +1090,9 @@ results.push(await asyncSecurityContract("dmarc_dns_check_recommended_value_pres
     { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () => _dmarcDnsAnswer(record) }
   );
   const recommended = result.recommended_txt_value;
-  return recommended.includes("p=none") && recommended.includes("sp=none") && recommended.includes("pct=50") &&
+  // RFC 9989 removed pct: it is not carried into the recommendation (p=none
+  // has no testing level, so no t=y either).
+  return recommended.includes("p=none") && recommended.includes("sp=none") && !/pct\s*=/.test(recommended) && !recommended.includes("t=y") &&
     recommended.includes("mailto:existing@example.com") &&
     recommended.includes("mailto:cmrua_abc123def456@reports.cybermeters.com") &&
     !recommended.includes("p=quarantine") && !recommended.includes("p=reject");
@@ -2649,32 +2651,32 @@ results.push(await asyncSecurityContract("hosted_removal_never_orphans_a_live_cn
 results.push(securityContract("selfdriving_policy_builder_token_preserving", () => {
   const b = scanner.buildDmarcPolicyValue;
   const base = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com; adkim=s; fo=1";
-  const q5 = b(base, { policy: "quarantine", pct: 5 });
-  const rej = b(q5.value, { policy: "reject", pct: 100 });
+  const qt = b(base, { policy: "quarantine", testing: true });
+  const rej = b(qt.value, { policy: "reject" });
   const back = b(rej.value, { policy: "none" });
-  return q5.ok && q5.value === "v=DMARC1; p=quarantine; pct=5; rua=mailto:x@reports.cybermeters.com; adkim=s; fo=1" &&
-    // pct=100 is omitted; rua and other tags survive every rewrite verbatim
-    rej.ok && rej.value.includes("p=reject") && !rej.value.includes("pct=") &&
-    rej.value.includes("rua=mailto:x@reports.cybermeters.com") && rej.value.includes("adkim=s") &&
-    back.ok && back.value.includes("p=none") &&
-    b(base, { policy: "quarantine", pct: 0 }).ok === false &&
+  const fromLegacy = b("v=DMARC1; p=reject; pct=50; rua=mailto:x@reports.cybermeters.com", { policy: "reject" });
+  return qt.ok && qt.value === "v=DMARC1; p=quarantine; t=y; rua=mailto:x@reports.cybermeters.com; adkim=s; fo=1" &&
+    // RFC 9989: no pct is ever written; t is rewritten; rua and other tags survive verbatim
+    rej.ok && rej.value === "v=DMARC1; p=reject; rua=mailto:x@reports.cybermeters.com; adkim=s; fo=1" &&
+    back.ok && back.value.includes("p=none") && !back.value.includes("t=") &&
+    fromLegacy.ok && !fromLegacy.value.includes("pct=") &&
+    b(base, { policy: "quarantine", pct: 50 }).ok === false &&
     b(base, { policy: "drop" }).ok === false &&
     b("not a dmarc record", { policy: "none" }).ok === false;
 }));
 results.push(securityContract("selfdriving_ramp_ladder_and_step_mapping", () => {
   const idx = scanner.dmarcRampStepIndex;
-  return idx("v=DMARC1; p=none; rua=mailto:x@r.c") === 0 &&
-    idx("v=DMARC1; p=quarantine; pct=5; rua=mailto:x@r.c") === 1 &&
-    idx("v=DMARC1; p=quarantine; pct=25; rua=mailto:x@r.c") === 2 &&
-    idx("v=DMARC1; p=quarantine; rua=mailto:x@r.c") === 4 &&      // no pct → 100
-    idx("v=DMARC1; p=quarantine; pct=60; rua=mailto:x@r.c") === 3 && // off-ladder snaps down
-    // Graduated reject soak: reject 10/25/50/100 map to 5/6/7/8.
-    idx("v=DMARC1; p=reject; pct=10; rua=mailto:x@r.c") === 5 &&
-    idx("v=DMARC1; p=reject; pct=25; rua=mailto:x@r.c") === 6 &&
-    idx("v=DMARC1; p=reject; pct=50; rua=mailto:x@r.c") === 7 &&
-    idx("v=DMARC1; p=reject; rua=mailto:x@r.c") === 8 &&          // no pct → 100 → full reject
-    idx("v=DMARC1; p=reject; pct=60; rua=mailto:x@r.c") === 7 &&  // off-ladder snaps down to reject 50
-    scanner.DMARC_RAMP_LADDER[5].policy === "reject" && scanner.DMARC_RAMP_LADDER.length === 9 &&
+  const key = (v) => scanner.DMARC_RAMP_LADDER[idx(v)]?.key;
+  return key("v=DMARC1; p=none; rua=mailto:x@r.c") === "none" &&
+    key("v=DMARC1; p=quarantine; t=y; rua=mailto:x@r.c") === "quarantine_testing" &&
+    key("v=DMARC1; p=quarantine; rua=mailto:x@r.c") === "quarantine" &&
+    key("v=DMARC1; p=reject; t=y; rua=mailto:x@r.c") === "reject_testing" &&
+    key("v=DMARC1; p=reject; rua=mailto:x@r.c") === "reject" &&
+    // A legacy pct below 100 reads as testing: progress is never overstated.
+    key("v=DMARC1; p=quarantine; pct=25; rua=mailto:x@r.c") === "quarantine_testing" &&
+    key("v=DMARC1; p=reject; pct=50; rua=mailto:x@r.c") === "reject_testing" &&
+    scanner.DMARC_RAMP_LADDER.length === 5 &&
+    scanner.DMARC_RAMP_LADDER.every((step) => !("pct" in step)) &&
     idx("garbage") === -1;
 }));
 results.push(securityContract("selfdriving_readiness_interlock", () => {
@@ -2724,7 +2726,7 @@ results.push(await asyncSecurityContract("selfdriving_apply_swaps_previous_and_r
   // Happy path: intent is written BEFORE the PATCH; commit swaps from pending.
   const log1 = [];
   const r1 = await scanner.applyHostedDmarcChange(mkEnv(log1), mkRow(), {
-    policy: "quarantine", pct: 5, source: "manual", passRateNow: 99, fetchImpl });
+    policy: "quarantine", testing: true, source: "manual", passRateNow: 99, fetchImpl });
   const prepared = log1.findIndex((l) => /SET pending_value = \?/.test(l.sql));
   const committed = log1.findIndex((l) => /target_value = pending_value/.test(l.sql));
   const swap = committed >= 0 && prepared >= 0 && prepared < committed;
@@ -2732,10 +2734,14 @@ results.push(await asyncSecurityContract("selfdriving_apply_swaps_previous_and_r
   // Budget exhausted: no PATCH, no writes.
   const log2 = []; patches.length = 0;
   const r2 = await scanner.applyHostedDmarcChange(mkEnv(log2, { changesToday: 10 }), mkRow(), {
-    policy: "quarantine", pct: 5, fetchImpl });
+    policy: "quarantine", testing: true, fetchImpl });
+  // A pct request is refused before any write or network call.
+  const logPct = [];
+  const rPct = await scanner.applyHostedDmarcChange(mkEnv(logPct), mkRow(), { policy: "quarantine", pct: 50, fetchImpl });
   // No-op change is refused before any network call.
   const r3 = await scanner.applyHostedDmarcChange(mkEnv([]), mkRow(), { policy: "none", fetchImpl });
-  return r1.ok && r1.value.includes("p=quarantine; pct=5") && swap && audit &&
+  return r1.ok && r1.value.includes("p=quarantine; t=y") && !r1.value.includes("pct=") && swap && audit &&
+    rPct.ok === false && logPct.length === 0 &&
     r2.ok === false && r2.reason === "change_budget_exceeded" && patches.length === 0 &&
     r3.ok === false && r3.reason === "no_change";
 }));
@@ -2767,6 +2773,35 @@ results.push(await asyncSecurityContract("selfdriving_rollback_restores_verbatim
   return r.ok && r.value === prev && patches[0] === prev && clearsPrevious &&
     noPrev.ok === false && noPrev.reason === "nothing_to_roll_back";
 }));
+// RFC 9989 removed pct: a rollback never restores it. The live founder record
+// (20 Oct 2026) had previous_value "p=reject; pct=50"; it comes back as t=y.
+results.push(await asyncSecurityContract("hosted_rollback_never_restores_pct", async () => {
+  const row = { id: "hd-pct", workspace_id: "ws1", domain: "example.com",
+    hosted_name: "hd-pct.dmarc.cybermeters.com",
+    current_value: "v=DMARC1; p=quarantine; rua=mailto:x@reports.cybermeters.com",
+    previous_value: "v=DMARC1; p=reject; pct=50; rua=mailto:x@reports.cybermeters.com",
+    cf_record_id: "c".repeat(32) };
+  const binds = []; const patches = [];
+  const env = { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "e".repeat(32),
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, bind(...a) { this._a = a; return this; },
+      async first() { return null; },
+      async run() { binds.push(...(this._a || []).filter((v) => typeof v === "string")); return { meta: { changes: 1 } }; },
+      async all() { return { results: [] }; },
+    }; } } };
+  const fetchImpl = async (url, opts) => {
+    if ((opts?.method || "GET") === "PATCH") {
+      const sent = JSON.parse(opts.body).content;
+      patches.push(sent);
+      return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "z", content: sent } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ success: true, result: [] }) };
+  };
+  const r = await scanner.rollbackHostedDmarc(env, row, { source: "manual", fetchImpl });
+  const restored = "v=DMARC1; p=reject; t=y; rua=mailto:x@reports.cybermeters.com";
+  return r.ok && r.value === restored && patches.length === 1 && patches[0] === restored &&
+    binds.every((value) => !/pct\s*=/.test(value));
+}));
 results.push(await asyncSecurityContract("hosted_apply_is_write_ahead_saga", async () => {
   const value = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
   const mkRow = (extra = {}) => ({ id: "hd-eee", workspace_id: "ws1", domain: "example.com",
@@ -2784,7 +2819,7 @@ results.push(await asyncSecurityContract("hosted_apply_is_write_ahead_saga", asy
   const log1 = []; let fetches1 = 0;
   const failPatch = async () => { fetches1 += 1; return { ok: false, status: 500, json: async () => ({ success: false }) }; };
   const r1 = await scanner.applyHostedDmarcChange(mkEnv(log1), mkRow(), {
-    policy: "quarantine", pct: 5, fetchImpl: failPatch });
+    policy: "quarantine", testing: true, fetchImpl: failPatch });
   const aborted1 = log1.some((s) => /pending_value = NULL, pending_since = NULL WHERE/.test(s));
   const committed1 = log1.some((s) => /target_value = pending_value/.test(s));
 
@@ -2795,13 +2830,13 @@ results.push(await asyncSecurityContract("hosted_apply_is_write_ahead_saga", asy
     ? { ok: true, status: 200, json: async () => ({ success: true, result: { id: "x", content: "v=DMARC1; p=reject" } }) }
     : { ok: true, status: 200, json: async () => ({ success: true, result: [] }) });
   const r2 = await scanner.applyHostedDmarcChange(mkEnv(log2), mkRow(), {
-    policy: "quarantine", pct: 5, fetchImpl: liarPatch });
+    policy: "quarantine", testing: true, fetchImpl: liarPatch });
   const aborted2 = log2.some((s) => /pending_value = NULL, pending_since = NULL WHERE/.test(s));
   const committed2 = log2.some((s) => /target_value = pending_value/.test(s));
 
   // Case 3: an in-flight intent blocks a second overlapping change (per-record lock).
   const r3 = await scanner.applyHostedDmarcChange(mkEnv([]), mkRow({ pending_value: "x" }), {
-    policy: "quarantine", pct: 5, fetchImpl: failPatch });
+    policy: "quarantine", testing: true, fetchImpl: failPatch });
 
   return r1.ok === false && r1.reason === "server_error" && aborted1 && !committed1 && fetches1 === 1 &&
     r2.ok === false && r2.reason === "verify_mismatch" && !aborted2 && !committed2 &&
@@ -2809,7 +2844,7 @@ results.push(await asyncSecurityContract("hosted_apply_is_write_ahead_saga", asy
 }));
 results.push(await asyncSecurityContract("hosted_reconciler_commits_or_aborts_authoritatively", async () => {
   const oldValue = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
-  const intent   = "v=DMARC1; p=quarantine; pct=5; rua=mailto:x@reports.cybermeters.com";
+  const intent   = "v=DMARC1; p=quarantine; t=y; rua=mailto:x@reports.cybermeters.com";
   const mkRow = (extra = {}) => ({ id: "hd-fff", workspace_id: "ws1", domain: "example.com",
     hosted_name: "hd-fff.dmarc.cybermeters.com", current_value: oldValue,
     pending_value: intent, pending_since: new Date(Date.now() - 3600e3).toISOString(),

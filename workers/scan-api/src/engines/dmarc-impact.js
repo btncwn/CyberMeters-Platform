@@ -21,12 +21,6 @@ function toEpochSeconds(value, fallback = Math.floor(Date.now() / 1000)) {
   return Number.isFinite(ms) ? Math.floor(ms / 1000) : fallback;
 }
 
-function clampPct(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 100;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
 function round1(value) {
   return Math.round(Number(value || 0) * 10) / 10;
 }
@@ -103,14 +97,19 @@ function summarizeWindow(rows = []) {
 }
 
 export async function forecastPolicyImpact(env, workspaceId, domain, {
-  targetPolicy = "reject", targetPct = 100, windowDays = IMPACT_WINDOW_DAYS, now = new Date(),
+  targetPolicy = "reject", testing = false, windowDays = IMPACT_WINDOW_DAYS, now = new Date(),
 } = {}) {
   const endEpoch = toEpochSeconds(now);
   const days = Math.max(1, Number(windowDays || IMPACT_WINDOW_DAYS));
   const startEpoch = endEpoch - Math.floor(days * 86400);
   const rows = await loadImpactRows(env, workspaceId, domain, { startEpoch, endEpoch });
-  const pct = String(targetPolicy || "").toLowerCase() === "none" ? 0 : clampPct(targetPct);
-  const multiplier = pct / 100;
+  // RFC 9989 has no percentage: a failing message is either handled or not.
+  // With t=y (testing) the receiver is asked to apply one level less (§4.7).
+  const requested = String(targetPolicy || "").toLowerCase();
+  const effectivePolicy = testing === true
+    ? ({ reject: "quarantine", quarantine: "none" }[requested] || "none")
+    : requested;
+  const multiplier = effectivePolicy === "quarantine" || effectivePolicy === "reject" ? 1 : 0;
   let totalMessages = 0, affectedMessages = 0, legitimateAffected = 0;
   const legitimateSenders = [];
 
@@ -135,7 +134,8 @@ export async function forecastPolicyImpact(env, workspaceId, domain, {
   legitimateSenders.sort((a, b) => b.affected - a.affected);
   return {
     target_policy: targetPolicy,
-    target_pct: pct,
+    target_testing: testing === true,
+    effective_policy: effectivePolicy,
     window_days: days,
     total_messages: totalMessages,
     affected_messages: affectedMessages,

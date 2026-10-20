@@ -98,10 +98,10 @@ export function computeBecExposureScore(input = {}, options = {}) {
 
   if (dmarcPct != null && dmarcPct < 100 && ["quarantine", "reject"].includes(dmarcPolicy)) {
     score += 5;
-    reasons.push(becReason("dmarc_partial_pct", "medium", "DMARC enforcement is partial",
-      `The DMARC pct tag applies enforcement to ${dmarcPct}% of messages.`));
-    recommendedActions.push(becAction("increase_dmarc_pct", "medium", "Increase DMARC policy coverage",
-      "Raise pct to 100 after confirming legitimate senders are aligned."));
+    reasons.push(becReason("dmarc_partial_pct", "medium", "DMARC record carries a legacy pct tag",
+      `The record carries pct=${dmarcPct}, which RFC 9989 removed; receivers may not all apply the same handling.`));
+    recommendedActions.push(becAction("increase_dmarc_pct", "medium", "Remove the legacy pct tag",
+      "Remove pct from the DMARC record; to test a policy first, publish it with t=y (RFC 9989 section 4.7)."));
   }
 
   if (!cybermetersRuaVerified) {

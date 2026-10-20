@@ -86,21 +86,29 @@ seedRecord({ ip: "203.0.113.11", count: 70, aligned: false, begin: nowEpoch - da
 seedRecord({ ip: "203.0.113.11", count: 200, aligned: true, begin: nowEpoch - day });
 seedRecord({ ip: "203.0.113.12", count: 10, aligned: false, begin: nowEpoch - day });
 
-const forecast50 = await forecastPolicyImpact(env, "ws_a", "acme.co.uk", {
-  targetPolicy: "reject", targetPct: 50, windowDays: 7, now,
+// RFC 9989 has no percentage: a step either asks receivers to act on failing
+// mail or it does not. t=y asks for one level less (section 4.7).
+const forecastTest = await forecastPolicyImpact(env, "ws_a", "acme.co.uk", {
+  targetPolicy: "reject", testing: true, windowDays: 7, now,
 });
-ok("forecast total messages", forecast50.total_messages === 400);
-ok("forecast pct scaling", forecast50.affected_messages === 50 && forecast50.affected_percentage === 12.5);
-ok("forecast legitimate affected includes manual trusted", forecast50.legitimate_affected_messages === 15);
-ok("forecast risky affected", forecast50.risky_affected_messages === 35);
-ok("forecast sender breakdown includes who gets hurt", forecast50.legitimate_affected_senders.some((s) => s.source_ip === "203.0.113.12" && s.classification === "authorised"));
+ok("forecast total messages", forecastTest.total_messages === 400);
+ok("reject with t=y is forecast as quarantine: failing mail is still handled", forecastTest.effective_policy === "quarantine"
+  && forecastTest.affected_messages === 100 && forecastTest.affected_percentage === 25);
+ok("forecast legitimate affected includes manual trusted", forecastTest.legitimate_affected_messages === 30);
+ok("forecast risky affected", forecastTest.risky_affected_messages === 70);
+ok("forecast sender breakdown includes who gets hurt", forecastTest.legitimate_affected_senders.some((s) => s.source_ip === "203.0.113.12" && s.classification === "authorised"));
+ok("forecast carries no pct", !("target_pct" in forecastTest) && forecastTest.target_testing === true);
 
 const forecast100 = await forecastPolicyImpact(env, "ws_a", "acme.co.uk", {
-  targetPolicy: "reject", targetPct: 100, windowDays: 7, now,
+  targetPolicy: "reject", windowDays: 7, now,
 });
-ok("forecast 100 pct doubles affected from 50 pct", forecast100.affected_messages === 100 && forecast100.legitimate_affected_messages === 30);
+ok("reject as written affects every failing message", forecast100.affected_messages === 100 && forecast100.legitimate_affected_messages === 30);
+const quarantineTest = await forecastPolicyImpact(env, "ws_a", "acme.co.uk", {
+  targetPolicy: "quarantine", testing: true, windowDays: 7, now,
+});
+ok("quarantine with t=y is forecast as no action", quarantineTest.effective_policy === "none" && quarantineTest.affected_messages === 0);
 const forecastNone = await forecastPolicyImpact(env, "ws_a", "acme.co.uk", {
-  targetPolicy: "none", targetPct: 100, windowDays: 7, now,
+  targetPolicy: "none", windowDays: 7, now,
 });
 ok("forecast none affects no mail", forecastNone.affected_messages === 0);
 
@@ -146,7 +154,7 @@ ok("assessment threshold is strictly greater than configured pp", below.rollback
 seedSender({ ws: "ws_b", domain: "acme.co.uk", ip: "203.0.113.10", auto: "authorised" });
 seedRecord({ ws: "ws_b", domain: "acme.co.uk", ip: "203.0.113.10", count: 1000, aligned: false, begin: nowEpoch - day });
 const isolated = await forecastPolicyImpact(env, "ws_a", "acme.co.uk", {
-  targetPolicy: "reject", targetPct: 100, windowDays: 7, now,
+  targetPolicy: "reject", windowDays: 7, now,
 });
 ok("forecast is tenant-isolated", isolated.total_messages === 400 && isolated.affected_messages === 100);
 
