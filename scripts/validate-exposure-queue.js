@@ -211,7 +211,53 @@ for(const outcome of [
  check(h.calls===0);check(h.sent.length===8); // exceeds Queue max_retries=3 safely
 
  h.sql.prepare('UPDATE external_exposure_jobs SET lease_until=0,charged_requests=? WHERE scan_id=?').run(EXPOSURE_JOB_LIMITS.workspaceRequests,first.scan.id);
+ // 1a: a job that has not started waits for the hourly window instead of
+ // ending partial; it stays pending and is re-sent after a delay.
+ const sentBefore=h.sent.length;
+ const waited=await processExposureMessage(second.body,h.env,{collect:h.collect});
+ check(waited.outcome==='workspace_window_wait'&&waited.action==='ack');check(h.calls===0);
+ check(h.sql.prepare('SELECT state FROM external_exposure_jobs WHERE scan_id=?').get(second.scan.id).state==='pending');
+ check(h.sent.length===sentBefore+1);
+ // Once the other domain's job leaves the hourly window, the waiting job runs.
+ h.sql.prepare('UPDATE external_exposure_jobs SET created_ms=? WHERE scan_id=?').run(Date.now()-EXPOSURE_JOB_LIMITS.windowMs-1,first.scan.id);
+ const ran=await processExposureMessage(second.body,h.env,{collect:h.collect});
+ check(ran.outcome!=='workspace_window_wait'&&ran.outcome!=='network_budget');check(h.calls===1);
+}
+{
+ // A job that already started and then meets a full window ends honestly as
+ // budget_exhausted; only a job that has not started waits.
+ const h=harness(),first=h.seed('window1',{workspace:'shared'}),second=h.seed('window2',{workspace:'shared'});
+ h.sql.prepare('UPDATE external_exposure_jobs SET charged_requests=? WHERE scan_id=?').run(EXPOSURE_JOB_LIMITS.workspaceRequests,first.scan.id);
+ h.sql.prepare('UPDATE external_exposure_jobs SET attempts=1 WHERE scan_id=?').run(second.scan.id);
  check((await processExposureMessage(second.body,h.env,{collect:h.collect})).outcome==='network_budget');check(h.calls===0);
+}
+{
+ // 1a: a workspace with two verified domains has a two-domain hourly window, so
+ // the second domain runs in the same hour as the first instead of waiting.
+ const h=harness(),first=h.seed('scaled1',{workspace:'scaled'}),second=h.seed('scaled2',{workspace:'scaled'});
+ h.sql.prepare('UPDATE external_exposure_jobs SET charged_requests=? WHERE scan_id=?').run(EXPOSURE_JOB_LIMITS.workspaceRequests,first.scan.id);
+ const plan=JSON.parse(h.sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get(second.scan.id).plan_json);
+ plan.workspace_window={domains:2,requests:EXPOSURE_JOB_LIMITS.workspaceRequests*2,bytes:EXPOSURE_JOB_LIMITS.workspaceBytes*2};
+ h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(plan),second.scan.id);
+ const ran=await processExposureMessage(second.body,h.env,{collect:h.collect});
+ check(ran.outcome!=='workspace_window_wait'&&ran.outcome!=='network_budget');check(h.calls===1);
+ // A window that is not exactly n domain shares is ignored (one share applies).
+ const third=h.seed('scaled3',{workspace:'scaled'});
+ const forged=JSON.parse(h.sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get(third.scan.id).plan_json);
+ forged.workspace_window={domains:2,requests:EXPOSURE_JOB_LIMITS.workspaceRequests*50,bytes:EXPOSURE_JOB_LIMITS.workspaceBytes*50};
+ h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(forged),third.scan.id);
+ check((await processExposureMessage(third.body,h.env,{collect:h.collect})).outcome==='workspace_window_wait');
+}
+{
+ // The first claim replaces the queue-wait deadline with the run deadline.
+ const h=harness(),{body,scan}=h.seed('deadline');
+ // A job not yet started carries the queue-wait deadline (as createJob writes it).
+ h.sql.prepare('UPDATE external_exposure_jobs SET deadline_ms=created_ms+? WHERE scan_id=?').run(EXPOSURE_JOB_LIMITS.queueWaitMs,scan.id);
+ const before=h.sql.prepare('SELECT deadline_ms FROM external_exposure_jobs WHERE scan_id=?').get(scan.id);
+ await processExposureMessage(body,h.env,{collect:h.collect});
+ const after=h.sql.prepare('SELECT deadline_ms,attempts FROM external_exposure_jobs WHERE scan_id=?').get(scan.id);
+ check(after.attempts>=1);check(after.deadline_ms<before.deadline_ms);
+ check(after.deadline_ms<=Date.now()+EXPOSURE_JOB_LIMITS.completionMs);
 }
 {
  const h=harness(),{body}=h.seed('revoke');

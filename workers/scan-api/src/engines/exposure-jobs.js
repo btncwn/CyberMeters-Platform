@@ -10,6 +10,7 @@ import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, TLS_
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
+import { getEffectiveDomainLimit, getEffectivePlanState } from './entitlements.js';
 
 export const EXPOSURE_JOB_LIMITS = Object.freeze({
   hosts:4,
@@ -21,7 +22,39 @@ export const EXPOSURE_JOB_LIMITS = Object.freeze({
   // (attack-surface-lifecycle RECHECK_OBSERVATION_WINDOW_DAYS) is stale: the
   // name is planned again rather than skipped on an old answer.
   noAddressEvidenceMs:30*24*60*60*1000,
+  // workspaceRequests/workspaceBytes are one domain's share of the hourly
+  // workspace window. The window grows with the workspace's verified domains,
+  // up to its plan's domain limit and never past windowDomainsCeiling.
+  windowDomainsCeiling:25,
+  // A job that has not started yet waits for its turn (another domain's job
+  // running, or the hourly window full) instead of ending partial. The run
+  // deadline starts at the first slice; the wait itself is bounded below the
+  // interrupted-scan recovery's six-hour queued bound.
+  queueWaitMs:5*60*60*1000, windowWaitDelaySeconds:300,
 });
+
+// The hourly window for one workspace: one domain's share per verified domain.
+export async function workspaceExposureWindow(env,workspaceId) {
+  const base={domains:1,requests:EXPOSURE_JOB_LIMITS.workspaceRequests,bytes:EXPOSURE_JOB_LIMITS.workspaceBytes};
+  try{
+    const row=await env.cybermeters_db.prepare(`SELECT w.owner_user_id AS owner,
+        (SELECT COUNT(*) FROM workspace_domains wd WHERE wd.workspace_id=w.id AND wd.verification_status='verified') AS domains
+      FROM workspaces w WHERE w.id=? AND w.deleted_at IS NULL`).bind(workspaceId).first();
+    const verified=Number(row?.domains)||0;
+    if(!row?.owner||verified<=1)return base;
+    const plan=await getEffectivePlanState(row.owner,env);
+    const planDomains=Number(getEffectiveDomainLimit(plan?.plan,plan?.is_trial));
+    const domains=Math.max(1,Math.min(verified,Number.isFinite(planDomains)?planDomains:1,EXPOSURE_JOB_LIMITS.windowDomainsCeiling));
+    return {domains,requests:base.requests*domains,bytes:base.bytes*domains};
+  }catch{return base;}
+}
+function windowFor(plan) {
+  const w=plan?.workspace_window,max=EXPOSURE_JOB_LIMITS.windowDomainsCeiling;
+  const ok=Number.isSafeInteger(w?.domains)&&w.domains>=1&&w.domains<=max&&
+    w.requests===EXPOSURE_JOB_LIMITS.workspaceRequests*w.domains&&w.bytes===EXPOSURE_JOB_LIMITS.workspaceBytes*w.domains;
+  return ok?w:{domains:1,requests:EXPOSURE_JOB_LIMITS.workspaceRequests,bytes:EXPOSURE_JOB_LIMITS.workspaceBytes};
+}
+const runMsFor=plan=>plan?.tls?30*60*1000:EXPOSURE_JOB_LIMITS.completionMs;
 // The lifecycle observation's own vocabulary for "this name has no A/AAAA":
 // NXDOMAIN for both address types (dns_state absent), NOERROR with no address
 // for both (asset-intel DNS_NAME_WITHOUT_ADDRESS), or the probe's strict
@@ -227,6 +260,7 @@ async function createJob(env, scan, now, dispatch) {
   plan.checks=plan.checks.slice(0,admitted);
   plan.exposure_check_limit=admitted;
   plan.network_budget=sizeExposureJobBudget(plan);
+  plan.workspace_window=await workspaceExposureWindow(env,scan.workspace_id);
   await db.prepare(`INSERT OR IGNORE INTO external_exposure_jobs
     (scan_id,workspace_id,domain_id,domain,plan_json,dispatch_json,created_ms,deadline_ms,updated_at)
     SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM scans s JOIN workspaces w ON w.id=s.workspace_id
@@ -234,7 +268,9 @@ async function createJob(env, scan, now, dispatch) {
       WHERE s.id=? AND s.workspace_id=? AND s.domain_id=? AND s.status='queued'
       AND w.deleted_at IS NULL AND wd.verification_status='verified')`)
     .bind(scan.id,scan.workspace_id,scan.domain_id,scan.domain,JSON.stringify(plan),JSON.stringify(dispatch),now,
-      now+(env.TLS_ASSESSMENT_MODE==='evidence-v1'?30*60*1000:EXPOSURE_JOB_LIMITS.completionMs),
+      // Until its first slice runs the deadline is the queue wait; the claim
+      // that starts it replaces this with the run deadline (runMsFor).
+      now+EXPOSURE_JOB_LIMITS.queueWaitMs,
       new Date(now).toISOString(),scan.id,scan.workspace_id,scan.domain_id).run();
 }
 
@@ -260,6 +296,17 @@ async function deferBusy(env,row,outcome) {
   // A fresh delayed continuation retains the original absolute job deadline.
   await env.SCAN_QUEUE.send(messageFor(row),{delaySeconds:30});
   return {action:'ack',outcome};
+}
+// The claim failed for a job that has not started: if its own budget still
+// fits the first slice, the shared hourly window is what refused it.
+function windowFull(row,requests,bytes,budget) {
+  return Number(row.charged_requests||0)+requests<=budget.requests&&Number(row.charged_bytes||0)+bytes<=budget.bytes;
+}
+async function deferForWindow(env,row) {
+  // The hourly window is full with other domains' work. A job that has not
+  // started waits for it to roll instead of ending partial.
+  await env.SCAN_QUEUE.send(messageFor(row),{delaySeconds:EXPOSURE_JOB_LIMITS.windowWaitDelaySeconds});
+  return {action:'ack',outcome:'workspace_window_wait'};
 }
 async function canRun(env,row) {
   return !!await env.cybermeters_db.prepare(`SELECT scan_id FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=? AND ${AUTHORITY}`)
@@ -495,8 +542,10 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
   const budget=exposureJobBudget(plan);
   const reservationRequests=TLS_SPECIAL_CONNECTION_LIMITS[items[0].check.control]||TLS_SLICE_LIMITS.connections;
   const reservationBytes=TLS_SLICE_LIMITS.bytes+TLS_SLICE_LIMITS.overreadBytes;
+  const window=windowFor(plan);
   const claimed=await db.prepare(`UPDATE external_exposure_jobs SET state='running',lease_token=?,lease_until=?,
     charged_requests=charged_requests+?,charged_bytes=charged_bytes+?,attempts=attempts+1,
+    deadline_ms=CASE WHEN attempts=0 THEN ? ELSE deadline_ms END,
     unknown_attempts=unknown_attempts+CASE WHEN state='running' THEN 1 ELSE 0 END,updated_at=?
     WHERE scan_id=? AND workspace_id=? AND cursor=? AND state IN ('pending','running') AND lease_until<=?
       AND CAST(json_extract(plan_json,'$.tls.cursor') AS INTEGER)=?
@@ -508,14 +557,15 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
       AND (SELECT COALESCE(SUM(j.charged_bytes),0) FROM external_exposure_jobs j
         WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
       AND ${TLS_SCOPE_FENCE}`)
-    .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,new Date(now).toISOString(),
+    .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,now+runMsFor(plan),new Date(now).toISOString(),
       row.scan_id,row.workspace_id,row.cursor,now,tls.cursor,reservationRequests,budget.requests,
       reservationBytes,budget.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
-      EXPOSURE_JOB_LIMITS.workspaceRequests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,EXPOSURE_JOB_LIMITS.workspaceBytes,
+      window.requests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,window.bytes,
       ...tlsScopeParams(entry)).run();
   if(!changed(claimed)){
     const active=await db.prepare('SELECT scan_id FROM external_exposure_jobs WHERE workspace_id=? AND lease_until>? LIMIT 1').bind(row.workspace_id,now).first();
     if(active)return deferBusy(env,row,'tenant_busy');
+    if(Number(row.attempts)===0&&windowFull(row,reservationRequests,reservationBytes,budget))return deferForWindow(env,row);
     return finishWithoutProbe(env,row,'budget_exhausted','tls_network_budget',now);
   }
   const controller=new AbortController();
@@ -595,8 +645,10 @@ export async function processExposureMessage(body,env,deps={}) {
     ?WEBSITE_CONTENT_LIMITS.bytes+WEBSITE_CONTENT_LIMITS.overreadBytes:EXPOSURE_JOB_LIMITS.byteReservation;
   // This single conditional write serialises both per-job and tenant-window
   // budgets; no read-then-increment race. A crashed prior lease stays charged.
+  const window=windowFor(plan);
   const claimed=await db.prepare(`UPDATE external_exposure_jobs SET state='running',lease_token=?,lease_until=?,
     charged_requests=charged_requests+?,charged_bytes=charged_bytes+?,attempts=attempts+1,
+    deadline_ms=CASE WHEN attempts=0 THEN ? ELSE deadline_ms END,
     unknown_attempts=unknown_attempts+CASE WHEN state='running' THEN 1 ELSE 0 END,updated_at=?
     WHERE scan_id=? AND workspace_id=? AND cursor=? AND state IN ('pending','running') AND lease_until<=?
     AND charged_requests+?<=? AND charged_bytes+?<=? AND ${AUTHORITY}
@@ -606,13 +658,14 @@ export async function processExposureMessage(body,env,deps={}) {
       WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
     AND (SELECT COALESCE(SUM(j.charged_bytes),0) FROM external_exposure_jobs j
       WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?`)
-    .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,new Date(now).toISOString(),
+    .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,now+runMsFor(plan),new Date(now).toISOString(),
       row.scan_id,row.workspace_id,row.cursor,now,reservationRequests,budget.requests,
       reservationBytes,budget.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
-      EXPOSURE_JOB_LIMITS.workspaceRequests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,EXPOSURE_JOB_LIMITS.workspaceBytes).run();
+      window.requests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,window.bytes).run();
   if(!changed(claimed)){
     const active=await db.prepare('SELECT scan_id FROM external_exposure_jobs WHERE workspace_id=? AND lease_until>? LIMIT 1').bind(row.workspace_id,now).first();
     if(active)return deferBusy(env,row,'tenant_busy');
+    if(Number(row.attempts)===0&&windowFull(row,reservationRequests,reservationBytes,budget))return deferForWindow(env,row);
     return finishWithoutProbe(env,row,'budget_exhausted','network_budget',now);
   }
   // Record service by actual attempted slice, never by alphabetical selection.

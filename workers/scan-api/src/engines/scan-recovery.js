@@ -144,6 +144,26 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
       summary.waiting_in_queue++;
       continue;
     }
+    // A queued scan whose external-exposure job is still inside its deadline is
+    // waiting for its workspace's turn (another domain's job, or the hourly
+    // network window), not lost. The job's own deadline bounds that wait.
+    if (s.status === "queued" && now - createdMs < RECOVERY_QUEUED_MAX_WAIT_MS) {
+      let exposureWaiting = false;
+      try {
+        exposureWaiting = !!(await env.cybermeters_db
+          .prepare(
+            `SELECT 1 AS waiting FROM external_exposure_jobs
+              WHERE scan_id = ? AND state IN ('pending', 'running') AND deadline_ms > ? LIMIT 1`
+          )
+          .bind(s.id, now)
+          .first());
+      } catch { exposureWaiting = false; }
+      if (exposureWaiting) {
+        summary.skipped++;
+        summary.waiting_in_queue++;
+        continue;
+      }
+    }
 
     const reportKey = `reports/${s.id}.json`;
     let raw = null;

@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { planExposureChecks } from '../../../shared/exposure/discovery.js';
-import { EXPOSURE_JOB_LIMITS, budgetedExposurePrefix, estimateExposureJobBudget, readExposureForScan } from '../src/engines/exposure-jobs.js';
+import { EXPOSURE_JOB_LIMITS, budgetedExposurePrefix, estimateExposureJobBudget, readExposureForScan, workspaceExposureWindow } from '../src/engines/exposure-jobs.js';
+import { DatabaseSync } from 'node:sqlite';
 import { reconcileCurrentDnsHostCoverage } from '../src/engines/exposure-findings.js';
 import { resolveCyberMotDomainStates } from '../src/engines/cyber-mot-domains.js';
 
@@ -191,4 +192,42 @@ test('an Email or Brand phase that is itself incomplete stays provisional', asyn
     assert.equal(wrong.find(row => row.domain_key === 'email_protection')?.state, 'assessed_healthy',
       'mutation must let the incomplete Email phase read healthy');
   } finally { unlinkSync(mutantUrl); }
+});
+
+// 1a: the hourly window is one domain's share per verified domain, up to the
+// plan's domain allowance and an absolute ceiling of 25.
+test('workspace exposure window scales with verified domains, capped by plan and ceiling', async () => {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY, owner_user_id TEXT, deleted_at TEXT);
+    CREATE TABLE workspace_domains(workspace_id TEXT, domain_id TEXT, verification_status TEXT);
+    CREATE TABLE subscriptions(id TEXT PRIMARY KEY, workspace_id TEXT, owner_user_id TEXT, plan TEXT, status TEXT,
+      subscription_status TEXT, trial_end TEXT, expires_at TEXT, current_period_end TEXT, payment_failed_at TEXT,
+      stripe_subscription_id TEXT, created_at TEXT, updated_at TEXT);`);
+  const db = { prepare(sql) { const st = sqlite.prepare(sql); return { bind: (...a) => ({
+    first: async () => st.get(...a) ?? null, all: async () => ({ results: st.all(...a) }),
+    run: async () => ({ meta: { changes: Number(st.run(...a).changes) } }) }) }; } };
+  const env = { cybermeters_db: db };
+  const seed = (ws, owner, plan, verified, unverified = 0) => {
+    sqlite.prepare('INSERT INTO workspaces VALUES (?,?,NULL)').run(ws, owner);
+    if (plan) sqlite.prepare(`INSERT INTO subscriptions(id,owner_user_id,plan,status,subscription_status,current_period_end,created_at)
+      VALUES (?,?,?,'active','active','2099-01-01','2026-01-01')`).run(`sub_${ws}`, owner, plan);
+    for (let i = 0; i < verified; i++) sqlite.prepare("INSERT INTO workspace_domains VALUES (?,?,'verified')").run(ws, `${ws}_d${i}`);
+    for (let i = 0; i < unverified; i++) sqlite.prepare("INSERT INTO workspace_domains VALUES (?,?,'pending')").run(ws, `${ws}_u${i}`);
+  };
+  const share = (n) => ({ domains: n, requests: EXPOSURE_JOB_LIMITS.workspaceRequests * n, bytes: EXPOSURE_JOB_LIMITS.workspaceBytes * n });
+  seed('one', 'u_one', 'business', 1, 4);
+  seed('biz', 'u_biz', 'business', 12);
+  seed('pro', 'u_pro', 'professional', 5);
+  seed('pro2', 'u_pro2', 'professional', 2, 3);
+  seed('msp', 'u_msp', 'enterprise', 40);
+  seed('free', 'u_free', null, 3);
+  assert.deepEqual(await workspaceExposureWindow(env, 'one'), share(1), 'unverified domains do not count');
+  assert.deepEqual(await workspaceExposureWindow(env, 'biz'), share(10), 'business allows 10 domains');
+  assert.deepEqual(await workspaceExposureWindow(env, 'pro'), share(3), 'professional allows 3 domains');
+  assert.deepEqual(await workspaceExposureWindow(env, 'pro2'), share(2));
+  assert.deepEqual(await workspaceExposureWindow(env, 'msp'), share(25), 'absolute ceiling');
+  assert.deepEqual(await workspaceExposureWindow(env, 'free'), share(1), 'no entitled plan: one share');
+  assert.deepEqual(await workspaceExposureWindow(env, 'missing'), share(1));
+  assert.deepEqual(await workspaceExposureWindow({ cybermeters_db: { prepare() { throw new Error('d1'); } } }, 'biz'), share(1),
+    'a lookup failure falls back to one share, never more');
 });
