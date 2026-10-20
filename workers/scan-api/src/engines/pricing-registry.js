@@ -49,7 +49,7 @@ export const CANONICAL_PLANS = {
     key: "business",
     name: "Business",
     description:
-      "Full Cyber MOT with 10 monitored domains included, expandable to 25.",
+      "Full Cyber MOT for up to 10 monitored domains.",
     monthly_pence: 4999,
     annual_pence: 49990,
     included_domains: 10,
@@ -57,6 +57,9 @@ export const CANONICAL_PLANS = {
     additional_domain_monthly_pence: 300,
     additional_domain_annual_pence: 3000,
     domain_hard_cap: 25,
+    // Overage billing is not wired to Stripe yet: entitlement stops at the
+    // included 10 and no surface offers more until this is true.
+    additional_domain_billing_enabled: false,
     checkout_enabled: true,
   },
   enterprise: {

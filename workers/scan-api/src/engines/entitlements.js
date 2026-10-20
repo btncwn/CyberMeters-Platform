@@ -18,7 +18,6 @@ export const PLAN_LIMITS = {
     domains: CANONICAL_PLANS.free.included_domains,
     users: 1,
     history_days: 30,
-    report_retention: "90_days",
     api_tokens: 1,
     scheduled_reports_per_workspace: 0,
     scans_per_month: 0,
@@ -32,7 +31,6 @@ export const PLAN_LIMITS = {
     domains: CANONICAL_PLANS.starter.included_domains,
     users: 3,
     history_days: 90,
-    report_retention: "90_days",
     api_tokens: 5,
     scheduled_reports_per_workspace: 3,
     scans_per_month: 100,
@@ -46,7 +44,6 @@ export const PLAN_LIMITS = {
     domains: CANONICAL_PLANS.professional.included_domains,
     users: 10,
     history_days: 365,
-    report_retention: "2_years",
     api_tokens: 25,
     scheduled_reports_per_workspace: 10,
     scans_per_month: 1000,
@@ -65,7 +62,6 @@ export const PLAN_LIMITS = {
     domains: CANONICAL_PLANS.business.included_domains,
     users: 50,
     history_days: 730,
-    report_retention: "7_years",
     api_tokens: 100,
     scheduled_reports_per_workspace: 50,
     scans_per_month: 5000,
@@ -79,7 +75,6 @@ export const PLAN_LIMITS = {
     domains: 999999,
     users: 999999,
     history_days: 999999,
-    report_retention: "forever",
     api_tokens: 999999,
     scheduled_reports_per_workspace: 999999,
     scans_per_month: 999999,
@@ -89,6 +84,26 @@ export const PLAN_LIMITS = {
     pending_invitations: 999999,
   },
 };
+
+// Report history has ONE source: history_days above. getPlanRetentionDays
+// (plan-usage.js) reads it, the plan cards show it, and report_retention is
+// derived from it, so the label can never claim longer than reports are kept
+// (it used to say 2 years for Professional and 7 for Business, against 365
+// and 730 days enforced).
+export const UNLIMITED_HISTORY_DAYS = 999999;
+
+export function retentionDaysToPolicy(days) {
+  if (days === null || days === undefined || Number(days) >= UNLIMITED_HISTORY_DAYS) return "forever";
+  const n = Number(days);
+  if (n <= 30) return "30_days";
+  if (n <= 90) return "90_days";
+  if (n <= 365) return "1_year";
+  return "2_years";
+}
+
+for (const limits of Object.values(PLAN_LIMITS)) {
+  limits.report_retention = retentionDaysToPolicy(limits.history_days);
+}
 
 export const PLAN_FEATURES = {
   free: [],
@@ -165,7 +180,9 @@ function buildBillingPlanMetadata() {
       pricing_model: {
         currency: "gbp",
         included_domains: p.included_domains,
-        ...(p.additional_domain_monthly_pence ? {
+        // Business overage stays in the pricing policy, but per-domain billing
+        // is not wired to Stripe, so the plan API does not advertise it.
+        ...(p.additional_domain_monthly_pence && p.additional_domain_billing_enabled === true ? {
           additional_domain_monthly_gbp: penceToGbp(p.additional_domain_monthly_pence),
           additional_domain_annual_gbp: penceToGbp(p.additional_domain_annual_pence),
           domain_hard_cap: p.domain_hard_cap,

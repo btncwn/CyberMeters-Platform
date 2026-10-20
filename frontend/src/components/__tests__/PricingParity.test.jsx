@@ -55,8 +55,12 @@ test('renders the canonical ladder from live API data', async () => {
   expect(screen.getByText('£49.99/mo')).toBeInTheDocument()
   expect(screen.getByText('from £129.99/mo')).toBeInTheDocument()
   expect(screen.getByText('14-Day Full Trial')).toBeInTheDocument()
-  // Business overage model is stated from API data
-  expect(screen.getByText(/Add domains at £3\/month each \(up to 25\)/)).toBeInTheDocument()
+  // Business shows its 10 included domains and offers no overage: per-domain
+  // billing is not wired to Stripe (founder, 20 Oct 2026). The fixture still
+  // carries the overage fields an older Worker sends; the card ignores them.
+  expect(screen.getByText('10 monitored domains included')).toBeInTheDocument()
+  expect(screen.queryByText(/Add domains/)).toBeNull()
+  expect(screen.queryByText(/up to 25/)).toBeNull()
 })
 
 test('annual toggle shows the exact ×10 annual figures', async () => {
