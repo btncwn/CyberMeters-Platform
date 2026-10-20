@@ -168,6 +168,14 @@ function compareExpectedFinding(fixture, findings, domain) {
     failures.push(`${expected.id} title: expected "${expected.title}", got "${actual.title}"`);
   }
 
+  if (Array.isArray(expected.description_excludes)) {
+    for (const substring of expected.description_excludes) {
+      if (String(actual.description ?? "").includes(substring)) {
+        failures.push(`${expected.id} description contains excluded text: "${substring}"`);
+      }
+    }
+  }
+
   if (Array.isArray(expected.description_contains)) {
     for (const substring of expected.description_contains) {
       if (!String(actual.description ?? "").includes(substring)) {

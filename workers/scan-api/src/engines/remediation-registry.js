@@ -84,6 +84,19 @@ function entry(e) {
   });
 }
 
+// Severity of a missing HSTS header on a confirmed HTTPS 200 response. HSTS
+// protects the first plain-HTTP request and every later one from a network
+// attacker who strips the upgrade. When CyberMeters itself observed plain HTTP
+// redirecting to HTTPS, a first visit still reaches HTTPS and only an active
+// on-path downgrade remains, so the gap is medium, the same tier as a
+// monitor-only DMARC policy. Without an observed redirect a visitor may stay on
+// HTTP entirely, so it stays high. An unobserved redirect never lowers it.
+export const HSTS_MISSING_SEVERITY_POLICY = Object.freeze({
+  finding_type: "header_missing_strict_transport_security",
+  default: "high",
+  http_redirects_to_https_observed: "medium",
+});
+
 export const REMEDIATION_REGISTRY = Object.freeze([
   ...EXPOSURE_RULES.map((rule) => entry({
     remediation_id: `web.exposure.${rule.id.replaceAll("-", "_")}`,
@@ -906,6 +919,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     domain_key: "website_security",
     finding_types: ["header_missing_strict_transport_security", "header_weak_hsts", "header_malformed_strict_transport_security", "dse_hsts_short_maxage", "dse_hsts_not_preload_eligible", "https_signin_no_hsts"],
     customer_title: "Add or strengthen HSTS",
+    severity_policy: HSTS_MISSING_SEVERITY_POLICY,
     technical_explanation: "The Strict-Transport-Security header is missing, weak or malformed, so browsers are not told to always use HTTPS.",
     business_impact: "Without strong HSTS, users can be downgraded to HTTP by an attacker on the network.",
     recommended_action: "Send Strict-Transport-Security with a max-age of at least 31536000 seconds and includeSubDomains once all subdomains support HTTPS.",

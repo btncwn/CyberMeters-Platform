@@ -320,6 +320,20 @@ const cases = [
     to: '',
     failure: "Shadow IT discovered DNS CNAME chain preserves supplier detection",
   },
+  {
+    name: "CM-P1-011 missing HSTS ignores the observed redirect",
+    file: "workers/scan-api/src/engines/scoring.js",
+    from: "        const redirectObserved = modules.ssl?.http_redirects_to_https === true;",
+    to: "        const redirectObserved = false;",
+    failure: "CM-P1-011 missing HSTS with an observed redirect is medium",
+  },
+  {
+    name: "CM-P1-012 weak-CSP description repeats the classifier detail",
+    file: "workers/scan-api/src/engines/scoring.js",
+    from: "does little to stop injected scripts.`",
+    to: "does little to stop injected scripts. ${csp.details}.`",
+    failure: "CM-P1-012 weak CSP description names the directive once",
+  },
 ];
 
 function run() {

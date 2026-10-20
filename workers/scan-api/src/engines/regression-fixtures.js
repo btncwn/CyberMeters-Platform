@@ -58,6 +58,29 @@ export const SCANNER_REGRESSION_FIXTURES = [
         dkim: { present: true },
       },
     },
+    // Plain HTTP was observed redirecting to HTTPS, so a missing HSTS header is
+    // medium (HSTS_MISSING_SEVERITY_POLICY in the remediation registry).
+    expected: { id: "header_missing_strict_transport_security", severity: "medium", confidence: "high", score_impact: -5 },
+  },
+  {
+    scenario: "missing_hsts_header_without_observed_redirect",
+    domain: "missing-hsts-no-redirect.cybermeters.test",
+    mock_modules: {
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: false },
+      headers: {
+        accessible: true,
+        final_https: true,
+        validation_uncertain: false,
+        status_code: 200,
+        values: { "strict-transport-security": null },
+      },
+      email_security: {
+        spf: { present: true },
+        dmarc: { present: true, policy: "reject" },
+        dkim: { present: true },
+      },
+    },
     expected: { id: "header_missing_strict_transport_security", severity: "high", confidence: "high", score_impact: -5 },
   },
   {

@@ -13,7 +13,7 @@ import { applyEvidenceQuality } from "./findings.js";
 import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
-import { resolveRemediation } from "./remediation-registry.js";
+import { HSTS_MISSING_SEVERITY_POLICY, resolveRemediation } from "./remediation-registry.js";
 import {
   isHttpRedirectPositivelyAbsent,
   resolveTlsRuntimeState,
@@ -489,11 +489,16 @@ export function computeScore(modules, domain) {
         // in _consolidated_ids so BRS and other ID-based checks remain accurate.
         branchCHeaders.push({ h, headerBaseEvidence });
       } else {
-        // High-severity, high-confidence, verified HTTPS 200 response — score it
+        // High-severity, high-confidence, verified HTTPS 200 response — score it.
+        // A missing HSTS header is medium once plain HTTP was observed to
+        // redirect to HTTPS (reasoning: HSTS_MISSING_SEVERITY_POLICY).
+        const redirectObserved = modules.ssl?.http_redirects_to_https === true;
         finding({
           id:           `header_missing_${h.name.replace(/-/g, "_")}`,
           module:       "headers",
-          severity:     "high",
+          severity:     h.name === "strict-transport-security" && redirectObserved
+            ? HSTS_MISSING_SEVERITY_POLICY.http_redirects_to_https_observed
+            : HSTS_MISSING_SEVERITY_POLICY.default,
           confidence:   "high",
           title:        `Missing ${h.label} Header`,
           description:  `The ${h.label} header (${h.name}) was not returned in HTTP responses from ${domain}. This was confirmed on a direct HTTPS 200 response.`,
@@ -591,8 +596,8 @@ export function computeScore(modules, domain) {
             confidence:   "high",
             title:        "Weak Content Security Policy",
             description:  actionable
-              ? `The Content-Security-Policy header on ${domain} permits a dangerous script source. ${csp.details}.`
-              : `The Content-Security-Policy header on ${domain} permits an unsafe style source. ${csp.details}.`,
+              ? `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in ${csp.dangerous_directives.join(" and ")}, so it does little to stop injected scripts.`
+              : `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in style-src only. Scripts are still restricted, so this is a low-risk observation.`,
             score_impact: 0,
             evidence: {
               evidence_type:               "http_header_probe",

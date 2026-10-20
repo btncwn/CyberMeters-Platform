@@ -585,5 +585,38 @@ for (const [name, partial] of [
     result.relationship.inputs_complete === false && result.status === "active");
 }
 
+// ── CM-P1-011: missing HSTS is medium once an HTTP→HTTPS redirect was observed ──
+{
+  const hstsModules = (redirect) => ({
+    dns: { resolves: true }, ssl: { https_available: true, http_redirects_to_https: redirect },
+    headers: { accessible: true, final_https: true, validation_uncertain: false, status_code: 200,
+      values: { "strict-transport-security": null } },
+    email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+  });
+  const hsts = (redirect) => computeScore(hstsModules(redirect), "hsts.example.com").findings
+    .find((finding) => finding.id === "header_missing_strict_transport_security");
+  check("CM-P1-011 missing HSTS with an observed redirect is medium",
+    hsts(true)?.severity === "medium" && hsts(true)?.score_impact === -5, JSON.stringify(hsts(true)));
+  check("CM-P1-011 missing HSTS without an observed redirect stays high", hsts(false)?.severity === "high");
+}
+
+// ── CM-P1-012: the weak-CSP description states its directive once ─────────────
+{
+  const cspDescription = (policy) => computeScore({
+    dns: { resolves: true }, ssl: { https_available: true, http_redirects_to_https: true },
+    headers: { accessible: true, final_https: true, validation_uncertain: false, status_code: 200, values: {
+      "strict-transport-security": "max-age=31536000; includeSubDomains", "content-security-policy": policy,
+      "x-frame-options": "DENY", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer",
+      "permissions-policy": "geolocation=()" } },
+    email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+  }, "csp.example.com").findings.find((finding) => finding.id === "csp_weak_policy")?.description || "";
+  const script = cspDescription("default-src 'self'; script-src 'self' 'unsafe-inline'");
+  const style = cspDescription("default-src 'self'; style-src 'self' 'unsafe-inline'");
+  check("CM-P1-012 weak CSP description names the directive once",
+    script.includes("in script-src") && !script.includes("CSP contains") && (script.match(/script-src/g) || []).length === 1
+      && style.includes("in style-src only") && !style.includes("CSP permits") && (style.match(/style-src/g) || []).length === 1,
+    `${script} | ${style}`);
+}
+
 console.log(`Launch state accuracy fixtures: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

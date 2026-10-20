@@ -55,7 +55,7 @@
     },
     {
       "scenario": "missing_hsts_header",
-      "description": "HTTPS site with verified 200 response but missing HSTS header \u2014 should produce a high-confidence scored finding",
+      "description": "HTTPS site with verified 200 response but missing HSTS header, with plain HTTP observed redirecting to HTTPS \u2014 a high-confidence scored finding at medium (HSTS_MISSING_SEVERITY_POLICY in the remediation registry)",
       "mock_modules": {
         "dns": {
           "resolves": true
@@ -63,6 +63,48 @@
         "ssl": {
           "https_available": true,
           "http_redirects_to_https": true
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": null
+          }
+        },
+        "email_security": {
+          "spf": {
+            "present": true
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": true
+          }
+        }
+      },
+      "expected_finding": {
+        "id": "header_missing_strict_transport_security",
+        "severity": "medium",
+        "confidence": 90,
+        "score_impact": -5,
+        "evidence_type": "http_header_probe",
+        "has_manual_verification_command": true
+      }
+    },
+    {
+      "scenario": "missing_hsts_header_without_observed_redirect",
+      "description": "HTTPS site with verified 200 response, missing HSTS header and no observed HTTP\u2192HTTPS redirect \u2014 stays high",
+      "mock_modules": {
+        "dns": {
+          "resolves": true
+        },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": false
         },
         "headers": {
           "accessible": true,
@@ -579,6 +621,122 @@
       },
       "expected_finding_ids_absent": ["header_missing_content_security_policy"],
       "note": "CSP is present with unsafe-inline so csp_weak_policy must fire; header_missing_content_security_policy must NOT fire."
+    },
+    {
+      "scenario": "csp_weak_script_description_states_the_directive_once",
+      "description": "Weak script-src CSP: the description names the directive once and does not repeat the classifier detail",
+      "mock_modules": {
+        "dns": {
+          "resolves": true
+        },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true,
+          "http_redirect_chain": {
+            "http_redirect_validated": true
+          }
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": {
+          "spf": {
+            "present": true
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": true
+          }
+        }
+      },
+      "expected_finding": {
+        "id": "csp_weak_policy",
+        "confidence": 90,
+        "score_impact": 0,
+        "evidence_type": "http_header_probe",
+        "has_manual_verification_command": true,
+        "severity": "medium",
+        "finding_type": "finding",
+        "description_contains": [
+          "in script-src",
+          "does little to stop injected scripts"
+        ],
+        "description_excludes": [
+          "CSP contains",
+          "permits a dangerous script source"
+        ]
+      }
+    },
+    {
+      "scenario": "csp_weak_style_description_states_the_directive_once",
+      "description": "Style-only weak CSP: a low observation whose description says scripts are still restricted, once",
+      "mock_modules": {
+        "dns": {
+          "resolves": true
+        },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true,
+          "http_redirect_chain": {
+            "http_redirect_validated": true
+          }
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'; style-src 'self' 'unsafe-inline'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": {
+          "spf": {
+            "present": true
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": true
+          }
+        }
+      },
+      "expected_finding": {
+        "id": "csp_weak_policy",
+        "confidence": 90,
+        "score_impact": 0,
+        "evidence_type": "http_header_probe",
+        "has_manual_verification_command": true,
+        "severity": "low",
+        "finding_type": "observation",
+        "description_contains": [
+          "in style-src only",
+          "Scripts are still restricted"
+        ],
+        "description_excludes": [
+          "CSP permits",
+          "permits an unsafe style source"
+        ]
+      }
     },
     {
       "scenario": "csp_style_only",
