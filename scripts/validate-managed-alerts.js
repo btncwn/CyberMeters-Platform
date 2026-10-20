@@ -22,6 +22,7 @@ const eng = (f) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "
 const {
   emitManagedAlert, buildAlertDedupeKey, isTerminalReason, reasonIsRetryable,
   ensureAlertActivation, observationIsAfterWatermark,
+  beginAlertMonitoring, finishAlertMonitoring, MONITORED_ALERT_DOMAINS,
   retryFailedAlertDeliveries, retryEligible, retryBackoffHours,
   RETRY_MAX_ATTEMPTS, RETRY_MAX_AGE_HOURS,
   TERMINAL_REASONS, RETRYABLE_REASONS, MONITORING_CHANNELS, ALERTS_FEATURE_KEY,
@@ -49,7 +50,10 @@ function makeD1(db) {
     all: async () => ({ results: db.prepare(sql).all(...args), success: true, meta: {} }),
     run: async () => { const r = db.prepare(sql).run(...args); return { success: true, meta: { changes: r.changes } }; },
   });
-  return { prepare(sql) { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; } };
+  return {
+    prepare(sql) { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; },
+    async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); },
+  };
 }
 
 const db = buildDb();
@@ -665,6 +669,83 @@ async function emitLifecycleAlertProbe() {
   ok("SMOKE: alert_deliveries records only baseline audit outcomes",
      l.length > 0 && l.every((d) => d.reason === "alert_baseline_established" && d.outcome === "suppressed" && d.terminal === 1));
   ok("SMOKE: no delivered row exists", !l.some((d) => d.outcome === "delivered"));
+}
+
+// ── Monitoring start: the first real alert is no longer swallowed (20 Oct 2026) ─
+// Live finding: a domain's watermark was created lazily at its first alert
+// attempt; a workspace that already had history for the domain then had that
+// first real alert suppressed as baseline. Monitoring now starts with the scan.
+{
+  // A monitoring_changed row before activation: the history that triggered the bug.
+  const seedHistory = (ws, at) => {
+    const columns = db.prepare("PRAGMA table_info(certificate_lifecycle_events)").all();
+    const values = { id: `cle_${ws}_${at}`, workspace_id: ws, lifecycle_id: `lc_${ws}`, event_type: "monitoring_changed", created_at: at };
+    for (const column of columns) {
+      if (values[column.name] !== undefined || !column.notnull || column.dflt_value !== null || column.pk) continue;
+      values[column.name] = column.type.toUpperCase().includes("INT") ? 0 : "{}";
+    }
+    const names = Object.keys(values);
+    db.prepare(`INSERT INTO certificate_lifecycle_events (${names.join(",")}) VALUES (${names.map(() => "?").join(",")})`).run(...Object.values(values));
+  };
+  const sqliteNow = (offsetSeconds = 0) => db.prepare(`SELECT datetime('now', ? ) AS t`).get(`${offsetSeconds} seconds`).t;
+  const key = (n) => buildAlertDedupeKey({ domain_key: "certificates_trust", kind: "cert_expiring", subject: `start-${n}` });
+
+  // The defect, reproduced on the lazy path: history exists, no watermark yet.
+  user("u_lazy", "lazy@example.com", "professional"); subscribe("u_lazy", "professional");
+  workspace("ws_lazy", "u_lazy");
+  seedHistory("ws_lazy", "2026-01-01 00:00:00");
+  const lazy = await emitManagedAlert(env, alert({ workspace_id: "ws_lazy", observed_at: sqliteNow(), dedupe_key: key("lazy") }));
+  eq("lazy path (old behaviour): a real new occurrence with history is swallowed", lazy.reason, "alert_baseline_established");
+
+  // The same shape with monitoring started by the first scan.
+  user("u_start", "start@example.com", "professional"); subscribe("u_start", "professional");
+  workspace("ws_start", "u_start");
+  seedHistory("ws_start", "2026-01-01 00:00:00");
+  const started = await beginAlertMonitoring(env, ["ws_start", "ws_start", "ws_dead", ""]);
+  eq("monitoring start: all eight domains, once, live workspaces only",
+     started.map((p) => `${p.workspace_id}:${p.domain_key}`).sort(),
+     MONITORED_ALERT_DOMAINS.map((d) => `ws_start:${d}`).sort());
+  eq("monitoring start covers exactly the eight canonical domains", MONITORED_ALERT_DOMAINS.length, 8);
+  const held = db.prepare("SELECT activated_at FROM alert_activation WHERE workspace_id='ws_start' AND domain_key='certificates_trust'").get().activated_at;
+  ok("the first pass holds the watermark in the future", held > sqliteNow());
+  // What the first scan observes is pre-existing: it must not alert on day one.
+  const dayOne = await emitManagedAlert(env, alert({ workspace_id: "ws_start", observed_at: sqliteNow(), dedupe_key: key("day1") }));
+  eq("day one: a condition seen by the first scan does not alert", dayOne.reason, "alert_baseline_established");
+  const released = await finishAlertMonitoring(env, started);
+  eq("the hold is released for every started domain", released, 8);
+  ok("the released watermark is now, not in the future",
+     db.prepare("SELECT activated_at FROM alert_activation WHERE workspace_id='ws_start' AND domain_key='certificates_trust'").get().activated_at <= sqliteNow());
+  const real = await emitManagedAlert(env, alert({ workspace_id: "ws_start", observed_at: sqliteNow(60), dedupe_key: key("real") }));
+  ok("after monitoring starts, the first real new condition ALERTS despite history", real.emitted === true, JSON.stringify(real.reason));
+  eq("...and is delivered by email", ledger("ws_start").filter((d) => d.channel === "email" && d.outcome === "delivered").length, 1);
+  // A later scan never re-holds or moves the watermark.
+  const again = await beginAlertMonitoring(env, ["ws_start"]);
+  eq("monitoring start is idempotent: a later scan starts nothing", again.length, 0);
+  eq("finishing nothing changes nothing", await finishAlertMonitoring(env, again), 0);
+
+  // A scan that dies after the start never releases the hold: it expires.
+  user("u_crash", "crash@example.com", "professional"); subscribe("u_crash", "professional");
+  workspace("ws_crash", "u_crash");
+  await beginAlertMonitoring(env, ["ws_crash"]);
+  const afterHold = await emitManagedAlert(env, alert({ workspace_id: "ws_crash", observed_at: sqliteNow(31 * 60), dedupe_key: key("crash") }));
+  ok("an unreleased hold expires: alerts resume after MONITORING_START_HOLD", afterHold.emitted === true, JSON.stringify(afterHold.reason));
+
+  // Identifiers carry their prefix (they read notif_undefined_… before).
+  const ids = db.prepare("SELECT id FROM notification_events UNION ALL SELECT id FROM alert_deliveries UNION ALL SELECT id FROM alert_activation").all().map((r) => r.id);
+  ok("no identifier contains 'undefined'", ids.length > 0 && ids.every((id) => !id.includes("undefined")), ids.find((id) => id.includes("undefined")));
+  const emitted = db.prepare("SELECT id FROM notification_events WHERE workspace_id IN ('ws_start','ws_crash')").all();
+  ok("notification ids are notif_<uuid>", emitted.length === 2 && emitted.every((r) => /^notif_[0-9a-f-]{36}$/.test(r.id)), JSON.stringify(emitted));
+
+  // Migration 132: every live workspace gets a now watermark per domain; an
+  // existing watermark is never moved; a deleted workspace gets none.
+  const before = db.prepare("SELECT activated_at FROM alert_activation WHERE workspace_id='ws_paid' AND domain_key='certificates_trust'").get().activated_at;
+  db.exec(fs.readFileSync(path.join(root, "database", "migrations", "132-alert-activation-backfill.sql"), "utf8"));
+  eq("backfill: an existing watermark is not moved",
+     db.prepare("SELECT activated_at FROM alert_activation WHERE workspace_id='ws_paid' AND domain_key='certificates_trust'").get().activated_at, before);
+  eq("backfill: eight watermarks per live workspace", db.prepare("SELECT COUNT(*) AS n FROM alert_activation WHERE workspace_id='ws_lazy'").get().n, 8);
+  eq("backfill: none for a deleted workspace", db.prepare("SELECT COUNT(*) AS n FROM alert_activation WHERE workspace_id='ws_dead' AND id LIKE 'aa_bf132_%'").get().n, 0);
+  const lazyAfter = await emitManagedAlert(env, alert({ workspace_id: "ws_lazy", observed_at: sqliteNow(120), dedupe_key: key("lazy-after") }));
+  ok("backfill: the workspace whose first alert was swallowed now alerts", lazyAfter.emitted === true, JSON.stringify(lazyAfter.reason));
 }
 
 globalThis.fetch = realFetch;

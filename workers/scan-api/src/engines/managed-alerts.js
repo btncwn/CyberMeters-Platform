@@ -164,7 +164,7 @@ async function recordDelivery(env, {
            channel, channel_id, outcome, reason, terminal, provider_id, recipient_count, attempt,
            provider_status_code, provider_error_class, provider_message_code, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-      .bind(`ad_${createId()}`, workspace_id, notification_id, domain_key, alert_kind, dedupe_key,
+      .bind(createId("ad"), workspace_id, notification_id, domain_key, alert_kind, dedupe_key,
         severity, channel, channel_id, outcome, reason, terminal, provider_id, recipient_count, attempt,
         provider_status_code, provider_error_class, provider_message_code)
       .run();
@@ -217,6 +217,47 @@ async function countPriorOccurrences(env, workspaceId, domainKey, before) {
   }
 }
 
+// ── Monitoring start (launch-gate fix, 20 Oct 2026) ──────────────────────────
+// The watermark used to be created lazily, at a domain's first alert ATTEMPT. A
+// workspace that already had history for that domain then had its first real
+// alert suppressed as "baseline" — silently, for every customer, once per domain.
+//
+// It is now created when monitoring starts: the first scan that runs the
+// lifecycle phases for a workspace writes all eight domains' watermarks BEFORE
+// those phases, held in the future (MONITORING_START_HOLD), so nothing that scan
+// observes for the first time — conditions that already existed — can alert.
+// When the scan's phases are done the hold is released to "now": from the next
+// scan on, every new condition alerts. If the scan dies in between, the hold
+// simply expires; monitoring can never stay silenced. Existing workspaces were
+// backfilled with a "now" watermark (migration 132). The lazy path below stays
+// only for occurrences in a workspace that has never been scanned.
+export const MONITORING_START_HOLD = "+30 minutes";
+export const MONITORED_ALERT_DOMAINS = Object.freeze(Object.keys(LIFECYCLE_EVENT_SOURCES));
+
+/** Start monitoring for these workspaces. Returns the (workspace, domain) pairs it started. */
+export async function beginAlertMonitoring(env, workspaceIds) {
+  const ids = [...new Set((workspaceIds || []).filter((id) => typeof id === "string" && id))].slice(0, 25);
+  if (!ids.length) return [];
+  const pairs = ids.flatMap((workspace_id) => MONITORED_ALERT_DOMAINS.map((domain_key) => ({ workspace_id, domain_key })));
+  const statements = pairs.map(({ workspace_id, domain_key }) => env.cybermeters_db.prepare(
+    `INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+     SELECT ?, ?, ?, datetime('now', '${MONITORING_START_HOLD}'), 0, datetime('now')
+      WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)`,
+  ).bind(createId("aa"), workspace_id, domain_key, workspace_id));
+  const results = await env.cybermeters_db.batch(statements);
+  return pairs.filter((_, index) => Number(results?.[index]?.meta?.changes ?? 0) === 1);
+}
+
+/** Release the hold for the pairs this pass started: the watermark becomes "now". */
+export async function finishAlertMonitoring(env, started) {
+  if (!started?.length) return 0;
+  const results = await env.cybermeters_db.batch(started.map(({ workspace_id, domain_key }) => env.cybermeters_db.prepare(
+    `UPDATE alert_activation SET activated_at = datetime('now')
+      WHERE workspace_id = ? AND domain_key = ? AND activated_at > datetime('now')`,
+  ).bind(workspace_id, domain_key)));
+  return results.reduce((total, result) => total + Number(result?.meta?.changes ?? 0), 0);
+}
+
 // Establishes (or reads) the moment this workspace+domain's alert consumer became
 // active, and records how much pre-existing state it saw.
 //
@@ -247,7 +288,7 @@ export async function ensureAlertActivation(env, workspaceId, domainKey, { now =
     const insert = await env.cybermeters_db
       .prepare(`INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
                 VALUES (?, ?, ?, COALESCE(?, datetime('now')), ?, datetime('now'))`)
-      .bind(`aa_${createId()}`, workspaceId, domainKey, now, 0)
+      .bind(createId("aa"), workspaceId, domainKey, now, 0)
       .run();
 
     // Always read the watermark back rather than reporting what we hoped we wrote:
@@ -533,7 +574,7 @@ export async function emitManagedAlert(env, {
     // 3 + 4. Dedupe and write the canonical event in ONE statement. INSERT OR
     // IGNORE against the partial UNIQUE index makes duplicate suppression a
     // database guarantee — two concurrent scans cannot both win.
-    const notifId = `notif_${createId()}`;
+    const notifId = createId("notif");
     // cooldown_entity is persisted on the event so the cooldown window can be
     // resolved per (kind, entity) from the ledger join without a second table.
     const cooldownEntity = String(cooldown_entity || metadata.hostname || dedupe_key || "").trim().toLowerCase();
