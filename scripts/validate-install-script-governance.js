@@ -38,10 +38,10 @@ ok(
   baselineErrors.length === 0,
   baselineErrors.join(" | "),
 );
-ok("package-root count is pinned", policy.package_roots.length === 4);
+ok("package-root count is pinned", policy.package_roots.length === 5);
 const markers = policy.package_roots.flatMap((root) =>
   root.install_script_markers.map((marker) => ({ root: root.root, ...marker })));
-ok("lock install-script marker count is pinned", markers.length === 11);
+ok("lock install-script marker count is pinned", markers.length === 14);
 ok(
   "approved lifecycle-script count is pinned",
   markers.filter((marker) => marker.disposition === "approved").length === 3,
