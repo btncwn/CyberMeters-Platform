@@ -726,7 +726,18 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.state = CYBER_MOT_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.evidence_count += 1;
-      base.summary = `The selected TLS checks finished: ${tls.completed} conclusive; ${tls.uncertain || 0} inconclusive; ${tls.omitted_checks || 0} outside this scan's check plan. Observed certificate facts remain available, but full TLS posture is not assessed.`;
+      // Name every kind of gap, so the sentence always says what is missing.
+      const gaps = [
+        [tls.uncertain, "inconclusive"],
+        [tls.unexecutable, "could not be run against this server"],
+        [tls.not_authorized, "not authorised for this scan"],
+        [tls.omitted_checks, "outside this scan's check plan"],
+        [tls.omitted_services, "services outside this scan's plan"],
+        [tls.endpoint_gaps, "endpoints not reached"],
+      ].filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`);
+      base.summary = `The selected TLS checks finished with ${tls.completed} conclusive` +
+        (gaps.length ? `; ${gaps.join("; ")}` : "") +
+        ". Observed certificate facts remain available; the TLS result stays provisional until those checks complete.";
       return base;
     }
     if (relevant.length === 0) {

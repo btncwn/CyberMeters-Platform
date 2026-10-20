@@ -230,6 +230,42 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   assert.equal(finished.charged_requests,27);
   assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
 }
+// A run that completed its checks apart from a capability-limited control (the
+// server offers no heartbeat extension, so the heartbleed vector cannot run)
+// is a complete TLS module; a check CyberMeters itself did not run is not.
+for (const [scanId, unexecutableReason, expected] of [
+  ['tls_capability_unexecutable', 'heartbeat_unavailable', 'complete'],
+  ['tls_feature_disabled_unexecutable', 'feature_disabled', 'partial'],
+]) {
+  const workspace = 'w_capability', domain = `${scanId.replaceAll('_', '-')}.example.org`, domainId = `d_${scanId}`, now = Date.now();
+  sql.prepare('INSERT OR IGNORE INTO workspaces VALUES(?,NULL)').run(workspace);
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId, workspace, domainId, domain, 'completed');
+  const endpoint = { hostname: domain, sni: domain, address: '8.8.8.8', port: 443, transport: 'tcp', application_protocol: 'https',
+    dns_addresses: ['8.8.8.8'], dns_observed_at: new Date(now).toISOString() };
+  const result = (control, protocol, state, reason) => ({ endpoint_index: 0, control, protocol, cipher_id: null, state, reason,
+    observed_at: new Date(now).toISOString(), engine: null, evidence: null,
+    physical_telemetry: { connections: 1, bytes_sent: 1, bytes_received: 1, duration_ms: 1 } });
+  const plan = { content_state: 'not_requested', checks: [], tls: { profile_version: TLS_PROFILE_VERSION, policy_version: TLS_POLICY_VERSION,
+    endpoints: [{ endpoint, endpoint_identity: tlsEndpointIdentity(endpoint), scope: { kind: 'standard_https', service_authorization_id: null,
+      generation: 0, special_consent: false, consent_version: null } }],
+    selected: [{ endpoint_index: 0, check: { control: 'protocol', protocol: 'tls1_2', cipher_id: null } }],
+    static_results: [result('heartbleed', 'tls1_2', 'unexecutable', unexecutableReason)],
+    results: [result('protocol', 'tls1_2', 'accepted', 'handshake_completed')],
+    cursor: 1, gaps: [], omitted_checks: 0, omitted_services: 0, state: 'complete' } };
+  sql.prepare("INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at,state) VALUES(?,?,?,?,?,?,?,?,'complete')")
+    .run(scanId, workspace, domainId, domain, JSON.stringify(plan), now, now + 60_000, new Date(now).toISOString());
+  const assessment = await readTlsAssessmentForScan(env, { workspaceId: workspace, scanId });
+  assert.equal(assessment.coverage.unexecutable, 1);
+  assert.equal(assessment.quality, expected, `TLS module quality for ${unexecutableReason}`);
+  const certificates = resolveCyberMotDomainStates({ scan_quality: { status: 'complete', modules_skipped: [] },
+    modules: { certificate_intelligence: {}, tls_assessment: assessment }, findings: [] }).find(row => row.domain_key === 'certificates_trust');
+  if (expected === 'complete') {
+    assert.notEqual(certificates.state, 'provisional', 'a complete TLS run is not provisional');
+    assert.ok(!/not assessed|provisional/.test(certificates.summary), certificates.summary);
+  } else {
+    assert.notEqual(certificates.state, 'assessed_healthy', 'an unrun check never reads healthy');
+  }
+}
 console.log(JSON.stringify({synthetic_tls_jobs:1000,live_customer_domains:0,load_deliveries:2000,
   load_completed:1000,load_charged_connections:1000,load_charged_bytes:430000,
   total_collector_calls:collectorCalls,scope_revocation_races:2,
