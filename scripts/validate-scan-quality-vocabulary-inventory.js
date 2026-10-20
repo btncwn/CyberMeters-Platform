@@ -77,7 +77,16 @@ const EXPECTED = Object.freeze({
     // the partial/degraded check that keeps a withheld score from being a
     // headline. Two-tree --dump-current diff (origin/main vs this head) keyed by
     // file:kind:slot:snippet shows no other comparison delta.
-    comparison_occurrences: 65,
+    // NO-SCORE-YET SUCCESSION (20 Oct 2026): 65 -> 67, files unchanged at 28.
+    // ExecutiveReportV2.jsx observedFindingsEmptyLabel reads the backend
+    // scan_quality once into `quality`: the existing `=== 'complete'` check is
+    // restated on that local, and TWO comparisons are added (`=== 'partial'`,
+    // `=== 'degraded'`) so a known-incomplete scan's empty findings list says
+    // "some checks did not complete" instead of "coverage was not confirmed".
+    // Two-tree semantic diff (file/kind/operator/status/snippet) against
+    // origin/main shows exactly these; direct reads unchanged at 278; the
+    // partial-only fingerprint is unchanged.
+    comparison_occurrences: 67,
     source_file_count: 28,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -120,7 +129,7 @@ const EXPECTED = Object.freeze({
     // numeric scores on partial reports. No comparison was removed.
     // P1b-3 two-tree diff: cyber-mot-domains.js adds one partial/degraded
     // membership comparison for domain-local Email/Brand evidence; none removed.
-    fingerprint: "935c9a7d3228ebc8a0a9a3f176146ad78ce3cf7d6f736645e867e950371f3b9c",
+    fingerprint: "fdf7bfbeda20ab53cf30ef7129ccec1009c2c22a8fa24d574b41d26037092c62",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {

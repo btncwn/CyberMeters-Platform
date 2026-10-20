@@ -12,6 +12,7 @@ import { formatDate } from '../utils/dates'
 import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
 import { SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
+import IncompleteAssessmentNote from '../components/overview/IncompleteAssessmentNote'
 
 // The home screen (founder, 16 Oct 2026): the question, the last assessment,
 // the scan input, the "Your external posture" card (every area with the
@@ -466,6 +467,8 @@ export default function Dashboard() {
           </button>
         </div>
       </section>
+
+      {ins.postureProvisional && <IncompleteAssessmentNote scan={ins.completed[0]} first={ins.completed.length === 1} />}
 
       <PostureCard
         domains={motDomains.length ? motDomains : report?.cyber_mot_domains}

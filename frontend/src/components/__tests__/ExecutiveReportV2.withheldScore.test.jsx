@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import ExecutiveReportV2 from '../ExecutiveReportV2'
 
@@ -31,7 +31,7 @@ describe('ExecutiveReportV2 — score honesty', () => {
   })
   it('a withheld band with no provisional flag is still not a headline', () => {
     renderReport({ value: 100, rating: null, provisional: false, quality: 'complete', message: null })
-    expect(screen.getByTestId('executive-score-withheld')).toHaveTextContent('Score withheld: some checks did not complete.')
+    expect(screen.getByTestId('executive-score-withheld')).toHaveTextContent('Assessment incomplete: some checks did not complete, so there is no score yet.')
     expect(screen.queryByText('/ 100')).toBeNull()
   })
   it('an established score keeps the ring and the band', () => {
@@ -40,5 +40,28 @@ describe('ExecutiveReportV2 — score honesty', () => {
     expect(screen.getByText('/ 100')).toBeInTheDocument()
     expect(screen.getByText('CyberMeters assessment band')).toBeInTheDocument()
     expect(screen.queryByTestId('executive-score-withheld')).toBeNull()
+  })
+})
+
+describe('ExecutiveReportV2 — no score yet says why and what was measured (founder, 20 Oct 2026)', () => {
+  it('lists what was not fully assessed and the checks that did not finish, and never says "this score is provisional"', () => {
+    const { container } = render(<MemoryRouter><ExecutiveReportV2 report={{ ...base,
+      cyber_metrics_score: { value: 71, rating: null, provisional: true, quality: 'partial', message: 'Some checks were not completed. This score is provisional.' },
+      executive_summary: { ...base.executive_summary, not_fully_assessed: [
+        { domain_key: 'attack_surface', state: 'provisional', reason: 'Some exposure checks did not finish in this scan.' },
+        { domain_key: 'cyber_metrics_score', state: 'evidence_insufficient', reason: null },
+      ] },
+      evidence_completeness: { scan_quality: 'partial', modules_incomplete: [{ module: 'external_exposure' }, { module: 'tls_assessment', incomplete_reason: 'Some endpoints did not answer.' }] },
+      cyber_mot_domains: [{ domain_key: 'attack_surface', display_name: 'Attack Surface', state: 'provisional' }],
+    }} /></MemoryRouter>)
+    expect(screen.getByTestId('executive-score-withheld')).toHaveTextContent('Assessment incomplete: some checks did not complete, so there is no score yet.')
+    const list = within(screen.getByTestId('not-fully-assessed'))
+    expect(list.getByText('Attack Surface:')).toBeInTheDocument()
+    expect(list.getByText(/Some exposure checks did not finish in this scan/)).toBeInTheDocument()
+    expect(list.getByText('Cyber Metrics Score:')).toBeInTheDocument()
+    const incomplete = screen.getAllByTestId('coverage-incomplete-module').map((n) => n.textContent)
+    expect(incomplete.some((t) => /did not finish in this scan, so it was not assessed/.test(t))).toBe(true)
+    expect(incomplete.some((t) => /ran, but its evidence could not support a conclusion — Some endpoints did not answer/.test(t))).toBe(true)
+    expect(container.textContent).not.toMatch(/This score is provisional/)
   })
 })
