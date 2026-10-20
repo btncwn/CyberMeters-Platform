@@ -407,6 +407,7 @@ async function main() {
     "report_retention", "public_api_rate_limit_retention", "audit_retention",
     "mcp_rate_retention", "mcp_refresh_replay_retention", "ops_observability_retention");
   if (nowD.getUTCHours() === 4) expectedTasks.push("brand_http_enrichment");
+  if (nowD.getUTCHours() === 7) expectedTasks.push("free_check_canary");
   if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat", "founder_daily_email");
   if (nowD.getUTCDay() === 1 && nowD.getUTCHours() === 8) expectedTasks.push("weekly_digest");
   const seenTasks = cronPoints.map((d) => String(d.blobs?.[1] ?? "")).sort();

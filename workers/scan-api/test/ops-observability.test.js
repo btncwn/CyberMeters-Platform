@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { cleanupExpiredObservability } from "../src/cron/scheduled.js";
 import { collectFounderDigest, formatFounderDigest } from "../src/lib/founder-digest.js";
+import { CANARY_DOMAINS, canaryFingerprint, runFreeCheckCanary } from "../src/engines/free-check-canary.js";
 import { bumpDailyCounter, observeApiResponse, routeFamily, utcDay } from "../src/lib/ops-counters.js";
 import { consumeApiRateLimit, rateLimitScopeId } from "../src/lib/rate-limit.js";
 import { cleanPath, opsIntakeRoutes } from "../src/routes/ops-intake.js";
@@ -13,7 +14,7 @@ const BUILD = "ca3ca9c9-b5b1-4493-bd35-e240b13a129a";
 
 function fixture({ failWrites = null } = {}) {
   const sqlite = new DatabaseSync(":memory:");
-  for (const file of ["026-api-rate-limits.sql", "130-ops-observability.sql"]) {
+  for (const file of ["026-api-rate-limits.sql", "130-ops-observability.sql", "131-ops-canary-results.sql"]) {
     sqlite.exec(readFileSync(fileURLToPath(new URL(`../../../database/migrations/${file}`, import.meta.url)), "utf8"));
   }
   sqlite.exec(`
@@ -193,4 +194,52 @@ test("feedback older than 90 days and counters older than 180 days are deleted",
   await cleanupExpiredObservability(env, "2026-10-20T02:00:00Z");
   assert.deepEqual(sqlite.prepare("SELECT id FROM feedback_reports").all().map((r) => r.id), ["new"]);
   assert.deepEqual(sqlite.prepare("SELECT day FROM ops_daily_counters").all().map((r) => r.day), ["2026-10-19"]);
+});
+
+const canaryRunners = (overrides = {}) => ({
+  target: async () => ({ state: "public" }),
+  dmarc: async () => ({ verdict: { level: "good" }, ladder: { current: "reject" } }),
+  spf: async () => ({ verdict: { level: "good" }, resolution_status: "complete" }),
+  ...overrides,
+});
+
+test("the canary fingerprints outcomes, records the day before, and reports changes and errors", async () => {
+  const { sqlite, env } = fixture();
+  assert.equal(CANARY_DOMAINS.length, 20);
+  const day1 = Date.parse("2026-10-20T07:00:00Z");
+  const first = await runFreeCheckCanary(env, { nowMs: day1, domains: ["a.example.com", "b.example.com"], runners: canaryRunners() });
+  assert.deepEqual([first.checked, first.changed.length, first.errors.length], [2, 0, 0], "a first run has nothing to compare");
+  const day2 = Date.parse("2026-10-21T07:00:00Z");
+  const second = await runFreeCheckCanary(env, { nowMs: day2, domains: ["a.example.com", "b.example.com"], runners: canaryRunners({
+    target: async (domain) => (domain === "b.example.com" ? { state: "blocked", reason: "soa_rname_invalid" } : { state: "public" }),
+    spf: async (domain) => { if (domain === "a.example.com") throw new Error("boom"); return { verdict: { level: "good" }, resolution_status: "complete" }; },
+  }) });
+  assert.deepEqual(second.changed.map((c) => c.domain).sort(), ["a.example.com", "b.example.com"]);
+  assert.deepEqual(second.errors.map((e) => e.domain), ["a.example.com"]);
+  const row = sqlite.prepare("SELECT * FROM ops_canary_results WHERE domain = 'b.example.com'").get();
+  assert.equal(row.fingerprint, "target:blocked/soa_rname_invalid|dmarc:good/reject|spf:good/complete");
+  assert.equal(row.previous_fingerprint, "target:public|dmarc:good/reject|spf:good/complete");
+  assert.equal(row.changed_at, "2026-10-21T07:00:00.000Z");
+  assert.equal(canaryFingerprint({}), "target:error|dmarc:error/none|spf:error/none");
+
+  // The founder email that morning leads with both, and names the domains.
+  const digest = await collectFounderDigest(env, { nowMs: Date.parse("2026-10-21T08:00:00Z") });
+  assert.ok(digest.anomalies.some((a) => a === "Canary changed: b.example.com target:public|dmarc:good/reject|spf:good/complete -> target:blocked/soa_rname_invalid|dmarc:good/reject|spf:good/complete"));
+  assert.ok(digest.anomalies.some((a) => /^Canary error: a\.example\.com /.test(a)));
+  assert.match(formatFounderDigest(digest).text, /Free-check canary this morning: 2 of 2 domains checked, 2 changed, 1 errors/);
+
+  // A morning with no canary run says so.
+  const missed = await collectFounderDigest(env, { nowMs: Date.parse("2026-10-23T08:00:00Z") });
+  assert.ok(missed.anomalies.includes("The free-check canary did not run this morning"));
+});
+
+test("the canary stops at its subrequest budget and lists what it did not run", async () => {
+  const { env } = fixture();
+  const spend = (accounting) => { for (let i = 0; i < 30; i++) accounting?.recordAttempt?.(); };
+  const out = await runFreeCheckCanary(env, {
+    domains: ["a.example.com", "b.example.com", "c.example.com"],
+    limits: { totalSubrequests: 90, perDomainSubrequests: 40, perDomainDeadlineMs: 1000 },
+    runners: canaryRunners({ target: async (_d, _q, { accounting }) => { spend(accounting); return { state: "public" }; } }),
+  });
+  assert.deepEqual([out.checked, out.not_run], [2, ["c.example.com"]]);
 });

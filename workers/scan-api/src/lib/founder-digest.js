@@ -6,6 +6,7 @@
 // with the seven days before, and puts anything unusual first. Counts only:
 // no domain, email or IP appears in the email; feedback text is quoted as typed.
 import { readDailyCounters, utcDay } from "./ops-counters.js";
+import { readCanarySince } from "../engines/free-check-canary.js";
 
 const DAY_MS = 86_400_000;
 // An anomaly needs both: at least this many events, and this many times the
@@ -70,7 +71,17 @@ export async function collectFounderDigest(env, { nowMs = Date.now() } = {}) {
     feedback = rows?.results || [];
   } catch { feedback = null; }
 
+  // This morning's free-check canary (07:00 UTC, engines/free-check-canary.js).
+  let canary = null;
+  try { canary = await readCanarySince(env, `${utcDay(nowMs)}T00:00:00.000Z`); } catch { canary = null; }
+
   const anomalies = [];
+  if (canary === null) anomalies.push("Could not read the free-check canary");
+  else if (canary.total > 0 && canary.fresh === 0) anomalies.push("The free-check canary did not run this morning");
+  else if (canary) {
+    for (const row of canary.changed) anomalies.push(`Canary changed: ${row.domain} ${row.previous_fingerprint ?? "(new)"} -> ${row.fingerprint}`);
+    for (const row of canary.errors) anomalies.push(`Canary error: ${row.domain} ${row.fingerprint}`);
+  }
   const watch = (label, value, average) => {
     if (value >= ANOMALY_MIN && (average === 0 || value >= ANOMALY_RATIO * average)) {
       anomalies.push(`${label}: ${value} yesterday (7-day average ${average.toFixed(1)})`);
@@ -93,7 +104,7 @@ export async function collectFounderDigest(env, { nowMs = Date.now() } = {}) {
   if (feedback === null) anomalies.push("Could not read feedback");
   else if (feedback.length > 0) anomalies.unshift(`${feedback.length} feedback message${feedback.length === 1 ? "" : "s"} (below)`);
 
-  return { day: yesterday, metrics, funnel, feedback, anomalies };
+  return { day: yesterday, metrics, funnel, feedback, canary, anomalies };
 }
 
 const line = (label, value) => `${label}: ${value ?? "unavailable"}`;
@@ -116,6 +127,9 @@ export function formatFounderDigest(digest) {
   const f = digest.funnel;
   out.push(["Funnel (accounts created yesterday):", `  ${line("Signed up", f.signups)}`, `  ${line("Verified email", f.verified)}`,
     `  ${line("Ran a scan", f.scanned)}`, `  ${line("New paid subscriptions (any age)", f.paid)}`].join("\n"));
+  if (digest.canary) {
+    out.push(`Free-check canary this morning: ${digest.canary.fresh} of ${digest.canary.total} domains checked, ${digest.canary.changed.length} changed, ${digest.canary.errors.length} errors`);
+  }
   if (digest.feedback?.length) {
     out.push(["Feedback:", ...digest.feedback.map((item) =>
       `  [${item.created_at.slice(11, 16)} UTC] ${item.surface}${item.tool ? `/${item.tool}` : ""} ${item.path}${item.error_code ? ` (${item.error_code})` : ""}\n    "${item.message.replace(/\s+/g, " ")}"`)].join("\n"));

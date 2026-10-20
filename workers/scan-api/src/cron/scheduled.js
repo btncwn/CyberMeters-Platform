@@ -341,6 +341,14 @@ export async function runScheduled(event, env, ctx, tasks) {
     ctx.waitUntil(runCronTask(env, "ops_health_heartbeat", () => tasks.opsHealthHeartbeat(env)));
   }
 
+  // ── Free-check canary ────────────────────────────────────────────────
+  // Daily at 07:00 UTC, before the founder email reads it: the free-scan target
+  // check and the DMARC/SPF tools on a fixed public corpus, compared with the
+  // day before (engines/free-check-canary.js). Bounded, DNS only.
+  if (tasks.runFreeCheckCanary && new Date(now).getUTCHours() === 7) {
+    ctx.waitUntil(runCronTask(env, "free_check_canary", () => tasks.runFreeCheckCanary(env)));
+  }
+
   // ── Founder daily email ──────────────────────────────────────────────
   // Daily at 08:00 UTC: yesterday's free scans and tools by outcome, 5xx,
   // browser errors, the signup funnel and feedback, anything unusual first.
