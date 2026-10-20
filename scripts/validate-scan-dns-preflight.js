@@ -134,6 +134,48 @@ try {
     const result = await resolvePublicDnsTargetWithRetry(host, async () => { calls += 1; throw new Error("down"); }, { signal: aborted.signal });
     ok("RETRY_NOT_AFTER_DEADLINE", result.state === STRICT_DNS_STATES.UNAVAILABLE && calls === 2);
   }
+  // Family J: NODATA without SOA (no Answer key, no Authority). Captured 20 Oct
+  // 2026 from cloudflare-dns.com for www.cancerresearchuk.org: four public A
+  // records, and an AAAA answer that is only NOERROR plus the question.
+  {
+    const crukA = { Status: 0, TC: false, RD: true, RA: true, AD: false, CD: false,
+      Question: [{ name: "www.cancerresearchuk.org", type: 1 }],
+      Answer: ["52.84.118.94", "52.84.118.7", "52.84.118.122", "52.84.118.127"].map((data) => ({ name: "www.cancerresearchuk.org", type: 1, TTL: 60, data })) };
+    const crukAAAA = { Status: 0, TC: false, RD: true, RA: true, AD: false, CD: false,
+      Question: [{ name: "www.cancerresearchuk.org", type: 28 }] };
+    const cruk = (overrideA, overrideAAAA) => async (_name, type) => type === "A" ? (overrideA ?? crukA) : (overrideAAAA ?? crukAAAA);
+    const host = "www.cancerresearchuk.org";
+    const live = await resolvePublicDnsTarget(host, cruk());
+    ok("SOALESS_CRUK_SHAPED_PUBLIC", live.state === STRICT_DNS_STATES.PUBLIC
+      && live.addresses.join() === "52.84.118.94,52.84.118.7,52.84.118.122,52.84.118.127");
+    const both = await resolvePublicDnsTarget(host, cruk({ ...crukAAAA, Question: [{ name: host, type: 1 }] }));
+    ok("SOALESS_BOTH_FAMILIES_NOT_PUBLIC", both.state === STRICT_DNS_STATES.UNAVAILABLE && both.addresses.length === 0);
+    ok("SOALESS_NEVER_AUTHORITATIVE_ABSENCE", both.state !== STRICT_DNS_STATES.NO_ADDRESS && !both.dns_evidence);
+    const privateSibling = await resolvePublicDnsTarget(host, cruk({ ...crukA, Answer: [{ name: host, type: 1, data: "10.1.2.3" }] }));
+    ok("SOALESS_PRIVATE_SIBLING_BLOCKED", privateSibling.state === STRICT_DNS_STATES.BLOCKED);
+    const reservedSibling = await resolvePublicDnsTarget(host, cruk({ ...crukA, Answer: [{ name: host, type: 1, data: "169.254.169.254" }] }));
+    ok("SOALESS_RESERVED_SIBLING_BLOCKED", reservedSibling.state === STRICT_DNS_STATES.BLOCKED);
+    for (const [label, aaaa] of [
+      ["WRONG_QUESTION", { ...crukAAAA, Question: [{ name: "other.example.org", type: 28 }] }],
+      ["WRONG_FAMILY", { ...crukAAAA, Question: [{ name: host, type: 1 }] }],
+      ["MISSING_QUESTION", { Status: 0, TC: false }],
+      ["REFERRAL", { ...crukAAAA, Authority: [{ name: "cancerresearchuk.org", type: 2, TTL: 60, data: "ns1.example.net." }] }],
+      ["TRUNCATED", { ...crukAAAA, TC: true }],
+      ["SERVFAIL", { ...crukAAAA, Status: 2 }],
+    ]) {
+      const result = await resolvePublicDnsTarget(host, cruk(undefined, aaaa));
+      ok(`SOALESS_${label}_REFUSED`, result.state === STRICT_DNS_STATES.UNAVAILABLE && result.reason === "incomplete_answer");
+    }
+    // The probe path: a public sibling lets exactly one fetch through; a private
+    // sibling still makes none.
+    const probeTarget = `https://${host}/`;
+    transport(cruk());
+    const allowedFetch = await makeSsrfSafeProbeFetch({ resolver: cruk() })(probeTarget);
+    ok("SOALESS_PROBE_PUBLIC_SIBLING_FETCHES_ONCE", allowedFetch?.status === 200 && observed.length === 1);
+    transport(cruk());
+    const blockedFetch = await makeSsrfSafeProbeFetch({ resolver: cruk({ ...crukA, Answer: [{ name: host, type: 1, data: "127.0.0.1" }] }) })(probeTarget);
+    ok("SOALESS_PROBE_PRIVATE_SIBLING_ZERO_HTTP", blockedFetch === null && observed.length === 0);
+  }
   for (const [name, resolver] of [
     ["error", errorDns], ["missing", undefined],
     ["empty", async () => ({ Status: 0, Answer: [] })],
@@ -401,6 +443,17 @@ if (!process.argv.includes("--behavior-only") && failed === 0) {
       before: "  if (first.state !== STRICT_DNS_STATES.UNAVAILABLE || !TRANSIENT_DNS_TARGET_REASONS.has(first.reason)",
       after: "  if (first.state === STRICT_DNS_STATES.PUBLIC",
       expected: "RETRY_private_NOT_RETRIED" },
+    { id: "SOALESS_PUBLIC_ADDRESS_REQUIREMENT_REMOVED", file: "lib/ssrf.js",
+      before: "  if (knownAddresses.length === 0) {", after: "  if (false) {",
+      expected: "SOALESS_BOTH_FAMILIES_NOT_PUBLIC" },
+    { id: "SOALESS_QUESTION_UNCHECKED", file: "lib/ssrf.js",
+      before: "    && normalize(packet.Question[0]?.name) === normalize(host)\n    && (!Object.hasOwn(packet, \"Authority\")",
+      after: "    && (!Object.hasOwn(packet, \"Authority\")",
+      expected: "SOALESS_WRONG_QUESTION_REFUSED" },
+    { id: "SOALESS_REFERRAL_ACCEPTED", file: "lib/ssrf.js",
+      before: "    && (!Object.hasOwn(packet, \"Authority\") || (Array.isArray(packet.Authority) && packet.Authority.length === 0));",
+      after: "    && true;",
+      expected: "SOALESS_REFERRAL_REFUSED" },
     { id: "SOA_AUTHORITY_UNCHECKED", file: "lib/ssrf.js",
       before: "if (terminal !== zone && !terminal.endsWith(`.${zone}`)) return false;",
       after: "if (false) return false;",

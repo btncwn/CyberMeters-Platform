@@ -334,6 +334,24 @@ function positiveTerminal(packet, host, family) {
   return terminal;
 }
 
+// Some authoritative servers answer NODATA (NOERROR, no records) without the
+// SOA that RFC 2308 says SHOULD accompany it; DoH then returns no Answer key
+// and no Authority. That means the same as an explicit empty Answer, so it is
+// accepted on the same terms: it supplies NO address, so it can only stop a
+// false refusal when the sibling family resolved a public terminal (the caller
+// keeps both-families-empty and every private or reserved address fail-closed),
+// and without an SOA it is never authoritative proof of absence. The question
+// must echo this exact host and family, and an Authority section with records
+// (a referral or anything else) is not this shape.
+function isSoalessNodata(packet, family, host) {
+  const normalize = (value) => typeof value === "string" ? value.toLowerCase().replace(/\.$/, "") : "";
+  return packet?.Status === 0 && packet.TC === false
+    && Array.isArray(packet.Question) && packet.Question.length === 1
+    && packet.Question[0]?.type === (family === "AAAA" ? 28 : 1)
+    && normalize(packet.Question[0]?.name) === normalize(host)
+    && (!Object.hasOwn(packet, "Authority") || (Array.isArray(packet.Authority) && packet.Authority.length === 0));
+}
+
 function inspectDnsPacket(packet, family, host) {
   if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
     return { ok: false, reason: "malformed_answer", addresses: [] };
@@ -344,6 +362,9 @@ function inspectDnsPacket(packet, family, host) {
   }
   if (!Array.isArray(packet.Answer)) {
     if (!Object.hasOwn(packet, "Answer") && hasAuthoritativeNodata(packet, family, host, [])) {
+      return { ok: true, reason: null, nodata: true, addresses: [] };
+    }
+    if (!Object.hasOwn(packet, "Answer") && isSoalessNodata(packet, family, host)) {
       return { ok: true, reason: null, nodata: true, addresses: [] };
     }
     return { ok: false, reason: "incomplete_answer", addresses: [] };
