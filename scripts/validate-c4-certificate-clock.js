@@ -137,6 +137,40 @@ try {
     assert.ok(rows.every(r => !/undefined/.test(db.prepare("SELECT id FROM alert_activation WHERE workspace_id='c4-ws' AND domain_key=?").get(r.domain_key).id)));
   });
 
+  // A workspace that is already monitored adds a second domain. Its first scan
+  // sees conditions that already existed (here: a certificate with no owner,
+  // 40 days left), so it must raise no alert. Run on the real clock, as in
+  // production: the watermark is written with the database's now.
+  await test("an existing workspace's new domain: its first scan raises no alert", async () => {
+    db.exec("INSERT INTO domains (id,user_id,domain) VALUES ('c4-domain-2','c4-user','example.org'); INSERT INTO workspace_domains (workspace_id,domain_id) VALUES ('c4-ws','c4-domain-2')");
+    db.exec("INSERT INTO workspace_members (id,workspace_id,user_id,role) VALUES ('c4-m','c4-ws','c4-user','owner'); UPDATE workspaces SET owner_user_id='c4-user' WHERE id='c4-ws'; UPDATE users SET email_verified=1 WHERE id='c4-user'");
+    // The workspace has been monitored for a while: its watermark is in the past.
+    db.exec("UPDATE alert_activation SET activated_at = datetime('now','-1 hours') WHERE workspace_id='c4-ws'");
+    const before = db.prepare("SELECT COUNT(*) AS n FROM notification_events WHERE workspace_id='c4-ws' AND domain_key IS NOT NULL").get().n;
+    const realNow = Date.now();
+    db.prepare("INSERT INTO scans (id,workspace_id,domain_id,domain,status,created_at) VALUES ('c4-scan-2','c4-ws','c4-domain-2','example.org','running',?)").run(new Date(realNow).toISOString());
+    await runScanEngine("c4-scan-2", "c4-domain-2", "c4-ws", "example.org", env, {
+      now: () => realNow, executionContext: "queue", trigger: "manual",
+    });
+    const raised = db.prepare("SELECT type, domain_key FROM notification_events WHERE workspace_id='c4-ws' AND domain_key IS NOT NULL").all().slice(before);
+    const conditions = db.prepare(`SELECT COUNT(*) AS n FROM certificate_lifecycle_events e JOIN certificate_lifecycle l ON l.id = e.lifecycle_id
+      WHERE e.workspace_id='c4-ws' AND l.domain_id='c4-domain-2' AND e.event_type='monitoring_changed'`).get().n;
+    assert.ok(conditions > 0, "the new domain's first scan must have observed a condition (else this proves nothing)");
+    const attempts = db.prepare("SELECT outcome, reason FROM alert_deliveries WHERE workspace_id='c4-ws' AND channel='in_app' AND created_at >= datetime('now','-5 minutes')").all();
+    assert.ok(attempts.length > 0, "an alert must have been attempted and then held, not skipped silently");
+    assert.deepEqual(raised, [], `the new domain's pre-existing conditions must not alert: ${JSON.stringify(raised)}`);
+
+    // Positive control: the hold covers that first scan only. On the domain's
+    // next scan the certificate has 5 days left, a new condition, and it alerts.
+    const laterNow = realNow + 120_000;
+    db.prepare("INSERT INTO scans (id,workspace_id,domain_id,domain,status,created_at) VALUES ('c4-scan-3','c4-ws','c4-domain-2','example.org','running',?)").run(new Date(laterNow).toISOString());
+    await runScanEngine("c4-scan-3", "c4-domain-2", "c4-ws", "example.org", { ...env, NETWORK_PROBE: liveTlsProbeBinding({ days: 5 }) }, {
+      now: () => laterNow, executionContext: "queue", trigger: "manual",
+    });
+    const next = db.prepare("SELECT type FROM notification_events WHERE workspace_id='c4-ws' AND domain_key='certificates_trust'").all().slice(before).map((r) => r.type);
+    assert.ok(next.some((type) => /renewal_overdue|expired/.test(type)), `the domain's next new condition must alert: ${JSON.stringify(next)}`);
+  });
+
   // A separate comparable-report fixture isolates event timestamps from the
   // engine trace. It does not change the engine trace's quality or evidence.
   await test("C4 certificate events: injected production time", async () => {
