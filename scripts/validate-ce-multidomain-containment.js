@@ -240,7 +240,7 @@ function runtimeConsumerInventory() {
     ["workers/scan-api/src/engines/report-snapshot.js", "ceReadiness = await buildCyberEssentialsReadiness(workspaceId, env)", "buildCyberEssentialsReadiness", "report-snapshot"],
     ["workers/scan-api/src/engines/report-snapshot.js", "ceSnap = await getCyberEssentialsSnapshot(scanRow.workspace_id, env)", "getCyberEssentialsSnapshot", "report-snapshot"],
     ["workers/scan-api/src/engines/scan-engine.js", "ceSnap = await getCyberEssentialsSnapshot(workspaceId, env)", "getCyberEssentialsSnapshot", "domain-state-091-writer"],
-    ["workers/scan-api/src/engines/scan-engine.js", "await evaluateCyberEssentialsLifecycle(env, workspace_id, { scanId });", "evaluateCyberEssentialsLifecycle", "lifecycle-trigger"],
+    ["workers/scan-api/src/engines/scan-engine.js", "await evaluateCyberEssentialsLifecycle(phaseEnv, workspace_id, { scanId });", "evaluateCyberEssentialsLifecycle", "lifecycle-trigger"],
     ["workers/scan-api/src/index.js", "\"cyber_essentials_events\", \"cyber_essentials_control_records\"", "cyber_essentials_events+control_records", "purge-order"],
     ["workers/scan-api/src/index.js", "import { buildCyberEssentialsReadiness } from \"./engines/ce-readiness.js\"", "buildCyberEssentialsReadiness", "ORPHAN-IMPORT-no-callsite"],
     ["workers/scan-api/src/routes/cyber-essentials-controls.js", "const items = await listCeControlRecords", "listCeControlRecords", "api-list"],

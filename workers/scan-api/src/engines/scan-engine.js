@@ -2883,7 +2883,7 @@ function buildCanonicalUrlProfile(modules) {
     // resolved cases when the same finding returns. Reuses scan evidence only.
     try {
       await createManagedAsmCasesForScan(scanId, domainId, domain, managedAsmFindings, recommendations, phaseEnv);
-      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, phaseEnv, {
+      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, {
         modules,
         scanQuality,
         // This hook runs only after the terminal R2 report and completed D1
@@ -3110,7 +3110,7 @@ function buildCanonicalUrlProfile(modules) {
     // closure rather than smuggled in here.
     if (workspaceId) {
       try {
-        await buildScanReportSnapshot(phaseEnv, {
+        await buildScanReportSnapshot(env, {
           workspaceId, domainId, scanId, domain, report,
           cyberEssentials: ceSnap, assessedAt: completedAt,
         });
