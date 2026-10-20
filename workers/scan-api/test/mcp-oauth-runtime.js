@@ -100,6 +100,7 @@ export default { async fetch(request, env, ctx) {
         MCP_DEPLOYMENT_TIER: "staging", MCP_OAUTH_DCR_ENABLED: "true",
         MCP_OAUTH_CIMD_ENABLED: "true", MCP_OAUTH_DCR_LOOPBACK_ENABLED: "true",
         MCP_OAUTH_CIMD_ALLOWED_CLIENT_IDS: JSON.stringify([reviewedCimd]),
+        MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS: JSON.stringify([hostedCallback]),
         TEST_ISSUER: origin, TEST_RESOURCE: resource, TEST_APP_ORIGIN: origin },
     }));
     const migration = await readFile(join(repo, "database/migrations/121-mcp-oauth.sql"), "utf8");
@@ -322,11 +323,12 @@ export default { async fetch(request, env, ctx) {
       "malformed traffic from another IP must not spend shared token capacity");
 
     async function connect(userId, workspaceId, session, index,
-      requestedScope = "mcp:read offline_access", deny = false, selectedWorkspaceIds = []) {
+      requestedScope = "mcp:read offline_access", deny = false, selectedWorkspaceIds = [],
+      client = { id: clientId, redirect: callback, secret: null }) {
       const verifier = `${index}`.repeat(43);
       const authorize = new URL(`${origin}/authorize`);
-      for (const [key, value] of Object.entries({ response_type: "code", client_id: clientId,
-        redirect_uri: callback, scope: requestedScope, state: `state-${index}`,
+      for (const [key, value] of Object.entries({ response_type: "code", client_id: client.id,
+        redirect_uri: client.redirect, scope: requestedScope, state: `state-${index}`,
         code_challenge: pkce(verifier), code_challenge_method: "S256", resource })) {
         authorize.searchParams.set(key, value);
       }
@@ -356,7 +358,7 @@ export default { async fetch(request, env, ctx) {
       assert.equal(consent.headers.get("Referrer-Policy"), "same-origin",
         "same-origin consent forms must retain their Origin header without cross-origin URL leakage");
       assert.equal(consent.headers.get("Content-Security-Policy"),
-        `default-src 'none'; form-action 'self' ${new URL(callback).origin}; frame-ancestors 'none'; base-uri 'none'`,
+        `default-src 'none'; form-action 'self' ${new URL(client.redirect).origin}; frame-ancestors 'none'; base-uri 'none'`,
         "the consent form must allow only its registered callback origin after approval");
       const html = await consent.text();
       assert.match(html, /formnovalidate>Deny/);
@@ -434,10 +436,20 @@ export default { async fetch(request, env, ctx) {
         });
         assert.equal(wrongRedirect.status, 400);
       }
+      const tokenForm = { grant_type: "authorization_code", code, client_id: client.id,
+        redirect_uri: client.redirect, code_verifier: verifier, resource };
+      if (client.secret) {
+        // A secret-holding client is still bound to its secret: a wrong one is refused.
+        const wrongSecret = await fetch(`${origin}/oauth/token`, {
+          method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ ...tokenForm, client_secret: `${client.secret}x` }),
+        });
+        assert.equal(wrongSecret.status, 401, await wrongSecret.clone().text());
+        tokenForm.client_secret = client.secret;
+      }
       const exchanged = await fetch(`${origin}/oauth/token`, {
         method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ grant_type: "authorization_code", code, client_id: clientId,
-          redirect_uri: callback, code_verifier: verifier, resource }),
+        body: new URLSearchParams(tokenForm),
       });
       assert.equal(exchanged.status, 200, await exchanged.clone().text());
       const issued = await exchanged.json();
@@ -467,6 +479,23 @@ export default { async fetch(request, env, ctx) {
     const a = await connect("u1", "w1", sessionA, "A", "mcp:read portfolio:read offline_access");
     await resetBudget();
     const b = await connect("u2", "w2", sessionB, "B");
+    // The hosted connector's registration (production log, 20 Oct 2026): an
+    // allow-listed HTTPS callback with token_endpoint_auth_method client_secret_post.
+    await resetBudget();
+    const hostedRegistration = await fetch(`${origin}/oauth/register`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_name: "Hosted MCP client", redirect_uris: [hostedCallback],
+        grant_types: ["authorization_code", "refresh_token"], response_types: ["code"],
+        token_endpoint_auth_method: "client_secret_post" }),
+    });
+    assert.equal(hostedRegistration.status, 201, await hostedRegistration.clone().text());
+    const hosted = await hostedRegistration.json();
+    assert.equal(hosted.token_endpoint_auth_method, "client_secret_post");
+    assert.ok(hosted.client_secret, "a secret-based registration receives its secret once");
+    await resetBudget();
+    const hostedGrant = await connect("u2", "w2", sessionB, "H", "mcp:read offline_access", false, [],
+      { id: hosted.client_id, redirect: hostedCallback, secret: hosted.client_secret });
+    assert.ok(hostedGrant.issued.access_token);
     assert.equal(a.issued.scope.includes("portfolio:read"), false);
     assert.deepEqual(await validate(a.issued.access_token), { ok: true, workspace: "w1", user: "u1" });
     assert.deepEqual(await validate(b.issued.access_token), { ok: true, workspace: "w2", user: "u2" });
@@ -597,7 +626,8 @@ export default { async fetch(request, env, ctx) {
     }
     assert.equal(throttled, true, "token requests must hit the fail-closed global budget");
     const events = await d1("SELECT event_type, user_id, workspace_id FROM audit_events ORDER BY created_at");
-    assert.equal(events.filter((row) => row.event_type === "mcp_oauth_grant_issued").length, 3);
+    // A, B, the portfolio grant R, and the hosted secret-holding client H.
+    assert.equal(events.filter((row) => row.event_type === "mcp_oauth_grant_issued").length, 4);
     assert.equal(events.filter((row) => row.event_type === "mcp_oauth_grant_revoked").length, 1);
     assert.equal(events.filter((row) => row.event_type === "mcp_oauth_refresh_reused").length, 1);
     const reads = await d1(`SELECT user_id, workspace_id, metadata_json, created_at

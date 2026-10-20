@@ -68,6 +68,12 @@ function redirectHost(uri) {
   try { return new URL(uri).host.slice(0, 120); } catch { return "unparseable"; }
 }
 
+function onlyHostedRedirects(redirects, env) {
+  const hosted = configuredHostedRedirects(env);
+  return Array.isArray(redirects) && redirects.length >= 1 && redirects.length <= 3 &&
+    redirects.every((uri) => hosted.has(uri) && isSafeHostedRedirect(uri));
+}
+
 // The first rule a registration breaks, or null. Kept in the original order.
 function dcrMetadataRejection(clientMetadata, env) {
   if (!clientMetadata || typeof clientMetadata !== "object" || Array.isArray(clientMetadata)) {
@@ -80,12 +86,18 @@ function dcrMetadataRejection(clientMetadata, env) {
       /[\x00-\x1f\x7f\p{Cf}]/u.test(name)) {
     return { rule: "client_name_invalid", field: "client_name", detail: typeof name === "string" ? `length_${name.length}` : typeof name };
   }
-  if (clientMetadata.token_endpoint_auth_method !== "none") {
-    return { rule: "auth_method_not_none", field: "token_endpoint_auth_method", value: loggable(clientMetadata.token_endpoint_auth_method) };
+  // Public PKCE clients use "none". A client whose every callback is an
+  // allow-listed hosted HTTPS callback may instead hold a secret sent in the
+  // token request body (the Claude hosted connector registers this way); PKCE
+  // stays mandatory for it too. Loopback clients never get a secret.
+  const method = clientMetadata.token_endpoint_auth_method;
+  if (method !== "none" &&
+      !(method === "client_secret_post" && onlyHostedRedirects(clientMetadata.redirect_uris, env))) {
+    return { rule: "auth_method_not_none", field: "token_endpoint_auth_method", value: loggable(method) };
   }
   const supported = clientMetadata.token_endpoint_auth_methods_supported;
   if (supported !== undefined &&
-      (!Array.isArray(supported) || supported.length !== 1 || supported[0] !== "none")) {
+      (!Array.isArray(supported) || supported.length !== 1 || supported[0] !== method)) {
     return { rule: "auth_methods_supported_not_none", field: "token_endpoint_auth_methods_supported", value: loggable(supported) };
   }
   const redirects = clientMetadata.redirect_uris;

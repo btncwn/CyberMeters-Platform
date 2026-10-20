@@ -655,13 +655,21 @@ test("RFC 7591 defaults admit a Claude registration that omits them; sent values
   };
   assert.equal(await register(claude), undefined);
   assert.equal(await register({ ...claude, grant_types: ["authorization_code", "refresh_token"] }), undefined);
+  // What the hosted connector actually sends (production log, 20 Oct 2026):
+  // a secret sent in the token request body, for the allow-listed callback.
+  assert.equal(await register({ ...claude, token_endpoint_auth_method: "client_secret_post" }), undefined);
+  assert.equal(await register({ ...claude, token_endpoint_auth_method: "client_secret_post",
+    token_endpoint_auth_methods_supported: ["client_secret_post"] }), undefined);
 
   const logged = [];
   const warn = console.warn;
   console.warn = (line) => logged.push(JSON.parse(line));
   try {
     for (const [changed, rule, value] of [
-      [{ token_endpoint_auth_method: "client_secret_post" }, "auth_method_not_none", "client_secret_post"],
+      // A secret is only for allow-listed hosted callbacks, never loopback or others.
+      [{ token_endpoint_auth_method: "client_secret_post", redirect_uris: ["http://localhost:7777/callback"] }, "auth_method_not_none", "client_secret_post"],
+      [{ token_endpoint_auth_method: "client_secret_post", redirect_uris: ["https://claude.ai/api/mcp/auth_callback", "https://evil.example/cb"] }, "auth_method_not_none", "client_secret_post"],
+      [{ token_endpoint_auth_method: "client_secret_post", token_endpoint_auth_methods_supported: ["none"] }, "auth_methods_supported_not_none", ["none"]],
       [{ token_endpoint_auth_method: "client_secret_basic" }, "auth_method_not_none", "client_secret_basic"],
       [{ grant_types: ["implicit"] }, "grant_types_invalid", ["implicit"]],
       [{ grant_types: [] }, "grant_types_invalid", []],
@@ -676,7 +684,8 @@ test("RFC 7591 defaults admit a Claude registration that omits them; sent values
       if (value !== undefined) assert.deepEqual(entry.value, value);
     }
     assert.equal(logged.at(-1).redirect_host, "claude.com");
-    assert.equal(logged[0].redirect_host, "claude.ai");
+    assert.equal(logged[0].redirect_host, "localhost:7777");
+    assert.equal(logged[1].redirect_host, "claude.ai");
     // The log never carries the IP, the client name or a free-form value.
     const text = JSON.stringify(logged);
     assert.equal(text.includes("203.0.113.8"), false);
