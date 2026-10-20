@@ -46,6 +46,8 @@ const CyberEssentialsReadinessPage = lazy(() => import('./pages/CyberEssentialsR
 const ToolsIndexPage            = lazy(() => import('./pages/tools/ToolsIndexPage'))
 const DmarcCheckerPage          = lazy(() => import('./pages/tools/DmarcCheckerPage'))
 const SpfCheckerPage            = lazy(() => import('./pages/tools/SpfCheckerPage'))
+const HeadersCheckerPage        = lazy(() => import('./pages/tools/HeadersCheckerPage'))
+const LookalikeCheckerPage      = lazy(() => import('./pages/tools/LookalikeCheckerPage'))
 
 // ── Lazy-Loaded Core Protected App Pages ─────────────────────────────────
 // The signed-in shell is lazy too: it carries the top-bar globe and its map
@@ -177,6 +179,8 @@ function AppRoutes() {
           <Route path="/tools"   element={<ToolsIndexPage />} />
           <Route path="/tools/dmarc-checker" element={<DmarcCheckerPage />} />
           <Route path="/tools/spf-checker"   element={<SpfCheckerPage />} />
+          <Route path="/tools/security-headers-checker" element={<HeadersCheckerPage />} />
+          <Route path="/tools/lookalike-domain-checker" element={<LookalikeCheckerPage />} />
           {APP_HOST_PATHS.map(p => (
             <Route key={p} path={p} element={<AppHostRedirect />} />
           ))}
@@ -222,6 +226,8 @@ function AppRoutes() {
         <Route path="/tools"                  element={<ToolsIndexPage />} />
         <Route path="/tools/dmarc-checker"    element={<DmarcCheckerPage />} />
         <Route path="/tools/spf-checker"      element={<SpfCheckerPage />} />
+        <Route path="/tools/security-headers-checker" element={<HeadersCheckerPage />} />
+        <Route path="/tools/lookalike-domain-checker" element={<LookalikeCheckerPage />} />
         <Route path="/mcp/connect" element={<ProtectedRoute><McpConnectPage /></ProtectedRoute>} />
 
         {/* ── Protected app ───────────────────────────────────────────── */}

@@ -63,8 +63,8 @@ export const PUBLIC_PAGE_META = {
     host: 'marketing', indexable: true, priority: '0.4',
   },
   '/tools': {
-    title: 'Free email security tools',
-    description: 'Free DMARC and SPF checkers that follow the current standards, say what they could not check, and give you the exact DNS record to fix each problem.',
+    title: 'Free security tools',
+    description: 'Free DMARC, SPF, security headers and lookalike domain checkers that say what they could not check and give you the exact record, lines or next step for each problem.',
     host: 'marketing', indexable: true, priority: '0.8',
   },
   '/tools/dmarc-checker': {
@@ -75,6 +75,16 @@ export const PUBLIC_PAGE_META = {
   '/tools/spf-checker': {
     title: 'SPF checker',
     description: 'See your full SPF include tree, the DNS lookups it uses against the limit of 10, duplicate or broken includes, and a corrected record you can paste.',
+    host: 'marketing', indexable: true, priority: '0.8',
+  },
+  '/tools/security-headers-checker': {
+    title: 'Security headers checker',
+    description: 'Check which of the six browser security headers your website sends (HSTS, CSP, X-Frame-Options and more) and get ready-to-paste lines for nginx, Apache or Cloudflare.',
+    host: 'marketing', indexable: true, priority: '0.8',
+  },
+  '/tools/lookalike-domain-checker': {
+    title: 'Lookalike domain checker',
+    description: 'See which close variants of your domain (typos, look-alike letters, other endings) are registered, point at a server or can receive email, from public DNS.',
     host: 'marketing', indexable: true, priority: '0.8',
   },
   '/free-scan': {

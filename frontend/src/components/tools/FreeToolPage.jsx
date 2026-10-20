@@ -11,10 +11,20 @@ import TurnstileWidget from './TurnstileWidget'
 const CALLS = {
   dmarc: { run: api.runDmarcTool, defer: api.deferDmarcTool },
   spf: { run: api.runSpfTool, defer: api.deferSpfTool },
+  headers: { run: api.runHeadersTool, defer: api.deferHeadersTool },
+  lookalike: { run: api.runLookalikeTool, defer: api.deferLookalikeTool },
+}
+
+// How each tool looks at a domain, said under the form.
+const METHOD_NOTE = {
+  dmarc: 'Passive DNS lookups only.',
+  spf: 'Passive DNS lookups only.',
+  headers: 'One request to your home page over HTTPS; only the response headers are read.',
+  lookalike: 'Passive DNS lookups only, for about 40 close variants of your name.',
 }
 
 // The tool name a "Something wrong?" report carries.
-const TOOL_SLUGS = { dmarc: 'dmarc-checker', spf: 'spf-checker' }
+const TOOL_SLUGS = { dmarc: 'dmarc-checker', spf: 'spf-checker', headers: 'security-headers-checker', lookalike: 'lookalike-domain-checker' }
 
 const TRIAL_URL = 'https://app.cybermeters.com/signup'
 
@@ -148,7 +158,10 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
     }
   }
 
-  const available = config?.available === true
+  // The API lists the tools it serves; a tool it does not list yet (a page
+  // published before its Worker) is unavailable rather than silently empty.
+  const served = !Array.isArray(config?.tools) || config.tools.some((t) => t.id === tool)
+  const available = config?.available === true && served
   const submittedDomain = outcome?.result?.domain || domain.trim()
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -182,7 +195,7 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
                 </button>
               </div>
               {available && <TurnstileWidget ref={widget} siteKey={config.turnstile_site_key} action={`tool_${tool}`} onToken={setToken} />}
-              <p className="text-xs text-gray-500">Passive DNS lookups only. Two free checks per tool every 24 hours; signed-in workspace users are not limited by this. The domain you check is not saved: a result is reused for up to 10 minutes, then dropped.</p>
+              <p className="text-xs text-gray-500">{METHOD_NOTE[tool]} Two free checks per tool every 24 hours; signed-in workspace users are not limited by this. The domain you check is not saved: a result is reused for up to 10 minutes, then dropped.</p>
             </form>
           )}
         </section>

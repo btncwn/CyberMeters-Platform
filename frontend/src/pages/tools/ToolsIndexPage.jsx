@@ -15,6 +15,18 @@ const TOOLS = [
     summary: 'The full include tree, the 10-lookup limit, and a corrected record when something breaks SPF.',
     checks: ['DNS lookups and lookups with no answer, against the limits', 'Duplicate records, includes that point at nothing, loops', 'What +all, ?all, ~all and -all mean for you'],
   },
+  {
+    to: '/tools/security-headers-checker',
+    name: 'Security headers checker',
+    summary: 'Which of the six browser security headers your website sends, what each one protects against, and the lines to add.',
+    checks: ['HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy', 'Weak values, judged by the same rules as the full scan', 'Ready-to-paste lines for nginx, Apache and Cloudflare'],
+  },
+  {
+    to: '/tools/lookalike-domain-checker',
+    name: 'Lookalike domain checker',
+    summary: 'Which close variants of your domain are registered, point at a server or can receive email.',
+    checks: ['Typos, look-alike letters and letters from other alphabets', 'Your name with words such as login, and on other endings', 'Registered, points at a server, receives email: what DNS shows, nothing more'],
+  },
 ]
 
 export default function ToolsIndexPage() {
@@ -24,8 +36,8 @@ export default function ToolsIndexPage() {
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-10 sm:py-12 space-y-8">
         <header className="space-y-3">
           <p className="eyebrow">Free tools</p>
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Free email security checks</h1>
-          <p className="text-gray-600 leading-relaxed max-w-2xl">Each tool checks one thing properly from public DNS, says plainly what it could not check, and gives you the exact record to fix it. No sign-up, and the domain you check is not saved.</p>
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Free security checks</h1>
+          <p className="text-gray-600 leading-relaxed max-w-2xl">Each tool checks one thing properly from public information, says plainly what it could not check, and gives you the exact record or lines to fix it. No sign-up, and the domain you check is not saved.</p>
         </header>
         <ul className="grid md:grid-cols-2 gap-5">
           {TOOLS.map((tool) => (
