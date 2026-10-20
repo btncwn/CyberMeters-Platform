@@ -8,7 +8,7 @@ import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/con
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
 import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, TLS_SPECIAL_CONSENT_VERSION, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
-import { classifyTlsRefusals } from './tls-quality.js';
+import { blockingTlsUnexecutable, classifyTlsRefusals } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
 import { getEffectiveDomainLimit, getEffectivePlanState } from './entitlements.js';
@@ -851,7 +851,7 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
   }
   const costs=json(row.costs_json,{});
   const tlsComplete=row.state==='complete'&&tls.cursor>=tls.selected.length;
-  const quality=tlsComplete&&tls.selected.length>0&&coverage.uncertain===0&&coverage.unexecutable===0&&coverage.not_authorized===0&&
+  const quality=tlsComplete&&tls.selected.length>0&&coverage.completed>0&&coverage.uncertain===0&&blockingTlsUnexecutable(all)===0&&coverage.not_authorized===0&&
     coverage.omitted_checks===0&&coverage.omitted_services===0&&coverage.endpoint_gaps===0?'complete':'partial';
   return {source:'tls_assessment',version:tls.profile_version,policy_version:tls.policy_version,quality,
     phase_state:tlsComplete?'complete':row.state,coverage,endpoints,

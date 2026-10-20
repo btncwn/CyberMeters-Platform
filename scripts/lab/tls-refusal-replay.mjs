@@ -7,7 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildScanQuality } from "../../workers/scan-api/src/engines/scan-engine.js";
-import { classifyTlsRefusals } from "../../workers/scan-api/src/engines/tls-quality.js";
+import { blockingTlsUnexecutable, classifyTlsRefusals } from "../../workers/scan-api/src/engines/tls-quality.js";
+import { resolveCyberMotDomainStates } from "../../workers/scan-api/src/engines/cyber-mot-domains.js";
 import { tlsAssessmentFindings } from "../../workers/scan-api/src/engines/tls-findings.js";
 
 // Same counting as readTlsAssessmentForScan in exposure-jobs.js.
@@ -34,7 +35,7 @@ export function replayTlsAssessment(assessment) {
       .map(({ endpoint_index, ...rest }) => rest),
   }));
   const coverage = recountCoverage(assessment.coverage || {}, classified);
-  const complete = assessment.phase_state === "complete" && coverage.uncertain === 0 && coverage.unexecutable === 0
+  const complete = assessment.phase_state === "complete" && coverage.completed > 0 && coverage.uncertain === 0 && blockingTlsUnexecutable(classified) === 0
     && coverage.not_authorized === 0 && !coverage.omitted_checks && !coverage.omitted_services && !coverage.endpoint_gaps;
   return { ...assessment, endpoints, coverage, quality: complete ? "complete" : "partial" };
 }
@@ -58,6 +59,7 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
       `tls_uncertain=${modules.tls_assessment?.coverage?.uncertain}->${replayed.tls_assessment?.coverage?.uncertain}`,
       `still_incomplete=${after.modules_incomplete.map((m) => `${m.module}:${m.incomplete_reason}`).join("|") || "none"}`,
       `tls_findings_unchanged=${ids(modules.tls_assessment) === ids(replayed.tls_assessment)}`,
+      `certificates_trust=${resolveCyberMotDomainStates({ ...report, modules: replayed, scan_quality: after }).find((d) => d.domain_key === "certificates_trust")?.state}`,
     ].join("  "));
   }
 }

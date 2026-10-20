@@ -7,7 +7,7 @@ import { collectTlsAssessment } from '../workers/scan-api/src/engines/exposure-j
 import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
 import { resolveAssessmentPresentation } from '../workers/scan-api/src/engines/assessment-presentation.js';
 import { projectPhase5SnapshotForCustomer, resolvePhase5HistoricalCustomerProjection, resolvePhase5CustomerAggregate } from '../workers/scan-api/src/engines/phase5-evidence.js';
-import { classifyTlsRefusals, projectTlsScanQualityForCustomer, tlsSupportedCoverageGapReason } from '../workers/scan-api/src/engines/tls-quality.js';
+import { blockingTlsUnexecutable, classifyTlsRefusals, projectTlsScanQualityForCustomer, tlsSupportedCoverageGapReason } from '../workers/scan-api/src/engines/tls-quality.js';
 
 const now = Date.now();
 const iso = offset => new Date(now + offset).toISOString();
@@ -261,6 +261,23 @@ const refusalCases = classify => {
       assert.equal(refusalCases(mutant.classifyTlsRefusals)[expectFalse], false, `TLS refusal mutant survived: ${name}`);
     } finally { rmSync(mutantUrl, { force: true }); }
   }
+}
+// Capability-limited unexecutable controls do not keep the TLS module partial;
+// checks CyberMeters did not run on its own side still do.
+{
+  const unexecutableCases = count => count([
+    { state: 'unexecutable', reason: 'heartbeat_unavailable' }, { state: 'unexecutable', reason: 'cipher_unavailable' },
+    { state: 'accepted', reason: 'handshake_completed' },
+  ]) === 0 && count([{ state: 'unexecutable', reason: 'feature_disabled' }, { state: 'unexecutable', reason: 'heartbeat_unavailable' }]) === 1;
+  assert.equal(unexecutableCases(blockingTlsUnexecutable), true, 'TLS unexecutable: capability limits only');
+  const source = readFileSync(new URL('../workers/scan-api/src/engines/tls-quality.js', import.meta.url), 'utf8');
+  const from = "&& !TLS_CAPABILITY_UNEXECUTABLE_REASONS.includes(row.reason)";
+  assert.equal(source.split(from).length, 2, 'TLS unexecutable mutant anchor');
+  const mutantUrl = new URL(`../workers/scan-api/src/engines/.tls-quality.unexecutable-mutant.${process.pid}.js`, import.meta.url);
+  writeFileSync(mutantUrl, source.replace(from, ''));
+  try {
+    assert.equal(unexecutableCases((await import(mutantUrl.href)).blockingTlsUnexecutable), false, 'TLS unexecutable mutant survived: reason filter removed');
+  } finally { rmSync(mutantUrl, { force: true }); }
 }
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
 await import('./p1b-single-domain-engine-fixture.js');

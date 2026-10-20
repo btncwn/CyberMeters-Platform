@@ -12,6 +12,21 @@
 // own basis and the engine's original state, so "rejected with an alert" and
 // "refused without a version alert" never collapse into one. Timeouts,
 // budget cuts, mid-run aborts and unreachable endpoints stay inconclusive.
+// An unexecutable check whose reason is an engine-capability or server-feature
+// limit (the server offers no heartbeat extension, the engine build cannot
+// offer that cipher, group or vector) is a bounded part of the profile, not a
+// check this run failed to perform. Once at least one check completed, it does
+// not keep the TLS module partial. Anything CyberMeters did not run on its own
+// side (feature_disabled, lost authority, ...) still does.
+export const TLS_CAPABILITY_UNEXECUTABLE_REASONS = Object.freeze([
+  'heartbeat_unavailable', 'cipher_unavailable', 'protocol_unavailable',
+  'group_unavailable', 'control_unavailable', 'requires_credentials',
+]);
+export function blockingTlsUnexecutable(checks) {
+  return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'unexecutable'
+    && !TLS_CAPABILITY_UNEXECUTABLE_REASONS.includes(row.reason)).length;
+}
+
 export const TLS_REFUSAL_REASONS = Object.freeze(['transport_eof', 'handshake_failed', 'peer_alert']);
 const LEGACY_PROTOCOLS = new Set(['ssl2', 'ssl3', 'tls1', 'tls1_1']);
 
