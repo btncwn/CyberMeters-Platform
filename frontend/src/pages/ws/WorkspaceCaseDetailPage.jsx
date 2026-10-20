@@ -16,6 +16,7 @@ import InternalIdCopyButton from '../../components/InternalIdCopyButton'
 import {
   phaseMeta, phaseClass, domainKeyLabel,
   ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL,
+  caseDisplayTitle,
 } from '../../lib/caseDisplay'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 
@@ -58,6 +59,13 @@ function fmt(ts) {
 // actor_type already records this: 'system' = an automatic evidence-driven
 // recurrence; anything else ('customer') = a manual reopen by a workspace member.
 // A manual reopen must never be described as a re-observation.
+// Who acted, by name: the API resolves workspace members to their name or
+// email (actor_name). A raw user id is never shown.
+function actorLabel(ev) {
+  if ((ev.actor_type || 'system') === 'system') return 'CyberMeters'
+  return ev.actor_name || 'A workspace member'
+}
+
 function isReopenEvent(ev) {
   return ev.to_status === 'reopened' || ev.action === 'case_reopened' || ev.action === 'transition_reopened'
 }
@@ -306,7 +314,7 @@ export default function WorkspaceCaseDetailPage() {
                 >
                   {domainKeyLabel(c.domain_key)}
                 </span>
-                <h1 className="text-lg font-semibold text-slate-900 truncate">{c.title || c.source_finding_type || c.case_id}</h1>
+                <h1 className="text-lg font-semibold text-slate-900 truncate">{c.display_title || caseDisplayTitle(c)}</h1>
                 {c.summary && <p className="text-sm text-slate-600 mt-1">{c.summary}</p>}
               </div>
               <span className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium whitespace-nowrap ${phaseClass(c.canonical_phase, c.verification_support)}`}>
@@ -333,7 +341,7 @@ export default function WorkspaceCaseDetailPage() {
               </div>
               <div>
                 <dt className="text-xs text-slate-400 flex items-center gap-1">Affected resource</dt>
-                <dd className="text-slate-700 mt-0.5 break-all">{c.asset_ref || c.domain || '—'}</dd>
+                <dd className="text-slate-700 mt-0.5 break-all">{c.resource || c.asset_ref || c.domain || <span className="text-slate-400">Not recorded</span>}</dd>
               </div>
               <div>
                 <dt className="text-xs text-slate-400">Canonical remediation</dt>
@@ -342,7 +350,7 @@ export default function WorkspaceCaseDetailPage() {
               <div>
                 <dt className="text-xs text-slate-400">Source scan</dt>
                 <dd className="text-slate-700 mt-0.5">
-                  {c.source_scan_id ? <><Link className="text-brand-700 hover:underline text-xs" to={`/scans/${encodeURIComponent(c.source_scan_id)}`}>View scan</Link>{' · '}<InternalIdCopyButton id={c.source_scan_id} label="scan" /></> : '—'}
+                  {c.source_scan_id ? <><Link className="text-brand-700 hover:underline text-xs" to={`/scans/${encodeURIComponent(c.source_scan_id)}`}>View scan</Link>{' · '}<InternalIdCopyButton id={c.source_scan_id} label="scan" /></> : <span className="text-slate-400">Not recorded</span>}
                 </dd>
               </div>
               {/* Backend-owned provenance classification (ASM traceability). The
@@ -474,7 +482,7 @@ export default function WorkspaceCaseDetailPage() {
                     <span className="text-xs text-slate-400 font-mono whitespace-nowrap mt-0.5 w-28 shrink-0">{fmt(ev.created_at)}</span>
                     <span className="text-slate-700">
                       {eventLabel(ev)}
-                      <span className="text-slate-400 text-xs"> · {ev.actor_type || 'system'}{ev.actor_id ? ` (${ev.actor_id})` : ''}</span>
+                      <span className="text-slate-400 text-xs"> · {actorLabel(ev)}</span>
                     </span>
                   </li>
                 ))}

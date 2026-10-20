@@ -217,6 +217,16 @@ eq("no distinct new cert → inconclusive",
 eq("incomplete coverage → inconclusive (cannot verify)",
   buildVerificationEvidence(recStub, { current: { certificate_key: "new", expires_at: "2027-01-01T00:00:00Z" }, previous: { certificate_key: "old", expires_at: "2026-01-01T00:00:00Z" }, coverage: { status: "missing" }, now: NOW }).verification_result, "inconclusive");
 
+// Every verifier answer carries the customer sentence for the same decision
+// (the Verify button shows it verbatim; founder, 20 Oct 2026).
+{
+  const raw = buildVerificationEvidence(recStub, { current: { certificate_key: "new", expires_at: "2026-01-01T00:00:00Z" }, previous: { certificate_key: "old", expires_at: "2027-01-01T00:00:00Z" }, now: NOW });
+  ok("an inconclusive verification says why in plain words", typeof raw.reason === "string" && raw.reason.length > 20 && !/_/.test(raw.reason));
+  ok("the verified sentence is only for a verified result", verified.item.verification_detail.verification_result !== "verified"
+    || /observed a new, distinct certificate/.test(verified.item.verification_detail.reason));
+  ok("an inconclusive reason never claims verification", !/verified|confirmed/i.test(raw.reason));
+}
+
 // ── 7. Expired certificate → case with canonical cert remediation ───────────
 seedCert("ws1", "d2", "d2-exp", { subject: "expired.com", sans: ["expired.com"], expires: "2026-07-10T00:00:00Z" });
 await correlateCertificateLifecycle(env, "ws1", { now: NOW });

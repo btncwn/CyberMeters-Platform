@@ -1,11 +1,11 @@
-// Certificates Managed Lifecycle â a focused managed surface (not a nav/dashboard
+// Certificates Managed Lifecycle — a focused managed surface (not a nav/dashboard
 // redesign). It renders the server-owned canonical certificate lifecycle and
 // posts ownership / planning / verification actions the BACKEND validates. The
-// set of allowed actions comes from the server response â the frontend never
+// set of allowed actions comes from the server response — the frontend never
 // invents renewal states, verification results, or actions. It draws a hard,
 // visible line between a CUSTOMER-RECORDED renewal (asserted) and an EXTERNALLY
 // VERIFIED replacement (the product actually observed a distinct new cert).
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -13,7 +13,7 @@ import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
   readinessMeta, coverageMeta, ownershipMeta, verificationMeta, toneClass,
   daysRemainingLabel, isAwaitingVerification, certificateRelationshipMessage,
-  CERT_LIFECYCLE_SCOPE_NOTE,
+  CERT_LIFECYCLE_SCOPE_NOTE, CERT_OWNER_ROLES_NOTE, recurrenceText, expectedHostsSourceLabel,
 } from '../../lib/certificateLifecycleDisplay'
 
 function Pill({ meta }) {
@@ -23,7 +23,7 @@ function Pill({ meta }) {
 const READINESS_FILTERS = ['', 'critical', 'high', 'preparation', 'planning', 'monitoring', 'expired']
 
 export default function CertificateLifecyclePage() {
-  // Workspace comes from the canonical context hook, not a route param â the
+  // Workspace comes from the canonical context hook, not a route param — the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
   const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
@@ -32,6 +32,12 @@ export default function CertificateLifecyclePage() {
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null)
+  // The verifier's answer for the row it was asked about, as the API returned
+  // it: status + the backend's own reason sentence. Never composed here.
+  const [verifyResult, setVerifyResult] = useState(null)
+  // One request per row at a time, even if a second press lands before React
+  // re-renders the disabled button.
+  const inFlight = useRef(new Set())
 
   const load = useCallback(() => {
     if (!workspaceId) return   // never call the API with a null/unresolved workspace id
@@ -51,7 +57,8 @@ export default function CertificateLifecyclePage() {
     const id = item.certificate_lifecycle_id
     const payload = { action }
     if (action === 'set_expected_hostnames') {
-      const raw = window.prompt(`Expected hostnames for ${item.primary_hostname} (comma-separated):`,
+      const seeded = expectedHostsSourceLabel(item.expected_hostnames_source)
+      const raw = window.prompt(`Expected hostnames for ${item.primary_hostname} (comma-separated)${seeded ? `. ${seeded}.` : ':'}`,
         (item.expected_hostnames || []).join(', ') || item.primary_hostname)
       if (raw == null) return
       payload.expected_hostnames = raw.split(',').map((h) => h.trim()).filter(Boolean)
@@ -69,7 +76,7 @@ export default function CertificateLifecyclePage() {
       if (!when) return
       payload.replacement_expected_at = new Date(when).toISOString()
     } else if (action === 'record_replacement_completed') {
-      if (!window.confirm('Record that you have installed the replacement certificate?\n\nThis is your assertion only â CyberMeters will NOT mark it verified until it observes a distinct new certificate on the expected hostnames with a later expiry.')) return
+      if (!window.confirm('Record that you have installed the replacement certificate?\n\nThis is your assertion only — CyberMeters will NOT mark it verified until it observes a distinct new certificate on the expected hostnames with a later expiry.')) return
     } else if (action === 'record_exception') {
       const reason = window.prompt(`Exception reason for ${item.primary_hostname}:`)
       if (!reason) return
@@ -82,13 +89,30 @@ export default function CertificateLifecyclePage() {
       if (!reason) return
       payload.reason = reason
     }
+    if (inFlight.current.has(id)) return
+    inFlight.current.add(id)
     setBusy(id)
+    if (action === 'request_verification') setVerifyResult(null)
     try {
-      if (action === 'request_verification') await api.certificateLifecycleVerify(workspaceId, id)
-      else await api.certificateLifecycleAction(workspaceId, id, payload)
+      if (action === 'request_verification') {
+        const res = await api.certificateLifecycleVerify(workspaceId, id)
+        const fresh = res?.item
+        setVerifyResult({
+          id,
+          status: fresh?.verification_status || null,
+          reason: fresh?.verification_detail?.reason || null,
+        })
+      } else {
+        await api.certificateLifecycleAction(workspaceId, id, payload)
+      }
       load()
-    } catch { setError('Action failed.') }
-    finally { setBusy(null) }
+    } catch {
+      if (action === 'request_verification') setVerifyResult({ id, status: null, reason: null, error: true })
+      else setError('Action failed.')
+    } finally {
+      inFlight.current.delete(id)
+      setBusy(null)
+    }
   }
 
   const items = data?.items || []
@@ -121,7 +145,7 @@ export default function CertificateLifecyclePage() {
         ))}
       </div>
 
-      {loading && <p className="text-sm text-slate-400">Loadingâ¦</p>}
+      {loading && <p className="text-sm text-slate-400">Loading…</p>}
       {error && <p className="text-sm text-red-700">{error}</p>}
       {!loading && !error && items.length === 0 && (
         <p className="text-sm text-slate-400">No certificates under management yet. Records appear here after a scan observes a certificate for a monitored domain.</p>
@@ -164,23 +188,41 @@ export default function CertificateLifecyclePage() {
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={coverageMeta(it.coverage_status)} />
+                    {Array.isArray(it.expected_hostnames) && it.expected_hostnames.length > 0 && (
+                      <div className="text-xs text-slate-500 mt-0.5" data-testid="expected-hosts">
+                        Expected: <span className="break-all">{it.expected_hostnames.slice(0, 3).join(', ')}</span>{it.expected_hostnames.length > 3 ? ` and ${it.expected_hostnames.length - 3} more` : ''}
+                        {expectedHostsSourceLabel(it.expected_hostnames_source) && (
+                          <div className="text-slate-400">{expectedHostsSourceLabel(it.expected_hostnames_source)}</div>
+                        )}
+                      </div>
+                    )}
                     {Array.isArray(it.coverage_detail?.missing) && it.coverage_detail.missing.length > 0 && (
                       <div className="text-xs text-red-700 mt-0.5">Missing: {it.coverage_detail.missing.slice(0, 2).join(', ')}</div>
                     )}
                   </td>
                   <td className="py-2 px-3">
-                    <Pill meta={ownershipMeta(it.ownership_status)} />
+                    <span title={CERT_OWNER_ROLES_NOTE}><Pill meta={ownershipMeta(it.ownership_status)} /></span>
                     {(it.business_owner || it.technical_owner || it.renewal_owner) && (
                       <div className="text-xs text-slate-400 mt-0.5">{it.renewal_owner || it.technical_owner || it.business_owner}</div>
                     )}
-                    {it.recurrence_type && <div className="text-xs text-brand-700 mt-0.5">{it.recurrence_type.replace(/_/g, ' ')}</div>}
+                    {/* The owner pill already says the certificate owner is not set. */}
+                    {it.recurrence_type && !(it.recurrence_type === 'owner_missing' && it.ownership_status === 'missing') && (
+                      <div className="text-xs text-brand-700 mt-0.5">{recurrenceText(it.recurrence_type)}</div>
+                    )}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={verificationMeta(it.verification_status)} />
                     {isAwaitingVerification(it) && (
-                      <div className="text-xs text-brand-700 mt-0.5">Recorded by you â not yet verified</div>
+                      <div className="text-xs text-brand-700 mt-0.5">Recorded by you — not yet verified</div>
                     )}
                     {it.verified_at && <div className="text-xs text-slate-300 mt-0.5">Verified {it.verified_at.slice(0, 10)}</div>}
+                    {verifyResult?.id === it.certificate_lifecycle_id && (
+                      <div className="mt-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 max-w-[16rem]" role="status" aria-live="polite" data-testid="verify-result">
+                        {verifyResult.error
+                          ? 'The check could not be run just now. Nothing was changed; please try again.'
+                          : <><span className="font-semibold">{verifyResult.status ? verificationMeta(verifyResult.status).label : 'No result recorded'}.</span>{verifyResult.reason ? ` ${verifyResult.reason}` : ''}</>}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex flex-wrap gap-1">
@@ -188,7 +230,7 @@ export default function CertificateLifecyclePage() {
                       {can('assign_renewal_owner') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'assign_renewal_owner')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Owner</button>}
                       {can('plan_renewal') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'plan_renewal')} className="text-xs rounded-sm border border-blue-200 text-blue-700 px-2 py-0.5">Plan</button>}
                       {can('record_replacement_completed') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_replacement_completed')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Record renewal</button>}
-                      {can('request_verification') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded-sm border border-brand-200 text-brand-700 px-2 py-0.5">Verify</button>}
+                      {can('request_verification') && <button disabled={busy === it.certificate_lifecycle_id} aria-busy={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'request_verification')} className="text-xs rounded-sm border border-brand-200 text-brand-700 px-2 py-0.5 disabled:opacity-50">{busy === it.certificate_lifecycle_id ? 'Checking…' : 'Verify'}</button>}
                       {can('record_exception') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'record_exception')} className="text-xs rounded-sm border border-[1.5px] border-brand-700 text-brand-700 px-2 py-0.5">Exception</button>}
                       {can('retire') && <button disabled={busy === it.certificate_lifecycle_id} onClick={() => act(it, 'retire')} className="text-xs rounded-sm border border-slate-200 text-slate-600 px-2 py-0.5">Retire</button>}
                     </div>

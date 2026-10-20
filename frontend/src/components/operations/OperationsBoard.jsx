@@ -12,20 +12,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
-import { phaseMeta, phaseClass, domainKeyLabel, DOMAIN_KEY_LABELS, caseDisplayTitle } from '../../lib/caseDisplay'
+import { phaseMeta, domainKeyLabel, DOMAIN_KEY_LABELS, caseDisplayTitle } from '../../lib/caseDisplay'
 import { caseStatus, statusMeta } from '../../lib/statusVocabulary'
 import { MODULES } from '../../lib/moduleRegistry'
+import StatusChip from '../StatusChip'
 
-// Lanes in working order. `words` are the vocabulary words a lane collects.
+// Lanes in working order. `words` are the vocabulary words a lane collects,
+// and a lane is NAMED by its first word's vocabulary label, so a tab and the
+// badges inside it come from one status mapping (lib/statusVocabulary.js):
+// an "Assigned" case sits under "Action required", never under a differently
+// worded tab (founder, 20 Oct 2026). Lane ids are unchanged (URL ?view=).
+const lane = (id, words, empty) => Object.freeze({ id, words, empty, label: statusMeta(words[0]).label })
 export const LANES = Object.freeze([
-  { id: 'triage',          label: 'Triage',                words: ['action_required', 'recurring'],
-    empty: 'Nothing to triage. New and reopened cases appear here.' },
-  { id: 'in_progress',     label: 'In progress / waiting', words: ['in_progress'],
-    empty: 'No case has an action under way.' },
-  { id: 'ready_to_verify', label: 'Ready to verify',       words: ['ready_to_verify'],
-    empty: 'No case is waiting for its fix to be checked.' },
-  { id: 'closed',          label: 'Closed',                words: ['verified', 'attested', 'external', 'closed'],
-    empty: 'No case has been concluded yet.' },
+  lane('triage', ['action_required', 'recurring'], 'Nothing needs action. New and reopened cases appear here.'),
+  lane('in_progress', ['in_progress'], 'No case has an action under way.'),
+  lane('ready_to_verify', ['ready_to_verify'], 'No case is waiting for its fix to be checked.'),
+  { id: 'closed', label: 'Closed', words: ['verified', 'attested', 'external', 'closed'], empty: 'No case has been concluded yet.' },
 ])
 export const LANE_IDS = Object.freeze(LANES.map((l) => l.id))
 const LANE_BY_WORD = new Map(LANES.flatMap((l) => l.words.map((w) => [w, l.id])))
@@ -50,7 +52,7 @@ function CaseRow({ c }) {
     <li className="py-3 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4" data-testid="case-row" data-case-id={c.case_id} data-lane-word={caseStatus(c)}>
       <div className="min-w-0 flex-1">
         <Link to={`/ws/cases/${encodeURIComponent(c.case_id)}`} className="text-sm font-semibold text-gray-900 hover:text-brand-800">
-          {caseDisplayTitle(c)}
+          {c.display_title || caseDisplayTitle(c)}
         </Link>
         <p className="text-xs text-gray-500 mt-0.5">
           {domainKeyLabel(c.domain_key)}
@@ -62,9 +64,10 @@ function CaseRow({ c }) {
         </p>
       </div>
       <div className="shrink-0 flex items-center gap-2 flex-wrap">
-        <span className={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${phaseClass(c.canonical_phase, c.verification_support)}`} title={word.label}>
-          {meta.label}
-        </span>
+        {/* The badge is the same vocabulary word the lane is named after; the
+            case's own step (e.g. "Assigned") is shown beside it. */}
+        <StatusChip status={caseStatus(c)} title={`${word.label} · ${meta.label}`} />
+        {meta.label !== word.label && <span className="text-xs text-gray-500" data-testid="case-step">{meta.label}</span>}
         {c.reopened_count > 0 && (
           <span className="text-xs text-red-700 font-medium">Reopened {c.reopened_count}×</span>
         )}
