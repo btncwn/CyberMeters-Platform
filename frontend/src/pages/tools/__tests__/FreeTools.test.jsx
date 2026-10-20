@@ -8,7 +8,7 @@ import LookalikeCheckerPage from '../LookalikeCheckerPage'
 import { buildLookalikeToolResult } from '../../../../../workers/scan-api/src/engines/free-tools/lookalike-check.js'
 import { buildHeadersToolResult } from '../../../../../workers/scan-api/src/engines/free-tools/headers-check.js'
 import ToolsIndexPage from '../ToolsIndexPage'
-import { LOCAL_TIME } from '../../../components/tools/ToolResult'
+import { formatTime } from '../../../components/tools/ToolResult'
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
@@ -159,16 +159,16 @@ describe('free tools', () => {
     expect(screen.getByText(/a recent check of the same domain, reused for up to 10 minutes/)).toBeInTheDocument()
   })
 
-  it('shows the check time and the link expiry in the same local time zone, each labelled', async () => {
-    // Expiry falls after a clock change: both must use the viewer's zone, labelled.
+  it('shows the check time and the link expiry in one labelled zone, UTC, across a clock change', async () => {
+    // The check is in BST, the expiry after the clock change: both read UTC.
     const result = { ...DMARC_RESULT, checked_at: '2026-10-20T00:43:00.000Z' }
     installFetch({ 'POST /tools/dmarc/check': () => json({ status: 'ok', cached: false, result, share: { url: 'https://cybermeters.com/tools/dmarc-checker#share=v1.a.b', expires_at: '2026-10-27T00:43:00.000Z' } }) })
     renderAt(<DmarcCheckerPage />)
     await runCheck()
-    const fmt = (iso) => new Date(iso).toLocaleString(undefined, LOCAL_TIME)
-    expect(await screen.findByText(new RegExp(`checked ${fmt(result.checked_at).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))).toBeInTheDocument()
-    expect(screen.getByText(new RegExp(`stops working on ${fmt('2026-10-27T00:43:00.000Z').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))).toBeInTheDocument()
-    expect(fmt(result.checked_at)).toMatch(/[A-Z]{2,5}|GMT|UTC/)
+    expect(await screen.findByText(/checked 20 Oct 2026, 00:43 UTC/)).toBeInTheDocument()
+    expect(screen.getByText(/stops working on 27 Oct 2026, 00:43 UTC/)).toBeInTheDocument()
+    expect(formatTime('2026-07-01T12:00:00.000Z')).toBe('1 Jul 2026, 12:00 UTC')
+    expect(document.body.textContent).not.toMatch(/BST|GMT/)
   })
 
   it('shows each security header, what it does, and paste-ready lines for the chosen server', async () => {
@@ -195,6 +195,7 @@ describe('free tools', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cloudflare' }))
     expect(screen.getByText(/add these lines to a file named _headers/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy Cloudflare lines' })).toBeInTheDocument()
+    expect(screen.getByText(/CyberMeters Website Security re-checks your HTTPS and security headers/)).toBeInTheDocument()
     // A report from this page names the tool.
     fireEvent.click(screen.getByRole('button', { name: 'Something wrong?' }))
     fireEvent.change(screen.getByLabelText('Tell us what looks wrong'), { target: { value: 'x' } })
@@ -239,6 +240,16 @@ describe('free tools', () => {
     expect(within(items[1]).queryByText('Receives email')).toBeNull()
     expect(screen.getByText('32 close variants of acmebakery.co.uk were checked in DNS.')).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/malicious|phishing site|attacker|scam/i)
+    expect(screen.getByText(/CyberMeters Brand Protection keeps watching for new lookalike domains/)).toBeInTheDocument()
+    expect(screen.queryByText(/re-checks your email protection|Email Protection re-checks/)).toBeNull()
+  })
+
+  it('the lookalike form states the number of variants the engine checks, from the API', async () => {
+    window.history.replaceState({}, '', '/tools/lookalike-domain-checker')
+    installFetch({ 'GET /tools/config': () => json({ available: true, turnstile_site_key: 'site-key', limits: { lookalike_max_candidates: 44 } }) })
+    renderAt(<LookalikeCheckerPage />)
+    expect(await screen.findByText(/Passive DNS lookups only, for up to 44 close variants of your name/)).toBeInTheDocument()
+    expect(screen.queryByText(/about 40/)).toBeNull()
   })
 
   it('a tool the API does not serve yet says so instead of an empty page', async () => {

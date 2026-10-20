@@ -587,7 +587,7 @@ export function computeScore(modules, domain) {
           });
         } else if (h.name === "content-security-policy" && strength.status === "weak") {
           const csp = classifyCspPolicy(rawValue);
-          const actionable = csp.classification === "weak_script";
+          const actionable = csp.classification === "weak_script" || csp.classification === "no_script_restriction";
           findings.push({
             id:           "csp_weak_policy",
             finding_type: actionable ? "finding" : "observation",
@@ -595,7 +595,9 @@ export function computeScore(modules, domain) {
             severity:     actionable ? "medium" : "low",
             confidence:   "high",
             title:        "Weak Content Security Policy",
-            description:  actionable
+            description:  csp.classification === "no_script_restriction"
+              ? `The Content-Security-Policy header on ${domain} has no script-src or default-src, so it does not restrict which scripts the page may load.`
+              : actionable
               ? `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in ${csp.dangerous_directives.join(" and ")}, so it does little to stop injected scripts.`
               : `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in style-src only. Scripts are still restricted, so this is a low-risk observation.`,
             score_impact: 0,

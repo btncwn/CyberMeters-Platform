@@ -52,7 +52,7 @@ function Badge({ tone, children }) {
 function Row({ label, children }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-[170px_minmax(0,1fr)] gap-1 sm:gap-4 px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
-      <dt className="text-[14px] text-[#6A7389]">{label}</dt>
+      <dt className="text-[14px] text-[#626B80]">{label}</dt>
       <dd className="text-[15px] text-[#121A2E] min-w-0 wrap-break-word">{children}</dd>
     </div>
   )
@@ -98,7 +98,7 @@ function UnderstandScreen() {
           <li key={name} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
             <div className="flex-1 min-w-[180px]">
               <p className="text-[15px] font-semibold text-[#121A2E]">{name}</p>
-              <p className="text-[14px] text-[#6A7389]">{note}</p>
+              <p className="text-[14px] text-[#626B80]">{note}</p>
             </div>
             <Badge tone={tone}>{state}</Badge>
           </li>
@@ -134,7 +134,7 @@ function RecheckScreen() {
           ['14 Oct, 11:30', 'Case closed on CyberMeters’ own observation', 'Verified by CyberMeters', 'ok'],
         ].map(([when, what, state, tone]) => (
           <li key={what} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
-            <span className="w-[110px] text-[14px] text-[#6A7389]">{when}</span>
+            <span className="w-[110px] text-[14px] text-[#626B80]">{when}</span>
             <span className="flex-1 min-w-[180px] text-[15px] text-[#121A2E]">{what}</span>
             <Badge tone={tone}>{state}</Badge>
           </li>

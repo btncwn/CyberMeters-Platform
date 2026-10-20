@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatReportTime } from '../../lib/reportTime'
 
 // Presentation only: every verdict, state and sentence comes from the API's
 // result. This file maps the backend's level/state codes to labels and colours.
@@ -22,13 +23,13 @@ export function StateBadge({ state }) {
   return <span className={`inline-block shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.tone}`}>{s.label}</span>
 }
 
-// Every time on the page is the viewer's local time, with its zone named: a
-// link that expires after a clock change must not look an hour off.
-export const LOCAL_TIME = Object.freeze({ year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
-
-function formatTime(iso) {
+// Every time on the page is in one labelled zone, UTC, the convention of
+// CyberMeters reports (lib/reportTime.js): a check made in summer and a link
+// expiring after the clock change must not read "BST" next to "GMT"
+// (founder, 20 Oct 2026).
+export function formatTime(iso) {
   const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleString(undefined, LOCAL_TIME)
+  return Number.isNaN(date.getTime()) ? null : `${formatReportTime(date)} UTC`
 }
 
 export function CopyButton({ value, label = 'Copy' }) {

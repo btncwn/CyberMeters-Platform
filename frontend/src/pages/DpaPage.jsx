@@ -66,7 +66,7 @@ export default function DpaPage() {
 
           <Section title="4. Sub-Processors">
             <p>The Controller grants the Processor general authorisation to engage Sub-Processors. The following Sub-Processors are currently authorised:</p>
-            <div className="overflow-x-auto mt-2">
+            <div className="overflow-x-auto mt-2" tabIndex={0} role="region" aria-label="Sub-processors">
               <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
                 <thead className="bg-gray-50">
                   <tr>

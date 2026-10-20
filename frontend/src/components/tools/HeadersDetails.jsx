@@ -18,7 +18,7 @@ export default function HeadersDetails({ result }) {
             <div className="flex flex-wrap items-center gap-2">
               <StateBadge state={STATE_FOR[header.status] || 'unknown'} />
               <span className="font-mono text-sm font-semibold break-all">{header.name}</span>
-              <span className="text-xs text-gray-500">{STATUS_LABEL[header.status] || header.status}</span>
+              <span className="text-xs text-gray-500">{header.label || STATUS_LABEL[header.status] || header.status}</span>
             </div>
             <p className="text-sm text-gray-700">{header.meaning}</p>
             {header.value

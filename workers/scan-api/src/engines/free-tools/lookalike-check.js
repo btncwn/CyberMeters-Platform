@@ -14,7 +14,7 @@
 // a phish or an attack. Registered can be a parked page, a reseller or the
 // visitor's own defensive registration. A failed lookup is "could not check",
 // never "not registered".
-import { extractBrandParts, generateTyposquatCandidates } from "../brand-typosquat.js";
+import { extractBrandParts, generateTyposquatCandidates, MAX_BRAND_CANDIDATES } from "../brand-typosquat.js";
 
 export const LOOKALIKE_TOOL_SCHEMA = "free-tool-lookalike.v1";
 
@@ -22,6 +22,9 @@ export const LOOKALIKE_TOOL_SCHEMA = "free-tool-lookalike.v1";
 // One NS question per candidate (44 at most), then A, AAAA and MX for at most
 // this many names that exist: 44 + 3 × 24 = 116.
 export const LOOKALIKE_DETAIL_LIMIT = 24;
+// The most names one check considers, from the Brand Protection generator;
+// the tool page states this number rather than its own estimate.
+export const LOOKALIKE_MAX_CANDIDATES = MAX_BRAND_CANDIDATES;
 const CONCURRENCY = 6;
 
 const VARIANT_LABEL = Object.freeze({

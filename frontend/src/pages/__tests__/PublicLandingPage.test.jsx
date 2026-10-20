@@ -96,7 +96,7 @@ describe('PublicLandingPage', () => {
   it('colours each area question with its identity from the shared palette', () => {
     renderLanding()
     expect(screen.getByText('Can attackers send email as me?')).toHaveStyle({ color: SERVICE_COLORS.email.text })
-    expect(screen.getByText('Is anyone impersonating my brand?')).toHaveStyle({ color: SERVICE_COLORS.brand.text })
+    expect(screen.getByText('Are there lookalikes of my domain?')).toHaveStyle({ color: SERVICE_COLORS.brand.text })
   })
 
   it('never narrows the audience or counts areas in its pitch', () => {
@@ -198,5 +198,25 @@ describe('IrisGlobe illustration', () => {
     expect(mid).toBeLessThan(HERO_GLOBE_MAX)
     expect(heroGlobe(1300)).toBe(HERO_GLOBE_MAX)
     expect(heroGlobe(2560)).toBe(HERO_GLOBE_MAX)
+  })
+})
+
+describe('first-customer journey (founder, 20 Oct 2026)', () => {
+  it('the Cyber Essentials area links to the readiness page', () => {
+    renderLanding()
+    const toggle = screen.getAllByRole('button', { name: 'What it checks' }).at(-1)
+    fireEvent.click(toggle)
+    expect(screen.getByRole('link', { name: 'How the readiness check works' })).toHaveAttribute('href', '/cyber-essentials-readiness')
+  })
+})
+
+describe('Cyber Essentials readiness page', () => {
+  it('names the two partly external controls and never counts email security', async () => {
+    const { default: CyberEssentialsReadinessPage } = await import('../CyberEssentialsReadinessPage')
+    render(<MemoryRouter><CyberEssentialsReadinessPage /></MemoryRouter>)
+    const text = document.body.textContent
+    expect(text).toMatch(/partly check two of the five control areas: boundary protection/)
+    expect(text).toMatch(/Email security results are not counted towards Cyber Essentials/)
+    expect(text).not.toMatch(/such as website security, TLS, DNS and email protection/)
   })
 })

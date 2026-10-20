@@ -15,7 +15,7 @@ import { sendAlertEmail } from "../engines/alerts.js";
 import { dnsQuery } from "../engines/dns.js";
 import { runDmarcCheck } from "../engines/free-tools/dmarc-check.js";
 import { runHeadersCheck } from "../engines/free-tools/headers-check.js";
-import { runLookalikeCheck } from "../engines/free-tools/lookalike-check.js";
+import { LOOKALIKE_MAX_CANDIDATES, runLookalikeCheck } from "../engines/free-tools/lookalike-check.js";
 import { runSpfCheck } from "../engines/free-tools/spf-check.js";
 import { makeDnsCache, PhysicalSubrequestCounter } from "../engines/scan-budget.js";
 import {
@@ -299,7 +299,7 @@ export async function freeToolsRoutes(rctx) {
       available: Boolean(siteKey && env.TURNSTILE_SECRET_KEY),
       turnstile_site_key: siteKey || null,
       tools: FREE_TOOL_IDS.map((id) => ({ id, name: FREE_TOOLS[id].name, path: FREE_TOOLS[id].path })),
-      limits: { runs_per_tool_per_day: FREE_TOOL_POLICY.ipRuns, cache_minutes: FREE_TOOL_POLICY.cacheSeconds / 60 },
+      limits: { runs_per_tool_per_day: FREE_TOOL_POLICY.ipRuns, cache_minutes: FREE_TOOL_POLICY.cacheSeconds / 60, lookalike_max_candidates: LOOKALIKE_MAX_CANDIDATES },
     });
   }
 

@@ -104,7 +104,7 @@ export default function PrivacyPage() {
 
           <Section title="7. Sub-Processors and Third Parties">
             <p>We share data with the following third-party sub-processors where necessary to provide the service:</p>
-            <div className="overflow-x-auto mt-2">
+            <div className="overflow-x-auto mt-2" tabIndex={0} role="region" aria-label="Sub-processors">
               <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
                 <thead className="bg-gray-50">
                   <tr>

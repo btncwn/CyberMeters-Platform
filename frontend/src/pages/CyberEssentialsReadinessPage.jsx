@@ -293,7 +293,7 @@ function IntroView({ onStart }) {
               Cyber Essentials includes controls that are partly visible from outside your business and partly internal to how you manage devices, users and software.
             </p>
             <p>
-              CyberMeters can automatically check some external signals, such as website security, TLS, DNS and email protection. Other areas, such as staff access, MFA and endpoint protection, must be self-declared because they cannot be confirmed from outside your domain.
+              From outside, CyberMeters can partly check two of the five control areas: boundary protection (HTTPS, security headers and exposed admin pages) and secure configuration (the HTTPS redirect, TLS and certificate health). The other three, user access control, malware protection and security update management, cannot be seen from outside your business, so they rely on your answers. Email security results are not counted towards Cyber Essentials.
             </p>
             <p className="font-semibold text-gray-900">
               Answer honestly. The goal is not to look ready. The goal is to know what to fix before you apply.

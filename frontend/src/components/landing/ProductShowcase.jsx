@@ -55,7 +55,7 @@ export default function ProductShowcase({ rows }) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-cm text-[22px] leading-tight text-[#121A2E]">Sample report</p>
-                <p className="text-[14px] text-[#6A7389] mt-1">example.co.uk · Cyber MOT</p>
+                <p className="text-[14px] text-[#626B80] mt-1">example.co.uk · Cyber MOT</p>
               </div>
               <span className="text-[14px] font-semibold text-[#3D45A8] bg-[#E6E8FD] rounded-full px-3 py-1">Sample</span>
             </div>
@@ -68,7 +68,7 @@ export default function ProductShowcase({ rows }) {
                     <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                       <div className="flex-1 min-w-0">
                         <p className="text-[15px] font-semibold text-[#121A2E]">{r.name}</p>
-                        <p className="text-[14px] text-[#6A7389]">{r.note}</p>
+                        <p className="text-[14px] text-[#626B80]">{r.note}</p>
                       </div>
                       <span className={`self-start sm:self-auto text-[14px] font-semibold rounded-full px-3 py-1 whitespace-nowrap ${TONE[r.tone]}`}>{r.state}</span>
                     </div>
@@ -85,8 +85,8 @@ export default function ProductShowcase({ rows }) {
               <p className="text-[14px]" style={{ color: SERVICE_COLORS.email.text }}>Email Protection</p>
               <p className="font-cm text-[22px] leading-tight text-[#121A2E] mt-1">Strengthen DMARC enforcement</p>
               <dl className="mt-4 grid grid-cols-2 gap-3 text-[14px]">
-                <div><dt className="text-[#6A7389]">Severity</dt><dd className="font-semibold text-[#8A5300]">Medium</dd></div>
-                <div><dt className="text-[#6A7389]">Usually done by</dt><dd className="font-semibold text-[#121A2E]">Your IT provider</dd></div>
+                <div><dt className="text-[#626B80]">Severity</dt><dd className="font-semibold text-[#8A5300]">Medium</dd></div>
+                <div><dt className="text-[#626B80]">Usually done by</dt><dd className="font-semibold text-[#121A2E]">Your IT provider</dd></div>
               </dl>
               <p className="mt-4 text-[14px] leading-[1.55] text-[#46506A]">
                 Confirm legitimate senders pass, then move the policy towards quarantine or reject.
