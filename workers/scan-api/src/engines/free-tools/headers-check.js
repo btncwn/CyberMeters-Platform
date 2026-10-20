@@ -164,7 +164,6 @@ export function buildHeadersToolResult(domain, observation, { now = Date.now() }
     return {
       name: DISPLAY_NAME[entry.name],
       key: entry.name,
-      label: entry.label,
       present: value !== undefined && value !== null,
       value: value === undefined || value === null ? null : clip(value),
       status: verdict.status,

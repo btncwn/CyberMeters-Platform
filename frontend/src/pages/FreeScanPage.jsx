@@ -7,14 +7,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Moon, Sun } from 'lucide-react'
 import { formatDate } from '../utils/dates'
-import CyberMetersLogo from '../components/CyberMetersLogo'
+import PublicSiteHeader from '../components/PublicSiteHeader'
+import PublicSiteFooter from '../components/PublicSiteFooter'
 import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
 import SomethingWrong from '../components/SomethingWrong'
 import { BASE, api } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { findOwnWorkspaceForDomain } from '../lib/freeScanWorkspaceMatch'
 import { SERVICE_COLORS } from '../theme/serviceColors'
-import { marketingHomeHref } from '../utils/siteLinks'
 import {
   deriveFreeScanPresentation,
   FREE_SCAN_STATE_LABELS,
@@ -244,29 +244,19 @@ export default function FreeScanPage() {
 
   return (
     <div className="free-mot-page" data-theme={theme}>
-      <header className="fm-header">
-        <div className="fm-shell fm-header__inner">
-          <a href={marketingHomeHref()} aria-label="CyberMeters home"><CyberMetersLogo size={28} showWordmark darkMode={theme === 'dark'} /></a>
-          <div className="fm-header__actions">
-            <button
-              className="fm-theme-toggle"
-              type="button"
-              onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}
-              aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            >
-              {theme === 'dark' ? <Sun /> : <Moon />}
-            </button>
-            {isAuthenticated ? (
-              <Link to="/dashboard" className="fm-button fm-button--small">Go to dashboard</Link>
-            ) : (
-              <>
-                <Link to="/login" className="fm-text-link">Sign in</Link>
-                <Link to={signupPath(result?.domain)} className="fm-button fm-button--small">Start 14-day trial</Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      {/* The site's own header and footer (founder, 20 Oct 2026): the visitor
+          can reach the free tools, pricing and the rest of the site from here. */}
+      <PublicSiteHeader signedIn={isAuthenticated} />
+      <div className="fm-shell fm-theme-row">
+        <button
+          className="fm-theme-toggle"
+          type="button"
+          onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}
+          aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+        >
+          {theme === 'dark' ? <Sun /> : <Moon />}
+        </button>
+      </div>
 
       {!result && !scanning && (
         <main>
@@ -471,12 +461,7 @@ export default function FreeScanPage() {
         </main>
       )}
 
-      <footer className="fm-footer">
-        <div className="fm-shell">
-          <span>© 2026 CyberMeters · UK cyber-security SaaS</span>
-          <nav aria-label="Legal"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><Link to="/support">Support</Link></nav>
-        </div>
-      </footer>
+      <PublicSiteFooter />
     </div>
   )
 }

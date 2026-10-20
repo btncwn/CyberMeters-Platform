@@ -122,7 +122,7 @@ async function renderResult(payload, heading = 'Evidence incomplete') {
     json: async () => payload,
   })))
   Element.prototype.scrollIntoView = vi.fn()
-  render(<MemoryRouter><FreeScanPage /></MemoryRouter>)
+  render(<MemoryRouter initialEntries={['/free-scan']}><FreeScanPage /></MemoryRouter>)
   fireEvent.change(screen.getByPlaceholderText('yourbusiness.co.uk'), {
     target: { value: 'example.com' },
   })
@@ -352,8 +352,12 @@ describe('FreeScanPage for a signed-in visitor', () => {
     expect(api.getWorkspaces).not.toHaveBeenCalled()
     expect(api.getWorkspaceDomains).not.toHaveBeenCalled()
     expect(screen.getByRole('link', { name: 'Start my 14-day trial' })).toHaveAttribute('href', '/signup?domain=example.com')
-    expect(screen.getByRole('link', { name: 'Start 14-day trial' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument()
+    // The site's own header: sign in, pricing and (in the footer) the free tools.
+    expect(screen.getAllByRole('link', { name: 'Sign in' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: 'Pricing' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: 'Free tools' }).length).toBeGreaterThan(0)
+    // On the free check itself, the header does not offer "Run a free check".
+    expect(screen.queryByRole('link', { name: 'Run a free check' })).toBeNull()
     expect(screen.queryByTestId('free-scan-own-workspace')).toBeNull()
   })
 
@@ -368,8 +372,7 @@ describe('FreeScanPage for a signed-in visitor', () => {
     expect(screen.getByText(/example\.com is verified in Example Ltd/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open workspace' })).toHaveAttribute('href', '/workspaces/ws_b')
     expect(screen.queryByRole('link', { name: 'Start my 14-day trial' })).toBeNull()
-    expect(screen.queryByRole('link', { name: 'Start 14-day trial' })).toBeNull()
-    expect(screen.getByRole('link', { name: 'Go to dashboard' })).toHaveAttribute('href', '/dashboard')
+    expect(screen.getAllByRole('link', { name: 'Dashboard' })[0]).toHaveAttribute('href', '/dashboard')
     expect(document.body.textContent).not.toMatch(/in the trial|with the trial/)
     expect(screen.getByText('More findings in your workspace')).toBeInTheDocument()
     expect(screen.getByText('Open the workspace to see every finding.')).toBeInTheDocument()

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import CyberMetersLogo from './CyberMetersLogo'
 import { marketingHomeHref } from '../utils/siteLinks'
 
@@ -31,6 +31,8 @@ export default function PublicSiteHeader({ tone = 'light', signedIn = false }) {
   const dark = tone === 'dark'
   const [solid, setSolid] = useState(!dark)
   const [menuOpen, setMenuOpen] = useState(false)
+  // On the free check itself the header's "Run a free check" would point here.
+  const onFreeScan = useLocation().pathname === '/free-scan'
   const home = marketingHomeHref()
   // On the landing page the section links stay on the page.
   const nav = siteNav(dark ? '' : home)
@@ -67,14 +69,19 @@ export default function PublicSiteHeader({ tone = 'light', signedIn = false }) {
           {nav.map(item => <NavItem key={item.label} item={item} className={link} />)}
         </nav>
         <div className="flex items-center gap-3">
+          {!onFreeScan && (
           <Link
             to="/free-scan"
+            aria-label="Run a free check"
             // On the landing page phones already have the same action in the hero
-            // form right below, so the header keeps only the menu there.
-            className={`h-11 px-5 rounded-[8px] text-[15px] font-semibold items-center transition-colors ${dark ? 'hidden sm:inline-flex bg-white text-[#183A86] hover:bg-[#EEF3FF]' : 'btn-amber'}`}
+            // form right below, so the header keeps only the menu there. On a
+            // phone the label is short and never wraps beside the logo.
+            className={`h-11 px-3 sm:px-5 rounded-[8px] text-[15px] font-semibold items-center whitespace-nowrap transition-colors ${dark ? 'hidden sm:inline-flex bg-white text-[#183A86] hover:bg-[#EEF3FF]' : 'btn-amber'}`}
           >
-            Run a free check
+            <span className="sm:hidden">Free check</span>
+            <span className="hidden sm:inline">Run a free check</span>
           </Link>
+          )}
           <button
             type="button"
             className={`lg:hidden h-11 px-4 rounded-[8px] border text-[15px] font-semibold ${dark ? 'border-white/40 text-white' : 'border-[#C9D1E4] text-[#121A2E]'}`}

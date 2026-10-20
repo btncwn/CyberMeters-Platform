@@ -20,7 +20,25 @@ function gbp(value) {
 // users and internal scan/report quotas are enforcement concepts and never
 // appear on pricing cards. MSP is presented separately and sales-led —
 // Business is an SMB plan, not an MSP plan.
-function planFeatures(plan) {
+// What a plan leaves out, read from the plan API's own feature lists
+// (PLAN_FEATURES) against Professional, so the card can never promise a
+// feature the plan does not grant (founder, 20 Oct 2026). Only the features a
+// small business would look for are named.
+const NOTABLE_FEATURES = [
+  ['executive_dashboard', 'Executive dashboard'],
+  ['audit_logs', 'audit log'],
+  ['vendor_risk', 'third-party services view'],
+]
+
+export function notIncluded(plan, plans) {
+  const reference = (plans || []).find((p) => p.key === 'professional')
+  if (!Array.isArray(plan?.features) || !Array.isArray(reference?.features) || plan.key === 'free' || plan.key === 'enterprise') return []
+  return NOTABLE_FEATURES
+    .filter(([key]) => reference.features.includes(key) && !plan.features.includes(key))
+    .map(([, label]) => label)
+}
+
+function planFeatures(plan, plans) {
   const pm = plan.pricing_model || {}
   const features = []
   if (plan.key === 'enterprise') {
@@ -33,6 +51,10 @@ function planFeatures(plan) {
   const domains = pm.included_domains ?? plan.limits?.domains
   if (domains != null) {
     features.push(domains === 1 ? '1 monitored domain' : `${domains} monitored domains included`)
+  }
+  const missing = notIncluded(plan, plans)
+  if (missing.length) {
+    features.push(`Not included: ${missing.join(', ')}`)
   }
   if (plan.key === 'free' && pm.trial) {
     features.push(`Full product for ${pm.trial.duration_days} days`)
@@ -217,7 +239,7 @@ export default function PricingPage() {
                 </div>
 
                 <ul className="mt-5 list-disc pl-5 space-y-2 flex-1">
-                  {planFeatures(plan).map(feature => (
+                  {planFeatures(plan, orderedPlans).map(feature => (
                     <li key={feature} className="text-sm text-gray-600">
                       <span>{feature}</span>
                     </li>
