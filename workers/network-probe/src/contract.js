@@ -1,6 +1,10 @@
 // Shared private-service protocol. No client supplies an executable, URL or DO ID.
 export const PROBE_PORTS = Object.freeze([21,22,25,53,80,110,143,443,445,465,587,993,995,1433,3306,3389,5432,5900,6379,8080,8443,9200,27017]);
 export const PROBE_LIMITS = Object.freeze({ targets:32, ports:16, pairs:256, deadlineMs:90_000, requestBytes:16_384, responseBytes:524_288 });
+// Anonymous free-tool TLS check (F2): one hostname, port 443, one pinned public
+// address, one handshake, no retry. The route admits only after Turnstile and
+// the rolling limiter; these caps bound what a single admitted check can cost.
+export const FREE_TOOL_TLS_LIMITS = Object.freeze({ deadlineMs:8_000, handshakeMs:4_000, requestBytes:1_024, responseBytes:16_384, certificateBytes:16_384, handshakeBytes:65_536, chainCertificates:4, dnsNames:100, textChars:256 });
 export function isPublicProbeAddress(value) {
   if (typeof value !== 'string' || value.length > 45 || value !== value.trim()) return false;
   if (/^(0|[1-9]\d{0,2})(\.(0|[1-9]\d{0,2})){3}$/.test(value)) {
@@ -34,17 +38,19 @@ export function validateNetworkProbeRequest(input, now=Date.now()) {
   const allowed=new Set(['schema_version','request_id','workspace_id','scan_id','profile','deadline_at','targets','ports']);
   if (Object.keys(input).some(k=>!allowed.has(k))) return fail('unknown_request_field');
   if (input.schema_version!=='network-probe-request-v1') return fail('unknown_schema');
-  for(const key of ['request_id','workspace_id','scan_id']) if(typeof input[key]!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(input[key]))return fail('invalid_identity');
-  if(!['live_tls','network_services'].includes(input.profile))return fail('unknown_profile');
+  // The free-tool profile is anonymous: it carries no workspace or scan identity.
+  const freeTool=input.profile==='free_tool';
+  for(const key of ['request_id','workspace_id','scan_id']) if(freeTool&&key!=='request_id'?input[key]!==null:(typeof input[key]!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(input[key])))return fail('invalid_identity');
+  if(!['live_tls','network_services','free_tool'].includes(input.profile))return fail('unknown_profile');
   const deadline=Date.parse(input.deadline_at);
-  if(!Number.isFinite(deadline)||deadline<=now||deadline>now+90_000)return fail('invalid_deadline');
+  if(!Number.isFinite(deadline)||deadline<=now||deadline>now+(freeTool?FREE_TOOL_TLS_LIMITS.deadlineMs:90_000))return fail('invalid_deadline');
   if(!Array.isArray(input.targets)||!input.targets.length||input.targets.length>32)return fail('target_limit');
   if(!Array.isArray(input.ports)||!input.ports.length||input.ports.length>16||new Set(input.ports).size!==input.ports.length||input.ports.some(p=>!Number.isInteger(p)||![21,22,25,53,80,110,143,443,445,465,587,993,995,1433,3306,3389,5432,5900,6379,8080,8443,9200,27017].includes(p)))return fail('port_limit');
   if(input.targets.length*input.ports.length>256)return fail('pair_limit');
   const seen=new Set();
   for(const target of input.targets){
     if(!target||typeof target!=='object'||Array.isArray(target)||Object.keys(target).some(k=>!['address','hostname'].includes(k)))return fail('invalid_target');
-    if(input.profile==='live_tls'){
+    if(input.profile==='live_tls'||freeTool){
       if(input.targets.length!==1||input.ports.length!==1||input.ports[0]!==443||target.address!==null||!isProbeHostname(target.hostname))return fail('invalid_tls_target');
     }else if(!isPublicProbeAddress(target.address)||target.hostname!==null)return fail('non_public_target');
     const key=JSON.stringify(target);if(seen.has(key))return fail('duplicate_target');seen.add(key);

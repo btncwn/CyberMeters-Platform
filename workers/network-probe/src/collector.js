@@ -1,4 +1,4 @@
-import { isPublicProbeAddress, isProbeHostname, validateNetworkProbeRequest } from './contract.js';
+import { FREE_TOOL_TLS_LIMITS, isPublicProbeAddress, isProbeHostname, validateNetworkProbeRequest } from './contract.js';
 
 // This function is serialized from reviewed source by the private DO. Input is
 // JSON data only. Test dependency injection is never exposed by the service.
@@ -18,7 +18,7 @@ export async function runCollector(input, dependencies={}) {
   const receipt={schema_version:'network-probe-receipt-v1',request_id:input.request_id,workspace_id:input.workspace_id,scan_id:input.scan_id,profile:input.profile,started_at:new Date(started).toISOString(),finished_at:null,collector:{name:'cybermeters-cloudflare-network-probe',version:'1',node_version:process.version,openssl_version:process.versions.openssl,trust_store:trustContext},coverage:{planned:0,attempted:0,completed:0,not_run:0},quality:'partial',observations:[],limitations:['Only the listed target and TCP port plan was tested.','A timeout does not establish a closed port.','TLS issuer-chain data is runtime-observed, not a capture of the exact wire-presented chain.','Certificate revocation and exhaustive protocol/cipher enumeration were not assessed.']};
   let targets=input.targets;
   let dnsFailure=null;
-  if(input.profile==='live_tls'){
+  if(input.profile==='live_tls'||input.profile==='free_tool'){
     const hostname=input.targets[0].hostname;
     try{
       const resolver=new dns.Resolver({timeout:2000,tries:1});
@@ -33,6 +33,60 @@ export async function runCollector(input, dependencies={}) {
     }catch(error){dnsFailure=['dns_unavailable','dns_no_address','dns_non_public_answer','dns_address_limit'].includes(error.message)?error.message:'dns_unavailable';targets=input.targets;}
   }
   const cleanText=value=>String(value??'').replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024);
+  if(input.profile==='free_tool')return runFreeToolTls();
+  // Anonymous free-tool check: one pinned public address (IPv4 first), one TLS
+  // handshake, no TCP pre-probe and no retry. Only certificate and negotiated
+  // protocol facts leave: no DER, banner or application data is read.
+  async function runFreeToolTls(){
+    const limits={...FREE_TOOL_TLS_LIMITS,...(dependencies.freeToolLimits||{})};
+    const hostname=input.targets[0].hostname;
+    const text=value=>cleanText(value).slice(0,limits.textChars);
+    const result={schema_version:'free-tool-tls-receipt-v1',request_id:input.request_id,profile:'free_tool',started_at:new Date(started).toISOString(),finished_at:null,outcome:'unavailable',reason:null,endpoint:{hostname,address:null,port:443},protocol:null,trust:null,hostname_match:null,certificate:null,chain:[],limitations:['one_pinned_address_one_handshake','runtime_issuer_chain_not_wire_chain','revocation_not_assessed','protocol_and_cipher_enumeration_not_assessed']};
+    const done=reason=>{result.reason=reason;result.finished_at=new Date().toISOString();return result;};
+    if(dnsFailure)return done(dnsFailure);
+    const address=[...targets].map(target=>target.address).sort((a,b)=>Number(a.includes(':'))-Number(b.includes(':'))||(a<b?-1:a>b?1:0))[0];
+    result.endpoint.address=address;
+    const remaining=deadline-Date.now();
+    if(remaining<=0)return done('deadline_exhausted');
+    const outcome=await new Promise(resolve=>{
+      // One TCP connection carries the handshake; its raw byte counter is the
+      // handshake byte cap (the TLS socket only counts application data).
+      let raw,socket,timer,poll,finished=false;
+      const finish=value=>{if(finished)return;finished=true;clearTimeout(timer);clearInterval(poll);socket?.destroy();raw?.destroy();resolve(value);};
+      const oversize=()=>(raw?.bytesRead||0)>limits.handshakeBytes;
+      try{
+        raw=(dependencies.connect||net.connect)({host:address,port:443});
+        raw.once('error',()=>finish({reason:'tls_connection_failed'}));
+        socket=(dependencies.tlsConnect||tls.connect)({socket:raw,servername:hostname,rejectUnauthorized:false,ca:roots,checkServerIdentity:()=>undefined,minVersion:'TLSv1.2'});
+        timer=setTimeout(()=>finish({reason:'tls_timeout'}),Math.min(limits.handshakeMs,remaining));
+        poll=setInterval(()=>{if(oversize())finish({reason:'handshake_too_large'});},10);
+        socket.once('error',()=>finish({reason:'tls_handshake_failed'}));
+        socket.once('secureConnect',()=>{
+          try{
+            if(oversize())return finish({reason:'handshake_too_large'});
+            const peer=socket.getPeerCertificate(true);
+            if(!peer?.raw)return finish({reason:'peer_certificate_unavailable'});
+            if(peer.raw.byteLength>limits.certificateBytes)return finish({reason:'certificate_too_large'});
+            const x509=new crypto.X509Certificate(peer.raw);
+            const dnsNames=(x509.subjectAltName||'').split(/, (?=(?:DNS|IP Address|URI|email):)/).filter(value=>value.startsWith('DNS:')).map(value=>value.slice(4)).filter(value=>/^[a-z0-9*._-]{1,253}$/i.test(value)).slice(0,limits.dnsNames);
+            const chain=[];const seen=new Set([hash(peer.raw)]);let issuer=peer.issuerCertificate;
+            while(issuer?.raw&&chain.length<limits.chainCertificates&&issuer.raw.byteLength<=limits.certificateBytes&&!seen.has(hash(issuer.raw))){
+              seen.add(hash(issuer.raw));const cert=new crypto.X509Certificate(issuer.raw);
+              chain.push({subject:text(cert.subject),issuer:text(cert.issuer),not_after:new Date(cert.validTo).toISOString()});issuer=issuer.issuerCertificate;
+            }
+            const authorizationError=String(socket.authorizationError||'');
+            finish({reason:null,protocol:socket.getProtocol()||null,
+              trust:{result:socket.authorized===true?'valid':'invalid',reason:socket.authorized===true?null:/^[A-Z0-9_]{1,64}$/.test(authorizationError)?authorizationError:'certificate_validation_failed',trust_store:trustContext.name,trust_store_sha256:trustContext.sha256},
+              hostname_match:tls.checkServerIdentity(hostname,peer)?'mismatched':'matched',
+              certificate:{sha256:hash(peer.raw),subject:text(x509.subject),issuer:text(x509.issuer),not_before:new Date(x509.validFrom).toISOString(),not_after:new Date(x509.validTo).toISOString(),dns_names:dnsNames},chain});
+          }catch{finish({reason:'certificate_parse_failed'});}
+        });
+      }catch{finish({reason:'tls_connection_failed'});}
+    });
+    if(outcome.reason)return done(outcome.reason);
+    Object.assign(result,{outcome:'observed',protocol:outcome.protocol,trust:outcome.trust,hostname_match:outcome.hostname_match,certificate:outcome.certificate,chain:outcome.chain});
+    return done(null);
+  }
   const unavailableTls=reason=>({leaf_collected:false,chain_collected:false,reason});
   const describeCertificate=certificate=>{
     const x509=new crypto.X509Certificate(certificate.raw);
@@ -118,5 +172,5 @@ export async function runCollector(input, dependencies={}) {
 // Build from immutable module code, never request strings. Native exec uses an
 // argv array and stdin; no shell and no remote package/code download.
 export function collectorProgram() {
-  return `const __name=(value)=>value;\nconst isPublicProbeAddress=${isPublicProbeAddress.toString()};\nconst isProbeHostname=${isProbeHostname.toString()};\nconst validateNetworkProbeRequest=${validateNetworkProbeRequest.toString()};\nconst runCollector=${runCollector.toString()};\nlet raw='';for await(const chunk of process.stdin){raw+=chunk;if(Buffer.byteLength(raw)>16384)throw new Error('body_limit');}const result=await runCollector(JSON.parse(raw));process.stdout.write(JSON.stringify(result));`;
+  return `const __name=(value)=>value;\nconst FREE_TOOL_TLS_LIMITS=${JSON.stringify(FREE_TOOL_TLS_LIMITS)};\nconst isPublicProbeAddress=${isPublicProbeAddress.toString()};\nconst isProbeHostname=${isProbeHostname.toString()};\nconst validateNetworkProbeRequest=${validateNetworkProbeRequest.toString()};\nconst runCollector=${runCollector.toString()};\nlet raw='';for await(const chunk of process.stdin){raw+=chunk;if(Buffer.byteLength(raw)>16384)throw new Error('body_limit');}const result=await runCollector(JSON.parse(raw));process.stdout.write(JSON.stringify(result));`;
 }

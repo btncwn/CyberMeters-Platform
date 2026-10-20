@@ -48,3 +48,33 @@ export function validateNetworkProbeReceipt(request, receipt, {now=Date.now()}={
   if(!Array.isArray(receipt.limitations)||!receipt.limitations.length||receipt.limitations.length>12||receipt.limitations.some(value=>typeof value!=='string'||value.length>500))return fail('missing_scope_limitations');
   return {ok:true};
 }
+
+// The anonymous free-tool TLS receipt: exact keys, bounded text, one endpoint on
+// 443, no DER or banner. Anything else is refused before it reaches the route.
+const FREE_TOOL_TLS_REASONS=['dns_unavailable','dns_no_address','dns_non_public_answer','dns_address_limit','deadline_exhausted','tls_timeout','tls_handshake_failed','tls_connection_failed','peer_certificate_unavailable','certificate_too_large','handshake_too_large','certificate_parse_failed'];
+export function validateFreeToolTlsReceipt(request, receipt, {now=Date.now()}={}) {
+  const fail=reason=>({ok:false,reason});
+  const exactKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
+  const text=value=>typeof value==='string'&&value.length<=256;
+  const time=value=>typeof value==='string'&&Number.isFinite(Date.parse(value));
+  if(!exactKeys(receipt,['schema_version','request_id','profile','started_at','finished_at','outcome','reason','endpoint','protocol','trust','hostname_match','certificate','chain','limitations'])||receipt.schema_version!=='free-tool-tls-receipt-v1')return fail('invalid_receipt');
+  if(receipt.request_id!==request.request_id||receipt.profile!=='free_tool'||request.profile!=='free_tool')return fail('receipt_identity_mismatch');
+  const start=Date.parse(receipt.started_at),finish=Date.parse(receipt.finished_at),deadline=Date.parse(request.deadline_at);
+  if(!Number.isFinite(start)||!Number.isFinite(finish)||start>finish||finish>deadline+1000||finish>now+1000||now-finish>120_000)return fail('receipt_time_mismatch');
+  const e=receipt.endpoint;
+  if(!exactKeys(e,['hostname','address','port'])||e.hostname!==request.targets[0].hostname||e.port!==443||(e.address!==null&&!isPublicProbeAddress(e.address)))return fail('unexpected_tls_endpoint');
+  if(!Array.isArray(receipt.limitations)||receipt.limitations.length!==4)return fail('missing_scope_limitations');
+  if(receipt.outcome==='unavailable'){
+    if(!FREE_TOOL_TLS_REASONS.includes(receipt.reason)||receipt.protocol!==null||receipt.trust!==null||receipt.hostname_match!==null||receipt.certificate!==null||!Array.isArray(receipt.chain)||receipt.chain.length)return fail('invalid_unavailable_receipt');
+    return {ok:true};
+  }
+  if(receipt.outcome!=='observed'||receipt.reason!==null||e.address===null)return fail('invalid_outcome');
+  if(!['TLSv1.2','TLSv1.3'].includes(receipt.protocol))return fail('invalid_protocol');
+  const t=receipt.trust;
+  if(!exactKeys(t,['result','reason','trust_store','trust_store_sha256'])||!['valid','invalid'].includes(t.result)||(t.result==='valid'?t.reason!==null:!(typeof t.reason==='string'&&/^[A-Za-z0-9_]{1,64}$/.test(t.reason)))||!text(t.trust_store)||!/^[a-f0-9]{64}$/.test(t.trust_store_sha256||''))return fail('invalid_trust');
+  if(!['matched','mismatched'].includes(receipt.hostname_match))return fail('invalid_hostname_match');
+  const c=receipt.certificate;
+  if(!exactKeys(c,['sha256','subject','issuer','not_before','not_after','dns_names'])||!/^[a-f0-9]{64}$/.test(c.sha256||'')||!text(c.subject)||!text(c.issuer)||!time(c.not_before)||!time(c.not_after)||!Array.isArray(c.dns_names)||c.dns_names.length>100||c.dns_names.some(name=>typeof name!=='string'||!/^[a-z0-9*._-]{1,253}$/i.test(name)))return fail('invalid_certificate');
+  if(!Array.isArray(receipt.chain)||receipt.chain.length>4||receipt.chain.some(item=>!exactKeys(item,['subject','issuer','not_after'])||!text(item.subject)||!text(item.issuer)||!time(item.not_after)))return fail('invalid_chain');
+  return {ok:true};
+}
