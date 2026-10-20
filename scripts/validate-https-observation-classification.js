@@ -233,10 +233,15 @@ async function sslWith(fetchImpl) {
     m.https_probe_executed === true);
 }
 {
-  let observed = null;
-  try { await sslWith(timeoutError); } catch (error) { observed = error; }
-  ok("B: typed timeout propagates to the scan boundary for honest incomplete classification",
-    observed?.name === "TimeoutError" && observed?.message === "aborted due to timeout");
+  // Family C (20 Oct 2026): a request that hit only its own per-request timer is
+  // the target not answering in time — an honest incomplete with a reason, not a
+  // thrown scan-control error. (Previously asserted: the TimeoutError propagated.)
+  let observed = null, m = null;
+  try { m = await sslWith(timeoutError); } catch (error) { observed = error; }
+  ok("B: a per-request timeout is an honest incomplete with reason origin_timeout, not a throw",
+    observed === null && m?.https_available === null && m?.https_observation_reason === "origin_timeout"
+      && m?.incomplete === true && m?.incomplete_reason === "https_origin_timeout",
+    JSON.stringify({ observed: observed?.name, reason: m?.https_observation_reason, incomplete: m?.incomplete_reason }));
 }
 {
   const m = await sslWith(tlsFailure);

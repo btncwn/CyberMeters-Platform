@@ -344,6 +344,7 @@ runMutant({
       signal: opts.signal,
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
+      onFailure: (reason) => { if (reason === "origin_timeout") primaryTimedOut = true; },
       ...HEADER_PROBE_INIT,
     });`,
     `    const getRes = await safeFetch(probeUrl, {
@@ -352,6 +353,7 @@ runMutant({
       accounting,
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
+      onFailure: (reason) => { if (reason === "origin_timeout") primaryTimedOut = true; },
       ...HEADER_PROBE_INIT,
     });`,
     "headers primary direct signal",

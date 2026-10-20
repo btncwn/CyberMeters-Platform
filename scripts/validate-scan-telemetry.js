@@ -522,9 +522,31 @@ function d1Stub({ fail = false } = {}) {
     catch (error) { observed = error; }
   }, async () => { throw new DOMException("timed out", "TimeoutError"); });
   ctx.markSettled();
-  ok("F041 typed timeout remains observable", observed?.name === "TimeoutError");
+  // Family C (20 Oct 2026): a per-request timeout is an ordinary transport
+  // failure with a reason, not control flow (previously: the TimeoutError
+  // propagated). It is still counted and observed as a timeout.
+  ok("F041 per-request timeout returns null with reason origin_timeout", observed === null);
   eq("C1A timeout attempt counted", acct.snapshot("headers").outbound_attempts_observed, 1);
   eq("C1A timeout observed", acct.snapshot("headers").outbound_timed_out_observed, 1);
+}
+{
+  let reason = null, result;
+  await withMockFetch(async () => {
+    result = await safeFetch("https://example.com", { onFailure: (r) => { reason = r; } });
+  }, async () => { throw new DOMException("timed out", "TimeoutError"); });
+  ok("F041 per-request timeout reports origin_timeout to the caller", result === null && reason === "origin_timeout");
+}
+// Caller cancellation, deadline and budget remain control flow (the F041 contract).
+for (const [label, makeOptions] of [
+  ["caller signal", () => { const c = new AbortController(); c.abort(); return { signal: c.signal }; }],
+  ["accounting signal", () => { const c = new AbortController(); c.abort(); return { accounting: { signal: c.signal, recordAttempt() {}, recordCompleted() {}, recordError() {} } }; }],
+]) {
+  let observed = null, reason = null;
+  await withMockFetch(async () => {
+    try { await safeFetch("https://example.com", { ...makeOptions(), onFailure: (r) => { reason = r; } }); }
+    catch (error) { observed = error; }
+  }, async () => { throw new DOMException("timed out", "TimeoutError"); });
+  ok(`F041 a timeout with an aborted ${label} still propagates as control flow`, observed?.name === "TimeoutError" && reason === null);
 }
 
 {

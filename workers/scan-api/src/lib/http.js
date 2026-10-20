@@ -66,13 +66,19 @@ function combineSignals(...signals) {
 //  • A blocked / ordinary transport failure returns null — the existing contract
 //    every caller already handles (`if (!res) …`). Typed budget/deadline/cancel
 //    errors remain observable and are re-thrown for honest incomplete outcomes.
+//  • A request that hit only its own 10 s per-hop timer (no caller, deadline or
+//    budget signal aborted) is the target not answering in time: an ordinary
+//    transport failure, returned as null, with the reason "origin_timeout"
+//    reported through the optional onFailure(reason) callback.
 export async function safeFetch(url, options = {}) {
   const followManually = options.redirect !== "manual";
   const accounting = options.accounting || null;
   const dnsResolver = options.dnsResolver || null;
   const dnsCache = options.dnsCache || null;
   const fetchImpl = typeof options.fetchImpl === "function" ? options.fetchImpl : fetch;
+  const onFailure = typeof options.onFailure === "function" ? options.onFailure : null;
   const fetchOptions = { ...options };
+  delete fetchOptions.onFailure;
   delete fetchOptions.accounting;
   delete fetchOptions.dnsResolver;
   delete fetchOptions.dnsCache;
@@ -115,6 +121,12 @@ export async function safeFetch(url, options = {}) {
     return null; // redirect loop / exceeded MAX_REDIRECT_HOPS
   } catch (err) {
     if (attemptInFlight) accounting?.recordError?.(err);
+    const hopTimeout = attemptInFlight && err?.name === "TimeoutError"
+      && fetchOptions.signal?.aborted !== true && accounting?.signal?.aborted !== true;
+    if (hopTimeout) {
+      try { onFailure?.("origin_timeout"); } catch { /* reporting only */ }
+      return null;
+    }
     if (isOutboundControlError(err)) throw err;
     return null;
   }

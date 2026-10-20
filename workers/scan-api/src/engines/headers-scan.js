@@ -343,6 +343,8 @@ export async function runHeadersModule(domain, opts = {}) {
   };
   let headerValues         = {};
   let accessible           = false;
+  // A primary GET that hit its per-request timeout ran and got no answer in time.
+  let primaryTimedOut      = false;
   // The last executed-but-non-origin observation (edge error / transport
   // unavailable), so the module can say WHY it has no origin evidence instead of
   // collapsing every cause into one reason. Null when no probe ever responded.
@@ -428,6 +430,7 @@ export async function runHeadersModule(domain, opts = {}) {
       signal: opts.signal,
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
+      onFailure: (reason) => { if (reason === "origin_timeout") primaryTimedOut = true; },
       ...HEADER_PROBE_INIT,
     });
     subOpFinish(getSubOp, getRes);
@@ -670,6 +673,11 @@ export async function runHeadersModule(domain, opts = {}) {
         probe_executed: true,
         origin_status:  originErrorObservation.status_code,
       },
+    } : {}),
+    // Nothing answered and a primary request timed out: say so, rather than the
+    // generic "probe not executed". Edge and origin-error reasons still win.
+    ...(!probeExecuted && !originNotObserved && !originErrored && primaryTimedOut ? {
+      incomplete_reason: "origin_timeout",
     } : {}),
     ...(!originNotObserved && !originErrored && optionalProbeBudgetExhausted ? {
       incomplete: true,
