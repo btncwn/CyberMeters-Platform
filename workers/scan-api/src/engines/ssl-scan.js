@@ -227,7 +227,10 @@ export async function runSslModule(domain, opts = {}) {
           reason:        hop2Observation.reason,
           origin_status: hop2Observation.origin_status,
         });
-        if (hop2Observation.transport_observed === true) {
+        // Same authority as hop 1 (P1.1): transport is not serviceability. A
+        // required hop answering 401/403/429 or 5xx did not show the redirect
+        // decision, so it cannot complete the chain either.
+        if (mayGroundAbsence(classifyServiceability(hop2Observation))) {
           const rawLoc2 = hop2.headers.get("location") || "";
           let loc2;
           try { loc2 = new URL(rawLoc2, loc1).href; } catch { loc2 = rawLoc2; }
@@ -253,6 +256,11 @@ export async function runSslModule(domain, opts = {}) {
   // CHAIN-level state — the first inconclusive REQUIRED hop, not hop 1. Publishing
   // hop 1's `origin_response` while a required later hop was an edge error is what
   // made an unobserved chain look decisive.
+  // Why the redirect decision was withheld, when the blocking hop was an access
+  // restriction (401/403/429, a WAF or bot challenge): the reason only. The
+  // verdict stays withheld and the module stays incomplete either way.
+  const redirectAccessRestricted = !redirectEvidenceObserved
+    && classifyServiceability(chainObservation).reason === "origin_access_restricted";
   http_redirect_chain.observation_state  = chainObservation.state;
   http_redirect_chain.observation_reason = chainObservation.reason;
   http_redirect_chain.observation_completeness = chainObservation.completeness;
@@ -323,7 +331,7 @@ export async function runSslModule(domain, opts = {}) {
             : httpsObservation.state === "cloudflare_edge_error"
               ? "https_origin_not_observed"
               : "https_transport_unavailable")
-        : "http_redirect_not_observed",
+        : redirectAccessRestricted ? "http_redirect_access_restricted" : "http_redirect_not_observed",
     }),
     // Per-endpoint provenance (bounded: bare + www only). A sibling's more
     // informative reason survives the aggregate rather than being discarded.

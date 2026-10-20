@@ -346,6 +346,37 @@ console.log("\n── F. typed hop-container and terminal-hop contract ──");
       http_redirect_chain: base }));
 }
 
+// ── F. ACCESS-RESTRICTED HTTP ANSWER (corpus family D) ───────────────────────
+// A bot-management layer answering the http:// probe with 401/403/429 or a
+// challenge hides the redirect decision. Only the REASON is specific: the
+// verdict stays withheld, the module stays incomplete, no finding is scored.
+console.log("\n── F. access-restricted HTTP answer ──");
+const challenge = () => new Response("<html><title>Just a moment...</title></html>", {
+  status: 403, headers: { server: "cloudflare", "cf-mitigated": "challenge", "cf-ray": "8f00000000000000-LHR", "content-type": "text/html" },
+});
+for (const [label, http] of [
+  ["401", () => originPlain(401)],
+  ["403", () => new Response("denied", { status: 403, headers: { server: "AkamaiGHost", "content-type": "text/html" } })],
+  ["429", () => originPlain(429)],
+  ["challenge-403", challenge],
+  ["hop2-403", (url) => url.hostname === "example.com" ? originRedirect(301, "http://www.example.com/") : originPlain(403)],
+]) {
+  const m = await sslWith({ https: () => originPlain(200), http });
+  ok(`F ${label}: never complete, reason http_redirect_access_restricted`,
+    m.incomplete === true && m.incomplete_reason === "http_redirect_access_restricted",
+    JSON.stringify({ i: m.incomplete, r: m.incomplete_reason }));
+  ok(`F ${label}: the redirect decision stays unvalidated`, m.http_redirect_chain.http_redirect_validated === false);
+  const f = findingOf(m);
+  ok(`F ${label}: NO definitive redirect verdict and no score impact`,
+    !f || (f.severity !== "medium" && Number(f.score_impact || 0) === 0), JSON.stringify(f && { s: f.severity, i: f.score_impact }));
+  ok(`F ${label}: HTTPS itself stays positively observed`, m.https_available === true);
+}
+{
+  // Plain unreachable / edge error keeps the generic reason.
+  const m = await sslWith({ https: () => originPlain(200), http: () => edge(522) });
+  ok("F edge-522: keeps http_redirect_not_observed", m.incomplete_reason === "http_redirect_not_observed");
+}
+
 console.log(`\nhttp-redirect-observation-honesty: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("http-redirect-observation-honesty validation FAILED"); process.exit(1); }
 console.log("http-redirect-observation-honesty validation passed");

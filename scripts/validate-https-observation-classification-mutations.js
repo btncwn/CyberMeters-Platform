@@ -34,7 +34,7 @@ const SSL = path.join(ENG, "ssl-scan.js");
 const ASSET = path.join(ENG, "asset-intel.js");
 
 // PINNED. Adding a mutation without raising this, or losing one, hard-fails.
-const EXPECTED_MUTANTS = 12;
+const EXPECTED_MUTANTS = 13;
 
 let pass = 0, fail = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -213,6 +213,18 @@ const MUTATIONS = [
     to:   "  let redirectEvidenceObserved = httpObservation.transport_observed === true;",
     check: async (mod) => {
       const m = await sslWith(mod, async () => originResponse(503));
+      return m.http_redirect_chain?.http_redirect_validated === true;
+    },
+  },
+  {
+    // Family D: an access-restricted plain-HTTP answer (401/403/429, a WAF or bot
+    // challenge) is read as observed redirect evidence, i.e. restricted -> complete.
+    name: "M13 D access-restricted HTTP answer validates the redirect decision",
+    target: SSL,
+    from: "  let redirectEvidenceObserved = mayGroundAbsence(httpServiceability);",
+    to:   "  let redirectEvidenceObserved = mayGroundAbsence(httpServiceability) || httpServiceability.reason === \"origin_access_restricted\";",
+    check: async (mod) => {
+      const m = await sslWith(mod, async () => originResponse(403));
       return m.http_redirect_chain?.http_redirect_validated === true;
     },
   },

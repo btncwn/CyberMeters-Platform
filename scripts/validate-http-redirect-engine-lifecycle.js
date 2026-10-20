@@ -339,7 +339,7 @@ const MUTATIONS = [
   {
     name: "M2 the SECOND-hop classifier is bypassed",
     target: SSL,
-    from: "        if (hop2Observation.transport_observed === true) {",
+    from: "        if (mayGroundAbsence(classifyServiceability(hop2Observation))) {",
     to:   "        if (hop2 !== null) {",
     check: async (mod) => {
       // hop1 genuine http→http, hop2 a Cloudflare edge error that CLAIMS an https
