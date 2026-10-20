@@ -11,7 +11,7 @@ import { prepareLogoXObject } from "./pdf-image.js";
 import { CYBERMETERS_LOGO_DATA_URI } from "./brand-logo.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
-import { getEffectiveDomainLimit, getEffectivePlan, getEffectivePlanState, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
+import { getEffectiveDomainLimit, getEffectivePlan, getEffectivePlanState, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS, retentionDaysToPolicy, UNLIMITED_HISTORY_DAYS } from "./entitlements.js";
 import { CANONICAL_PLANS, TRIAL_SPEC, penceToGbp } from "./pricing-registry.js";
 import { getTrialAllowance, inactivePlanError, trialQuotaError, trialUsage, trialUsageSql, REPORT_RESERVATION_MINUTES } from "./trial-allowance.js";
 import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
@@ -474,23 +474,14 @@ export function getPlanLimits(plan) {
   };
 }
 
+// Read from PLAN_LIMITS.history_days, the one source the plan cards show.
+// null = kept without a time limit (MSP).
 export function getPlanRetentionDays(plan) {
-  const normalized = normalizePlan(plan);
-  if (normalized === "enterprise") return null;
-  if (normalized === "business") return 730;
-  if (normalized === "professional") return 365;
-  if (normalized === "starter") return 90;
-  return 30;
+  const days = (PLAN_LIMITS[normalizePlan(plan)] ?? PLAN_LIMITS.free).history_days;
+  return days >= UNLIMITED_HISTORY_DAYS ? null : days;
 }
 
-export function retentionDaysToPolicy(days) {
-  if (days === null || days === undefined) return "forever";
-  const n = Number(days);
-  if (n <= 30) return "30_days";
-  if (n <= 90) return "90_days";
-  if (n <= 365) return "1_year";
-  return "2_years";
-}
+export { retentionDaysToPolicy };
 
 export function retentionPolicyToDays(policy) {
   if (policy === "forever") return null;

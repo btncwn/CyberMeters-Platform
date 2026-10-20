@@ -34,9 +34,6 @@ function planFeatures(plan) {
   if (domains != null) {
     features.push(domains === 1 ? '1 monitored domain' : `${domains} monitored domains included`)
   }
-  if (pm.additional_domain_monthly_gbp != null && pm.domain_hard_cap != null) {
-    features.push(`Add domains at ${gbp(pm.additional_domain_monthly_gbp)}/month each (up to ${pm.domain_hard_cap})`)
-  }
   if (plan.key === 'free' && pm.trial) {
     features.push(`Full product for ${pm.trial.duration_days} days`)
     if (pm.trial.card_required === false) features.push('No card required')
