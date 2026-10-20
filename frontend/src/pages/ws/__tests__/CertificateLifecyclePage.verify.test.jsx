@@ -69,8 +69,24 @@ describe('owner labels', () => {
   it("names whose owner is missing: the certificate's, not the case's", async () => {
     mount()
     const cell = (await screen.findByText('Certificate owner not set')).closest('td')
-    expect(within(cell).getByText('certificate owner not set')).toBeInTheDocument()
+    // Said once: the recurrence line does not repeat the pill.
+    expect(within(cell).queryByText('certificate owner not set')).toBeNull()
     expect(screen.queryByText('Owner missing')).toBeNull()
     expect(screen.queryByText('owner missing')).toBeNull()
+  })
+})
+
+describe('expected hosts source (founder, 20 Oct 2026; field from #746)', () => {
+  it.each([
+    ['observed_primary_host', true],
+    ['customer', false],
+    [undefined, false],
+  ])('source %s → labelled: %s', async (source, labelled) => {
+    api.getCertificateLifecycle.mockResolvedValue({ items: [{ ...row, expected_hostnames: ['shop.example.com'], expected_hostnames_source: source }], counts: {}, actions: [] })
+    mount()
+    const hosts = await screen.findByTestId('expected-hosts')
+    expect(hosts).toHaveTextContent('Expected: shop.example.com')
+    if (labelled) expect(hosts).toHaveTextContent('From the monitored host — you can edit this')
+    else expect(hosts).not.toHaveTextContent('From the monitored host')
   })
 })

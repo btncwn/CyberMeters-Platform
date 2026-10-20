@@ -38,6 +38,14 @@ export const OWNERSHIP_META = {
 }
 export const CERT_OWNER_ROLES_NOTE = 'Business, technical and renewal owners of the certificate. The owner of a linked case is recorded separately on the case.'
 
+// Where the expected-hostname list came from, as the API says
+// (expected_hostnames_source). Only a list CyberMeters seeded from the
+// monitored host is labelled; one the customer set, or a missing source, is not.
+export const EXPECTED_HOSTS_FROM_MONITORED_HOST_LABEL = 'From the monitored host — you can edit this'
+export function expectedHostsSourceLabel(source) {
+  return source === 'observed_primary_host' ? EXPECTED_HOSTS_FROM_MONITORED_HOST_LABEL : null
+}
+
 // Recurrence reasons shown on a row, in plain words. Unknown reasons fall back
 // to the backend code with spaces, never a guess.
 const RECURRENCE_TEXT = { owner_missing: 'certificate owner not set' }

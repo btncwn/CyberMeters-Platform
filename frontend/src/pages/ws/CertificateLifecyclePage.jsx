@@ -13,7 +13,7 @@ import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
   readinessMeta, coverageMeta, ownershipMeta, verificationMeta, toneClass,
   daysRemainingLabel, isAwaitingVerification, certificateRelationshipMessage,
-  CERT_LIFECYCLE_SCOPE_NOTE, CERT_OWNER_ROLES_NOTE, recurrenceText,
+  CERT_LIFECYCLE_SCOPE_NOTE, CERT_OWNER_ROLES_NOTE, recurrenceText, expectedHostsSourceLabel,
 } from '../../lib/certificateLifecycleDisplay'
 
 function Pill({ meta }) {
@@ -57,7 +57,8 @@ export default function CertificateLifecyclePage() {
     const id = item.certificate_lifecycle_id
     const payload = { action }
     if (action === 'set_expected_hostnames') {
-      const raw = window.prompt(`Expected hostnames for ${item.primary_hostname} (comma-separated):`,
+      const seeded = expectedHostsSourceLabel(item.expected_hostnames_source)
+      const raw = window.prompt(`Expected hostnames for ${item.primary_hostname} (comma-separated)${seeded ? `. ${seeded}.` : ':'}`,
         (item.expected_hostnames || []).join(', ') || item.primary_hostname)
       if (raw == null) return
       payload.expected_hostnames = raw.split(',').map((h) => h.trim()).filter(Boolean)
@@ -187,6 +188,14 @@ export default function CertificateLifecyclePage() {
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={coverageMeta(it.coverage_status)} />
+                    {Array.isArray(it.expected_hostnames) && it.expected_hostnames.length > 0 && (
+                      <div className="text-xs text-slate-500 mt-0.5" data-testid="expected-hosts">
+                        Expected: <span className="break-all">{it.expected_hostnames.slice(0, 3).join(', ')}</span>{it.expected_hostnames.length > 3 ? ` and ${it.expected_hostnames.length - 3} more` : ''}
+                        {expectedHostsSourceLabel(it.expected_hostnames_source) && (
+                          <div className="text-slate-400">{expectedHostsSourceLabel(it.expected_hostnames_source)}</div>
+                        )}
+                      </div>
+                    )}
                     {Array.isArray(it.coverage_detail?.missing) && it.coverage_detail.missing.length > 0 && (
                       <div className="text-xs text-red-700 mt-0.5">Missing: {it.coverage_detail.missing.slice(0, 2).join(', ')}</div>
                     )}
@@ -196,7 +205,10 @@ export default function CertificateLifecyclePage() {
                     {(it.business_owner || it.technical_owner || it.renewal_owner) && (
                       <div className="text-xs text-slate-400 mt-0.5">{it.renewal_owner || it.technical_owner || it.business_owner}</div>
                     )}
-                    {it.recurrence_type && <div className="text-xs text-brand-700 mt-0.5">{recurrenceText(it.recurrence_type)}</div>}
+                    {/* The owner pill already says the certificate owner is not set. */}
+                    {it.recurrence_type && !(it.recurrence_type === 'owner_missing' && it.ownership_status === 'missing') && (
+                      <div className="text-xs text-brand-700 mt-0.5">{recurrenceText(it.recurrence_type)}</div>
+                    )}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={verificationMeta(it.verification_status)} />
