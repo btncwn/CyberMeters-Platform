@@ -292,9 +292,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/api/tools/config` | 296 | public-or-global | public | — |
-| POST | `/api/tools/share` | 306 | public-or-global | public | — |
-| POST | `/^\/api\/tools\/([a-z]+)\/(check\|defer)$/` | 317 | public-or-global | public | — |
+| GET | `/api/tools/config` | 305 | public-or-global | public | — |
+| POST | `/api/tools/share` | 315 | public-or-global | public | — |
+| POST | `/^\/api\/tools\/([a-z]+)\/(check\|defer)$/` | 326 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/global-billing.js`
 

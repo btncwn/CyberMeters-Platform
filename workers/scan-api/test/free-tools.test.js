@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { cleanupExpiredPublicApiRateLimits } from "../src/cron/scheduled.js";
 import { buildDmarcToolResult, runDmarcCheck } from "../src/engines/free-tools/dmarc-check.js";
 import { buildHeadersToolResult, runHeadersCheck } from "../src/engines/free-tools/headers-check.js";
+import { buildSslToolResult } from "../src/engines/free-tools/ssl-check.js";
 import { classifyCspPolicy } from "../src/engines/headers-scan.js";
 import { LOOKALIKE_DETAIL_LIMIT, lookalikeCandidates, runLookalikeCheck } from "../src/engines/free-tools/lookalike-check.js";
 import { buildSpfToolResult, runSpfCheck } from "../src/engines/free-tools/spf-check.js";
@@ -73,6 +74,7 @@ function harness(env, overrides = {}) {
         : token === "good-dmarc-defer" ? { success: true, action: "tool_dmarc_defer" }
           : token === "good-headers" ? { success: true, action: "tool_headers" }
             : token === "good-lookalike" ? { success: true, action: "tool_lookalike" }
+              : token === "good-ssl" ? { success: true, action: "tool_ssl" }
           : { success: false, "error-codes": ["invalid-input-response"] }));
   });
   const cache = overrides.cache === undefined ? memoryCache() : overrides.cache;
@@ -702,4 +704,113 @@ test("tools config publishes the lookalike candidate maximum the engine uses", a
   const { env } = fixture();
   const config = await (await harness(env).call("GET", "/api/tools/config")).json();
   assert.equal(config.limits.lookalike_max_candidates, 44);
+});
+
+// ── SSL/TLS checker ─────────────────────────────────────────────────────────
+
+const LIMITS = ["one_pinned_address_one_handshake", "runtime_issuer_chain_not_wire_chain", "revocation_not_assessed", "protocol_and_cipher_enumeration_not_assessed"];
+const NOW = Date.parse("2026-10-20T12:00:00.000Z");
+function observed(over = {}) {
+  return {
+    schema_version: "free-tool-tls-receipt-v1", request_id: "ftls_1", profile: "free_tool",
+    started_at: "2026-10-20T11:59:59.000Z", finished_at: "2026-10-20T12:00:00.000Z", outcome: "observed", reason: null,
+    endpoint: { hostname: "example.com", address: "93.184.216.34", port: 443 }, protocol: "TLSv1.3",
+    trust: { result: "valid", reason: null, trust_store: "Mozilla CA bundle", trust_store_sha256: "a".repeat(64) },
+    hostname_match: "matched",
+    certificate: { sha256: "b".repeat(64), subject: "CN=example.com", issuer: "CN=Example CA R1", not_before: "2026-08-01T00:00:00.000Z", not_after: "2026-12-30T00:00:00.000Z", dns_names: ["example.com", "www.example.com"] },
+    chain: [{ subject: "CN=Example CA R1", issuer: "CN=Example Root", not_after: "2030-01-01T00:00:00.000Z" }],
+    limitations: LIMITS, ...over,
+  };
+}
+
+test("ssl: a valid, trusted, matching certificate is good, and the four limits are always stated", () => {
+  const r = buildSslToolResult("example.com", { receipt: observed() }, { now: NOW });
+  assert.equal(r.schema, "free-tool-ssl.v1");
+  assert.equal(r.verdict.level, "good");
+  assert.equal(r.verdict.headline, "The certificate is valid and trusted");
+  assert.equal(r.certificate.days_left, 70);
+  assert.deepEqual(r.checked.map((c) => c.state), ["pass", "pass", "pass", "pass"]);
+  const notChecked = r.not_checked.map((n) => n.label);
+  for (const label of ["The chain your server sends", "Revocation", "Other server addresses", "Older TLS versions and ciphers"]) assert.ok(notChecked.includes(label), label);
+  assert.match(r.not_checked.find((n) => n.label === "The chain your server sends").reason, /the one we built from our trust store/);
+  assert.match(r.not_checked.find((n) => n.label === "Revocation").reason, /was not checked/);
+});
+
+test("ssl: expired, wrong name and untrusted are 'at risk' with the fix; expiring soon needs attention", () => {
+  const expired = buildSslToolResult("example.com", { receipt: observed({ trust: { result: "invalid", reason: "CERT_HAS_EXPIRED", trust_store: "Mozilla CA bundle", trust_store_sha256: "a".repeat(64) },
+    certificate: { ...observed().certificate, not_after: "2026-10-01T00:00:00.000Z" } }) }, { now: NOW });
+  assert.equal(expired.verdict.level, "risk");
+  assert.equal(expired.verdict.headline, "The certificate has expired");
+  assert.equal(expired.next_step.title, "Renew the certificate");
+  const wrongName = buildSslToolResult("example.com", { receipt: observed({ hostname_match: "mismatched", certificate: { ...observed().certificate, dns_names: ["other.example"] } }) }, { now: NOW });
+  assert.equal(wrongName.verdict.headline, "The certificate does not cover example.com");
+  assert.match(wrongName.checked[1].detail, /It covers other\.example/);
+  const untrusted = buildSslToolResult("example.com", { receipt: observed({ trust: { result: "invalid", reason: "UNABLE_TO_VERIFY_LEAF_SIGNATURE", trust_store: "Mozilla CA bundle", trust_store_sha256: "a".repeat(64) } }) }, { now: NOW });
+  assert.equal(untrusted.verdict.headline, "Browsers would not trust this certificate");
+  assert.match(untrusted.trust.reason, /intermediate certificate is missing/);
+  const soon = buildSslToolResult("example.com", { receipt: observed({ certificate: { ...observed().certificate, not_after: "2026-10-30T00:00:00.000Z" } }) }, { now: NOW });
+  assert.equal(soon.verdict.level, "attention");
+  assert.equal(soon.verdict.headline, "The certificate expires in 9 days");
+});
+
+test("ssl: busy says try again in a minute; no connection is 'could not check', never a certificate verdict", () => {
+  const busy = buildSslToolResult("example.com", { receipt: null, error: "collector_busy" }, { now: NOW });
+  assert.equal(busy.verdict.level, "unknown");
+  assert.equal(busy.verdict.headline, "Busy right now — try again in a minute");
+  assert.equal(busy.code, "collector_busy");
+  const down = buildSslToolResult("example.com", { receipt: observed({ outcome: "unavailable", reason: "tls_connection_failed", protocol: null, trust: null, hostname_match: null, certificate: null, chain: [],
+    endpoint: { hostname: "example.com", address: null, port: 443 } }) }, { now: NOW });
+  assert.equal(down.verdict.level, "unknown");
+  assert.match(down.verdict.summary, /Nothing answered on port 443\. Nothing was concluded/);
+  assert.equal(down.certificate, null);
+  assert.ok(down.not_checked.some((n) => n.label === "Revocation"));
+});
+
+function probeBinding(respond) {
+  const calls = [];
+  return { calls, binding: { fetch: async (url, init) => { const request = JSON.parse(init.body); calls.push({ url, request }); return respond(request); } } };
+}
+
+test("ssl: the route calls the free-tool TLS profile once, after the gate; busy is never cached", async () => {
+  const { env } = fixture();
+  const probe = probeBinding(() => new Response("", { status: 503 }));
+  env.NETWORK_PROBE = probe.binding;
+  const h = harness(env);
+  assert.equal((await h.check("ssl", "example.com", "good-dmarc")).status, 403, "wrong Turnstile action");
+  assert.equal(probe.calls.length, 0, "nothing reaches the collector before the gate");
+  const first = await (await h.check("ssl", "example.com", "good-ssl")).json();
+  assert.equal(first.result.verdict.headline, "Busy right now — try again in a minute");
+  assert.equal(probe.calls[0].url, "https://network-probe.internal/free-tool-tls");
+  assert.deepEqual(probe.calls[0].request.targets, [{ address: null, hostname: "example.com" }]);
+  assert.equal(probe.calls[0].request.profile, "free_tool");
+  await h.check("ssl", "example.com", "good-ssl", { ip: "198.51.100.9" });
+  assert.equal(probe.calls.length, 2, "a busy answer is not cached");
+});
+
+test("ssl: an observed certificate from the collector is shown and cached", async () => {
+  const { env } = fixture();
+  const probe = probeBinding((request) => Response.json({ ...observed(), request_id: request.request_id,
+    started_at: new Date(Date.now() - 500).toISOString(), finished_at: new Date().toISOString() }));
+  env.NETWORK_PROBE = probe.binding;
+  const h = harness(env);
+  const res = await (await h.check("ssl", "example.com", "good-ssl")).json();
+  assert.equal(res.status, "ok");
+  assert.equal(res.result.tool, "ssl");
+  assert.equal(res.result.protocol, "TLSv1.3");
+  assert.equal(res.result.chain[0].issuer, "CN=Example Root");
+  const again = await (await h.check("ssl", "example.com", "good-ssl", { ip: "198.51.100.9" })).json();
+  assert.equal(again.cached, true);
+  assert.equal(probe.calls.length, 1);
+});
+
+test("deferred results that conclude nothing are kept and retried, never emailed", async () => {
+  const { sqlite, env } = fixture();
+  sqlite.prepare(`INSERT INTO free_tool_deferred_checks (id, tool, domain, email, consent_at, created_at)
+    VALUES ('d1', 'ssl', 'busy.example', 'a@busy.example', ?, ?)`).run(new Date().toISOString(), new Date().toISOString());
+  const sent = [];
+  await processFreeToolDeferredChecks(env, { consumeApiRateLimit, sendEmail: async (subject) => { sent.push(subject); return { sent: true }; },
+    freeToolRunners: { ssl: async (domain) => buildSslToolResult(domain, { error: "collector_busy" }) } });
+  assert.equal(sent.length, 0);
+  const row = sqlite.prepare("SELECT attempts FROM free_tool_deferred_checks WHERE id = 'd1'").get();
+  assert.equal(row.attempts, 1);
 });

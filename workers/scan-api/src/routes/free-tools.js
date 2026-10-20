@@ -1,7 +1,7 @@
 // ── Public free tools: /api/tools/* ─────────────────────────────────────────
 //
 //   GET  /api/tools/config            Turnstile site key and the public limits
-//   POST /api/tools/:tool/check       run one check (dmarc | spf | headers | lookalike)
+//   POST /api/tools/:tool/check       run one check (dmarc | spf | headers | lookalike | ssl)
 //   POST /api/tools/:tool/defer       leave an email while the daily budget is used up
 //   POST /api/tools/share             check a shared result link
 //
@@ -10,11 +10,15 @@
 // lookalike tools ask DNS questions through the existing DoH helpers, nothing
 // else; the
 // headers tool makes one GET of the home page through the SSRF-guarded
-// safeFetch (every hop re-resolved, private and reserved addresses refused).
+// safeFetch (every hop re-resolved, private and reserved addresses refused);
+// the SSL/TLS tool makes one TLS handshake to port 443 through the
+// network-probe free_tool profile (runFreeToolTlsCheck, called only here).
 import { sendAlertEmail } from "../engines/alerts.js";
 import { dnsQuery } from "../engines/dns.js";
 import { runDmarcCheck } from "../engines/free-tools/dmarc-check.js";
 import { runHeadersCheck } from "../engines/free-tools/headers-check.js";
+import { buildSslToolResult } from "../engines/free-tools/ssl-check.js";
+import { runFreeToolTlsCheck } from "../engines/free-tools/tls-certificate-check.js";
 import { LOOKALIKE_MAX_CANDIDATES, runLookalikeCheck } from "../engines/free-tools/lookalike-check.js";
 import { runSpfCheck } from "../engines/free-tools/spf-check.js";
 import { makeDnsCache, PhysicalSubrequestCounter } from "../engines/scan-budget.js";
@@ -33,6 +37,7 @@ export const FREE_TOOLS = Object.freeze({
   spf: { name: "SPF", path: "/tools/spf-checker" },
   headers: { name: "security headers", path: "/tools/security-headers-checker" },
   lookalike: { name: "lookalike domain", path: "/tools/lookalike-domain-checker" },
+  ssl: { name: "SSL/TLS", path: "/tools/ssl-checker" },
 });
 
 const DEFAULT_RUNNERS = Object.freeze({
@@ -45,6 +50,9 @@ const DEFAULT_RUNNERS = Object.freeze({
     registrable: domainCapKey(domain),
     dnsQuery: (name, type) => dnsQuery(name, type, { accounting, signal, cache }),
   }),
+  // One handshake, no retry; a busy collector or no connection is "could not
+  // check" and, being level unknown, is never cached.
+  ssl: async (domain, { signal, env }) => buildSslToolResult(domain, await runFreeToolTlsCheck(env, domain, { signal })),
 });
 
 const MESSAGES = Object.freeze({
@@ -185,6 +193,7 @@ async function runTool(rctx, tool, domain) {
       accounting: counter.contextFor(`free_tool_${tool}`, { signal: deadline.signal }),
       signal: deadline.signal,
       cache: makeDnsCache(),
+      env: rctx.env,
     });
   } finally {
     clearTimeout(timer);
@@ -375,7 +384,10 @@ export async function processFreeToolDeferredChecks(env, deps = {}) {
     if (claimed) break;
     let delivered = false;
     try {
-      const result = await runTool({ freeToolRunners: deps.freeToolRunners }, row.tool, row.domain);
+      const result = await runTool({ env, freeToolRunners: deps.freeToolRunners }, row.tool, row.domain);
+      // A result that concludes nothing (busy, no connection) is not the
+      // answer the visitor asked for: keep the row and try again next hour.
+      if (result?.verdict?.level === "unknown") throw new Error("inconclusive");
       const mail = resultEmail(row.tool, result, await withShare(env, result));
       const outcome = await (deps.sendEmail || sendCustomerEmail)(mail.subject, mail.text, mail.html, env, "HELLO_EMAIL_FROM", [row.email]);
       delivered = outcome?.sent === true;

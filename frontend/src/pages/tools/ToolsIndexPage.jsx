@@ -22,6 +22,12 @@ const TOOLS = [
     checks: ['HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy', 'Weak values, judged by the same rules as the full scan', 'Ready-to-paste lines for nginx, Apache and Cloudflare'],
   },
   {
+    to: '/tools/ssl-checker',
+    name: 'SSL/TLS certificate checker',
+    summary: 'The certificate your website presents: who issued it, when it expires, which names it covers and whether browsers trust it.',
+    checks: ['Expiry, with a warning two weeks ahead', 'Name match and browser trust', 'Plainly says it does not check revocation'],
+  },
+  {
     to: '/tools/lookalike-domain-checker',
     name: 'Lookalike domain checker',
     summary: 'Which close variants of your domain are registered, point at a server or can receive email.',

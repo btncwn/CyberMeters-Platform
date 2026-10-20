@@ -391,10 +391,12 @@ export const api = {
   runSpfTool: (body) => outcomeCall('POST', '/tools/spf/check', body),
   runHeadersTool: (body) => outcomeCall('POST', '/tools/headers/check', body),
   runLookalikeTool: (body) => outcomeCall('POST', '/tools/lookalike/check', body),
+  runSslTool: (body) => outcomeCall('POST', '/tools/ssl/check', body),
   deferDmarcTool: (body) => outcomeCall('POST', '/tools/dmarc/defer', body),
   deferSpfTool: (body) => outcomeCall('POST', '/tools/spf/defer', body),
   deferHeadersTool: (body) => outcomeCall('POST', '/tools/headers/defer', body),
   deferLookalikeTool: (body) => outcomeCall('POST', '/tools/lookalike/defer', body),
+  deferSslTool: (body) => outcomeCall('POST', '/tools/ssl/defer', body),
   verifyToolShare: (token) => outcomeCall('POST', '/tools/share', { token }),
 
   // ── Authentication ────────────────────────────────────────────────────────
