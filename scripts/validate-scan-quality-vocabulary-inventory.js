@@ -168,9 +168,10 @@ const EXPECTED = Object.freeze({
     // and mcp-customer-discovery.js moves their existing sites by one line each;
     // the two-tree --dump-current diff keyed by file/kind/slot/snippet shows no
     // other change (same 40 predicates, 29 sites, 22 sinks).
-    fingerprint: "abebdd57f462fd2c0cc2852a877a14422549206740db8e6cf370be4089cb2c40",
+    // BRI 2026-10-20.1: the HSTS deduction table moves business-risk.js SQL sites +22 lines; two-tree diff is position-only.
+    fingerprint: "ae004f42e1e67bfc848b0e14e23e2273cdc3f3d357ebb17402292a09ec831f3b",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "87cfa70552b032b2dffc5ef4650d0cee8b5abd0688a3cdac5d8f86ac7aee23ca",
+    resolved_query_sink_fingerprint: "3ca05226b17c1b58d27d519ae41952bf5918b635ea5180777fc00cec7ae935a8",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
