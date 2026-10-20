@@ -43,9 +43,17 @@
       "class": "webhook",
       "reason": "Stripe webhook."
     },
+    "exact:/api/client-errors": {
+      "class": "customer_pending",
+      "reason": "Browser error reports (counted, never stored as text); the frontend reporter is not wired yet."
+    },
     "exact:/api/dmarc-ingest": {
       "class": "internal",
       "reason": "Token-authenticated DMARC aggregate-report ingestion (machine-to-machine)."
+    },
+    "exact:/api/feedback": {
+      "class": "customer_pending",
+      "reason": "The \"Something wrong?\" button's endpoint; the frontend button is being built against the agreed contract."
     },
     "exact:/api/plans": {
       "class": "external_api",

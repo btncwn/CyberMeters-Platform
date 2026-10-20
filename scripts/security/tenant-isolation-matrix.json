@@ -1199,6 +1199,30 @@
       }
     },
     {
+      "class": "ops_observability",
+      "domain": "infra",
+      "tables": [
+        "ops_daily_counters",
+        "feedback_reports"
+      ],
+      "ownership": {
+        "ops_daily_counters": {
+          "model": "infra",
+          "column": null
+        },
+        "feedback_reports": {
+          "model": "infra",
+          "column": null
+        }
+      },
+      "non_tenant": true,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "daily operational counters (route families and codes only) and anonymous feedback text with no IP, user or workspace link; feedback deleted after 90 days, counters after 180 (ops-observability.test.js)"
+      }
+    },
+    {
       "class": "free_tool_deferrals",
       "domain": "infra",
       "tables": [
@@ -1274,6 +1298,7 @@
     "email_sender_sources": "email_protection",
     "external_exposure_jobs": "website_security",
     "external_exposure_visits": "website_security",
+    "feedback_reports": "ops_observability",
     "finding_waivers": "remediation_waivers",
     "findings": "findings",
     "free_tool_deferred_checks": "free_tool_deferrals",
@@ -1306,6 +1331,7 @@
     "notification_preferences": "notifications",
     "oauth_states": "infrastructure",
     "operational_events": "operational_observability",
+    "ops_daily_counters": "ops_observability",
     "password_reset_tokens": "auth_sessions",
     "portfolio_risk_snapshots": "msp_portfolio",
     "related_change_evidence": "related_changes",
@@ -1358,12 +1384,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 118,
-    "classified": 118,
+    "schema_tables": 120,
+    "classified": 120,
     "tenant_owned_tables": 113,
-    "infra_or_identity_tables": 5,
+    "infra_or_identity_tables": 7,
     "unclassified": 0,
-    "resource_classes": 41,
+    "resource_classes": 42,
     "classes_with_dynamic_coverage": 17
   }
 }

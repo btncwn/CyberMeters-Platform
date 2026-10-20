@@ -100,6 +100,9 @@ import { domainRoutes } from "./routes/domains.js";
 import { workspacesCoreRoutes } from "./routes/workspaces-core.js";
 import { billingRoutes } from "./routes/billing.js";
 import { freeToolsRoutes, isFreeToolPath, processFreeToolDeferredChecks } from "./routes/free-tools.js";
+import { isOpsIntakePath, opsIntakeRoutes } from "./routes/ops-intake.js";
+import { observeApiResponse } from "./lib/ops-counters.js";
+import { collectFounderDigest, formatFounderDigest } from "./lib/founder-digest.js";
 import { scanRoutes } from "./routes/scans.js";
 import { portfolioRoutes } from "./routes/portfolio.js";
 import { accountRoutes } from "./routes/account.js";
@@ -1615,6 +1618,24 @@ async function opsHealthHeartbeat(env) {
   }
 }
 
+// The founder's daily email (08:00 UTC): yesterday's counters, funnel and
+// feedback, anomalies first (lib/founder-digest.js). Ops-only recipient.
+async function sendFounderDailyDigest(env) {
+  const digest = await collectFounderDigest(env);
+  const mail = formatFounderDigest(digest);
+  const html = `<pre style="font-family:ui-monospace,monospace;font-size:13px;white-space:pre-wrap">${escapeEmailHtml(mail.text)}</pre>`;
+  let result;
+  try {
+    result = await sendAlertEmail(mail.subject, mail.text, html, env, "ALERT_EMAIL_FROM");
+  } catch {
+    result = { sent: false, reason: "sender_threw" };
+  }
+  recordMetric(env, "founder_daily_digest", { blobs: [result?.sent ? "sent" : "not_sent"], indexes: [result?.sent ? "sent" : "not_sent"] });
+  // Same contract as the ops-health alert: a failed send is a durable record.
+  const outcome = await recordAlertDeliveryOutcome(env, result, `founder_daily_digest:${digest.day}`);
+  if (outcome.recorded) console.error("[alert-delivery-failed]", JSON.stringify({ scope: "founder_daily_digest", reason: outcome.reason }));
+}
+
 // A completed or cancelled request is kept as a receipt, but its workspace_id
 // is a FOREIGN KEY: left in place it fails the parent DELETE on every retry, so
 // the workspace can never be purged. Release only those finished links, in the
@@ -2135,8 +2156,9 @@ function buildRequestCorsHeaders(origin, method, pathname, env) {
   const isPublicStatusRead =
     PUBLIC_STATUS_PATHS.has(pathname) &&
     (method === "GET" || method === "OPTIONS");
-  // The free tools run on the public site as well as the app host.
-  const isPublicTool = isFreeToolPath(pathname) &&
+  // The free tools and the feedback/error intake run on the public site as
+  // well as the app host.
+  const isPublicTool = (isFreeToolPath(pathname) || isOpsIntakePath(pathname)) &&
     ["GET", "POST", "OPTIONS"].includes(method);
   if (!isPublicStatusRead && !isPublicTool) return headers;
 
@@ -2682,10 +2704,18 @@ export default {
     const requestId = crypto.randomUUID();
     // Shadow the module-level json() so every route in this handler uses the
     // correct per-request origin without touching individual call sites.
-    const json = (data, status = 200) => Response.json(normalizeApiResponseData(data, status), {
-      status,
-      headers: { ...buildJsonHeaders(corsHeaders), "X-Request-ID": requestId },
-    });
+    const json = (data, status = 200) => {
+      // Refusals, 5xx and free-scan/free-tool outcomes are counted here, in one
+      // place (lib/ops-counters.js): route families and codes, never values.
+      try {
+        const observed = observeApiResponse(env, { pathname: url.pathname, method: request.method, status, data });
+        if (observed && ctx?.waitUntil) ctx.waitUntil(observed.catch(() => null));
+      } catch { /* observation never breaks a response */ }
+      return Response.json(normalizeApiResponseData(data, status), {
+        status,
+        headers: { ...buildJsonHeaders(corsHeaders), "X-Request-ID": requestId },
+      });
+    };
     const serverError = (scope, error, message = "Request failed. Please try again.") => {
       console.error("[request-error]", redactedJson({
         request_id: requestId,
@@ -3040,6 +3070,12 @@ export default {
       if (toolsResponse) return toolsResponse;
     }
 
+    // ── Browser error reports and feedback (/api/client-errors, /api/feedback) ─
+    {
+      const intakeResponse = await opsIntakeRoutes(routeCtx);
+      if (intakeResponse) return intakeResponse;
+    }
+
     // ── Billing + free-scan routes (public scan, subscription, checkout) ────
     // Extracted to src/routes/billing.js; dispatched at the original position
     // (last route group before the 404 fallback), patterns unchanged.
@@ -3071,6 +3107,7 @@ export default {
     runBrandHttpEnrichmentSweep,
     triggerScheduledScan,
     processFreeToolDeferredChecks: (env) => processFreeToolDeferredChecks(env, { consumeApiRateLimit }),
+    sendFounderDailyDigest,
     recoverInterruptedScans: async (env) => {
       await Promise.all([recoverInterruptedScans(env), recoverNetworkScans(env)]);
     },

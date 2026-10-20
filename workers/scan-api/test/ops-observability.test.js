@@ -1,0 +1,196 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { cleanupExpiredObservability } from "../src/cron/scheduled.js";
+import { collectFounderDigest, formatFounderDigest } from "../src/lib/founder-digest.js";
+import { bumpDailyCounter, observeApiResponse, routeFamily, utcDay } from "../src/lib/ops-counters.js";
+import { consumeApiRateLimit, rateLimitScopeId } from "../src/lib/rate-limit.js";
+import { cleanPath, opsIntakeRoutes } from "../src/routes/ops-intake.js";
+
+const BUILD = "ca3ca9c9-b5b1-4493-bd35-e240b13a129a";
+
+function fixture({ failWrites = null } = {}) {
+  const sqlite = new DatabaseSync(":memory:");
+  for (const file of ["026-api-rate-limits.sql", "130-ops-observability.sql"]) {
+    sqlite.exec(readFileSync(fileURLToPath(new URL(`../../../database/migrations/${file}`, import.meta.url)), "utf8"));
+  }
+  sqlite.exec(`
+    CREATE TABLE users(id TEXT PRIMARY KEY, email TEXT, created_at TEXT, email_verified INTEGER);
+    CREATE TABLE workspaces(id TEXT PRIMARY KEY, owner_user_id TEXT);
+    CREATE TABLE scans(id TEXT PRIMARY KEY, workspace_id TEXT);
+    CREATE TABLE subscriptions(id TEXT PRIMARY KEY, stripe_subscription_id TEXT, subscription_status TEXT, created_at TEXT);
+  `);
+  const db = {
+    prepare(sql) {
+      if (failWrites && failWrites.test(sql)) throw new Error("D1 unavailable");
+      const statement = sqlite.prepare(sql);
+      return { bind(...args) { return {
+        first: async () => statement.get(...args) ?? null,
+        all: async () => ({ results: statement.all(...args) }),
+        run: async () => ({ meta: { changes: Number(statement.run(...args).changes) } }),
+      }; } };
+    },
+    async batch(statements) { return Promise.all(statements.map((s) => s.run())); },
+  };
+  const metrics = [];
+  return { sqlite, metrics, env: { cybermeters_db: db, METRICS: { writeDataPoint: (point) => metrics.push(point) } } };
+}
+
+function post(env, path, body, { ip = "198.51.100.7", contentType = "application/json" } = {}) {
+  const request = new Request(`https://api.cybermeters.com${path}`, {
+    method: "POST", headers: { "Content-Type": contentType, "CF-Connecting-IP": ip },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return opsIntakeRoutes({ request, env, url: new URL(request.url),
+    json: (data, status = 200) => Response.json(data, { status }), consumeApiRateLimit, rateLimitScopeId });
+}
+
+const feedback = (overrides = {}) => ({ message: "The DMARC result page froze.", surface: "free_tool",
+  tool: "dmarc-checker", path: "/tools/dmarc-checker", build: BUILD, error_code: null, ...overrides });
+
+test("route families replace every identifier and never carry a domain", () => {
+  assert.equal(routeFamily("/api/workspaces/workspace_df864b4f-f114/scans/scan_9"), "/api/workspaces/:id/scans/:id");
+  assert.equal(routeFamily("/api/domain/example.co.uk/history"), "/api/domain/:id/history");
+  assert.equal(routeFamily("/api/tools/dmarc/check"), "/api/tools/dmarc/check");
+  assert.equal(cleanPath("/invitations/cmi_abcdef0123456789"), "/invitations/:redacted");
+  assert.equal(cleanPath(`/reset/${"a".repeat(40)}`), "/reset/:redacted");
+  assert.equal(cleanPath("/tools?x=1"), null);
+  assert.equal(cleanPath("/tools#share=v1"), null);
+  assert.equal(cleanPath("tools"), null);
+});
+
+test("every refusal is one METRICS point; 5xx and free-scan/tool outcomes are daily counters", async () => {
+  const { sqlite, metrics, env } = fixture();
+  assert.equal(observeApiResponse(env, { pathname: "/api/workspaces/ws_1/scans", method: "GET", status: 403, data: { code: "forbidden" } }), null);
+  assert.deepEqual(metrics.at(-1).blobs.slice(0, 4), ["api_rejection", "403", "forbidden", "/api/workspaces/:id/scans"]);
+  await observeApiResponse(env, { pathname: "/api/scans/scan_1/report", method: "GET", status: 503, data: { error: "x" } });
+  await observeApiResponse(env, { pathname: "/api/free-scan", method: "POST", status: 200, data: { preview_state: "complete" } });
+  await observeApiResponse(env, { pathname: "/api/free-scan", method: "POST", status: 400, data: { code: "target_verification_unavailable" } });
+  await observeApiResponse(env, { pathname: "/api/tools/spf/check", method: "POST", status: 200, data: { cached: true, result: { verdict: { level: "risk" } } } });
+  await observeApiResponse(env, { pathname: "/api/tools/dmarc/check", method: "POST", status: 429, data: { status: "limit_reached" } });
+  const rows = sqlite.prepare("SELECT metric, label, count FROM ops_daily_counters ORDER BY metric, label").all()
+    .map((row) => `${row.metric}|${row.label}|${row.count}`);
+  assert.deepEqual(rows, [
+    "free_scan|ok_complete|1", "free_scan|target_verification_unavailable|1",
+    "free_tool|dmarc:limit_reached|1", "free_tool|spf:ok_risk_cached|1",
+    "http_5xx|503:/api/scans/:id/report|1",
+  ]);
+  // A 4xx outside the free surfaces writes nothing to D1.
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM ops_daily_counters WHERE metric NOT IN ('free_scan','free_tool','http_5xx')").get().n, 0);
+});
+
+test("a day admits a bounded number of labels per metric", async () => {
+  const { sqlite, env } = fixture();
+  for (let i = 0; i < 505; i++) await bumpDailyCounter(env, "client_error", `label_${i}`);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM ops_daily_counters").get().n, 500);
+  assert.equal(await bumpDailyCounter(env, "client_error", "label_0"), true, "an existing label still counts");
+  assert.equal(await bumpDailyCounter({ cybermeters_db: { prepare() { throw new Error("down"); } } }, "x", "y"), false, "fail-open");
+});
+
+test("feedback: valid is stored without any IP; unknown fields and bad values are refused", async () => {
+  const { sqlite, env } = fixture();
+  const ok = await post(env, "/api/feedback", feedback({ path: "/invitations/cmi_abcdef0123456789abcdef" }));
+  assert.equal(ok.status, 202);
+  assert.deepEqual(await ok.json(), { ok: true });
+  const row = sqlite.prepare("SELECT * FROM feedback_reports").get();
+  assert.equal(row.path, "/invitations/:redacted");
+  assert.equal(row.message, "The DMARC result page froze.");
+  assert.equal(JSON.stringify(row).includes("198.51.100.7"), false);
+  assert.equal(JSON.stringify(sqlite.prepare("SELECT * FROM api_rate_limits").all()).includes("198.51.100.7"), false);
+  for (const bad of [
+    feedback({ extra: 1 }), feedback({ message: "" }), feedback({ message: "x".repeat(2001) }),
+    feedback({ surface: "admin" }), feedback({ surface: "app" }), feedback({ tool: null }),
+    feedback({ tool: "Bad Tool" }), feedback({ path: "/tools?domain=example.com" }), feedback({ build: "v1" }),
+    feedback({ error_code: "Has Spaces" }),
+  ]) {
+    const res = await post(env, "/api/feedback", bad, { ip: "203.0.113.50" });
+    assert.equal(res.status, 400, JSON.stringify(bad));
+    assert.equal((await res.json()).code, "invalid_feedback");
+  }
+  assert.equal((await post(env, "/api/feedback", feedback({ surface: "app", tool: null, path: "/dashboard" }), { ip: "203.0.113.51" })).status, 202);
+  assert.equal((await post(env, "/api/feedback", "{not json", { ip: "203.0.113.52" })).status, 400);
+  assert.equal((await post(env, "/api/feedback", feedback(), { ip: "203.0.113.53", contentType: "text/plain" })).status, 400);
+  assert.equal((await post(env, "/api/feedback", "x".repeat(5000), { ip: "203.0.113.54" })).status, 400);
+});
+
+test("feedback: five an hour per IP, then a calm 429; limiter or storage failure is a 503", async () => {
+  const { env } = fixture();
+  for (let i = 0; i < 5; i++) assert.equal((await post(env, "/api/feedback", feedback())).status, 202);
+  const limited = await post(env, "/api/feedback", feedback());
+  assert.equal(limited.status, 429);
+  assert.equal((await limited.json()).code, "rate_limited");
+  const down = fixture({ failWrites: /api_rate_limits/ });
+  const refused = await post(down.env, "/api/feedback", feedback());
+  assert.equal(refused.status, 503);
+  assert.equal((await refused.json()).code, "feedback_unavailable");
+  const noStore = fixture({ failWrites: /INSERT INTO feedback_reports/ });
+  assert.equal((await post(noStore.env, "/api/feedback", feedback())).status, 503);
+});
+
+test("feedback: a global daily cap holds across IPs", async () => {
+  const { sqlite, env } = fixture();
+  const start = new Date(Math.floor(Date.now() / 864e5) * 864e5).toISOString();
+  sqlite.prepare(`INSERT INTO api_rate_limits (id, scope, scope_id, action, window_start, window_seconds, request_count)
+    VALUES (?, 'global', 'feedback', 'feedback_global', ?, 86400, 200)`)
+    .run(`rl_global_feedback_feedback_global_${start}`.replace(/[^a-zA-Z0-9_-]+/g, "_"), start);
+  assert.equal((await post(env, "/api/feedback", feedback(), { ip: "203.0.113.90" })).status, 429);
+});
+
+test("browser errors are counted by kind, code, status, route and build, never stored as text", async () => {
+  const { sqlite, env } = fixture();
+  const res = await post(env, "/api/client-errors", { kind: "api_error", code: "rate_limit_unavailable", status: 503,
+    path: "/workspaces/ws_123/scans", build: BUILD });
+  assert.equal(res.status, 202);
+  assert.deepEqual(sqlite.prepare("SELECT metric, label, count FROM ops_daily_counters").all().map((r) => ({ ...r })),
+    [{ metric: "client_error", label: "api_error|rate_limit_unavailable|503|/workspaces/:id/scans|ca3ca9c9", count: 1 }]);
+  for (const bad of [{ kind: "js_error", path: "/x", build: BUILD, message: "TypeError at foo@bar.com" },
+    { kind: "other", path: "/x", build: BUILD }, { kind: "js_error", path: "/x?y", build: BUILD },
+    { kind: "js_error", path: "/x", build: BUILD, status: 99 }]) {
+    assert.equal((await post(env, "/api/client-errors", bad, { ip: "203.0.113.70" })).status, 400, JSON.stringify(bad));
+  }
+});
+
+test("the founder's daily email puts anomalies first and carries counts, not identities", async () => {
+  const { sqlite, env } = fixture();
+  const now = Date.parse("2026-10-21T08:00:00Z");
+  const yesterday = utcDay(now - 864e5);
+  for (let d = 2; d <= 8; d++) {
+    sqlite.prepare("INSERT INTO ops_daily_counters VALUES (?, 'http_5xx', '500:/api/scans', 1, 'x')").run(utcDay(now - d * 864e5));
+  }
+  sqlite.prepare("INSERT INTO ops_daily_counters VALUES (?, 'http_5xx', '500:/api/scans', 9, 'x')").run(yesterday);
+  sqlite.prepare("INSERT INTO ops_daily_counters VALUES (?, 'free_scan', 'ok_complete', 10, 'x')").run(yesterday);
+  sqlite.prepare("INSERT INTO ops_daily_counters VALUES (?, 'free_scan', 'target_verification_unavailable', 6, 'x')").run(yesterday);
+  sqlite.exec(`INSERT INTO users VALUES ('u1','owner@shop.example','2026-10-20 09:00:00',1),
+    ('u2','second@shop.example','2026-10-20 10:00:00',0),('u3','deleted_abc','2026-10-20 11:00:00',0),
+    ('u4','old@shop.example','2026-10-01 10:00:00',1);
+    INSERT INTO workspaces VALUES ('w1','u1'); INSERT INTO scans VALUES ('s1','w1');
+    INSERT INTO subscriptions VALUES ('sub1','stripe_sub','active','2026-10-20T12:00:00Z');`);
+  sqlite.prepare(`INSERT INTO feedback_reports VALUES ('fb1','2026-10-20T15:30:00.000Z','free_tool','spf-checker',
+    '/tools/spf-checker','${BUILD}',NULL,'Tree did not load')`).run();
+  const digest = await collectFounderDigest(env, { nowMs: now });
+  assert.equal(digest.day, "2026-10-20");
+  assert.deepEqual(digest.funnel, { signups: 2, verified: 1, scanned: 1, paid: 1 });
+  assert.match(digest.anomalies[0], /1 feedback message/);
+  assert.ok(digest.anomalies.some((a) => /Server errors \(5xx\): 9 yesterday \(7-day average 1\.0\)/.test(a)));
+  assert.ok(digest.anomalies.some((a) => /Free scans: 6 of 16 did not return a result/.test(a)));
+  const mail = formatFounderDigest(digest);
+  assert.match(mail.subject, /3 to look at \(2026-10-20\)/);
+  assert.ok(mail.text.indexOf("Needs a look") < mail.text.indexOf("Free scans by outcome"));
+  assert.match(mail.text, /"Tree did not load"/);
+  assert.equal(/@shop\.example/.test(mail.text), false, "no account email appears");
+  const quiet = await collectFounderDigest(fixture().env, { nowMs: now });
+  assert.deepEqual(quiet.anomalies, []);
+  assert.match(formatFounderDigest(quiet).subject, /nothing unusual/);
+});
+
+test("feedback older than 90 days and counters older than 180 days are deleted", async () => {
+  const { sqlite, env } = fixture();
+  sqlite.exec(`INSERT INTO feedback_reports VALUES ('old','2026-01-01T00:00:00Z','app',NULL,'/','dev',NULL,'a'),
+    ('new','2026-10-19T00:00:00Z','app',NULL,'/','dev',NULL,'b');
+    INSERT INTO ops_daily_counters VALUES ('2026-03-01','http_5xx','x',1,'x'),('2026-10-19','http_5xx','x',1,'x');`);
+  await cleanupExpiredObservability(env, "2026-10-20T02:00:00Z");
+  assert.deepEqual(sqlite.prepare("SELECT id FROM feedback_reports").all().map((r) => r.id), ["new"]);
+  assert.deepEqual(sqlite.prepare("SELECT day FROM ops_daily_counters").all().map((r) => r.day), ["2026-10-19"]);
+});

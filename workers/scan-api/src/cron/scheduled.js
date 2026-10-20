@@ -42,13 +42,30 @@ export async function cleanupExpiredPublicApiRateLimits(env, nowIso) {
   const toolCutoff = new Date(nowMs - (25 * 60 * 60) * 1000).toISOString();
   return env.cybermeters_db.prepare(
     `DELETE FROM api_rate_limits
-     WHERE (action IN ('free_scan', 'free_scan_domain', 'free_scan_global')
+     WHERE (action IN ('free_scan', 'free_scan_domain', 'free_scan_global',
+                      'feedback_ip', 'client_error_ip')
             AND window_seconds = 3600 AND window_start < ?)
         OR (action IN ('global_read', 'global_write')
             AND window_seconds = 300 AND window_start < ?)
         OR (action LIKE 'free!_tool!_%' ESCAPE '!'
-            AND window_seconds <= 86400 AND window_start < ?)`,
-  ).bind(freeCutoff, globalCutoff, toolCutoff).run();
+            AND window_seconds <= 86400 AND window_start < ?)
+        OR (action IN ('feedback_global', 'client_error_global')
+            AND window_seconds = 86400 AND window_start < ?)`,
+  ).bind(freeCutoff, globalCutoff, toolCutoff, toolCutoff).run();
+}
+
+// Feedback is kept 90 days (the published retention); daily counters 180 days.
+export const FEEDBACK_RETENTION_DAYS = 90;
+export const OPS_COUNTER_RETENTION_DAYS = 180;
+export async function cleanupExpiredObservability(env, nowIso) {
+  const nowMs = Date.parse(nowIso);
+  if (!Number.isFinite(nowMs)) throw new TypeError("Invalid observability cleanup time");
+  const feedbackCutoff = new Date(nowMs - FEEDBACK_RETENTION_DAYS * 864e5).toISOString();
+  const counterCutoff = new Date(nowMs - OPS_COUNTER_RETENTION_DAYS * 864e5).toISOString().slice(0, 10);
+  await env.cybermeters_db.batch([
+    env.cybermeters_db.prepare("DELETE FROM feedback_reports WHERE created_at < ?").bind(feedbackCutoff),
+    env.cybermeters_db.prepare("DELETE FROM ops_daily_counters WHERE day < ?").bind(counterCutoff),
+  ]);
 }
 
 // Due schedules are picked one account at a time: every account's oldest due
@@ -310,6 +327,7 @@ export async function runScheduled(event, env, ctx, tasks) {
   if (new Date(now).getUTCHours() === 2) {
     ctx.waitUntil(runCronTask(env, "report_retention", () => tasks.cleanupExpiredReports(now, env)));
     ctx.waitUntil(runCronTask(env, "public_api_rate_limit_retention", () => cleanupExpiredPublicApiRateLimits(env, now)));
+    ctx.waitUntil(runCronTask(env, "ops_observability_retention", () => cleanupExpiredObservability(env, now)));
     ctx.waitUntil(runCronTask(env, "audit_retention", () => cleanupExpiredAuditEvents(env, now)));
     ctx.waitUntil(runCronTask(env, "mcp_rate_retention", () => cleanupExpiredMcpRateLimits(env, now)));
     ctx.waitUntil(runCronTask(env, "mcp_refresh_replay_retention", () => purgeExpiredMcpOAuthRefreshUses(env, now)));
@@ -321,6 +339,13 @@ export async function runScheduled(event, env, ctx, tasks) {
   // ops only when a threshold is breached; at most one alert per day, no spam.
   if (tasks.opsHealthHeartbeat && new Date(now).getUTCHours() === 8) {
     ctx.waitUntil(runCronTask(env, "ops_health_heartbeat", () => tasks.opsHealthHeartbeat(env)));
+  }
+
+  // ── Founder daily email ──────────────────────────────────────────────
+  // Daily at 08:00 UTC: yesterday's free scans and tools by outcome, 5xx,
+  // browser errors, the signup funnel and feedback, anything unusual first.
+  if (tasks.sendFounderDailyDigest && new Date(now).getUTCHours() === 8) {
+    ctx.waitUntil(runCronTask(env, "founder_daily_digest", () => tasks.sendFounderDailyDigest(env)));
   }
 
   // ── Weekly Exposure Timeline digest ──────────────────────────────────

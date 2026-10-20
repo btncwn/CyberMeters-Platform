@@ -55,6 +55,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | `/webhook/` | Stripe webhook — HMAC signature verified before parse |
 | `/\/billing\/plans/` | public billing catalogue — no Stripe price IDs, no tenant data |
 | `/\/free-scan/` | public lead-gen scan — SSRF-guarded, gated preview, rate-limited |
+| `/\/api\\?\/(feedback\|client-errors)/` | anonymous feedback and browser error intake — fixed fields, hashed rate limits, no IP stored |
 | `/\/api\\?\/tools\\?\//` | public free tools — Turnstile, rolling per-IP + per-domain limits, DNS-only, signed share links |
 | `/\/api\/invitations\//` | invitation token flow — opaque-token gated, pre-membership |
 | `/dmarc-ingest\|\/ingest\/\|\/rua\|\/tlsrpt\|\/inbound/` | report ingestion — endpoint-key / DMARC-trust gated (key binds the workspace) |
@@ -72,15 +73,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2720 | preflight | public | — |
-| DELETE | `(none)` | 2726 | unknown | **GAP** | — |
-| GET | `(none)` | 2726 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2726 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2726 | unknown | **GAP** | — |
-| POST | `(none)` | 2726 | unknown | **GAP** | — |
-| PUT | `(none)` | 2726 | unknown | **GAP** | — |
-| GET | `/health` | 2731 | public-or-global | public | — |
-| GET | `/ready` | 2750 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2750 | preflight | public | — |
+| DELETE | `(none)` | 2756 | unknown | **GAP** | — |
+| GET | `(none)` | 2756 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2756 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2756 | unknown | **GAP** | — |
+| POST | `(none)` | 2756 | unknown | **GAP** | — |
+| PUT | `(none)` | 2756 | unknown | **GAP** | — |
+| GET | `/health` | 2761 | public-or-global | public | — |
+| GET | `/ready` | 2780 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 

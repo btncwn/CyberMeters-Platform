@@ -40,6 +40,7 @@
     "workers/scan-api/src/routes/mcp-projections.js",
     "workers/scan-api/src/routes/mcp-service.js",
     "workers/scan-api/src/routes/network-assets.js",
+    "workers/scan-api/src/routes/ops-intake.js",
     "workers/scan-api/src/routes/portfolio.js",
     "workers/scan-api/src/routes/related-changes.js",
     "workers/scan-api/src/routes/scans.js",
@@ -174,6 +175,10 @@
     {
       "pattern": "/\\/free-scan/",
       "reason": "public lead-gen scan — SSRF-guarded, gated preview, rate-limited"
+    },
+    {
+      "pattern": "/\\/api\\\\?\\/(feedback|client-errors)/",
+      "reason": "anonymous feedback and browser error intake — fixed fields, hashed rate limits, no IP stored"
     },
     {
       "pattern": "/\\/api\\\\?\\/tools\\\\?\\//",
