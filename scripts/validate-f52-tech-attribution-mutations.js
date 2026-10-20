@@ -28,9 +28,17 @@ const MUTANTS = [
   // validators because only truthiness was asserted.
   ["F52-MC-reason-token-collapsed",
     "workers/scan-api/src/engines/tech-scan.js",
-    'serviceability.reason === "origin_error_no_serviceable_response"\n        ? "origin_error_no_serviceable_response" : "origin_not_observed",',
-    '"origin_not_observed",',
+    '        ? "origin_error_no_serviceable_response"\n        : serviceability.reason === "origin_access_restricted"',
+    '        ? "origin_not_observed"\n        : serviceability.reason === "origin_access_restricted"',
     "incomplete reason is exactly origin_error_no_serviceable_response"],
+  // MUTANT R — an access restriction (401/403/challenge) is let through to the
+  // normal parse path, i.e. read as a complete observation. It must be caught
+  // at the first restricted case's completeness bar.
+  ["F52-MR-restricted-read-as-complete",
+    "workers/scan-api/src/engines/tech-scan.js",
+    "if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
+    'if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || (serviceability.serviceable !== true && serviceability.reason !== "origin_access_restricted")) {',
+    "access-401: marker state"],
   // FLOOR SWAP — the honesty boundary reverted to the MOVING current version. This is
   // the confirmed defect: an honest 2026-08-12.1 snapshot gets rewritten to
   // evidence_insufficient and told the customer it was never evaluated.

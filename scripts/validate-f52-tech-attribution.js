@@ -26,6 +26,13 @@ for (const [name, response, unavailable, expectedReason] of [
   ["serviceable-with-tech", origin(200, { "x-powered-by": "PHP/8.2" }), false, null],
   ["serviceable-empty", origin(200), false, null],
   ["origin-503", origin(503, { server: "nginx/1.25" }), true, "origin_error_no_serviceable_response"],
+  // Family B: an access restriction is incomplete with its own reason — never
+  // complete, never "no technology observed".
+  ["access-401", origin(401), true, "origin_access_restricted"],
+  ["access-403", origin(403, { server: "AkamaiGHost" }), true, "origin_access_restricted"],
+  ["challenge-403", new Response("<html><title>Just a moment...</title></html>", { status: 403,
+    headers: { server: "cloudflare", "cf-ray": "8f00000000000000-LHR", "cf-mitigated": "challenge", "content-type": "text/html" } }),
+    true, "origin_access_restricted"],
   ["transport", null, true, "origin_not_observed"],
 ]) {
   const result = await run(response);
@@ -33,6 +40,7 @@ for (const [name, response, unavailable, expectedReason] of [
   ok(`${name}: technologies cleared on unavailable`, !unavailable || result.technologies.length === 0);
   ok(`${name}: server cleared on unavailable`, !unavailable || result.server === null);
   if (unavailable) {
+    ok(`${name}: never complete`, result.incomplete === true);
     ok(`${name}: incomplete reason is exactly ${expectedReason}`,
       result.incomplete_reason === expectedReason);
     ok(`${name}: the two unavailable reasons stay distinguishable`,

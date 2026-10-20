@@ -161,8 +161,14 @@ export async function runTechModule(domain, opts = {}) {
   if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {
     return {
       incomplete:        true,
+      // The reason only says WHY nothing was observed; incompleteness is the
+      // same for every non-serviceable answer. An access restriction (401/403/
+      // 429, a WAF or bot challenge) says nothing about the site's technology,
+      // so it can never stand for "no technology observed".
       incomplete_reason: serviceability.reason === "origin_error_no_serviceable_response"
-        ? "origin_error_no_serviceable_response" : "origin_not_observed",
+        ? "origin_error_no_serviceable_response"
+        : serviceability.reason === "origin_access_restricted"
+          ? "origin_access_restricted" : "origin_not_observed",
       observation_state: "unavailable",
       serviceability:    "non_serviceable",
       // Additive canonical contract. Keep the legacy string above for old
