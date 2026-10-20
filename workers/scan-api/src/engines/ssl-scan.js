@@ -37,6 +37,8 @@ export async function runSslModule(domain, opts = {}) {
   };
   // Try HTTPS on the bare domain
   const bareSubOp = subOpBegin("https_probe_bare");
+  // A probe that timed out reports why, so the observation can say so.
+  let bareFailure = null;
   const httpsRes = await safeFetch(`https://${domain}`, {
     method: "HEAD",
     redirect: "manual",
@@ -45,6 +47,7 @@ export async function runSslModule(domain, opts = {}) {
     dnsResolver: opts.dnsResolver,
     dnsCache: opts.dnsCache,
     signal: opts.signal,
+    onFailure: (reason) => { bareFailure = reason; },
   });
   subOpFinish(bareSubOp, httpsRes);
   // ONE shared classifier decides what this fetch observed (lib/fetch-observation.js).
@@ -52,7 +55,7 @@ export async function runSslModule(domain, opts = {}) {
   // all over https:// the handshake completed and a certificate was accepted. A
   // Cloudflare-synthesised 52x/530 is NOT an origin answer and proves nothing either
   // way. The old `status < 500` rule got both wrong.
-  const bareObservation = classifyFetchObservation({ response: httpsRes });
+  const bareObservation = classifyFetchObservation({ response: httpsRes, failure: bareFailure });
   const httpsOk = bareObservation.transport_observed === true;
 
   // Try www. fallback if the bare domain did not PROVE transport. An edge error or a
@@ -63,6 +66,7 @@ export async function runSslModule(domain, opts = {}) {
   let wwwObservation = null;
   if (!httpsOk && !domain.startsWith("www.")) {
     const wwwSubOp = subOpBegin("https_probe_www");
+    let wwwFailure = null;
     wwwRes = await safeFetch(`https://www.${domain}`, {
       method: "HEAD",
       redirect: "manual",
@@ -71,9 +75,10 @@ export async function runSslModule(domain, opts = {}) {
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
       signal: opts.signal,
+      onFailure: (reason) => { wwwFailure = reason; },
     });
     subOpFinish(wwwSubOp, wwwRes);
-    wwwObservation = classifyFetchObservation({ response: wwwRes });
+    wwwObservation = classifyFetchObservation({ response: wwwRes, failure: wwwFailure });
     wwwHttpsOk = wwwObservation.transport_observed === true;
   }
 
@@ -309,12 +314,15 @@ export async function runSslModule(domain, opts = {}) {
     // wins when both are unobserved.
     ...((httpsAvailable === true && redirectEvidenceObserved) ? {} : {
       incomplete: true,
+      // A probe that timed out did run; it never counts as "not executed".
       incomplete_reason: httpsAvailable !== true
-        ? (!httpsProbeExecuted
-          ? "https_probe_not_executed"
-          : httpsObservation.state === "cloudflare_edge_error"
-            ? "https_origin_not_observed"
-            : "https_transport_unavailable")
+        ? (httpsObservation.reason === "origin_timeout"
+          ? "https_origin_timeout"
+          : !httpsProbeExecuted
+            ? "https_probe_not_executed"
+            : httpsObservation.state === "cloudflare_edge_error"
+              ? "https_origin_not_observed"
+              : "https_transport_unavailable")
         : "http_redirect_not_observed",
     }),
     // Per-endpoint provenance (bounded: bare + www only). A sibling's more

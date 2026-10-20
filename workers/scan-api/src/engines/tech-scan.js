@@ -92,6 +92,7 @@ export async function runTechModule(domain, opts = {}) {
   let res = null;
   let bodySnippet = "";
   let linkWindow = null;
+  let timedOut = false;
 
   try {
     res = await safeFetch(`https://${domain}`, {
@@ -102,6 +103,7 @@ export async function runTechModule(domain, opts = {}) {
       signal: opts.signal,
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
+      onFailure: (reason) => { if (reason === "origin_timeout") timedOut = true; },
     });
     if (res) {
       // Read first 4 KB of body — enough for <script src> / vite markers in <head>
@@ -131,7 +133,7 @@ export async function runTechModule(domain, opts = {}) {
     return {
       error: "Tech module: no response",
       incomplete: true,
-      incomplete_reason: "origin_not_observed",
+      incomplete_reason: timedOut ? "origin_timeout" : "origin_not_observed",
       observation_state: "unavailable",
       serviceability: "non_serviceable",
       serviceability_contract: null,

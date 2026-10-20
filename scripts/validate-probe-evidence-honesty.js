@@ -77,11 +77,11 @@ const HEALTHY = async (url) => new Response("<html></html>", {
              "strict-transport-security": "max-age=63072000; includeSubDomains; preload" },
 });
 
-let headersTimeoutError = null;
-try { await withFetch(TIMEOUT, () => runHeadersModule("acme.example.com")); }
+let headersTimeoutError = null, headersTimedOut = null;
+try { headersTimedOut = await withFetch(TIMEOUT, () => runHeadersModule("acme.example.com")); }
 catch (error) { headersTimeoutError = error; }
-let sslTimeoutError = null;
-try { await withFetch(TIMEOUT, () => runSslModule("acme.example.com")); }
+let sslTimeoutError = null, sslTimedOut = null;
+try { sslTimedOut = await withFetch(TIMEOUT, () => runSslModule("acme.example.com")); }
 catch (error) { sslTimeoutError = error; }
 
 // A typed timeout is scan-engine control flow and must remain observable to the
@@ -119,8 +119,15 @@ const sslPositivelyAbsent = () => ({
 
 // ── 0. The real modules actually report non-execution ───────────────────────
 {
-  ok("REAL safeFetch boundary: a typed headers timeout remains observable control flow", headersTimeoutError?.name === "TimeoutError");
-  ok("REAL safeFetch boundary: a typed SSL timeout remains observable control flow", sslTimeoutError?.name === "TimeoutError");
+  // Family C (20 Oct 2026): a per-request timeout is the target not answering in
+  // time, so the module ends honestly incomplete with that reason instead of
+  // throwing. (Previously both asserted a propagated TimeoutError.)
+  ok("REAL safeFetch boundary: a headers per-request timeout is an honest incomplete (origin_timeout)",
+    headersTimeoutError === null && headersTimedOut?.incomplete === true && headersTimedOut?.incomplete_reason === "origin_timeout"
+      && headersTimedOut?.accessible === false);
+  ok("REAL safeFetch boundary: an SSL per-request timeout is an honest incomplete (https_origin_timeout)",
+    sslTimeoutError === null && sslTimedOut?.incomplete === true && sslTimedOut?.incomplete_reason === "https_origin_timeout"
+      && sslTimedOut?.https_available === null);
   ok("REAL headers module: a transport failure is not accessible", headersUnavailable.accessible === false);
   eq("REAL headers module: a transport failure declares incomplete", headersUnavailable.incomplete, true);
   eq("REAL headers module: with an honest reason", headersUnavailable.incomplete_reason, "probe_not_executed");

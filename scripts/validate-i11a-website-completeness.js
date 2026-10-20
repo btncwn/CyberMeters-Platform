@@ -138,13 +138,16 @@ const hHealthy = await withFetch(originHealthy, () => runHeadersModule("acme.exa
 ok("C1_CONTROL_HEALTHY_ORIGIN_UNCHANGED",
    hHealthy.accessible === true && hHealthy.incomplete !== true && hHealthy.headers_assessed === true);
 
-// REGRESSION — typed timeout remains observable to the scan-engine deadline
-// wrapper; the direct module's ordinary transport-failure path keeps its own
+// REGRESSION — a per-request timeout (the target did not answer in time) is an
+// honest incomplete with its own reason (family C, 20 Oct 2026; previously the
+// TimeoutError propagated). Caller cancellation still throws (scan-telemetry
+// F041 caller-abort cases). The ordinary transport-failure path keeps its own
 // distinct not-executed reason.
-let timeoutError = null;
-try { await withFetch(TIMEOUT, () => runHeadersModule("acme.example.com")); }
+let timeoutError = null, hPerRequestTimeout = null;
+try { hPerRequestTimeout = await withFetch(TIMEOUT, () => runHeadersModule("acme.example.com")); }
 catch (error) { timeoutError = error; }
-ok("C1_REGRESSION_TIMEOUT_PROPAGATES_TO_DEADLINE_WRAPPER", timeoutError?.name === "TimeoutError");
+ok("C1_REGRESSION_TIMEOUT_IS_HONEST_INCOMPLETE", timeoutError === null && hPerRequestTimeout?.incomplete === true
+   && hPerRequestTimeout?.incomplete_reason === "origin_timeout" && hPerRequestTimeout?.accessible === false);
 const hTimeout = await withFetch(TRANSPORT_FAILURE, () => runHeadersModule("acme.example.com"));
 ok("C1_REGRESSION_TRANSPORT_FAILURE_STILL_INCOMPLETE", hTimeout.incomplete === true);
 eq("C1_REGRESSION_TRANSPORT_FAILURE_REASON_UNCHANGED", hTimeout.incomplete_reason, "probe_not_executed");
@@ -165,10 +168,11 @@ ok("C1_TECH_EDGE_DOES_NOT_CLAIM_CLOUDFLARE",
    !(tEdge.technologies || []).includes("Cloudflare"));
 eq("C1_TECH_EDGE_FORCES_PARTIAL",
    buildScanQuality({ technology_detection: tEdge }).status, "partial");
-// A thrown fetch (typed timeout) observed nothing: a reason code, not free text.
+// A timed-out fetch observed nothing: a reason code, not free text. Since family C
+// the per-request timeout arrives as origin_timeout (previously fetch_timed_out).
 const tTimeout = await withFetch(TIMEOUT, () => runTechModule("acme.example.com"));
 ok("C1_TECH_THROWN_TIMEOUT_IS_INCOMPLETE",
-   tTimeout.incomplete === true && tTimeout.incomplete_reason === "fetch_timed_out");
+   tTimeout.incomplete === true && tTimeout.incomplete_reason === "origin_timeout");
 eq("C1_TECH_THROWN_TIMEOUT_FORCES_PARTIAL",
    buildScanQuality({ technology_detection: tTimeout }).status, "partial");
 
