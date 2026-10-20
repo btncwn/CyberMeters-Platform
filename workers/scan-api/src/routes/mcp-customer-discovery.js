@@ -5,6 +5,7 @@ import { visibleFindingSql } from "../engines/finding-identity.js";
 import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 import { boundedReportReads } from "./mcp-projections.js";
 import { mcpCriticalFindingSql } from "./mcp-finding-presentation.js";
+import { mcpWorkspaceEnrolmentSql } from "./mcp-founder-canary.js";
 
 const PAGE_SIZE = 10;
 const MAX_RESULT_BYTES = 8_192;
@@ -98,8 +99,8 @@ async function assertCurrentAccess(env, userId, workspaceIds) {
     `SELECT w.id, wm.role
        FROM workspaces w
        JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ?
-       JOIN mcp_beta_workspace_access b ON b.workspace_id = w.id AND b.status = 'enabled'
       WHERE w.id IN (${placeholders}) AND w.deleted_at IS NULL
+        AND ${mcpWorkspaceEnrolmentSql(env)}
         AND NOT EXISTS (SELECT 1 FROM deletion_requests d
           WHERE d.request_type = 'workspace' AND d.workspace_id = w.id
             AND d.status NOT IN ('completed','cancelled'))`,

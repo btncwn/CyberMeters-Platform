@@ -6,7 +6,7 @@ import { consumeApiRateLimit } from "../lib/rate-limit.js";
 import { recordMetric } from "../lib/metrics.js";
 import { getEffectivePlanState, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { listMcpOAuthGrantedWorkspaces, resolveMcpOAuthConfig } from "./mcp-oauth-admission.js";
-import { mcpFounderCanaryAllowsUser, mcpFounderCanaryAllowsWorkspace } from "./mcp-founder-canary.js";
+import { mcpFounderCanaryAllowsUser, mcpFounderCanaryAllowsWorkspace, mcpWorkspaceEnrolmentAllows } from "./mcp-founder-canary.js";
 import {
   projectMcpSummary, projectMcpPosture, projectMcpRecentScans,
   projectMcpScanStatus, projectMcpManagedCases, projectMcpManagedCase,
@@ -94,7 +94,7 @@ async function currentWorkspace(env, userId, workspaceId) {
       ) LIMIT 1`,
   ).bind(userId, workspaceId).first();
   if (!row || !mcpFounderCanaryAllowsWorkspace(env, userId, row.owner_user_id) ||
-      row.deleted_at != null || row.beta_status !== "enabled" ||
+      row.deleted_at != null || !mcpWorkspaceEnrolmentAllows(env, row.beta_status) ||
       !ROLES.has(row.role)) throw deny();
   return { id: row.id, name: row.name, role: row.role };
 }

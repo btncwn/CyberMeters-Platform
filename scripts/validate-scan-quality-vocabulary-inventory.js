@@ -164,9 +164,13 @@ const EXPECTED = Object.freeze({
     // executive-dashboard +21 (#4); the same 40 predicates and 22 sinks remain.
     // PR-A2: extracting the shared Shadow IT count helper moves six existing
     // executive-dashboard query sites eight lines; query text is unchanged.
-    fingerprint: "4c26d906dec113343b3ad6722f79cd8e78bc65e18f02a486eeef56092e269539",
+    // M3 (MCP open to customers): one added import line in mcp-customer-status.js
+    // and mcp-customer-discovery.js moves their existing sites by one line each;
+    // the two-tree --dump-current diff keyed by file/kind/slot/snippet shows no
+    // other change (same 40 predicates, 29 sites, 22 sinks).
+    fingerprint: "abebdd57f462fd2c0cc2852a877a14422549206740db8e6cf370be4089cb2c40",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "b4c8272a22fb8a549739b7a4d73f6c515c7abddb4eca8c26e2b432a552fe8824",
+    resolved_query_sink_fingerprint: "87cfa70552b032b2dffc5ef4650d0cee8b5abd0688a3cdac5d8f86ac7aee23ca",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -368,7 +372,10 @@ const EXPECTED = Object.freeze({
   // Scheduled-report outcome presentation shifts three workspace-reports.js
   // projections (233/244/248 -> 234/247/249); the two-tree diff shows the same
   // 24 reads with unchanged file, kind and snippet.
-  sql_reads: { projection_occurrences: 24, fingerprint: "ea26d718e9c6db7a4b972f35d8e8d9d0a1cb0b15f26feba23642b110e49cb4f6" },
+  // M3: the same one-line import shift in mcp-customer-status.js (56 -> 57,
+  // 458/459 -> 459/460); the two-tree diff shows the same 24 reads with
+  // unchanged file, kind and snippet.
+  sql_reads: { projection_occurrences: 24, fingerprint: "32ba8e9275d73fe5146a0df8d72c31c0a2618fb8c58d579f312b3408e488179a" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

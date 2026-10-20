@@ -180,6 +180,35 @@ test("production founder canary rejects another member and an ownership transfer
   } finally { f.close(); }
 });
 
+test("open customer access serves another entitled owner without an enrolment row; pause closes it", async () => {
+  const f = fixture();
+  try {
+    f.env.MCP_DEPLOYMENT_TIER = "production";
+    f.env.MCP_CUSTOMER_ACCESS = "customers";
+    f.sql.prepare("UPDATE mcp_oauth_connections SET resource = ?").run(MCP_CUSTOMER_RESOURCE);
+    f.sql.prepare(`INSERT INTO subscriptions
+      (id, workspace_id, owner_user_id, plan, status, subscription_status,
+       current_period_end, created_at, updated_at)
+      VALUES ('sub_b','ws_b','user_b','business','active','active',
+       '2099-01-01T00:00:00Z','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`).run();
+    f.sql.prepare(`INSERT INTO mcp_oauth_connections
+      VALUES ('conn_b','user_b','client_a',?,'ws_b',0,'["mcp:read"]','active',NULL)`)
+      .run(MCP_CUSTOMER_RESOURCE);
+    f.sql.prepare("DELETE FROM mcp_beta_workspace_access WHERE workspace_id='ws_b'").run();
+    const opts = f.opts({ validateToken: async () => ({ ...f.token({
+      userId: "user_b", connectionId: "conn_b", workspaceId: "ws_b",
+    }), audience: MCP_CUSTOMER_RESOURCE }) });
+    const read = await callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER }, opts);
+    assert.equal(read.workspace_id, "ws_b");
+    f.sql.prepare("INSERT INTO mcp_beta_workspace_access VALUES ('ws_b','paused')").run();
+    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER }, opts));
+    // Without the setting the founder fence is back.
+    f.sql.prepare("DELETE FROM mcp_beta_workspace_access WHERE workspace_id='ws_b'").run();
+    delete f.env.MCP_CUSTOMER_ACCESS;
+    await denied(callMcpCustomerRead(f.env, "getWorkspaceSummary", { bearer: BEARER }, opts));
+  } finally { f.close(); }
+});
+
 test("revocation, membership removal, beta pause, bad scope, and audit outage deny", async () => {
   const f = fixture();
   try {
