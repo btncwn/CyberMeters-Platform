@@ -42,13 +42,18 @@ const DOMAIN = "shadow_it_unmanaged_technology";
 const RECURRENCES = ["removal_incomplete", "rejected_reappeared", "removal_contradicted",
   "retired_reappeared", "exception_expired", "approved_disappeared", "material_change",
   "owner_missing", "evidence_stale"];
+const MONITORING_ONLY = ["approved_disappeared", "material_change", "evidence_stale"];
 
 // ── 1. Copy matrix: complete, specific, distinct, truthful ───────────────────
 {
   const registryAction = resolveRemediation({ finding_type: "saas_exposure" })?.recommended_action || null;
   const seenWc = new Set(), seenAct = new Set();
   for (const rec of RECURRENCES) {
-    ok(`${rec}: has a declared severity`, severityForRecurrence(DOMAIN, rec) !== null);
+    // Alerting recurrences carry a severity; monitoring statuses (decision 20 Oct
+    // 2026: approved_disappeared, material_change, evidence_stale) carry none but
+    // keep the same in-app copy rules.
+    ok(`${rec}: severity matches its alerting/monitoring role`,
+      MONITORING_ONLY.includes(rec) ? severityForRecurrence(DOMAIN, rec) === null : severityForRecurrence(DOMAIN, rec) !== null);
     const wc = describeRecurrenceEvent(DOMAIN, rec, "Stripe");
     const act = recommendationForRecurrence(DOMAIN, rec, "Stripe", registryAction);
     ok(`${rec}: has SPECIFIC copy (not the generic condition sentence)`, !wc.includes('condition "'));
@@ -58,7 +63,7 @@ const RECURRENCES = ["removal_incomplete", "rejected_reappeared", "removal_contr
   }
   eq("every recurrence's event description is distinct", seenWc.size, RECURRENCES.length);
   ok("recurrence copy set is exactly the evaluator vocabulary (no invented states)",
-     RECURRENCES.every((r) => severityForRecurrence(DOMAIN, r) !== null));
+     RECURRENCES.every((r) => MONITORING_ONLY.includes(r) || severityForRecurrence(DOMAIN, r) !== null));
 
   // Specific truth rules.
   const owner = describeRecurrenceEvent(DOMAIN, "owner_missing", "Stripe")

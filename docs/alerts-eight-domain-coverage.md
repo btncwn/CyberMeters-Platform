@@ -3,6 +3,13 @@
 **Authoritative as of 16 July 2026.** Engineering closed at `510d240`, release
 tag `v2026.07.16-1`, live Worker `e0ce455f-034b-41e4-aad6-d546170b9ec7`.
 
+**Updated 20 October 2026** to match the code: the per-domain recurrence sets
+(Website Security 6, Email Protection 5 DMARCbis + 6 sender/hosted + the direct SPF
+path, Cyber Essentials 2 controls), and five monitoring-only recurrences that were
+listed with a severity but could never send (see *Monitoring statuses are not
+alerts*). Release facts remain in `CHANGELOG.md`. The live-proof column below is
+unchanged: this update adds no new live evidence.
+
 > **All eight canonical domains alert through the canonical pipeline.**
 > Engineering is closed at 8/8. **Genuine live occurrence proof remains outstanding
 > for every domain** — see *Honest limitations*.
@@ -24,7 +31,7 @@ missing any one raises nothing at all, silently.
 | Stable persisted entity identity, surviving rescans | the domain's own record table |
 | **Append-only** events table with `monitoring_changed` carrying `detail.to_recurrence_type` | `LIFECYCLE_EVENT_SOURCES` (`engines/alert-occurrence.js`) |
 | Transition semantics — only a real change appends | `isMonitoringTransition` |
-| A severity for every recurrence, namespaced by domain | `RECURRENCE_SEVERITY` (`engines/alert-consumers.js`) |
+| A severity for every alerting recurrence, namespaced by domain; none for a monitoring status | `RECURRENCE_SEVERITY`, `MONITORING_ONLY_RECURRENCES` (`engines/alert-consumers.js`) |
 | An activation watermark, so pre-existing conditions cannot masquerade as new | `alert_activation(workspace_id, domain_key)` |
 | Database-enforced dedupe — never an advisory read-then-write | migration 087 partial UNIQUE index + `INSERT OR IGNORE` |
 | Customer-facing meaning from the canonical registry | `resolveRemediation` |
@@ -53,16 +60,37 @@ whatever this document says.
 
 ### Per-domain detail
 
-| Domain | Entity identity | Actionable recurrences | Severity provenance | Recovery / re-entry |
+| Domain | Entity identity | Alerting recurrences | Severity provenance | Recovery / re-entry |
 | --- | --- | --- | --- | --- |
-| `certificates_trust` | `certificate_lifecycle.id` | `expired`, `renewal_overdue` (+7-day band), `replacement_contradicted`, `verification_failed`, `replacement_unverified`, `coverage_regression`, `unexpected_san`, `exception_expired`, `owner_missing`, `evidence_stale` | fixed + INHERIT band | ✅ |
-| `identity_exposure` | `identity_exposure.canonical_identity_key` | `public_admin_surface`, `removal_contradicted`, `verification_failed`, `unexpected_surface`, `retired_reappeared`, `investigate_unresolved`, `exception_expired`, `provider_change`, `owner_missing`, `evidence_stale` | fixed | ✅ |
-| `shadow_it_unmanaged_technology` | `canonical_technology_key` | `removal_incomplete`, `rejected_reappeared`, `removal_contradicted`, `retired_reappeared`, `exception_expired`, `approved_disappeared`, `material_change`, `owner_missing`, `evidence_stale` | fixed | ✅ |
+| `certificates_trust` | `certificate_lifecycle.id` | `expired`, `renewal_overdue` (+7-day band), `replacement_contradicted`, `verification_failed`, `replacement_unverified`, `coverage_regression`, `unexpected_san`, `exception_expired`, `owner_missing` | fixed + INHERIT band | ✅ |
+| `identity_exposure` | `identity_exposure.canonical_identity_key` | `public_admin_surface`, `removal_contradicted`, `verification_failed`, `unexpected_surface`, `retired_reappeared`, `investigate_unresolved`, `exception_expired`, `provider_change`, `owner_missing` | fixed | ✅ |
+| `shadow_it_unmanaged_technology` | `canonical_technology_key` | `removal_incomplete`, `rejected_reappeared`, `removal_contradicted`, `retired_reappeared`, `exception_expired`, `owner_missing` | fixed | ✅ |
 | `brand_protection` | `managed_cases.id` | `case_opened`, `case_reappeared`, `case_resolved` | INHERIT | ✅ |
 | `attack_surface` | `managed_cases.id` | `case_opened`, `case_reopened`, `case_verification_failed`, `case_resolved` | INHERIT | ✅ |
-| `email_protection` | `hosted_dns_entries.id` / `email_sender_sources.id` | `sender_unrecognised`, `sender_classification_worsened`, `sender_unauthorised_failures_active`, `hosted_record_disconnected`, `hosted_impact_regression`, `hosted_rolled_back_auto` | INHERIT band | ✅ windowed evidence |
-| **`website_security`** | **(workspace, domain_id, canonical finding id)** | `transport_not_available`, `insecure_redirect`, `browser_protection_missing`, `browser_protection_malformed` | **INHERIT** from `scoring.js` | ✅ + `unknown` ≠ recovery |
-| **`cyber_essentials_readiness`** | **(workspace, control_key)** | `externally_observed_control_not_ready`, `externally_observed_control_worsened` | **fixed `medium`** | ✅ + `unknown` ≠ recovery |
+| `email_protection` | `hosted_dns_entries.id` / `email_sender_sources.id` / the DMARC record | **DMARCbis (5):** `record_removed`, `record_became_malformed`, `multiple_records_detected` (high); `enforcement_weakened`, `external_rua_unauthorised` (medium). **Sender / hosted (6):** `sender_unrecognised`, `sender_classification_worsened`, `sender_unauthorised_failures_active`, `hosted_record_disconnected`, `hosted_impact_regression`, `hosted_rolled_back_auto`. **Direct SPF path:** `email_spf_unauthorised_source` (`engines/spf-corroboration.js` → `emitManagedAlert`, deduped per source IP, from complete RUA evidence) | fixed + INHERIT band | ✅ windowed evidence |
+| **`website_security`** | **(workspace, domain_id, canonical finding id)** | `transport_not_available`, `insecure_redirect`, `browser_protection_missing`, `browser_protection_malformed`, `credential_form_exposed`, `external_content_exposed` | **INHERIT** from `scoring.js` | ✅ + `unknown` ≠ recovery |
+| **`cyber_essentials_readiness`** | **(workspace, control_key)** — 2 controls | `externally_observed_control_not_ready`, `externally_observed_control_worsened` | **fixed `medium`** | ✅ + `unknown` ≠ recovery |
+
+### Monitoring statuses are not alerts
+
+Five recurrences are recorded by their evaluators with `required_case_action: "none"`,
+so they never reach the alert pipeline. Until 20 October 2026 they were nevertheless
+listed with a severity, which claimed alerts that could never be sent. They now have
+**no severity**, are listed in `MONITORING_ONLY_RECURRENCES`, and stay visible in-app as
+the record's monitoring status (Shadow IT carries the same copy as
+`recurrence_summary`):
+
+| Domain | Monitoring status | Why it is not an alert |
+| --- | --- | --- |
+| Certificates & Trust | `evidence_stale` | CyberMeters' own evidence aged; nothing new about the customer's posture |
+| Identity Exposure | `evidence_stale` | as above |
+| Shadow IT | `evidence_stale` | as above |
+| Shadow IT | `approved_disappeared` | an approved service is no longer observed — never verified removal; the customer's classification is unchanged |
+| Shadow IT | `material_change` | a new hostname, provider or category for an already classified service — a review prompt, not an incident |
+
+`validate-managed-alerts.js` reads each evaluator's source and pins both directions:
+every alerting recurrence has a severity, and the monitoring-only list is exactly the
+evaluator's `"none"` recurrences, none of which carries a severity.
 
 All eight share one preferences/entitlement path (`engines/alert-gate.js`), one email
 chokepoint (`sendTenantAlertEmail`), one channel trunk (`deliverWorkspaceAlert`), one
@@ -117,14 +145,17 @@ re-interprets evidence another domain already owns **and already alerts**. So:
 | --- | --- | --- |
 | Firewalls & Boundary Protection | `partial` | ✅ |
 | Secure Configuration | `partial` | ✅ |
-| Security Update Management | `partial` | ✅ |
+| **Security Update Management** | **`none`** (since M5.b) | ❌ **never** |
 | **User Access Control** | **`none`** | ❌ **never** |
 | **Malware Protection** | **`none`** | ❌ **never** |
 
-The last two are scored from **email-auth proxies** (SPF/DMARC) that measure
-anti-spoofing — not user access control or endpoint AV. MFA, admin separation,
-joiner/leaver and device patching are not observable from outside. They remain
-**visible** in the readiness product and are persisted as `not_externally_assessable`.
+None of the last three is externally assessable. User Access Control and Malware
+Protection were once scored from **email-auth proxies** (SPF/DMARC) that measure
+anti-spoofing, not access control or endpoint AV; Security Update Management was
+scored from certificate expiry and the ASM backlog, which measure none of its
+questions. MFA, admin separation, joiner/leaver and device patching are not observable
+from outside. All three remain **visible** in the readiness product and are persisted as
+`not_externally_assessable`.
 This is the repo's own honesty metadata (`lib/cyber-essentials.js`), read at runtime
 rather than restated, so it cannot drift.
 
@@ -175,8 +206,8 @@ production and neither was about alerting:
 - No alerts were manufactured in production to prove delivery.
 - Website Security identity is domain-level because the evidence is. Per-hostname or
   per-path identity awaits a scan change that attributes a host to a website finding.
-- CE covers 2 of 5 control themes for alerting; the other 3 are not externally
-  assessable and say so.
+- CE covers 2 of 5 control themes for alerting (Firewalls & Boundary Protection,
+  Secure Configuration); the other 3 are not externally assessable and say so.
 - Website Security's `ssl_not_available` resolves `cert.tls.install`
   (`domain_key: certificates_trust`) — a pre-existing registry/resolver split. The
   alert copy is correct; the attribution is inconsistent. P2.
