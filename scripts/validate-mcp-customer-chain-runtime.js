@@ -335,8 +335,13 @@ main().then(async () => {
   await exec(process.execPath, ['--test',
     'workers/scan-api/test/mcp-oauth-admission.test.js',
     'workers/scan-api/test/mcp-customer-service.test.js',
+    // The read projections (recent-scan report budget, 20 Oct 2026) and the
+    // gateway's output contract were only in the local full gate.
+    'workers/scan-api/test/mcp-read.test.js',
   ], { cwd: repo, timeout: 120000, maxBuffer: 2 * 1024 * 1024 });
-  process.stdout.write('PASS: MCP OAuth and customer-service founder canary tests\n');
+  await exec('npm', ['test', '--prefix', 'workers/mcp-server'],
+    { cwd: repo, timeout: 180000, maxBuffer: 4 * 1024 * 1024 });
+  process.stdout.write('PASS: MCP OAuth, customer-service, read-projection and gateway tests\n');
 }).catch((error) => {
   process.stderr.write(`FAIL: ${error.stack ?? error}\n`);
   process.exitCode = 1;

@@ -23,9 +23,35 @@ const MAX_REPORT_READS = 16;
 const MAX_TOTAL_REPORT_BYTES = 8_000_000;
 const DOMAIN_KEYS = new Set(CANONICAL_DOMAIN_KEYS);
 
+// A list of scans must not need every full report. Plan the reads from object
+// metadata, newest row first: a report is admitted while the running total
+// stays inside the budget; the rest are left unread and their rows say so
+// ("evidence_read_bound_exceeded") instead of failing the whole call. A key
+// with no object is passed through so the reader reports it missing.
+export async function planListReportReads(env, keys) {
+  const reports = env?.cybermeters_reports;
+  if (!reports || typeof reports.head !== "function") return null;
+  const admitted = new Set();
+  let total = 0;
+  for (const key of keys) {
+    const meta = await reports.head(key);
+    if (!meta) { admitted.add(key); continue; }
+    const size = meta.size;
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_REPORT_BYTES) continue;
+    if (total + size > MAX_TOTAL_REPORT_BYTES) continue;
+    total += size;
+    admitted.add(key);
+  }
+  return admitted;
+}
+
+export const EVIDENCE_READ_BOUND_EXCEEDED = "evidence_read_bound_exceeded";
+
 // Canonical selectors may catch R2 errors and conservatively continue. Track
 // budget breaches outside those helpers so the MCP call still fails closed.
-export function boundedReportReads(env, { maxReads = MAX_REPORT_READS } = {}) {
+// With `admitted`, a key outside the plan is refused as not read (the reader
+// marks its row bounded out); it is not a breach.
+export function boundedReportReads(env, { maxReads = MAX_REPORT_READS, admitted = null } = {}) {
   if (!Number.isSafeInteger(maxReads) || maxReads < 1 || maxReads > 20) {
     throw new Error("mcp_report_read_budget");
   }
@@ -41,6 +67,9 @@ export function boundedReportReads(env, { maxReads = MAX_REPORT_READS } = {}) {
     cybermeters_reports: {
       async get(...args) {
         if (breached) throw new Error("mcp_report_read_budget");
+        if (admitted && !admitted.has(args[0])) {
+          throw Object.assign(new Error(EVIDENCE_READ_BOUND_EXCEEDED), { code: EVIDENCE_READ_BOUND_EXCEEDED });
+        }
         count += 1;
         if (count > maxReads) {
           breached = true;
@@ -201,7 +230,16 @@ function projectScan(row) {
     comparable,
     score_available: assessment?.display_score != null && safeScore(assessment.display_score) != null,
     measured_at: safeDate(row.created_at),
+    // Whether this row's stored evidence was read for this answer. "not_read"
+    // means the list's report budget was spent on newer rows.
+    ...(row.status === "completed" ? { evidence_read: evidenceRead(row.phase5_evidence_read?.state) } : {}),
   };
+}
+
+function evidenceRead(state) {
+  if (state === "verified") return "read";
+  if (state === "bounded_out") return "not_read";
+  return "unavailable";
 }
 
 export async function projectMcpWorkspaces(_env, grant, facts) {
@@ -353,8 +391,12 @@ export async function projectMcpRecentScans(env, grant, _facts, input = {}) {
     ? [grant.workspaceId, cursor.createdAt, cursor.createdAt, cursor.id, SCAN_LIMIT + 1]
     : [grant.workspaceId, SCAN_LIMIT + 1])).all();
   if (!Array.isArray(result?.results)) throw new Error("invalid_projection");
-  const reports = boundedReportReads(env);
-  const projected = await projectPhase5ScanRowsForCustomer(reports.env, result.results.slice(0, SCAN_LIMIT));
+  const page = result.results.slice(0, SCAN_LIMIT);
+  const admitted = await planListReportReads(env, page
+    .filter((row) => row?.status === "completed" && SAFE_ID_RE.test(row.id ?? ""))
+    .map((row) => `reports/${row.id}.json`));
+  const reports = boundedReportReads(env, { admitted });
+  const projected = await projectPhase5ScanRowsForCustomer(reports.env, page);
   reports.assertWithinBudget();
   return {
     workspace_id: grant.workspaceId,

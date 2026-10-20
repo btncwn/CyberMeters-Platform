@@ -791,7 +791,16 @@ async function readStoredPhase5Modules(env, scanId) {
       monitoring_states: report.monitoring_states ?? null,
       brand_score_unreliable: hasUnvalidatedBrandFinding(report),
     };
-  } catch {
+  } catch (error) {
+    // A caller's read plan left this report unread (a bounded list): the same
+    // honest "not read" outcome as rows past the read limit, not a failure.
+    if (error?.code === "evidence_read_bound_exceeded") {
+      return {
+        state: "bounded_out",
+        reason: "evidence_read_bound_exceeded",
+        modules: {},
+      };
+    }
     return {
       state: "unavailable",
       reason: "stored_report_read_failed",

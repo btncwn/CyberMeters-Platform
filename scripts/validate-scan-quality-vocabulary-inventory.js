@@ -375,7 +375,11 @@ const EXPECTED = Object.freeze({
   // M3: the same one-line import shift in mcp-customer-status.js (56 -> 57,
   // 458/459 -> 459/460); the two-tree diff shows the same 24 reads with
   // unchanged file, kind and snippet.
-  sql_reads: { projection_occurrences: 24, fingerprint: "32ba8e9275d73fe5146a0df8d72c31c0a2618fb8c58d579f312b3408e488179a" },
+  // MCP recent-scan read plan (20 Oct 2026): planListReportReads and the
+  // evidence_read field shift the two mcp-projections.js scan SELECTs; the
+  // two-tree --dump-current diff shows the same 24 reads with unchanged file,
+  // kind and snippet.
+  sql_reads: { projection_occurrences: 24, fingerprint: "7c35abb6cbda79a149d34cee1b775e7d1976d2a2439b5e5faee2bdfbb6a01a20" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

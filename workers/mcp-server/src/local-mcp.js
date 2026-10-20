@@ -52,6 +52,7 @@ const scan = z.object({
   assessment,
   measured_at: timestamp,
   score_available: z.boolean(),
+  evidence_read: z.enum(['read', 'not_read', 'unavailable']).optional(),
 }).passthrough();
 const caseItem = z.object({
   case_id: workspaceId,
@@ -174,6 +175,7 @@ function projectScan(value) {
       provisional: value.assessment.provisional, comparable: value.assessment.comparable,
     },
     measurement_at: value.measured_at, score_available: value.score_available,
+    ...(value.evidence_read !== undefined ? { evidence_read: value.evidence_read } : {}),
     ui_path: `/scans/${encodeURIComponent(value.scan_id)}`,
   };
 }

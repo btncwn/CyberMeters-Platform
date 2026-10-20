@@ -240,6 +240,50 @@ test("oversized or too many canonical R2 reports fail closed even when the helpe
   } finally { f.close(); }
 });
 
+// Live P2 (20 Oct 2026): ten 0.7-1.6 MB reports (11.95 MB) breached the 8 MB
+// list budget and every cybermeters_list_recent_scans call failed closed.
+test("a page of ten large reports still lists every scan; rows past the budget say evidence not read", async () => {
+  const f = fixture();
+  try {
+    await f.seed();
+    f.sql.prepare("DELETE FROM scans WHERE workspace_id='ws_a'").run();
+    for (let i = 0; i < 10; i += 1) {
+      f.sql.prepare("INSERT INTO scans VALUES (?, 'ws_a', 'a.example', 'completed', 90, 'low', 'partial', ?)")
+        .run(`scan_big_${i}`, `2026-10-15T14:${String(i).padStart(2, "0")}:00.000Z`);
+    }
+    const parsed = [];
+    const report = { modules: { dns: { records: [] } }, monitoring_states: null, findings: [] };
+    f.env.cybermeters_reports = {
+      async head() { return { size: 1_500_000 }; },
+      async get(key) { return { size: 1_500_000, async json() { parsed.push(key); return report; } }; },
+    };
+    const page = await listRecentScansForMcp(f.env, input());
+    assert.equal(page.scans.length, 10);
+    // Newest first: 1.5 MB x 5 = 7.5 MB fits the 8 MB budget; the sixth would not.
+    assert.deepEqual(page.scans.map((scan) => scan.evidence_read),
+      ["read", "read", "read", "read", "read", "not_read", "not_read", "not_read", "not_read", "not_read"]);
+    assert.deepEqual(page.scans.slice(0, 5).map((scan) => scan.scan_id),
+      ["scan_big_9", "scan_big_8", "scan_big_7", "scan_big_6", "scan_big_5"]);
+    assert.equal(parsed.length, 5, "an unread row's report body is never fetched or parsed");
+    assert.ok(page.scans.slice(5).every((scan) => scan.score_available === false && scan.assessment.authoritative === false));
+
+    // One report over the per-object cap leaves only that row unread.
+    parsed.length = 0;
+    f.env.cybermeters_reports = {
+      async head(key) { return { size: key.includes("scan_big_8") ? 2_000_001 : 100_000 }; },
+      async get(key) { return { size: key.includes("scan_big_8") ? 2_000_001 : 100_000, async json() { parsed.push(key); return report; } }; },
+    };
+    const oneLarge = await listRecentScansForMcp(f.env, input());
+    assert.deepEqual(oneLarge.scans.map((scan) => scan.evidence_read),
+      ["read", "not_read", "read", "read", "read", "read", "read", "read", "read", "read"]);
+    assert.equal(parsed.length, 9);
+
+    // A store without metadata reads keeps the previous rule: over budget fails closed.
+    f.env.cybermeters_reports = { async get() { return { size: 1_500_000, async json() { return report; } }; } };
+    await denied(listRecentScansForMcp(f.env, input()));
+  } finally { f.close(); }
+});
+
 test("completed Cyber Essentials questionnaire cannot establish posture without a verified snapshot", async () => {
   const f = fixture();
   try {
