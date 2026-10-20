@@ -15,12 +15,23 @@ const CALLS = {
   lookalike: { run: api.runLookalikeTool, defer: api.deferLookalikeTool },
 }
 
-// How each tool looks at a domain, said under the form.
-const METHOD_NOTE = {
-  dmarc: 'Passive DNS lookups only.',
-  spf: 'Passive DNS lookups only.',
-  headers: 'One request to your home page over HTTPS; only the response headers are read.',
-  lookalike: 'Passive DNS lookups only, for about 40 close variants of your name.',
+// How each tool looks at a domain, said under the form. The lookalike count
+// is the engine's own maximum, published by the API config.
+function methodNote(tool, config) {
+  if (tool === 'headers') return 'One request to your home page over HTTPS; only the response headers are read.'
+  if (tool === 'lookalike') {
+    const max = config?.limits?.lookalike_max_candidates
+    return Number.isInteger(max) ? `Passive DNS lookups only, for up to ${max} close variants of your name.` : 'Passive DNS lookups only, for close variants of your name.'
+  }
+  return 'Passive DNS lookups only.'
+}
+
+// What CyberMeters keeps watching after this one check, per tool.
+const KEEP_WATCHING = {
+  dmarc: 'This is one check, once. CyberMeters Email Protection re-checks your DMARC, SPF and DKIM on a schedule, tells you when a record changes, and tracks each fix until it is verified.',
+  spf: 'This is one check, once. CyberMeters Email Protection re-checks your DMARC, SPF and DKIM on a schedule, tells you when a record changes, and tracks each fix until it is verified.',
+  headers: 'This is one check, once. CyberMeters Website Security re-checks your HTTPS and security headers on a schedule, tells you when one changes, and tracks each fix until it is verified.',
+  lookalike: 'This is one check, once. CyberMeters Brand Protection keeps watching for new lookalike domains, shows what each one points at, and tracks what you decide to do about it.',
 }
 
 // The tool name a "Something wrong?" report carries.
@@ -195,7 +206,7 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
                 </button>
               </div>
               {available && <TurnstileWidget ref={widget} siteKey={config.turnstile_site_key} action={`tool_${tool}`} onToken={setToken} />}
-              <p className="text-xs text-gray-500">{METHOD_NOTE[tool]} Two free checks per tool every 24 hours; signed-in workspace users are not limited by this. The domain you check is not saved: a result is reused for up to 10 minutes, then dropped.</p>
+              <p className="text-xs text-gray-500">{methodNote(tool, config)} Two free checks per tool every 24 hours; signed-in workspace users are not limited by this. The domain you check is not saved: a result is reused for up to 10 minutes, then dropped.</p>
             </form>
           )}
         </section>
@@ -217,7 +228,7 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
 
         <section className="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 space-y-3">
           <h2 className="text-lg font-bold">Keep watching it</h2>
-          <p className="text-sm text-gray-600">This is one check, once. CyberMeters re-checks your email protection on a schedule, tells you when a record changes, and tracks each fix until it is verified.</p>
+          <p className="text-sm text-gray-600">{KEEP_WATCHING[tool]}</p>
           <div className="flex flex-wrap gap-3"><a href={TRIAL_URL} className="btn-primary">Start a 14-day trial</a><Link to="/tools" className="btn-secondary">More free tools</Link></div>
         </section>
       </main>

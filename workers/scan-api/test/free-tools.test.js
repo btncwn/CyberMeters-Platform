@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { cleanupExpiredPublicApiRateLimits } from "../src/cron/scheduled.js";
 import { buildDmarcToolResult, runDmarcCheck } from "../src/engines/free-tools/dmarc-check.js";
 import { buildHeadersToolResult, runHeadersCheck } from "../src/engines/free-tools/headers-check.js";
+import { classifyCspPolicy } from "../src/engines/headers-scan.js";
 import { LOOKALIKE_DETAIL_LIMIT, lookalikeCandidates, runLookalikeCheck } from "../src/engines/free-tools/lookalike-check.js";
 import { buildSpfToolResult, runSpfCheck } from "../src/engines/free-tools/spf-check.js";
 import { FREE_TOOL_POLICY, domainCapKey, normaliseToolDomain } from "../src/lib/free-tool-gate.js";
@@ -491,7 +492,7 @@ test("headers: six good headers is a clean result with nothing to paste", () => 
 test("headers: missing HSTS and weak ones get nginx, Apache and Cloudflare lines for exactly those", () => {
   const { "strict-transport-security": _h, "content-security-policy": _c, ...rest } = ALL_GOOD;
   const result = buildHeadersToolResult("example.com", seen({ ...rest, "referrer-policy": "unsafe-url" }));
-  assert.equal(result.verdict.level, "risk");
+  assert.equal(result.verdict.level, "attention", "calm: the full scan has no 'at risk' band for headers");
   assert.equal(result.verdict.headline, "3 of 6 security headers need attention");
   assert.match(result.verdict.summary, /including Strict-Transport-Security/);
   const names = result.next_step.headers.map((h) => h.name);
@@ -511,7 +512,7 @@ test("headers: CSP frame-ancestors stands in for X-Frame-Options; a weak HSTS is
   const result = buildHeadersToolResult("example.com", seen({ ...rest, "strict-transport-security": "max-age=600" }));
   assert.equal(result.headers.find((h) => h.key === "x-frame-options").status, "valid");
   assert.equal(result.headers.find((h) => h.key === "strict-transport-security").status, "weak");
-  assert.equal(result.verdict.level, "risk");
+  assert.equal(result.verdict.level, "attention");
 });
 
 test("headers: no answer, a bot check or an error page is never 'missing headers'", () => {
@@ -675,4 +676,30 @@ test("lookalike: the route checks variants of the registrable domain through the
   assert.equal(ok.status, 200);
   assert.equal((await ok.json()).tool, "lookalike");
   assert.equal((await h.check("lookalike", "acmebakery.co.uk", "good-headers")).status, 403);
+});
+
+test("headers: a CSP that does not restrict scripts is never a pass, in the free tool or the full scan", () => {
+  // The shared classifier (headers-scan.js) decides for both.
+  for (const value of ["upgrade-insecure-requests", "frame-ancestors 'self'", "style-src 'self' 'unsafe-inline'; img-src *"]) {
+    const csp = classifyCspPolicy(value);
+    assert.equal(csp.status, "weak", value);
+    assert.equal(csp.classification, "no_script_restriction", value);
+    assert.equal(csp.actionable_weakness, true, value);
+  }
+  assert.equal(classifyCspPolicy("default-src 'self'").status, "valid");
+  assert.equal(classifyCspPolicy("script-src 'self'; upgrade-insecure-requests").status, "valid");
+
+  const result = buildHeadersToolResult("example.com", seen({ ...ALL_GOOD, "content-security-policy": "upgrade-insecure-requests" }));
+  const csp = result.headers.find((h) => h.key === "content-security-policy");
+  assert.equal(csp.status, "weak");
+  assert.equal(csp.label, "Set, but doesn't restrict scripts");
+  assert.equal(result.verdict.level, "attention");
+  assert.equal(result.next_step.title, "Tighten your Content-Security-Policy");
+  assert.match(result.next_step.cautions[0], /does not restrict scripts: it has no default-src or script-src/);
+});
+
+test("tools config publishes the lookalike candidate maximum the engine uses", async () => {
+  const { env } = fixture();
+  const config = await (await harness(env).call("GET", "/api/tools/config")).json();
+  assert.equal(config.limits.lookalike_max_candidates, 44);
 });

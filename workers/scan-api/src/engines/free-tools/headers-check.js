@@ -108,6 +108,9 @@ function judge(name, value) {
     if (csp.style_only_weakness) {
       return { status: "valid", details: "Set. style-src allows 'unsafe-inline', a minor risk the full scan also treats as a note.", note: true };
     }
+    if (csp.classification === "no_script_restriction") {
+      return { status: "weak", label: "Set, but doesn't restrict scripts", details: "There is no script-src or default-src, so any script can still run.", no_script_restriction: true };
+    }
     return { status: csp.status, details: csp.details, dangerous_directives: csp.dangerous_directives };
   }
   const strength = classifyHeaderStrength(name, value);
@@ -165,8 +168,10 @@ export function buildHeadersToolResult(domain, observation, { now = Date.now() }
       present: value !== undefined && value !== null,
       value: value === undefined || value === null ? null : clip(value),
       status: verdict.status,
+      label: verdict.label || null,
       details: verdict.details,
       note: verdict.note === true,
+      no_script_restriction: verdict.no_script_restriction === true,
       meaning: GUIDE[entry.name].meaning,
       dangerous_directives: verdict.dangerous_directives || [],
     };
@@ -179,14 +184,17 @@ export function buildHeadersToolResult(domain, observation, { now = Date.now() }
     const guide = GUIDE[row.key];
     return { name: guide.report_only ? "Content-Security-Policy-Report-Only" : row.name, value: guide.suggest, caution: guide.caution || null };
   });
-  const advice = cspToTighten
-    ? [`Your Content-Security-Policy allows unsafe script sources in ${cspToTighten.dangerous_directives.join(" and ") || "a script directive"}. Remove 'unsafe-inline', 'unsafe-eval' and * there, moving inline scripts into files or allowing them by nonce or hash. Keep the rest of your policy as it is.`]
-    : [];
+  const advice = !cspToTighten ? []
+    : cspToTighten.no_script_restriction
+      ? ["Your Content-Security-Policy does not restrict scripts: it has no default-src or script-src. Add one, such as default-src 'self', to the policy you already have, testing it first as Content-Security-Policy-Report-Only."]
+      : [`Your Content-Security-Policy allows unsafe script sources in ${cspToTighten.dangerous_directives.join(" and ") || "a script directive"}. Remove 'unsafe-inline', 'unsafe-eval' and * there, moving inline scripts into files or allowing them by nonce or hash. Keep the rest of your policy as it is.`];
   const missingHsts = needsWork.some((row) => row.key === "strict-transport-security");
   const missingCount = rows.filter((row) => row.status === "missing").length;
   const weakCount = needsWork.length - missingCount;
 
-  const level = needsWork.length === 0 ? "good" : (missingHsts || needsWork.length >= 3 ? "risk" : "attention");
+  // Calm by design: in the full scan these are Website Security findings
+  // (Issue detected), and no band says "at risk" for headers alone.
+  const level = needsWork.length === 0 ? "good" : "attention";
   const parts = [];
   if (missingCount) parts.push(`${missingCount} missing`);
   if (weakCount) parts.push(`${weakCount} weak or invalid`);

@@ -58,9 +58,9 @@ const SERVICES = [
   },
   {
     name: 'Brand Protection',
-    q: 'Is anyone impersonating my brand?',
+    q: 'Are there lookalikes of my domain?',
     copy: 'Review lookalike domain candidates and the evidence behind them. Decide which need attention and track the next action.',
-    tags: ['Lookalike domains', 'Impersonation', 'Classification'],
+    tags: ['Lookalike domains', 'DNS and web evidence', 'Classification'],
     key: 'brand',
   },
   {
@@ -69,6 +69,7 @@ const SERVICES = [
     copy: 'Evidence-led readiness support that combines externally observable signals with saved questionnaire answers.',
     tags: ['Readiness gaps', 'Evidence', 'Actions'],
     key: 'cyber_essentials',
+    more: { to: '/cyber-essentials-readiness', label: 'How the readiness check works' },
   },
 ]
 
@@ -341,6 +342,7 @@ function AreasOverview() {
                       <li key={t} className="text-[14px] text-[#46506A] px-2.5 py-1 rounded-full border" style={{ borderColor: c.ring, background: c.surface }}>{t}</li>
                     ))}
                   </ul>
+                  {s.more && <Link to={s.more.to} className="mt-4 inline-block text-[16px] font-semibold text-[#1D46A8] underline underline-offset-2">{s.more.label}</Link>}
                 </div>
               </div>
             </div>
@@ -427,7 +429,7 @@ export default function PublicLandingPage() {
               <div className="p-5 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-[14px] text-[#6A7389]">Step 3 of 5</p>
+                    <p className="text-[14px] text-[#626B80]">Step 3 of 5</p>
                     <p className="font-cm text-[22px] leading-tight text-[#121A2E] mt-1">Verify example.co.uk</p>
                   </div>
                   <span className="text-[14px] font-semibold rounded-full px-3 py-1 bg-[#FFF1D6] text-[#8A5300]">Waiting for the record</span>
@@ -436,7 +438,7 @@ export default function PublicLandingPage() {
                 <dl className="mt-4 rounded-xl border border-[#E6EAF3]">
                   {[['Type', 'TXT'], ['Host', '_cybermeters.example.co.uk'], ['Value', 'cybermeters-verification=7f3c9a1e52b8']].map(([k, v]) => (
                     <div key={k} className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 px-4 py-3 border-b border-[#EEF1F7] last:border-b-0">
-                      <dt className="text-[14px] text-[#6A7389]">{k}</dt>
+                      <dt className="text-[14px] text-[#626B80]">{k}</dt>
                       <dd className="mono text-[14px] text-[#121A2E] break-all">{v}</dd>
                     </div>
                   ))}

@@ -127,7 +127,7 @@ export default function StatusPage() {
 
         <p className="mt-4 text-center text-xs text-gray-400">
           Real-time health check. For incident history and disclosure, see our{' '}
-          <Link to="/trust" className="text-brand-700 hover:underline">Trust &amp; Security</Link> page.
+          <Link to="/trust" className="text-brand-700 underline underline-offset-2">Trust &amp; Security</Link> page.
         </p>
       </main>
       <PublicSiteFooter />

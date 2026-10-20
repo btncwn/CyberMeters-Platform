@@ -13,7 +13,7 @@ export default function ProductFrame({ label, path, children, caption, className
           <span className="w-2.5 h-2.5 rounded-full bg-[#D5DBEA]" />
           <span className="w-2.5 h-2.5 rounded-full bg-[#D5DBEA]" />
         </span>
-        <span className="min-w-0 truncate text-[14px] text-[#6A7389]">app.cybermeters.com{path}</span>
+        <span className="min-w-0 truncate text-[14px] text-[#626B80]">app.cybermeters.com{path}</span>
       </div>
       {children}
       {caption && (

@@ -1,8 +1,8 @@
 // ── Brand + typosquat detection module ──
 // Brand-part extraction, high/med-risk brand keyword sets, homoglyph/typo variant
 // generation with risk scoring, and the typosquat scan roll-up. Extracted verbatim from
-// index.js (monolith decomposition, Phase 1c). MED_RISK_BRAND_KEYWORDS, TYPOSQUAT_HOMOGLYPHS,
-// _typosquatRisk and MAX_BRAND_CANDIDATES are module-internal.
+// index.js (monolith decomposition, Phase 1c). MED_RISK_BRAND_KEYWORDS, TYPOSQUAT_HOMOGLYPHS and
+// _typosquatRisk are module-internal; MAX_BRAND_CANDIDATES is also read by the free lookalike tool.
 import { generateIdnHomographCandidates } from "./idn-homograph.js";
 
 /**
@@ -96,7 +96,7 @@ function _typosquatRisk(sld, variantType) {
 }
 
 /** Maximum candidates returned by generateTyposquatCandidates. */
-const MAX_BRAND_CANDIDATES = 44;
+export const MAX_BRAND_CANDIDATES = 44;
 
 // Per-family floors inside MAX_BRAND_CANDIDATES. Without them the ~50 keyword
 // variants plus the TLD swaps would out-score and silently crowd out every

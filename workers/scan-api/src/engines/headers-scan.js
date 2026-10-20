@@ -151,6 +151,21 @@ export function classifyCspPolicy(value) {
     .filter((entry) => entry.tokens.length > 0);
   const styleDanger = dangerousTokens("style-src");
 
+  // A policy with neither script-src nor default-src lets the page load any
+  // script (e.g. a CSP of only upgrade-insecure-requests): set, but it does
+  // nothing against injected scripts, so it is never a pass (20 Oct 2026).
+  if (!directives.has("script-src") && !directives.has("default-src")) {
+    return {
+      status: "weak",
+      classification: "no_script_restriction",
+      parsed: true,
+      actionable_weakness: true,
+      style_only_weakness: false,
+      dangerous_directives: [],
+      details: "CSP is set but has no script-src or default-src, so it does not restrict scripts",
+    };
+  }
+
   if (scriptDanger.length > 0) {
     const dangerousDirectives = scriptDanger.map((entry) => entry.directive);
     return {
