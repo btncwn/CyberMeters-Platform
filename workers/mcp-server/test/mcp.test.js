@@ -513,6 +513,13 @@ test('projections expose only fixed fields and preserve eight domain states and 
     quality: 'partial', authoritative: false, provisional: true, comparable: false,
   });
   assert.equal(oneScan.score_available, false);
+  assert.equal('evidence_read' in oneScan, false, 'absent from an older backend, absent here');
+  // A row whose stored evidence was not read for this answer says so.
+  const unread = JSON.parse(projectRecentScans({ workspace_id: workspaceId,
+    scans: [fixtureScan({ evidence_read: 'not_read' })], limit: 10, has_more: false }, workspaceId));
+  assert.equal(unread.scans[0].evidence_read, 'not_read');
+  assert.throws(() => projectRecentScans({ workspace_id: workspaceId,
+    scans: [fixtureScan({ evidence_read: 'partly' })], limit: 10, has_more: false }, workspaceId));
   const detail = JSON.parse(projectScanStatus({ workspace_id: workspaceId,
     ...fixtureScan() }, workspaceId, scanId));
   assert.deepEqual(detail.untrusted_fields, ['scan.domain']);
