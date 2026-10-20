@@ -1620,7 +1620,7 @@ async function opsHealthHeartbeat(env) {
 
 // The founder's daily email (08:00 UTC): yesterday's counters, funnel and
 // feedback, anomalies first (lib/founder-digest.js). Ops-only recipient.
-async function sendFounderDailyDigest(env) {
+async function sendFounderDailyEmail(env) {
   const digest = await collectFounderDigest(env);
   const mail = formatFounderDigest(digest);
   const html = `<pre style="font-family:ui-monospace,monospace;font-size:13px;white-space:pre-wrap">${escapeEmailHtml(mail.text)}</pre>`;
@@ -1630,10 +1630,10 @@ async function sendFounderDailyDigest(env) {
   } catch {
     result = { sent: false, reason: "sender_threw" };
   }
-  recordMetric(env, "founder_daily_digest", { blobs: [result?.sent ? "sent" : "not_sent"], indexes: [result?.sent ? "sent" : "not_sent"] });
+  recordMetric(env, "founder_daily_email", { blobs: [result?.sent ? "sent" : "not_sent"], indexes: [result?.sent ? "sent" : "not_sent"] });
   // Same contract as the ops-health alert: a failed send is a durable record.
-  const outcome = await recordAlertDeliveryOutcome(env, result, `founder_daily_digest:${digest.day}`);
-  if (outcome.recorded) console.error("[alert-delivery-failed]", JSON.stringify({ scope: "founder_daily_digest", reason: outcome.reason }));
+  const outcome = await recordAlertDeliveryOutcome(env, result, `founder_daily_email:${digest.day}`);
+  if (outcome.recorded) console.error("[alert-delivery-failed]", JSON.stringify({ scope: "founder_daily_email", reason: outcome.reason }));
 }
 
 // A completed or cancelled request is kept as a receipt, but its workspace_id
@@ -3107,7 +3107,7 @@ export default {
     runBrandHttpEnrichmentSweep,
     triggerScheduledScan,
     processFreeToolDeferredChecks: (env) => processFreeToolDeferredChecks(env, { consumeApiRateLimit }),
-    sendFounderDailyDigest,
+    sendFounderDailyEmail,
     recoverInterruptedScans: async (env) => {
       await Promise.all([recoverInterruptedScans(env), recoverNetworkScans(env)]);
     },

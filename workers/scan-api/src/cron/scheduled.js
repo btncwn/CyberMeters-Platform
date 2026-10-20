@@ -344,8 +344,8 @@ export async function runScheduled(event, env, ctx, tasks) {
   // ── Founder daily email ──────────────────────────────────────────────
   // Daily at 08:00 UTC: yesterday's free scans and tools by outcome, 5xx,
   // browser errors, the signup funnel and feedback, anything unusual first.
-  if (tasks.sendFounderDailyDigest && new Date(now).getUTCHours() === 8) {
-    ctx.waitUntil(runCronTask(env, "founder_daily_digest", () => tasks.sendFounderDailyDigest(env)));
+  if (tasks.sendFounderDailyEmail && new Date(now).getUTCHours() === 8) {
+    ctx.waitUntil(runCronTask(env, "founder_daily_email", () => tasks.sendFounderDailyEmail(env)));
   }
 
   // ── Weekly Exposure Timeline digest ──────────────────────────────────
