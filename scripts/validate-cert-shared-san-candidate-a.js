@@ -613,8 +613,14 @@ const parity = states.map(parityOutputs);
 // One timezone convention (19 Oct 2026): the customer PDF states "All times are
 // in UTC." once on its cover and drops the per-time suffix. Only F13's PDF bytes
 // move; with those two changes reverted the previous hash (e7f66eae…) reproduces.
-const GOLDEN_F13 = "0a063e9ff7a0c72c457ae513cba88ed7b6ecd9d4cf6b88eb67c8e7cef2105175";
-const GOLDEN_F14 = "2fe7f50a10a8caec4526a73921d2f827c7d4c9bbde9a527daee33cab29cba39c";
+// SIRA 4 (19 Oct 2026): unsupported vendor-risk wording removed. The scorecard
+// section "Vendor Risk" becomes "Third-party services observed" (moves F13 only,
+// 0a063e9f… → 75156c7a…), and the Business Risk Indicator methodology says
+// "third-party service signals" instead of "supply-chain signals" (moves F14,
+// 2fe7f50a… → 8f34acb8…, and F13 with it). With both changes reverted the
+// previous hashes (0a063e9f… / 2fe7f50a…) reproduce exactly.
+const GOLDEN_F13 = "26b80c70e0b293806779d20607bad1e5a18ac44ec19cdafab4e3fb0efb6a4eb8";
+const GOLDEN_F14 = "8f34acb881fe140625e06db9c6a3f69c37d25df4a34b15a549c64c8dab39a7d6";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

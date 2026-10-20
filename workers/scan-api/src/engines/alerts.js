@@ -832,7 +832,7 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
       }
     }
 
-    // ── 5. Supply Chain Risk Increase Alert ──
+    // ── 5. Third-party dependency change alert ──
     const scHistoryQuery = await env.cybermeters_db
       .prepare(
         `SELECT resilience_score, concentration_level
@@ -861,18 +861,18 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
           changeDesc += `• Operational resilience score dropped from ${prev.resilience_score} to ${curr.resilience_score} (score drop: ${prev.resilience_score - curr.resilience_score} points)\n`;
         }
         if (conWorsened) {
-          changeDesc += `• Third-party concentration risk level worsened from "${prev.concentration_level}" to "${curr.concentration_level}"\n`;
+          changeDesc += `• Third-party concentration level changed from "${prev.concentration_level}" to "${curr.concentration_level}"\n`;
         }
 
         await triggerAlert({
           type: "supply_chain_risk_increase",
           severity: "high",
-          title: `⚠️ CyberMeters Alert: Supply chain risk increased for workspace`,
-          message: `Supply chain risk increase detected in workspace: ` +
+          title: `CyberMeters Alert: third-party dependency change observed`,
+          message: `A change in the providers this workspace depends on was observed: ` +
             (resDropped ? `Resilience score dropped. ` : '') + (conWorsened ? `Concentration level worsened.` : ''),
           relatedEntity: "supply_chain",
-          whatChanged: `Workspace supply chain security indicators have worsened:\n${changeDesc}`,
-          recommendation: "Review your third-party vendor concentration and redundancy plans on the Supply Chain dashboard to mitigate systemic dependencies.",
+          whatChanged: `The observed third-party dependency indicators changed:\n${changeDesc}`,
+          recommendation: "Review the Third parties page to confirm which providers you depend on and whether you have a fallback for each.",
           fromKey: "ALERT_EMAIL_FROM"
         });
       }

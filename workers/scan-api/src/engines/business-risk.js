@@ -83,8 +83,8 @@ function computeWorkspaceBusinessRiskScore(workspace) {
       avgTopVendorScore > 40 ? -5 : 0;
     drivers.vendor_risk += vendorScoreDeduction;
     if (vendorScoreDeduction <= -15) {
-      primary_risks.push("High-risk third-party vendor dependencies are present");
-      recommendations.push("Review the highest-risk vendors and document compensating controls.");
+      primary_risks.push("Several observed third-party services are in a high catalogue tier");
+      recommendations.push("Review the high-tier services you depend on and record how each is managed.");
     }
   }
 

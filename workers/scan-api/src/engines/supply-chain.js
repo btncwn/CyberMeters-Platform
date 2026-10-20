@@ -260,11 +260,11 @@ export function computeCascadingRisks(enrichedVendors, graph) {
     });
   }
 
-  // High-risk vendor count
+  // Active services in a high catalogue tier
   const highRiskActive = enrichedVendors.filter(v => v.risk_level === 'high' && v.status === 'active' && v.source_module === 'vendor_risk');
   if (highRiskActive.length >= 5) {
     risks.push({
-      scenario: `${highRiskActive.length} high-risk vendors detected — elevated aggregate risk`,
+      scenario: `${highRiskActive.length} active services in a high catalogue tier — more providers to review`,
       affected_categories: [...new Set(highRiskActive.map(v => v.category))],
       severity: 'high',
       likelihood: 'medium',
@@ -576,7 +576,7 @@ export async function computeSupplyChainIntelligence(wsId, env) {
       supply_chain_score_state:    supplyChainScoreState,
       supply_chain_score_reason:   supplyChainScoreState === 'assessed'
         ? null
-        : 'Supply Chain Score is incomplete because ASM maturity requires a current complete Business Risk Score.',
+        : 'The dependency score is not available: it needs a current, complete Business Risk Score.',
       operational_resilience_score: resilienceScore,
       concentration_level:         concentration.level,
       critical_vendor_count:       criticalVendors.length,
