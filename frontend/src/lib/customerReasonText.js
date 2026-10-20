@@ -15,6 +15,9 @@ export const CUSTOMER_CODE_COPY = Object.freeze({
   checks_inconclusive: 'responses did not support a conclusion',
   origin_error_no_serviceable_response: 'the website returned no usable response',
   origin_not_observed: 'the website could not be observed',
+  origin_access_restricted: 'the website blocked the check (authentication, rate limiting or a challenge)',
+  origin_timeout: 'the website did not answer in time',
+  https_origin_timeout: 'the website did not answer over HTTPS in time',
   server_error: 'a server error interrupted the check',
 })
 
