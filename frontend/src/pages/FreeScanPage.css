@@ -216,6 +216,7 @@
 .fm-cta small { display: block; margin-top: 13px; color: rgba(255, 255, 255, .75); }
 .fm-results > section[aria-labelledby="cyber-mot-grid-title"] { margin-top: 46px; }
 .fm-honesty-note { max-width: 900px; margin: 18px auto 0; color: var(--fm-muted); font-size: 14px; line-height: 1.7; text-align: center; }
+.fm-feedback { max-width: 900px; margin: 18px auto 0; color: var(--fm-muted); display: flex; flex-direction: column; align-items: center; }
 .fm-footer { border-top: 1px solid var(--fm-border); background: var(--fm-surface); }
 .fm-footer > div { min-height: 80px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: var(--fm-muted); font-size: 15px; }
 .fm-footer nav { display: flex; gap: 18px; }

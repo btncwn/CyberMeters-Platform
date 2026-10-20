@@ -69,6 +69,13 @@ beforeEach(() => {
 })
 
 describe('selectNav (pure)', () => {
+  it('offers "Something wrong?" on every app page, in the footer, not fixed over the content', () => {
+    const { container } = renderLayout({ plan: 'starter', features: [], usage: {} })
+    const footer = container.querySelector('footer.cm-footer')
+    expect(footer).toBeTruthy()
+    expect(footer.querySelector('button[aria-expanded]').textContent).toBe('Something wrong?')
+  })
+
   it('chooses the MSP menu only on the portfolio_monitoring entitlement', () => {
     expect(selectNav(DIRECT_FEATURES)).toBe(DIRECT_NAV)
     expect(selectNav(PRO_FEATURES)).toBe(DIRECT_NAV)

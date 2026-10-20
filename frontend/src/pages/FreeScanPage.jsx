@@ -9,6 +9,7 @@ import { Moon, Sun } from 'lucide-react'
 import { formatDate } from '../utils/dates'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
+import SomethingWrong from '../components/SomethingWrong'
 import { BASE, api } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { findOwnWorkspaceForDomain } from '../lib/freeScanWorkspaceMatch'
@@ -153,6 +154,7 @@ export default function FreeScanPage() {
   const [step, setStep] = useState(0)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [errorCode, setErrorCode] = useState(null)
   const [theme, setTheme] = useState(initialTheme)
   const { isAuthenticated } = useAuth()
   // Signed-in visitors only: is this domain already in one of their own
@@ -184,6 +186,7 @@ export default function FreeScanPage() {
     if (!target) return
     setDomain(target)
     setError(null)
+    setErrorCode(null)
     setResult(null)
     setScanning(true)
     setStep(0)
@@ -202,12 +205,14 @@ export default function FreeScanPage() {
       const data = await response.json()
       if (!response.ok) {
         setError(data.error || 'The snapshot could not be completed. Please try again.')
+        setErrorCode(data.code || `http_${response.status}`)
         return
       }
       setResult(data)
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
     } catch {
       setError('Connection error. Please check your network and try again.')
+      setErrorCode('network_error')
     } finally {
       stopCycle()
       setScanning(false)
@@ -294,7 +299,10 @@ export default function FreeScanPage() {
                   </div>
                 </form>
                 {error && (
-                  <div className="fm-error" role="alert">{error}</div>
+                  <>
+                    <div className="fm-error" role="alert">{error}</div>
+                    <SomethingWrong surface="free_scan" errorCode={errorCode} className="mt-3" />
+                  </>
                 )}
                 <div className="fm-trust-row">
                   <span>Passive external evidence</span>
@@ -458,6 +466,8 @@ export default function FreeScanPage() {
             DKIM uses common selectors. The served certificate is inspected in the full scan, not in this preview. Brand is watchlist-only.
             Cyber Essentials is indicative. Website checks are passive and external.
           </p>
+
+          <SomethingWrong surface="free_scan" className="fm-feedback" />
         </main>
       )}
 

@@ -84,6 +84,8 @@ describe('free tools', () => {
     expect(screen.getByText(/Monitor — you are here/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy share link' })).toBeInTheDocument()
     expect(window.turnstile.reset).toHaveBeenCalled()
+    // A result can be reported (founder, 20 Oct 2026).
+    expect(screen.getByRole('button', { name: 'Something wrong?' })).toBeInTheDocument()
   })
 
   it('shows a used-up allowance as a calm notice with the reset time and a trial offer', async () => {
