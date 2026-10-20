@@ -451,6 +451,9 @@ export function nextHostedDnsStatus(row, checks) {
 // when safe. Per-row isolation — one failure never aborts the sweep.
 export async function runHostedDnsVerificationSweep(env, {
   dnsQueryImpl = dnsQuery, fetchImpl = fetch, now = new Date(),
+  // Test seam only: the production pass rate (getHostedDmarcPassRate) is
+  // suspended and fails closed, so a harness injects one to reach autopilot.
+  passRateImpl = getHostedDmarcPassRate,
 } = {}) {
   let rows = [];
   try {
@@ -573,7 +576,7 @@ export async function runHostedDnsVerificationSweep(env, {
       // Auto-rollback watches every record with a recent change; autopilot
       // advances the ladder only when the pass-rate interlock holds.
       if (next === "connected" && row.cf_record_id && !withinChangeGrace) {
-        const rate = await getHostedDmarcPassRate(env, row.workspace_id, row.domain);
+        const rate = await passRateImpl(env, row.workspace_id, row.domain);
         let impactAssessment = null;
         if (row.last_change_at) {
           try {
