@@ -121,6 +121,12 @@ MCP_DEPLOYMENT_TIER = "production"
 MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS = '["https://claude.ai/api/mcp/auth_callback"]'
 MCP_CUSTOMER_OAUTH_ENABLED = "true"
 MCP_CUSTOMER_READ_ENABLED = "true"
+# Who may connect: "customers" = any verified member of a live workspace on a
+# trial, paid or grace plan (a workspace row in mcp_beta_workspace_access set to
+# 'paused' closes that one workspace). Any other value keeps the founder canary
+# (MCP_FOUNDER_CANARY_USER_ID only), so changing this line and redeploying
+# narrows MCP back to the founder without closing it.
+MCP_CUSTOMER_ACCESS = "customers"
 MCP_OAUTH_DCR_ENABLED = "true"
 # Clients register through DCR; CIMD client metadata is not accepted.
 MCP_OAUTH_CIMD_ENABLED = "false"

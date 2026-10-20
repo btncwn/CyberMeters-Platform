@@ -139,6 +139,63 @@ test("production founder canary requires its owner secret and current workspace 
   assert.equal(await admitMcpOAuthToken(env, token()), null);
 });
 
+test("MCP_CUSTOMER_ACCESS=customers opens MCP to entitled members; every other check stays", async () => {
+  const { sqlite, env } = fixture();
+  env.MCP_DEPLOYMENT_TIER = "production";
+  // u2 is not the founder, owns w2 on a live trial and has no enrolment row.
+  sqlite.exec(`INSERT INTO subscriptions(id,workspace_id,owner_user_id,plan,status,
+    subscription_status,trial_end,created_at) VALUES
+    ('trial_u2','w2','u2','professional','trialing','trialing','2099-01-01','2026-01-01');
+    DELETE FROM mcp_beta_workspace_access WHERE workspace_id = 'w2';
+    INSERT INTO mcp_oauth_connections
+      (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+      VALUES ('c_u2','u2','client','https://mcp.cybermeters.com/mcp','w2',0,'["mcp:read"]');`);
+  const customer = token({ userId: "u2", props: {
+    userId: "u2", connectionId: "c_u2", workspaceId: "w2", portfolioRead: false,
+  } });
+  // Not set, or any other value: the founder fence holds.
+  for (const value of [undefined, "", "founder", "CUSTOMERS", "true"]) {
+    env.MCP_CUSTOMER_ACCESS = value;
+    assert.equal(await listMcpOAuthConsentWorkspaces(env, "u2"), null, String(value));
+    assert.equal(await admitMcpOAuthToken(env, customer), null, String(value));
+  }
+  env.MCP_CUSTOMER_ACCESS = "customers";
+  assert.deepEqual((await listMcpOAuthConsentWorkspaces(env, "u2")).map((row) => row.id), ["w2"]);
+  assert.ok(await admitMcpOAuthToken(env, customer));
+  // A member who is not the owner (u1 is a viewer of w1) is admitted too.
+  assert.ok(await admitMcpOAuthToken(env, token()));
+  // A paused workspace is closed.
+  sqlite.exec("INSERT INTO mcp_beta_workspace_access(workspace_id,status) VALUES ('w2','paused')");
+  assert.equal(await listMcpOAuthConsentWorkspaces(env, "u2"), null);
+  assert.equal(await admitMcpOAuthToken(env, customer), null);
+  sqlite.exec("DELETE FROM mcp_beta_workspace_access WHERE workspace_id = 'w2'");
+  // Membership, plan, deletion and the connection are still checked on every read.
+  sqlite.exec("UPDATE subscriptions SET trial_end = '2001-01-01' WHERE id = 'trial_u2'");
+  assert.equal(await admitMcpOAuthToken(env, customer), null, "expired trial");
+  assert.equal(await listMcpOAuthConsentWorkspaces(env, "u2"), null);
+  sqlite.exec("UPDATE subscriptions SET trial_end = '2099-01-01' WHERE id = 'trial_u2'");
+  sqlite.exec("DELETE FROM workspace_members WHERE id = 'wm2'");
+  assert.equal(await admitMcpOAuthToken(env, customer), null, "no membership");
+  sqlite.exec("INSERT INTO workspace_members VALUES ('wm2','w2','u2','owner')");
+  sqlite.exec("INSERT INTO deletion_requests VALUES ('d1','workspace','u2','w2','pending')");
+  assert.equal(await admitMcpOAuthToken(env, customer), null, "workspace being deleted");
+  sqlite.exec("DELETE FROM deletion_requests WHERE id = 'd1'");
+  sqlite.exec("UPDATE users SET email_verified = 0 WHERE id = 'u2'");
+  assert.equal(await admitMcpOAuthToken(env, customer), null, "unverified user");
+  sqlite.exec("UPDATE users SET email_verified = 1 WHERE id = 'u2'");
+  sqlite.exec("UPDATE mcp_oauth_connections SET status = 'revoked' WHERE id = 'c_u2'");
+  assert.equal(await admitMcpOAuthToken(env, customer), null, "revoked connection");
+  // A token for another tenant's workspace is never admitted.
+  sqlite.exec("UPDATE mcp_oauth_connections SET status = 'active' WHERE id = 'c_u2'");
+  assert.equal(await admitMcpOAuthToken(env, token({ userId: "u2", props: {
+    userId: "u2", connectionId: "c_u2", workspaceId: "w1", portfolioRead: false,
+  } })), null);
+  assert.ok(await admitMcpOAuthToken(env, customer));
+  // Staging keeps its own rule: synthetic users, enrolment rows required.
+  env.MCP_DEPLOYMENT_TIER = "staging";
+  assert.equal(await admitMcpOAuthToken(env, customer), null, "staging needs an 'enabled' row");
+});
+
 test("production founder portfolio grant fails after a selected workspace changes owner", async () => {
   const { sqlite, env } = fixture();
   env.MCP_DEPLOYMENT_TIER = "production";

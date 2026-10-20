@@ -85,6 +85,19 @@ const grantA = { userId: "user_a", workspaceId: "ws_a" };
 const grantB = { userId: "user_b", workspaceId: "ws_b" };
 const options = { repair: false, allowReconstruction: false, includeSuccessor: false };
 
+test("open customer access: no enrolment row is open, a paused row is closed", async () => {
+  const f = fixture();
+  try {
+    f.env.MCP_DEPLOYMENT_TIER = "production";
+    f.env.MCP_CUSTOMER_ACCESS = "customers";
+    f.sql.prepare("DELETE FROM mcp_beta_workspace_access WHERE workspace_id='ws_a'").run();
+    await projectMcpReportSummary(f.env, grantA, null, { workspaceId: "ws_a" });
+    f.sql.prepare("INSERT INTO mcp_beta_workspace_access VALUES ('ws_a','paused')").run();
+    await assert.rejects(projectMcpReportSummary(f.env, grantA, null,
+      { workspaceId: "ws_a" }), /mcp_projection_unavailable/);
+  } finally { f.close(); }
+});
+
 test("status projection refuses a workspace paused or pending deletion after admission", async () => {
   const f = fixture();
   try {

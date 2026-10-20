@@ -1,6 +1,7 @@
 import { getEffectivePlanState, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { drainRevokedMcpOAuthGrantBacklog } from "./mcp-oauth-purge.js";
-import { mcpFounderCanaryAllowsUser, mcpFounderCanaryAllowsWorkspace } from "./mcp-founder-canary.js";
+import { mcpCustomerAccessOpen, mcpFounderCanaryAllowsUser, mcpFounderCanaryAllowsWorkspace,
+  mcpWorkspaceEnrolmentAllows, mcpWorkspaceEnrolmentSql } from "./mcp-founder-canary.js";
 
 export const MCP_OAUTH_ISSUER = "https://api.cybermeters.com";
 export const MCP_OAUTH_RESOURCE = "https://mcp.cybermeters.com/mcp";
@@ -145,7 +146,7 @@ export async function listMcpOAuthGrantedWorkspaces(env, userId, connectionId) {
       data.results.some((row) => !validId(row.id) ||
         typeof row.name !== "string" || row.name.length > 256 ||
         !mcpFounderCanaryAllowsWorkspace(env, userId, row.owner_user_id) ||
-        row.deleted_at !== null || row.beta_status !== "enabled" ||
+        row.deleted_at !== null || !mcpWorkspaceEnrolmentAllows(env, row.beta_status) ||
         !ROLES.has(row.role) || Number(row.deleting) !== 0)) return null;
   return data.results.map((row) => ({ id: row.id, name: row.name, role: row.role }));
 }
@@ -225,9 +226,8 @@ export async function admitMcpOAuthToken(env, token, resource = MCP_OAUTH_RESOUR
     if (!singleWorkspacePlanAllowed(plan)) return null;
     const access = await env.cybermeters_db.prepare(
       `SELECT wm.role, w.owner_user_id FROM workspaces w
-         JOIN mcp_beta_workspace_access b ON b.workspace_id = w.id AND b.status = 'enabled'
          JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ?
-        WHERE w.id = ? AND w.deleted_at IS NULL
+        WHERE w.id = ? AND w.deleted_at IS NULL AND ${mcpWorkspaceEnrolmentSql(env)}
           AND NOT EXISTS (SELECT 1 FROM deletion_requests d
              WHERE d.request_type = 'workspace' AND d.workspace_id = w.id
                AND d.status NOT IN ('completed','cancelled')) LIMIT 1`,
@@ -238,7 +238,7 @@ export async function admitMcpOAuthToken(env, token, resource = MCP_OAUTH_RESOUR
   return token;
 }
 
-/** Consent may name only live, beta-enrolled memberships. */
+/** Consent may name only live memberships whose workspace MCP is open (mcp-founder-canary.js). */
 export async function listMcpOAuthConsentWorkspaces(env, userId) {
   if (!env?.cybermeters_db || !validId(userId) ||
       !mcpFounderCanaryAllowsUser(env, userId)) return null;
@@ -253,12 +253,12 @@ export async function listMcpOAuthConsentWorkspaces(env, userId) {
   // entitled plan: authorization would deny the same request at token issue.
   const plan = await getEffectivePlanState(userId, env);
   if (!singleWorkspacePlanAllowed(plan)) return null;
-  const founderCanary = env.MCP_DEPLOYMENT_TIER !== "staging";
+  const founderCanary = env.MCP_DEPLOYMENT_TIER !== "staging" && !mcpCustomerAccessOpen(env);
   const data = await env.cybermeters_db.prepare(
     `SELECT w.id, w.name, w.owner_user_id, wm.role FROM workspace_members wm
        JOIN workspaces w ON w.id = wm.workspace_id AND w.deleted_at IS NULL
-       JOIN mcp_beta_workspace_access b ON b.workspace_id = w.id AND b.status = 'enabled'
       WHERE wm.user_id = ? AND wm.role IN ('viewer','analyst','admin','owner')
+        AND ${mcpWorkspaceEnrolmentSql(env)}
         ${founderCanary ? "AND w.owner_user_id = ?" : ""}
         AND NOT EXISTS (SELECT 1 FROM deletion_requests d
            WHERE d.request_type = 'workspace' AND d.workspace_id = w.id
