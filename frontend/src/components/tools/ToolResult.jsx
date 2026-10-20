@@ -68,6 +68,36 @@ export function DnsRecord({ record, heading }) {
   )
 }
 
+// Ready-to-paste configuration lines, one tab per server. The API writes the
+// lines; this only lets the visitor pick theirs and copy it.
+const SNIPPET_TABS = [
+  { key: 'nginx', label: 'nginx', where: 'In the server block of your site, then reload nginx.' },
+  { key: 'apache', label: 'Apache', where: 'In the VirtualHost or .htaccess (mod_headers must be on).' },
+  { key: 'cloudflare', label: 'Cloudflare', where: 'On Cloudflare Pages, add these lines to a file named _headers. For another site behind Cloudflare, set each name and value under Rules → Transform Rules → Modify response header.' },
+]
+
+export function Snippets({ snippets }) {
+  const tabs = SNIPPET_TABS.filter((tab) => snippets?.[tab.key])
+  const [active, setActive] = useState(tabs[0]?.key)
+  if (tabs.length === 0) return null
+  const current = tabs.find((tab) => tab.key === active) || tabs[0]
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Web server">
+        {tabs.map((tab) => (
+          <button key={tab.key} type="button" aria-pressed={tab.key === current.key} onClick={() => setActive(tab.key)}
+            className={`rounded-full px-3 py-1 text-sm font-semibold border ${tab.key === current.key ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-300'}`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-sm text-gray-600">{current.where}</p>
+      <pre className="rounded-lg bg-gray-900 text-gray-100 p-4 text-sm whitespace-pre overflow-x-auto" tabIndex={0} aria-label={`${current.label} lines`}>{snippets[current.key]}</pre>
+      <CopyButton value={snippets[current.key]} label={`Copy ${current.label} lines`} />
+    </div>
+  )
+}
+
 function NextStep({ step }) {
   if (!step) return null
   return (
@@ -81,6 +111,7 @@ function NextStep({ step }) {
         </div>
       )}
       <DnsRecord record={step.record} heading={step.replaces?.length ? 'Replace it with' : null} />
+      <Snippets snippets={step.snippets} />
       {step.options?.map((option) => (
         <div key={option.label} className="space-y-2">
           <p className="text-sm font-semibold">{option.label}</p>

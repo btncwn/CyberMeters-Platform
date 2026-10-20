@@ -389,8 +389,10 @@ export const api = {
   freeToolConfig: () => outcomeCall('GET', '/tools/config'),
   runDmarcTool: (body) => outcomeCall('POST', '/tools/dmarc/check', body),
   runSpfTool: (body) => outcomeCall('POST', '/tools/spf/check', body),
+  runHeadersTool: (body) => outcomeCall('POST', '/tools/headers/check', body),
   deferDmarcTool: (body) => outcomeCall('POST', '/tools/dmarc/defer', body),
   deferSpfTool: (body) => outcomeCall('POST', '/tools/spf/defer', body),
+  deferHeadersTool: (body) => outcomeCall('POST', '/tools/headers/defer', body),
   verifyToolShare: (token) => outcomeCall('POST', '/tools/share', { token }),
 
   // ── Authentication ────────────────────────────────────────────────────────

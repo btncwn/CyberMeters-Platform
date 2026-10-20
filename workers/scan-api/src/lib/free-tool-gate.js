@@ -16,7 +16,7 @@
 import { hostIsPrivateOrReserved } from "./ssrf.js";
 import { canonicalDomainInput, isValidDomain } from "./util.js";
 
-export const FREE_TOOL_IDS = Object.freeze(["dmarc", "spf"]);
+export const FREE_TOOL_IDS = Object.freeze(["dmarc", "spf", "headers"]);
 
 export const FREE_TOOL_POLICY = Object.freeze({
   // Anonymous visitors: each tool at most twice per IP per rolling 24 hours.

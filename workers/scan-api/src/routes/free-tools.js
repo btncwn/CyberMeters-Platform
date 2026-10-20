@@ -1,16 +1,19 @@
 // ── Public free tools: /api/tools/* ─────────────────────────────────────────
 //
 //   GET  /api/tools/config            Turnstile site key and the public limits
-//   POST /api/tools/:tool/check       run one check (dmarc | spf)
+//   POST /api/tools/:tool/check       run one check (dmarc | spf | headers)
 //   POST /api/tools/:tool/defer       leave an email while the daily budget is used up
 //   POST /api/tools/share             check a shared result link
 //
 // Every check passes the shared gate in lib/free-tool-gate.js (input →
-// Turnstile → limiter read → cache → limiter claim → lookup). The tools are
-// passive: DNS questions through the existing DoH helpers, nothing else.
+// Turnstile → limiter read → cache → limiter claim → lookup). The DMARC and SPF
+// tools ask DNS questions through the existing DoH helpers, nothing else; the
+// headers tool makes one GET of the home page through the SSRF-guarded
+// safeFetch (every hop re-resolved, private and reserved addresses refused).
 import { sendAlertEmail } from "../engines/alerts.js";
 import { dnsQuery } from "../engines/dns.js";
 import { runDmarcCheck } from "../engines/free-tools/dmarc-check.js";
+import { runHeadersCheck } from "../engines/free-tools/headers-check.js";
 import { runSpfCheck } from "../engines/free-tools/spf-check.js";
 import { makeDnsCache, PhysicalSubrequestCounter } from "../engines/scan-budget.js";
 import {
@@ -26,6 +29,7 @@ const MARKETING_ORIGIN = "https://cybermeters.com";
 export const FREE_TOOLS = Object.freeze({
   dmarc: { name: "DMARC", path: "/tools/dmarc-checker" },
   spf: { name: "SPF", path: "/tools/spf-checker" },
+  headers: { name: "security headers", path: "/tools/security-headers-checker" },
 });
 
 const DEFAULT_RUNNERS = Object.freeze({
@@ -33,6 +37,7 @@ const DEFAULT_RUNNERS = Object.freeze({
   spf: (domain, { accounting, signal, cache }) => runSpfCheck(domain, {
     dnsQuery: (name, type) => dnsQuery(name, type, { accounting, signal, cache }),
   }),
+  headers: (domain, { accounting, signal, cache }) => runHeadersCheck(domain, { accounting, signal, cache, dnsQuery }),
 });
 
 const MESSAGES = Object.freeze({
@@ -323,6 +328,8 @@ function resultEmail(tool, result, share) {
     `Next step: ${result.next_step?.title || ""}`,
     result.next_step?.explanation || "",
     ...(record ? ["", `${record.type} record at ${record.name}:`, record.value] : []),
+    ...(Array.isArray(result?.next_step?.headers) && result.next_step.headers.length
+      ? ["", "Headers to add:", ...result.next_step.headers.map((h) => `${h.name}: ${h.value}`)] : []),
     "",
     `Full result${share ? " (link valid for 7 days)" : ""}: ${link}`,
     "",

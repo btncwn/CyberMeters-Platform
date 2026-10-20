@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { cleanupExpiredPublicApiRateLimits } from "../src/cron/scheduled.js";
 import { buildDmarcToolResult, runDmarcCheck } from "../src/engines/free-tools/dmarc-check.js";
+import { buildHeadersToolResult, runHeadersCheck } from "../src/engines/free-tools/headers-check.js";
 import { buildSpfToolResult, runSpfCheck } from "../src/engines/free-tools/spf-check.js";
 import { FREE_TOOL_POLICY, domainCapKey, normaliseToolDomain } from "../src/lib/free-tool-gate.js";
 import { signShareToken, verifyShareToken } from "../src/lib/free-tool-share.js";
@@ -68,6 +69,7 @@ function harness(env, overrides = {}) {
     return new Response(JSON.stringify(token === "good-dmarc" ? { success: true, action: "tool_dmarc" }
       : token === "good-spf" ? { success: true, action: "tool_spf" }
         : token === "good-dmarc-defer" ? { success: true, action: "tool_dmarc_defer" }
+          : token === "good-headers" ? { success: true, action: "tool_headers" }
           : { success: false, "error-codes": ["invalid-input-response"] }));
   });
   const cache = overrides.cache === undefined ? memoryCache() : overrides.cache;
@@ -87,6 +89,7 @@ function harness(env, overrides = {}) {
       freeToolRunners: {
         dmarc: async (domain) => { calls.lookups += 1; return goodResult("dmarc", domain); },
         spf: async (domain) => { calls.lookups += 1; return goodResult("spf", domain); },
+        headers: async (domain) => { calls.lookups += 1; return goodResult("headers", domain); },
       },
     });
   };
@@ -458,4 +461,141 @@ test("DMARC: p=reject with a weaker sp adds np=reject (RFC 9989)", async () => {
   }) });
   assert.ok(result.checked.some((c) => c.label === "Subdomain policy" && c.state === "warn"));
   assert.equal(result.next_step.record.value, "v=DMARC1; p=reject; sp=none; np=reject; rua=mailto:d@example.com");
+});
+
+// ── Security headers checker ────────────────────────────────────────────────
+
+const ALL_GOOD = {
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+  "content-security-policy": "default-src 'self'; frame-ancestors 'self'",
+  "x-frame-options": "DENY",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "camera=()",
+  "content-type": "text/html",
+};
+const seen = (headers, status = 200, finalUrl = "https://example.com/") => ({ status, final_url: finalUrl, headers });
+
+test("headers: six good headers is a clean result with nothing to paste", () => {
+  const result = buildHeadersToolResult("example.com", seen(ALL_GOOD));
+  assert.equal(result.schema, "free-tool-headers.v1");
+  assert.equal(result.verdict.level, "good");
+  assert.equal(result.headers.length, 6);
+  assert.ok(result.headers.every((h) => h.status === "valid"));
+  assert.equal(result.next_step.snippets, null);
+});
+
+test("headers: missing HSTS and weak ones get nginx, Apache and Cloudflare lines for exactly those", () => {
+  const { "strict-transport-security": _h, "content-security-policy": _c, ...rest } = ALL_GOOD;
+  const result = buildHeadersToolResult("example.com", seen({ ...rest, "referrer-policy": "unsafe-url" }));
+  assert.equal(result.verdict.level, "risk");
+  assert.equal(result.verdict.headline, "3 of 6 security headers need attention");
+  assert.match(result.verdict.summary, /including Strict-Transport-Security/);
+  const names = result.next_step.headers.map((h) => h.name);
+  assert.deepEqual(names, ["Strict-Transport-Security", "Content-Security-Policy-Report-Only", "Referrer-Policy"]);
+  const { nginx, apache, cloudflare } = result.next_step.snippets;
+  assert.match(nginx, /^add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;$/m);
+  assert.match(apache, /^Header always set Referrer-Policy "strict-origin-when-cross-origin"$/m);
+  assert.match(cloudflare, /^\/\*\n  Strict-Transport-Security: max-age=31536000; includeSubDomains/);
+  assert.doesNotMatch(nginx, /X-Frame-Options|nosniff/, "headers already set well are not repeated");
+  // A CSP is site specific: the suggestion is report-only and says why.
+  assert.ok(result.next_step.cautions.some((c) => /Report-Only/.test(c)));
+  assert.ok(!/preload/.test(nginx), "preload is never pasted by default");
+});
+
+test("headers: CSP frame-ancestors stands in for X-Frame-Options; a weak HSTS is flagged", () => {
+  const { "x-frame-options": _x, ...rest } = ALL_GOOD;
+  const result = buildHeadersToolResult("example.com", seen({ ...rest, "strict-transport-security": "max-age=600" }));
+  assert.equal(result.headers.find((h) => h.key === "x-frame-options").status, "valid");
+  assert.equal(result.headers.find((h) => h.key === "strict-transport-security").status, "weak");
+  assert.equal(result.verdict.level, "risk");
+});
+
+test("headers: no answer, a bot check or an error page is never 'missing headers'", () => {
+  for (const observation of [null,
+    seen({ "cf-mitigated": "challenge" }, 403),
+    seen({}, 200, "https://challenges.cloudflare.com/x"),
+    seen({}, 503)]) {
+    const result = buildHeadersToolResult("example.com", observation);
+    assert.equal(result.verdict.level, "unknown");
+    assert.equal(result.headers.length, 0);
+    assert.match(result.verdict.summary, /Nothing was concluded/);
+  }
+});
+
+test("headers: a redirect to another site says whose headers these are", () => {
+  const result = buildHeadersToolResult("example.com", seen(ALL_GOOD, 200, "https://shop.other-host.example/"));
+  assert.ok(result.checked.some((c) => c.state === "warn" && /other-host\.example/.test(c.detail)));
+  const own = buildHeadersToolResult("example.com", seen(ALL_GOOD, 200, "https://www.example.com/"));
+  assert.ok(!own.checked.some((c) => c.state === "warn"));
+});
+
+function dnsFor(map) {
+  return async (name, type) => {
+    const entry = map[name];
+    if (!entry) return { Status: 3, Answer: [] };
+    const values = type === "A" ? entry.a || [] : entry.aaaa || [];
+    return { Status: 0, Answer: values.map((data) => ({ name, type: type === "A" ? 1 : 28, data })) };
+  };
+}
+
+test("headers: a domain that resolves to a private address is never fetched", async () => {
+  const fetched = [];
+  const result = await runHeadersCheck("example.com", {
+    dnsQuery: dnsFor({ "example.com": { a: ["10.0.0.5"] }, "www.example.com": { a: ["169.254.169.254"] } }),
+    fetchImpl: async (url) => { fetched.push(url); return new Response("", { status: 200 }); },
+  });
+  assert.deepEqual(fetched, []);
+  assert.equal(result.verdict.level, "unknown");
+});
+
+test("headers: one GET, body never read, www. tried only when the apex does not answer", async () => {
+  const fetched = [];
+  let cancelled = 0;
+  const fetchImpl = async (url) => {
+    fetched.push(url);
+    if (url.startsWith("https://example.com")) throw new TypeError("connection refused");
+    const body = new ReadableStream({ cancel() { cancelled += 1; } });
+    const res = new Response(body, { status: 200, headers: ALL_GOOD });
+    Object.defineProperty(res, "url", { value: url });
+    return res;
+  };
+  const result = await runHeadersCheck("example.com", {
+    dnsQuery: dnsFor({ "example.com": { a: ["93.184.216.34"] }, "www.example.com": { a: ["93.184.216.34"] } }), fetchImpl,
+  });
+  assert.deepEqual(fetched, ["https://example.com/", "https://www.example.com/"]);
+  assert.equal(cancelled, 1);
+  assert.equal(result.verdict.level, "good");
+  assert.equal(result.response.final_url, "https://www.example.com/");
+});
+
+test("headers: the route runs it through the shared gate (Turnstile action, limits, cache)", async () => {
+  const { env } = fixture();
+  const h = harness(env);
+  const wrong = await h.check("headers", "example.com", "good-dmarc");
+  assert.equal(wrong.status, 403);
+  const first = await h.check("headers", "example.com", "good-headers");
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).tool, "headers");
+  const again = await h.check("headers", "example.com", "good-headers");
+  assert.equal((await again.json()).cached, true);
+  assert.equal(h.calls.lookups, 1);
+  const config = await (await h.call("GET", "/api/tools/config")).json();
+  assert.ok(config.tools.some((t) => t.id === "headers" && t.path === "/tools/security-headers-checker"));
+});
+
+test("headers: like the full scan, inline styles alone are a note; unsafe scripts are tightened, never replaced", () => {
+  const styleOnly = buildHeadersToolResult("example.com", seen({ ...ALL_GOOD,
+    "content-security-policy": "default-src 'self'; script-src 'self' https://js.example; style-src 'self' 'unsafe-inline'" }));
+  const csp = styleOnly.headers.find((h) => h.key === "content-security-policy");
+  assert.equal(csp.status, "valid");
+  assert.equal(csp.note, true);
+  assert.equal(styleOnly.verdict.level, "good");
+
+  const unsafeScript = buildHeadersToolResult("example.com", seen({ ...ALL_GOOD,
+    "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://js.example" }));
+  assert.equal(unsafeScript.verdict.headline, "1 of 6 security headers needs attention");
+  assert.equal(unsafeScript.next_step.title, "Tighten your Content-Security-Policy");
+  assert.equal(unsafeScript.next_step.snippets, null, "no replacement policy is offered for an existing CSP");
+  assert.match(unsafeScript.next_step.cautions[0], /unsafe script sources in script-src/);
 });

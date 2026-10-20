@@ -11,6 +11,14 @@ import TurnstileWidget from './TurnstileWidget'
 const CALLS = {
   dmarc: { run: api.runDmarcTool, defer: api.deferDmarcTool },
   spf: { run: api.runSpfTool, defer: api.deferSpfTool },
+  headers: { run: api.runHeadersTool, defer: api.deferHeadersTool },
+}
+
+// How each tool looks at a domain, said under the form.
+const METHOD_NOTE = {
+  dmarc: 'Passive DNS lookups only.',
+  spf: 'Passive DNS lookups only.',
+  headers: 'One request to your home page over HTTPS; only the response headers are read.',
 }
 
 // The tool name a "Something wrong?" report carries.
@@ -182,7 +190,7 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
                 </button>
               </div>
               {available && <TurnstileWidget ref={widget} siteKey={config.turnstile_site_key} action={`tool_${tool}`} onToken={setToken} />}
-              <p className="text-xs text-gray-500">Passive DNS lookups only. Two free checks per tool every 24 hours; signed-in workspace users are not limited by this. The domain you check is not saved: a result is reused for up to 10 minutes, then dropped.</p>
+              <p className="text-xs text-gray-500">{METHOD_NOTE[tool]} Two free checks per tool every 24 hours; signed-in workspace users are not limited by this. The domain you check is not saved: a result is reused for up to 10 minutes, then dropped.</p>
             </form>
           )}
         </section>

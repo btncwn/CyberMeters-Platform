@@ -3,6 +3,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DmarcCheckerPage from '../DmarcCheckerPage'
 import SpfCheckerPage from '../SpfCheckerPage'
+import HeadersCheckerPage from '../HeadersCheckerPage'
+import { buildHeadersToolResult } from '../../../../../workers/scan-api/src/engines/free-tools/headers-check.js'
 import ToolsIndexPage from '../ToolsIndexPage'
 import { LOCAL_TIME } from '../../../components/tools/ToolResult'
 
@@ -167,10 +169,49 @@ describe('free tools', () => {
     expect(fmt(result.checked_at)).toMatch(/[A-Z]{2,5}|GMT|UTC/)
   })
 
-  it('the tools index links to both tools', () => {
+  it('shows each security header, what it does, and paste-ready lines for the chosen server', async () => {
+    window.history.replaceState({}, '', '/tools/security-headers-checker')
+    // The fixture is built by the Worker's own result builder, so page and API cannot drift.
+    const result = buildHeadersToolResult('example.com', { status: 200, final_url: 'https://example.com/', headers: {
+      'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'referrer-policy': 'unsafe-url', 'permissions-policy': 'camera=()',
+    } }, { now: Date.parse('2026-10-20T12:00:00.000Z') })
+    const fetchMock = installFetch({ 'POST /tools/headers/check': () => json({ status: 'ok', cached: false, result, share: null }) })
+    renderAt(<HeadersCheckerPage />)
+    await runCheck(/Check security headers/)
+    expect(await screen.findByRole('heading', { name: '3 of 6 security headers need attention' })).toBeInTheDocument()
+    expect(window.turnstile.render.mock.calls[0][1]).toMatchObject({ action: 'tool_headers' })
+    expect(JSON.parse(fetchMock.mock.calls.find(([u]) => String(u).endsWith('/tools/headers/check'))[1].body)).toEqual({ domain: 'example.com', turnstile_token: 'turnstile-token' })
+    const list = screen.getByRole('heading', { name: 'The six headers' }).closest('section')
+    expect(within(list).getAllByRole('listitem')).toHaveLength(6)
+    expect(within(list).getByText('Strict-Transport-Security')).toBeInTheDocument()
+    expect(screen.getByText(/One request to your home page over HTTPS/)).toBeInTheDocument()
+    // nginx first; switching to Apache shows Apache lines.
+    expect(screen.getByRole('button', { name: 'nginx' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText(/add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Apache' }))
+    expect(screen.getByText(/Header always set Referrer-Policy "strict-origin-when-cross-origin"/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cloudflare' }))
+    expect(screen.getByText(/add these lines to a file named _headers/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy Cloudflare lines' })).toBeInTheDocument()
+  })
+
+  it('a site that could not be checked shows no header list and no lines to paste', async () => {
+    window.history.replaceState({}, '', '/tools/security-headers-checker')
+    const result = buildHeadersToolResult('example.com', null, { now: Date.parse('2026-10-20T12:00:00.000Z') })
+    installFetch({ 'POST /tools/headers/check': () => json({ status: 'ok', cached: false, result, share: null }) })
+    renderAt(<HeadersCheckerPage />)
+    await runCheck(/Check security headers/)
+    expect(await screen.findByRole('heading', { name: 'Could not check the security headers' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'The six headers' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'nginx' })).toBeNull()
+    expect(screen.queryByText(/Missing/)).toBeNull()
+  })
+
+  it('the tools index links to every tool', () => {
     vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected network request') }))
     renderAt(<ToolsIndexPage />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Free email security checks' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Free security checks' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Security headers checker' })).toHaveAttribute('href', '/tools/security-headers-checker')
     expect(screen.getByRole('link', { name: 'DMARC checker' })).toHaveAttribute('href', '/tools/dmarc-checker')
     expect(screen.getByRole('link', { name: 'SPF checker' })).toHaveAttribute('href', '/tools/spf-checker')
     expect(fetch).not.toHaveBeenCalled()
