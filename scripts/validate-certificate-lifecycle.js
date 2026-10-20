@@ -149,7 +149,14 @@ ok("exactly one lifecycle for example.com", list1.filter((r) => r.primary_hostna
 eq("current identity = seeded cert", d1.certificate_identity, "d1-old");
 eq("renewal readiness monitoring", d1.renewal_readiness, "monitoring");
 eq("observed SANs captured", JSON.stringify(d1.observed_sans), JSON.stringify(["example.com","www.example.com"]));
-eq("no expected declared yet → coverage unknown", d1.coverage_status, "unknown");
+// No customer list yet: the monitored host is expected (seeded, labelled), so
+// coverage is known. The extra www SAN is listed but is not "unexpected": only a
+// customer's own list can make a SAN unexpected (and open a case).
+eq("expected hostnames start as the monitored host", JSON.stringify(d1.expected_hostnames), JSON.stringify(["example.com"]));
+eq("...labelled as seeded from the monitored host", d1.expected_hostnames_source, "observed_primary_host");
+eq("seeded expected host → coverage complete", d1.coverage_status, "complete");
+eq("...the extra SAN is still listed", JSON.stringify(d1.coverage_detail.unexpected), JSON.stringify(["www.example.com"]));
+eq("...and opens no unexpected_san recurrence", d1.recurrence_type === "unexpected_san", false);
 eq("fingerprint stays unknown (no live TLS)", d1.fingerprint_sha256, null);
 eq("serial stays unknown", d1.serial_number, null);
 ok("scope_note carries the honesty statement", /not the same as fully trusted|no live TLS/i.test(d1.scope_note));
@@ -168,6 +175,30 @@ ok("a canonical replaced event was appended",
 
 // ── 6. Verification contract — external observation only ────────────────────
 await certificateLifecycleAction(env, "ws1", d1.certificate_lifecycle_id, "set_expected_hostnames", { actor_id: "admin", expected_hostnames: ["example.com","www.example.com"] });
+{
+  const row = () => db.prepare("SELECT expected_hostnames_json j, expected_hostnames_source s FROM certificate_lifecycle WHERE id=?").get(d1.certificate_lifecycle_id);
+  eq("a customer's list is labelled customer", row().s, "customer");
+  await correlateCertificateLifecycle(env, "ws1", { now: NOW });
+  eq("a later scan never replaces the customer's list", row().j, JSON.stringify(["example.com","www.example.com"]));
+  // A customer who clears the list keeps it cleared: no re-seeding.
+  await certificateLifecycleAction(env, "ws1", d1.certificate_lifecycle_id, "set_expected_hostnames", { actor_id: "admin", expected_hostnames: [] });
+  await correlateCertificateLifecycle(env, "ws1", { now: NOW });
+  eq("a list the customer cleared is not re-seeded", row().j, "[]");
+  // A record the backfill missed is seeded by its next scan.
+  db.prepare("UPDATE certificate_lifecycle SET expected_hostnames_json='[]', expected_hostnames_source=NULL WHERE id=?").run(d1.certificate_lifecycle_id);
+  await correlateCertificateLifecycle(env, "ws1", { now: NOW });
+  eq("an unseeded old record is seeded by the next scan", row().j, JSON.stringify(["example.com"]));
+  eq("...labelled as seeded", row().s, "observed_primary_host");
+  // Migration 133: an old record with no list gets its host; others are untouched.
+  db.prepare("UPDATE certificate_lifecycle SET expected_hostnames_json='[]', expected_hostnames_source=NULL WHERE id=?").run(d1.certificate_lifecycle_id);
+  db.exec(fs.readFileSync(path.join(root, "database", "migrations", "133-cert-expected-host-default.sql"), "utf8").replace(/^ALTER TABLE[^;]*;/m, ""));
+  eq("backfill: an empty old record gets its monitored host", row().j, JSON.stringify(["example.com"]));
+  eq("backfill: labelled as seeded", row().s, "observed_primary_host");
+  db.prepare("UPDATE certificate_lifecycle SET expected_hostnames_json='[]', expected_hostnames_source='customer' WHERE id=?").run(d1.certificate_lifecycle_id);
+  db.exec(fs.readFileSync(path.join(root, "database", "migrations", "133-cert-expected-host-default.sql"), "utf8").replace(/^ALTER TABLE[^;]*;/m, ""));
+  eq("backfill: a list the customer cleared is untouched", row().j, "[]");
+  await certificateLifecycleAction(env, "ws1", d1.certificate_lifecycle_id, "set_expected_hostnames", { actor_id: "admin", expected_hostnames: ["example.com","www.example.com"] });
+}
 const recorded = await certificateLifecycleAction(env, "ws1", d1.certificate_lifecycle_id, "record_replacement_completed", { actor_id: "admin" });
 eq("recorded replacement → awaiting_verification (NOT verified)", recorded.item.renewal_status, "awaiting_verification");
 eq("recorded replacement stays not_verified", recorded.item.verification_status, "not_verified");

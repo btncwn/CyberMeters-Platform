@@ -283,26 +283,40 @@ try {
   const relationshipBeforeThird = relationJson;
 
   const thirdReport = await runTraceScan("scan-item9-p3-3", 3);
-  eq(
-    "scan 3 unchanged replacement emits no duplicate lifecycle event",
-    db.prepare("SELECT COUNT(*) AS n FROM certificate_lifecycle_events WHERE lifecycle_id=?").get(secondLifecycle.id).n,
-    lifecycleEventsBeforeThird
-  );
-  eq(
-    "scan 3 unchanged active recurrence emits no duplicate case event",
-    db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=?").get(secondLifecycle.linked_case_id).n,
-    caseEventsBeforeThird
-  );
+  // Scan 3 is the later live re-observation of a distinct, expiry-advanced leaf
+  // that covers the monitored host (the seeded expected hostname). Until 20 Oct
+  // 2026 coverage stayed "unknown" because no expected host was ever set, so it
+  // could never verify; it now verifies, exactly once, and clears the recurrence.
+  const thirdEvents = db.prepare("SELECT event_type FROM certificate_lifecycle_events WHERE lifecycle_id=? ORDER BY rowid")
+    .all(secondLifecycle.id).slice(lifecycleEventsBeforeThird).map((row) => row.event_type);
+  eq("scan 3 appends exactly the verification and the cleared recurrence", JSON.stringify(thirdEvents),
+    JSON.stringify(["verified_replaced", "monitoring_changed"]));
+  const thirdCaseEvents = db.prepare("SELECT action, from_status, to_status, actor_type FROM managed_case_events WHERE case_id=? ORDER BY rowid")
+    .all(secondLifecycle.linked_case_id).slice(caseEventsBeforeThird);
+  eq("scan 3 notes the observation on the case without moving it (not awaiting verification)", JSON.stringify(thirdCaseEvents),
+    JSON.stringify([{ action: "replacement_observed", from_status: "detected", to_status: "detected", actor_type: "system" }]));
   eq(
     "scan 3 preserves replacement history byte-for-byte",
     db.prepare("SELECT detail_json FROM certificate_lifecycle_events WHERE lifecycle_id=? AND event_type='replaced'").get(secondLifecycle.id).detail_json,
     relationshipBeforeThird
   );
   eq(
-    "scan 3 re-observation alone does not mark the lifecycle verified",
+    "scan 3 later live re-observation verifies the lifecycle from CyberMeters' own evidence",
     db.prepare("SELECT verification_status FROM certificate_lifecycle WHERE id=?").get(secondLifecycle.id).verification_status,
-    "not_verified"
+    "verified_replaced"
   );
+  eq(
+    "...but never closes a case the customer has not sent for verification",
+    db.prepare("SELECT status FROM managed_cases WHERE id=?").get(secondLifecycle.linked_case_id).status,
+    "detected"
+  );
+  const lifecycleEventsBeforeFourth = db.prepare("SELECT COUNT(*) AS n FROM certificate_lifecycle_events WHERE lifecycle_id=?").get(secondLifecycle.id).n;
+  const caseEventsBeforeFourth = db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=?").get(secondLifecycle.linked_case_id).n;
+  await runTraceScan("scan-item9-p3-4", 3);
+  eq("scan 4 unchanged replacement emits no duplicate lifecycle event",
+    db.prepare("SELECT COUNT(*) AS n FROM certificate_lifecycle_events WHERE lifecycle_id=?").get(secondLifecycle.id).n, lifecycleEventsBeforeFourth);
+  eq("scan 4 emits no duplicate case event",
+    db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=?").get(secondLifecycle.linked_case_id).n, caseEventsBeforeFourth);
   eq(
     "scan 3 still has one case",
     db.prepare("SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id='ws-a' AND case_type='certificate_case'").get().n,
@@ -314,7 +328,7 @@ try {
     "live_tls"
   );
 
-  eq("one live TLS collector request per real scan", env.NETWORK_PROBE.calls.length, 3);
+  eq("one live TLS collector request per real scan", env.NETWORK_PROBE.calls.length, 4);
   ok("real engine exercised network edges", outboundCalls > 0);
 
   for (const report of [firstReport, secondReport, thirdReport]) {
