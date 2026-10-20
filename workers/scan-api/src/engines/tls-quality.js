@@ -3,6 +3,36 @@
 // in the TLS receipt, but do not make every supported-profile scan incomplete.
 // A pending supported check omitted by the cap, or an inconclusive attempted
 // check, DOES prevent an unqualified whole-scan completion claim.
+// A server that has dropped a legacy protocol, a cipher or client renegotiation
+// often refuses the probe without the TLS version alert the engine needs to
+// call it "rejected": it closes the connection (transport_eof), fails the
+// handshake with no alert, or sends a different alert. When the same endpoint
+// completed at least one handshake in the same run, the server was reachable
+// and that refusal means "not accepted". It is recorded as rejected with its
+// own basis and the engine's original state, so "rejected with an alert" and
+// "refused without a version alert" never collapse into one. Timeouts,
+// budget cuts, mid-run aborts and unreachable endpoints stay inconclusive.
+export const TLS_REFUSAL_REASONS = Object.freeze(['transport_eof', 'handshake_failed', 'peer_alert']);
+const LEGACY_PROTOCOLS = new Set(['ssl2', 'ssl3', 'tls1', 'tls1_1']);
+
+export function isTlsRefusalProbe(check) {
+  return (check?.control === 'protocol' && LEGACY_PROTOCOLS.has(check.protocol))
+    || check?.control === 'cipher' || check?.control === 'secure_renegotiation';
+}
+
+export function classifyTlsRefusals(checks) {
+  const rows = Array.isArray(checks) ? checks : [];
+  const reachable = new Set(rows.filter(row => row?.state === 'accepted').map(row => row.endpoint_index));
+  return rows.map(row => {
+    if (row?.state === 'rejected') return { ...row, rejection_basis: 'engine_alert' };
+    if (row?.state === 'uncertain' && reachable.has(row.endpoint_index)
+        && TLS_REFUSAL_REASONS.includes(row.reason) && isTlsRefusalProbe(row)) {
+      return { ...row, state: 'rejected', engine_state: 'uncertain', rejection_basis: 'refused_without_version_alert' };
+    }
+    return row;
+  });
+}
+
 const count = (coverage, key) => Number.isSafeInteger(coverage?.[key]) && coverage[key] >= 0
   ? coverage[key]
   : null;

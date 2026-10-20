@@ -7,7 +7,7 @@ import { collectTlsAssessment } from '../workers/scan-api/src/engines/exposure-j
 import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
 import { resolveAssessmentPresentation } from '../workers/scan-api/src/engines/assessment-presentation.js';
 import { projectPhase5SnapshotForCustomer, resolvePhase5HistoricalCustomerProjection, resolvePhase5CustomerAggregate } from '../workers/scan-api/src/engines/phase5-evidence.js';
-import { projectTlsScanQualityForCustomer, tlsSupportedCoverageGapReason } from '../workers/scan-api/src/engines/tls-quality.js';
+import { classifyTlsRefusals, projectTlsScanQualityForCustomer, tlsSupportedCoverageGapReason } from '../workers/scan-api/src/engines/tls-quality.js';
 
 const now = Date.now();
 const iso = offset => new Date(now + offset).toISOString();
@@ -199,6 +199,69 @@ let guardTimer;
 try {
   await assert.rejects(Promise.race([hung,new Promise((_,reject)=>{guardTimer=setTimeout(()=>reject(new Error('abort_not_bounded')),1000);})]),/collector_aborted/);
 } finally {clearTimeout(abortTimer);clearTimeout(guardTimer);}
+// ── Refusal without a version alert (decision 20 Oct 2026) ──────────────────
+// A legacy-protocol, cipher or renegotiation probe that ends in transport_eof,
+// handshake_failed or a non-version alert is "not accepted" only when the same
+// endpoint completed a handshake in the same run; the basis stays visible.
+const refusalCases = classify => {
+  const row = (endpoint_index, control, protocol, state, reason) => ({ endpoint_index, control, protocol, cipher_id: control === 'cipher' ? 'TLS_RSA_WITH_RC4_128_SHA' : null, state, reason });
+  const reachable = classify([
+    row(0, 'certificate', 'tls1_3', 'accepted', 'handshake_completed'),
+    row(0, 'protocol', 'ssl2', 'uncertain', 'transport_eof'),
+    row(0, 'protocol', 'tls1_1', 'uncertain', 'handshake_failed'),
+    row(0, 'cipher', 'tls1_2', 'uncertain', 'peer_alert'),
+    row(0, 'secure_renegotiation', 'tls1_2', 'uncertain', 'handshake_failed'),
+    row(0, 'protocol', 'tls1', 'rejected', 'protocol_version_rejected'),
+  ]);
+  const unreachable = classify([
+    row(1, 'protocol', 'ssl2', 'uncertain', 'transport_eof'),
+    row(1, 'cipher', 'tls1_2', 'uncertain', 'peer_alert'),
+  ]);
+  const excluded = classify([
+    row(2, 'certificate', 'tls1_2', 'accepted', 'handshake_completed'),
+    row(2, 'protocol', 'ssl3', 'uncertain', 'transport_timeout'),
+    row(2, 'cipher', 'tls1_2', 'uncertain', 'budget_exhausted'),
+    row(2, 'protocol', 'tls1_1', 'uncertain', 'aborted'),
+    row(2, 'cipher', 'tls1_2', 'uncertain', 'pending'),
+    row(2, 'robot', 'tls1_2', 'uncertain', 'handshake_failed'),
+    row(2, 'protocol', 'tls1_3', 'uncertain', 'handshake_failed'),
+  ]);
+  return {
+    reachableRefused: reachable.slice(1, 5).every(c => c.state === 'rejected' && c.engine_state === 'uncertain' && c.rejection_basis === 'refused_without_version_alert')
+      && reachable[1].reason === 'transport_eof' && reachable[5].rejection_basis === 'engine_alert' && reachable[5].reason === 'protocol_version_rejected',
+    unreachableStaysInconclusive: unreachable.every(c => c.state === 'uncertain' && !c.rejection_basis),
+    timeoutStaysInconclusive: excluded[1].state === 'uncertain' && !excluded[1].rejection_basis,
+    otherExclusionsStayInconclusive: excluded.slice(2).every(c => c.state === 'uncertain' && !c.rejection_basis),
+  };
+};
+{
+  const result = refusalCases(classifyTlsRefusals);
+  for (const [name, ok] of Object.entries(result)) assert.equal(ok, true, `TLS refusal: ${name}`);
+  // The stored Cloudflare-edge run: every inconclusive check is a refusal on the
+  // reachable endpoint, so supported coverage has no gap and nothing else moves.
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/tls-refusal-cloudflare-edge-2026-10-18.json', import.meta.url), 'utf8'));
+  const classified = classifyTlsRefusals(fixture.checks);
+  assert.equal(fixture.checks.filter(c => c.state === 'uncertain').length, 7);
+  assert.equal(classified.filter(c => c.state === 'uncertain').length, 0);
+  assert.equal(classified.filter(c => c.rejection_basis === 'refused_without_version_alert').length, 7);
+  assert.deepEqual(classified.filter(c => c.state === 'accepted'), fixture.checks.filter(c => c.state === 'accepted'), 'accepted checks unchanged');
+  const coverage = { completed: classified.filter(c => ['accepted', 'rejected'].includes(c.state)).length, uncertain: 0, omitted_checks: 0, omitted_services: 0, endpoint_gaps: 0 };
+  assert.equal(tlsSupportedCoverageGapReason({ source: 'tls_assessment', coverage, endpoints: [{ checks: classified }], quality: 'complete' }), null);
+  // Mutants: the reachability condition and the timeout exclusion are load-bearing.
+  const source = readFileSync(new URL('../workers/scan-api/src/engines/tls-quality.js', import.meta.url), 'utf8');
+  for (const [name, from, to, expectFalse] of [
+    ['reachability condition removed', "row?.state === 'uncertain' && reachable.has(row.endpoint_index)", "row?.state === 'uncertain'", 'unreachableStaysInconclusive'],
+    ['timeout counted as a refusal', "['transport_eof', 'handshake_failed', 'peer_alert']", "['transport_eof', 'handshake_failed', 'peer_alert', 'transport_timeout']", 'timeoutStaysInconclusive'],
+  ]) {
+    assert.equal(source.split(from).length, 2, `TLS refusal mutant anchor: ${name}`);
+    const mutantUrl = new URL(`../workers/scan-api/src/engines/.tls-quality.refusal-mutant.${process.pid}.${expectFalse}.js`, import.meta.url);
+    writeFileSync(mutantUrl, source.replace(from, to));
+    try {
+      const mutant = await import(mutantUrl.href);
+      assert.equal(refusalCases(mutant.classifyTlsRefusals)[expectFalse], false, `TLS refusal mutant survived: ${name}`);
+    } finally { rmSync(mutantUrl, { force: true }); }
+  }
+}
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
 await import('./p1b-single-domain-engine-fixture.js');
 await import('./mail-transport-fixture.js');

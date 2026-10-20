@@ -1,0 +1,237 @@
+{
+  "source": "Stored deep-TLS checks of a production cybermeters.com scan on a Cloudflare edge (18 Oct 2026, scan_63acac98), reduced to control/protocol/cipher/state/reason. No address, hostname or certificate data.",
+  "checks": [
+    {
+      "endpoint_index": 2,
+      "control": "certificate",
+      "protocol": "tls1_3",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "key_exchange",
+      "protocol": "tls1_3",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "ocsp",
+      "protocol": "tls1_3",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "certificate",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "key_exchange",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "ocsp",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "protocol",
+      "protocol": "tls1_3",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "protocol",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "protocol",
+      "protocol": "tls1_1",
+      "cipher_id": null,
+      "state": "uncertain",
+      "reason": "handshake_failed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "protocol",
+      "protocol": "tls1",
+      "cipher_id": null,
+      "state": "rejected",
+      "reason": "protocol_version_rejected"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "protocol",
+      "protocol": "ssl3",
+      "cipher_id": null,
+      "state": "uncertain",
+      "reason": "handshake_failed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "protocol",
+      "protocol": "ssl2",
+      "cipher_id": null,
+      "state": "uncertain",
+      "reason": "transport_eof"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "session_resumption",
+      "protocol": "tls1_3",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "resumption_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "early_data",
+      "protocol": "tls1_3",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "resumption_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "sni_alpn",
+      "protocol": "tls1_3",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "cipher",
+      "protocol": "tls1_3",
+      "cipher_id": "TLS_AES_128_GCM_SHA256",
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "cipher",
+      "protocol": "tls1_3",
+      "cipher_id": "TLS_AES_256_GCM_SHA384",
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "compression",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "secure_renegotiation",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "uncertain",
+      "reason": "handshake_failed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "fallback_scsv",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "rejected",
+      "reason": "fallback_rejected"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "extended_master_secret",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "session_resumption",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "resumption_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "sni_alpn",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "accepted",
+      "reason": "handshake_completed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "cipher",
+      "protocol": "tls1_2",
+      "cipher_id": "DHE-DSS-AES256-GCM-SHA384",
+      "state": "uncertain",
+      "reason": "peer_alert"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "cipher",
+      "protocol": "tls1_2",
+      "cipher_id": "DHE-DSS-AES128-SHA256",
+      "state": "uncertain",
+      "reason": "peer_alert"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "cipher",
+      "protocol": "tls1_2",
+      "cipher_id": "EXP-DES-CBC-SHA",
+      "state": "uncertain",
+      "reason": "peer_alert"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "heartbleed",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "unexecutable",
+      "reason": "heartbeat_unavailable"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "robot",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "rejected",
+      "reason": "active_not_observed"
+    },
+    {
+      "endpoint_index": 2,
+      "control": "ccs",
+      "protocol": "tls1_2",
+      "cipher_id": null,
+      "state": "rejected",
+      "reason": "active_not_observed"
+    }
+  ]
+}

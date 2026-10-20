@@ -339,7 +339,8 @@ const EXPECTED = Object.freeze({
     // P1b-3: two report.scan_quality reads in the new exposure-plan test, plus
     // four in its own-module-incomplete mutation case (Email/Brand pushes);
     // production reads and SQL are unchanged by this governance addition.
-    governance: { occurrence_count: 138, source_file_count: 44, fingerprint: "7337119fbe4b1b6ab6583434d3eb848e0ca87736461eaae5481fa956790a4828" },
+    // TLS refusal replay (20 Oct 2026): scripts/lab/tls-refusal-replay.mjs reads report.scan_quality once to show the stored status beside the rebuilt one (138 -> 139 reads, 44 -> 45 files); keyed two-tree diff shows no other change.
+    governance: { occurrence_count: 139, source_file_count: 45, fingerprint: "e5bc10323bdacee1f1815ba9dcefbc2189e728b4dbf99bb1779f38cd020cbbaf" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper

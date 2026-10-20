@@ -8,6 +8,7 @@ import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/con
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
 import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, TLS_SPECIAL_CONSENT_VERSION, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
+import { classifyTlsRefusals } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
 import { getEffectiveDomainLimit, getEffectivePlanState } from './entitlements.js';
@@ -830,9 +831,9 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
   if(!tls)return null;
   const pendingState=row.state==='cancelled'?'not_authorized':row.state==='budget_exhausted'?'uncertain':'uncertain';
   const pendingReason=row.state==='cancelled'?'authority_lost':row.state==='budget_exhausted'?'budget_exhausted':'pending';
-  const all=[...tls.static_results,...tls.results,...tls.selected.slice(tls.cursor).map(item=>({endpoint_index:item.endpoint_index,...item.check,
+  const all=classifyTlsRefusals([...tls.static_results,...tls.results,...tls.selected.slice(tls.cursor).map(item=>({endpoint_index:item.endpoint_index,...item.check,
     state:pendingState,reason:pendingReason,observed_at:null,engine:null,evidence:null,
-    physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}}))];
+    physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}}))]);
   const endpoints=tls.endpoints.map((entry,index)=>({
     ...entry.endpoint,endpoint_identity:entry.endpoint_identity,scope:entry.scope,
     checks:all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>({...(check||{}),...rest,
