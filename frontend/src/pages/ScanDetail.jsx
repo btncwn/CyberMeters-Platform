@@ -19,6 +19,7 @@ import LiveTlsEvidence, { TlsAssessmentEvidence } from '../components/LiveTlsEvi
 import WebsiteResponseEvidence from '../components/WebsiteResponseEvidence'
 import { bandMeta } from '../lib/score-presentation'
 import { customerEvidenceText } from '../lib/evidenceStrengthDisplay'
+import { MailTransportCard } from '../components/MailTransportCard'
 import {
   isReportPreparing,
   isReportReady,
@@ -1304,6 +1305,12 @@ function ReportView({ report, queuedAt = null, waivers = {}, onWaive = null, onU
           email={modules?.email_security}
           dmarcPresentation={report?.dmarc_policy_presentation}
         />
+      </div>
+
+      {/* Mail transport: MX STARTTLS and certificate, from the mail_transport module */}
+      <div id="mail-transport-evidence" className="card overflow-hidden scroll-mt-24">
+        <SectionHeader title="Mail Transport (MX STARTTLS · Certificate)" />
+        <MailTransportCard embedded transport={modules?.mail_transport} mtaSts={modules?.email_security?.mta_sts_detail} tlsRpt={modules?.email_security?.tls_rpt_detail} />
       </div>
     </div>
   )
