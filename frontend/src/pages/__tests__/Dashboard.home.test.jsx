@@ -128,3 +128,24 @@ describe('scan box by workspace role (18 Oct 2026)', () => {
     expect(screen.queryByTestId('dashboard-rescan')).toBeNull()
   })
 })
+
+describe('no score yet (founder, 20 Oct 2026)', () => {
+  it('a first scan that did not complete every check gets a calm note, not a blank or a red banner', async () => {
+    api.getWorkspaceScans.mockResolvedValue({ scans: [{ id: 's1', domain: 'example.co.uk', status: 'completed', scan_quality: 'partial',
+      assessment: { quality: 'partial', provisional: true, authoritative: false, display_score: 71, display_rating: null }, created_at: new Date().toISOString() }] })
+    renderHome()
+    const note = within(await screen.findByTestId('incomplete-assessment-note'))
+    expect(note.getByRole('heading', { name: 'First assessment incomplete' })).toBeInTheDocument()
+    expect(note.getByText(/so there is no score yet/)).toBeInTheDocument()
+    expect(note.getByRole('link', { name: 'See what was measured' })).toHaveAttribute('href', '/scans/s1')
+    expect(screen.queryByText('71')).toBeNull()
+  })
+
+  it('a complete, final assessment shows no note', async () => {
+    api.getWorkspaceScans.mockResolvedValue({ scans: [{ id: 's2', domain: 'example.co.uk', status: 'completed', scan_quality: 'complete',
+      assessment: { quality: 'complete', provisional: false, authoritative: true, comparable: true, display_score: 82, display_rating: 'good' }, created_at: new Date().toISOString() }] })
+    renderHome()
+    await screen.findByTestId('posture-card')
+    expect(screen.queryByTestId('incomplete-assessment-note')).toBeNull()
+  })
+})

@@ -1804,7 +1804,7 @@ export default function ScanDetail() {
                       </span>
                     )} />
                   )}
-                  {headline.mode === 'none' && <KV label="Score" value="—" />}
+                  {headline.mode === 'none' && <KV label="Score" value={<span className="text-sm font-normal text-gray-700" data-testid="scan-score-none">No score yet</span>} />}
                   <KV label="Assessment band" value={
                     <span className={`inline-flex whitespace-nowrap text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentBand.pill}`} data-testid="scan-band-chip">
                       {/* A provisional assessment withholds its band; say so instead of "Not assessed". */}

@@ -10,6 +10,7 @@ import CanonicalScore from '../components/CanonicalScore'
 import { WorkspaceReportBranding } from '../components/ReportBranding'
 import { canonicalDomainInput, isValidDomainSyntax, isAuthoritativeVerified } from '../lib/newScanVerification'
 import { roleCan, scanAccessFor } from '../lib/workspaceRole'
+import IncompleteAssessmentNote from '../components/overview/IncompleteAssessmentNote'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -475,6 +476,10 @@ export default function WorkspaceDetailPage() {
             is retained below — it reflects past activity, not current monitoring.
           </span>
         </div>
+      )}
+
+      {!postureEstablished && !noCurrentMonitoring && stats?.latest_scan?.status === 'completed' && (
+        <IncompleteAssessmentNote scan={stats.latest_scan} first={stats?.total_scans === 1} />
       )}
 
       {/* Stats cards */}

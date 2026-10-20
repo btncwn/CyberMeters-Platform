@@ -6,10 +6,12 @@
 // appears: a withheld or provisional score is never shown as a number.
 
 export const WITHHELD_SCORE_EXPLANATION =
-  'Score withheld: some checks did not complete. See what was not assessed.'
+  'Assessment incomplete: some checks did not complete, so there is no score yet. What was measured is shown, and what was not is listed.'
 export const SCORE_PENDING_LABEL = 'Score available after a complete scan'
 
 const PARTIAL = new Set(['partial', 'degraded'])
+// assessment-presentation.js ASSESSMENT_MESSAGES.partial / .degraded.
+const PROVISIONAL_NUMBER_MESSAGE = /This score is provisional\.?$/
 
 /**
  * scoreHeadline({ score, rating, provisional, message, scanQuality })
@@ -22,7 +24,12 @@ export function scoreHeadline({ score = null, rating = null, provisional = null,
   const text = typeof message === 'string' && message.trim() ? message.trim() : null
   const partial = PARTIAL.has(String(scanQuality || '').toLowerCase())
   if (provisional === true || (value !== null && rating == null) || partial) {
-    return { mode: 'withheld', score: null, rating: null, explanation: text || WITHHELD_SCORE_EXPLANATION }
+    // The backend's generic quality message speaks about the number this rule
+    // hides ("... This score is provisional.") and would contradict the screen,
+    // so the withheld explanation replaces it. Any other message is a specific
+    // reason (e.g. which area did not complete) and is shown as written.
+    const aboutHiddenNumber = text !== null && PROVISIONAL_NUMBER_MESSAGE.test(text)
+    return { mode: 'withheld', score: null, rating: null, explanation: text && !aboutHiddenNumber ? text : WITHHELD_SCORE_EXPLANATION }
   }
   if (value === null) return { mode: 'none', score: null, rating: null, explanation: text }
   return { mode: 'established', score: value, rating, explanation: null }

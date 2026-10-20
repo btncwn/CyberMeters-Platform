@@ -74,13 +74,13 @@ function domainRow(domain, {
   }
 }
 
-function renderPage(domains) {
+function renderPage(domains, latestScan = null) {
   api.getWorkspace.mockResolvedValue({
     workspace: { id: 'ws-founder', name: 'Founder workspace', role: 'owner' },
     stats: {
       total_domains: domains.length,
       total_scans: domains.length,
-      latest_scan: null,
+      latest_scan: latestScan,
       posture_established: false,
       posture_score: null,
       posture_rating: null,
@@ -172,5 +172,20 @@ describe('WorkspaceDetailPage canonical domain score presentation', () => {
     const card = cyberScore.closest('.card')
     expect(within(card).getByText('—')).toBeInTheDocument()
     expect(within(card).getByText('Current posture not yet established.')).toBeInTheDocument()
+  })
+})
+
+describe('no score yet on the workspace page (founder, 20 Oct 2026)', () => {
+  beforeEach(() => vi.clearAllMocks())
+  it('explains a completed scan without a score and links to what was measured', async () => {
+    renderPage([domainRow('founder.example', { assessment: null })], { id: 'scan-founder', domain: 'founder.example', status: 'completed', scan_quality: 'partial', created_at: '2026-10-20T09:00:00Z' })
+    const note = within(await screen.findByTestId('incomplete-assessment-note'))
+    expect(note.getByRole('heading', { name: 'First assessment incomplete' })).toBeInTheDocument()
+    expect(note.getByRole('link', { name: 'See what was measured' })).toHaveAttribute('href', '/scans/scan-founder')
+  })
+  it('a scan still running is not called incomplete', async () => {
+    renderPage([domainRow('founder.example', { assessment: null })], { id: 'scan-run', domain: 'founder.example', status: 'running', created_at: '2026-10-20T09:00:00Z' })
+    await screen.findAllByText('founder.example')
+    expect(screen.queryByTestId('incomplete-assessment-note')).toBeNull()
   })
 })

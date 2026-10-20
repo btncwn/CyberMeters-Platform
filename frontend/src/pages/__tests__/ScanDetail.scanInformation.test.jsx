@@ -147,3 +147,18 @@ describe('Scan Information — score honesty', () => {
     expect(within(panel).getByTestId('scan-band-chip')).toHaveTextContent('Good')
   })
 })
+
+describe('Scan Information — no score yet (founder, 20 Oct 2026)', () => {
+  it('says "No score yet", never a bare dash, and keeps the backend reason', async () => {
+    const noScore = { ...report, cyber_metrics_score: null,
+      assessment: { quality: 'complete', provisional: false, authoritative: false, comparable: false, display_score: null, display_rating: null, message: 'Current posture not yet established.' } }
+    api.getScan.mockResolvedValue({ scan: { ...scan, score: null, rating: null }, report_availability: { status: 'report_ready', retryable: false } })
+    api.getScanReport.mockResolvedValue(noScore)
+    api.getExecutiveReportV2.mockRejectedValue(new Error('not in this fixture'))
+    api.getFindingWaivers.mockResolvedValue({ waivers: [] })
+    render(<MemoryRouter initialEntries={[`/scans/${scan.id}`]}><Routes><Route path="/scans/:id" element={<ScanDetail />} /></Routes></MemoryRouter>)
+    const panel = (await screen.findByText('Scan Information')).closest('.card')
+    await waitFor(() => expect(within(panel).getByTestId('scan-score-none')).toHaveTextContent('No score yet'))
+    expect(within(panel).getByText('Current posture not yet established.')).toBeInTheDocument()
+  })
+})

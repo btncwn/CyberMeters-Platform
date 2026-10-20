@@ -254,8 +254,12 @@ function AssessmentCoverage({ coverage }) {
   const degradedSignals = Array.isArray(coverage.monitoring_degraded_signals)
     ? coverage.monitoring_degraded_signals
     : []
+  // Checks that ran but did not finish, or whose evidence could not support a
+  // conclusion: the backend's record of why the assessment is incomplete.
+  const incomplete = (Array.isArray(coverage.modules_incomplete) ? coverage.modules_incomplete : [])
+    .filter((entry) => entry?.module)
 
-  if (!facts.length && !skipped.length && !skippedScoreBearing.length && !degradedSignals.length) return null
+  if (!facts.length && !skipped.length && !skippedScoreBearing.length && !degradedSignals.length && !incomplete.length) return null
 
   return (
     <section aria-label="Assessment coverage" className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -280,6 +284,12 @@ function AssessmentCoverage({ coverage }) {
           <span className="font-semibold">Score-bearing modules skipped:</span> {skippedScoreBearing.map(readableCode).join(', ')}
         </p>
       )}
+      {incomplete.map(({ module, incomplete_reason: reason }) => (
+        <p key={`incomplete-${module}`} className="mt-1 text-xs leading-relaxed text-slate-600" data-testid="coverage-incomplete-module">
+          <span className="font-semibold text-slate-700">{readableCode(module)}:</span>
+          {' '}{reason ? `ran, but its evidence could not support a conclusion — ${customerEvidenceText(reason)}` : 'did not finish in this scan, so it was not assessed'}
+        </p>
+      ))}
       {degradedSignals.map((entry, index) => (
         <p key={`${entry?.signal || 'signal'}-${index}`} className="mt-1 text-xs leading-relaxed text-slate-500">
           <span className="font-semibold text-slate-700">{entry?.signal ? readableCode(entry.signal) : 'Monitoring signal'}:</span>
@@ -292,10 +302,36 @@ function AssessmentCoverage({ coverage }) {
 
 // An empty findings list covers only what the scan checked, and only a scan
 // whose checks all completed may read as one (the backend's scan_quality decides).
+// A partial or degraded scan is known to be incomplete, not unconfirmed.
+const INCOMPLETE_EMPTY_LABEL = 'No findings in the checks that completed. Some checks did not complete, so this is not a clean result.'
 function observedFindingsEmptyLabel(report) {
-  return report?.evidence_completeness?.scan_quality === 'complete'
-    ? 'No material findings were observed in this assessment. An absence of findings does not establish an absence of risk.'
-    : 'Scan coverage was not confirmed for this assessment, so an empty list here is not a clean result.'
+  const quality = report?.evidence_completeness?.scan_quality
+  if (quality === 'complete') return 'No material findings were observed in this assessment. An absence of findings does not establish an absence of risk.'
+  if (quality === 'partial' || quality === 'degraded') return INCOMPLETE_EMPTY_LABEL
+  return 'Scan coverage was not confirmed for this assessment, so an empty list here is not a clean result.'
+}
+
+// What this assessment could not establish, area by area, in the backend's
+// words (executive_summary.not_fully_assessed). Shown so "no score" always
+// comes with what was not assessed and why.
+function NotFullyAssessed({ entries, domains }) {
+  const list = Array.isArray(entries) ? entries.filter((e) => e?.domain_key) : []
+  if (list.length === 0) return null
+  const names = new Map((Array.isArray(domains) ? domains : []).map((d) => [d.domain_key, d.display_name]))
+  const label = (key) => key === 'cyber_metrics_score' ? 'Cyber Metrics Score' : names.get(key) || readableCode(key)
+  return (
+    <section aria-labelledby="not-fully-assessed-heading" className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3" data-testid="not-fully-assessed">
+      <h3 id="not-fully-assessed-heading" className="text-xs font-bold text-slate-800">Not fully assessed yet</h3>
+      <ul className="mt-2 space-y-1">
+        {list.map((entry) => (
+          <li key={entry.domain_key} className="text-xs leading-relaxed text-slate-600">
+            <span className="font-semibold text-slate-700">{label(entry.domain_key)}:</span>
+            {' '}{entry.reason ? customerEvidenceText(entry.reason) : readableCode(entry.state)}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 // Scanner module identifiers read as the check a customer recognises; any other
@@ -396,6 +432,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
           </div>
         )}
         <AssessmentCoverage coverage={report.evidence_completeness} />
+        <NotFullyAssessed entries={summary.not_fully_assessed} domains={report.cyber_mot_domains} />
       </div>
 
       {priorityActions.length > 0 && (
