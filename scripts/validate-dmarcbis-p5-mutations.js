@@ -160,7 +160,7 @@ await withMutant(
   async ({ source }) => {
     ok(
       "MUTANT scan engine gains prohibited automatic case creation",
-      source.includes("createDmarcPolicyCase(env, lifecycleResult)"),
+      source.includes("createDmarcPolicyCase(phaseEnv, lifecycleResult)"),
     );
   },
 );
