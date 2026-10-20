@@ -5,8 +5,8 @@ import net from 'node:net';
 import tls from 'node:tls';
 import {spawnSync} from 'node:child_process';
 import {runCollector,collectorProgram} from '../src/collector.js';
-import {isPublicProbeAddress,validateNetworkProbeRequest,readBoundedJson} from '../src/contract.js';
-import {validateNetworkProbeReceipt} from '../src/receipt.js';
+import {FREE_TOOL_TLS_LIMITS,isPublicProbeAddress,validateNetworkProbeRequest,readBoundedJson} from '../src/contract.js';
+import {validateFreeToolTlsReceipt,validateNetworkProbeReceipt} from '../src/receipt.js';
 import {attachLiveTlsToSsl,collectNetworkProbe,liveCertificateFindings} from '../../scan-api/src/engines/network-probe.js';
 import {runCertificateIntelligenceModule} from '../../scan-api/src/engines/cert-intel.js';
 import {createTlsFixtures} from './fixtures/create-tls-fixtures.js';
@@ -95,12 +95,12 @@ test('fresh TLS case verification needs every endpoint and cannot use HTTP succe
  assert.equal(buildLiveTlsCaseVerificationEvidence('certificate_untrusted',{...context,current:{...current,evidence_json:'{"https_available":true}'}}).verification_result,'inconclusive');
 });
 
-async function importWorkerForLocalTests(bundlePath){
+async function importWorkerForLocalTests(bundlePath,{module=false}={}){
  const url=bundlePath?new URL(`file://${bundlePath}`):new URL('../src/index.js',import.meta.url);
  let source=fs.readFileSync(url,'utf8');
  source=source.replace(/import\s*\{\s*DurableObject\s*\}\s*from\s*["']cloudflare:workers["'];?/,'class DurableObject { constructor(ctx,env){this.ctx=ctx;this.env=env;} }');
  source=source.replace(/from '([^']+)'/g,(match,path)=>path.startsWith('.')?`from '${new URL(path,url).href}'`:match);
- if(bundlePath)source+='\nexport { collectorProgram };';
+ if(bundlePath&&!module)source+='\nexport { collectorProgram };';
  return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 }
 
@@ -150,4 +150,132 @@ test('configured collector failure leaves the certificate unknown, never valid',
  const ssl=attachLiveTlsToSsl({tls_state:'observed_present',https_available:true}, {error:'live_tls_unavailable',receipt:null});
  const ci=runCertificateIntelligenceModule({ssl,subdomains:{wildcard_dns:false,items:[]}},'owned.example.com');
  assert.equal(ci.evidence_source,'not_observed');assert.equal(ci.issuer,null);assert.equal(ci.certificate_status,'unknown');assert.equal(ci.incomplete,true);assert.equal(ci.live_certificate_verified,false);assert.equal(liveCertificateFindings(ssl,'owned.example.com').length,0);
+});
+
+// ── Anonymous free-tool TLS profile (F2 SSL/TLS checker) ──────────────────────
+const freeToolRequest=(overrides={})=>({schema_version:'network-probe-request-v1',request_id:'ftls_1',workspace_id:null,scan_id:null,profile:'free_tool',deadline_at:new Date(Date.now()+7_000).toISOString(),targets:[{address:null,hostname:'owned.example.com'}],ports:[443],...overrides});
+const freeToolBoundary={
+ contract:validate=>{
+  const ok=validate(freeToolRequest()).ok===true;
+  const refused=[{workspace_id:'workspace_1'},{scan_id:'scan_1'},{ports:[8443]},{ports:[443,80]},{targets:[{address:'93.184.216.34',hostname:null}]},{targets:[{address:'10.0.0.1',hostname:null}]},{targets:[{address:null,hostname:'owned.example.com'},{address:null,hostname:'b.example.com'}]},{deadline_at:new Date(Date.now()+9_000).toISOString()},{extra:true}]
+   .filter(delta=>validate(freeToolRequest(delta)).ok===false).length;
+  return ok&&refused===9;
+ },
+};
+const freeToolServer=async({trusted=false,raw=false}={})=>{
+ const sockets=new Set();
+ const server=raw?net.createServer(socket=>{sockets.add(socket);socket.on('error',()=>{});}):tls.createServer({key:read('valid.key'),cert:read('valid.pem')});
+ server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});server.on('tlsClientError',()=>{});
+ await new Promise((resolve,reject)=>server.once('error',reject).listen(0,'127.0.0.1',resolve));
+ const port=server.address().port;
+ return {deps:(extra={})=>({resolve:async(_,family)=>family===4?['93.184.216.34']:[],connect:opts=>net.connect({...opts,host:'127.0.0.1',port}),...(trusted?{trustedRoots:[read('ca.pem')]}:{}),...extra}),
+  close:async()=>{for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));}};
+};
+test('free_tool request is anonymous, one hostname, port 443 only, deadline at most 8 s',()=>{
+ assert.equal(freeToolBoundary.contract(validateNetworkProbeRequest),true);
+ assert.equal(validateNetworkProbeRequest({...request(),workspace_id:null}).ok,false,'only free_tool is anonymous');
+});
+test('free_tool returns certificate and protocol facts only, within the response cap',async()=>{
+ const server=await freeToolServer({trusted:true});
+ try{
+  const req=freeToolRequest();const receipt=await runCollector(req,server.deps());
+  assert.equal(receipt.outcome,'observed');assert.equal(receipt.trust.result,'valid');assert.equal(receipt.hostname_match,'matched');
+  assert.ok(['TLSv1.2','TLSv1.3'].includes(receipt.protocol));assert.deepEqual(receipt.certificate.dns_names,['owned.example.com']);
+  assert.match(receipt.certificate.issuer,/LOCAL TEST CA/);assert.equal(receipt.endpoint.address,'93.184.216.34');
+  assert.deepEqual(validateFreeToolTlsReceipt(req,receipt),{ok:true});
+  const json=JSON.stringify(receipt);assert.ok(Buffer.byteLength(json)<FREE_TOOL_TLS_LIMITS.responseBytes);assert.ok(!/der_base64|banner/.test(json));
+  for(const mutate of [r=>r.certificate.der_base64='AA==',r=>r.endpoint.port=8443,r=>r.endpoint.address='10.0.0.1',r=>r.certificate.issuer='x'.repeat(300),r=>r.chain=Array(5).fill({subject:'a',issuer:'b',not_after:r.certificate.not_after}),r=>r.request_id='other',r=>r.trust.result='maybe']){
+   const altered=structuredClone(receipt);mutate(altered);assert.equal(validateFreeToolTlsReceipt(req,altered).ok,false);
+  }
+ }finally{await server.close();}
+});
+const freeToolPrivateDnsMakesNoConnection=async collector=>{
+ let connects=0;const receipt=await collector(freeToolRequest(),{resolve:async(_,family)=>family===4?['93.184.216.34','10.0.0.7']:[],connect:()=>{connects++;throw Error('unexpected');}});
+ return connects===0&&receipt.outcome==='unavailable'&&receipt.reason==='dns_non_public_answer';
+};
+test('free_tool: a private or reserved DNS answer makes no connection',async()=>{
+ assert.equal(await freeToolPrivateDnsMakesNoConnection(runCollector),true);
+});
+test('free_tool: one pinned address, one handshake, no retry',async()=>{
+ const hosts=[];const req=freeToolRequest();
+ const receipt=await runCollector(req,{resolve:async(_,family)=>family===4?['93.184.216.40','93.184.216.34']:['2606:4700::1111'],connect:opts=>{hosts.push(`${opts.host}:${opts.port}`);return net.connect({host:'127.0.0.1',port:1});}});
+ assert.deepEqual(hosts,['93.184.216.34:443']);assert.ok(['tls_connection_failed','tls_handshake_failed'].includes(receipt.reason));assert.deepEqual(validateFreeToolTlsReceipt(req,receipt),{ok:true});
+});
+const freeToolHandshakeTimesOut=async collector=>{
+ const server=await freeToolServer({raw:true});const started=Date.now();
+ try{const receipt=await collector(freeToolRequest(),server.deps({freeToolLimits:{handshakeMs:200}}));return receipt.reason==='tls_timeout'&&Date.now()-started<1500;}
+ finally{await server.close();}
+};
+test('free_tool: a handshake that never completes ends at the handshake cap',async()=>{
+ assert.equal(await freeToolHandshakeTimesOut(runCollector),true);
+});
+const freeToolOversizeRefused=async collector=>{
+ const server=await freeToolServer({trusted:true});
+ try{
+  const big=await collector(freeToolRequest(),server.deps({freeToolLimits:{certificateBytes:64}}));
+  const flood=await collector(freeToolRequest(),server.deps({freeToolLimits:{handshakeBytes:64}}));
+  return big.reason==='certificate_too_large'&&big.certificate===null&&flood.reason==='handshake_too_large';
+ }finally{await server.close();}
+};
+test('free_tool: an oversize certificate or handshake returns no certificate data',async()=>{
+ assert.equal(await freeToolOversizeRefused(runCollector),true);
+});
+const freeToolRoutesIsolated=async worker=>{
+ const slots=[];const env={PROBE_CONTAINERS:{getByName:name=>{slots.push(name);return{fetch:async()=>new Response('',{status:503})};}}};
+ const call=(path,body)=>worker.fetch(new Request(`http://container${path}`,{method:'POST',body:JSON.stringify(body)}),env);
+ const onCollect=await call('/collect',freeToolRequest());const scanOnFree=await call('/free-tool-tls',request());
+ const busy=await call('/free-tool-tls',freeToolRequest());
+ return onCollect.status===400&&scanOnFree.status===400&&busy.status===503&&JSON.stringify(slots)==='["free-tool-slot-0"]';
+};
+test('free_tool runs only on /free-tool-tls, on its own slot, with no fallback',async()=>{
+ const {default:worker}=await importWorkerForLocalTests();
+ assert.equal(await freeToolRoutesIsolated(worker),true);
+});
+test('free_tool DO refuses an oversize collector response',async()=>{
+ const {NetworkProbeContainer}=await importWorkerForLocalTests();
+ const ctx={storage:{setAlarm:async()=>{},deleteAlarm:async()=>{}},container:{running:false,start(){this.running=true;},setInactivityTimeout:async()=>{},destroy:async function(){this.running=false;},exec:async()=>({stdout:new Response('{"x":"'+'a'.repeat(FREE_TOOL_TLS_LIMITS.responseBytes)+'"}').body,exitCode:Promise.resolve(0)})}};
+ const response=await new NetworkProbeContainer(ctx,{}).fetch(new Request('http://container/free-tool-tls',{method:'POST',body:JSON.stringify(freeToolRequest())}));
+ assert.equal(response.status,502);
+});
+test('scan-api free-tool client: busy, invalid receipts and the importer guard',async()=>{
+ const {runFreeToolTlsCheck}=await import('../../scan-api/src/engines/free-tools/tls-certificate-check.js');
+ assert.equal((await runFreeToolTlsCheck({NETWORK_PROBE:{fetch:async()=>new Response('',{status:503})}},'owned.example.com')).error,'collector_busy');
+ assert.equal((await runFreeToolTlsCheck({NETWORK_PROBE:{fetch:async()=>Response.json({schema_version:'free-tool-tls-receipt-v1'})}},'owned.example.com')).error,'invalid_receipt');
+ assert.equal((await runFreeToolTlsCheck({NETWORK_PROBE:{fetch:async()=>{throw Error('x');}}},'10.0.0.1')).error,'invalid_target');
+ // Only the free-tools route (after Turnstile and the limiter) may call it.
+ const src=new URL('../../scan-api/src/',import.meta.url);const importers=[];
+ const walk=dir=>{for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const full=new URL(entry.name+(entry.isDirectory()?'/':''),dir);if(entry.isDirectory())walk(full);else if(entry.name.endsWith('.js')&&/free-tools\/tls-certificate-check\.js/.test(fs.readFileSync(full,'utf8')))importers.push(full.pathname.slice(src.pathname.length));}};
+ walk(src);
+ assert.ok(importers.every(file=>file==='routes/free-tools.js'),JSON.stringify(importers));
+});
+
+// Mutants: each boundary above must fail against a deliberately broken copy.
+test('free_tool boundary mutants are killed',async()=>{
+ const os=await import('node:os');const path=await import('node:path');
+ const repo=new URL('../../../',import.meta.url).pathname;
+ const mutants=[
+  ['contract deadline cap',          'workers/network-probe/src/contract.js',"(freeTool?FREE_TOOL_TLS_LIMITS.deadlineMs:90_000)","90_000",                         async m=>freeToolBoundary.contract(m.contract.validateNetworkProbeRequest)],
+  ['contract anonymous identity',    'workspace_id','',''],
+  ['contract port 443 only',         'workers/network-probe/src/contract.js',"input.ports.length!==1||input.ports[0]!==443||","input.ports.length!==1||",   async m=>freeToolBoundary.contract(m.contract.validateNetworkProbeRequest)],
+  ['collector private DNS refusal',  'workers/network-probe/src/collector.js',"if(addresses.some(address=>!isPublicProbeAddress(address)))throw new Error('dns_non_public_answer');","", async m=>freeToolPrivateDnsMakesNoConnection(m.collector.runCollector)],
+  ['collector handshake cap',        'workers/network-probe/src/collector.js',"Math.min(limits.handshakeMs,remaining)","remaining",                            async m=>freeToolHandshakeTimesOut(m.collector.runCollector)],
+  ['collector certificate cap',      'workers/network-probe/src/collector.js',"if(peer.raw.byteLength>limits.certificateBytes)return finish({reason:'certificate_too_large'});","", async m=>freeToolOversizeRefused(m.collector.runCollector)],
+  ['dispatcher free-tool slot',      'workers/network-probe/src/index.js',"path==='/free-tool-tls'?['free-tool-slot-0']:['probe-slot-0','probe-slot-1']","['probe-slot-0','probe-slot-1']", async m=>freeToolRoutesIsolated(m.index.default)],
+ ];
+ mutants[1]=['contract anonymous identity','workers/network-probe/src/contract.js',"freeTool&&key!=='request_id'?input[key]!==null:","false?null:",async m=>freeToolBoundary.contract(m.contract.validateNetworkProbeRequest)];
+ for(const [name,file,from,to,check] of mutants){
+  const dir=fs.mkdtempSync(path.join(process.env.NETWORK_PROBE_TEMP_ROOT||os.tmpdir(),'cm-free-tool-mutant-'));
+  try{
+   fs.cpSync(path.join(repo,'workers/network-probe/src'),path.join(dir,'workers/network-probe/src'),{recursive:true});
+   fs.cpSync(path.join(repo,'shared'),path.join(dir,'shared'),{recursive:true});
+   fs.cpSync(path.join(repo,'workers/scan-api/src'),path.join(dir,'workers/scan-api/src'),{recursive:true});
+   fs.symlinkSync(path.join(repo,'workers/scan-api/node_modules'),path.join(dir,'workers/scan-api/node_modules'),'dir');
+   const target=path.join(dir,file);const source=fs.readFileSync(target,'utf8');
+   assert.equal(source.split(from).length,2,`${name}: anchor`);
+   fs.writeFileSync(target,source.replace(from,to));
+   const base=path.join(dir,'workers/network-probe/src/');
+   const m={contract:await import(`file://${base}contract.js`),collector:await import(`file://${base}collector.js`),index:await importWorkerForLocalTests(`${base}index.js`,{module:true})};
+   assert.equal(await check(m),false,`${name}: mutant survived`);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+ }
 });
