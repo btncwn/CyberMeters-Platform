@@ -1,4 +1,5 @@
 // @ts-check
+import { noteErrorCode } from './lib/feedback'
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
 import { clearAccountWorkspaceState } from './lib/activeWorkspace'
 import { friendlyHttpError } from './lib/httpErrors'
@@ -189,7 +190,16 @@ function planFeatureError(err) {
  * @param {RequestInit} [options]
  * @returns {Promise<any>}  Parsed JSON body; annotate call sites for shapes.
  */
-async function request(path, options = {}) {
+// The last error code shown is offered to a "Something wrong?" report sent
+// from the same page soon after (lib/feedback.js). Codes only, never messages.
+function request(path, options = {}) {
+  return requestOnce(path, options).catch((error) => {
+    if (error?.name !== 'AbortError') noteErrorCode(error?.code)
+    throw error
+  })
+}
+
+async function requestOnce(path, options = {}) {
   const res = await safeFetch(`${BASE}${path}`, {
     // Disable browser cache so scan status, workspace data, and other dynamic
     // API responses are always fetched fresh. The server also sends Cache-Control:

@@ -196,6 +196,28 @@ describe('FreeScanPage evidence honesty', () => {
     })
   })
 
+  it('a result can be reported: "Something wrong?" sits under the snapshot (founder, 20 Oct 2026)', async () => {
+    await renderResult(allProbesFailedResponse())
+    expect(screen.getByRole('button', { name: 'Something wrong?' })).toBeInTheDocument()
+  })
+
+  it('a failed snapshot can be reported with its error code attached', async () => {
+    const fetchMock = vi.fn(async (url) => String(url).endsWith('/feedback')
+      ? new Response('{}', { status: 202 })
+      : { ok: false, status: 429, json: async () => ({ error: 'Too many free checks from this connection.', code: 'rate_limited' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><FreeScanPage /></MemoryRouter>)
+    fireEvent.change(screen.getByPlaceholderText('yourbusiness.co.uk'), { target: { value: 'example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: /Run my free Cyber MOT/i }))
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: 'Something wrong?' }))
+    fireEvent.change(screen.getByLabelText('Tell us what looks wrong'), { target: { value: 'I only ran one check' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/feedback'))).toBe(true))
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/feedback'))
+    expect(JSON.parse(init.body)).toMatchObject({ surface: 'free_scan', error_code: 'rate_limited', message: 'I only ran one check', tool: null })
+  })
+
   it('renders the all-probes-failed contract without a score or healthy/no-issues verdict', async () => {
     await renderResult(allProbesFailedResponse())
 

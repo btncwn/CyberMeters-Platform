@@ -5,12 +5,16 @@ import { TOKEN_KEY } from '../../context/authKeys'
 import PublicSiteFooter from '../PublicSiteFooter'
 import PublicSiteHeader from '../PublicSiteHeader'
 import ToolResult from './ToolResult'
+import SomethingWrong from '../SomethingWrong'
 import TurnstileWidget from './TurnstileWidget'
 
 const CALLS = {
   dmarc: { run: api.runDmarcTool, defer: api.deferDmarcTool },
   spf: { run: api.runSpfTool, defer: api.deferSpfTool },
 }
+
+// The tool name a "Something wrong?" report carries.
+const TOOL_SLUGS = { dmarc: 'dmarc-checker', spf: 'spf-checker' }
 
 const TRIAL_URL = 'https://app.cybermeters.com/signup'
 
@@ -192,6 +196,9 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
         )}
         {queuedMessage && <p className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950" aria-live="polite">{queuedMessage}</p>}
         {phase === 'message' && outcome?.message && <p className="rounded-xl border border-gray-200 bg-white p-4 text-gray-700" aria-live="polite">{outcome.message}</p>}
+        {(phase === 'result' || phase === 'message' || shared) && (
+          <SomethingWrong surface="free_tool" tool={TOOL_SLUGS[tool]} errorCode={phase === 'message' ? (outcome?.code || outcome?.status || null) : null} className="text-gray-600" />
+        )}
 
         {about}
 

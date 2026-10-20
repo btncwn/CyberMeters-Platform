@@ -11,6 +11,7 @@ import AreaMenu from './shell/AreaMenu'
 import WorkspaceMenu from './shell/WorkspaceMenu'
 import EarthButton from './shell/EarthButton'
 import UpgradePromptModal from './shell/UpgradePromptModal'
+import SomethingWrong from './SomethingWrong'
 
 // The app shell v2 (founder prototype, 17 Oct 2026):
 //   • a 68px top bar — on the left ONE button: the logo mark, the serif
@@ -283,6 +284,7 @@ export default function Layout() {
           <NavLink to="/cookies" className="hover:text-gray-700">Cookies</NavLink>
           <NavLink to="/support" className="hover:text-gray-700">Support</NavLink>
         </div>
+        <SomethingWrong surface="app" className="basis-full" />
       </footer>
 
     </div>
