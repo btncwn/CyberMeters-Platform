@@ -573,6 +573,30 @@ async function main() {
     ok("the workspace it points at survives", !!dbL.prepare("SELECT id FROM workspaces WHERE id='wsL'").get());
   }
 
+  section = "L-lease-cron-drift";
+  {
+    // The hourly tick does not run at the same second every hour. A request
+    // claimed at :00:56 must be taken again by the next tick at :00:52, not
+    // skipped until the tick after: the lease is shorter than one interval.
+    const dbM = buildDb(); const envM = makeEnv(dbM);
+    const run = (sql) => dbM.prepare(sql).run();
+    run("INSERT INTO users (id,email,name,plan,status,email_verified) VALUES ('uM','m@example.com','M','free','active',1)");
+    run("INSERT INTO workspaces (id,name,owner_user_id,deleted_at) VALUES ('wsM','Drift','uM', datetime('now','-60 days'))");
+    run(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at,updated_at) VALUES ('drM','workspace','uM','wsM','uM','purging', ${OLD}, datetime('now','-3596 seconds'))`);
+    const before = dbM.prepare("SELECT updated_at FROM deletion_requests WHERE id='drM'").get().updated_at;
+    await processDeletionRequests(envM);
+    const after = dbM.prepare("SELECT status, updated_at FROM deletion_requests WHERE id='drM'").get();
+    ok("a purge claimed 59m56s ago is taken by the next tick", after.status === "completed" || after.updated_at !== before);
+    // A claim inside the lease still excludes a second runner.
+    run("INSERT INTO workspaces (id,name,owner_user_id,deleted_at) VALUES ('wsN','Busy','uM', datetime('now','-60 days'))");
+    run(`INSERT INTO deletion_requests (id,request_type,user_id,workspace_id,requested_by,status,created_at,updated_at) VALUES ('drN','workspace','uM','wsN','uM','purging', ${OLD}, datetime('now','-30 minutes'))`);
+    const heldBefore = dbM.prepare("SELECT updated_at FROM deletion_requests WHERE id='drN'").get().updated_at;
+    await processDeletionRequests(envM);
+    const held = dbM.prepare("SELECT status, updated_at FROM deletion_requests WHERE id='drN'").get();
+    ok("a purge claimed 30 minutes ago is not taken again", held.status === "purging" && held.updated_at === heldBefore);
+    ok("its workspace is untouched while the lease holds", !!dbM.prepare("SELECT id FROM workspaces WHERE id='wsN'").get());
+  }
+
   console.log(out.join("\n"));
   console.log(`\nF-009 deletion integrity: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);

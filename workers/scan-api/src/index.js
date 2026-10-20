@@ -1472,8 +1472,8 @@ async function claimDeletionRequest(env, req) {
   const sql = req.status === "pending"
     ? "UPDATE deletion_requests SET status = 'purging', updated_at = datetime('now') WHERE id = ? AND status = 'pending' AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))"
     // Stale-lease reclaim: a run that crashed mid-purge left the row 'purging'.
-    // One cron tick (hourly) must elapse before anyone may take it back.
-    : "UPDATE deletion_requests SET updated_at = datetime('now') WHERE id = ? AND status = 'purging' AND datetime(updated_at) <= datetime('now','-1 hours') AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))";
+    // Most of one hourly tick must elapse first (DELETION_PURGE_LEASE).
+    : `UPDATE deletion_requests SET updated_at = datetime('now') WHERE id = ? AND status = 'purging' AND datetime(updated_at) <= datetime('now','${DELETION_PURGE_LEASE}') AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))`;
   try {
     const res = await env.cybermeters_db.prepare(sql).bind(req.id).run();
     return Number(res?.meta?.changes ?? 0) === 1;
@@ -1511,6 +1511,14 @@ async function purgeExpiredMcpOAuthBrowserState(env) {
   }
 }
 
+// A 'purging' request is re-claimed once its last claim is this old. Only the
+// hourly tick runs the purge and one run takes seconds, so a lease under one
+// hour still excludes a concurrent runner. It used to be exactly one hour: the
+// claim stamps the time the tick actually ran (e.g. :00:56), the next tick can
+// fire a few seconds earlier (:00:52), and a long purge then ran only every
+// other hour.
+const DELETION_PURGE_LEASE = "-50 minutes";
+
 async function processDeletionRequests(env) {
   try {
     // Independent retention sweep; a failure is visible and retryable on the
@@ -1523,7 +1531,7 @@ async function processDeletionRequests(env) {
                 WHERE status IN ('pending', 'purging')
                   AND datetime(created_at) <= datetime('now','-30 days')
                   AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))
-                  AND (status = 'pending' OR datetime(updated_at) <= datetime('now','-1 hours'))
+                  AND (status = 'pending' OR datetime(updated_at) <= datetime('now','${DELETION_PURGE_LEASE}'))
                 ORDER BY created_at ASC
                 LIMIT 10`)
       .all();   // R1-02 — a failed read is not "no work due"; it reaches the outer catch.
