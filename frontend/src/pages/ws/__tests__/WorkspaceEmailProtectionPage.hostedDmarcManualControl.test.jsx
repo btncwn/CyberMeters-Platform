@@ -7,6 +7,7 @@ vi.mock('../../../api', () => ({
   api: {
     getHostedDmarc: vi.fn(),
     setHostedDmarcPolicy: vi.fn(),
+    setHostedDmarcStep: vi.fn(),
     rollbackHostedDmarc: vi.fn(),
     setHostedDmarcAutopilot: vi.fn(),
     getBecExposureScore: vi.fn(),
@@ -28,7 +29,7 @@ function hostedDmarcResponse({
       id: 'hosted_dmarc_1',
       status: 'connected',
       current_value: 'v=DMARC1; p=none; rua=mailto:rua@example.test',
-      policy_step: { index: 0, policy: 'none', pct: 100 },
+      policy_step: { index: 0, policy: 'none', pct: 100, label: 'Monitor only' },
       next_step: { label: 'Quarantine 25%', policy: 'quarantine', pct: 25 },
       change_pending: changePending,
       autopilot: false,
@@ -44,6 +45,7 @@ function hostedDmarcResponse({
 beforeEach(() => {
   vi.clearAllMocks()
   api.setHostedDmarcPolicy.mockResolvedValue({})
+  api.setHostedDmarcStep.mockResolvedValue({})
   api.rollbackHostedDmarc.mockResolvedValue({})
   api.setHostedDmarcAutopilot.mockResolvedValue({})
 })
@@ -158,6 +160,7 @@ describe('ManagedDmarcCard — governed manual controls while automation is susp
         DOMAIN,
         'quarantine',
         25,
+        false,
       )
     })
     expect(api.setHostedDmarcAutopilot).not.toHaveBeenCalled()
@@ -188,5 +191,110 @@ describe('ManagedDmarcCard — governed manual controls while automation is susp
     expect(await screen.findByText(/A change is being confirmed/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Advance to/i })).not.toBeInTheDocument()
     expect(screen.queryByText('Self-Driving DMARC')).not.toBeInTheDocument()
+  })
+})
+
+// The RFC 9989 ladder as the API sends it (#749): five keyed steps, no pct.
+const LADDER = [
+  ['none', 'none', false, 'Monitor only', 'No action is requested for mail that fails DMARC; reports keep arriving.'],
+  ['quarantine_testing', 'quarantine', true, 'Quarantine (testing)', 'p=quarantine with t=y: receivers are asked to apply one level less, so still no action (RFC 9989 §4.7).'],
+  ['quarantine', 'quarantine', false, 'Quarantine', 'Receivers are asked to quarantine mail that fails DMARC.'],
+  ['reject_testing', 'reject', true, 'Reject (testing)', 'p=reject with t=y: receivers are asked to apply one level less, so quarantine (RFC 9989 §4.7).'],
+  ['reject', 'reject', false, 'Reject', 'Receivers are asked to reject mail that fails DMARC.'],
+].map(([key, policy, testing, label, description], index) => ({ index, key, policy, testing, label, description }))
+
+function ladderResponse(index, { legacyPct = null, changePending = false, policyAllowed = true } = {}) {
+  const base = hostedDmarcResponse({ automationStatus: 'active', policyAllowed, changePending })
+  base.record = {
+    ...base.record,
+    current_value: `v=DMARC1; p=${LADDER[index].policy}${LADDER[index].testing ? '; t=y' : ''}; rua=mailto:rua@example.test`,
+    ladder: LADDER,
+    policy_step: LADDER[index],
+    next_step: LADDER[index + 1] || null,
+    previous_step: index > 0 ? LADDER[index - 1] : null,
+    legacy_pct: legacyPct,
+    can_rollback: false,
+  }
+  return base
+}
+
+describe('ManagedDmarcCard — RFC 9989 ladder from the API', () => {
+  it('renders the steps the API sends and marks the current one, with no percentages', async () => {
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(4))
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+
+    const track = await screen.findByTestId('dmarc-ladder')
+    expect([...track.children].map((c) => c.querySelector('p').textContent))
+      .toEqual(['Monitor only', 'Quarantine (testing)', 'Quarantine', 'Reject (testing)', 'Reject'])
+    const current = track.querySelector('[aria-current="step"]')
+    expect(current).toHaveTextContent('Reject')
+    expect(current).toHaveTextContent('You are here')
+    expect(screen.getByText('Receivers are asked to reject mail that fails DMARC.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Advance to/ })).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/\d+\s*%\s*of mail|Quarantine \d+%|Reject \d+%/)
+  })
+
+  it('advances by step key', async () => {
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(1))
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Advance to Quarantine' }))
+    await waitFor(() => expect(api.setHostedDmarcStep).toHaveBeenCalledWith(WS_ID, DOMAIN, 'quarantine', false))
+    expect(api.setHostedDmarcPolicy).not.toHaveBeenCalled()
+  })
+
+  it('steps back one level by key only after confirmation', async () => {
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(3))
+    const confirm = vi.spyOn(window, 'confirm')
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+    const stepBack = await screen.findByRole('button', { name: 'Step back one level' })
+
+    confirm.mockReturnValueOnce(false)
+    fireEvent.click(stepBack)
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('Step back one level to Quarantine?'))
+    expect(api.setHostedDmarcStep).not.toHaveBeenCalled()
+
+    confirm.mockReturnValueOnce(true)
+    fireEvent.click(stepBack)
+    await waitFor(() => expect(api.setHostedDmarcStep).toHaveBeenCalledWith(WS_ID, DOMAIN, 'quarantine', false))
+    confirm.mockRestore()
+  })
+
+  it('offers no step back at the bottom of the ladder, while a change is pending, or on a free plan', async () => {
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(0))
+    const { unmount } = render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+    expect(await screen.findByTestId('dmarc-ladder')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Step back one level' })).not.toBeInTheDocument()
+    unmount()
+
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(2, { changePending: true }))
+    const second = render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+    expect(await screen.findByText(/A change is being confirmed/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Step back one level' })).not.toBeInTheDocument()
+    second.unmount()
+
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(2, { policyAllowed: false }))
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+    expect(await screen.findByText(/Managed policy-change tools are on paid plans/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Step back one level' })).not.toBeInTheDocument()
+  })
+
+  it('shows the legacy pct notice from the API as a calm note', async () => {
+    const message = 'This record still carries pct=50. RFC 9989 removed pct: receivers that follow it ignore the value and apply the policy as written. CyberMeters removes it on your next policy change.'
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(1, { legacyPct: { pct: '50', message } }))
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+
+    const notice = await screen.findByTestId('legacy-pct-notice')
+    expect(notice).toHaveTextContent('Older DMARC tag on this record')
+    expect(notice).toHaveTextContent(message)
+  })
+
+  it('without a ladder from the API, shows only the step the API names', async () => {
+    api.getHostedDmarc.mockResolvedValue(hostedDmarcResponse())
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+    const track = await screen.findByTestId('dmarc-ladder')
+    expect(track.children).toHaveLength(1)
+    expect(track).toHaveTextContent('You are here')
+    expect(screen.queryByRole('button', { name: 'Step back one level' })).not.toBeInTheDocument()
   })
 })

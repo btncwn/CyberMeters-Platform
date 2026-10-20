@@ -1187,6 +1187,12 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ policy, pct, confirm: confirm || undefined }),
     }),
+  // A DMARC ladder step by its key (rec.ladder[].key); RFC 9989 removed pct.
+  setHostedDmarcStep: (workspaceId, domain, step, confirm = false) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`, {
+      method: 'PUT',
+      body: JSON.stringify({ step, confirm: confirm || undefined }),
+    }),
   rollbackHostedDmarc: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc/rollback`, { method: 'POST' }),
   setHostedDmarcAutopilot: (workspaceId, domain, enabled) =>

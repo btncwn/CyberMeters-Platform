@@ -239,7 +239,7 @@ export const ARTICLES = [
           li([
             'Missing DMARC record (no _dmarc.yourdomain TXT record)',
             'DMARC policy set to p=none (monitoring only, no enforcement)',
-            'DMARC percentage (pct) less than 100 (partial enforcement)',
+            'A legacy pct tag, which RFC 9989 removed (receivers that follow it ignore the value)',
             'No reporting address configured (rua, ruf) — missing visibility',
             'Subdomain policy (sp) not set — subdomains may be unprotected',
             'Invalid or malformed DMARC record syntax',
@@ -250,7 +250,7 @@ export const ARTICLES = [
         heading: 'Remediation Overview',
         blocks: [
           p('DMARC is implemented as a TXT record on the _dmarc subdomain of your domain. The recommended migration path is p=none → p=quarantine → p=reject, using reporting data to identify legitimate sending sources before tightening enforcement.'),
-          code('# Step 1: Start with monitoring (p=none)\n_dmarc.example.com TXT "v=DMARC1; p=none; rua=mailto:dmarc@example.com; ruf=mailto:dmarc@example.com; fo=1"\n\n# Step 2: Move to quarantine after 30+ days of clean reports\n_dmarc.example.com TXT "v=DMARC1; p=quarantine; pct=100; rua=mailto:dmarc@example.com"\n\n# Step 3: Full enforcement\n_dmarc.example.com TXT "v=DMARC1; p=reject; pct=100; rua=mailto:dmarc@example.com; sp=reject"', 'dns'),
+          code('# Step 1: Start with monitoring (p=none)\n_dmarc.example.com TXT "v=DMARC1; p=none; rua=mailto:dmarc@example.com; ruf=mailto:dmarc@example.com; fo=1"\n\n# Step 2: Move to quarantine after 30+ days of clean reports\n_dmarc.example.com TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"\n\n# Step 3: Full enforcement\n_dmarc.example.com TXT "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; sp=reject"', 'dns'),
           li([
             'Set rua to receive aggregate reports — parse them with dmarcian or Postmark DMARC Digests',
             'Review reports for 30 days before advancing from p=none to p=quarantine',
@@ -262,7 +262,7 @@ export const ARTICLES = [
       {
         heading: 'Verification',
         blocks: [
-          code('# Verify DMARC record\ndig TXT _dmarc.example.com +short\n\n# Expected output example:\n"v=DMARC1; p=reject; pct=100; rua=mailto:dmarc@example.com; sp=reject"', 'bash'),
+          code('# Verify DMARC record\ndig TXT _dmarc.example.com +short\n\n# Expected output example:\n"v=DMARC1; p=reject; rua=mailto:dmarc@example.com; sp=reject"', 'bash'),
           p('Re-scan in CyberMeters after publishing the record. Use an email header analyser to send a test message and confirm DMARC=pass. Monitor aggregate reports for the first 30 days to catch any delivery issues with legitimate senders.'),
         ],
       },
