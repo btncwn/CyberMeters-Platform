@@ -22,7 +22,7 @@ import { deriveAttackSurfaceSignalCompleteness } from "./attack-surface-signal-c
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { loadBrandValidationState } from "./brand-validation-state.js";
-import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
+import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingIds, hstsMissingSeverity } from "./business-risk.js";
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildCaConcentrationAnalytics } from "./cert-analysis.js";
 import { persistCyberMotDomainStates } from "./cyber-mot-state-history.js";
@@ -2719,6 +2719,7 @@ function buildCanonicalUrlProfile(modules) {
           vendorTotal,
           identityHighRiskCount: modules.identity_discovery?.high_risk_count ?? 0,
           vendorRelHighConf:     modules.vendor_relationships?.high_confidence ?? 0,
+          hstsMissingSeverity:   hstsMissingSeverity(findings.filter(isActionableFinding)),
         });
         brsScore = brs.brs;
       } catch { /* non-fatal — BRS unavailable for this scan */ }

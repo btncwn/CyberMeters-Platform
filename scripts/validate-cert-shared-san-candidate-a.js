@@ -619,8 +619,13 @@ const parity = states.map(parityOutputs);
 // "third-party service signals" instead of "supply-chain signals" (moves F14,
 // 2fe7f50a… → 8f34acb8…, and F13 with it). With both changes reverted the
 // previous hashes (0a063e9f… / 2fe7f50a…) reproduce exactly.
-const GOLDEN_F13 = "26b80c70e0b293806779d20607bad1e5a18ac44ec19cdafab4e3fb0efb6a4eb8";
-const GOLDEN_F14 = "8f34acb881fe140625e06db9c6a3f69c37d25df4a34b15a549c64c8dab39a7d6";
+// BRI methodology 2026-10-20.1 (20 Oct 2026): missing HSTS with an observed
+// HTTP->HTTPS redirect deducts 10 instead of 20. This certificate-only fixture
+// has no HSTS finding, so only the stamped BRI methodology version moves. With
+// ONLY BUSINESS_RISK_METHODOLOGY_VERSION reverted to 2026-10-10.1 the previous
+// hashes (26b80c70… / 8f34acb8…) reproduce exactly.
+const GOLDEN_F13 = "569f3440bca391e9af63be28b56b49f387d2217c762f8885b6723e45a2d30719";
+const GOLDEN_F14 = "69f17b6e1a0c9fd4cd95b0eda1559fa43d9f6e0617d5f3c335948291ac77369a";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

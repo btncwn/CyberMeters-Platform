@@ -334,6 +334,13 @@ const cases = [
     to: "does little to stop injected scripts. ${csp.details}.`",
     failure: "CM-P1-012 weak CSP description names the directive once",
   },
+  {
+    name: "CM-P1-013 BRI ignores the HSTS finding's severity",
+    file: "workers/scan-api/src/engines/business-risk.js",
+    from: "  brsModuleData.hstsMissingSeverity = hstsMissingSeverity(findings.filter(isActionableFinding));\n",
+    to: "",
+    failure: "CM-P1-013 missing HSTS with an observed redirect deducts 10 from Website Trust",
+  },
 ];
 
 function run() {
