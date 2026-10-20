@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 118
-- **classified:** 118
+- **schema tables:** 120
+- **classified:** 120
 - **tenant owned tables:** 113
-- **infra or identity tables:** 5
+- **infra or identity tables:** 7
 - **unclassified:** 0
-- **resource classes:** 41
+- **resource classes:** 42
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -77,6 +77,7 @@ data cannot be silently omitted.
 | deletion_lifecycle | core | direct(workspace_id) | 3 | — | — |
 | auth_sessions | auth | user(user_id) | 3 | — | — |
 | infrastructure ⁿᵗ | infra | infra | 3 | — | — |
+| ops_observability ⁿᵗ | infra | infra | 2 | — | — |
 | free_tool_deferrals ⁿᵗ | infra | infra | 1 | — | — |
 | identity_root ⁿᵗ | auth | identity_root(id) | 1 | — | — |
 
@@ -108,6 +109,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **deletion_lifecycle:** workspace/user-scoped lifecycle; purge-completeness proven by validate-purge-completeness
 - **auth_sessions:** per-user auth material; token-hash keyed; not a workspace resource — covered by validate-security-contracts
 - **infrastructure:** global infrastructure — holds no tenant data
+- **ops_observability:** daily operational counters (route families and codes only) and anonymous feedback text with no IP, user or workspace link; feedback deleted after 90 days, counters after 180 (ops-observability.test.js)
 - **free_tool_deferrals:** anonymous visitor's consented email + domain for one free-tool result; no account or workspace link; deleted once sent or after 72 hours (free-tools.test.js)
 - **identity_root:** identity root — a user owns only their own row; not a workspace resource
 
@@ -151,6 +153,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `email_sender_sources` | direct(workspace_id) | email_protection |
 | `external_exposure_jobs` | direct(workspace_id) | website_security |
 | `external_exposure_visits` | direct(workspace_id) | website_security |
+| `feedback_reports` | infra | ops_observability |
 | `finding_waivers` | direct(workspace_id) | remediation_waivers |
 | `findings` | via_scan(scan_id) | findings |
 | `free_tool_deferred_checks` | infra | free_tool_deferrals |
@@ -183,6 +186,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `notification_preferences` | direct(workspace_id) | notifications |
 | `oauth_states` | infra | infrastructure |
 | `operational_events` | direct(workspace_id) | operational_observability |
+| `ops_daily_counters` | infra | ops_observability |
 | `password_reset_tokens` | user(user_id) | auth_sessions |
 | `portfolio_risk_snapshots` | account(owner_id) | msp_portfolio |
 | `related_change_evidence` | direct(workspace_id) | related_changes |

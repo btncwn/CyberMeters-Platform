@@ -187,6 +187,16 @@ ok("db down: all signals skipped", down.signals.every((s) => s.skipped));
 const downMail = formatOpsHealthEmail(down, { version: "test" });
 ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.test(downMail.text));
 
+// The daily founder email, the silent-rejection counter and the feedback /
+// browser-error intake belong to the same ops lane; their tests run here.
+{
+  const { spawnSync } = await import("node:child_process");
+  const repo = new URL("..", import.meta.url).pathname;
+  const run = spawnSync(process.execPath, ["--test", "workers/scan-api/test/ops-observability.test.js"],
+    { cwd: repo, stdio: "inherit", timeout: 180000 });
+  ok("ops observability: counters, intake, founder daily email and retention tests", run.status === 0);
+}
+
 console.log(`\nOps health: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("ops-health validation FAILED"); process.exit(1); }
 console.log("ops-health validation passed");

@@ -66,6 +66,7 @@ export const PUBLIC_ALLOWLIST = [
   { match: /webhook/, reason: "Stripe webhook — HMAC signature verified before parse" },
   { match: /\/billing\/plans/, reason: "public billing catalogue — no Stripe price IDs, no tenant data" },
   { match: /\/free-scan/, reason: "public lead-gen scan — SSRF-guarded, gated preview, rate-limited" },
+  { match: /\/api\\?\/(feedback|client-errors)/, reason: "anonymous feedback and browser error intake — fixed fields, hashed rate limits, no IP stored" },
   { match: /\/api\\?\/tools\\?\//, reason: "public free tools — Turnstile, rolling per-IP + per-domain limits, DNS-only, signed share links" },
   { match: /\/api\/invitations\//, reason: "invitation token flow — opaque-token gated, pre-membership" },
   { match: /dmarc-ingest|\/ingest\/|\/rua|\/tlsrpt|\/inbound/, reason: "report ingestion — endpoint-key / DMARC-trust gated (key binds the workspace)" },

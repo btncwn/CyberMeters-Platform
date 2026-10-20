@@ -405,9 +405,9 @@ async function main() {
   const nowD = new Date();
   if (nowD.getUTCHours() === 2) expectedTasks.push(
     "report_retention", "public_api_rate_limit_retention", "audit_retention",
-    "mcp_rate_retention", "mcp_refresh_replay_retention");
+    "mcp_rate_retention", "mcp_refresh_replay_retention", "ops_observability_retention");
   if (nowD.getUTCHours() === 4) expectedTasks.push("brand_http_enrichment");
-  if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat");
+  if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat", "founder_daily_email");
   if (nowD.getUTCDay() === 1 && nowD.getUTCHours() === 8) expectedTasks.push("weekly_digest");
   const seenTasks = cronPoints.map((d) => String(d.blobs?.[1] ?? "")).sort();
   if (process.env.PIPE_DEBUG) console.error("  [cron outcomes]", cronPoints.map((d) => `${d.blobs?.[1]}:${d.blobs?.[2]}`).join(" "));
