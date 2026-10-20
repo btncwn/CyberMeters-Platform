@@ -5,6 +5,8 @@ import DmarcCheckerPage from '../DmarcCheckerPage'
 import SpfCheckerPage from '../SpfCheckerPage'
 import HeadersCheckerPage from '../HeadersCheckerPage'
 import LookalikeCheckerPage from '../LookalikeCheckerPage'
+import SslCheckerPage from '../SslCheckerPage'
+import { buildSslToolResult } from '../../../../../workers/scan-api/src/engines/free-tools/ssl-check.js'
 import { buildLookalikeToolResult } from '../../../../../workers/scan-api/src/engines/free-tools/lookalike-check.js'
 import { buildHeadersToolResult } from '../../../../../workers/scan-api/src/engines/free-tools/headers-check.js'
 import ToolsIndexPage from '../ToolsIndexPage'
@@ -260,12 +262,49 @@ describe('free tools', () => {
     expect(screen.queryByRole('button', { name: /Check lookalike domains/ })).toBeNull()
   })
 
+  it('shows the certificate, the chain as the one we built, and the limits plainly', async () => {
+    window.history.replaceState({}, '', '/tools/ssl-checker')
+    const receipt = {
+      schema_version: 'free-tool-tls-receipt-v1', request_id: 'ftls_1', profile: 'free_tool', started_at: '2026-10-20T11:59:59.000Z', finished_at: '2026-10-20T12:00:00.000Z',
+      outcome: 'observed', reason: null, endpoint: { hostname: 'example.com', address: '93.184.216.34', port: 443 }, protocol: 'TLSv1.3',
+      trust: { result: 'valid', reason: null, trust_store: 'Mozilla CA bundle', trust_store_sha256: 'a'.repeat(64) }, hostname_match: 'matched',
+      certificate: { sha256: 'b'.repeat(64), subject: 'CN=example.com', issuer: 'CN=Example CA R1', not_before: '2026-08-01T00:00:00.000Z', not_after: '2026-12-30T00:00:00.000Z', dns_names: ['example.com', 'www.example.com'] },
+      chain: [{ subject: 'CN=Example CA R1', issuer: 'CN=Example Root', not_after: '2030-01-01T00:00:00.000Z' }],
+      limitations: ['one_pinned_address_one_handshake', 'runtime_issuer_chain_not_wire_chain', 'revocation_not_assessed', 'protocol_and_cipher_enumeration_not_assessed'],
+    }
+    // Built by the Worker's own result builder, so page and API cannot drift.
+    const result = buildSslToolResult('example.com', { receipt }, { now: Date.parse('2026-10-20T12:00:00.000Z') })
+    installFetch({ 'POST /tools/ssl/check': () => json({ status: 'ok', cached: false, result, share: null }) })
+    renderAt(<SslCheckerPage />)
+    await runCheck(/Check SSL\/TLS/)
+    expect(await screen.findByRole('heading', { name: 'The certificate is valid and trusted' })).toBeInTheDocument()
+    expect(window.turnstile.render.mock.calls[0][1]).toMatchObject({ action: 'tool_ssl' })
+    expect(screen.getByText('CN=Example CA R1', { selector: 'dd' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Issuer chain we built' })).toBeInTheDocument()
+    expect(screen.getByText(/not necessarily the list of certificates your server sends/)).toBeInTheDocument()
+    expect(screen.getByText('Revocation.')).toBeInTheDocument()
+    expect(screen.getByText('Whether the certificate has been revoked was not checked.')).toBeInTheDocument()
+    expect(screen.getByText(/CyberMeters Certificates & Trust watches your certificates/)).toBeInTheDocument()
+    expect(screen.getByText(/One secure connection to port 443 on one address/)).toBeInTheDocument()
+  })
+
+  it('a busy checker says try again in a minute and shows no certificate', async () => {
+    window.history.replaceState({}, '', '/tools/ssl-checker')
+    const result = buildSslToolResult('example.com', { receipt: null, error: 'collector_busy' }, { now: Date.parse('2026-10-20T12:00:00.000Z') })
+    installFetch({ 'POST /tools/ssl/check': () => json({ status: 'ok', cached: false, result, share: null }) })
+    renderAt(<SslCheckerPage />)
+    await runCheck(/Check SSL\/TLS/)
+    expect(await screen.findByRole('heading', { name: 'Busy right now — try again in a minute' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'The certificate' })).toBeNull()
+  })
+
   it('the tools index links to every tool', () => {
     vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected network request') }))
     renderAt(<ToolsIndexPage />)
     expect(screen.getByRole('heading', { level: 1, name: 'Free security checks' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Security headers checker' })).toHaveAttribute('href', '/tools/security-headers-checker')
     expect(screen.getByRole('link', { name: 'Lookalike domain checker' })).toHaveAttribute('href', '/tools/lookalike-domain-checker')
+    expect(screen.getByRole('link', { name: 'SSL/TLS certificate checker' })).toHaveAttribute('href', '/tools/ssl-checker')
     expect(screen.getByRole('link', { name: 'DMARC checker' })).toHaveAttribute('href', '/tools/dmarc-checker')
     expect(screen.getByRole('link', { name: 'SPF checker' })).toHaveAttribute('href', '/tools/spf-checker')
     expect(fetch).not.toHaveBeenCalled()

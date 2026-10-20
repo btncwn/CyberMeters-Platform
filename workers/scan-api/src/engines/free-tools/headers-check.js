@@ -69,7 +69,7 @@ const DISPLAY_NAME = Object.freeze({
 const NOT_CHECKED = Object.freeze([
   { label: "Other pages of the site", reason: "Only the home page was requested. Other pages, and your login or checkout pages, can send different headers." },
   { label: "Cookies", reason: "Cookie flags (Secure, HttpOnly, SameSite) are checked in the full scan." },
-  { label: "The certificate and TLS versions", reason: "The full scan checks these." },
+  { label: "The certificate and TLS versions", reason: "Use the SSL/TLS checker for the certificate; the full scan also tests TLS versions." },
   { label: "Whether the CSP actually stops an attack", reason: "That depends on the whole policy and the page; we only flag the clearly unsafe parts." },
 ]);
 

@@ -64,7 +64,7 @@ export const PUBLIC_PAGE_META = {
   },
   '/tools': {
     title: 'Free security tools',
-    description: 'Free DMARC, SPF, security headers and lookalike domain checkers that say what they could not check and give you the exact record, lines or next step for each problem.',
+    description: 'Free DMARC, SPF, SSL/TLS, security headers and lookalike domain checkers that say what they could not check and give you the exact record, lines or next step for each problem.',
     host: 'marketing', indexable: true, priority: '0.8',
   },
   '/tools/dmarc-checker': {
@@ -85,6 +85,11 @@ export const PUBLIC_PAGE_META = {
   '/tools/lookalike-domain-checker': {
     title: 'Lookalike domain checker',
     description: 'See which close variants of your domain (typos, look-alike letters, other endings) are registered, point at a server or can receive email, from public DNS.',
+    host: 'marketing', indexable: true, priority: '0.8',
+  },
+  '/tools/ssl-checker': {
+    title: 'SSL/TLS certificate checker',
+    description: 'Check the certificate your website presents: issuer, expiry, the names it covers and whether browsers trust it, with what the check could not see stated plainly.',
     host: 'marketing', indexable: true, priority: '0.8',
   },
   '/free-scan': {
