@@ -1,4 +1,5 @@
 import { parseServerDate, formatDate, formatNumber, formatDay } from '../../utils/dates'
+import { MailTransportCard } from '../../components/MailTransportCard'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, RefreshCw, X } from 'lucide-react'
@@ -3405,34 +3406,8 @@ export function MxRecordsCard({ intelligence, transport }) {
   </div>
 }
 
-export function MailTransportCard({ transport, mtaSts, tlsRpt }) {
-  const hosts = Array.isArray(transport?.hosts) ? transport.hosts : []
-  const enforce = mtaSts?.policy_found === true && mtaSts?.mode === 'enforce'
-  return <section className="card p-5" data-testid="mail-transport-encryption">
-    <h3 className="text-sm font-semibold text-gray-900">Mail transport encryption</h3>
-    <p className="text-xs text-gray-600 mt-2">One address per mail server is tested. Other addresses are not assessed here. Offering STARTTLS does not prove that all mail delivery is encrypted. Mandatory encrypted delivery requires an active MTA-STS enforce policy.</p>
-    {hosts.length === 0 ? <p className="text-sm text-gray-600 mt-3">Mail servers were not tested in this scan.</p> :
-      <ul className="mt-3 space-y-3 text-sm">
-        {hosts.map(host => <li key={host.host} className="border-t border-gray-100 pt-3">
-          <p className="font-medium text-gray-900 break-all">{host.host}</p>
-          {host.tested_address && <p className="text-xs text-gray-500 break-all">Tested address: {host.tested_address}</p>}
-          <p className="text-gray-600">{host.state === 'tested' ? 'STARTTLS offered · TLS handshake completed' :
-            host.state === 'not_offered' ? 'STARTTLS not offered' :
-            host.reason === 'starttls_rejected' ? 'STARTTLS offered; server rejected the upgrade' :
-            'Not tested — connection or TLS evidence unavailable'}</p>
-          {host.state === 'tested' && <p className="text-xs text-gray-600 mt-1">
-            {({ tls1_2: 'TLS 1.2', tls1_3: 'TLS 1.3' })[host.tls_version] || 'TLS version not recorded'} · {host.cipher || 'Cipher not recorded'}
-            {host.cipher_class === 'weak' ? ' · weak cipher' : ''} · Hostname {host.certificate_hostname_match === true ? 'matched' : host.certificate_hostname_match === false ? 'mismatched' : 'not assessed'}
-            {' · '}Chain {host.chain_validity || 'not assessed'} · Certificate expires {formatDate(host.certificate_expires_at, 'not recorded', { timeZone: 'UTC' })}
-          </p>}
-        </li>)}
-      </ul>}
-    <div className="mt-4 border-t border-gray-100 pt-3 space-y-1 text-xs text-gray-600">
-      <p>MTA-STS: {enforce ? 'enforce policy observed; DNS activation not separately checked' : mtaSts?.policy_found ? `${mtaSts.mode || 'policy'} policy observed` : 'enforcement not confirmed'}.</p>
-      <p>TLS-RPT: {tlsRpt?.record_found ? 'reporting record observed' : 'reporting record not confirmed'}.</p>
-    </div>
-  </section>
-}
+// Shared with the scan's Technical Details tab (components/MailTransportCard.jsx).
+export { MailTransportCard }
 
 export default function WorkspaceEmailProtectionPage() {
   const { wsId, wsName } = useWorkspace()
