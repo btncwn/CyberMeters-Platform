@@ -151,3 +151,23 @@ test('ambiguous workspace refusal stays visible without navigating to payment', 
     Object.defineProperty(window, 'location', originalLocation)
   }
 })
+
+// Founder, 20 Oct 2026: the Starter card says what it does not include, read
+// from the plan API's own feature lists, so card and entitlements cannot drift.
+test('the Starter card names what it does not include, from the real plan features', async () => {
+  const { getPublicBillingPlans } = await import('../../../../workers/scan-api/src/engines/subscription-state.js')
+  api.getBillingPlans.mockResolvedValue({ plans: getPublicBillingPlans() })
+  renderPage()
+  const line = await screen.findByText(/^Not included:/)
+  expect(line).toHaveTextContent('Not included: Executive dashboard, audit log, third-party services view')
+  expect(line.closest('section')).toHaveTextContent('Starter')
+  // Only Starter lacks them; Professional, Business and the trial do not say "Not included".
+  expect(screen.getAllByText(/^Not included:/)).toHaveLength(1)
+})
+
+test('without feature lists (an older API) the card says nothing it cannot back', async () => {
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage()
+  await waitFor(() => expect(screen.getByText('£9.99/mo')).toBeInTheDocument())
+  expect(screen.queryByText(/^Not included:/)).toBeNull()
+})
