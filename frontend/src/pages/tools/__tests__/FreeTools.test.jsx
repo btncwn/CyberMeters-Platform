@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DmarcCheckerPage from '../DmarcCheckerPage'
 import SpfCheckerPage from '../SpfCheckerPage'
 import ToolsIndexPage from '../ToolsIndexPage'
+import { LOCAL_TIME } from '../../../components/tools/ToolResult'
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
@@ -150,6 +151,18 @@ describe('free tools', () => {
     expect(screen.getByRole('img', { name: 'DNS lookups: 1 of 10' })).toBeInTheDocument()
     expect(screen.getByText('v=spf1 ~all')).toBeInTheDocument()
     expect(screen.getByText(/a recent check of the same domain, reused for up to 10 minutes/)).toBeInTheDocument()
+  })
+
+  it('shows the check time and the link expiry in the same local time zone, each labelled', async () => {
+    // Expiry falls after a clock change: both must use the viewer's zone, labelled.
+    const result = { ...DMARC_RESULT, checked_at: '2026-10-20T00:43:00.000Z' }
+    installFetch({ 'POST /tools/dmarc/check': () => json({ status: 'ok', cached: false, result, share: { url: 'https://cybermeters.com/tools/dmarc-checker#share=v1.a.b', expires_at: '2026-10-27T00:43:00.000Z' } }) })
+    renderAt(<DmarcCheckerPage />)
+    await runCheck()
+    const fmt = (iso) => new Date(iso).toLocaleString(undefined, LOCAL_TIME)
+    expect(await screen.findByText(new RegExp(`checked ${fmt(result.checked_at).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`stops working on ${fmt('2026-10-27T00:43:00.000Z').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))).toBeInTheDocument()
+    expect(fmt(result.checked_at)).toMatch(/[A-Z]{2,5}|GMT|UTC/)
   })
 
   it('the tools index links to both tools', () => {

@@ -22,9 +22,13 @@ export function StateBadge({ state }) {
   return <span className={`inline-block shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.tone}`}>{s.label}</span>
 }
 
+// Every time on the page is the viewer's local time, with its zone named: a
+// link that expires after a clock change must not look an hour off.
+export const LOCAL_TIME = Object.freeze({ year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
+
 function formatTime(iso) {
   const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleString(undefined, LOCAL_TIME)
 }
 
 export function CopyButton({ value, label = 'Copy' }) {

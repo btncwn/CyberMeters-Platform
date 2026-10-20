@@ -166,7 +166,13 @@ function nextRecordPlan(evidence, presentation, destinations) {
   const current = map.get("p") || declared || "none";
   const invalid = record.validity === "invalid" || record.policy_mode !== "normal";
   let title = invalid ? "Replace the record with a valid one" : "Update the record";
-  if (current === "none" && !invalid) {
+  // The policy only moves up once reports exist to show it is safe: without
+  // rua= nobody can see which senders would fail. Reporting comes first.
+  const hasReports = map.has("rua");
+  if (!hasReports && !invalid && (current === "none" || current === "quarantine")) {
+    title = `Turn on reports first, keep p=${current}`;
+    cautions.push(`Keep p=${current} for now. Once a few weeks of aggregate reports show every service that sends as you passing SPF or DKIM in alignment, move to ${current === "none" ? "p=quarantine" : "p=reject"}.`);
+  } else if (current === "none" && !invalid) {
     map.set("p", "quarantine");
     title = "Move from monitoring to quarantine";
     changes.push("Changed p=none to p=quarantine.");
@@ -312,7 +318,9 @@ export function buildDmarcToolResult(evidence, { domain, checkedAt }) {
   } else if (evidence.record_validity === "invalid" || !effective) {
     verdict = { level: "risk", headline: "DMARC record cannot be used", summary: presentation.observation.message };
   } else if (effective === "none") {
-    verdict = { level: "attention", headline: "Monitoring only (p=none)", summary: "Reports are requested, but failing mail is still delivered. The next step is quarantine once the reports show your real senders passing." };
+    verdict = rua.length > 0
+      ? { level: "attention", headline: "Monitoring only (p=none)", summary: "Reports are requested, but failing mail is still delivered. The next step is quarantine once the reports show your real senders passing." }
+      : { level: "attention", headline: "No protection yet (p=none, no reports)", summary: "Failing mail is still delivered, and no reports are requested, so you cannot see who sends as you. The next step is to add rua= and read the reports before tightening the policy." };
   } else if (unauthorizedCount > 0 || rua.length === 0) {
     verdict = { level: "attention", headline: `p=${effective} is published, but reporting needs attention`, summary: rua.length === 0 ? "Receivers are asked to act on failing mail, but no reports are requested, so you cannot see new senders or problems." : "Receivers are asked to act on failing mail, but some report destinations will not receive reports." };
   } else {

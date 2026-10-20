@@ -22,7 +22,7 @@ function resetTime(iso) {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return null
   const sameDay = date.toDateString() === new Date().toDateString()
-  return date.toLocaleString(undefined, sameDay ? { timeStyle: 'short' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleString(undefined, sameDay ? { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' } : { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
 }
 
 function shareTokenFromHash() {
