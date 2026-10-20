@@ -98,6 +98,10 @@
     "re:^\\/api\\/workspaces\\/([^/]+)\\/scorecard\\/pdf-data$": {
       "class": "external_api",
       "reason": "Snapshot metadata for export tooling."
+    },
+    "re:^\\/api\\/invitations\\/([^/]+)\\/accept$": {
+      "class": "deprecated",
+      "reason": "Token-in-path accept for tabs on the previous frontend; the app now sends the token in the body to /api/invitations/accept. Remove one release after 20 Oct 2026."
     }
   },
   "unserved_frontend": {}

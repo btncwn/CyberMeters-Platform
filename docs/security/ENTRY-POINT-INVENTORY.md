@@ -13,9 +13,9 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 305
+- **Total entry points:** 307
 - **Auth-guarded:** 263
-- **Unauthenticated (public by design):** 42
+- **Unauthenticated (public by design):** 44
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
@@ -25,7 +25,7 @@ guard without an explicit, documented public-allowlist reason.
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
 | preflight | 3 | 0 |
-| public-or-global | 44 | 21 |
+| public-or-global | 46 | 21 |
 | unknown | 79 | 65 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
@@ -517,8 +517,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | DELETE | `/^\/api\/workspaces\/([^/` | 464 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 526 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 591 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/invitations\/([^/` | 630 | public-or-global | ✓ | requireAuth |
-| POST | `/^\/api\/invitations\/([^/` | 674 | public-or-global | ✓ | requireAuth, getWorkspaceBillingUserId* |
+| POST | `/api/invitations/preview` | 785 | public-or-global | public | — |
+| POST | `/api/invitations/accept` | 790 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/invitations\/([^/` | 798 | public-or-global | public | — |
+| POST | `/^\/api\/invitations\/([^/` | 804 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/workspace-reports.js`
 

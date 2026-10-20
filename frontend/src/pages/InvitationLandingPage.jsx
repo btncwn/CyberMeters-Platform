@@ -8,7 +8,8 @@ import { parseServerDate, formatDay } from '../utils/dates'
  *
  * Flow:
  *  1. Load invitation preview (workspace name, role, invited-by, expiry) via
- *     GET /api/invitations/:token — public endpoint, no bearer token needed.
+ *     POST /api/invitations/preview with { token } — public, no bearer token needed;
+ *     the token goes in the body, never in the request path.
  *  2. Logged-out user: show Sign Up / Sign In CTAs that preserve the invite
  *     token through the auth flow.
  *  3. Logged-in user with matching email: show Join Workspace CTA.

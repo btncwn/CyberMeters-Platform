@@ -1584,15 +1584,16 @@ export const api = {
     request(`/workspaces/${workspaceId}/invitations/${invitationId}`, { method: 'DELETE' }),
 
   /**
-   * GET /api/invitations/:token — public preview, no auth required.
+   * POST /api/invitations/preview { token } — public preview, no auth required.
+   * The token goes in the body so it never appears in a request path.
    * Returns workspace_name, invited_by_name, role, expires_at, status.
    */
   getInvitationPreview: (token) =>
-    request(`/invitations/${encodeURIComponent(token)}`),
+    request('/invitations/preview', { method: 'POST', body: JSON.stringify({ token }) }),
 
-  /** POST /api/invitations/:token/accept */
+  /** POST /api/invitations/accept — the token travels in the body, never in the path */
   acceptWorkspaceInvitation: (token) =>
-    request(`/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
+    request('/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) }),
 
   // ── Billing ───────────────────────────────────────────────────────────────
   // (getBillingPlans lives in the earlier billing cluster — the type gate
