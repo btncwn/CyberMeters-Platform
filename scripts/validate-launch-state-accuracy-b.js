@@ -618,5 +618,30 @@ for (const [name, partial] of [
     `${script} | ${style}`);
 }
 
+// ── CM-P1-013: the BRI HSTS weight follows the HSTS severity policy ──────────
+{
+  const { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } = await import(engine("business-risk.js"));
+  const websiteTrust = (redirect) => {
+    const modules = {
+      dns: { resolves: true }, ssl: { https_available: true, http_redirects_to_https: redirect },
+      headers: { accessible: true, final_https: true, validation_uncertain: false, status_code: 200, values: {
+        "strict-transport-security": null, "content-security-policy": "default-src 'self'", "x-frame-options": "DENY",
+        "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "permissions-policy": "geolocation=()" } },
+      email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+    };
+    const findings = computeScore(modules, "bri-hsts.example.com").findings;
+    return deriveScanBusinessRisk({ findings, modules }).categories.website_trust.score;
+  };
+  check("CM-P1-013 missing HSTS with an observed redirect deducts 10 from Website Trust", websiteTrust(true) === 90,
+    `website_trust=${websiteTrust(true)}`);
+  check("CM-P1-013 missing HSTS without an observed redirect deducts 20", websiteTrust(false) === 80,
+    `website_trust=${websiteTrust(false)}`);
+  check("CM-P1-013 BRI methodology stamp moved with the weight", BUSINESS_RISK_METHODOLOGY_VERSION === "2026-10-20.1");
+  const { readFileSync } = await import("node:fs");
+  const engineSource = readFileSync(new URL(engine("scan-engine.js")), "utf8");
+  check("CM-P1-013 the scan-engine BRS passes the HSTS finding's severity",
+    engineSource.includes("hstsMissingSeverity:   hstsMissingSeverity(findings.filter(isActionableFinding)),"));
+}
+
 console.log(`Launch state accuracy fixtures: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

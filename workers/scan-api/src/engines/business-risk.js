@@ -3,7 +3,7 @@
 // bands, finding-id expansion, scan-report BRS derivation, latest-scan BRS lookup, and the
 // core BRS computation. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
-import { resolveRemediation } from "./remediation-registry.js";
+import { HSTS_MISSING_SEVERITY_POLICY, resolveRemediation } from "./remediation-registry.js";
 import { projectTlsFindingsForCustomer } from "./tls-evidence.js";
 import { computeWorkspaceVendorRisk } from "./vendor-risk.js";
 import { SCAN_QUALITY, normalizeQuality } from "./assessment-presentation.js";
@@ -35,7 +35,25 @@ import { visibleFindingSql } from "./finding-identity.js";
 // presentation of this value is "Business Risk Indicator" — a band plus explanation,
 // never a second competing score (founder package, 2026-07-16).
 // Public endpoint reachability is now inventory-only, without a risk deduction.
-export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-10.1";
+// 2026-10-20.1: missing HSTS deducts 10, not 20, when its finding carries the
+// observed-redirect severity of HSTS_MISSING_SEVERITY_POLICY.
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-20.1";
+
+// Website Trust deduction for a missing HSTS header, keyed by the severity the
+// finding carries. The severity already encodes whether CyberMeters observed
+// HTTP redirecting to HTTPS (HSTS_MISSING_SEVERITY_POLICY), so the weight and
+// the severity cannot drift apart. Below DMARC p=none's 15 once the redirect
+// was observed; unknown or absent severity keeps the full 20.
+const HSTS_MISSING_BRI_DEDUCTION = Object.freeze({
+  [HSTS_MISSING_SEVERITY_POLICY.default]: 20,
+  [HSTS_MISSING_SEVERITY_POLICY.http_redirects_to_https_observed]: 10,
+});
+
+// The severity of the actionable missing-HSTS finding, if any, for
+// computeBusinessRiskScore's hstsMissingSeverity input.
+export function hstsMissingSeverity(findings) {
+  return (findings || []).find((finding) => finding?.id === HSTS_MISSING_SEVERITY_POLICY.finding_type)?.severity ?? null;
+}
 
 function getBusinessRiskBand(score) {
   if (score <= 30) return "critical";
@@ -201,6 +219,7 @@ export function deriveScanBusinessRisk(report) {
     identityReachableSurfaceCount: (mods.identity_discovery?.reachable_surface_count ?? 0),
     vendorRelHighConf:     (mods.vendor_relationships?.high_confidence ?? 0),
   };
+  brsModuleData.hstsMissingSeverity = hstsMissingSeverity(findings.filter(isActionableFinding));
   const r = computeBusinessRiskScore(findingIds, brsModuleData);
   return {
     score:              r.score,
@@ -355,7 +374,10 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   // ── Category 2: Website Trust (20%) ────────────────────────────────────────
   let webDed = 0;
   if (findingIds.has("no_https_redirect") || findingIds.has("ssl_no_certificate")) webDed += 35;
-  if (findingIds.has("header_missing_strict_transport_security")) webDed += 20;
+  if (findingIds.has(HSTS_MISSING_SEVERITY_POLICY.finding_type)) {
+    webDed += HSTS_MISSING_BRI_DEDUCTION[workspaceData.hstsMissingSeverity]
+      ?? HSTS_MISSING_BRI_DEDUCTION[HSTS_MISSING_SEVERITY_POLICY.default];
+  }
   else if (findingIds.has("header_weak_hsts")) webDed += 8;
   if (findingIds.has("header_missing_content_security_policy")) webDed += 15;
   else if (findingIds.has("csp_weak_policy")) webDed += 5;
