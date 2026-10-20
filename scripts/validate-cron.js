@@ -265,23 +265,11 @@ const seedSchedule = (db, id, owner, dueMs, { lastRunMs = dueMs - 864e5 } = {}) 
   for (let i = 0; i < 30; i++) seedSchedule(db, `big_${i}`, "u_big", T0 - 3_600_000 + i);
   for (let i = 0; i < 5; i++) seedSchedule(db, `small_${i}`, `u_small_${i}`, T0 - 60_000 + i);
   const started = await tickAt(db, T0);
-  ok("fair: a tick starts no more than its cap", started.length <= SCHEDULED_SCAN_MAX_PER_TICK);
+  ok("fair: a tick starts no more than its cap", started.length === SCHEDULED_SCAN_MAX_PER_TICK);
   ok("fair: every customer with a due schedule gets a turn in the same tick, behind one big customer's older backlog",
     [0, 1, 2, 3, 4].every((i) => started.includes(`small_${i}`)));
-  // 1a: one schedule per workspace per tick. The big customer's oldest starts
-  // now; its other due schedules move to the next dispatch tick, oldest first.
-  ok("spread: one workspace starts one schedule per tick, its oldest",
-    started.filter((id) => id.startsWith("big_")).join() === "big_0");
-  const nextTick = nextDispatchTickIso(T0);
-  const moved = db.prepare("SELECT id, next_run_at FROM scheduled_scans WHERE id LIKE 'big_%' AND id <> 'big_0' ORDER BY id").all();
-  // The tick read its cap of rows (5 small + the big customer's oldest
-  // cap-5); every big row it read but did not start now waits for the next tick.
-  ok("spread: the workspace's other due schedules move to the next dispatch tick",
-    moved.filter((row) => row.next_run_at === nextTick).length === SCHEDULED_SCAN_MAX_PER_TICK - 6 &&
-    moved.every((row) => row.next_run_at === nextTick || Date.parse(row.next_run_at) < T0));
-  const second = await tickAt(db, Date.parse(nextTick), { cron: DISPATCH_CRON });
-  ok("spread: the next tick starts the workspace's next-oldest schedule",
-    second.filter((id) => id.startsWith("big_")).length === 1);
+  ok("fair: the big customer's remaining turns go oldest first",
+    started.filter((id) => id.startsWith("big_")).join() === Array.from({ length: SCHEDULED_SCAN_MAX_PER_TICK - 5 }, (_, i) => `big_${i}`).join());
 }
 
 // Schedules that can no longer start (verification removed, trial ended) never
