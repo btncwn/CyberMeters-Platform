@@ -138,7 +138,7 @@ const MUTATIONS = [
   {
     name: "M5 ssl-scan bypasses the SHARED classifier (proves the class fix, not one caller)",
     target: SSL,
-    from: "  const bareObservation = classifyFetchObservation({ response: httpsRes });",
+    from: "  const bareObservation = classifyFetchObservation({ response: httpsRes, failure: bareFailure });",
     to:   "  const bareObservation = { state: httpsRes ? \"origin_response\" : \"transport_unavailable\", reason: \"local\", completeness: \"observed\", probe_executed: true, transport_observed: httpsRes && httpsRes.status < 500 ? true : null, origin_status: httpsRes ? httpsRes.status : null };",
     // A local re-implementation reintroduces the edge/5xx confusion the shared
     // classifier exists to prevent.
