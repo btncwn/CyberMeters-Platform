@@ -66,13 +66,30 @@ describe('Operations view — lanes', () => {
     expect(b.getByText(/Owner: Turhan Acar/)).toBeInTheDocument()
     expect(b.queryByText(/owner missing/)).not.toBeInTheDocument()
   })
+  it('a tab and the badges inside it come from one status mapping (founder, 20 Oct 2026)', async () => {
+    api.getCases.mockResolvedValue({ cases: [mk('cert', 'assigned', {
+      domain_key: 'certificates_trust', title: 'Certificate follow-up: cybermeters.com (owner missing)',
+      display_title: 'Certificate follow-up: cybermeters.com — expiring soon', owner_ref: 'Turhan Acar',
+    })] })
+    const b = await board()
+    await waitFor(() => expect(count(b, 'triage')).toBe('1'))
+    const tab = b.getByRole('tab', { name: /^Action required/ })
+    const row = within(b.getByTestId('case-row'))
+    // The badge reads the tab's own word; the case's step sits beside it.
+    expect(row.getByText('Action required')).toHaveAttribute('data-status', 'action_required')
+    expect(tab.textContent).toMatch(/^Action required/)
+    expect(row.getByTestId('case-step')).toHaveTextContent('Assigned')
+    // The title is the backend's current one, not the stored "(owner missing)".
+    expect(row.getByRole('link', { name: 'Certificate follow-up: cybermeters.com — expiring soon' })).toBeInTheDocument()
+  })
+
   it('opens on Triage with counts on every lane and the Triage cases listed', async () => {
     const b = await board()
     await waitFor(() => expect(count(b, 'triage')).toBe('6'))
     expect(count(b, 'in_progress')).toBe('1')
     expect(count(b, 'ready_to_verify')).toBe('1')
     expect(count(b, 'closed')).toBe('6')
-    expect(b.getByRole('tab', { name: /^Triage/ })).toHaveAttribute('aria-selected', 'true')
+    expect(b.getByRole('tab', { name: /^Action required/ })).toHaveAttribute('aria-selected', 'true')
     expect(rowIds(b)).toEqual(['c_detected', 'c_triaged', 'c_assigned', 'c_approved', 'c_reopened', 'c_unknown'])
     expect(b.getByText('Reopened 2×')).toBeInTheDocument()
     expect(b.getByText(/Owner: it-lead/)).toBeInTheDocument()
@@ -101,7 +118,7 @@ describe('Operations view — lanes', () => {
   it('treats an unknown ?view= as Triage', async () => {
     renderAt('/ws/cases?view=nonsense')
     const b = within(await screen.findByTestId('operations-board'))
-    await waitFor(() => expect(b.getByRole('tab', { name: /^Triage/ })).toHaveAttribute('aria-selected', 'true'))
+    await waitFor(() => expect(b.getByRole('tab', { name: /^Action required/ })).toHaveAttribute('aria-selected', 'true'))
     await waitFor(() => expect(rowIds(b)).toHaveLength(6))
   })
 

@@ -133,8 +133,8 @@ await withMutant(
 await withMutant(
   "first replacement scan verifies",
   (source) => source.replace(
-    '  if (!laterReobservation) verification_result = "inconclusive";',
-    '  if (false) verification_result = "inconclusive";'
+    '  if (!laterReobservation) {',
+    '  if (false) {'
   ),
   async (mutant) => {
     const result = mutant.buildVerificationEvidence({

@@ -26,12 +26,22 @@ export const COVERAGE_META = {
   unknown:    { label: 'Not assessed',    tone: 'slate' },
 }
 
-// Server-derived ownership status (business/technical/renewal roles).
+// Server-derived ownership status of the CERTIFICATE (its business, technical
+// and renewal owner roles on the lifecycle record). This is a different field
+// from the linked case's owner, so the label names whose owner it is: a case
+// can have an owner while the certificate's own roles are still unset
+// (founder, 20 Oct 2026).
 export const OWNERSHIP_META = {
-  known:   { label: 'Owned',         tone: 'green' },
-  partial: { label: 'Partial owner', tone: 'amber' },
-  missing: { label: 'Owner missing', tone: 'red'   },
+  known:   { label: 'Certificate owners set',       tone: 'green' },
+  partial: { label: 'Some certificate owners set',  tone: 'amber' },
+  missing: { label: 'Certificate owner not set',    tone: 'red'   },
 }
+export const CERT_OWNER_ROLES_NOTE = 'Business, technical and renewal owners of the certificate. The owner of a linked case is recorded separately on the case.'
+
+// Recurrence reasons shown on a row, in plain words. Unknown reasons fall back
+// to the backend code with spaces, never a guess.
+const RECURRENCE_TEXT = { owner_missing: 'certificate owner not set' }
+export function recurrenceText(code) { return code ? (RECURRENCE_TEXT[code] || String(code).replace(/_/g, ' ')) : null }
 
 // Verification status — external-observation only. verified_replaced is the ONLY
 // state that means the product actually saw the new certificate.

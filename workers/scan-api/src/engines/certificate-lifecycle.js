@@ -712,17 +712,33 @@ export function buildVerificationEvidence(rec, { current, previous, now = new Da
     isoMs(reobservedAt) > isoMs(detectedAt)
   );
 
-  let verification_result;
-  if (!laterReobservation) verification_result = "inconclusive";
-  else if (!methodAppropriate) verification_result = "inconclusive";
-  else if (!distinct) verification_result = "inconclusive";   // no genuinely new live leaf observed
-  else if (!coverageOk) verification_result = "inconclusive";  // incomplete coverage cannot verify
-  else if (!forward) verification_result = "failed";           // new cert but expiry not advanced
-  else verification_result = "verified";
+  // `reason` is the customer sentence for the SAME decision, written here so the
+  // screen shows the verifier's own words and never composes a verdict itself.
+  let verification_result, reason;
+  if (!laterReobservation) {
+    verification_result = "inconclusive";
+    reason = "CyberMeters has not seen the certificate again since the replacement was recorded. It checks on the next scan.";
+  } else if (!methodAppropriate) {
+    verification_result = "inconclusive";
+    reason = "The latest observation did not include live certificate evidence from every expected endpoint, so nothing was concluded.";
+  } else if (!distinct) {
+    verification_result = "inconclusive";   // no genuinely new live leaf observed
+    reason = "The certificate CyberMeters sees is still the previous one. No new certificate has been observed yet.";
+  } else if (!coverageOk) {
+    verification_result = "inconclusive";  // incomplete coverage cannot verify
+    reason = "A new certificate was observed, but it does not cover every expected hostname.";
+  } else if (!forward) {
+    verification_result = "failed";           // new cert but expiry not advanced
+    reason = "A new certificate was observed, but its expiry is not later than the previous one.";
+  } else {
+    verification_result = "verified";
+    reason = "CyberMeters observed a new, distinct certificate with a later expiry on the expected hostnames.";
+  }
 
   return {
     verification_method: "external_observation",
     verification_result,
+    reason,
     evidence_type: "certificate_reobservation",
     observed_at: reobservedAt || now,
     previous_identity, new_identity, previous_not_after, new_not_after,
@@ -1017,6 +1033,37 @@ async function appendManagedCaseEvent(env, kase, {
   return { id, inserted: (result?.meta?.changes ?? 1) > 0 };
 }
 
+// ── Case presentation (read time) ───────────────────────────────────────────
+// A certificate case title used to carry the recurrence of the moment it was
+// opened ("… (owner missing)") and was never refreshed, so a case with an owner
+// kept saying the owner was missing. The title shown is now built at READ time
+// from the case's own backend fields: the host from source_finding_id
+// ("certificate:<host>") and the reason from source_finding_type. Stored titles
+// are left untouched (historical integrity).
+const CERTIFICATE_CASE_REASON = Object.freeze({
+  certificate_expiring_soon: "expiring soon",
+  ssl_certificate_expiring_soon: "expiring soon",
+  certificate_expiring_critical: "expiring very soon",
+  certificate_expired: "expired",
+  ssl_certificate_expired: "expired",
+});
+
+export function certificateCaseHost(row) {
+  const match = /^certificate:(.+)$/.exec(String(row?.finding_id ?? row?.source_finding_id ?? ""));
+  return match ? match[1] : null;
+}
+
+export function certificateCaseDisplay(row) {
+  if (row?.case_type !== "certificate_case") return null;
+  const host = certificateCaseHost(row) || row.asset_ref || null;
+  const reason = CERTIFICATE_CASE_REASON[row.source_finding_type] || null;
+  return {
+    display_title: host ? `Certificate follow-up: ${host}${reason ? ` — ${reason}` : ""}` : (row.title ?? null),
+    reason_label: reason,
+    resource: host,
+  };
+}
+
 export async function openOrReopenCertificateCase(env, rec, {
   recurrence,
   action,
@@ -1028,7 +1075,9 @@ export async function openOrReopenCertificateCase(env, rec, {
   if (!rec.linked_case_id) {
     return linkCertificateCase(env, rec, {
       actor: { actor_type: "system", actor_id: null }, finding_type: cfg.finding_type,
-      title: `Certificate follow-up: ${rec.primary_hostname} (${String(recurrence || "review").replace(/_/g, " ")})`,
+      // The recurrence goes in the summary only: a title is shown for the life
+      // of the case and must not freeze the reason of the moment it opened.
+      title: `Certificate follow-up: ${rec.primary_hostname}`,
       summary: `Managed certificate for ${rec.primary_hostname} needs attention: ${String(recurrence || "review").replace(/_/g, " ")}.`,
       occurrenceId,
     });
@@ -1096,6 +1145,7 @@ async function linkCertificateCase(env, rec, { actor, finding_type, title, summa
     case_type: "certificate_case",
     source_finding_type: finding_type || "certificate_expiring_soon",
     source_finding_id: `certificate:${rec.primary_hostname}`,
+    asset_ref: rec.primary_hostname,
     title: title || `Certificate follow-up: ${rec.primary_hostname}`,
     summary: summary || null,
     severity: "medium",

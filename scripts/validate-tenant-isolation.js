@@ -372,6 +372,31 @@ async function main() {
   const legacyPreview = await call("GET", `/api/invitations/${rawInvite}`, null);
   ok("legacy path-form preview still answers for open tabs on the previous frontend", legacyPreview.status === 200 && legacyPreview.data?.status === "accepted");
 
+  // ── Invariant 9: case presentation is backend-owned and tenant-scoped ──
+  // Founder, 20 Oct 2026 (case mc-67d95f496ac6): a certificate case title froze
+  // "(owner missing)", Affected resource / Source scan were empty, and history
+  // showed raw user ids. The API now builds the title, resource and source
+  // scan from backend fields, and names actors ONLY from this workspace's
+  // members: a user from another workspace never has their name revealed.
+  section("Invariant 9 — case presentation is backend-owned and tenant-scoped");
+  db.prepare("INSERT INTO managed_cases (id, workspace_id, case_type, domain_key, finding_id, source_finding_type, title, owner_ref, severity, status, created_at, updated_at) VALUES ('mc-cert','ws1','certificate_case','certificates_trust','certificate:shop.secret1.example','certificate_expiring_soon','Certificate follow-up: shop.secret1.example (owner missing)','Admin','medium','assigned',datetime('now'),datetime('now'))").run();
+  db.prepare("INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, action, created_at) VALUES ('ev1','mc-cert','ws1','system',NULL,'case_created','2026-10-20T09:00:00Z'), ('ev2','mc-cert','ws1','customer','admin','assignment_changed','2026-10-20T09:05:00Z'), ('ev3','mc-cert','ws1','customer','foreign','transition_approved','2026-10-20T09:06:00Z')").run();
+  db.prepare("INSERT INTO certificate_observations (id, workspace_id, domain_id, scan_id, certificate_key, first_seen, last_seen) VALUES ('obs-cert','ws1','dom1','scan_ws1','key-1','2026-10-20T08:00:00Z','2026-10-20T08:00:00Z')").run();
+  db.prepare("INSERT INTO certificate_lifecycle (id, workspace_id, domain_id, primary_hostname, linked_case_id, current_certificate_observation_id, first_seen_at, last_seen_at) VALUES ('lc-cert','ws1','dom1','shop.secret1.example','mc-cert','obs-cert','2026-10-20T08:00:00Z','2026-10-20T08:00:00Z')").run();
+  const certCase = await call("GET", "/api/workspaces/ws1/cases/mc-cert", T.admin);
+  const kase = certCase.data?.case || {};
+  ok("certificate case title is built from the current reason, not the frozen one", kase.display_title === "Certificate follow-up: shop.secret1.example — expiring soon" && kase.title.endsWith("(owner missing)"));
+  ok("affected resource is the certificate host", kase.resource === "shop.secret1.example");
+  ok("source scan is the scan that observed the current certificate", kase.source_scan_id === "scan_ws1");
+  const byId = Object.fromEntries((certCase.data?.events || []).map((e) => [e.id, e]));
+  ok("history names a member of this workspace", byId.ev2?.actor_name === "Admin");
+  ok("a user outside the workspace is never named", byId.ev3?.actor_name === "A former workspace member" && !JSON.stringify(certCase.data).includes("Foreign"));
+  ok("system events carry no actor name", byId.ev1?.actor_name === null);
+  const list = await call("GET", "/api/workspaces/ws1/cases", T.admin);
+  ok("the list carries the same backend title", (list.data?.cases || []).some((c) => c.case_id === "mc-cert" && c.display_title === "Certificate follow-up: shop.secret1.example — expiring soon"));
+  const foreignRead = await call("GET", "/api/workspaces/ws1/cases/mc-cert", T.foreign);
+  ok("a foreign caller still gets the same 404", foreignRead.status === 404 || foreignRead.status === 403);
+
   // ── Report ──
   const bySection = {};
   for (const line of results) { const s = line.match(/\[(.*?)\]/)[1]; (bySection[s] ??= { p: 0, f: 0 })[line.startsWith("PASS") ? "p" : "f"]++; }

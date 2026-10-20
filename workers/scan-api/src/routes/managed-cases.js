@@ -18,10 +18,14 @@ import {
 } from "../engines/dmarcbis-managed-lifecycle.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { caseGuidanceForRow, deriveAsmCaseTraceability } from "../engines/asm-cases.js";
+import { certificateCaseDisplay } from "../engines/certificate-lifecycle.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
 // Customer-safe projection of a case row + its canonical phase.
 function caseToUniversalApi(row) {
+  // Read-time presentation the backend owns for domains whose stored title or
+  // resource fields cannot be trusted to be current (certificate cases).
+  const display = certificateCaseDisplay(row);
   return {
     case_id: row.id,
     workspace_id: row.workspace_id,
@@ -37,6 +41,9 @@ function caseToUniversalApi(row) {
     verification_support: verificationSupportForCase(row),
     status_reason: row.reason ?? null,
     title: row.title ?? null,
+    display_title: display?.display_title ?? row.title ?? null,
+    reason_label: display?.reason_label ?? null,
+    resource: display?.resource ?? row.asset_ref ?? row.domain ?? null,
     summary: row.summary ?? null,
     severity: row.severity ?? null,
     priority: row.priority ?? null,
@@ -58,6 +65,24 @@ function caseToUniversalApi(row) {
     verified_at: row.verified_at ?? null,
     closed_at: row.closed_at ?? null,
   };
+}
+
+// History shows who acted by name, never by raw id. Names resolve only for
+// users who are members of THIS workspace (tenant-scoped); anyone else, such
+// as a removed member, reads as a former member. One query for the whole list.
+async function withActorNames(env, wsId, events) {
+  const ids = [...new Set(events.filter((e) => e.actor_id && e.actor_type !== "system").map((e) => String(e.actor_id)))].slice(0, 100);
+  if (ids.length === 0) return events.map((e) => ({ ...e, actor_name: null }));
+  const rows = await env.cybermeters_db
+    .prepare(`SELECT u.id, u.name, u.email FROM users u
+              JOIN workspace_members wm ON wm.user_id = u.id AND wm.workspace_id = ?
+              WHERE u.id IN (${ids.map(() => "?").join(", ")})`)
+    .bind(wsId, ...ids).all().catch(() => ({ results: [] }));
+  const names = new Map((rows.results || []).map((r) => [String(r.id), String(r.name || "").trim() || r.email || null]));
+  return events.map((e) => ({
+    ...e,
+    actor_name: !e.actor_id || e.actor_type === "system" ? null : names.get(String(e.actor_id)) || "A former workspace member",
+  }));
 }
 
 // Workspace-scoped case load. Returns null for BOTH a foreign-existing and a
@@ -213,9 +238,20 @@ export async function managedCasesRoutes(rctx) {
       const t = (await deriveAsmCaseTraceability(env, wsId, [row])).get(row.id);
       if (t) projected.traceability = t;
     } catch { /* omit rather than guess */ }
+    // A certificate case records no scan of its own; the scan that observed
+    // its current certificate is on the lifecycle record. Workspace-scoped on
+    // every join; absent stays null (the screen says "Not recorded").
+    if (!projected.source_scan_id && row.case_type === "certificate_case") {
+      const observed = await env.cybermeters_db
+        .prepare(`SELECT o.scan_id FROM certificate_lifecycle l
+                  JOIN certificate_observations o ON o.id = l.current_certificate_observation_id AND o.workspace_id = l.workspace_id
+                  WHERE l.workspace_id = ? AND l.linked_case_id = ? LIMIT 1`)
+        .bind(wsId, row.id).first().catch(() => null);
+      if (observed?.scan_id) projected.source_scan_id = observed.scan_id;
+    }
     return json({
       case: { ...projected, guidance: caseGuidanceForRow(row, { phase: projected.canonical_phase, support: projected.verification_support, events: events.results || [] }) },
-      events: events.results || [],
+      events: await withActorNames(env, wsId, events.results || []),
       can_manage: canManage,
       available_transitions,
     });

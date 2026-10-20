@@ -1,8 +1,8 @@
-// Identity Exposure Managed Workflow â a focused managed surface (not a nav or
+// Identity Exposure Managed Workflow — a focused managed surface (not a nav or
 // dashboard redesign). It renders the server-owned canonical managed identity
 // records and posts classification / ownership / remediation / verification
 // actions the BACKEND validates. The set of allowed actions comes from the server
-// response â the frontend never invents risk, verification, or actions. It draws
+// response — the frontend never invents risk, verification, or actions. It draws
 // a hard, visible line between what is OBSERVED EXTERNALLY, what the CUSTOMER
 // classified, and what CyberMeters has VERIFIED.
 import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
@@ -64,7 +64,7 @@ function IdentitySurfaceDetail({ workspaceId, recordId }) {
 }
 
 export default function IdentityExposurePage() {
-  // Workspace comes from the canonical context hook, not a route param â the
+  // Workspace comes from the canonical context hook, not a route param — the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
   const { wsId: workspaceId, wsName: workspaceName, loading: wsLoading } = useWorkspace()
@@ -117,7 +117,7 @@ export default function IdentityExposurePage() {
       if (purpose == null) return
       payload.business_purpose = purpose
     } else if (action === 'record_surface_removed' || action === 'record_configuration_changed') {
-      if (!window.confirm('Record this as done?\n\nThis is your assertion only â CyberMeters will NOT mark it verified until it re-observes the expected change externally.')) return
+      if (!window.confirm('Record this as done?\n\nThis is your assertion only — CyberMeters will NOT mark it verified until it re-observes the expected change externally.')) return
     }
     setBusy(id)
     try {
@@ -185,7 +185,7 @@ export default function IdentityExposurePage() {
         ))}
       </div>
 
-      {loading && <p className="text-sm text-slate-400">Loadingâ¦</p>}
+      {loading && <p className="text-sm text-slate-400">Loading…</p>}
       {error && <p className="text-sm text-red-700">{error}</p>}
       {!loading && !error && items.length === 0 && (
         <p className="text-sm text-slate-400">No managed identity evidence yet. Records appear here after a scan identifies a provider relationship or possible identity-facing hostname for a monitored domain.</p>
@@ -246,7 +246,7 @@ export default function IdentityExposurePage() {
                   <td className="py-2 px-3">
                     <Pill meta={verificationMeta(it.verification_status)} />
                     {isAwaitingVerification(it) && (
-                      <div className="text-xs text-brand-700 mt-0.5">Recorded by you â not yet verified</div>
+                      <div className="text-xs text-brand-700 mt-0.5">Recorded by you — not yet verified</div>
                     )}
                     {it.verified_at && <div className="text-xs text-slate-300 mt-0.5">Verified by CyberMeters {it.verified_at.slice(0, 10)}</div>}
                   </td>
