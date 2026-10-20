@@ -353,6 +353,25 @@ async function main() {
   const acceptWrongWs = await call("POST", "/api/invitations/invhash1/accept", T.foreign, { workspace_id: "ws2" });
   ok("accepting a ws1 invite cannot join ws2", acceptWrongWs.status !== 200 || !JSON.stringify(acceptWrongWs.data ?? "").includes("ws2"));
 
+  // The token travels in the JSON body (20 Oct 2026), never in the request path.
+  const rawInvite = `cmi_${"d".repeat(64)}`;
+  db.prepare("INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at) VALUES ('inv2','ws1','nobody@x.co','viewer', ?, 'admin','pending', datetime('now','+7 day'), datetime('now'))").run(await hashToken(rawInvite));
+  const bodyPreview = await call("POST", "/api/invitations/preview", null, { token: rawInvite });
+  ok("body-form preview resolves a real token without auth", bodyPreview.status === 200 && bodyPreview.data?.workspace_name === "Alpha-SECRET" && !JSON.stringify(bodyPreview.data).includes("nobody@x.co"));
+  const bodyPreviewWrong = await call("POST", "/api/invitations/preview", null, { token: `cmi_${"0".repeat(64)}` });
+  const bodyPreviewEmpty = await call("POST", "/api/invitations/preview", null, {});
+  ok("body-form preview: unknown and missing tokens get the same 404", bodyPreviewWrong.status === 404 && bodyPreviewEmpty.status === 404 && bodyPreviewWrong.text === bodyPreviewEmpty.text);
+  const bodyAcceptAnon = await call("POST", "/api/invitations/accept", null, { token: rawInvite });
+  ok("body-form accept requires a session", bodyAcceptAnon.status === 401);
+  const bodyAcceptForeign = await call("POST", "/api/invitations/accept", T.foreign, { token: rawInvite });
+  const foreignJoined = db.prepare("SELECT 1 FROM workspace_members WHERE workspace_id = 'ws1' AND user_id = 'foreign'").get();
+  ok("body-form accept by another account is refused and adds no member", bodyAcceptForeign.status === 403 && !foreignJoined);
+  const bodyAccept = await call("POST", "/api/invitations/accept", T.nobody, { token: rawInvite, workspace_id: "ws2" });
+  const joined = db.prepare("SELECT workspace_id, role FROM workspace_members WHERE user_id = 'nobody'").all();
+  ok("body-form accept joins only the invitation's workspace, whatever the body claims", bodyAccept.status === 200 && bodyAccept.data?.workspace_id === "ws1" && joined.length === 1 && joined[0].workspace_id === "ws1" && joined[0].role === "viewer");
+  const legacyPreview = await call("GET", `/api/invitations/${rawInvite}`, null);
+  ok("legacy path-form preview still answers for open tabs on the previous frontend", legacyPreview.status === 200 && legacyPreview.data?.status === "accepted");
+
   // ── Report ──
   const bySection = {};
   for (const line of results) { const s = line.match(/\[(.*?)\]/)[1]; (bySection[s] ??= { p: 0, f: 0 })[line.startsWith("PASS") ? "p" : "f"]++; }

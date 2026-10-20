@@ -1816,6 +1816,84 @@
         }
       }
     },
+    "/api/invitations/preview": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Preview an invitation (public)",
+        "description": "The invitation token travels in the JSON body, never in the request path.",
+        "operationId": "previewInvitation",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Ok"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/invitations/accept": {
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Accept an invitation",
+        "description": "The invitation token travels in the JSON body, never in the request path. The signed-in account's email must match the invitation.",
+        "operationId": "acceptInvitation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Ok"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/invitations/{token}": {
       "parameters": [
         {
@@ -1841,7 +1919,9 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           }
-        }
+        },
+        "deprecated": true,
+        "description": "Token-in-path form kept for the previous frontend. Use POST /api/invitations/preview so the token never appears in a request path."
       }
     },
     "/api/workspaces/{workspaceId}/exposure/feed": {

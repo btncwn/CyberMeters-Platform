@@ -625,10 +625,21 @@ export async function workspaceMembersRoutes(rctx) {
       }
     }
 
-    // ── GET /api/invitations/:token — public preview (no auth required) ─────
-    const invitationPreviewMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)$/);
-    if (invitationPreviewMatch && request.method === "GET") {
-      const rawToken = invitationPreviewMatch[1];
+    // ── Invitation preview and accept: the token travels in the JSON body ──
+    // POST /api/invitations/preview and POST /api/invitations/accept take
+    // { token }, so the token is never part of a request path that access logs
+    // and analytics record (20 Oct 2026). The path forms below are kept for one
+    // release, for tabs still running the previous frontend; nothing calls them.
+    const readInvitationToken = async () => {
+      let body = null;
+      try { body = await request.json(); } catch { body = null; }
+      const token = typeof body?.token === "string" ? body.token.trim() : "";
+      return token && token.length <= 512 ? token : null;
+    };
+
+    // Shared by the body form and the legacy path form below.
+    const previewInvitation = async (rawToken) => {
+      if (!rawToken) return json({ error: "Invitation not found" }, 404);
       try {
         const tokenHash = await hashToken(rawToken);
         const invite = await env.cybermeters_db
@@ -667,15 +678,9 @@ export async function workspaceMembersRoutes(rctx) {
       } catch (e) {
         return serverError("api", e);
       }
-    }
-
-    // ── POST /api/invitations/:token/accept ─────────────────────────────────
-    const invitationAcceptMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)\/accept$/);
-    if (invitationAcceptMatch && request.method === "POST") {
-      const rawToken = invitationAcceptMatch[1];
-      const user = await requireAuth(request, env);
-      if (!user) return json({ error: "Unauthorized" }, 401);
-
+    };
+    const acceptInvitation = async (user, rawToken) => {
+      if (!rawToken) return json({ error: "Invitation not found" }, 404);
       try {
         const tokenHash = await hashToken(rawToken);
         const invite = await env.cybermeters_db
@@ -774,8 +779,33 @@ export async function workspaceMembersRoutes(rctx) {
       } catch (e) {
         return serverError("api", e);
       }
+    };
+
+    // ── POST /api/invitations/preview { token } — public preview (no auth required)
+    if (url.pathname === "/api/invitations/preview" && request.method === "POST") {
+      return previewInvitation(await readInvitationToken());
     }
 
+    // ── POST /api/invitations/accept { token } ──────────────────────────────────
+    if (url.pathname === "/api/invitations/accept" && request.method === "POST") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      return acceptInvitation(user, await readInvitationToken());
+    }
+
+    // ── GET /api/invitations/:token — legacy path form (previous frontend) ──────
+    const invitationPreviewMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)$/);
+    if (invitationPreviewMatch && request.method === "GET") {
+      return previewInvitation(invitationPreviewMatch[1]);
+    }
+
+    // ── POST /api/invitations/:token/accept — legacy path form (previous frontend)
+    const invitationAcceptMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)\/accept$/);
+    if (invitationAcceptMatch && request.method === "POST") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      return acceptInvitation(user, invitationAcceptMatch[1]);
+    }
 
   return null;
 }
