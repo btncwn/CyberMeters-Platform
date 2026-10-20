@@ -103,6 +103,7 @@ import { freeToolsRoutes, isFreeToolPath, processFreeToolDeferredChecks } from "
 import { isOpsIntakePath, opsIntakeRoutes } from "./routes/ops-intake.js";
 import { observeApiResponse } from "./lib/ops-counters.js";
 import { collectFounderDigest, formatFounderDigest } from "./lib/founder-digest.js";
+import { runFreeCheckCanary } from "./engines/free-check-canary.js";
 import { scanRoutes } from "./routes/scans.js";
 import { portfolioRoutes } from "./routes/portfolio.js";
 import { accountRoutes } from "./routes/account.js";
@@ -3116,6 +3117,7 @@ export default {
     triggerScheduledScan,
     processFreeToolDeferredChecks: (env) => processFreeToolDeferredChecks(env, { consumeApiRateLimit }),
     sendFounderDailyEmail,
+    runFreeCheckCanary: (env) => runFreeCheckCanary(env),
     recoverInterruptedScans: async (env) => {
       await Promise.all([recoverInterruptedScans(env), recoverNetworkScans(env)]);
     },

@@ -144,6 +144,7 @@ export const INFRA_TABLES = new Set([
   "free_tool_deferred_checks", // Anonymous free-tool result requests; no account or workspace link
   "ops_daily_counters",     // Daily operational counts; fixed labels, no tenant data
   "feedback_reports",       // Anonymous "Something wrong?" messages; no account or workspace link
+  "ops_canary_results",     // Daily canary outcomes for a fixed public corpus; no customer domain
 ]);
 
 // The 12 canonical tenant-isolation invariants (mission Phase 2).
@@ -210,7 +211,7 @@ export const RESOURCE_CLASSES = [
   { class: "deletion_lifecycle",    domain: "core",     tables: ["deletion_requests", "workspace_retention_settings", "lifecycle_email_events"], harness: false, property: false, coverage_note: "workspace/user-scoped lifecycle; purge-completeness proven by validate-purge-completeness" },
   { class: "auth_sessions",         domain: "auth",     tables: ["user_sessions", "mfa_challenges", "password_reset_tokens"], harness: false, property: false, coverage_note: "per-user auth material; token-hash keyed; not a workspace resource — covered by validate-security-contracts" },
   { class: "infrastructure",        domain: "infra",    tables: ["api_rate_limits", "oauth_states", "stripe_processed_events"], harness: false, property: false, non_tenant: true, coverage_note: "global infrastructure — holds no tenant data" },
-  { class: "ops_observability",     domain: "infra",    tables: ["ops_daily_counters", "feedback_reports"], harness: false, property: false, non_tenant: true, coverage_note: "daily operational counters (route families and codes only) and anonymous feedback text with no IP, user or workspace link; feedback deleted after 90 days, counters after 180 (ops-observability.test.js)" },
+  { class: "ops_observability",     domain: "infra",    tables: ["ops_daily_counters", "feedback_reports", "ops_canary_results"], harness: false, property: false, non_tenant: true, coverage_note: "daily operational counters (route families and codes only) and anonymous feedback text with no IP, user or workspace link; feedback deleted after 90 days, counters after 180 (ops-observability.test.js)" },
   { class: "free_tool_deferrals",   domain: "infra",    tables: ["free_tool_deferred_checks"], harness: false, property: false, non_tenant: true, coverage_note: "anonymous visitor's consented email + domain for one free-tool result; no account or workspace link; deleted once sent or after 72 hours (free-tools.test.js)" },
   { class: "identity_root",         domain: "auth",     tables: ["users"], harness: false, property: false, non_tenant: true, coverage_note: "identity root — a user owns only their own row; not a workspace resource" },
 ];

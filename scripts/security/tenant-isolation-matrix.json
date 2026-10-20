@@ -1203,7 +1203,8 @@
       "domain": "infra",
       "tables": [
         "ops_daily_counters",
-        "feedback_reports"
+        "feedback_reports",
+        "ops_canary_results"
       ],
       "ownership": {
         "ops_daily_counters": {
@@ -1211,6 +1212,10 @@
           "column": null
         },
         "feedback_reports": {
+          "model": "infra",
+          "column": null
+        },
+        "ops_canary_results": {
           "model": "infra",
           "column": null
         }
@@ -1331,6 +1336,7 @@
     "notification_preferences": "notifications",
     "oauth_states": "infrastructure",
     "operational_events": "operational_observability",
+    "ops_canary_results": "ops_observability",
     "ops_daily_counters": "ops_observability",
     "password_reset_tokens": "auth_sessions",
     "portfolio_risk_snapshots": "msp_portfolio",
@@ -1384,10 +1390,10 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 120,
-    "classified": 120,
+    "schema_tables": 121,
+    "classified": 121,
     "tenant_owned_tables": 113,
-    "infra_or_identity_tables": 7,
+    "infra_or_identity_tables": 8,
     "unclassified": 0,
     "resource_classes": 42,
     "classes_with_dynamic_coverage": 17

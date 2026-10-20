@@ -11,10 +11,10 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 120
-- **classified:** 120
+- **schema tables:** 121
+- **classified:** 121
 - **tenant owned tables:** 113
-- **infra or identity tables:** 7
+- **infra or identity tables:** 8
 - **unclassified:** 0
 - **resource classes:** 42
 - **classes with dynamic coverage:** 17
@@ -77,7 +77,7 @@ data cannot be silently omitted.
 | deletion_lifecycle | core | direct(workspace_id) | 3 | — | — |
 | auth_sessions | auth | user(user_id) | 3 | — | — |
 | infrastructure ⁿᵗ | infra | infra | 3 | — | — |
-| ops_observability ⁿᵗ | infra | infra | 2 | — | — |
+| ops_observability ⁿᵗ | infra | infra | 3 | — | — |
 | free_tool_deferrals ⁿᵗ | infra | infra | 1 | — | — |
 | identity_root ⁿᵗ | auth | identity_root(id) | 1 | — | — |
 
@@ -186,6 +186,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `notification_preferences` | direct(workspace_id) | notifications |
 | `oauth_states` | infra | infrastructure |
 | `operational_events` | direct(workspace_id) | operational_observability |
+| `ops_canary_results` | infra | ops_observability |
 | `ops_daily_counters` | infra | ops_observability |
 | `password_reset_tokens` | user(user_id) | auth_sessions |
 | `portfolio_risk_snapshots` | account(owner_id) | msp_portfolio |
