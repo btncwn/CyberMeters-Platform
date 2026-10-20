@@ -569,7 +569,7 @@ await preActivate("ws_dead");
 
 // ── 17. RECURRENCE COVERAGE (review item 3) ─────────────────────────────────
 {
-  const { severityForRecurrence, isMappedRecurrence, alertKindFor } =
+  const { severityForRecurrence, isMappedRecurrence, isMonitoringOnlyRecurrence, MONITORING_ONLY_RECURRENCES, alertKindFor } =
     await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "alert-consumers.js")).href);
   const { resolveRemediation } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "remediation-registry.js")).href);
 
@@ -589,9 +589,20 @@ await preActivate("ws_dead");
       ["approved_disappeared", "evidence_stale", "exception_expired", "material_change",
        "owner_missing", "rejected_reappeared", "removal_contradicted", "removal_incomplete", "retired_reappeared"] },
   };
+  // A recurrence the evaluator records with required_case_action "none" never
+  // reaches the alert pipeline: it is a monitoring status and must have NO
+  // severity (a severity would claim an alert that cannot be sent). Every other
+  // recurrence must have one. Both sets are read from the evaluator source.
   for (const [file, { domain_key, recurrences }] of Object.entries(EVALUATOR_RECURRENCES)) {
-    const unmapped = recurrences.filter((r) => !isMappedRecurrence(domain_key, r));
-    eq(`${file}: every recurrence has an explicit severity under its OWN domain`, unmapped, []);
+    const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", file), "utf8");
+    const noneInSource = [...new Set([...src.matchAll(/recurrence_type\s*=\s*"([a-z_]+)";[^\n]*?required_case_action\s*=\s*"none"/g)].map((m) => m[1]))].sort();
+    eq(`${file}: monitoring-only list is exactly the evaluator's "none" recurrences`,
+      [...(MONITORING_ONLY_RECURRENCES[domain_key] || [])].sort(), noneInSource);
+    const alerting = recurrences.filter((r) => !isMonitoringOnlyRecurrence(domain_key, r));
+    eq(`${file}: every alerting recurrence has an explicit severity under its OWN domain`,
+      alerting.filter((r) => !isMappedRecurrence(domain_key, r)), []);
+    eq(`${file}: no monitoring-only recurrence carries an alert severity`,
+      recurrences.filter((r) => isMonitoringOnlyRecurrence(domain_key, r) && isMappedRecurrence(domain_key, r)), []);
   }
   // The mapping must be derived from the real source, not a stale copy.
   for (const [file, { recurrences: list }] of Object.entries(EVALUATOR_RECURRENCES)) {

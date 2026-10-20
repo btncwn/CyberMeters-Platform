@@ -50,6 +50,24 @@ export const INHERIT_SEVERITY = "__inherit_record_severity__";
 // domain inherit an unrelated domain's severity by name collision alone. The alert
 // KIND was already namespaced (`alertKindFor` → `<domain>.<recurrence>`); only the
 // severity lookup was not.
+// Monitoring statuses, not alerts (decision 20 Oct 2026). Each evaluator records
+// these with required_case_action "none", so they never reach the alert pipeline;
+// a severity here would only claim an alert that cannot be sent. They stay
+// visible in-app as the record's monitoring status, with the copy below
+// (RECURRENCE_COPY feeds the Shadow IT item's recurrence_summary).
+//   • evidence_stale: CyberMeters' own evidence has aged; it says nothing new
+//     about the customer's posture and needs no customer action by itself.
+//   • approved_disappeared: an approved service is no longer observed; that is
+//     never verified removal, and the customer's classification is unchanged.
+//   • material_change: a new hostname, provider or category for a service the
+//     customer already classified; a review prompt, not an incident.
+// CI pins this list against the evaluators' "none" recurrences.
+export const MONITORING_ONLY_RECURRENCES = Object.freeze({
+  certificates_trust: Object.freeze(["evidence_stale"]),
+  identity_exposure: Object.freeze(["evidence_stale"]),
+  shadow_it_unmanaged_technology: Object.freeze(["approved_disappeared", "material_change", "evidence_stale"]),
+});
+
 const RECURRENCE_SEVERITY = Object.freeze({
   certificates_trust: Object.freeze({
     expired: "critical",
@@ -68,7 +86,6 @@ const RECURRENCE_SEVERITY = Object.freeze({
     unexpected_san: "medium",
     exception_expired: "medium",
     owner_missing: "low",
-    evidence_stale: "low",
   }),
   // `verification_failed` and `exception_expired` are declared here explicitly.
   // Under the old FLAT map they existed only in the Certificates block, and
@@ -85,22 +102,17 @@ const RECURRENCE_SEVERITY = Object.freeze({
     exception_expired: "medium",
     provider_change: "low",
     owner_missing: "low",
-    evidence_stale: "low",
   }),
-  // Shadow IT — every recurrence the evaluator can emit is listed explicitly.
-  // (Verified against shadow-it-inventory.js: approved_disappeared, evidence_stale,
-  // exception_expired, material_change, owner_missing, rejected_reappeared,
-  // removal_contradicted, removal_incomplete, retired_reappeared.)
+  // Shadow IT — every ALERTING recurrence the evaluator can emit is listed
+  // explicitly (verified against shadow-it-inventory.js); approved_disappeared,
+  // material_change and evidence_stale are monitoring statuses (see above).
   shadow_it_unmanaged_technology: Object.freeze({
     removal_incomplete: "medium",
     rejected_reappeared: "medium",
     removal_contradicted: "high",
     retired_reappeared: "medium",
     exception_expired: "medium",
-    approved_disappeared: "low",   // disappearance is an observation, never verified removal
-    material_change: "low",
     owner_missing: "low",
-    evidence_stale: "low",
   }),
   // ── Managed-case domains (PR-B1) ──────────────────────────────────────────
   // These carry the severity their own case row was assigned by scoring, so the
@@ -245,6 +257,10 @@ export function severityForRecurrence(domain_key, recurrence) {
   const domain = RECURRENCE_SEVERITY[String(domain_key || "")];
   if (!domain) return null;
   return domain[String(recurrence || "")] ?? null;
+}
+
+export function isMonitoringOnlyRecurrence(domain_key, recurrence) {
+  return MONITORING_ONLY_RECURRENCES[String(domain_key || "")]?.includes(String(recurrence || "")) === true;
 }
 
 export function isMappedRecurrence(domain_key, recurrence) {
