@@ -389,17 +389,40 @@ const dmarcProviders = (zone) => {
   return { primaryProvider: provider, secondaryProvider: provider };
 };
 
-test("DMARC: p=none climbs the ladder; pct and t are removed; reports are added", async () => {
+test("DMARC: p=none without rua keeps p=none, adds rua and drops pct; the verdict says no reports", async () => {
   const result = await runDmarcCheck("example.com", { providers: dmarcProviders({
-    "_dmarc.example.com": "v=DMARC1; p=none; pct=50; t=y; adkim=s",
+    "_dmarc.example.com": "v=DMARC1; p=none; pct=100; adkim=r; aspf=r",
   }) });
   assert.equal(result.verdict.level, "attention");
-  assert.equal(result.ladder.current, "none");
-  assert.equal(result.next_step.record.name, "_dmarc.example.com");
-  assert.equal(result.next_step.record.value, "v=DMARC1; p=quarantine; adkim=s; rua=mailto:dmarc-reports@example.com");
-  assert.ok(result.tags.some((t) => t.tag === "pct"));
+  assert.equal(result.verdict.headline, "No protection yet (p=none, no reports)");
+  assert.doesNotMatch(result.verdict.summary, /Reports are requested/);
   assert.ok(result.checked.some((c) => c.label === "Aggregate reports (rua)" && c.state === "warn"));
+  assert.equal(result.next_step.title, "Turn on reports first, keep p=none");
+  assert.equal(result.next_step.record.value, "v=DMARC1; p=none; adkim=r; aspf=r; rua=mailto:dmarc-reports@example.com");
+  assert.match(result.next_step.explanation, /Removed pct=/);
+  assert.ok(result.next_step.cautions.some((c) => /move to p=quarantine/.test(c)));
   assert.ok(result.not_checked.some((n) => /receivers apply/.test(n.label)));
+});
+
+test("DMARC: p=none with rua moves to quarantine, keeps the caveat, and drops pct and t", async () => {
+  const result = await runDmarcCheck("example.com", { providers: dmarcProviders({
+    "_dmarc.example.com": "v=DMARC1; p=none; pct=50; t=y; adkim=s; rua=mailto:d@example.com",
+  }) });
+  assert.equal(result.verdict.headline, "Monitoring only (p=none)");
+  assert.match(result.verdict.summary, /Reports are requested/);
+  assert.equal(result.ladder.current, "none");
+  assert.equal(result.next_step.title, "Move from monitoring to quarantine");
+  assert.equal(result.next_step.record.value, "v=DMARC1; p=quarantine; adkim=s; rua=mailto:d@example.com");
+  assert.ok(result.next_step.cautions.some((c) => /^Only do this once your aggregate reports show/.test(c)));
+  assert.ok(result.tags.some((t) => t.tag === "pct"));
+});
+
+test("DMARC: p=quarantine without rua adds reports before suggesting reject", async () => {
+  const result = await runDmarcCheck("example.com", { providers: dmarcProviders({
+    "_dmarc.example.com": "v=DMARC1; p=quarantine",
+  }) });
+  assert.equal(result.next_step.title, "Turn on reports first, keep p=quarantine");
+  assert.equal(result.next_step.record.value, "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@example.com");
 });
 
 test("DMARC: an unauthorised third-party report destination gets the exact record it needs", async () => {
