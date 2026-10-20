@@ -520,6 +520,17 @@ export async function emitManagedAlert(env, {
       return { emitted: false, notification_id: null, reason: "workspace_deleted", deliveries };
     }
 
+    // 2a. A domain's first scan in this workspace: everything it sees already
+    //     existed before CyberMeters looked at that domain, so it is baseline,
+    //     even in a workspace whose watermark is long past (another domain added
+    //     later). Set per scan by runScanEngine on its own env copy, never global.
+    if (env?.ALERT_FIRST_SCAN_HOLD instanceof Set && env.ALERT_FIRST_SCAN_HOLD.has(workspace_id)) {
+      deliveries.push(await recordDelivery(env, {
+        ...base, channel: "in_app", outcome: "suppressed", reason: "alert_baseline_established",
+      }));
+      return { emitted: false, notification_id: null, reason: "alert_baseline_established", deliveries };
+    }
+
     // 2. Activation watermark — BEFORE event creation and dedupe, so pre-existing
     //    state never becomes a bell notification and is never enqueued for retry.
     const activation = await ensureAlertActivation(env, workspace_id, domain_key, { observed_at });

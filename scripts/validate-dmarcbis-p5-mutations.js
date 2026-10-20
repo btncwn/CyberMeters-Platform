@@ -154,13 +154,13 @@ await withMutant(
 await withMutant(
   engines,
   "scan-engine.js",
-  `await emitDmarcPolicyAlerts(env, {`,
-  `await createDmarcPolicyCase(env, lifecycleResult);
-        await emitDmarcPolicyAlerts(env, {`,
+  `await emitDmarcPolicyAlerts(phaseEnv, {`,
+  `await createDmarcPolicyCase(phaseEnv, lifecycleResult);
+        await emitDmarcPolicyAlerts(phaseEnv, {`,
   async ({ source }) => {
     ok(
       "MUTANT scan engine gains prohibited automatic case creation",
-      source.includes("createDmarcPolicyCase(env, lifecycleResult)"),
+      source.includes("createDmarcPolicyCase(phaseEnv, lifecycleResult)"),
     );
   },
 );

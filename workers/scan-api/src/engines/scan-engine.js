@@ -2861,11 +2861,28 @@ function buildCanonicalUrlProfile(modules) {
       ]);
     } catch { monitoringStarted = []; /* the lazy watermark still applies */ }
 
+    // A domain's first scan in a workspace raises no alert: its findings already
+    // existed before CyberMeters looked at the domain (managed-alerts.js, 2a).
+    // The phases below get their own env copy carrying the held workspaces.
+    const firstScanHold = new Set();
+    try {
+      const linked = [...new Set([...(workspaceId ? [workspaceId] : []), ...monitoringStarted.map((pair) => pair.workspace_id)])];
+      const workspaceRows = await env.cybermeters_db
+        .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?").bind(domainId).all();
+      for (const id of new Set([...linked, ...(workspaceRows?.results || []).map((row) => row.workspace_id)])) {
+        const earlier = await env.cybermeters_db.prepare(
+          `SELECT 1 AS seen FROM scans WHERE workspace_id = ? AND domain_id = ? AND id <> ? AND status = 'completed' LIMIT 1`,
+        ).bind(id, domainId, scanId).first();
+        if (!earlier) firstScanHold.add(id);
+      }
+    } catch { /* unknown: the watermark still applies */ }
+    const phaseEnv = firstScanHold.size ? { ...env, ALERT_FIRST_SCAN_HOLD: firstScanHold } : env;
+
     // Phase 8a.0: Managed ASM cases — opens cases for new exposure findings,
     // verifies customer-completed fixes against the fresh scan, and reopens
     // resolved cases when the same finding returns. Reuses scan evidence only.
     try {
-      await createManagedAsmCasesForScan(scanId, domainId, domain, managedAsmFindings, recommendations, env);
+      await createManagedAsmCasesForScan(scanId, domainId, domain, managedAsmFindings, recommendations, phaseEnv);
       await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, {
         modules,
         scanQuality,
@@ -2880,7 +2897,7 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 8a.1: Posture Timeline Events — cross-scan email-auth and exposed
     // service diffs. Uses previous completed scan report from R2 as baseline.
     try {
-      await recordPostureEvents(scanId, domainId, domain, modules, env, { currentReport: report });
+      await recordPostureEvents(scanId, domainId, domain, modules, phaseEnv, { currentReport: report });
     } catch { /* non-fatal — posture events catch up on next scan */ }
 
     // Phase 8a.2: SPF-RUA corroboration (PR-B) — cross-checks this scan's freshly
@@ -2889,32 +2906,32 @@ function buildCanonicalUrlProfile(modules) {
     // source outside the authorised set. Only fires firm wording when the
     // resolution is complete; fails safe otherwise. Non-fatal.
     try {
-      await recordSpfRuaCorroboration(scanId, domainId, domain, modules, env);
+      await recordSpfRuaCorroboration(scanId, domainId, domain, modules, phaseEnv);
     } catch { /* non-fatal — corroboration catches up on the next scan */ }
 
     // Phase 8b: Admin Surface Events — one asset_event per detected service per workspace.
     // Runs after upsertAssetInventory so workspace_assets rows are already present,
     // allowing asset_id FK resolution.
     try {
-      await insertAdminSurfaceEvents(scanId, domainId, modules.admin_surface_detection, env, { currentReport: report });
+      await insertAdminSurfaceEvents(scanId, domainId, modules.admin_surface_detection, phaseEnv, { currentReport: report });
     } catch { /* non-fatal */ }
 
     // Phase 8c: Vendor Inventory Upsert — persists vendor_risk detections to D1.
     // Uses workspace lookup internally. Preserves first_seen; marks unseen vendors inactive.
     try {
-      await upsertVendorInventory(domainId, modules.vendor_risk, env);
+      await upsertVendorInventory(domainId, modules.vendor_risk, phaseEnv);
     } catch { /* non-fatal */ }
 
     // Phase 8d: Certificate Events — fires asset_events for sensitive
     // discovered hosts, expiry warnings, and growth signals.
     try {
-      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report, now: () => certificateNowMs });
+      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, phaseEnv, { currentReport: report, now: () => certificateNowMs });
     } catch { /* non-fatal */ }
 
     // Phase 8d.1: Certificate Timeline — persists cross-scan certificate
     // observations and emits alerts for new certs, SANs, and issuers.
     try {
-      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report, now: () => certificateNowMs });
+      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, phaseEnv, { currentReport: report, now: () => certificateNowMs });
     } catch { /* non-fatal */ }
 
     // Phase 8e: Brand Asset Upsert — persists generated typosquat candidates to
@@ -2923,39 +2940,39 @@ function buildCanonicalUrlProfile(modules) {
     // /brand-monitoring/refresh); the NEXT scan reads that state back into its
     // brand decision through loadBrandValidationState above.
     try {
-      await upsertBrandAssets(domainId, modules.brand_monitoring, env);
+      await upsertBrandAssets(domainId, modules.brand_monitoring, phaseEnv);
     } catch { /* non-fatal */ }
 
     // Phase 8f: Identity Asset Upsert — persists identity_discovery results into
     // identity_assets table. Also upserts detected IdP providers into workspace_vendors.
     try {
-      await upsertIdentityAssets(domainId, scanId, modules.identity_discovery, env);
+      await upsertIdentityAssets(domainId, scanId, modules.identity_discovery, phaseEnv);
     } catch { /* non-fatal */ }
 
     // Phase 8g: Vendor Relationship Upsert — persists CSP-derived vendor relationships
     // into workspace_vendors with source_module='vendor_relationship'. Additive to
     // Phase 8c (DNS-sourced vendor_risk entries) — no inactive sweep here.
     try {
-      await upsertVendorRelationships(domainId, modules.vendor_relationships, env);
+      await upsertVendorRelationships(domainId, modules.vendor_relationships, phaseEnv);
     } catch { /* non-fatal */ }
 
     // Phase 8h: Vendor Risk Score Upsert — calculates workspace-level vendor
     // exposure scores from current workspace_vendors rows.
     try {
-      await recomputeVendorRiskScoresForDomain(domainId, env);
+      await recomputeVendorRiskScoresForDomain(domainId, phaseEnv);
     } catch { /* non-fatal */ }
 
     // Phase 8i: Supply Chain Intelligence — computes and persists supply chain
     // risk scores, concentration analysis, and cascading risk scenarios per workspace.
     // Runs after all vendor phases so it sees the full vendor picture.
     try {
-      const scWsRows = await env.cybermeters_db
+      const scWsRows = await phaseEnv.cybermeters_db
         .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
         .bind(domainId)
         .all();
       for (const { workspace_id } of (scWsRows.results || [])) {
-        const scPayload = await computeSupplyChainIntelligence(workspace_id, env);
-        await upsertSupplyChainScore(workspace_id, scPayload, env);
+        const scPayload = await computeSupplyChainIntelligence(workspace_id, phaseEnv);
+        await upsertSupplyChainScore(workspace_id, scPayload, phaseEnv);
       }
     } catch { /* non-fatal */ }
 
@@ -2964,12 +2981,12 @@ function buildCanonicalUrlProfile(modules) {
     // externally-observed technology inventory. Soft-deleted workspaces are
     // skipped inside correlateShadowItInventory. Non-fatal.
     try {
-      const siWsRows = await env.cybermeters_db
+      const siWsRows = await phaseEnv.cybermeters_db
         .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
         .bind(domainId)
         .all();
       for (const { workspace_id } of (siWsRows.results || [])) {
-        await correlateShadowItInventory(env, workspace_id, { saasExposure: modules.saas_exposure, subdomainDiscovery: modules.subdomains || { executed: false } });
+        await correlateShadowItInventory(phaseEnv, workspace_id, { saasExposure: modules.saas_exposure, subdomainDiscovery: modules.subdomains || { executed: false } });
       }
     } catch { /* non-fatal — inventory catches up on the next scan */ }
 
@@ -2979,12 +2996,12 @@ function buildCanonicalUrlProfile(modules) {
     // assess renewal readiness + coverage, and run the monitoring evaluator.
     // Soft-deleted workspaces are skipped inside correlateCertificateLifecycle.
     try {
-      const clWsRows = await env.cybermeters_db
+      const clWsRows = await phaseEnv.cybermeters_db
         .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
         .bind(domainId)
         .all();
       for (const { workspace_id } of (clWsRows.results || [])) {
-        await correlateCertificateLifecycle(env, workspace_id, { now: startedAt });
+        await correlateCertificateLifecycle(phaseEnv, workspace_id, { now: startedAt });
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
 
@@ -2995,12 +3012,12 @@ function buildCanonicalUrlProfile(modules) {
     // monitoring evaluator. Soft-deleted workspaces are skipped inside
     // correlateIdentityExposure. Non-fatal.
     try {
-      const ieWsRows = await env.cybermeters_db
+      const ieWsRows = await phaseEnv.cybermeters_db
         .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
         .bind(domainId)
         .all();
       for (const { workspace_id } of (ieWsRows.results || [])) {
-        await correlateIdentityExposure(env, workspace_id);
+        await correlateIdentityExposure(phaseEnv, workspace_id);
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
 
@@ -3019,12 +3036,12 @@ function buildCanonicalUrlProfile(modules) {
     // as the customer fixing it. Soft-deleted workspaces are skipped inside the
     // evaluator. Non-fatal.
     try {
-      const wsWsRows = await env.cybermeters_db
+      const wsWsRows = await phaseEnv.cybermeters_db
         .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
         .bind(domainId)
         .all();
       for (const { workspace_id } of (wsWsRows.results || [])) {
-        await evaluateWebsiteSecurityForScan(env, {
+        await evaluateWebsiteSecurityForScan(phaseEnv, {
           workspace_id, domain_id: domainId, domain, scan_id: scanId,
           findings: normalizedFindings, modules, scanQuality,
         });
@@ -3036,14 +3053,14 @@ function buildCanonicalUrlProfile(modules) {
     // has it verified (checked inside). Non-fatal; never touches findings.
     try {
       if (modules.page_discovery?.source === "page_discovery") {
-        const pageWsRows = await env.cybermeters_db
+        const pageWsRows = await phaseEnv.cybermeters_db
           .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
           .bind(domainId)
           .all();
         for (const { workspace_id } of (pageWsRows.results || [])) {
           // One workspace failing must not stop the others.
           try {
-            await persistWebsitePagesForScan(env, {
+            await persistWebsitePagesForScan(phaseEnv, {
               workspace_id, domain_id: domainId, domain, scan_id: scanId,
               discovery: modules.page_discovery,
             });
@@ -3063,12 +3080,12 @@ function buildCanonicalUrlProfile(modules) {
     //
     // Non-fatal.
     try {
-      const ceWsRows = await env.cybermeters_db
+      const ceWsRows = await phaseEnv.cybermeters_db
         .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
         .bind(domainId)
         .all();
       for (const { workspace_id } of (ceWsRows.results || [])) {
-        await evaluateCyberEssentialsLifecycle(env, workspace_id, { scanId });
+        await evaluateCyberEssentialsLifecycle(phaseEnv, workspace_id, { scanId });
       }
     } catch { /* non-fatal — readiness catches up on the next scan */ }
 
@@ -3114,19 +3131,19 @@ function buildCanonicalUrlProfile(modules) {
     // Failed/missing snapshots and incomplete components suppress honestly.
     if (workspaceId) {
       try {
-        const dmarcLifecycle = await recordDmarcPolicyLifecycle(env, {
+        const dmarcLifecycle = await recordDmarcPolicyLifecycle(phaseEnv, {
           workspace_id: workspaceId,
           domain_id: domainId,
           domain,
           scan_id: scanId,
         });
-        await emitDmarcPolicyAlerts(env, {
+        await emitDmarcPolicyAlerts(phaseEnv, {
           workspace_id: workspaceId,
           lifecycle_result: dmarcLifecycle,
         });
       } catch { /* non-fatal — the next complete pair can establish continuity */ }
       try {
-        await verifyDmarcPolicyCasesForScan(env, {
+        await verifyDmarcPolicyCasesForScan(phaseEnv, {
           workspace_id: workspaceId,
           domain_id: domainId,
           scan_id: scanId,

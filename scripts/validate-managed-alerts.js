@@ -759,6 +759,21 @@ async function emitLifecycleAlertProbe() {
   ok("backfill: the workspace whose first alert was swallowed now alerts", lazyAfter.emitted === true, JSON.stringify(lazyAfter.reason));
 }
 
+// ── A domain's first scan in a monitored workspace holds its alerts ─────────
+{
+  const key = (n) => buildAlertDedupeKey({ domain_key: "certificates_trust", kind: "cert_expiring", subject: `hold-${n}` });
+  const at = db.prepare("SELECT datetime('now','+120 seconds') AS t").get().t;
+  const heldEnv = { ...env, ALERT_FIRST_SCAN_HOLD: new Set(["ws_start"]) };
+  const held = await emitManagedAlert(heldEnv, alert({ workspace_id: "ws_start", observed_at: at, dedupe_key: key("held") }));
+  eq("first scan of a new domain: its conditions are held as baseline", held.reason, "alert_baseline_established");
+  const other = await emitManagedAlert(heldEnv, alert({ workspace_id: "ws_paid", observed_at: at, dedupe_key: key("other") }));
+  ok("the hold covers only the held workspace", other.emitted === true, JSON.stringify(other.reason));
+  const later = await emitManagedAlert(env, alert({ workspace_id: "ws_start", observed_at: at, dedupe_key: key("later") }));
+  ok("a later scan (no hold) alerts the same workspace", later.emitted === true, JSON.stringify(later.reason));
+  const notASet = await emitManagedAlert({ ...env, ALERT_FIRST_SCAN_HOLD: ["ws_start"] }, alert({ workspace_id: "ws_start", observed_at: at, dedupe_key: key("array") }));
+  ok("only a Set from the engine holds (no stray value)", notASet.emitted === true);
+}
+
 globalThis.fetch = realFetch;
 console.log(`\nmanaged-alerts: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("managed-alerts validation FAILED"); process.exit(1); }
