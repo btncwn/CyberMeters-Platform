@@ -126,6 +126,17 @@ try {
     assert.equal(lifecycle.updated_at, NOW);
   });
 
+  // Launch-gate fix (20 Oct 2026): the first scan starts alert monitoring for
+  // all eight domains (engines/managed-alerts.js) and releases its hold.
+  await test("first scan starts alert monitoring for all eight domains, hold released", () => {
+    const rows = db.prepare("SELECT domain_key, activated_at FROM alert_activation WHERE workspace_id='c4-ws' ORDER BY domain_key").all();
+    assert.deepEqual(rows.map(r => r.domain_key), ["attack_surface", "brand_protection", "certificates_trust",
+      "cyber_essentials_readiness", "email_protection", "identity_exposure", "shadow_it_unmanaged_technology", "website_security"]);
+    const now = db.prepare("SELECT datetime('now') AS t").get().t;
+    assert.ok(rows.every(r => r.activated_at <= now), `no watermark may stay held in the future: ${JSON.stringify(rows)}`);
+    assert.ok(rows.every(r => !/undefined/.test(db.prepare("SELECT id FROM alert_activation WHERE workspace_id='c4-ws' AND domain_key=?").get(r.domain_key).id)));
+  });
+
   // A separate comparable-report fixture isolates event timestamps from the
   // engine trace. It does not change the engine trace's quality or evidence.
   await test("C4 certificate events: injected production time", async () => {

@@ -115,6 +115,7 @@ import { checkForFinding, checkPackSummary, moduleNotInCheckPack } from "./check
 import { REGISTRATION_DATA_OPTIONAL, runWhoisModule, whoisReportFindings } from "./whois-scan.js";
 import { collectDegradations, mayGradeDegraded } from "./scan-degradation-contract.js";
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+import { beginAlertMonitoring, finishAlertMonitoring } from "./managed-alerts.js";
 
 export function buildCertificateAuthorityConcentrationFromModule(certMod) {
   const issuer = certMod?.issuer ? String(certMod.issuer).trim() : "";
@@ -2844,6 +2845,22 @@ function buildCanonicalUrlProfile(modules) {
       });
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
 
+    // Phase 8a.-1: alert monitoring start. Before any phase below can alert, the
+    // first scan of each workspace on this domain writes its eight alert
+    // watermarks, held in the future; the hold is released after Phase 8p. What
+    // this first pass observes is pre-existing state and never alerts; every
+    // later new condition does (engines/managed-alerts.js, monitoring start).
+    let monitoringStarted = [];
+    try {
+      const monitoringRows = await env.cybermeters_db
+        .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+        .bind(domainId).all();
+      monitoringStarted = await beginAlertMonitoring(env, [
+        ...(workspaceId ? [workspaceId] : []),
+        ...(monitoringRows?.results || []).map((row) => row.workspace_id),
+      ]);
+    } catch { monitoringStarted = []; /* the lazy watermark still applies */ }
+
     // Phase 8a.0: Managed ASM cases — opens cases for new exposure findings,
     // verifies customer-completed fixes against the fresh scan, and reopens
     // resolved cases when the same finding returns. Reuses scan evidence only.
@@ -3116,6 +3133,10 @@ function buildCanonicalUrlProfile(modules) {
         });
       } catch { /* non-fatal — only a later complete re-observation may verify */ }
     }
+
+    // Phase 8q: release the monitoring-start hold written in Phase 8a.-1. If this
+    // fails, the hold still expires on its own (MONITORING_START_HOLD).
+    try { await finishAlertMonitoring(env, monitoringStarted); } catch { /* self-expiring */ }
 
     // Phase 8x: M6 Phase B1 Related Changes — deterministic same-entity/same-window
     // correlation over the change-event producers written by the phases above. Runs
