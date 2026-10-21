@@ -1,6 +1,11 @@
 # Read-only MCP: client compatibility
 
-**Updated:** 20 October 2026. **State:** production customer MCP is live at `https://mcp.cybermeters.com/mcp` (issuer `https://api.cybermeters.com`) and open to trial and paid customers (`MCP_CUSTOMER_ACCESS = "customers"`; see [rollout](MCP-BETA-ROLLOUT.md)). **Proven live against production:** the Claude.ai hosted connector, Claude Code and Codex CLI. Every other surface below is unproven: do not advertise it until a live connection, a real read, revocation and reconnect are recorded here.
+**Updated:** 21 October 2026. **State:** production customer MCP is live at `https://mcp.cybermeters.com/mcp` (issuer `https://api.cybermeters.com`) and open to trial and paid customers (`MCP_CUSTOMER_ACCESS = "customers"`; see [rollout](MCP-BETA-ROLLOUT.md)). **Proven live against production:** the Claude.ai hosted connector, Claude Code and Codex CLI. Every other surface below is unproven: do not advertise it until a live connection, a real read, revocation and reconnect are recorded here.
+
+For the current 14-tool catalogue, sign-in, client setup steps and revocation,
+see [MCP setup](MCP-SETUP.md). Public OAuth discovery was rechecked on 21 October:
+resource/issuer and S256 PKCE match production; unauthenticated tools/list is 401.
+No additional named-client acceptance is claimed by that read-only check.
 
 ## Proven live
 

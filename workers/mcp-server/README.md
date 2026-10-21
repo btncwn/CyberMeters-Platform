@@ -1,15 +1,48 @@
-# CyberMeters MCP-04 local gateway
+# CyberMeters read-only MCP server
 
-From this directory, run `npm ci`, `npm test`, and `npm run dry-run` for local validation. Install the locked `workers/scan-api` dependencies before the joint runtime test. No command here deploys a Worker.
+The production customer endpoint is **https://mcp.cybermeters.com/mcp**.
+It uses user OAuth consent through `https://api.cybermeters.com`, a private
+backend binding, and 14 bounded read tools. It is not a scan or mutation API.
 
-The default entrypoint returns `503 {"error":"mcp_not_configured"}` unless `MCP_INTERNAL_ENABLED` is exactly `true` and `env.MCP_BACKEND` exposes all six named read RPC methods. The Wrangler config declares a local service binding to `cybermeters-platform#McpReadService` but sets no enablement variable, route, production hostname, `workers.dev` URL, or preview URL. A request header alone cannot enable the gateway.
+See [connection steps and current tool list](../../docs/MCP-SETUP.md),
+[client acceptance and callback limits](../../docs/MCP-CLIENT-COMPATIBILITY.md),
+and [rollout/rollback controls](../../docs/MCP-BETA-ROLLOUT.md).
+Remove access at **https://app.cybermeters.com/account/mcp**.
 
-The enabled path accepts only exact `POST /mcp` on HTTP loopback with matching Host and, if sent, Origin. Wrangler sets `request.cf` on local requests, so that property is not a local-only signal. It requires an `Authorization: Bearer cm_<64 lowercase hex characters>` header before the MCP handler runs. The 74-character header cap rejects sessions, malformed tokens, and extra values. Token validity, expiry, workspace binding, current membership, rate limit, and awaited audit are the scan API entrypoint's responsibility on every RPC call. The gateway calls only the six fixed `McpReadService` methods through the private binding; it does not use public HTTP or pass an AbortSignal over RPC. The bearer remains in a per-request closure and is stripped before the SDK sees the request. It is never included in metrics, errors, or projected output.
+## Customer gateway
 
-The internal tool allowlist is `cybermeters_list_workspaces`, `cybermeters_get_workspace_summary`, `cybermeters_get_workspace_posture`, `cybermeters_list_recent_scans`, `cybermeters_get_scan_status`, and `cybermeters_list_managed_cases`. The first tool derives its sole workspace from the bound trial credential; the others require explicit workspace IDs, and scan status also requires a scan ID. The backend authorizes every call independently. Scan lifecycle, stored scan quality, and canonical assessment quality stay separate in results. A bounded page advertises whether more records exist.
+`src/index.js` selects the customer gateway when `MCP_CUSTOMER_ENABLED` is
+exactly `true`. The production configuration declares the custom hostname and
+private `McpOAuthAuthorizationService`/`McpCustomerReadService` bindings. A
+missing or disabled binding/flag closes the endpoint. OAuth metadata and
+server-wide 401 discovery lead clients through sign-in and explicit workspace
+consent. Portfolio reads require separate consent and the selected workspace set.
+Current membership, revocation, plan eligibility, limits and audit are checked
+by the backend on each read. No customer bearer is accepted from a URL or logged.
 
-The existing `createLocalTestWorker` remains a fixture-only test path and accepts an injected backend with the six named methods. Run `node ../../scripts/validate-mcp-rpc-runtime.js` for the repeatable joint local two-Worker proof. It uses the real named RPC binding, a disposable local D1 database with two synthetic tenants, and no remote binding or production token. It checks all six reads, tenant denials, the atomic budget, and durable success/denial audits. Backend denials carry only a generated request ID and fixed reason; malformed bearer values are rejected at the gateway before RPC and are not written to backend audit storage.
+The tools expose stored evidence and its quality limits. They do not start scans,
+edit DNS, mutate managed cases or send customer reports. Client retention is
+outside CyberMeters control; revocation stops future reads, not prior copies.
 
-The MCP handler keeps strict input, host, origin, method, path, body and response caps, JSON-only stateless responses, legacy rejection, and output field allowlists. Only `server/discover`, `tools/list`, and `tools/call` may reach the SDK; the method header must match the JSON body. Streaming methods such as `subscriptions/listen` are rejected before SDK dispatch. Request and response stream reads have a two-second deadline, as does each backend result wait. An RPC already invoked may continue after that deadline; the backend must enforce its own limit and awaited audit policy. The gateway is not a substitute for backend authorization.
+## Local engineering paths
 
-This is internal engineering trial code, not a customer endpoint. A future public hostname requires a separate explicit route and origin policy, OAuth and audience controls, deployed binding proof, tenant and audit tests, and release authorization. None is configured here.
+The older MCP-04 internal gateway remains a local-only engineering path, guarded
+by `MCP_INTERNAL_ENABLED` and the six named `McpReadService` methods. Its trial
+API token and six-tool catalogue are not customer connection instructions. The
+injected `createLocalTestWorker` is a fixture, not a public endpoint.
+
+Install locked dependencies before validating:
+
+```sh
+node scripts/install-governed-dependencies.js --root workers/scan-api
+cd workers/mcp-server
+npm ci --ignore-scripts
+npm test
+npm run dry-run
+```
+
+These commands test/build locally; they do not deploy. The joint runtime test
+uses disposable local state and synthetic tenants. Public hosted OAuth tests
+have separate explicit staging controls; do not use production credentials for
+local fixtures. Never loosen an origin or callback allowlist to make a client
+setup example appear to work.
