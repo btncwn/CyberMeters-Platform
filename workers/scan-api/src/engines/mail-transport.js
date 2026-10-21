@@ -1,9 +1,10 @@
 import { isProbeHostname } from '../../../network-probe/src/contract.js';
 import { collectTlsAssessment } from './exposure-jobs.js';
-import { dnsQuery } from './dns.js';
+import { dnsQuery, dnsQueryGoogle } from './dns.js';
 import { parseTlsDnsAnswers } from './tls-planner.js';
 import { isWeakTlsCipher } from '../../../../shared/tls/catalog.js';
 import { createId } from '../lib/util.js';
+import { resolvePublicDnsTarget, STRICT_DNS_STATES } from '../lib/ssrf.js';
 
 export const MAIL_MX_LIMIT = 5;
 const CHECK = Object.freeze({ control: 'certificate', protocol: 'tls1_2', cipher_id: null });
@@ -43,8 +44,23 @@ export function projectMailMxReceipt(mx, receipt) {
   };
 }
 
+const dnsName=value=>String(value||'').trim().toLowerCase().replace(/\.$/,'');
+const nxdomainFor=(packet,name)=>Boolean(packet&&typeof packet==='object'&&!Array.isArray(packet)&&
+  packet.Status===3&&packet.TC!==true&&!(Array.isArray(packet.Answer)&&packet.Answer.length)&&
+  Array.isArray(packet.Question)&&packet.Question.some(q=>dnsName(q?.name)===name));
+// The MX host does not exist: the primary resolver answers NXDOMAIN for both
+// A and AAAA (readable, untruncated, this exact question, no records) AND an
+// independent resolver confirms NXDOMAIN. A recursive answer's SOA comes and
+// goes, so the proof is two resolvers agreeing, never one packet.
+export function provesNxdomain(primaryPackets,confirmPacket,host) {
+  const name=dnsName(host);
+  return Array.isArray(primaryPackets)&&primaryPackets.length===2&&
+    primaryPackets.every(packet=>nxdomainFor(packet,name))&&nxdomainFor(confirmPacket,name);
+}
+
 export async function runMailTransportModule(env, scan, dnsModule, {
   signal, accounting = null, lookup = (host,type) => dnsQuery(host,type,{accounting}),
+  confirmLookup = host => dnsQueryGoogle(host,'A',{accounting}),
   collect = collectTlsAssessment, now = Date.now,
   requestId = () => createId('mailmx'),
 } = {}) {
@@ -68,7 +84,26 @@ export async function runMailTransportModule(env, scan, dnsModule, {
       try {
         const answers=await Promise.allSettled(['A','AAAA'].map(type=>lookup(mx.host,type)));
         const addresses=parseTlsDnsAnswers(answers.map((result,index)=>[['A','AAAA'][index],result.status==='fulfilled'?result.value:null]),mx.host);
-        if(!addresses.length)throw new Error('mx_dns_unavailable');
+        if(!addresses.length){
+          // An MX host with an AUTHORITATIVE negative answer (NXDOMAIN, or no
+          // address with an SOA) is a definitive observation: mail for this
+          // domain cannot be delivered to it (21 Oct 2026: a cancelled tenant's
+          // MX host read only "not tested"). Anything less stays unavailable.
+          // NXDOMAIN is about the NAME, so one authoritative NXDOMAIN (an SOA
+          // for a zone the host sits under) with no address in either family
+          // proves the host does not exist, even when the other family's
+          // NXDOMAIN carries no SOA (seen live on a cancelled tenant's MX).
+          const packets=answers.map(result=>result.status==='fulfilled'?result.value:null);
+          if(packets.every(packet=>nxdomainFor(packet,dnsName(mx.host)))){
+            const confirm=await confirmLookup(mx.host).catch(()=>null);
+            if(provesNxdomain(packets,confirm,mx.host))return {host:mx.host,priority:mx.priority,state:'no_address',
+              reason:'mx_host_does_not_exist',starttls_offered:null};
+          }
+          const strict=await resolvePublicDnsTarget(mx.host,lookup).catch(()=>null);
+          if(strict?.state===STRICT_DNS_STATES.NO_ADDRESS)return {host:mx.host,priority:mx.priority,state:'no_address',
+            reason:strict.dns_evidence?.outcome==='nxdomain'?'mx_host_does_not_exist':'mx_host_has_no_address',starttls_offered:null};
+          throw new Error('mx_dns_unavailable');
+        }
         const observedAt=new Date(now()).toISOString();
         const endpoint={hostname:mx.host,sni:mx.host,address:addresses[0],port:25,transport:'tcp',
           application_protocol:'smtp',dns_addresses:addresses,dns_observed_at:observedAt};
@@ -85,7 +120,8 @@ export async function runMailTransportModule(env, scan, dnsModule, {
     }));
     results.push(...batch);
   }
-  const tested=results.filter(row=>row.state==='tested'||row.state==='not_offered').length;
+  // A definitive "no address" is an observation of the MX host, not a gap.
+  const tested=results.filter(row=>row.state==='tested'||row.state==='not_offered'||row.state==='no_address').length;
   return {source:'mail_transport',state:tested===plan.length?'observed':tested?'partial':'not_tested',
     reason:tested===plan.length?null:'some_mx_not_tested',hosts:results,
     coverage:{planned:plan.length,tested,not_tested:plan.length-tested},observed_at:new Date(now()).toISOString()};
