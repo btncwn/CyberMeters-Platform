@@ -73,6 +73,23 @@ describe('CertificateAssuranceSummary', () => {
     expect(container).not.toHaveTextContent(/\bpassed\b/i)
   })
 
+  it('preserves a dated standard citation with balanced parentheses', () => {
+    const leaf = signal('leaf', 'observed')
+    leaf.cited_authorities = [{
+      standard_id: 'CA/Browser Forum TLS Baseline Requirements',
+      standard_version: '2.2.8 (16 June 2026)',
+      requirement_type: 'industry_baseline',
+    }]
+    const { container } = render(
+      <CertificateAssuranceSummary
+        presentation={{ signal_order: ['leaf'], signals: { leaf }, summary: {} }}
+        showEvidence
+      />
+    )
+    expect(container).toHaveTextContent('Cited standards: CA/Browser Forum TLS Baseline Requirements 2.2.8 (16 June 2026)')
+    expect(container).not.toHaveTextContent('Requirements (2.2.8')
+  })
+
   it('shows name, expiry and trust as checks with their outcome, and an unchecked one never as passed', () => {
     const signals = {
       hostname_match: { ...signal('hostname_match', 'observed'), check: { outcome: 'failed', label: 'Does not cover example.test' } },
