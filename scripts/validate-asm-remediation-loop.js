@@ -499,6 +499,49 @@ eq("host-less finding falls back to the domain", (await getManagedCase(env, "ws_
       newGuidance.continuity?.previous_case?.case_id === closed.case.id && /closed/.test(newGuidance.continuity?.previous_case?.label || ""));
 }
 
+// ── Claim withdrawal (21 Oct 2026) ────────────────────────────────────────────
+// A case opened from asset_exposure_admin_interface on hostname + title alone
+// is a live false claim under score methodology 2026-10-21.1. The system
+// resolves it as a false positive on its OWN originating evidence (source scan's
+// stored asset), append-only, through the universal validator.
+{
+  const { withdrawSupersededAsmClaims, ADMIN_CLAIM_WITHDRAWAL_REASON } = asm;
+  const adminClaim = (host) => ({ id: "asset_exposure_admin_interface", module: "asset_exposure", severity: "medium",
+    title: "Administrative Interface Publicly Reachable", description: `1 administrative or login interface is publicly accessible: ${host}.`,
+    affected_hosts: [host], finding_type: "finding", score_impact: -8 });
+  const scenarios = [
+    ["noform", { password_form_observed: null }],
+    ["form", { password_form_observed: true }],
+    ["gone", null],
+  ];
+  const reports = {};
+  for (const [name, auth] of scenarios) {
+    const domain = `wd-${name}-example.com`;
+    seedWorkspace(`ws_wd_${name}`, `dom_wd_${name}`, domain);
+    await createManagedAsmCasesForScan(`scan_wd-${name}`, `dom_wd_${name}`, domain, [adminClaim(`admin.${domain}`)], [], env);
+    if (auth) reports[`reports/scan_wd-${name}.json`] = { domain, modules: { asset_exposure: { assets: [
+      { host: `admin.${domain}`, status: 200, title: "Admin page", authentication_observation: auth }] } } };
+  }
+  const wdEnv = { ...env, cybermeters_reports: { get: async (key) => (reports[key] ? { json: async () => structuredClone(reports[key]) } : null) } };
+  const caseFor = (name) => db.prepare("SELECT * FROM managed_cases WHERE workspace_id = ?").get(`ws_wd_${name}`);
+  ok("each scenario opened one admin-interface case", scenarios.every(([name]) => caseFor(name)?.status === "open"));
+  let withdrawn = 0;
+  for (const [name] of scenarios) withdrawn += (await withdrawSupersededAsmClaims(wdEnv, { workspaceId: `ws_wd_${name}` })).withdrawn;
+  eq("withdrawal resolves exactly the no-form case", withdrawn, 1);
+  const noForm = caseFor("noform");
+  eq("no login form in the originating evidence: case is a false positive", noForm.status, "false_positive");
+  eq("the withdrawal reason is recorded on the case", noForm.reason, ADMIN_CLAIM_WITHDRAWAL_REASON);
+  const events = db.prepare("SELECT to_status, actor_type FROM managed_case_events WHERE case_id = ? ORDER BY created_at, rowid").all(noForm.id);
+  ok("append-only history: open -> triage -> false_positive, by the system",
+    events.map((e) => e.to_status).join(">").endsWith("triage>false_positive") && events.slice(-2).every((e) => e.actor_type === "system"));
+  eq("a case whose originating page had a login form stays open", caseFor("form").status, "open");
+  eq("a case whose originating evidence cannot be read stays open (fail closed)", caseFor("gone").status, "open");
+  eq("withdrawal is idempotent", (await withdrawSupersededAsmClaims(wdEnv, { workspaceId: "ws_wd_noform" })).withdrawn, 0);
+  eq("a workspace scope never reaches another workspace's case",
+    (await withdrawSupersededAsmClaims(wdEnv, { workspaceId: "ws_other" })).withdrawn, 0);
+  eq("…and the other workspace's form case is still open", caseFor("form").status, "open");
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
