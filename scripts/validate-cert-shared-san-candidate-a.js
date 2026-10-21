@@ -643,8 +643,12 @@ const parity = states.map(parityOutputs);
 // origin/main in exactly four fields: Attack Surface 90 -> 100 (the "+10 no
 // vendor visibility" every scan paid is gone), overall BRI 98 -> 100, and the
 // stamped BRI version in the basis text and the methodology block.
-const GOLDEN_F13 = "fd7d57de623989d712bd8ae550559921e5b464dc6a71139c8b3ab6d17be09957";
-const GOLDEN_F14 = "5bcd968331e63896c2b693906fad97bdeb1bb4fc4f7516131d2dca1abd56103b";
+// DNS registration guidance adds one registry entry and moves only its frozen
+// methodology fingerprint (r109-de4d1155 -> r110-f8e28c62) in this fixture.
+// Substituting only the predecessor registry reproduces both prior hashes
+// exactly; certificate evidence remains ebd729ca… and all five SAN states agree.
+const GOLDEN_F13 = "c65a1a8b89f4ffd27ffb5898f5a7060c7fe3fca6c69b3ccc080952fca435a829";
+const GOLDEN_F14 = "43cef30617668f424e5efdd7b54851b57e9e4fdb8c09e0a095b258396aa42b63";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

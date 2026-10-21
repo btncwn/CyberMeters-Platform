@@ -26,7 +26,9 @@
 //   category   - infrastructure | cloud | email_identity | hosting | saas |
 //                support | collaboration | ecommerce
 //   risk_level - low | medium | high
-//   signals[]  - array of { source, test(value):bool, corroboratesOnly? }
+//   signals[]  - array of { source, test(value):bool, corroboratesOnly?, registrationSpecific? }
+//                registrationSpecific:false excludes a shared namespace from
+//                registration claims while preserving existing correlation.
 //                Multiple sources give higher confidence. A corroboratesOnly
 //                signal is shared with other products, so it can raise the
 //                confidence of a vendor another signal established but can
@@ -96,7 +98,7 @@ export const VENDOR_SIGNATURES = [
       { source: "spf",    test: (v) => /spf\.protection\.outlook\.com/.test(v) },
       { source: "mx",     test: (v) => /\.protection\.outlook\.com/.test(v) },
       { source: "dkim",   test: (v) => /^selector[12]$/.test(v) },
-      { source: "txt",    test: (v) => /^ms=ms\d+/.test(v) },
+      { source: "txt",    test: (v) => /^ms=ms\d+/.test(v), registrationSpecific: false },
       { source: "csp",    test: (v) => /outlook\.com|office365\.com|microsoft\.com/.test(v) },
     ],
   },
@@ -539,4 +541,53 @@ export function detectVendorsFromModules(modules) {
       error:    err?.message ?? "Vendor detection failed",
     };
   }
+}
+
+// Registration is a separate observation from the vendor/use correlation above.
+// Reuse the same signature catalogue and the DNS phase's retained apex answers;
+// no fetch, additional DNS question, risk deduction or raw token is needed.
+export const DNS_REGISTRATION_LIMITS = Object.freeze({ records: 64, recordChars: 4096, services: 32 });
+export function dnsServiceRegistrationObservations(modules, { domain, checkedAt = null, verified = false } = {}) {
+  if (verified !== true) return [];
+  const root = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!root || !Array.isArray(modules?.dns?.txt_records)) return [];
+  const records = modules.dns.txt_records.slice(0, DNS_REGISTRATION_LIMITS.records).filter((record) => {
+    const owner = String(record?.name || "").toLowerCase().replace(/\.$/, "");
+    return owner === root && Number(record?.type) === 16 && record?.lookup_status === 0 && typeof record?.value === "string"
+      && record.value.length <= DNS_REGISTRATION_LIMITS.recordChars;
+  }).map((record) => record.value.trim().toLowerCase()).filter((value) => {
+    if (!value || /[\s"<>]/.test(value)) return false;
+    const separator = value.search(/[=:]/);
+    return separator >= 0 ? value.slice(separator + 1).length > 0 : /[a-z0-9]$/.test(value);
+  });
+  const services = new Set();
+  for (const signature of VENDOR_SIGNATURES) {
+    // A shared verification namespace cannot establish a particular product.
+    const checks = signature.signals.filter((check) => check.source === "txt" && check.corroboratesOnly !== true && check.registrationSpecific !== false);
+    if (checks.some((check) => records.some((value) => check.test(value)))) services.add(signature.name);
+    if (services.size >= DNS_REGISTRATION_LIMITS.services) break;
+  }
+  if (!services.size) return [];
+  const names = [...services].sort();
+  const observed = (service) => `registered with ${service} (from a DNS verification record)`;
+  return [{
+    id: "shadow_it_dns_registration",
+    module: "vendor_risk",
+    finding_type: "observation",
+    severity: "info",
+    score_impact: 0,
+    confidence: "low",
+    title: "DNS service registrations observed",
+    description: `${root}: ${names.map(observed).join("; ")}. Verification records may be left over; they do not prove current use, completed account setup or customer approval. This check examines at most ${DNS_REGISTRATION_LIMITS.records} TXT answers and reports at most ${DNS_REGISTRATION_LIMITS.services} services.`,
+    evidence: names.map((service) => ({
+      type: "dns_service_verification",
+      label: root,
+      value: observed(service),
+      source: "dns",
+      record_name: root,
+      record_type: "TXT",
+      service,
+      checked_at: checkedAt,
+    })),
+  }];
 }

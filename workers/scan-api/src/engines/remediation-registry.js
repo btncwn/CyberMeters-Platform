@@ -1333,6 +1333,22 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   }),
 
   entry({
+    remediation_id: "shadow_it.dns_registration.review",
+    domain_key: "shadow_it_unmanaged_technology",
+    finding_types: ["shadow_it_dns_registration"],
+    customer_title: "Review DNS service registrations",
+    technical_explanation: "An externally observed DNS TXT verification record indicates a service registration relationship, not current use or completed account setup.",
+    business_impact: "Old verification records can remain after a service is no longer needed; the record alone does not establish a security problem.",
+    recommended_action: "Compare these registrations with your approved-service inventory. Confirm their purpose with the domain owner before retaining or removing a verification record.",
+    effort: "low",
+    owner_type: "customer",
+    verification_method: "manual_attestation",
+    verification_evidence_requirements: "Confirm the registration's purpose with the service owner. Removing a DNS record alone does not prove account closure or removal of access.",
+    supporting_evidence_types: ["dns_service_verification"],
+    limitations: ["A verification record may be stale. It is not proof of active use, approval, unauthorised activity or a completed service account."],
+  }),
+
+  entry({
     remediation_id: "shadow_it.saas.review",
     domain_key: "shadow_it_unmanaged_technology",
     finding_types: ["saas_exposure", "vendor_risk_detected", "supply_chain_vendor_detected", "third_party_js_detected"],

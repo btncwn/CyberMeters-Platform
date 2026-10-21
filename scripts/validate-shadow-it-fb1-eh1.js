@@ -831,6 +831,57 @@ const CSP_MODULES = { headers: { values: { "content-security-policy": "script-sr
     `all=${json(all)} names=${json(names)}`);
 }
 
+
+// C-20: reuse the wired DNS/signature pipeline; registration is not active use.
+const registrationFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/dns-service-registrations.json"), "utf8"));
+const registrationOptions = { domain: registrationFixture.domain, checkedAt: registrationFixture.observed_at, verified: true };
+const registrationModules = { dns: { txt_records: registrationFixture.answers.map((answer) => ({
+  name: answer.name, type: answer.type, lookup_status: 0,
+  value: answer.data.replace(/^"|"$/g, "").replace(/"\s*"/g, ""),
+})) } };
+const registrationFindings = vendorSignatures.dnsServiceRegistrationObservations(registrationModules, registrationOptions);
+const registrationFact = registrationFindings[0];
+verdict("F49", registrationFindings.length === 1 && registrationFact?.evidence?.length === registrationFixture.expected_services
+  && registrationFact.finding_type === "observation" && registrationFact.score_impact === 0
+  && registrationFact.evidence.every((row) => row.value === `registered with ${row.service} (from a DNS verification record)`
+    && row.record_type === "TXT" && row.record_name === registrationFixture.domain)
+  && /do not prove current use/.test(registrationFact.description)
+  && !json(registrationFindings).includes("fixture-public-proof"), "registration must remain a qualified fact, without a token or score deduction");
+const noRegistrations = (records, options = {}) => vendorSignatures.dnsServiceRegistrationObservations(
+  { dns: { txt_records: records } }, { ...registrationOptions, ...options }).length === 0;
+const validRegistrationRecord = registrationModules.dns.txt_records[0];
+verdict("F50", noRegistrations([validRegistrationRecord], { verified: false })
+  && noRegistrations([{ ...validRegistrationRecord, name: "foreign.example" }])
+  && noRegistrations([{ ...validRegistrationRecord, type: 1 }])
+  && noRegistrations([{ ...validRegistrationRecord, lookup_status: 2 }])
+  && noRegistrations([{ ...validRegistrationRecord, lookup_status: null }])
+  && noRegistrations([{ ...validRegistrationRecord, value: "docusign=" }])
+  && noRegistrations([{ ...validRegistrationRecord, value: "unknown-service=fixture" }])
+  && noRegistrations([{ ...validRegistrationRecord, value: "google-site-verification=fixture" }])
+  && noRegistrations([{ ...validRegistrationRecord, value: "MS=ms12345678" }])
+  && noRegistrations([{ value: validRegistrationRecord.value }]), "unverified, foreign, untyped, empty and ambiguous records must not establish a registration");
+const limits = vendorSignatures.DNS_REGISTRATION_LIMITS;
+verdict("F51", noRegistrations([...Array.from({ length: limits.records }, () => ({ ...validRegistrationRecord, value: "unknown=fixture" })), validRegistrationRecord])
+  && noRegistrations([{ ...validRegistrationRecord, value: "docusign=" + "x".repeat(limits.recordChars) }]), "bounded record count and record length");
+const registry = await import(engineUrl("remediation-registry.js"));
+const { composeSnapshot } = await import(engineUrl("report-snapshot.js"));
+const { normalizeFindingSchema } = await import(engineUrl("findings.js"));
+const registrationSnapshot = composeSnapshot({
+  report: { scan_id: "registration-fixture", domain: registrationFixture.domain, status: "completed",
+    findings: registrationFindings.map(normalizeFindingSchema), modules: registrationModules },
+  scanId: "registration-fixture", domain: registrationFixture.domain,
+  assessedAt: registrationFixture.observed_at,
+});
+const frozenRegistration = registrationSnapshot.observations.find((row) => row.finding_id === "shadow_it_dns_registration");
+const registrationRemediation = registry.resolveRemediation({ finding_type: "shadow_it_dns_registration" });
+verdict("F52", frozenRegistration?.domain_keys?.join() === "shadow_it_unmanaged_technology"
+  && frozenRegistration?.score_impact === 0
+  && frozenRegistration?.remediation_id === "shadow_it.dns_registration.review"
+  && frozenRegistration?.remediation_action === registrationRemediation.recommended_action
+  && registrationRemediation.status === "resolved"
+  && !registrationSnapshot.remediation_actions.some((row) => row.remediation_id === "shadow_it.dns_registration.review"),
+  "canonical domain/registry projection must remain observation-only");
+
 fs.rmSync(tempRoot, { recursive: true, force: true });
 const loadedProof = Object.fromEntries([
   "workers/scan-api/src/engines/shadow-it-inventory.js",

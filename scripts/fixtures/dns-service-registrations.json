@@ -1,0 +1,32 @@
+{
+  "domain": "example.com",
+  "observed_at": "2026-10-21T12:00:00.000Z",
+  "answers": [
+    {
+      "name": "EXAMPLE.COM.",
+      "type": 16,
+      "data": "\"docusign=\" \"fixture-public-proof\""
+    },
+    {
+      "name": "example.com.",
+      "type": 16,
+      "data": "\"slack-domain-verification=fixture-second-proof\""
+    },
+    {
+      "name": "foreign.example.",
+      "type": 16,
+      "data": "\"dropbox-domain-verify=fixture-foreign-proof\""
+    },
+    {
+      "name": "example.com.",
+      "type": 5,
+      "data": "\"notion-domain-verification=fixture-wrong-type\""
+    },
+    {
+      "name": "example.com.",
+      "type": 16,
+      "data": "\"google-site-verification=fixture-shared-proof\""
+    }
+  ],
+  "expected_services": 2
+}

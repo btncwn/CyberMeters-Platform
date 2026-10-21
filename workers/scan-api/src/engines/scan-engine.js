@@ -5,6 +5,7 @@
 // vendor inventory/relationship persistence. Extracted verbatim from index.js (monolith
 // decomposition, Phase 1c). buildCanonicalUrlProfile is a nested function inside runScanEngine.
 import { customerSafeFailure } from "../lib/errors.js";
+import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createAuditEvent, createNotificationsForDomain, scanCompletionAuditStatement } from "../lib/events.js";
 import { json, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
@@ -110,7 +111,7 @@ import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
 import { recomputeVendorRiskScoresForDomain } from "./vendor-risk.js";
-import { detectVendorsFromModules } from "./vendor-signatures.js";
+import { detectVendorsFromModules, dnsServiceRegistrationObservations } from "./vendor-signatures.js";
 import { checkForFinding, checkPackSummary, moduleNotInCheckPack } from "./check-pack.js";
 import { REGISTRATION_DATA_OPTIONAL, runWhoisModule, whoisReportFindings } from "./whois-scan.js";
 import { collectDegradations, mayGradeDegraded } from "./scan-degradation-contract.js";
@@ -2510,6 +2511,10 @@ function buildCanonicalUrlProfile(modules) {
     // Detects third-party vendors from signals already captured in modules:
     // SPF, MX, NS, DKIM, CSP, Server header, CNAME targets, tech detection.
     modules.vendor_risk = detectVendorsFromModules(modules);
+    const registrationScopeVerified = await isWorkspaceDomainVerified(env, workspaceId, domainId);
+    findings.push(...dnsServiceRegistrationObservations(modules, {
+      domain, checkedAt: startedAt, verified: registrationScopeVerified,
+    }));
 
     // Phase 7f: Third-Party Asset Discovery — pure computation, zero I/O.
     // Business-focused SaaS inventory derived from vendor_risk.  Excludes

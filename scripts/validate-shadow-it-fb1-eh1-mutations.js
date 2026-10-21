@@ -247,6 +247,66 @@ const registry = Object.freeze([
       anchor: '  "resend",\n',
       replacement: "" }],
   },
+  {
+    id: "SIT_M33", defect: "unverified registration is published", expected: ["F50"],
+    changes: [{ target: VS,
+      anchor: "  if (verified !== true) return [];",
+      replacement: "  if (false) return [];" }],
+  },
+  {
+    id: "SIT_M34", defect: "foreign DNS owner is treated as the scanned domain", expected: ["F49", "F50"],
+    changes: [{ target: VS,
+      anchor: "return owner === root && Number(record?.type) === 16",
+      replacement: "return true && Number(record?.type) === 16" }],
+  },
+  {
+    id: "SIT_M35", defect: "a non-TXT answer establishes registration", expected: ["F49", "F50"],
+    changes: [{ target: VS,
+      anchor: "owner === root && Number(record?.type) === 16",
+      replacement: "owner === root && true" }],
+  },
+  {
+    id: "SIT_M36", defect: "shared verification namespace establishes a product", expected: ["F49", "F50"],
+    changes: [{ target: VS,
+      anchor: "check.source === \"txt\" && check.corroboratesOnly !== true",
+      replacement: "check.source === \"txt\"" }],
+  },
+  {
+    id: "SIT_M37", defect: "registration becomes an actionable finding", expected: ["F49", "F52"],
+    changes: [{ target: VS,
+      anchor: "    finding_type: \"observation\",",
+      replacement: "    finding_type: \"finding\"," }],
+  },
+  {
+    id: "SIT_M38", defect: "TXT record cap is removed", expected: ["F51"],
+    changes: [{ target: VS,
+      anchor: "modules.dns.txt_records.slice(0, DNS_REGISTRATION_LIMITS.records)",
+      replacement: "modules.dns.txt_records" }],
+  },
+  {
+    id: "SIT_M39", defect: "registration deducts from the score", expected: ["F49", "F52"],
+    changes: [{ target: VS,
+      anchor: "    score_impact: 0,",
+      replacement: "    score_impact: -5," }],
+  },
+  {
+    id: "SIT_M40", defect: "registration loses canonical domain attribution", expected: ["F52"],
+    changes: [{ target: CMD,
+      anchor: "match: (f) => f.id === \"shadow_it_dns_registration\" && f.finding_type === \"observation\"",
+      replacement: "match: () => false" }],
+  },
+  {
+    id: "SIT_M41", defect: "failed DNS lookup is admitted as a registration", expected: ["F50"],
+    changes: [{ target: VS,
+      anchor: 'record?.lookup_status === 0 && typeof record?.value === "string"',
+      replacement: 'typeof record?.value === "string"' }],
+  },
+  {
+    id: "SIT_M42", defect: "shared tenant-verification token names a particular product", expected: ["F50"],
+    changes: [{ target: VS,
+      anchor: ' && check.registrationSpecific !== false',
+      replacement: '' }],
+  },
 ]);
 
 function sha(buffer) { return crypto.createHash("sha256").update(buffer).digest("hex"); }
