@@ -14,6 +14,7 @@ import SomethingWrong from '../components/SomethingWrong'
 import { BASE, api } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { findOwnWorkspaceForDomain } from '../lib/freeScanWorkspaceMatch'
+import { customerCodeLabel } from '../lib/customerReasonText'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 import {
   deriveFreeScanPresentation,
@@ -360,6 +361,16 @@ export default function FreeScanPage() {
               </span>
             ))}
           </div>
+          {presentation.moduleEvidence.some((module) => module.reason) && (
+            <ul className="fm-module-why" aria-label="Why some checks are incomplete">
+              {presentation.moduleEvidence.filter((module) => module.reason).map((module) => (
+                <li key={module.module}>
+                  <strong>{module.label || MODULE_LABELS[module.module]}:</strong>{' '}
+                  {customerCodeLabel(module.reason) || customerCodeLabel('check_not_completed')}.
+                </li>
+              ))}
+            </ul>
+          )}
           {presentation.moduleEvidence.some((module) => module.checks) && (
             <details className="fm-module-scope">
               <summary>What these checks covered</summary>

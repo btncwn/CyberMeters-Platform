@@ -20,6 +20,17 @@ export const CUSTOMER_CODE_COPY = Object.freeze({
   origin_timeout: 'the website did not answer in time',
   https_origin_timeout: 'the website did not answer over HTTPS in time',
   server_error: 'a server error interrupted the check',
+  // Free-scan module reasons (FREE_SCAN_MODULE_REASONS in the scan API).
+  https_probe_not_executed: 'the website gave no answer over HTTPS',
+  https_origin_not_observed: 'only the hosting network answered over HTTPS, not the website itself',
+  https_transport_unavailable: 'no HTTPS connection could be made to the website',
+  http_redirect_not_observed: 'the plain-HTTP address gave no answer, so the redirect to HTTPS could not be checked',
+  probe_not_executed: 'the website gave no answer to this check',
+  validation_uncertain: 'the response showed signs of a bot-protection or caching layer, so it may not reflect the website itself',
+  email_dns_lookup_unavailable: 'some email DNS lookups (SPF, DKIM or DMARC) returned no answer',
+  free_scan_deadline_exhausted: "the preview's time limit was reached before this check finished",
+  check_failed: 'the check stopped unexpectedly',
+  check_not_completed: 'this check did not finish',
 })
 
 const entries = Object.entries(CUSTOMER_CODE_COPY).sort((a, b) => b[0].length - a[0].length)

@@ -196,6 +196,25 @@ describe('FreeScanPage evidence honesty', () => {
     })
   })
 
+  it('says why each incomplete check did not finish, from the API reason code (S3-8)', async () => {
+    const payload = responseFor({ moduleState: 'completed', coverageState: 'monitoring_degraded' })
+    payload.module_evidence = payload.module_evidence.map((entry) => (
+      entry.module === 'ssl' ? { ...entry, state: 'incomplete', reason: 'https_origin_timeout' }
+        : entry.module === 'technology_detection' ? { ...entry, state: 'incomplete', reason: 'some_future_code' }
+          : entry))
+    await renderResult(payload)
+    const why = screen.getByRole('list', { name: 'Why some checks are incomplete' })
+    expect(why).toHaveTextContent('the website did not answer over HTTPS in time')
+    expect(why).toHaveTextContent('this check did not finish')
+    expect(why).not.toHaveTextContent('https_origin_timeout')
+    expect(why).not.toHaveTextContent('some_future_code')
+  })
+
+  it('shows no reasons list when every check completed', async () => {
+    await renderResult(responseFor({ moduleState: 'completed', coverageState: 'monitoring_degraded' }))
+    expect(screen.queryByRole('list', { name: 'Why some checks are incomplete' })).not.toBeInTheDocument()
+  })
+
   it('a result can be reported: "Something wrong?" sits under the snapshot (founder, 20 Oct 2026)', async () => {
     await renderResult(allProbesFailedResponse())
     expect(screen.getByRole('button', { name: 'Something wrong?' })).toBeInTheDocument()
