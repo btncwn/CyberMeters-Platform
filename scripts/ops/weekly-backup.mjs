@@ -30,6 +30,7 @@ export function verifyBackup(bytes, key, receipt) {
   // Exercise the captured SQL locally; this never connects to a remote database.
   const db = new DatabaseSync(':memory:');
   try {
+    db.exec('PRAGMA temp_store=MEMORY');
     db.exec(data.sql);
     if (db.prepare('PRAGMA integrity_check').get().integrity_check !== 'ok') throw Error('Captured SQL integrity failed');
     if (db.prepare('PRAGMA foreign_key_check').all().length) throw Error('Captured SQL foreign-key check failed');
@@ -67,6 +68,7 @@ export function weeklyApi(token, fetchImpl = fetch) {
     async capture(run, key) {
       if (!/^\d+-\d+$/.test(run)) throw Error('Expected immutable workflow run/attempt identity');
       const objects = await list();
+      if (objects.some(object => object.storage_class && object.storage_class !== 'Standard')) throw Error('Weekly metadata capture is Standard-storage only');
       let result = (await request(`d1/database/${DATABASE}/export`, { output_format: 'polling' })).result;
       for (let n = 0; result.status !== 'complete'; n++) {
         if (n >= 60 || result.status === 'error' || !result.at_bookmark) throw Error('D1 export did not complete');
@@ -128,7 +130,7 @@ export function weeklyApi(token, fetchImpl = fetch) {
 
 async function main() {
   const [action, directory, receiptDirectory] = process.argv.slice(2);
-  const encodedKey = process.env.CM_WEEKLY_BACKUP_KEY || '';
+  const encodedKey = (process.env.CM_WEEKLY_BACKUP_KEY || '').trim();
   if (!/^[A-Za-z0-9+/]{43}=$/.test(encodedKey)) throw Error('CM_WEEKLY_BACKUP_KEY must be a base64-encoded 32-byte key');
   const key = Buffer.from(encodedKey, 'base64');
   if (key.length !== 32 || !directory) throw Error('Invalid backup key or directory');

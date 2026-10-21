@@ -240,6 +240,12 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
     return Response.json({ success: true, result });
   };
   const client = weeklyApi('fixture-token', fakeFetch);
+  data.objects[0].storage_class = 'InfrequentAccess';
+  let paidClassRejected = false;
+  try { await client.capture('122-1', key); } catch { paidClassRejected = true; }
+  ok('weekly capture rejects a retrieval-priced storage class before object GETs',
+    paidClassRejected && !calls.some(call => call.path.endsWith('/objects/private-fixture')));
+  delete data.objects[0].storage_class;
   const captured = await client.capture('123-1', key);
   const capturedManifest = JSON.parse(gunzipSync(open(captured.bytes, key)));
   ok('weekly encrypted manifest retains observed HTTP and custom metadata',

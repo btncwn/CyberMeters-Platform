@@ -24,6 +24,8 @@ Observed HTTP/custom metadata is retained inside the encrypted manifest now;
 mapping those fields back onto restored R2 objects is a follow-up. Metadata not
 exposed by the API cannot be claimed captured. Object-response bodies are
 cancelled after the headers are captured, rather than stored in this export.
+Objects explicitly listed in a retrieval-priced storage class are rejected
+before metadata GETs; this utility uses Standard storage only.
 
 The weekly signal becomes stale after eight days (one day of schedule grace).
 With `WEEKLY_BACKUP_MONITORING=on`, `/ready` measures this specific off-site event,
