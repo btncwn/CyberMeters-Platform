@@ -19,7 +19,7 @@ const VS = "workers/scan-api/src/engines/vendor-signatures.js";
 const VR = "workers/scan-api/src/engines/vendor-relationship.js";
 const SPF = "workers/scan-api/src/engines/spf-resolver.js";
 const EA = "workers/scan-api/src/engines/email-analysis.js";
-const CMD = "workers/scan-api/src/engines/cyber-mot-domains.js";
+const CMD = "workers/scan-api/src/engines/security-check-domains.js";
 const RCR = "workers/scan-api/src/engines/related-changes-rules.js";
 
 const registry = Object.freeze([

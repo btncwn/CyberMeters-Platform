@@ -203,12 +203,12 @@ try {
     completeRoute.body.modules_scanned.length, 5);
   eq("COMPLETE control: explicit coverage is complete",
     completeRoute.body.evidence_coverage.complete, true);
-  eq("COMPLETE control: deep opt-outs keep the whole-MOT conclusion incomplete",
+  eq("COMPLETE control: deep opt-outs keep the whole-check conclusion incomplete",
     completeRoute.body.preview_state, "evidence_incomplete");
   const completeUi = deriveFreeScanPresentation(completeRoute.body);
   eq("COMPLETE route→UI: wording remains evidence-incomplete",
     completeUi.headline, "Evidence incomplete");
-  ok("COMPLETE route→UI: UI suppresses a whole-MOT score",
+  ok("COMPLETE route→UI: UI suppresses a whole-check score",
     !completeUi.showScore);
   eq("COMPLETE route: exactly eight canonical cards are projected",
     completeRoute.body.cyber_mot_domains.length, 8);

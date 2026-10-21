@@ -4,7 +4,7 @@
 > Extends the existing Hosted Records Engine (`workers/scan-api/src/engines/hosted-dmarc.js`,
 > table `hosted_dns_records`, write-ahead saga + hourly sweep + autopilot + managed
 > name `hd-<12hex>`). Email-wedge parity step 3 ("Hosted Records Engine") per the
-> Red Sift gap-closing plan.
+> Competitor A gap-closing plan.
 
 ## Goal
 

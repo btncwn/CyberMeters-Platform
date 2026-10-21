@@ -26,7 +26,7 @@ const {
 } = await import(eng("phase5-evidence.js"));
 const { projectLegacyWebsiteDomainState, LEGACY_TLS_DOMAIN_RESOLVER_VERSIONS,
         LEGACY_UNPROVEN_TLS_SLUG, LEGACY_IDENTITY_PROJECTION } = await import(eng("finding-identity.js"));
-const { CYBER_MOT_RESOLVER_VERSION, FIRST_HONEST_RESOLVER_VERSION } = await import(eng("cyber-mot-domains.js"));
+const { SECURITY_CHECK_RESOLVER_VERSION, FIRST_HONEST_RESOLVER_VERSION } = await import(eng("security-check-domains.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"} ${n}${!c && d ? " — " + d : ""}`); };
@@ -155,14 +155,14 @@ const findingIds = (s) => s.observed_findings.map((f) => f.finding_id);
      JSON.stringify(projected("2026-07-16.1").legacy_identity_projection));
   // The inverted case: the CURRENT resolver must never be treated as legacy.
   ok("P12E_ENUM_CURRENT_VERSION_IS_NOT_MASKED_AS_LEGACY",
-     projected(CYBER_MOT_RESOLVER_VERSION).legacy_identity_projection === undefined,
-     `current=${CYBER_MOT_RESOLVER_VERSION}`);
+     projected(SECURITY_CHECK_RESOLVER_VERSION).legacy_identity_projection === undefined,
+     `current=${SECURITY_CHECK_RESOLVER_VERSION}`);
   ok("P12E_ENUM_FIRST_HONEST_VERSION_IS_NOT_MASKED_AS_LEGACY",
      projected(FIRST_HONEST_RESOLVER_VERSION).legacy_identity_projection === undefined,
      `floor=${FIRST_HONEST_RESOLVER_VERSION}`);
   eq("P12E_ENUM_REMAINS_CLOSED_AT_FOUR_ENTRIES", LEGACY_TLS_DOMAIN_RESOLVER_VERSIONS.length, 4);
   ok("P12E_ENUM_DOES_NOT_CONTAIN_THE_CURRENT_VERSION",
-     !LEGACY_TLS_DOMAIN_RESOLVER_VERSIONS.includes(CYBER_MOT_RESOLVER_VERSION));
+     !LEGACY_TLS_DOMAIN_RESOLVER_VERSIONS.includes(SECURITY_CHECK_RESOLVER_VERSION));
 }
 
 console.log(`\nP1.2-E historical read-compatibility: ${pass}/${pass + fail} assertions passed`);

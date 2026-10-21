@@ -27,7 +27,7 @@ const { deriveCertificateSignalCompletenessFromModules } = await import(
 );
 const { resolveConfidence } = await import(eng("confidence.js"));
 const { resolveCustomerAlertPresentation } = await import(eng("customer-alert-presentation.js"));
-const { resolveCyberMotDomainStates } = await import(eng("cyber-mot-domains.js"));
+const { resolveSecurityCheckDomainStates } = await import(eng("security-check-domains.js"));
 const { deriveScanBusinessRisk } = await import(eng("business-risk.js"));
 const { projectPhase5EvidenceForCustomer, projectPhase5SnapshotForCustomer } = await import(
   eng("phase5-evidence.js")
@@ -316,7 +316,7 @@ equal("alert.positive_absence.state", alertFor(positivelyAbsent()).presentation_
 equal("alert.positive_absence.remediation", alertFor(positivelyAbsent()).remediation_id, "cert.tls.install");
 
 // Canonical domains and URL profile remain explicitly unknown, never healthy/critical.
-const domainFor = (ssl, findings) => resolveCyberMotDomainStates({
+const domainFor = (ssl, findings) => resolveSecurityCheckDomainStates({
   modules: { ...baseModules(ssl), certificate_intelligence: runCertificateIntelligenceModule(baseModules(ssl), DOMAIN) },
   findings,
   scan_quality: { status: "complete", modules_skipped: [] },
@@ -417,7 +417,7 @@ check("business_risk.unavailable.no_tls_penalty", !legacyBri.top_business_risks.
 const consumerFiles = [
   "scoring.js", "posture-scoring.js", "ce-readiness.js", "cert-intel.js",
   "certificate-signal-completeness.js", "confidence.js", "customer-alert-presentation.js",
-  "website-security-lifecycle.js", "cyber-mot-domains.js", "business-risk.js",
+  "website-security-lifecycle.js", "security-check-domains.js", "business-risk.js",
   "phase5-evidence.js", "report-snapshot.js", "scan-engine.js",
 ];
 for (const file of consumerFiles) {

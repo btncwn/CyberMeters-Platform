@@ -41,7 +41,7 @@ async function signInAs(page, role) {
     if (path === `/workspaces/${ws.id}/scans`) return route.fulfill(json({ scans: [] }))
     if (path === '/account/usage') return route.fulfill(json({ plan: user.plan, features: [], usage: {}, limits: {} }))
     if (path.includes('notifications')) return route.fulfill(json({ notifications: [], unread_count: 0 }))
-    if (path.includes('cyber-mot-domains')) return route.fulfill(json({ cyber_mot_domains: [] }))
+    if (path.includes('security-domains')) return route.fulfill(json({ cyber_mot_domains: [] }))
     if (path.includes('/cases')) return route.fulfill(json({ cases: [] }))
     return route.fulfill(json({}))
   })

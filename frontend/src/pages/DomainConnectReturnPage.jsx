@@ -80,9 +80,9 @@ export default function DomainConnectReturnPage({ intervalMs = INTERVAL_MS }) {
         {status === 'verified' && (
           <>
             <h1 className="text-lg font-semibold text-gray-900">Domain ownership verified</h1>
-            <p className="text-sm text-gray-500">You can now run your Cyber MOT.</p>
+            <p className="text-sm text-gray-500">You can now run your security check.</p>
             <div className="flex flex-wrap justify-center gap-2 pt-2">
-              <Link to="/scans/new" className="btn-primary">Run Cyber MOT</Link>
+              <Link to="/scans/new" className="btn-primary">Run a security check</Link>
               <Link to="/dashboard" className="btn-secondary">Go to dashboard</Link>
             </div>
           </>

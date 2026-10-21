@@ -17,7 +17,7 @@ const engineUrl = (name) => pathToFileURL(path.join(
 
 const stateModule = await import(engineUrl("dmarc-state.js"));
 const emailModule = await import(engineUrl("email-scan.js"));
-const domainModule = await import(engineUrl("cyber-mot-domains.js"));
+const domainModule = await import(engineUrl("security-check-domains.js"));
 const presentationModule = await import(engineUrl("dmarcbis-presentation.js"));
 const contractModule = await import(engineUrl("dmarcbis-contract.js"));
 const snapshotModule = await import(engineUrl("report-snapshot.js"));
@@ -208,7 +208,7 @@ verdict("DMARC-PARITY-PNONE-NOT-HEALTHY",
   contradictoryPolicyState?.enforcement_level === "monitoring" &&
   contradictoryPolicyState?.enforcement_level !== "reject_enforced");
 
-const contradictoryPolicyDomain = domainModule.resolveCyberMotDomainStates(
+const contradictoryPolicyDomain = domainModule.resolveSecurityCheckDomainStates(
   reportWithEmail(contradictoryPolicyEmail),
 ).find((entry) => entry.domain_key === "email_protection");
 verdict("DMARC-PARITY-SUMMARY-CANONICAL",
@@ -339,7 +339,7 @@ verdict("DMARC-PARITY-COMPOSED-SUMMARY",
 
 const snapshotFixture = {
   overall: {
-    summary: "Across the eight Cyber MOT domains: 0 assessed healthy, 0 with issues detected, and 8 needing further evidence, customer input or monitoring.",
+    summary: "Across the eight security domains: 0 assessed healthy, 0 with issues detected, and 8 needing further evidence, customer input or monitoring.",
     not_fully_assessed: [{
       domain_key: "email_protection",
       state: "evidence_insufficient",

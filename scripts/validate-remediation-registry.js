@@ -4,7 +4,7 @@
 //
 // Proves the single source of truth for customer-facing remediation content:
 //   • stable dotted IDs that are NOT derived from mutable display copy
-//   • exactly the eight canonical Cyber MOT domain keys
+//   • exactly the eight canonical security domain keys
 //   • every registered finding type resolves; aliases resolve to the same
 //     canonical remediation; deprecated entries forward safely
 //   • unknown finding types FAIL HONESTLY (no unrelated generic advice)

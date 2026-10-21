@@ -12,8 +12,8 @@ const ANSWER_OPTIONS = [
 ]
 
 const EVIDENCE_LABELS = {
-  checked_by_cyber_mot: {
-    label: 'Checked by Cyber MOT ✓',
+  checked_by_security_check: {
+    label: 'Checked externally ✓',
     helper: 'CyberMeters found supporting external evidence from your domain, website, email, DNS or TLS posture.',
     className: 'bg-brand-50 text-brand-700 border-brand-100',
   },
@@ -22,8 +22,8 @@ const EVIDENCE_LABELS = {
     helper: 'This control depends on internal settings, devices, users or processes that CyberMeters cannot fully see from outside your business.',
     className: 'bg-blue-50 text-blue-700 border-blue-100',
   },
-  cyber_mot_disagrees: {
-    label: 'Cyber MOT disagrees ⚠',
+  security_check_disagrees: {
+    label: 'External check disagrees ⚠',
     helper: 'Your answer suggests this area is in place, but CyberMeters found external evidence that may conflict with it. Review this before applying for Cyber Essentials.',
     className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   },
@@ -37,27 +37,27 @@ const EVIDENCE_LABELS = {
 const STATUS_COPY = {
   strong_readiness: {
     title: 'Strong readiness',
-    body: 'Your answers and external Cyber MOT evidence suggest you are in a good position to prepare for Cyber Essentials. Review the remaining self-declared areas and keep evidence before starting the formal process.',
+    body: 'Your answers and external evidence suggest you are in a good position to prepare for Cyber Essentials. Review the remaining self-declared areas and keep evidence before starting the formal process.',
     cta: 'Review remaining checks',
     className: 'bg-brand-50 text-brand-800 border-brand-100',
   },
   some_gaps_to_fix: {
     title: 'Some gaps to fix',
-    body: 'You have several areas that may need attention before applying for Cyber Essentials. Start with the gaps marked by Cyber MOT evidence, then review the self-declared controls with your IT provider or internal owner.',
+    body: 'You have several areas that may need attention before applying for Cyber Essentials. Start with the gaps marked by external evidence, then review the self-declared controls with your IT provider or internal owner.',
     cta: 'View fix list',
     className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
   },
   needs_attention: {
     title: 'Needs attention',
-    body: 'CyberMeters found readiness gaps that should be reviewed before you apply. Fix the highest-impact issues first, especially where external Cyber MOT evidence conflicts with your answers.',
+    body: 'CyberMeters found readiness gaps that should be reviewed before you apply. Fix the highest-impact issues first, especially where external evidence conflicts with your answers.',
     cta: 'Fix priority gaps',
     className: 'bg-red-50 text-red-800 border-red-100',
   },
 }
 
 const GAP_COPY = {
-  cyber_mot_mismatch: {
-    title: 'Cyber MOT found a possible mismatch',
+  security_check_mismatch: {
+    title: 'The external check found a possible mismatch',
     text: 'Your answer suggests this control is in place, but CyberMeters found external evidence that may conflict with it. Review this before applying.',
   },
   self_declared_gap: {
@@ -118,7 +118,7 @@ function gapKindForAnswer(value) {
   return null
 }
 
-function deriveReadinessResult(answers, hasCyberMotEvidence = false) {
+function deriveReadinessResult(answers, hasSecurityCheckEvidence = false) {
   const controls = CONTROLS.map(control => {
     const controlAnswers = control.questions.map(question => ({
       question,
@@ -145,7 +145,7 @@ function deriveReadinessResult(answers, hasCyberMotEvidence = false) {
       .filter(Boolean)
 
     const evidenceLabel = control.externalEvidenceCapable
-      ? hasCyberMotEvidence ? 'checked_by_cyber_mot' : 'not_externally_checked'
+      ? hasSecurityCheckEvidence ? 'checked_by_security_check' : 'not_externally_checked'
       : answeredCount > 0 ? 'self_declared' : 'not_externally_checked'
 
     return {
@@ -199,10 +199,10 @@ function DisclaimerBox({ compact = false }) {
 
 function EmptyState({ type, onStart }) {
   const states = {
-    cyberMot: {
-      title: 'Run a Cyber MOT first',
+    securityCheck: {
+      title: 'Run an external security check first',
       text: 'CyberMeters can give a stronger readiness view when it has external evidence from your domain.',
-      cta: 'Run Cyber MOT',
+      cta: 'Run a security check',
       to: '/free-scan',
     },
     answers: {
@@ -213,7 +213,7 @@ function EmptyState({ type, onStart }) {
     },
     noGaps: {
       title: 'No major readiness gaps found',
-      text: 'Your answers and external Cyber MOT evidence do not show major gaps at this stage. Review the self-declared areas carefully and keep evidence before starting the formal Cyber Essentials process.',
+      text: 'Your answers and external evidence do not show major gaps at this stage. Review the self-declared areas carefully and keep evidence before starting the formal Cyber Essentials process.',
     },
   }
   const state = states[type]
@@ -271,14 +271,14 @@ function IntroView({ onStart }) {
             Cyber Essentials Readiness Preview
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-gray-600 sm:text-lg">
-            Check how prepared your business looks against the five Cyber Essentials control areas. CyberMeters combines external evidence from your Cyber MOT with your own answers for the internal controls we cannot see from outside.
+            Check how prepared your business looks against the five Cyber Essentials control areas. CyberMeters combines external evidence from your security check with your own answers for the internal controls we cannot see from outside.
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <button type="button" onClick={onStart} className="btn-primary">
               Start readiness check
             </button>
             <Link to="/free-scan" className="btn-secondary">
-              Run Cyber MOT first
+              Run a security check first
             </Link>
           </div>
         </div>
@@ -301,7 +301,7 @@ function IntroView({ onStart }) {
           </div>
         </div>
         <div className="space-y-5">
-          <EmptyState type="cyberMot" />
+          <EmptyState type="securityCheck" />
           <EmptyState type="answers" onStart={onStart} />
         </div>
       </section>
@@ -466,7 +466,7 @@ function GapList({ gaps }) {
     <section className="card p-5 sm:p-6">
       <h2 className="text-lg font-bold text-gray-900">Priority gaps to review</h2>
       <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
-        These are the issues most likely to affect your Cyber Essentials readiness. Start with gaps supported by Cyber MOT evidence, then review the self-declared areas with your IT provider or internal owner.
+        These are the issues most likely to affect your Cyber Essentials readiness. Start with gaps supported by external evidence, then review the self-declared areas with your IT provider or internal owner.
       </p>
       <div className="mt-5 space-y-3">
         {gaps.map(gap => (
@@ -495,7 +495,7 @@ function ResultView({ result, onEdit }) {
           <span className="eyebrow">Readiness result</span>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Cyber Essentials Readiness Preview</h1>
           <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
-            This result combines your self-declared answers with any available Cyber MOT context. Internal controls still need to be confirmed by your organisation.
+            This result combines your self-declared answers with any available external evidence. Internal controls still need to be confirmed by your organisation.
           </p>
         </div>
         <button type="button" onClick={onEdit} className="btn-secondary justify-center">
@@ -541,9 +541,9 @@ function ResultView({ result, onEdit }) {
 export default function CyberEssentialsReadinessPage() {
   const [view, setView] = useState('intro')
   const [answers, setAnswers] = useState({})
-  const hasCyberMotEvidence = false
+  const hasSecurityCheckEvidence = false
 
-  const result = useMemo(() => deriveReadinessResult(answers, hasCyberMotEvidence), [answers])
+  const result = useMemo(() => deriveReadinessResult(answers, hasSecurityCheckEvidence), [answers])
 
   function handleAnswer(key, value) {
     setAnswers(current => ({ ...current, [key]: value }))

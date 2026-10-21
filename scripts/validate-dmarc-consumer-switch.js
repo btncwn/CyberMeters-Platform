@@ -2,12 +2,12 @@
 //
 // ADR-003 backend consumer-switch validator.
 //
-// Proves the backend TRUTH consumers (scoring, Cyber MOT, Business Risk, and the
+// Proves the backend TRUTH consumers (scoring, external security check, Business Risk, and the
 // email-intel status/finding) consume the canonical dmarc_state produced by
 // deriveDmarcState() — read DIRECTLY off the live email module result — instead of
 // re-deriving enforcement from raw p / pct / sp / present / valid.
 //
-// Uses the REAL producers (computeScore, resolveCyberMotDomainStates,
+// Uses the REAL producers (computeScore, resolveSecurityCheckDomainStates,
 // deriveScanBusinessRisk, enrichEmailIntel via runEmailIntel is DNS-bound, so the
 // intel status is validated through its shared mapping). No copied constants stand
 // in for producer output. dmarc_state is attached NON-ENUMERABLE exactly as
@@ -25,7 +25,7 @@ const ENG = path.join(ROOT, "workers", "scan-api", "src", "engines");
 const p = (f) => path.join(ENG, f);
 
 const { computeScore } = await import(pathToFileURL(p("scoring.js")).href);
-const { resolveCyberMotDomainStates } = await import(pathToFileURL(p("cyber-mot-domains.js")).href);
+const { resolveSecurityCheckDomainStates } = await import(pathToFileURL(p("security-check-domains.js")).href);
 const { deriveScanBusinessRisk } = await import(pathToFileURL(p("business-risk.js")).href);
 const { deriveDmarcState } = await import(pathToFileURL(p("dmarc-state.js")).href);
 const { parseDmarcRecord } = await import(pathToFileURL(p("email-analysis.js")).href);
@@ -84,7 +84,7 @@ function emailFindingIds(findings) {
   return findings.filter((f) => /^email_/.test(f.id)).map((f) => f.id);
 }
 function motEmailState(report) {
-  const domains = resolveCyberMotDomainStates(report);
+  const domains = resolveSecurityCheckDomainStates(report);
   return domains.find((d) => d.domain_key === "email_protection")?.state;
 }
 
@@ -153,7 +153,7 @@ const spreadRun = scoreRun(S.not_observed, { dropState: true });
 ok("scoring: dmarc_state lost through spread → regresses to missing penalty (direct read required)",
   spreadRun.ids.includes("email_missing_dmarc"));
 
-// ── 2. CYBER MOT: full nine-rung mapping (ADR-003 §7) ────────────────────────
+// ── 2. Domain state: full nine-rung mapping (ADR-003 §7) ────────────────────────
 function motFor(scn, opts) {
   const modules = buildModules(scn, opts);
   const findings = computeScore(modules, DOMAIN).findings; // real findings feed the resolver
@@ -169,21 +169,21 @@ const MOT_EXPECT = {
   not_observed: "evidence_insufficient",
 };
 for (const [level, expected] of Object.entries(MOT_EXPECT)) {
-  ok(`cyber-mot: ${level} → ${expected}`, motFor(S[level]) === expected, `got ${motFor(S[level])}`);
+  ok(`domain-state: ${level} → ${expected}`, motFor(S[level]) === expected, `got ${motFor(S[level])}`);
 }
 // Explicit collapse guards from the task list:
-ok("cyber-mot: quarantine_enforced is NOT assessed_healthy (quarantine ≠ reject)",
+ok("domain-state: quarantine_enforced is NOT assessed_healthy (quarantine ≠ reject)",
   motFor(S.quarantine_enforced) !== "assessed_healthy");
-ok("cyber-mot: reject_enforced is NOT issue_detected",
+ok("domain-state: reject_enforced is NOT issue_detected",
   motFor(S.reject_enforced) !== "issue_detected");
-ok("cyber-mot: partial_reject is NOT assessed_healthy (partial ≠ full)",
+ok("domain-state: partial_reject is NOT assessed_healthy (partial ≠ full)",
   motFor(S.partial_reject) !== "assessed_healthy");
-ok("cyber-mot: invalid_record is NOT assessed_healthy (invalid ≠ healthy credit)",
+ok("domain-state: invalid_record is NOT assessed_healthy (invalid ≠ healthy credit)",
   motFor(S.invalid_record) !== "assessed_healthy");
 // dmarc_state dropped by spread → the resolver cannot see the DMARC verdict and a
 // reject_enforced domain still resolves healthy off SPF/DKIM (legacy), while a
 // not_observed domain would wrongly read healthy — proving the direct read matters.
-ok("cyber-mot: dmarc_state lost through spread → not_observed no longer evidence_insufficient",
+ok("domain-state: dmarc_state lost through spread → not_observed no longer evidence_insufficient",
   motFor(S.not_observed, { dropState: true }) !== "evidence_insufficient");
 
 // ── 3. BUSINESS RISK: finding-driven, canonical transitively ─────────────────
@@ -223,11 +223,11 @@ ok("evidence: customer_asserted reject is low confidence (not externally verifie
 ok("every canonical enforcement level has a consumer mapping", assertConsumerMappingsComplete().length === 0,
   assertConsumerMappingsComplete().join(","));
 
-// ── 7. MUTATION HARNESS — Cyber MOT mappings are load-bearing ────────────────
-// cyber-mot-domains.js imports ONLY dmarc-canonical-consumers.js, so a mutant map
+// ── 7. MUTATION HARNESS — external security check mappings are load-bearing ────────────────
+// security-check-domains.js imports ONLY dmarc-canonical-consumers.js, so a mutant map
 // wired into a mutant resolver proves each §7 mapping actually drives the verdict.
 const mapSrc = fs.readFileSync(p("dmarc-canonical-consumers.js"), "utf8");
-const motSrc = fs.readFileSync(p("cyber-mot-domains.js"), "utf8");
+const motSrc = fs.readFileSync(p("security-check-domains.js"), "utf8");
 const stateUrl = pathToFileURL(p("dmarc-state.js")).href;
 const monitoringUrl = pathToFileURL(p("signal-monitoring-state.js")).href;
 const cookieObservationUrl = pathToFileURL(p("cookie-observation.js")).href;
@@ -278,12 +278,12 @@ async function motFromMutantMap(mutateMap, scn) {
       findingsImportReplacement,
       "findings.js",
     );
-    const motFile = path.join(dir, "cyber-mot.mjs");
+    const motFile = path.join(dir, "security-check.mjs");
     fs.writeFileSync(motFile, portableMot);
     const mod = await import(`${pathToFileURL(motFile).href}?t=${OBS}`);
     const modules = buildModules(scn);
     const report = reportFor(modules, computeScore(modules, DOMAIN).findings);
-    return mod.resolveCyberMotDomainStates(report).find((d) => d.domain_key === "email_protection")?.state;
+    return mod.resolveSecurityCheckDomainStates(report).find((d) => d.domain_key === "email_protection")?.state;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -1,5 +1,5 @@
 // ── MSP Portfolio — per-domain state and trend ────────────────────────────────
-// "For every customer domain I manage: what state is each of the eight Cyber MOT
+// "For every customer domain I manage: what state is each of the eight external security check
 // domains in, what changed, and who needs me first?"
 //
 // The unit here is the DOMAIN RECORD — (workspace_id, domain_id) — not the customer and
@@ -10,19 +10,19 @@
 // risk", and a mean is exactly how that gets said out loud.
 //
 // Reads D1 only — four queries for the WHOLE portfolio, independent of domain count.
-// Zero R2. Zero writes. See cyber-mot-state-history.js for why that is possible.
+// Zero R2. Zero writes. See security-check-state-history.js for why that is possible.
 
 import { CANONICAL_TERMINAL_STATES } from "./managed-case-model.js";
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
-import { CYBER_MOT_STATES } from "./cyber-mot-domains.js";
+import { SECURITY_CHECK_STATES } from "./security-check-domains.js";
 import {
   phase5EvidenceReadCoverage,
   projectPhase5ScanRowsForCustomer,
 } from "./phase5-evidence.js";
 import {
-  buildDomainMatrix, CYBER_MOT_DOMAIN_KEYS, DOMAIN_TREND, EVIDENCE_FRESHNESS,
+  buildDomainMatrix, SECURITY_CHECK_DOMAIN_KEYS, DOMAIN_TREND, EVIDENCE_FRESHNESS,
   evidenceFreshness, readPortfolioDomainStates,
-} from "./cyber-mot-state-history.js";
+} from "./security-check-state-history.js";
 
 // Open = not terminal. Reuses the canonical model's terminal list rather than declaring
 // a fourth one — the repo already carries three that disagree (the partial unique index
@@ -34,13 +34,13 @@ const TERMINAL_CASE_STATES = Object.freeze([...CANONICAL_TERMINAL_STATES, "close
 
 // States that mean "we have a verdict and it is bad". Used ONLY to decide whether a
 // domain contributes an attention reason — never to rank, colour or score.
-const ATTENTION_STATES = new Set([CYBER_MOT_STATES.ISSUE_DETECTED]);
+const ATTENTION_STATES = new Set([SECURITY_CHECK_STATES.ISSUE_DETECTED]);
 // States that mean "we do not know". These are attention-worthy for an MSP too: an
 // unassessed customer is not a safe customer, they are an unlooked-at one.
 const UNKNOWN_STATES = new Set([
-  CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT,
-  CYBER_MOT_STATES.NOT_YET_ASSESSED,
-  CYBER_MOT_STATES.UNAVAILABLE,
+  SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT,
+  SECURITY_CHECK_STATES.NOT_YET_ASSESSED,
+  SECURITY_CHECK_STATES.UNAVAILABLE,
 ]);
 
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -67,7 +67,7 @@ function summariseDomainRow(matrix, rowFreshness) {
   const issues    = matrix.filter((d) => ATTENTION_STATES.has(d.state));
   const unknowns  = matrix.filter((d) => UNKNOWN_STATES.has(d.state));
   const worsening = matrix.filter((d) => d.trend === DOMAIN_TREND.WORSENING || d.trend === DOMAIN_TREND.NEW_RISK);
-  const awaiting  = matrix.filter((d) => d.state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
+  const awaiting  = matrix.filter((d) => d.state === SECURITY_CHECK_STATES.CUSTOMER_INPUT_REQUIRED);
   const staleDoms = matrix.filter((d) => d.evidence_freshness === EVIDENCE_FRESHNESS.STALE);
 
   for (const d of issues) if (sevRank(d.highest_severity) > sevRank(worstSeverity)) worstSeverity = d.highest_severity;
@@ -101,7 +101,7 @@ function summariseDomainRow(matrix, rowFreshness) {
   if (sevRank(worstSeverity) >= 4)                                priority = DOMAIN_PRIORITY.CRITICAL;
   else if (sevRank(worstSeverity) === 3 || worsening.length)      priority = DOMAIN_PRIORITY.HIGH;
   else if (issues.length)                                          priority = DOMAIN_PRIORITY.MEDIUM;
-  else if (unknowns.length === CYBER_MOT_DOMAIN_KEYS.length)       priority = DOMAIN_PRIORITY.UNKNOWN;
+  else if (unknowns.length === SECURITY_CHECK_DOMAIN_KEYS.length)       priority = DOMAIN_PRIORITY.UNKNOWN;
   else if (unknowns.length || staleDoms.length || rowFreshness.freshness === EVIDENCE_FRESHNESS.STALE)
                                                                    priority = DOMAIN_PRIORITY.UNKNOWN;
   else                                                             priority = DOMAIN_PRIORITY.LOW;
@@ -117,7 +117,7 @@ function summariseDomainRow(matrix, rowFreshness) {
       unknown: unknowns.length,
       stale: staleDoms.length,
       customer_input_required: awaiting.length,
-      assessed_healthy: matrix.filter((d) => d.state === CYBER_MOT_STATES.ASSESSED_HEALTHY).length,
+      assessed_healthy: matrix.filter((d) => d.state === SECURITY_CHECK_STATES.ASSESSED_HEALTHY).length,
     },
   };
 }
@@ -259,7 +259,7 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
       evidence_freshness: fresh.freshness,
       evidence_age_days: fresh.age_days,
       freshness_reason: fresh.reason,
-      evidence_completeness: matrix.filter((m) => m.state !== CYBER_MOT_STATES.NOT_YET_ASSESSED).length,
+      evidence_completeness: matrix.filter((m) => m.state !== SECURITY_CHECK_STATES.NOT_YET_ASSESSED).length,
       latest_scan_id: scan?.scan_id ?? matrix.find((m) => m.source_scan_id)?.source_scan_id ?? null,
       latest_scan_quality: scan?.scan_quality ?? null,
       phase5_evidence_read: scan?.phase5_evidence_read ?? null,
@@ -274,6 +274,7 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
 
       // Always exactly eight, in canonical order.
       cyber_mot_domains: matrixWithCases,
+      security_domains: matrixWithCases,   // neutral alias of cyber_mot_domains
 
       // Drill-down. Ids the caller has already proved access to — never a hostname
       // lookup, which would reintroduce the existence oracle the domain routes close.
@@ -351,7 +352,7 @@ export const PORTFOLIO_FILTERS = Object.freeze(Object.keys(FILTERS));
 export function applyPortfolioView(rows, opts = {}) {
   let out = rows;
   if (opts.filter && FILTERS[opts.filter]) out = out.filter(FILTERS[opts.filter]);
-  if (opts.domainKey && CYBER_MOT_DOMAIN_KEYS.includes(opts.domainKey)) {
+  if (opts.domainKey && SECURITY_CHECK_DOMAIN_KEYS.includes(opts.domainKey)) {
     const st = opts.state;
     out = out.filter((r) => {
       const d = r.cyber_mot_domains.find((x) => x.domain_key === opts.domainKey);
@@ -378,16 +379,16 @@ export function buildPortfolioDomainSummary(rows) {
   for (const r of rows) byPriority[r.priority]++;
 
   // Per-domain-key rollup across the portfolio — all eight, always.
-  const by_domain = CYBER_MOT_DOMAIN_KEYS.map((key) => {
+  const by_domain = SECURITY_CHECK_DOMAIN_KEYS.map((key) => {
     const cells = rows.map((r) => r.cyber_mot_domains.find((d) => d.domain_key === key)).filter(Boolean);
     const count = (fn) => cells.filter(fn).length;
     return {
       domain_key: key,
       display_name: cells[0]?.display_name ?? key,
-      issue_detected:  count((d) => d.state === CYBER_MOT_STATES.ISSUE_DETECTED),
-      assessed_healthy: count((d) => d.state === CYBER_MOT_STATES.ASSESSED_HEALTHY),
+      issue_detected:  count((d) => d.state === SECURITY_CHECK_STATES.ISSUE_DETECTED),
+      assessed_healthy: count((d) => d.state === SECURITY_CHECK_STATES.ASSESSED_HEALTHY),
       unknown:         count((d) => UNKNOWN_STATES.has(d.state)),
-      customer_input_required: count((d) => d.state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED),
+      customer_input_required: count((d) => d.state === SECURITY_CHECK_STATES.CUSTOMER_INPUT_REQUIRED),
       worsening: count((d) => d.trend === DOMAIN_TREND.WORSENING || d.trend === DOMAIN_TREND.NEW_RISK),
       improving: count((d) => d.trend === DOMAIN_TREND.IMPROVING || d.trend === DOMAIN_TREND.RECOVERED),
       stale:     count((d) => d.evidence_freshness === EVIDENCE_FRESHNESS.STALE),

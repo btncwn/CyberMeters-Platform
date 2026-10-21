@@ -2,7 +2,7 @@
 //
 // Every customer surface that shows "where does this area / this case stand"
 // uses these words and no others. The frontend never decides a state: the
-// eight-domain state comes from the backend resolver (cyber-mot-domains.js),
+// eight-domain state comes from the backend resolver (security-check-domains.js),
 // freshness from the backend (evidence_freshness on the same payload), the
 // case phase from the case API (canonical_phase) and how a case may be
 // concluded from the case API (verification_support). This file only maps
@@ -64,7 +64,7 @@ export function statusMeta(key) {
 }
 
 // ── Eight-domain state → vocabulary ──────────────────────────────────────────
-// Backend CYBER_MOT_STATES → word. Anything the map does not know is shown as
+// Backend SECURITY_CHECK_STATES → word. Anything the map does not know is shown as
 // "Evidence insufficient": the honest floor is the weaker claim, never a
 // settled one.
 const DOMAIN_STATE_WORD = Object.freeze({

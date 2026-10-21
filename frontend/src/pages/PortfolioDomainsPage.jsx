@@ -1,5 +1,5 @@
 // ── MSP Portfolio — per-domain state and trend ────────────────────────────────
-// One row per managed customer domain, showing all EIGHT Cyber MOT domains with their
+// One row per managed customer domain, showing all EIGHT security domains with their
 // own state, trend and evidence freshness.
 //
 // This page renders decisions it did not make. Every state, trend, priority, reason and
@@ -10,7 +10,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { sortDisplayDomains } from '../lib/cyberMotDisplay'
+import { sortDisplayDomains } from '../lib/securityCheckDisplay'
 import { PlanGate } from '../components/PlanUsageCard'
 import { formatDate } from '../utils/dates'
 import {

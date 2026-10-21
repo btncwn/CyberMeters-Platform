@@ -131,7 +131,7 @@ async function main() {
   const worker = workerMod.default;
   const { hashToken, hashPassword } = workerMod;
   const rs = await import(pathToFileURL(srcPath("engines", "report-snapshot.js")).href);
-  const { CYBER_MOT_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "cyber-mot-state-history.js")).href);
+  const { SECURITY_CHECK_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "security-check-state-history.js")).href);
   const { assessmentBandLabel } = await import(
     pathToFileURL(path.join(root, "frontend", "src", "lib", "score-presentation.js")).href
   );
@@ -232,13 +232,13 @@ async function main() {
 
   // ═══ 6-8. Eight domains fixed order; no five-pillar; no Vendor Risk ════════
   const keys = (arr) => JSON.stringify((arr || []).map((d) => d.domain_key));
-  const canonical = JSON.stringify([...CYBER_MOT_DOMAIN_KEYS]);
+  const canonical = JSON.stringify([...SECURITY_CHECK_DOMAIN_KEYS]);
   ok("exactly eight canonical domains in fixed order on JSON surfaces",
      keys(repRes.data?.cyber_mot_domains) === canonical && keys(v2Res.data?.cyber_mot_domains) === canonical);
   // Customer presentation order is independent of the persisted JSON contract.
   const names = ["Email Protection", "Attack Surface", "Website Security", "Identity Exposure", "Shadow IT", "Certificates & Trust", "Brand Protection", "Cyber Essentials Readiness"];
   const domainSection = pdfRes.text.slice(
-    pdfRes.text.indexOf("Cyber MOT: External posture"),
+    pdfRes.text.indexOf("External security posture"),
     pdfRes.text.indexOf("Observed Findings")
   );
   ok("scan PDF renders all eight domains in order",
@@ -614,7 +614,7 @@ async function main() {
   const scansSrc = strip(fs.readFileSync(srcPath("routes", "scans.js"), "utf8"));
   const pdfSrc = strip(fs.readFileSync(srcPath("engines", "pdf.js"), "utf8"));
   const erSrc = strip(fs.readFileSync(srcPath("engines", "executive-report.js"), "utf8"));
-  const BRAINS = /resolveCyberMotDomainStates|deriveScanBusinessRisk|computeBusinessRiskScore|computeSecurityPosture|resolveAssessmentPresentation|buildCyberEssentialsReadiness|buildScorecardData|resolveCanonicalScanScore/;
+  const BRAINS = /resolveSecurityCheckDomainStates|deriveScanBusinessRisk|computeBusinessRiskScore|computeSecurityPosture|resolveAssessmentPresentation|buildCyberEssentialsReadiness|buildScorecardData|resolveCanonicalScanScore/;
   ok("routes/scans.js render paths import no calculation brain", !BRAINS.test(scansSrc));
   ok("pdf.js imports no calculation brain", !BRAINS.test(pdfSrc));
   ok("executive-report.js imports no calculation brain", !BRAINS.test(erSrc));
@@ -719,9 +719,9 @@ async function main() {
       },
       {
         name: "completed questionnaire promotes the full CE API domain to healthy",
-        file: srcPath("engines", "cyber-mot-domains.js"),
-        from: "          base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;\n          base.coverage = provisional ? quality : \"partial\";",
-        to:   "          base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n          base.coverage = provisional ? quality : \"complete\";",
+        file: srcPath("engines", "security-check-domains.js"),
+        from: "          base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;\n          base.coverage = provisional ? quality : \"partial\";",
+        to:   "          base.state = SECURITY_CHECK_STATES.ASSESSED_HEALTHY;\n          base.coverage = provisional ? quality : \"complete\";",
       },
       {
         name: "Evidence-Grade technical appendix dropped",

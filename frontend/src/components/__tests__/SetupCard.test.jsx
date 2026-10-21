@@ -36,7 +36,7 @@ describe('<SetupCard>', () => {
     expect(screen.getByTestId('setup-step-domain')).toHaveAttribute('data-status', 'done')
     expect(screen.getByTestId('setup-step-scan')).toHaveAttribute('data-status', 'next')
     expect(screen.getByTestId('setup-step-dmarc')).toHaveAttribute('data-status', 'waiting')
-    expect(screen.getByRole('link', { name: 'Start Cyber MOT' })).toHaveAttribute('href', '/scans/new')
+    expect(screen.getByRole('link', { name: 'Start a security check' })).toHaveAttribute('href', '/scans/new')
     expect(screen.queryByRole('link', { name: 'Add domain' })).toBeNull()
   })
 

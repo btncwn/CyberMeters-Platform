@@ -22,7 +22,7 @@ import {
   applyPortfolioView, buildPortfolioDomainSummary, computePortfolioDomainRows,
   PORTFOLIO_FILTERS, PORTFOLIO_SORTS,
 } from "../engines/portfolio-domains.js";
-import { CYBER_MOT_DOMAIN_KEYS, readDomainStateHistory } from "../engines/cyber-mot-state-history.js";
+import { SECURITY_CHECK_DOMAIN_KEYS, readDomainStateHistory } from "../engines/security-check-state-history.js";
 import { MATURITY_LEDGER_CONTRACT_VERSION, computePortfolioMaturity } from "../engines/domain-maturity.js";
 import { visibleFindingSql } from "../engines/finding-identity.js";
 import { collapseCustomerTimelineEvents } from "../engines/timeline-trust.js";
@@ -666,7 +666,7 @@ export async function portfolioRoutes(rctx) {
 
     // ── GET /api/portfolio/domains ───────────────────────────────────────────
     // MSP Portfolio Per-Domain State and Trend: one row per authorised (workspace,
-    // domain) carrying all EIGHT canonical Cyber MOT states, each with its own trend,
+    // domain) carrying all EIGHT canonical states, each with its own trend,
     // freshness and attributable reasons.
     //
     // Reads persisted resolver output (cyber_mot_domain_states, mig 091) — four D1
@@ -701,7 +701,7 @@ export async function portfolioRoutes(rctx) {
             portfolio_state_reason: "No customer environments are being monitored yet.",
             pagination: { limit, offset, total: 0 },
             available_filters: PORTFOLIO_FILTERS, available_sorts: PORTFOLIO_SORTS,
-            domain_keys: CYBER_MOT_DOMAIN_KEYS,
+            domain_keys: SECURITY_CHECK_DOMAIN_KEYS,
             generated_at: new Date().toISOString(),
           });
         }
@@ -729,7 +729,7 @@ export async function portfolioRoutes(rctx) {
             : `Based on all ${all.length} monitored domain${all.length === 1 ? "" : "s"}.`,
           pagination: { limit, offset, total: view.total },
           available_filters: PORTFOLIO_FILTERS, available_sorts: PORTFOLIO_SORTS,
-          domain_keys: CYBER_MOT_DOMAIN_KEYS,
+          domain_keys: SECURITY_CHECK_DOMAIN_KEYS,
           phase5_evidence_coverage: phase5EvidenceReadCoverage(all),
           generated_at: new Date().toISOString(),
         });
@@ -754,7 +754,7 @@ export async function portfolioRoutes(rctx) {
         const result = await computePortfolioMaturity(env.cybermeters_db, workspaceIds);
         return json({
           ...result,
-          domain_keys: CYBER_MOT_DOMAIN_KEYS,
+          domain_keys: SECURITY_CHECK_DOMAIN_KEYS,
           contract_version: MATURITY_LEDGER_CONTRACT_VERSION,
           generated_at: new Date().toISOString(),
         });

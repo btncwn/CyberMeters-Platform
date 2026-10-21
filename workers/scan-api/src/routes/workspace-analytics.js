@@ -332,12 +332,12 @@ export async function workspaceAnalyticsRoutes(rctx) {
       // ── GET /scorecard/report — structured for PDF rendering ─────────────
       const generatedAt = new Date().toISOString();
 
-      // B: per-section status/summary now derive from canonical Cyber MOT state via
+      // B: per-section status/summary now derive from canonical state via
       // buildScorecardSections — the route no longer re-infers health from raw counts.
       const sections = buildScorecardSections(scorecard);
 
       // security_posture_chart — flat array for radar/bar chart rendering.
-      // Presentation is the canonical eight-domain Cyber MOT surface; the raw
+      // Presentation is the canonical eight-domain security check surface; the raw
       // legacy security_posture object remains in the response for compatibility.
       const security_posture_chart = Array.isArray(scorecard.cyber_mot_domains)
         ? scorecard.cyber_mot_domains.map((d) => ({

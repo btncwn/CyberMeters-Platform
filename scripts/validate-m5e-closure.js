@@ -171,18 +171,18 @@ const CANONICAL_LABELS = Object.freeze([
 ]);
 
 async function checkEightDomainCompleteness() {
-  const { CYBER_MOT_DOMAINS, resolveCyberMotDomainStates } = await import(pathToFileURL(path.join(workerSrc, "engines", "cyber-mot-domains.js")).href);
-  const keys = CYBER_MOT_DOMAINS.map((d) => d.domain_key);
+  const { SECURITY_CHECK_DOMAINS, resolveSecurityCheckDomainStates } = await import(pathToFileURL(path.join(workerSrc, "engines", "security-check-domains.js")).href);
+  const keys = SECURITY_CHECK_DOMAINS.map((d) => d.domain_key);
   eq("A: canonical resolver exports exactly eight domains", keys.length, 8);
   eq("A: canonical resolver order is exact", keys.join(","), CANONICAL_KEYS.join(","));
   eq("A: canonical resolver has no duplicate domain", new Set(keys).size, 8);
-  const noScan = resolveCyberMotDomainStates(null);
+  const noScan = resolveSecurityCheckDomainStates(null);
   eq("A/C: no-scan result still has exactly eight domains", noScan.length, 8);
   eq("A/C: no-scan result keeps canonical order", noScan.map((d) => d.domain_key).join(","), CANONICAL_KEYS.join(","));
   ok("C: no-scan has no assessed_healthy domain", noScan.every((d) => d.state !== "assessed_healthy"));
 
   const domainConsumers = [
-    "frontend/src/components/CyberMotDomains.jsx",
+    "frontend/src/components/SecurityCheckDomains.jsx",
     "frontend/src/pages/Dashboard.jsx",
     "frontend/src/components/SetupCard.jsx",
     "frontend/src/components/WorkspaceNav.jsx",
@@ -216,7 +216,7 @@ async function checkEightDomainCompleteness() {
   ok("A/G: Dashboard renders the shared PostureCard and NextActionCard from the overview module",
     /<PostureCard[\s\n]/.test(dashboard) && /<NextActionCard[\s\n]/.test(dashboard)
       && /import \{ NextActionCard \} from '\.\.\/components\/overview\/SecurityOverview'/.test(dashboard)
-      && !/<SecurityOverview[\s\n]/.test(dashboard) && !/<CyberMotDomains[\s\n]/.test(dashboard));
+      && !/<SecurityOverview[\s\n]/.test(dashboard) && !/<SecurityCheckDomains[\s\n]/.test(dashboard));
   ok("A/G: PostureCard renders the module registry", /MODULES\.map\(/.test(getSource("frontend/src/components/overview/PostureCard.jsx")));
   // One home per thing (17 Oct 2026): the separate workspace overview is dissolved;
   // /ws/dashboard redirects and Overview is the one overview for every persona.
@@ -454,9 +454,9 @@ async function checkMspParity() {
   const { computePortfolioRisk } = await import(pathToFileURL(path.join(workerSrc, "engines", "portfolio-risk.js")).href);
   const { computePortfolioCustomerRows, buildExecutiveSummary } = await import(pathToFileURL(path.join(workerSrc, "engines", "portfolio-customers.js")).href);
   const portfolioDomains = await import(pathToFileURL(path.join(workerSrc, "engines", "portfolio-domains.js")).href);
-  const stateHistory = await import(pathToFileURL(path.join(workerSrc, "engines", "cyber-mot-state-history.js")).href);
-  eq("F: MSP portfolio domain registry is exactly eight", stateHistory.CYBER_MOT_DOMAIN_KEYS.length, 8);
-  eq("F: MSP portfolio domain registry order is canonical", stateHistory.CYBER_MOT_DOMAIN_KEYS.join(","), CANONICAL_KEYS.join(","));
+  const stateHistory = await import(pathToFileURL(path.join(workerSrc, "engines", "security-check-state-history.js")).href);
+  eq("F: MSP portfolio domain registry is exactly eight", stateHistory.SECURITY_CHECK_DOMAIN_KEYS.length, 8);
+  eq("F: MSP portfolio domain registry order is canonical", stateHistory.SECURITY_CHECK_DOMAIN_KEYS.join(","), CANONICAL_KEYS.join(","));
 
   const db = buildDb();
   db.prepare("INSERT INTO users (id,email,name,plan,status,email_verified,mfa_enabled) VALUES ('msp','msp@example.com','MSP','business','active',1,0)").run();
@@ -498,7 +498,7 @@ async function checkMspParity() {
     /FROM findings f[\s\S]{0,260}s\.scan_quality = 'complete'/.test(trendsBlock));
   ok("F: portfolio drill-down ids include workspace_id and domain_id", /drill_down:\s*\{[\s\S]{0,120}workspace_id:[\s\S]{0,120}domain_id:/.test(pdomSrc));
   ok("F: hostname case lookup is workspace-scoped", /workspace_id IN \(\$\{wsIn\}\)[\s\S]{0,220}GROUP BY workspace_id, domain_key, domain/.test(pdomSrc));
-  ok("F: comparable trends are version-gated", /resolver_version/.test(getSource("workers/scan-api/src/engines/cyber-mot-state-history.js")));
+  ok("F: comparable trends are version-gated", /resolver_version/.test(getSource("workers/scan-api/src/engines/security-check-state-history.js")));
   ok("F: portfolio domain rows always build from canonical matrix", typeof portfolioDomains.computePortfolioDomainRows === "function");
   const executiveSummaryRoute = portfolioRoute.slice(
     portfolioRoute.indexOf('url.pathname === "/api/portfolio/executive-summary"'),
@@ -513,7 +513,7 @@ async function checkFrontendParity() {
   // One home per thing (17 Oct 2026): Overview is the one eight-area surface.
   const overview = getSource("frontend/src/pages/Dashboard.jsx");
   ok("G: Overview renders the eight-area PostureCard", /<PostureCard[\s\n]/.test(overview));
-  ok("G: Overview fetches backend cyber-mot-domains", /getCyberMotDomains/.test(overview));
+  ok("G: Overview fetches backend security domains", /getSecurityCheckDomains/.test(overview));
   ok("G: Overview has no second Posture Score tile", !/Latest Score/.test(overview));
   ok("G: the dissolved workspace overview redirects to /ws/members", /path="ws\/dashboard"\s+element=\{<Navigate to="\/ws\/members" replace \/>\}/.test(getSource("frontend/src/App.jsx")));
 
@@ -572,20 +572,20 @@ function checkStaticCiWiring() {
 const MUTATIONS = [
   {
     name: "delete one domain from a surface",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     mutate: (s) => s.replace(/\n  \{\n    domain_key: "identity_exposure"[\s\S]*?\n  \},\n  \{\n    domain_key: "shadow_it_unmanaged_technology"/, '\n  {\n    domain_key: "shadow_it_unmanaged_technology"'),
     expect: () => {
-      const src = getSource("workers/scan-api/src/engines/cyber-mot-domains.js");
+      const src = getSource("workers/scan-api/src/engines/security-check-domains.js");
       const count = (src.match(/domain_key:\s*"/g) || []).length;
       return count === 8 ? null : `expected eight domain_key entries, got ${count}`;
     },
   },
   {
     name: "change domain order",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     mutate: (s) => s.replace('domain_key: "email_protection"', 'domain_key: "__tmp__"').replace('domain_key: "brand_protection"', 'domain_key: "email_protection"').replace('domain_key: "__tmp__"', 'domain_key: "brand_protection"'),
     expect: () => {
-      const src = getSource("workers/scan-api/src/engines/cyber-mot-domains.js");
+      const src = getSource("workers/scan-api/src/engines/security-check-domains.js");
       const keys = [...src.matchAll(/domain_key:\s*"([^"]+)"/g)].map((m) => m[1]).slice(0, 8);
       return keys.join(",") === CANONICAL_KEYS.join(",") ? null : "canonical order changed";
     },

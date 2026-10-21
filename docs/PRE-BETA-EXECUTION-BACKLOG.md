@@ -264,7 +264,7 @@ cases/remediation → customer narrative → rendered PDF. Assess (founder's 12 
 evidence beyond scores; what changed and when; why it matters; affected assets;
 confidence/evidence-completeness; unknown/unavailable/not-assessed vs healthy
 distinctions; remediation steps; ownership + case status; verification method;
-recurrence; meaningful context for **all eight** Cyber MOT domains; MSP/customer
+recurrence; meaningful context for **all eight** security domains; MSP/customer
 branding without content loss; whether the PDF is merely a poorer summary of the
 dashboard. Claude Desktop reviews the fresh post-#263 PDF from item 1. No renderer-corruption
 claims without a concrete failing artefact.

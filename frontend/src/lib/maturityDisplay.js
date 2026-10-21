@@ -1,4 +1,4 @@
-import { sortDisplayDomains } from './cyberMotDisplay.js'
+import { sortDisplayDomains } from './securityCheckDisplay.js'
 
 // Maturity display helper — PRESENTATION SAFETY ONLY (M5.f).
 // The maturity STAGE for each of the eight domains is always decided server-side by the

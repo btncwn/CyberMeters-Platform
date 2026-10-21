@@ -29,7 +29,7 @@ Canonical competitive positioning reference (non-price): `docs/competitive-battl
 
 ## 1. Product & value metric
 
-- **One product: the Cyber MOT.** Eight canonical customer-facing categories, and **every paid plan
+- **One product: the external security check.** Eight canonical customer-facing categories, and **every paid plan
   includes all eight**:
   1. Email Protection
   2. Brand Protection
@@ -50,7 +50,7 @@ Canonical competitive positioning reference (non-price): `docs/competitive-battl
 **full external-security posture** — the eight canonical domains:
 Email Protection · Brand Protection · Attack Surface · Certificates & Trust · Cyber Essentials Readiness · Website Security · Identity Exposure · Shadow IT & Unmanaged Technology
 — i.e. **bundle economics**, not undercutting any single single-purpose tool on its one job.
-"Cyber MOT" is the product name, not a ninth domain.
+"external security check" is the product name, not a ninth domain.
 
 ---
 
@@ -59,8 +59,8 @@ Email Protection · Brand Protection · Attack Surface · Certificates & Trust �
 | Plan | Monthly | Monitored domains | Notes |
 | --- | --- | --- | --- |
 | **14-Day Full Trial** | £0 | 1 | Full product — all 8 categories + alerts + cases + reports + remediation. No card required. |
-| **Starter** | £9.99 | 1 | Full Cyber MOT |
-| **Professional** | £19.99 | 3 | Full Cyber MOT |
+| **Starter** | £9.99 | 1 | Full external security check |
+| **Professional** | £19.99 | 3 | Full external security check |
 | **Business** | £49.99 | 10 included | +£3/mo per additional domain, hard cap 25 |
 | **MSP** | £99.99 base + £3/domain | Minimum billed quantity 10 | Monthly floor **£129.99**; distinct customer type |
 
@@ -184,9 +184,9 @@ withdrawn.)
 
 ## 10. Competitor guardrails (positioning, not anchors)
 
-SMB/MSP audit set (positioning reference only): Red Sift, CyberSmart, Intruder, CYRISMA, Guardz,
-ConnectSecure, ThreatMate, EasyDMARC, PowerDMARC, Sendmarc. Price anchors: the per-domain email floor
-(EasyDMARC / PowerDMARC / Red Sift) and CyberSmart (UK/channel, ~65% MSP margin). Position on
+SMB/MSP audit set (positioning reference only): Competitor A, Competitor J, Competitor B, CYRISMA, Guardz,
+ConnectSecure, ThreatMate, a DMARC vendor, a DMARC vendor, Sendmarc. Price anchors: the per-domain email floor
+(a DMARC vendor / a DMARC vendor / Competitor A) and Competitor J (UK/channel, ~65% MSP margin). Position on
 eight-category scope at an accessible entry price, **not** on a competitor median. £9.99 removes the
 price-excuse to choose a single-wedge email tool while delivering eight-category scope; growth comes
 from upgrades (2nd/3rd domain → Professional, wider portfolio → Business, multi-client → MSP), not from

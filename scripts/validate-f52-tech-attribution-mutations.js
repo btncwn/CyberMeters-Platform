@@ -49,9 +49,9 @@ const MUTANTS = [
     "F52_FLOOR_HONEST_PREDECESSOR_STAYS_HEALTHY"],
   // The floor constant itself must be load-bearing, not decorative.
   ["F52-MF2-floor-constant-set-to-current",
-    "workers/scan-api/src/engines/cyber-mot-domains.js",
+    "workers/scan-api/src/engines/security-check-domains.js",
     'export const FIRST_HONEST_RESOLVER_VERSION = "2026-08-12.1";',
-    "export const FIRST_HONEST_RESOLVER_VERSION = CYBER_MOT_RESOLVER_VERSION;",
+    "export const FIRST_HONEST_RESOLVER_VERSION = SECURITY_CHECK_RESOLVER_VERSION;",
     // ok() THROWS on the first failure, so the run stops at the earliest bar the
     // mutant breaks. Naming a later one would be a kill this suite never reports.
     "honest floor is a fixed constant, not the moving current version"],
@@ -59,7 +59,7 @@ const MUTANTS = [
 
 // Cosmetic edits that MUST survive — a suite that dies on a comment proves nothing.
 const CONTROLS = [
-  ["C1-comment-wording", "workers/scan-api/src/engines/cyber-mot-domains.js",
+  ["C1-comment-wording", "workers/scan-api/src/engines/security-check-domains.js",
     "// THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.",
     "// The honesty boundary is a fixed floor, not a moving one."],
 ];

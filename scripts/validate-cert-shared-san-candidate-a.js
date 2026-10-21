@@ -564,7 +564,7 @@ const parity = states.map(parityOutputs);
 // projection state without treating absent TLS evidence as a clean result.
 // Certificates & Trust now declares TLS assessment in its scope, bounds the
 // conclusion to completed endpoint controls, and stamps resolver 2026-10-13.1.
-// Replacing only cyber-mot-domains.js with origin/main reproduces both previous
+// Replacing only security-check-domains.js with origin/main reproduces both previous
 // hashes exactly. This fixture has no TLS module or finding, so the change is
 // methodology/scope presentation; all five SAN projection states remain equal.
 // Customer PDF domain order follows the founder order (Email Protection first,
@@ -573,17 +573,17 @@ const parity = states.map(parityOutputs);
 // with only those two lists reverted the previous F13 hash (abf6af86…)
 // reproduces exactly, and F14 and the evidence hash are unchanged.
 // Shadow IT detection fixes (16 Oct 2026): the Shadow IT limitation sentence in
-// cyber-mot-domains.js changed to observation language ("the customer's own record
+// security-check-domains.js changed to observation language ("the customer's own record
 // in the Shadow IT inventory, not an external verdict"). That sentence travels in
 // the resolved domain states (F14) and is printed in the customer PDF (F13), so both
-// goldens move. With ONLY cyber-mot-domains.js reverted the previous hashes
+// goldens move. With ONLY security-check-domains.js reverted the previous hashes
 // (c4e6b4e0… / 5aeea4a3…) reproduce exactly; the evidence hash is unchanged and the
 // PDF label map (pdf.js) and Related Changes rule text move neither golden.
 // Customer-state accuracy moves the resolver, score and snapshot-builder
 // stamps. This certificate-only fixture has no Brand or DMARC finding; only
 // methodology metadata and its PDF rendering change here.
 // External-posture wording (16 Oct 2026, rebased onto customer-state accuracy):
-// the customer PDF section heading ("Cyber MOT: External posture") moves F13 and
+// the customer PDF's external-posture section heading moves F13 and
 // the snapshot summary sentence ("Across your external posture: ...") travels in
 // the resolved states, moving F14. With ONLY pdf.js, report-snapshot.js,
 // dmarc-state.js and lifecycle-email.js reverted to their previous text the
@@ -624,7 +624,12 @@ const parity = states.map(parityOutputs);
 // has no HSTS finding, so only the stamped BRI methodology version moves. With
 // ONLY BUSINESS_RISK_METHODOLOGY_VERSION reverted to 2026-10-10.1 the previous
 // hashes (26b80c70… / 8f34acb8…) reproduce exactly.
-const GOLDEN_F13 = "569f3440bca391e9af63be28b56b49f387d2217c762f8885b6723e45a2d30719";
+// Retired product name (21 Oct 2026): the PDF section heading reads "External
+// security posture" (wording), and the scan report gains the neutral
+// security_domains alias of cyber_mot_domains (additive). F14 is unchanged.
+// origin/main with ONLY the wording applied gives 6be5c1e8…; this head with ONLY
+// the alias lines removed gives the same 6be5c1e8…, so wording + alias explain F13.
+const GOLDEN_F13 = "efcecdda0c6faba356ee985feb9e6b16f07774a01e71ee5cc98e174e80bb0f74";
 const GOLDEN_F14 = "69f17b6e1a0c9fd4cd95b0eda1559fa43d9f6e0617d5f3c335948291ac77369a";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

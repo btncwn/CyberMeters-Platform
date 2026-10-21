@@ -26,8 +26,8 @@ import { api } from '../../api'
 import PricingPage from '../../pages/PricingPage'
 
 const CANONICAL_PLANS = [
-  { key: 'free', name: '14-Day Full Trial', description: 'Full Cyber MOT for 14 days.', monthly_gbp: 0, annual_gbp: 0, checkout_enabled: false, pricing_model: { included_domains: 1, trial: { duration_days: 14, domains: 1, card_required: false } } },
-  { key: 'starter', name: 'Starter', description: 'Full Cyber MOT for 1 monitored domain.', monthly_gbp: 9.99, annual_gbp: 99.9, checkout_enabled: true, pricing_model: { included_domains: 1 } },
+  { key: 'free', name: '14-Day Full Trial', description: 'Full external security check for 14 days.', monthly_gbp: 0, annual_gbp: 0, checkout_enabled: false, pricing_model: { included_domains: 1, trial: { duration_days: 14, domains: 1, card_required: false } } },
+  { key: 'starter', name: 'Starter', description: 'Full external security check for 1 monitored domain.', monthly_gbp: 9.99, annual_gbp: 99.9, checkout_enabled: true, pricing_model: { included_domains: 1 } },
   { key: 'professional', name: 'Professional', description: 'Up to 3 monitored domains.', monthly_gbp: 19.99, annual_gbp: 199.9, checkout_enabled: true, pricing_model: { included_domains: 3 } },
   { key: 'business', name: 'Business', description: '10 domains included.', monthly_gbp: 49.99, annual_gbp: 499.9, checkout_enabled: true, pricing_model: { included_domains: 10, additional_domain_monthly_gbp: 3, domain_hard_cap: 25 } },
   { key: 'enterprise', name: 'MSP', description: 'Base fee plus per-domain pricing.', monthly_gbp: null, annual_gbp: null, checkout_enabled: false, pricing_model: { included_domains: 0, base_monthly_gbp: 99.99, per_domain_monthly_gbp: 3, min_billed_domains: 10, floor_monthly_gbp: 129.99, floor_annual_gbp: 1299.9 } },

@@ -2329,7 +2329,7 @@ backend contract fields consumed by the frontend.
   findings **and** complete evidence coverage **and** every module completed. A failed or
   unavailable probe can no longer be absorbed into a clean-looking preview, and
   `unavailable` is no longer collapsed into `failed`. Landing copy now separates the free
-  four-check preview from the managed eight-domain Cyber MOT explicitly.
+  four-check preview from the managed eight-domain security check explicitly.
 - **Item 9 Certificates & Trust depth (PRs #320–#324): first production cutover.**
   Per-signal completeness, production integration, renewal lifecycle with case
   close/reopen, trust-policy depth and customer-surface parity. **Observation ceiling
@@ -2495,7 +2495,7 @@ fixture-acceptance. Item 8 is NOT YET LIVE ACCEPTED.**
   `f1308762-e1d3-4398-933d-aa61ee5b4a07`.
 - **Version/closure:** scan-api APP_VERSION remained `2026.07.13`; the email Worker was
   rebuilt behaviour-unchanged because its real runtime import graph reaches the canonical
-  Cyber MOT domain definitions. Email APP_VERSION
+  security domain definitions. Email APP_VERSION
   `2026.07.24-item5-ct.85f0fefdf9dc`; closure SHA-256
   `85f0fefdf9dc38d664ce60aa4fd46393c5ba4ffd122acf0dddf571c440babcab`.
 - **Migration:** none in PR #300 and none applied during this cutover. Migration
@@ -2858,7 +2858,7 @@ fixture-acceptance. Item 8 is NOT YET LIVE ACCEPTED.**
   remains `095-domain-maturity-ledger.sql` — **no migration**. Additive, backward-compatible,
   no API-shape change, no historical rewrite.
 - **Context:** the backend Unified Remediation/Case/Ownership lifecycle was already
-  substantially delivered across all eight Cyber MOT domains (canonical `createManagedCase`
+  substantially delivered across all eight security domains (canonical `createManagedCase`
   + `assignCaseOwner` + `canTransitionCase`, migration `082` ownership columns, per-finding
   verification support). A pre-change eight-domain audit found the lifecycle honest end-to-end
   (unavailable/failed/not-assessed evidence never closes; disappearance ≠ verified removal;
@@ -2938,7 +2938,7 @@ fixture-acceptance. Item 8 is NOT YET LIVE ACCEPTED.**
     module `incomplete` on a total resolver outage. `resolves` and every existing field
     are unchanged. The **critical** `dns_no_resolution` finding now fires only on an
     authoritative absence — never on a single-resolver DoH timeout or a SERVFAIL.
-- **Already-correct paths left untouched (proven, not changed):** the Cyber MOT
+- **Already-correct paths left untouched (proven, not changed):** the external security check
   domain-state resolver, scorecard app-probe sections, report snapshot, ASM / managed /
   website-security case verification, alerts, posture-events / asset-inventory /
   timeline, MSP portfolio trend, and the SSL/headers probe modules all already gate on
@@ -3000,7 +3000,7 @@ fixture-acceptance. Item 8 is NOT YET LIVE ACCEPTED.**
 
 M5.f adds ONE canonical, deterministic, append-only per-workspace maturity ledger giving
 every workspace an honest current and historical maturity view across the eight canonical
-Cyber MOT domains (`not_established` → `observed` → `managed` → `verified` → `monitored`).
+security domains (`not_established` → `observed` → `managed` → `verified` → `monitored`).
 Maturity is a pure function of already-canonical inputs — the resolver's domain state, the
 managed-case lifecycle, and the registry-derived verification capability — floored by
 evidence honesty (missing/failed/partial/unavailable never mature; only complete scans
@@ -3008,7 +3008,7 @@ write rows) and capped by capability (`identity_exposure`/`shadow_it_unmanaged_t
 cap at `managed` — CyberMeters cannot re-observe them, so they can never be
 CyberMeters-verified). `verified`/`monitored` are reserved for CyberMeters' own
 re-observation; a customer attestation or approved inventory alone can never reach them. It
-is distinct from the static `CYBER_MOT_DOMAINS[].maturity` platform-capability tag, which is
+is distinct from the static `SECURITY_CHECK_DOMAINS[].maturity` platform-capability tag, which is
 left untouched. Written at scan finalize alongside the 091 states + M5.c snapshot (same
 report/CE snapshot/completedAt, so the three cannot disagree). Read-only routes
 `GET /api/workspaces/:id/maturity`, `.../maturity/:domainId/:domainKey/history`,
@@ -3044,7 +3044,7 @@ Production release proof:
 
 Operational note: the pre-existing `APP_VERSION = "2026.07.13"` drift in `wrangler.toml`
 remains (unchanged this release to deploy verified main byte-for-byte); `/health` correctly
-exposes the live deployment id. The static `CYBER_MOT_DOMAINS[].maturity` (M0–M5) tag is now
+exposes the live deployment id. The static `SECURITY_CHECK_DOMAINS[].maturity` (M0–M5) tag is now
 superseded for customer-facing purposes by this deterministic ledger and is a candidate for
 reconciliation/removal in a later increment; it renders on no customer surface today.
 
@@ -3064,7 +3064,7 @@ reconciliation/removal in a later increment; it renders on no customer surface t
   on `app.cybermeters.com`.
 - **PRs:** #158 (M5.e closure + fixes), release-evidence PR.
 
-M5.e closed the parity/honesty layer across the eight canonical Cyber MOT domains:
+M5.e closed the parity/honesty layer across the eight canonical security domains:
 one canonical eight-domain registry/order; one Cyber Metrics Score vocabulary; no
 frontend/customer/MSP five-pillar or four-service fallback; no local frontend score
 ladders; no unknown/unavailable-to-green coercion; canonical remediation/SLA copy on
@@ -3183,7 +3183,7 @@ unavailable on report surfaces.
 - **Pages:** auto-deploys from main; this release contains ZERO frontend changes.
 - **PR:** #147 (feature). Roadmap doc refresh #146 (founder) merged the same evening.
 
-### One completed Cyber MOT → one immutable canonical snapshot
+### One completed security check → one immutable canonical snapshot
 Five render paths with three independent calculation brains (scan PDF · stored executive
 PDF · online report v2 · legacy workspace PDF · portfolio) could show different
 score/risk/state/remediation truth to the same customer, and every one of them
@@ -3203,7 +3203,7 @@ that is M5.d; every existing reporting surface is untouched and byte-identical.
   route repairs both on read from the durable scan report (the stuck-scan reconciler
   precedent). A scan with NO attempt is honestly 404 — pre-M5.c history is not backfilled.
 - **Immutable + append-only supersession** — nothing updates a completed row; a later
-  completed Cyber MOT records `supersedes_snapshot_id` (predecessor by `assessed_at`, so
+  completed security check records `supersedes_snapshot_id` (predecessor by `assessed_at`, so
   out-of-order completion cannot invert the chain); `superseded_by` is derived on read.
   A methodology change adds snapshots; it never rewrites one.
 - **No new calculation brain** — the builder composes the canonical producers verbatim
@@ -3214,7 +3214,7 @@ that is M5.d; every existing reporting surface is untouched and byte-identical.
   rows for one scan cannot disagree.
 - **Honesty metadata travels or M5.c silently undoes this month's work** — persisted
   verbatim: CE 2-of-5 (`external_coverage_statement`, counts, non-assessable controls),
-  `readiness_methodology_version`/`revision`/`as_of`, `CYBER_MOT_RESOLVER_VERSION`
+  `readiness_methodology_version`/`revision`/`as_of`, `SECURITY_CHECK_RESOLVER_VERSION`
   (2026-07-16.2), per-answer `question_set_version`, per-item and per-action
   `verification_support` with ceiling wording ("Verified"/"Confirmed" reserved for
   system observation; `external` is its own support; unrecognised values fail closed to
@@ -3313,7 +3313,7 @@ Management require customer attestation."
 `methodologyComparable()` gates any trend: comparable only when BOTH match, and BOTH-missing
 is NOT comparable — two silent legacy values are not two matching ones.
 
-`CYBER_MOT_RESOLVER_VERSION` bumped `2026-07-16.1` → `.2`: the CE domain STATE derives from
+`SECURITY_CHECK_RESOLVER_VERSION` bumped `2026-07-16.1` → `.2`: the CE domain STATE derives from
 status → grade → score, whose denominator moved, and the portfolio trend gates on that
 version. Without the bump every customer's Cyber Essentials would have "improved" or
 "deteriorated" on the day we deployed a definition change.
@@ -4098,7 +4098,7 @@ controlled acceptance or customer invitations.
 - **PRs:** #119 (exec-summary all-clear) · #120 (per-domain state + trend backend, mig 091) · #121 (per-domain UI)
 
 The portfolio could say which **customer** was worst. It could not say which **domain**,
-which of the eight Cyber MOT domains inside it, or **what changed**. The per-domain data
+which of the eight security domains inside it, or **what changed**. The per-domain data
 was already computed and thrown away — `LATEST_SCAN_CTE` partitions by `domain_id`, then
 collapses it with `GROUP BY wd.workspace_id`.
 
@@ -4124,7 +4124,7 @@ and nine healthy ones is not "Low risk", and a mean is how that gets said out lo
 Three findings recorded, not actioned (they are M5's, and acting on them here would have
 been a different episode):
 
-- `resolveCyberMotDomainStates` has **no staleness gate at all** — a `complete` scan from
+- `resolveSecurityCheckDomainStates` has **no staleness gate at all** — a `complete` scan from
   2019 still resolves `assessed_healthy` with full confidence on the Dashboard, Scan
   Detail, Executive Report and PDF. The portfolio adds freshness as its own axis rather
   than changing the resolver under four surfaces. **P1, open.**
@@ -4486,7 +4486,7 @@ Two defects, one incident: the product could tell a customer it had proven domai
   - **5 new canonical remediation entries:** `identity.review.unexpected_surface`, `identity.review.public_admin_surface`, `identity.assign.owner`, `identity.review.provider_change`, `identity.review.exception_expired` — each states the exposed-surface-only scope; no leaked-credential/dark-web/MFA/Conditional-Access claim anywhere.
   - **APIs:** `/api/workspaces/:id/identity-surfaces[/:id[/action|/verify]]` — workspace-scoped, non-enumerating (foreign/nonexistent → same 404), soft-delete-gated. Distinct path from the preserved `/identity-exposure` verdict + `/identity-assets` inventory. Wired as scan **Phase 8l**.
   - **Frontend:** focused Identity Exposure managed page (`/ws/identity-exposure`, nav sub-item) + `identityExposureDisplay.js` (co-located Vitest) — hard line between **Observed externally / Classified by you / Verified by CyberMeters**; server-provided actions only.
-  - **Honesty preserved:** `cyber-mot-domains.js` identity_exposure domain-state unchanged; `unknown_signals` carried on every record and verification.
+  - **Honesty preserved:** `security-check-domains.js` identity_exposure domain-state unchanged; `unknown_signals` carried on every record and verification.
   - **Tests (CI-blocking):** `validate-identity-exposure-lifecycle.js` (**78**, DB-backed). Full gate re-run at merge: regression, migrations guard, purge **10/10**, managed-case **92/92**, tenant isolation, error-contract, openapi (65 paths/76 ops), remediation registry **62** + parity **12**, worker syntax, `wrangler --dry-run` clean, frontend Vitest **106/106** + build. CI green on PR #82 and on main.
   - **Production proof (side-effect-safe):** `GET /health` returns deployment `895e7719…`; `/ready` 200; `/identity-surfaces` live and auth-gated (401); both tables verified in production D1; 25 active `identity_assets` await first correlation on the next scan (Phase 8l is scan-driven, so `identity_exposure` correctly starts empty). Authenticated founder-workspace UI smoke remains a final release-gate action.
 
@@ -4507,7 +4507,7 @@ Two defects, one incident: the product could tell a customer it had proven domai
   - **Monitoring evaluator:** ONE deterministic pass with explicit precedence (exception window → expired → recorded-not-observed contradiction → verification failed → replacement unverified → renewal-overdue(critical/expired) → coverage regression → unexpected SAN → owner-missing → stale). Opens/reopens `certificate_case` **via `createManagedCase`/`canTransitionCase`** → `cert.*` canonical remediation (never a separate case table, never a bare dedup).
   - **APIs:** `/api/workspaces/:id/certificates/lifecycle[/:id[/action|/verify]]` — workspace-scoped, non-enumerating (foreign/nonexistent → same 404), soft-delete-gated. Wired as scan **Phase 8k**.
   - **Frontend:** focused Certificate Lifecycle page (`/ws/certificates/lifecycle`, nav sub-item) + `certificateLifecycleDisplay.js` (co-located Vitest) — draws a hard line between **customer-recorded** and **externally-verified**; server-provided actions only.
-  - **Honesty preserved:** `cyber-mot-domains.js` certificates_trust (M2/recommendations, chain/root/OCSP/revocation unknown) unchanged.
+  - **Honesty preserved:** `security-check-domains.js` certificates_trust (M2/recommendations, chain/root/OCSP/revocation unknown) unchanged.
   - **Tests (CI-blocking):** `validate-certificate-lifecycle.js` (**71**, DB-backed). Full gate: migrations **95/95**, purge **10/10**, regression **227/227**, cert-trust-l2 **17/17**, tenant **86/86**, error-contract **116/116**, openapi ok, `wrangler --dry-run` clean, frontend build + Vitest **97/97** (coverage 84.85%).
   - **Not included:** unrelated `AGENTS.md` + `CLAUDE.md` documentation rewrites deliberately kept out of this PR (reviewed, held separate per instruction).
 
@@ -4537,7 +4537,7 @@ Two defects, one incident: the product could tell a customer it had proven domai
   - **Classification/workflow:** 12 audited customer actions (approve/reject/mark_exception/assign owners/set purpose/onboarding/removal/retire/reopen); exception requires reason + expiry; reject is not removal; mark_removed is a customer assertion. `evaluateShadowItRecurrence` opens a `shadow_it_case` (→ `shadow_it.saas.review`) for rejected-still-observed / retired-reappeared / exception-expired via `createManagedCase`.
   - **Wiring/API/frontend:** scan-pipeline correlation phase (after supply-chain, soft-delete gated); `routes/shadow-it.js` workspace-scoped GET inventory (+counts/filters), GET item (+history + linked case), POST action (non-enumerating 404); `ShadowItInventoryPage` (server-provided actions only — cannot invent classification states) + shared `shadowItDisplay` descriptor.
   - **Tests (CI-blocking):** `validate-shadow-it-inventory.js` (34, DB-backed); `shadowItDisplay` Vitest unit test; Shadow IT added to `validate-tenant-isolation.js` (86). Full gate: **all 76 CI validators**, frontend build + coverage, `wrangler dry-run`, migrations guard.
-  - **Deliberately unchanged:** `cyber-mot-domains` shadow_it stays observation-only (coverage-state honesty preserved).
+  - **Deliberately unchanged:** `security-check-domains` shadow_it stays observation-only (coverage-state honesty preserved).
   - **Deployed Worker Version ID:** `307ada26-e5f8-41dc-9c9d-9c36cb6b4c81` (`GET /health` confirms; `/shadow-it/inventory` live; both tables verified in production D1). Pages redeployed.
   - **Rollback Version ID:** `7eb57f71-c27a-4f0d-83cb-0983588f8b52`.
   - **Deferred (NOT started):** Certificates Managed Lifecycle, Identity domain workflow, all-domain alerts, MSP portfolio, M5.
@@ -4558,7 +4558,7 @@ Two defects, one incident: the product could tell a customer it had proven domai
 
 ## 2026.07.14 (v2026.07.14-13 — universal managed-case model) — deployed 2026-07-14
 
-### Feat (one shared managed-case platform across all eight Cyber MOT domains — platform, not per-domain workflow depth)
+### Feat (one shared managed-case platform across all eight security domains — platform, not per-domain workflow depth)
 - **Universal Managed-Case Model** (PR **#73**, merge **fa2bfd6**). Extends the existing `managed_cases` table + generic `case-workflow` engine **in place** — no parallel case system. **Additive migration (082) only.**
   - `engines/managed-case-model.js` — canonical BASE lifecycle with machine-stable keys: `detected → triaged → assigned → approved → action_in_progress → awaiting_verification → verified → monitoring → reopened` + terminal/exceptional `rejected / accepted_risk / false_positive / closed_no_action / superseded`. `CASE_TYPE_REGISTRY` registers all eight domains — `attack_surface` (asm_exposure) and `brand_protection` (brand_abuse) keep their EXISTING machines (full back-compat); the other six use the base machine. `CANONICAL_PHASE_MAP` folds every case_type's states onto one canonical phase for a cross-domain queue. **`canTransitionCase(...)` is the single validator** — enforces machine edges/guards/terminal-immutability, the system-only rule, and the universal invariants: verified needs a **system actor AND verification evidence** (a completed scan alone never verifies); accepted-risk / false-positive are never the verified phase; reopen preserves prior evidence; canonical timestamps stamped; an append-only history event is returned.
   - **Migration 082 (additive):** `domain_key`, `source_finding_type/scan_id`, `remediation_id`, `title/summary/priority`, `assigned_user_id/business_owner/technical_owner`, and lifecycle phase timestamps on `managed_cases`; back-fills `domain_key` for existing ASM/Brand rows (**4 production asm_exposure cases → attack_surface, verified live**); reuses `managed_case_events` as the append-only history (no duplicate tables).
@@ -4586,9 +4586,9 @@ Two defects, one incident: the product could tell a customer it had proven domai
 
 ## 2026.07.14 (v2026.07.14-11 — canonical remediation registry) — deployed 2026-07-14
 
-### Feat (one canonical source of truth for customer-facing remediation content across all eight Cyber MOT domains)
+### Feat (one canonical source of truth for customer-facing remediation content across all eight security domains)
 - **Canonical remediation registry + resolver** (PR **#69**, merge **e554db0**). **No migration, no schema change, no frontend change.** Code-backed, resolved at read time; historical reports keep resolving via aliases.
-  - `engines/remediation-registry.js` — **49 active entries** across the eight domains (domain keys derived from `CYBER_MOT_DOMAINS`, single source of truth). Full contract per entry: `remediation_id` (stable dotted slug, independent of display copy), `version`, `status`, `domain_key`, `finding_types[]`, `customer_title`, `technical_explanation`, `business_impact`, `recommended_action`, `effort`, `owner_type`, `verification_method` + `verification_evidence_requirements`, `supporting_evidence_types[]`, `managed_workflow_compatible`, `case_type`, `applicability`, `limitations[]`, `references[]`, `introduced_at`/`deprecated_at`/`replacement_remediation_id`.
+  - `engines/remediation-registry.js` — **49 active entries** across the eight domains (domain keys derived from `SECURITY_CHECK_DOMAINS`, single source of truth). Full contract per entry: `remediation_id` (stable dotted slug, independent of display copy), `version`, `status`, `domain_key`, `finding_types[]`, `customer_title`, `technical_explanation`, `business_impact`, `recommended_action`, `effort`, `owner_type`, `verification_method` + `verification_evidence_requirements`, `supporting_evidence_types[]`, `managed_workflow_compatible`, `case_type`, `applicability`, `limitations[]`, `references[]`, `introduced_at`/`deprecated_at`/`replacement_remediation_id`.
   - `resolveRemediation({finding_type, domain_key, evidence, context, surface})` — pure, deterministic, **surface-invariant**. Known type → primary (+ secondaries); legacy alias → same canonical; **unknown → fails honestly, no generic advice**; deprecated → forwards to replacement, flagged; evidence-dependent applicability (BIMI needs enforced DMARC); unsupported verification (cert chain/OCSP/revocation) stays **explicit**. The finding_type index **throws on a conflicting primary** so the invariant cannot silently break.
   - **Wired the shared backend generation points** to source canonical advice: `scoring.js` (the persisted `remediation_items` path — scan detail, scorecard, executive report and PDF all inherit it), `email-intel.js` + `email-analysis.js` (the email fan-out), and `business-risk.js` IMPACT_MAP. **Real conflicts fixed:** DMARC now consistently **ramps from p=none** (was `p=quarantine` in scoring vs `p=reject` in BRS — previously visible together in one PDF); SPF guidance unified. Concrete DNS records / affected-host lists preserved as surface detail.
   - **Honest scope enforced per domain:** Identity = exposed sign-in surface only (no breach/credential/dark-web); Shadow IT = externally observed only; Cyber Essentials certification stays external (IASME); Brand takedown stays prepare-and-track.
@@ -4601,22 +4601,22 @@ Two defects, one incident: the product could tell a customer it had proven domai
 
 ### Fix (parity patch to v2026.07.14-9 — three honesty gaps closed before the episode closes)
 - **Eight-domain coverage-state parity** (PR **#68**, merge **f3c37c7**). No migration.
-  1. **Cyber Essentials cross-surface parity.** New canonical `getCyberEssentialsSnapshot(wsId, env)` is the single CE source; scan `/report`, `/executive-report-v2`, the Executive PDF (`collectPdfData`) and the new `/cyber-mot-domains` endpoint all pass it into the same resolver, so a workspace shows the SAME CE state on every surface. The snapshot gates on questionnaire **completeness** (not `COUNT(*)>0`): no answers **or** a partial answer set → `customer_input_required`; only a COMPLETE questionnaire (all 20 questions answered non-`unknown`, via `isCyberEssentialsQuestionnaireComplete` over the canonical `CE_QUESTIONS`) yields a readiness verdict, and `assessed_healthy` only when complete **and** likely_ready. **Live proof:** BBB shows `customer_input_required` identically on the Dashboard endpoint, `/report` and `/executive-report-v2`.
-  2. **Dashboard no-scan + endpoint-failure visibility.** New `GET /api/workspaces/:id/cyber-mot-domains` (workspace:read, no feature gate) server-resolves the eight states from the authoritative scan, the canonical no-scan states when none exists, or the no-scan set on any error — always eight. The Dashboard fetches it and renders unconditionally. New `frontend/src/lib/cyberMotDisplay.js` `resolveDisplayDomains()` guarantees the component never renders fewer than eight: absent/malformed/failed data → the eight canonical domain names in a non-healthy `unavailable` state (no domain disappears, none becomes healthy; no state derived in the frontend).
+  1. **Cyber Essentials cross-surface parity.** New canonical `getCyberEssentialsSnapshot(wsId, env)` is the single CE source; scan `/report`, `/executive-report-v2`, the Executive PDF (`collectPdfData`) and the new `/security-domains` endpoint all pass it into the same resolver, so a workspace shows the SAME CE state on every surface. The snapshot gates on questionnaire **completeness** (not `COUNT(*)>0`): no answers **or** a partial answer set → `customer_input_required`; only a COMPLETE questionnaire (all 20 questions answered non-`unknown`, via `isCyberEssentialsQuestionnaireComplete` over the canonical `CE_QUESTIONS`) yields a readiness verdict, and `assessed_healthy` only when complete **and** likely_ready. **Live proof:** BBB shows `customer_input_required` identically on the Dashboard endpoint, `/report` and `/executive-report-v2`.
+  2. **Dashboard no-scan + endpoint-failure visibility.** New `GET /api/workspaces/:id/security-domains` (workspace:read, no feature gate) server-resolves the eight states from the authoritative scan, the canonical no-scan states when none exists, or the no-scan set on any error — always eight. The Dashboard fetches it and renders unconditionally. New `frontend/src/lib/securityCheckDisplay.js` `resolveDisplayDomains()` guarantees the component never renders fewer than eight: absent/malformed/failed data → the eight canonical domain names in a non-healthy `unavailable` state (no domain disappears, none becomes healthy; no state derived in the frontend).
   3. **Per-domain healthy-eligibility predicates.** `assessed_healthy` now requires a domain's own `required` module(s) to have been assessed on a COMPLETE scan with no material finding — email→[email_security], brand→[brand_monitoring], attack_surface→[subdomains,dns] (closes the CT/subdomain healthy-off-missing hole), certificates_trust→[certificate_intelligence] (chain/root/OCSP/revocation stay **unknown** via limitation — never a positive trust claim), website→[headers,ssl], identity→[identity_discovery]. A required module errored/skipped/incomplete → `evidence_insufficient`; absent → `not_yet_assessed`; provisional scan → `provisional`. **Live proof:** BBB `missing-evidence-healthy: false` — every healthy domain has evidence.
   - **Tests:** `validate-eight-domain-parity.js` (83 — CE parity + real node:sqlite full-vs-partial questionnaire completeness, no-scan, endpoint-failure fallback, per-domain healthy matrix); updated coverage-state (29) + wiring (15). Full regression + report scoping/branding + parity + tenant isolation + entitlement + migrations + lifecycle + frontend build + wrangler dry-run green.
   - **Deployed Worker Version ID:** `ef8860fc-6f1b-44b8-9b85-582ae7282707`.
   - **Rollback Version ID:** `d79da556-84d5-44fa-800d-61cf048d461f`.
 
-## 2026.07.14 (v2026.07.14-9 — eight-domain Cyber MOT coverage-state honesty) — deployed 2026-07-14
+## 2026.07.14 (v2026.07.14-9 — eight-domain security check coverage-state honesty) — deployed 2026-07-14
 
-### Feat (first before-public-beta episode of the eight-domain managed Cyber MOT roadmap)
+### Feat (first before-public-beta episode of the eight-domain managed external security check roadmap)
 - **Canonical eight-domain coverage-state honesty** (PR **#67**, merge **2b684cf**).
-  One compute-on-read resolver for the eight customer-facing Cyber MOT domains, wired
+  One compute-on-read resolver for the eight customer-facing security domains, wired
   into the four primary surfaces so every domain is always visible with one explicit
   honest state and missing evidence can never render as healthy. **No migration, no new
   storage, no scan-pipeline change.**
-  - `engines/cyber-mot-domains.js` `resolveCyberMotDomainStates(report,{cyberEssentials})`
+  - `engines/security-check-domains.js` `resolveSecurityCheckDomainStates(report,{cyberEssentials})`
     — always returns the eight domains in fixed canonical order (email_protection,
     brand_protection, attack_surface, certificates_trust, cyber_essentials_readiness,
     website_security, identity_exposure, shadow_it_unmanaged_technology) with stable
@@ -4635,9 +4635,9 @@ Two defects, one incident: the product could tell a customer it had proven domai
   - **Wiring (frontend renders server states; no resolver logic duplicated):** scan
     `GET /report` + `/executive-report-v2` responses carry `cyber_mot_domains`;
     `collectPdfData` computes it over the workspace authoritative (latest-complete)
-    scan; the Executive PDF gains a compact page-12 "Eight-Domain Cyber MOT Coverage
+    scan; the Executive PDF gains a compact page-12 "Eight-Domain external security check Coverage
     Summary" (**v2.2 → v2.3, +1 page, no section removed, white-label preserved**); a
-    shared `<CyberMotDomains>` renders on the Main Dashboard, Scan Detail and Executive
+    shared `<SecurityCheckDomains>` renders on the Main Dashboard, Scan Detail and Executive
     Report UI. The Dashboard's default-to-green health fallbacks were removed.
   - **Explicitly NOT started** (separate later episodes): Shadow IT approved inventory,
     Certificates managed renewal cases, Identity Exposure cases, eight-domain alerts,
@@ -4921,7 +4921,7 @@ Two defects, one incident: the product could tell a customer it had proven domai
     workspace-domain link; additive, no DROP). A fail-closed gate on `POST /api/scan`
     and `triggerScheduledScan` rejects/skips unless the exact (workspace_id,
     domain_id) link is verified → `403 {error:"domain_verification_required",
-    message:"Verify domain ownership before starting a Cyber MOT."}` with no scan
+    message:"Verify domain ownership before starting an external security check."}` with no scan
     row / R2 placeholder / telemetry / case / report. Verification lifecycle is now
     workspace-explicit (token + status on the link); legacy domains.verification_*
     is read-only compat, never a scan gate. Scheduled scans only skip + log (no
@@ -4941,7 +4941,7 @@ Two defects, one incident: the product could tell a customer it had proven domai
     SSO-test-session Scan Now against the unverified workspace-domain
     (workspace_35e25fc5 / domain_3fe1e1a2) returned **HTTP 403
     `domain_verification_required`** with the exact message "Verify domain ownership
-    before starting a Cyber MOT." Zero side-effects verified against a locked
+    before starting an external security check." Zero side-effects verified against a locked
     baseline: scans 1→1, telemetry 14→14, managed cases 0→0, workspace reports 0→0;
     no new scan row, R2 placeholder, report, telemetry or case. Verification
     remediation episode CLOSED.
@@ -5910,13 +5910,13 @@ Two defects, one incident: the product could tell a customer it had proven domai
   deployed bundle), `git diff --check` clean. Post-deploy smoke: `GET /health` → 200 with
   `deployment_id 780d3120`. Structural refactor done pre-revenue at zero customer stakes.
 
-## 2026.07.09 (v2026.07.09-3 — Cyber MOT welcome-email copy)
+## 2026.07.09 (v2026.07.09-3 — external security check welcome-email copy)
 
 ### Changed
 - **Welcome email wording** (worker `d8a1bd45`, PR #7 `a79e6f3`): the signup
-  welcome email now leads with Cyber MOT / Website Security / Certificates & Trust
+  welcome email now leads with external security check / Website Security / Certificates & Trust
   instead of "external attack surface" + "run your first scan". Copy-only, part of
-  the ChatGPT-led Cyber MOT wording pass (docs/COPY-CLEANUP-BACKLOG.md); the
+  the ChatGPT-led external security check wording pass (docs/COPY-CLEANUP-BACKLOG.md); the
   matching frontend copy (dashboard, onboarding, pricing hero, scans, workspaces)
   shipped on Pages via the same PR. No logic, pricing, or template-structure change;
   email-worker golden equivalence 9/9.
@@ -5928,10 +5928,10 @@ Two defects, one incident: the product could tell a customer it had proven domai
   wall advertised "Up to 25 domains" (Starter, sells 1) and "Up to 250 domains"
   (Professional, sells 5) — now matches the frozen tiers (1 / up to 5 / up to
   20 monitored domains). Billing plan-limits grid is domain-first (internal
-  workspace/scan quotas no longer rendered). Free Cyber MOT 429 no longer
+  workspace/scan quotas no longer rendered). Free security check 429 no longer
   promises "unlimited scanning" (free plan has monthly caps). Source: external
   audit P1s, each verified against source before fixing.
-- Also shipped on Pages this cycle: Cyber MOT domain handoff through signup →
+- Also shipped on Pages this cycle: security domain handoff through signup →
   onboarding (+ regression tests via PR #6), CE Preview/Dashboard naming, and
   the in-app entry for the paid CE dashboard (previously an orphan route).
 

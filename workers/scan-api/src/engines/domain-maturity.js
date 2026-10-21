@@ -1,12 +1,12 @@
 // ── Canonical per-workspace eight-domain maturity ledger (M5.f) ───────────────
 // ONE deterministic, auditable answer to: "how deep is the honest, evidenced managed
-// control this workspace has for each of the eight canonical Cyber MOT domains?"
+// control this workspace has for each of the eight canonical security domains?"
 //
 // Maturity is the lifecycle distance travelled — from "not reliably observed" toward
 // "fixed, CyberMeters-verified and under recurrence watch". It is:
 //   • DETERMINISTIC — a pure function of already-canonical inputs. No AI, no heuristics.
 //   • DERIVED, never a second opinion. Domain STATE comes only from
-//     resolveCyberMotDomainStates (engines/cyber-mot-domains.js). Lifecycle progress
+//     resolveSecurityCheckDomainStates (engines/security-check-domains.js). Lifecycle progress
 //     comes only from managed_cases (status + verification_support + reopened_count).
 //     Verification CAPABILITY comes only from the Canonical Remediation Registry.
 //   • FLOORED by evidence honesty — missing / failed / partial / unavailable evidence is
@@ -24,10 +24,10 @@
 
 import { createId } from "../lib/util.js";
 import {
-  CYBER_MOT_DOMAINS,
-  CYBER_MOT_RESOLVER_VERSION,
-  resolveCyberMotDomainStates,
-} from "./cyber-mot-domains.js";
+  SECURITY_CHECK_DOMAINS,
+  SECURITY_CHECK_RESOLVER_VERSION,
+  resolveSecurityCheckDomainStates,
+} from "./security-check-domains.js";
 import { REMEDIATION_REGISTRY } from "./remediation-registry.js";
 import { verificationSupportForCase, verificationSupportForMethod } from "./managed-case-model.js";
 
@@ -39,9 +39,9 @@ export const MATURITY_LEDGER_CONTRACT_VERSION = "2026-07-17.1";
 
 // The canonical eight, fixed order — re-exported so every maturity surface renders all
 // eight in the one true order without importing the resolver directly.
-export const MATURITY_DOMAIN_KEYS = Object.freeze(CYBER_MOT_DOMAINS.map((d) => d.domain_key));
+export const MATURITY_DOMAIN_KEYS = Object.freeze(SECURITY_CHECK_DOMAINS.map((d) => d.domain_key));
 const DOMAIN_DISPLAY = Object.freeze(Object.fromEntries(
-  CYBER_MOT_DOMAINS.map((d) => [d.domain_key, d.display_name]),
+  SECURITY_CHECK_DOMAINS.map((d) => [d.domain_key, d.display_name]),
 ));
 
 // ── The ladder ────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ export const MATURITY_STAGE_META = Object.freeze({
 //   any automated remediation → `monitored` (CyberMeters can re-observe → can monitor)
 //   only manual/external       → `managed`   (attested/third-party only; never CyberMeters-verified)
 //   none / unsupported only     → `observed`  (nothing to drive a case to closure)
-// This is the honest, auditable replacement for the static CYBER_MOT_DOMAINS[].maturity tag.
+// This is the honest, auditable replacement for the static SECURITY_CHECK_DOMAINS[].maturity tag.
 function computeCapabilityCeilings() {
   const supports = new Map(MATURITY_DOMAIN_KEYS.map((k) => [k, new Set()]));
   for (const r of REMEDIATION_REGISTRY) {
@@ -213,7 +213,7 @@ export function computeDomainMaturity({ domainKey, domainState, scanQuality, cas
 
 /**
  * persistDomainMaturity — the ONLY writer. Called at scan finalize, non-fatally, right
- * after persistCyberMotDomainStates, sharing the SAME report + CE snapshot + completedAt
+ * after persistSecurityCheckDomainStates, sharing the SAME report + CE snapshot + completedAt
  * so maturity, 091 state and the M5.c snapshot can never disagree. Append-only,
  * idempotent (INSERT OR IGNORE against the UNIQUE), eligible-complete-scans only.
  *
@@ -227,7 +227,7 @@ export async function persistDomainMaturity(env, opts = {}) {
   if (quality !== "complete") return { written: 0, skipped: "not_complete" }; // eligibility floor
 
   try {
-    const states = resolveCyberMotDomainStates(report, { scanId, cyberEssentials });
+    const states = resolveSecurityCheckDomainStates(report, { scanId, cyberEssentials });
     const at = assessedAt || report?.completed_at || report?.created_at || new Date().toISOString();
 
     // One read of the workspace's cases, grouped by domain_key. No N+1.
@@ -277,7 +277,7 @@ export async function persistDomainMaturity(env, opts = {}) {
         createId("dml"), workspaceId, domainId, scanId, d.domain_key,
         m.stage, m.capability_ceiling, m.reason_code, m.previous_stage,
         JSON.stringify(m.flags), JSON.stringify(evidence),
-        quality, CYBER_MOT_RESOLVER_VERSION, MATURITY_LEDGER_CONTRACT_VERSION, at,
+        quality, SECURITY_CHECK_RESOLVER_VERSION, MATURITY_LEDGER_CONTRACT_VERSION, at,
       ));
     }
 

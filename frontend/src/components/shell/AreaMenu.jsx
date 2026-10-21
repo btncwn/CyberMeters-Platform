@@ -35,7 +35,7 @@ export function useAreaStates(wsId, open) {
     let alive = true
     setStates({ wsId, entries: null, request: 'loading' })
     Promise.resolve()
-      .then(() => api.getCyberMotDomains(wsId))
+      .then(() => api.getSecurityCheckDomains(wsId))
       .then((data) => {
         if (!alive) return
         const entries = Array.isArray(data?.cyber_mot_domains) ? data.cyber_mot_domains : null

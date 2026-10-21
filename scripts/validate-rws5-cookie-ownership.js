@@ -56,8 +56,8 @@ const HSTS_IDS = Object.freeze([
 
 let cookieContract = null;
 try { cookieContract = await import(eng("cookie-observation.js")); } catch { /* fail-first */ }
-const domains = await import(eng("cyber-mot-domains.js"));
-const history = await import(eng("cyber-mot-state-history.js"));
+const domains = await import(eng("security-check-domains.js"));
+const history = await import(eng("security-check-state-history.js"));
 const lifecycle = await import(eng("website-security-lifecycle.js"));
 const websiteCases = await import(eng("website-security-cases.js"));
 const remediation = await import(eng("remediation-registry.js"));
@@ -371,9 +371,9 @@ ok("TLS-RPT absence observation cannot become actionable from severity",
   !findingsContract.isActionableFinding({ id: "email_intel_tls_rpt_missing", finding_type: "observation", severity: "high", score_impact: 0 }));
 
 // 2. Projection has one owner and preserves every unrelated dse_* mapping.
-const attack = domains.CYBER_MOT_DOMAINS.find((entry) => entry.domain_key === "attack_surface");
-const website = domains.CYBER_MOT_DOMAINS.find((entry) => entry.domain_key === "website_security");
-const certificates = domains.CYBER_MOT_DOMAINS.find((entry) => entry.domain_key === "certificates_trust");
+const attack = domains.SECURITY_CHECK_DOMAINS.find((entry) => entry.domain_key === "attack_surface");
+const website = domains.SECURITY_CHECK_DOMAINS.find((entry) => entry.domain_key === "website_security");
+const certificates = domains.SECURITY_CHECK_DOMAINS.find((entry) => entry.domain_key === "certificates_trust");
 for (const id of COOKIE_IDS) {
   eq(`${id}: Attack Surface no longer owns`, attack?.match({ id }), false);
   eq(`${id}: Website Security owns`, website?.match({ id }), true);
@@ -406,7 +406,7 @@ const report = {
   },
   findings: [finding("dse_cookie_no_secure")],
 };
-const projected = domains.resolveCyberMotDomainStates(report);
+const projected = domains.resolveSecurityCheckDomainStates(report);
 const projectedAttack = projected.find((entry) => entry.domain_key === "attack_surface");
 const projectedWebsite = projected.find((entry) => entry.domain_key === "website_security");
 eq("cookie is absent from Attack Surface count", projectedAttack?.finding_count, 0);
@@ -431,7 +431,7 @@ const resolveRow = (row, mutate = null) => {
     findings: row ? [row] : [],
   };
   if (mutate) mutate(candidate);
-  return domains.resolveCyberMotDomainStates(candidate);
+  return domains.resolveSecurityCheckDomainStates(candidate);
 };
 
 const hstsDomain = resolveRow(hstsShort).find((entry) => entry.domain_key === "website_security");
@@ -461,7 +461,7 @@ for (const [label, row, domainKey] of [
   ok(`B3 ${label} observation owns no domain issue/count/identity`,
     state?.state !== "issue_detected" && state?.finding_count === 0 && JSON.stringify(state?.finding_ids) === "[]");
 }
-eq("current resolver version preserves the evidence-methodology boundary", domains.CYBER_MOT_RESOLVER_VERSION, "2026-10-18.2");
+eq("current resolver version preserves the evidence-methodology boundary", domains.SECURITY_CHECK_RESOLVER_VERSION, "2026-10-18.2");
 
 // 3. One canonical remediation identity, already Website-owned.
 const cookieEntries = remediation.REMEDIATION_REGISTRY.filter((entry) =>
@@ -600,7 +600,7 @@ await verificationScenario({
 }
 
 // 7. Resolver boundary is mechanically versioned and therefore never recovery/new risk.
-ok("resolver version is mechanically bumped from 2026-07-24.4", domains.CYBER_MOT_RESOLVER_VERSION !== "2026-07-24.4");
+ok("resolver version is mechanically bumped from 2026-07-24.4", domains.SECURITY_CHECK_RESOLVER_VERSION !== "2026-07-24.4");
 const oldState = {
   domain_key: "attack_surface", state: "issue_detected", coverage: "complete",
   highest_severity: "high", finding_count: 1, finding_ids_json: '["dse_cookie_no_secure"]',
@@ -608,7 +608,7 @@ const oldState = {
 };
 const newState = {
   ...oldState, state: "assessed_healthy", highest_severity: null, finding_count: 0,
-  finding_ids_json: "[]", resolver_version: domains.CYBER_MOT_RESOLVER_VERSION,
+  finding_ids_json: "[]", resolver_version: domains.SECURITY_CHECK_RESOLVER_VERSION,
   assessed_at: "2026-08-09T00:00:00Z",
 };
 eq("historical/new ownership boundary is not_comparable",

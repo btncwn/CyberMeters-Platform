@@ -62,7 +62,7 @@ const FILES = Object.freeze({
   headers: src("engines", "headers-scan.js"),
   tech:    src("engines", "tech-scan.js"),
   engine:  src("engines", "scan-engine.js"),
-  domains: src("engines", "cyber-mot-domains.js"),
+  domains: src("engines", "security-check-domains.js"),
 });
 
 // F-42 (GOVERNANCE-RULING-GX530-I-F42-001, bundle 5dbbfd74…fa2f) is proven by a

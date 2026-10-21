@@ -1,7 +1,7 @@
 # Public Claims Truth Audit
 
 Status: **READ-ONLY AUDIT — findings only, no edits.** Prepared 21 July 2026 (parallel docs/audit track, alongside CLI billing track).
-Scope: public + in-app customer-facing surfaces (homepage, invitation landing, onboarding, academy, workspace pages, SEO metadata) checked against the canonical eight-domain Cyber MOT model and the honesty rules (no over-claim: "verified"/"real-time"/"complete protection"/dark-web/pentest/ransomware/takedown-execution). Billing surface was already cleaned by PR #230 (v2026.07.21-1) — this audit covers the NON-billing residuals the CLI flagged, plus a full over-claim sweep.
+Scope: public + in-app customer-facing surfaces (homepage, invitation landing, onboarding, academy, workspace pages, SEO metadata) checked against the canonical eight-domain security check model and the honesty rules (no over-claim: "verified"/"real-time"/"complete protection"/dark-web/pentest/ransomware/takedown-execution). Billing surface was already cleaned by PR #230 (v2026.07.21-1) — this audit covers the NON-billing residuals the CLI flagged, plus a full over-claim sweep.
 
 ## Verdict
 Over-claim discipline is **mostly strong** — dark-web, pentest, ransomware and takedown are honestly disclaimed/scoped in most places. **One material finding**: the retired "Vendor Risk / Supply Chain" claims are still live as full, reachable customer pages and across invitation/onboarding/academy, inconsistent with the eight-domain model and with the billing surface that #230 just cleaned. Plus three P3 wording/SEO items. Every fix is a FOUNDER product-scope decision (retire vs honest-relabel) — this audit surfaces, it does not decide.
@@ -37,15 +37,15 @@ The canonical model has **eight** domains; Vendor Risk and Supply Chain are **no
 
 1. **`pages/InvitationLandingPage.jsx:58`** — "**Real-time** visibility across all domains". Scanning is scheduled/periodic, not real-time. Soften to "continuous/scheduled monitoring" or "always-on visibility". (StatusPage's "real-time health check" is fine — it genuinely is.)
 2. **`pages/ws/WorkspaceEmailProtectionPage.jsx:519`** — "This is **full protection** against spoofing." Defensible only at DMARC `p=reject`; "full protection" is strong absolute language. Consider "blocks spoofed mail that fails authentication" — outcome-accurate without the absolute.
-3. **SEO — `index.html` meta description + og:description** name only **four** domains ("email security, brand exposure, attack surface risk, and certificate trust"). The product is the **eight-domain** Cyber MOT. Under-represents (not an over-claim, but an inconsistency) — update to reflect the eight-domain Cyber MOT for accuracy + SEO coverage.
+3. **SEO — `index.html` meta description + og:description** name only **four** domains ("email security, brand exposure, attack surface risk, and certificate trust"). The product is the **eight-domain** external security check. Under-represents (not an over-claim, but an inconsistency) — update to reflect the eight-domain security check for accuracy + SEO coverage.
 
 ## Good — honest, no action (recorded so they're not "fixed" by mistake)
 - Homepage `PublicLandingPage.jsx` — leads with the **eight canonical domains**; "One posture across eight domains" ✓. "vendors" appears only as an observed Shadow-IT signal type, not a claimed domain ✓.
 - `TrustPage.jsx:111` — pentest "**planned before commercial general availability**" ✓
 - `PublicLandingPage.jsx:63` — "without unsupported **breach or dark-web** claims" ✓
-- `components/CyberMotDomains.jsx:68` — Identity Exposure "(not credential/breach monitoring)" ✓
+- `components/SecurityCheckDomains.jsx:68` — Identity Exposure "(not credential/breach monitoring)" ✓
 - `BrandMonitoringPage.jsx` — takedown framed as "**prep** / prepared for submission", never "we took it down" ✓ (matches canonical prepare/track, not execute)
-- `academy.js:935` — "a Cyber MOT does **not** claim your business is fully secure" ✓
+- `academy.js:935` — "an external security check does **not** claim your business is fully secure" ✓
 - No four/six/seven-domain claims anywhere ✓ (SEO under-count is a separate copy gap, not a domain-model claim)
 
 ## Notes

@@ -108,7 +108,7 @@ Verified 2026-07-06.
 
 ### F-OPS-1 — RESOLVED 2026-07-06: cybermeters.com had no DMARC record
 
-**Resolution:** `_dmarc.cybermeters.com TXT "v=DMARC1; p=none; rua=mailto:cmrua_…@reports.cybermeters.com"` published in Cloudflare DNS, pointing at our own RUA ingestion endpoint (full dogfood — our reports flow into our own Email Protection). Verified independently via dig AND via the product's own DMARC setup wizard ("DNS looks correctly configured"). Three independent detectors had flagged this: the §4 dogfood DNS check, our own scanner (85/100 report, `email_missing_dmarc` high finding), and Cloudflare Security Insights. Next: reports arrive within 24–72h; move to `p=quarantine` only after alignment is confirmed. Original finding below for the record.
+**Resolution:** `_dmarc.cybermeters.com TXT "v=DMARC1; p=none; rua=mailto:cmrua_…@reports.cybermeters.com"` published in Cloudflare DNS, pointing at our own RUA ingestion endpoint (full dogfood — our reports flow into our own Email Protection). Verified independently via dig AND via the product's own DMARC setup wizard ("DNS looks correctly configured"). Three independent detectors had flagged this: the §4 dogfood DNS check, our own scanner (85/100 report, `email_missing_dmarc` high finding), and an edge provider's security dashboard. Next: reports arrive within 24–72h; move to `p=quarantine` only after alignment is confirmed. Original finding below for the record.
 
 <details><summary>Original finding (historical)</summary>
 

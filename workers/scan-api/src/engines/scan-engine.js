@@ -25,7 +25,7 @@ import { loadBrandValidationState } from "./brand-validation-state.js";
 import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingIds, hstsMissingSeverity } from "./business-risk.js";
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildCaConcentrationAnalytics } from "./cert-analysis.js";
-import { persistCyberMotDomainStates } from "./cyber-mot-state-history.js";
+import { persistSecurityCheckDomainStates } from "./security-check-state-history.js";
 import { persistDomainMaturity } from "./domain-maturity.js";
 import { buildScanReportSnapshot } from "./report-snapshot.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./cert-events.js";
@@ -114,7 +114,7 @@ import { detectVendorsFromModules } from "./vendor-signatures.js";
 import { checkForFinding, checkPackSummary, moduleNotInCheckPack } from "./check-pack.js";
 import { REGISTRATION_DATA_OPTIONAL, runWhoisModule, whoisReportFindings } from "./whois-scan.js";
 import { collectDegradations, mayGradeDegraded } from "./scan-degradation-contract.js";
-import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { beginAlertMonitoring, finishAlertMonitoring } from "./managed-alerts.js";
 
 export function buildCertificateAuthorityConcentrationFromModule(certMod) {
@@ -2589,7 +2589,7 @@ function buildCanonicalUrlProfile(modules) {
         finding?.module === "domain_security_enrichment"
         || String(finding?.id || "").startsWith("dse_");
       if (!isDomainSecurityEnrichment) return true;
-      const domainKeys = CYBER_MOT_DOMAINS
+      const domainKeys = SECURITY_CHECK_DOMAINS
         .filter((definition) => definition.match(finding))
         .map((definition) => definition.domain_key);
       return domainKeys.length === 1 && domainKeys[0] === "attack_surface";
@@ -2762,7 +2762,7 @@ function buildCanonicalUrlProfile(modules) {
       // heavier readiness build once the questionnaire is COMPLETE.
       try {
         try { ceSnap = await getCyberEssentialsSnapshot(workspaceId, env); } catch { ceSnap = null; }
-        await persistCyberMotDomainStates(env, {
+        await persistSecurityCheckDomainStates(env, {
           workspaceId, domainId, scanId, report, cyberEssentials: ceSnap, assessedAt: completedAt,
         });
       } catch { /* non-fatal — see above */ }
@@ -3089,7 +3089,7 @@ function buildCanonicalUrlProfile(modules) {
       }
     } catch { /* non-fatal — readiness catches up on the next scan */ }
 
-    // Phase 8o: Canonical reporting snapshot (M5.c) — one completed Cyber MOT →
+    // Phase 8o: Canonical reporting snapshot (M5.c) — one completed security check →
     // one immutable eight-domain snapshot (D1 index + R2 JSON). Runs AFTER the
     // lifecycle/case phases (8a, 8k–8n) so the managed-workflow summaries and
     // case linkage it freezes include THIS scan's own case activity. Uses the

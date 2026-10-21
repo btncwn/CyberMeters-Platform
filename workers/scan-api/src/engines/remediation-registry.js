@@ -1,6 +1,6 @@
 // ── Canonical remediation registry ──────────────────────────────────────────
 // ONE source of truth for customer-facing remediation content across all eight
-// Cyber MOT domains. Every surface — scan findings, Scan Detail, recommendations,
+// security domains. Every surface — scan findings, Scan Detail, recommendations,
 // scorecard, Business Risk Score, executive summary, executive report UI, the
 // executive PDF, and managed cases — resolves the same canonical meaning for a
 // given finding type through resolveRemediation(). Surface-specific formatting is
@@ -26,13 +26,13 @@
 // This registry is CODE-BACKED (compute-on-read). It stores no rows and adds no
 // schema. resolveRemediation is pure and deterministic.
 
-import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
-// The eight canonical domain keys are DERIVED from the Cyber MOT domain model so
+// The eight canonical domain keys are DERIVED from the security domain model so
 // they can never drift from it. Every registry entry must use one of these.
 export const CANONICAL_DOMAIN_KEYS = Object.freeze(
-  CYBER_MOT_DOMAINS.map((d) => d.domain_key),
+  SECURITY_CHECK_DOMAINS.map((d) => d.domain_key),
 );
 const DOMAIN_KEY_SET = new Set(CANONICAL_DOMAIN_KEYS);
 
@@ -53,7 +53,7 @@ export const VERIFICATION_METHOD = Object.freeze([
   "dns_recheck",       // re-query DNS after the change
   "https_recheck",     // re-fetch the HTTPS endpoint / headers
   "certificate_recheck", // re-observe the certificate in a live TLS handshake
-  "rescan",            // a fresh Cyber MOT confirms the evidence
+  "rescan",            // a fresh security check confirms the evidence
   "receiver_reports",  // subsequent DMARC aggregate reports from receiving providers
   "manual_attestation",// customer confirms; product cannot observe it
   "external",          // confirmed by an external body / provider console
@@ -407,7 +407,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   // These finding types are raised by email-protection-lifecycle.js, never by a
   // scan module, so they are deliberately absent from the scan-emitter sweep in
   // validate-remediation-coverage.js. The `email_` prefix is load-bearing: the
-  // email_protection domain matcher in cyber-mot-domains.js tests
+  // email_protection domain matcher in security-check-domains.js tests
   // /^(email_|dmarc_|spf_|dkim_|mta_|bimi_|tlsrpt_)/, so a `hosted_dmarc_*` slug
   // would match NO domain and the finding would belong nowhere.
   entry({
@@ -736,7 +736,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     customer_title: "Renew the expired certificate",
     technical_explanation: "The TLS certificate observed for this service has expired.",
     business_impact: "Browsers block or warn on expired certificates, breaking access and eroding customer trust.",
-    recommended_action: "Renew and deploy the certificate, configure automated renewal, then run a fresh Cyber MOT to confirm the new certificate.",
+    recommended_action: "Renew and deploy the certificate, configure automated renewal, then run a fresh security check to confirm the new certificate.",
     effort: "low",
     owner_type: "customer_it",
     verification_method: "certificate_recheck",
@@ -862,7 +862,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     customer_title: "Confirm expected HTTPS coverage",
     technical_explanation: "A domain expected to serve HTTPS did not present a certificate in this scan's evidence.",
     business_impact: "A coverage gap may mean a service is not serving HTTPS where expected, or that evidence was simply not collected.",
-    recommended_action: "Run a fresh Cyber MOT and confirm the domain serves HTTPS where expected.",
+    recommended_action: "Run a fresh security check and confirm the domain serves HTTPS where expected.",
     effort: "low",
     owner_type: "customer_it",
     verification_method: "rescan",
@@ -1157,7 +1157,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     customer_title: "Close outstanding critical and high findings",
     technical_explanation: "Open critical or high external findings remain in the latest scan. Cyber Essentials expects timely remediation of known issues.",
     business_impact: "Unresolved critical and high findings both raise real risk and weaken a Cyber Essentials assessment.",
-    recommended_action: "Work through the open critical and high findings in the scan, remediate each, and confirm closure on a fresh Cyber MOT.",
+    recommended_action: "Work through the open critical and high findings in the scan, remediate each, and confirm closure on a fresh security check.",
     effort: "medium",
     owner_type: "customer_it",
     verification_method: "rescan",

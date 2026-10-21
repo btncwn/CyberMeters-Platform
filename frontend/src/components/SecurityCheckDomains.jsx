@@ -1,10 +1,10 @@
-// Eight-domain Cyber MOT coverage grid — PRESENTATION ONLY.
+// Eight-domain security coverage grid — PRESENTATION ONLY.
 // Renders the server-resolved `cyber_mot_domains` array (from the canonical
-// resolveCyberMotDomainStates). It performs NO state derivation of its own — it maps
+// resolveSecurityCheckDomainStates). It performs NO state derivation of its own — it maps
 // canonical states to customer-friendly labels/colours and always shows all eight
 // domains so no domain silently disappears and missing evidence never looks healthy.
 import React from 'react'
-import { resolveDisplayDomains } from '../lib/cyberMotDisplay'
+import { resolveDisplayDomains } from '../lib/securityCheckDisplay'
 import {
   customerEvidenceText,
   evidenceLimits,
@@ -86,7 +86,7 @@ function DomainRow({ d }) {
 // domains: the server-resolved array. Always renders exactly eight domains — if the
 // server data is absent/malformed/failed, resolveDisplayDomains returns the eight
 // canonical domains in a non-healthy "unavailable" state (no domain ever disappears).
-export default function CyberMotDomains({ domains, title = 'Cyber MOT — External posture coverage', subtitle = null }) {
+export default function SecurityCheckDomains({ domains, title = 'External posture coverage', subtitle = null }) {
   const list = resolveDisplayDomains(domains)
   return (
     <div className="card p-5">

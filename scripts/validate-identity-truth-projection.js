@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveCyberMotDomainStates } from "../workers/scan-api/src/engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../workers/scan-api/src/engines/security-check-domains.js";
 import { computeBusinessRiskScore } from "../workers/scan-api/src/engines/business-risk.js";
 import { computeWorkspaceVendorRisk } from "../workers/scan-api/src/engines/vendor-risk.js";
 import { resolveRemediation } from "../workers/scan-api/src/engines/remediation-registry.js";
@@ -130,7 +130,7 @@ const source = {
     "frontend/src/components/IdentityExposureCard.jsx",
     "frontend/src/lib/identityExposureDisplay.js",
     "frontend/src/lib/relatedChangesDisplay.js",
-    "frontend/src/components/CyberMotDomains.jsx",
+    "frontend/src/components/SecurityCheckDomains.jsx",
     "frontend/src/components/SetupCard.jsx",
   ].map(read).join("\n"),
 };
@@ -222,9 +222,9 @@ const FIXTURES = [
         && !/attackDed \+=.*identity(?:ReachableSurfaceCount|HighRiskCount)/.test(brs)
         && /measured reachable surfaces/.test(source.methodology());
     } },
-  { id: "U3-DOM-01", run: () => { const d = resolveCyberMotDomainStates(cleanComplete()); const i = d.find((x) => x.domain_key === "identity_exposure"); return d.length === 8 && i?.state === "evidence_insufficient" && /not evaluated|producer/i.test(i?.summary || ""); } },
-  { id: "U3-DOM-DEGRADED", run: () => { const report = cleanComplete(); report.scan_quality = { status: "partial", modules_skipped: ["identity_discovery"] }; const domain = resolveCyberMotDomainStates(report).find(x => x.domain_key === "identity_exposure"); return domain?.state === "evidence_insufficient" && domain.coverage === "degraded"; } },
-  { id: "U3-DOM-02", control: true, run: () => { const d = resolveCyberMotDomainStates(cleanComplete()).filter((x) => x.domain_key !== "identity_exposure"); return d.length === 7 && d.every((x) => x?.state); } },
+  { id: "U3-DOM-01", run: () => { const d = resolveSecurityCheckDomainStates(cleanComplete()); const i = d.find((x) => x.domain_key === "identity_exposure"); return d.length === 8 && i?.state === "evidence_insufficient" && /not evaluated|producer/i.test(i?.summary || ""); } },
+  { id: "U3-DOM-DEGRADED", run: () => { const report = cleanComplete(); report.scan_quality = { status: "partial", modules_skipped: ["identity_discovery"] }; const domain = resolveSecurityCheckDomainStates(report).find(x => x.domain_key === "identity_exposure"); return domain?.state === "evidence_insufficient" && domain.coverage === "degraded"; } },
+  { id: "U3-DOM-02", control: true, run: () => { const d = resolveSecurityCheckDomainStates(cleanComplete()).filter((x) => x.domain_key !== "identity_exposure"); return d.length === 7 && d.every((x) => x?.state); } },
   { id: "U3-XD-01", run: () => { const row = { ...providerRow("token_substring"), risk_score: 20 }; const value = inventory.projectIdentityProviderObservation?.(row); return value?.confidence === "low" && value?.confidence_detail?.subject === "provider_identification" && !/row\.risk_score/.test(source.shadow()); } },
   { id: "U3-XD-02", control: true, run: () => inventory.strongerObservationConfidence?.("high", "medium") === "high" || /strongerConfidence/.test(source.shadow()) },
   { id: "U3-VR-01", run: () => { const r = computeWorkspaceVendorRisk([{ id: "v1", vendor_name: "Microsoft Entra ID", category: "identity_provider", source: "identity_discovery", source_module: "identity_discovery", risk_level: "high", confidence: "high", status: "active" }]); return r.scored_vendors?.[0]?.score === 0 && r.scored_vendors?.[0]?.risk_evidence_status === "relationship_only" && /COALESCE\(source_module, ''\) != 'identity_discovery'/.test(source.scorecard()); } },
@@ -238,7 +238,7 @@ const FIXTURES = [
   { id: "U3-FE-01", run: () => { const p = contract.projectIdentityCustomerRow?.({ ...candidateRow({ resolution: "resolved" }), internet_exposed: 0 }); return p?.identity_claim?.reachability?.status === "not_evaluated" && /Provider relationship|Possible identity-facing hostname/.test(read("frontend/src/pages/ws/WorkspaceIdentityPage.jsx")) && !/asset\.internet_exposed/.test(read("frontend/src/pages/ws/WorkspaceIdentityPage.jsx")) && !/risk score ≥ 15.*Business Risk Score/is.test(read("frontend/src/pages/ws/WorkspaceIdentityPage.jsx")); } },
   { id: "U3-FE-02", run: () => { const x = deriveLevel({ count: 1, internet_facing: 0, reachability_evaluated_count: 0 }, { total: 0, active: 0, can_send_mail: 0, can_host_login: 0 }, { checked_domains: 0, spoofable_domains: 0 }, { assessed: true, unavailable: false }); return x.identity_exposure_level === "Not Assessed" && /not evaluated/i.test(x.summary) && /internet_facing: claimCounts\.reachable_surface_count/.test(read("workers/scan-api/src/engines/identity-exposure.js")) && !/None exposed|No exposed login portals/.test(read("frontend/src/components/IdentityExposureCard.jsx")); } },
   { id: "U3-FE-03", run: () => /allowed_actions/.test(read("frontend/src/pages/ws/IdentityExposurePage.jsx")) && /confidence_detail/.test(read("frontend/src/pages/ws/IdentityExposurePage.jsx")) && /identity_claim/.test(read("frontend/src/pages/ws/IdentityExposurePage.jsx")) },
-  { id: "U3-FE-04", run: () => noReachabilityWords([read("frontend/src/components/CyberMotDomains.jsx"), read("frontend/src/components/SetupCard.jsx"), source.academy(), read("frontend/src/lib/relatedChangesDisplay.js")].join("\n")) && /What CyberMeters can observe/.test(source.academy()) && /identity-provider relationships and identity-facing hostnames/i.test(read("frontend/src/lib/moduleRegistry.js")) && noReachabilityWords(read("frontend/src/lib/moduleRegistry.js")) },
+  { id: "U3-FE-04", run: () => noReachabilityWords([read("frontend/src/components/SecurityCheckDomains.jsx"), read("frontend/src/components/SetupCard.jsx"), source.academy(), read("frontend/src/lib/relatedChangesDisplay.js")].join("\n")) && /What CyberMeters can observe/.test(source.academy()) && /identity-provider relationships and identity-facing hostnames/i.test(read("frontend/src/lib/moduleRegistry.js")) && noReachabilityWords(read("frontend/src/lib/moduleRegistry.js")) },
   { id: "U3-COMPAT-01", control: true, run: () => { const p = contract.buildIdentityEvidenceProjection?.({ ...providerRow(), evidence: JSON.stringify(providerRow().evidence) }); const item = lifecycle.identityExposureToApi?.(managedRow(p?.identity_claim)); return typeof providerRow().internet_exposed === "number" && typeof providerRow().risk_score === "number" && typeof item?.externally_observed === "boolean" && Array.isArray(item?.observed_urls) && typeof item?.exposure_status === "string"; } },
   { id: "U3-ITEM11-01", control: true, run: () => Array.isArray(contract.IDENTITY_REACHABILITY_PRODUCERS) && contract.IDENTITY_REACHABILITY_PRODUCERS.length === 1 && contract.IDENTITY_REACHABILITY_PRODUCERS[0] === "asset_exposure_http.v1" && contract.hasIdentityReachabilityProducer?.() === true && !/row\.internet_exposed\s*\?\s*"reachable"/.test(source.contract()) && !/fetch\(|https?_probe|autodiscover.*fetch|legacy_auth.*fetch/i.test(source.contract()) },
 ];

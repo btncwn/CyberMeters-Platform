@@ -43,7 +43,7 @@ const eng = (f) => pathToFileURL(srcPath("engines", f)).href;
 const { buildScanQuality } = await import(eng("scan-engine.js"));
 const { runHeadersModule } = await import(eng("headers-scan.js"));
 const { runSslModule } = await import(eng("ssl-scan.js"));
-const { resolveCyberMotDomainStates, CYBER_MOT_STATES } = await import(eng("cyber-mot-domains.js"));
+const { resolveSecurityCheckDomainStates, SECURITY_CHECK_STATES } = await import(eng("security-check-domains.js"));
 const { resolveRemediation } = await import(eng("remediation-registry.js"));
 const { runCertificateIntelligenceModule } = await import(eng("cert-intel.js"));
 const { computeScore } = await import(eng("scoring.js"));
@@ -210,11 +210,11 @@ const sslPositivelyAbsent = () => ({
 {
   const modules = { dns: { resolves: true }, ssl: sslHealthy(), headers: headersNotExecuted(), email_security: {} };
   const report = { scan_quality: buildScanQuality(modules), modules, findings: [], completed_at: "2026-07-15T00:00:00Z" };
-  const ws = resolveCyberMotDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "website_security");
+  const ws = resolveSecurityCheckDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "website_security");
 
   ok("Website Security is NOT assessed_healthy when the probe did not execute",
-     ws.state !== CYBER_MOT_STATES.ASSESSED_HEALTHY, `state=${ws.state}`);
-  eq("Website Security reports evidence_insufficient", ws.state, CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
+     ws.state !== SECURITY_CHECK_STATES.ASSESSED_HEALTHY, `state=${ws.state}`);
+  eq("Website Security reports evidence_insufficient", ws.state, SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT);
   ok("the summary does not claim 'no material issue observed'",
      !/no material issue observed/i.test(ws.summary), ws.summary);
   ok("coverage is not reported complete", ws.coverage !== "complete", `coverage=${ws.coverage}`);
@@ -223,8 +223,8 @@ const sslPositivelyAbsent = () => ({
   // makes everything unknown is not a fix.
   const okModules = { dns: { resolves: true }, ssl: sslHealthy(), headers: headersHealthy(), email_security: {} };
   const okReport = { scan_quality: buildScanQuality(okModules), modules: okModules, findings: [], completed_at: "2026-07-15T00:00:00Z" };
-  const okWs = resolveCyberMotDomainStates(okReport, { scanId: "s2" }).find((d) => d.domain_key === "website_security");
-  eq("a reachable, clean site is still assessed_healthy", okWs.state, CYBER_MOT_STATES.ASSESSED_HEALTHY);
+  const okWs = resolveSecurityCheckDomainStates(okReport, { scanId: "s2" }).find((d) => d.domain_key === "website_security");
+  eq("a reachable, clean site is still assessed_healthy", okWs.state, SECURITY_CHECK_STATES.ASSESSED_HEALTHY);
 }
 
 // ── 4. An inaccessible host emits no fabricated evidence ────────────────────
@@ -420,13 +420,13 @@ const sslPositivelyAbsent = () => ({
 {
   const modules = { dns: { resolves: true }, ssl: sslNotExecuted(), headers: headersNotExecuted(), email_security: {} };
   const report = { scan_quality: buildScanQuality(modules), modules, findings: [], completed_at: "2026-07-15T00:00:00Z" };
-  const states = resolveCyberMotDomainStates(report, { scanId: "s1", cyberEssentials: { status: "not_assessed" } });
+  const states = resolveSecurityCheckDomainStates(report, { scanId: "s1", cyberEssentials: { status: "not_assessed" } });
   eq("the resolver still returns exactly eight domains", states.length, 8);
   ok("no domain reports assessed_healthy off a scan that could not reach the site",
-     !states.some((d) => d.state === CYBER_MOT_STATES.ASSESSED_HEALTHY),
+     !states.some((d) => d.state === SECURITY_CHECK_STATES.ASSESSED_HEALTHY),
      JSON.stringify(states.map((d) => [d.domain_key, d.state])));
   const ce = states.find((d) => d.domain_key === "cyber_essentials_readiness");
-  eq("CE renders not_assessed as evidence_insufficient, not an issue", ce.state, CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
+  eq("CE renders not_assessed as evidence_insufficient, not an issue", ce.state, SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT);
   ok("CE does not claim gaps it never observed", !/gaps identified/i.test(ce.summary), ce.summary);
 }
 
@@ -456,8 +456,8 @@ const sslPositivelyAbsent = () => ({
     eq("MUTANT: a timed-out probe grades the scan `complete` — the defect, reproduced", q.status, "complete");
 
     const report = { scan_quality: q, modules, findings: [], completed_at: "2026-07-15T00:00:00Z" };
-    const ws = resolveCyberMotDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "website_security");
-    eq("MUTANT: Website Security reports ASSESSED_HEALTHY off an unreachable site", ws.state, CYBER_MOT_STATES.ASSESSED_HEALTHY);
+    const ws = resolveSecurityCheckDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "website_security");
+    eq("MUTANT: Website Security reports ASSESSED_HEALTHY off an unreachable site", ws.state, SECURITY_CHECK_STATES.ASSESSED_HEALTHY);
     ok("MUTANT: and tells the customer no material issue was observed", /no material issue observed/i.test(ws.summary));
 
     const gate = moduleCompletionGate(modules, q);
@@ -504,10 +504,10 @@ const certModulesFor = (ssl) => ({
   ok("and lists the module as incomplete", (q.modules_incomplete || []).some(item => item.module === "certificate_intelligence"));
 
   const report = { scan_quality: q, modules, findings: [], completed_at: "2026-07-16T00:00:00Z" };
-  const cert = resolveCyberMotDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "certificates_trust");
+  const cert = resolveSecurityCheckDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "certificates_trust");
   ok("Certificates & Trust does NOT read healthy off zero certificate evidence",
-    cert.state !== CYBER_MOT_STATES.ASSESSED_HEALTHY);
-  eq("it reports evidence_insufficient", cert.state, CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
+    cert.state !== SECURITY_CHECK_STATES.ASSESSED_HEALTHY);
+  eq("it reports evidence_insufficient", cert.state, SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT);
 
   // The direction matters: prove the guard is gated on the missing leaf, not
   // always-on. Without this, deleting every certificate would also "pass" above.

@@ -24,7 +24,7 @@ const cases = [
   },
   {
     name: "CM-P1-003 legacy report credited as healthy",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: 'if (!dmarcState && moduleAssessed(report, "email_security", skippedSet)) {',
     to: 'if (false && !dmarcState && moduleAssessed(report, "email_security", skippedSet)) {',
     failure: "CM-P1-003 legacy missing decision is insufficient",
@@ -67,7 +67,7 @@ const cases = [
   },
   {
     name: "CM-P1-007 unfinished checks read as a clean watchlist",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '    if (brandValidation && brandPendingChecks > 0) {',
     to: '    if (false && brandValidation && brandPendingChecks > 0) {',
     failure: "CM-P1-007 partially validated watchlist stays provisional",
@@ -109,14 +109,14 @@ const cases = [
   },
   {
     name: "CM-P1-006 unvalidated domain declared healthy",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '    if (brandUnvalidated) {',
     to: '    if (false && brandUnvalidated) {',
     failure: "CM-P1-006 dashboard marks watchlist provisional",
   },
   {
     name: "CM-P1-006 absent validation decision credited as a brand finding",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '    if (brandValidationUnknown) {',
     to: '    if (false && brandValidationUnknown) {',
     failure: "CM-P1-006 missing candidate validation is insufficient",
@@ -180,14 +180,14 @@ const cases = [
   // CM-P1-008: identity inventory counts.
   {
     name: "CM-P1-008 identity evidence_count reverts to the module count",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '      base.evidence_count = identityTotal;\n',
     to: "",
     failure: "CM-P1-008 identity inventory counts reach the summary without changing the state",
   },
   {
     name: "CM-P1-008 identity counts dropped from the summary",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '      const identitySummary = observed.length\n',
     to: '      const identitySummary = false\n',
     failure: "CM-P1-008 identity inventory counts reach the summary without changing the state",
@@ -195,7 +195,7 @@ const cases = [
   // CM-P1-009: registration expiry findings.
   {
     name: "CM-P1-009 Attack Surface stops owning registration findings",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),',
     to: '|cloud_|dns_|dnssec_)/.test(f?.id || ""),',
     failure: "CM-P1-009 expiring registration turns Attack Surface to issue_detected",
@@ -231,14 +231,14 @@ const cases = [
   // CM-P1-010: open unauthorised-sending-source alert.
   {
     name: "CM-P1-010 email caveat disabled",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '  if (count <= 0) return entry;\n',
     to: '  return entry;\n',
     failure: "CM-P1-010 healthy decision is unchanged but coverage and summary name the open alert",
   },
   {
     name: "CM-P1-010 unreadable alert ledger treated as an open alert",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '  if (!alerts || typeof alerts !== "object" || alerts.state !== "read") return entry;',
     to: '  if (!alerts || typeof alerts !== "object") return entry;',
     failure: "CM-P1-010 zero alerts, an unreadable ledger and legacy reports stay as before",
@@ -273,7 +273,7 @@ const cases = [
   },
   {
     name: "CM-P1-010 caveat wording ignores the comparison tier",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     from: '  if (outside > 0) detail.push(`${outside} outside your resolved SPF authorisation`);',
     to: '  detail.push(`${count} outside your resolved SPF authorisation`);',
     failure: "CM-P1-010 a source whose comparison was unavailable is never called unauthorised",

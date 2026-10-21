@@ -11,7 +11,7 @@ import { externalExposureModule, evaluateExposureCondition, exposureConditionKey
 import { resolveRemediation } from '../workers/scan-api/src/engines/remediation-registry.js';
 import { checkForFinding } from '../workers/scan-api/src/engines/check-pack.js';
 import { evaluateWebsiteSecurityForScan } from '../workers/scan-api/src/engines/website-security-lifecycle.js';
-import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
+import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 import { pendingPageReferences, PAGE_REFERENCE_ASSET_SOURCES } from '../workers/scan-api/src/engines/page-references.js';
 import { canTransitionCase } from '../workers/scan-api/src/engines/managed-case-model.js';
 
@@ -63,9 +63,9 @@ assert.ok(!/Original source is embedded/i.test(map.findings[0]?.title), 'metadat
 assert.equal(evaluateExposureCondition(map.findings[0].id, map).state, 'clear', 'successful metadata-only map recheck clears original-source exposure');
 assert.equal(evaluateExposureCondition(map.findings[0].id, {...map,checks:map.checks.map(row=>({...row,comparable:false}))}).state, 'deferred');
 
-const state = (exposure, findings = []) => resolveCyberMotDomainStates({ modules: { ...baseModules, external_exposure: exposure }, findings, scan_quality: quality }).find(d => d.domain_key === 'website_security');
+const state = (exposure, findings = []) => resolveSecurityCheckDomainStates({ modules: { ...baseModules, external_exposure: exposure }, findings, scan_quality: quality }).find(d => d.domain_key === 'website_security');
 assert.notEqual(state(externalExposureModule(null)).state, 'assessed_healthy');
-const historic = resolveCyberMotDomainStates({modules:baseModules,findings:[],scan_quality:quality}).find(d=>d.domain_key==='website_security');
+const historic = resolveSecurityCheckDomainStates({modules:baseModules,findings:[],scan_quality:quality}).find(d=>d.domain_key==='website_security');
 assert.equal(historic.state, 'assessed_healthy', 'historic/free scan without exposure scope retains existing conclusion');
 assert.notEqual(state({ ...module, coverage: { ...coverage, blocked: 1 } }).state, 'assessed_healthy');
 assert.notEqual(state({ ...module, coverage: { ...coverage, pending_assets: 1 } }).state, 'assessed_healthy');

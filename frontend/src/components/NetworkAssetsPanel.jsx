@@ -62,7 +62,7 @@ function ChangeList({ changes = [] }) {
 const SHARED_EVIDENCE = { published_edge_range: 'its published edge address range', dns_cname: 'a DNS alias to the provider' }
 
 function Suggestions({ state, canManage, onUse }) {
-  if (state?.loading) return <p className="text-sm text-gray-500" role="status">Looking at hosts found by your Cyber MOT…</p>
+  if (state?.loading) return <p className="text-sm text-gray-500" role="status">Looking at hosts found by your security check…</p>
   if (state?.error) return <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-sm p-3">{state.error}</p>
   const result = state?.data
   if (!result) return null
@@ -72,9 +72,9 @@ function Suggestions({ state, canManage, onUse }) {
   const covered = count(cover.covered)
   const shared = count(cover.shared_infrastructure)
   return <div className="space-y-3">
-    <p className="text-sm text-gray-600">Public addresses behind hosts your Cyber MOT found under verified domains. Nothing is tested until you add an address and declare that you are authorized to test it.</p>
+    <p className="text-sm text-gray-600">Public addresses behind hosts your security check found under verified domains. Nothing is tested until you add an address and declare that you are authorized to test it.</p>
     {own !== null && covered !== null && <p className="text-sm font-medium text-gray-800">{covered} of {own} likely server{own === 1 ? '' : 's'} {covered === 1 ? 'has' : 'have'} a network target.{shared ? ` ${shared} address${shared === 1 ? ' belongs' : 'es belong'} to shared provider infrastructure and ${shared === 1 ? 'is' : 'are'} not suggested for testing.` : ''}</p>}
-    {!rows.length ? <p className="text-sm text-gray-500">No discovered hosts with public addresses yet. They appear after a Cyber MOT discovers hosts under a verified domain.</p> : <ul className="space-y-2">{rows.map(row => <li key={row.address} className="border border-gray-200 rounded-sm p-3 space-y-1" data-testid="network-suggestion">
+    {!rows.length ? <p className="text-sm text-gray-500">No discovered hosts with public addresses yet. They appear after an external security check discovers hosts under a verified domain.</p> : <ul className="space-y-2">{rows.map(row => <li key={row.address} className="border border-gray-200 rounded-sm p-3 space-y-1" data-testid="network-suggestion">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-mono text-sm">{row.address}</span>
         <span className="flex flex-wrap gap-1">

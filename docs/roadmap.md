@@ -21,7 +21,7 @@
 - Generate real scan result JSON
 - Store completed scan reports in R2
 - Update scan status from queued to completed
-- Add Cyber MOT Score calculation
+- Add external security check Score calculation
 
 ## Later
 

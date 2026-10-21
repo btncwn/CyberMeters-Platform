@@ -3,7 +3,7 @@
 // B — Workspace Scorecard Canonicalisation validator.
 //
 // Proves the live scorecard's per-domain wording (Brand, Certificates, Shadow-IT,
-// Attack-Surface admin) derives from canonical Cyber MOT state / A3 admin
+// Attack-Surface admin) derives from canonical state / A3 admin
 // evidence_status — never from raw counts / null-defaults — so unavailable /
 // not_assessed evidence can never render "none detected" / "looks normal" / healthy.
 // Uses the REAL buildScorecardSections and the REAL scorecard-domain-state helper.

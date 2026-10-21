@@ -7,8 +7,8 @@ import {
   resolveTlsRuntimeState,
   TLS_RUNTIME_STATES,
 } from "./tls-evidence.js";
-// ── Canonical eight-domain Cyber MOT coverage-state resolver ──────────────────
-// ONE source of truth for "what state is each of the eight customer-facing Cyber MOT
+// ── Canonical eight-domain security check coverage-state resolver ──────────────────
+// ONE source of truth for "what state is each of the eight customer-facing external security check
 // domains in?" — consumed by the Main Dashboard, Scan Detail, Executive Report UI and
 // the Executive PDF so every domain is ALWAYS visible with one explicit honest state
 // and missing evidence can NEVER render as healthy.
@@ -37,7 +37,7 @@ import {
 // boundary — a resolver change reads as `insufficient_history`, never as deterioration
 // the customer caused.
 //
-// Bump on any change to: CYBER_MOT_STATES, a domain's `modules` or `required` list, a
+// Bump on any change to: SECURITY_CHECK_STATES, a domain's `modules` or `required` list, a
 // `match()` regex, the severity gate, or the precedence ladder in the resolver. Do NOT
 // bump for display copy (`description`, `summary` prose, `limitations`) — those do not
 // change which state is resolved.
@@ -116,11 +116,11 @@ import {
 // Attack Surface or Website Security as healthy without assessable content.
 // `2026-10-18.2`: domains use their own complete evidence when another phase
 // is incomplete; DNS absence is execution coverage, not a web-service verdict.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-10-18.2";
+export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-18.2";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
-// `CYBER_MOT_RESOLVER_VERSION` moves on every methodology mint. Comparing a stored
+// `SECURITY_CHECK_RESOLVER_VERSION` moves on every methodology mint. Comparing a stored
 // snapshot against it asks "was this produced by the CURRENT resolver?" — and the
 // answer goes false for every historical row the moment we mint, including rows that
 // were entirely honest when written. A projection keyed on that question therefore
@@ -135,7 +135,7 @@ export const CYBER_MOT_RESOLVER_VERSION = "2026-10-18.2";
 // future ruling — never as a side effect of a mint.
 export const FIRST_HONEST_RESOLVER_VERSION = "2026-08-12.1";
 
-export function isResolverVersionAtLeast(version, minimum = CYBER_MOT_RESOLVER_VERSION) {
+export function isResolverVersionAtLeast(version, minimum = SECURITY_CHECK_RESOLVER_VERSION) {
   const parse = (value) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})\.(\d+)$/.exec(String(value || ""));
     return match ? match.slice(1).map(Number) : null;
@@ -151,7 +151,7 @@ export function isResolverVersionAtLeast(version, minimum = CYBER_MOT_RESOLVER_V
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
-export const CYBER_MOT_STATES = Object.freeze({
+export const SECURITY_CHECK_STATES = Object.freeze({
   ASSESSED_HEALTHY:        "assessed_healthy",
   ISSUE_DETECTED:          "issue_detected",
   PROVISIONAL:             "provisional",
@@ -169,7 +169,7 @@ const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 // Fixed domain order + honest metadata. `modules` = report.modules keys that
 // materially assess this domain. `match(finding)` attributes an authoritative
 // finding to exactly one primary domain.
-export const CYBER_MOT_DOMAINS = Object.freeze([
+export const SECURITY_CHECK_DOMAINS = Object.freeze([
   {
     domain_key: "email_protection",
     display_name: "Email Protection",
@@ -340,13 +340,13 @@ function completeDomainDespiteUnrelatedPhase(report, domain, skippedSet) {
 }
 
 /**
- * resolveCyberMotDomainStates — the canonical eight-domain resolver.
+ * resolveSecurityCheckDomainStates — the canonical eight-domain resolver.
  * @param {object} report  the R2 scan report (modules + findings + scan_quality). May be null.
  * @param {object} [opts.cyberEssentials]  optional CE readiness output ({grade,status,top_gaps,limitations}).
  * @param {string} [opts.scanId]
  * @returns {Array} exactly 8 entries in fixed order.
  */
-export function resolveCyberMotDomainStates(report, opts = {}) {
+export function resolveSecurityCheckDomainStates(report, opts = {}) {
   const { cyberEssentials = null, scanId = null } = opts;
   const quality = report?.scan_quality?.status ?? (report ? "unknown" : null); // null = no scan at all
   const skippedSet = new Set(report?.scan_quality?.modules_skipped || []);
@@ -376,7 +376,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       display_name: d.display_name,
       summary: "",
       description: d.description,
-      state: CYBER_MOT_STATES.NOT_YET_ASSESSED,
+      state: SECURITY_CHECK_STATES.NOT_YET_ASSESSED,
       coverage: localComplete ? 'complete' : quality, // domain-relevant quality
       maturity: d.maturity,
       managed_status: d.managed_status,
@@ -428,7 +428,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       // announcing readiness gaps the platform never observed. Evidence we do not
       // have is evidence_insufficient, in either direction.
       if (cyberEssentials && cyberEssentials.status === "not_assessed") {
-        base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+        base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
         base.coverage = quality;
         base.summary = cyberEssentials.containment_reason && typeof cyberEssentials.summary === "string"
           ? cyberEssentials.summary
@@ -440,12 +440,12 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         base.finding_count = (cyberEssentials.top_gaps || []).length;
         base.recommendation_count = base.finding_count;
         if (!ready) {
-          base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
+          base.state = SECURITY_CHECK_STATES.ISSUE_DETECTED;
           base.coverage = (provisional || signalCoverageLimited) ? "partial" : "complete";
           base.summary = `Indicative readiness gaps identified (${base.finding_count})` +
             `${signalCoverageLimited ? " (some external evidence was unavailable)." : "."}`;
         } else if (signalCoverageLimited) {
-          base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+          base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
           base.coverage = "degraded";
           base.summary = `${signalCoverageMessage} Indicative readiness cannot be confirmed from incomplete external evidence.`;
         } else {
@@ -454,14 +454,14 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
           // Management remain L0 customer attestation, so the FULL domain can
           // never be labelled healthy even when the external indicator is
           // favourable and every questionnaire answer is complete.
-          base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+          base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
           base.coverage = provisional ? quality : "partial";
           base.summary =
             "External indicator found no material issue in 2 of 5 control areas; " +
             "the full Cyber Essentials conclusion remains evidence-insufficient because 3 controls are attestation-only.";
         }
       } else {
-        base.state = CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED;
+        base.state = SECURITY_CHECK_STATES.CUSTOMER_INPUT_REQUIRED;
         if (signalCoverageLimited) base.coverage = "degraded";
         base.summary = (cyberEssentials && cyberEssentials.has_answers === true)
           ? "Cyber Essentials questionnaire is in progress — complete it to assess readiness."
@@ -481,7 +481,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         return n + (Number.isFinite(c) ? c : 0);
       }, 0);
       base.evidence_count = observed;
-      base.state = CYBER_MOT_STATES.MONITORING_ONLY;
+      base.state = SECURITY_CHECK_STATES.MONITORING_ONLY;
       base.coverage = signalCoverageLimited ? "degraded" : (provisional ? quality : "complete");
       base.summary = `${observed} externally observed technologies/services; compare against your approved inventory in Shadow IT.`;
       if (signalCoverageLimited) {
@@ -536,7 +536,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     if (brandUnvalidated) {
       const count = Array.isArray(report.modules.brand_monitoring.domains)
         ? report.modules.brand_monitoring.domains.length : 0;
-      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.summary = brandValidation?.state === "unavailable"
         ? `${count} lookalike candidate${count === 1 ? "" : "s"} on the watchlist. The DNS validation state could not be read this scan, so registration and activity are unconfirmed.`
@@ -546,7 +546,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       return base;
     }
     if (brandValidationUnknown) {
-      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "degraded";
       base.summary = "The stored report has no candidate validation decision, so brand protection cannot be confirmed.";
       return base;
@@ -559,7 +559,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         || (d.domain_key === "attack_surface" && (report?.modules?.asset_exposure?.assets || [])
           .some((asset) => ["not_applicable", "target_unavailable"].includes(asset?.probe_status)))
         || brandPendingChecks > 0;
-      base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
+      base.state = SECURITY_CHECK_STATES.ISSUE_DETECTED;
       base.coverage = caveat ? "partial" : (localComplete ? "complete" : quality || "complete");
       base.summary = `${domainFindings.length} issue${domainFindings.length === 1 ? "" : "s"} detected${caveat ? " (provisional evidence)" : ""}.`;
       if (brandValidation) {
@@ -580,7 +580,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // provisional until every generated candidate has a result. Runs after
     // positive findings (never hides one) and before every healthy conclusion.
     if (brandValidation && brandPendingChecks > 0) {
-      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
       base.coverage = "partial";
       const checked = Number.isFinite(brandValidation.checked) ? brandValidation.checked : 0;
       base.summary = `${brandPendingChecks} of ${checked + brandPendingChecks} lookalike candidates still await DNS validation; ${checked} checked, none resolving at high risk.`;
@@ -599,7 +599,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     if (d.domain_key === "email_protection") {
       const dmarcState = report?.modules?.email_security?.dmarc_state ?? null;
       if (!dmarcState && moduleAssessed(report, "email_security", skippedSet)) {
-        base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+        base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
         base.coverage = "degraded";
         base.summary = "The stored report has no DMARC decision, so email protection cannot be confirmed healthy.";
         return base;
@@ -608,7 +608,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       const contribution = dmarcLevel ? DMARC_MOT_CONTRIBUTION[dmarcLevel] : null;
       if (contribution === "issue_detected") {
         const caveat = anyRequiredInsufficient || domainProvisional;
-        base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
+        base.state = SECURITY_CHECK_STATES.ISSUE_DETECTED;
         base.coverage = caveat ? "partial" : (quality || "complete");
         base.highest_severity = base.highest_severity || "medium";
         base.summary = (dmarcState.canonical_summary ||
@@ -617,7 +617,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         return base;
       }
       if (contribution === "evidence_insufficient") {
-        base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+        base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
         base.coverage = "degraded";
         base.summary = dmarcState.canonical_summary ||
           "DMARC could not be observed this scan (the DNS lookup did not complete) — not enough to assess.";
@@ -652,7 +652,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         ? `Inventory evidence: ${observed.join(", ")}${classified.length ? `; classified as ${classified.join(", ")}` : ""}.`
         : "Inventory evidence: no provider relationship or identity-facing hostname was observed.";
       base.evidence_count = identityTotal;
-      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = anyRequiredInsufficient || signalCoverageLimited ? "degraded" : "partial";
       base.summary = `${identitySummary} Account compromise and sign-in controls were not evaluated.`;
       return base;
@@ -662,13 +662,13 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         exposureCoverage?.hosts_total > exposureCoverage?.hosts_checked) {
       const checked = exposureCoverage.hosts_checked;
       const total = exposureCoverage.hosts_total;
-      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.summary = `${checked} of ${total} hosts checked this scan; the rest rotate on the next scans. Unchecked hosts have no current security verdict.`;
       return base;
     }
     if (d.domain_key === "attack_surface" && exposureCoverage?.deferred_prior_findings > 0) {
-      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.summary = `${exposureCoverage.deferred_prior_findings} prior exposure finding${exposureCoverage.deferred_prior_findings === 1 ? '' : 's'} could not be retested because the host did not resolve. No finding was cleared.`;
       return base;
@@ -677,7 +677,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       .some((asset) => asset?.probe_status === "not_applicable") &&
       !(report?.modules?.asset_exposure?.assets || []).some(asset => asset?.http_assessed === true ||
         asset?.probe_status == null && asset?.status >= 200 && asset?.status < 500)) {
-      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "partial";
       base.summary = "The recorded names have no address in DNS. No reachable host was assessed, so web-service posture remains unknown.";
       return base;
@@ -689,7 +689,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         (d.domain_key === "website_security" && contentHostOutcomes.length > 0 &&
           !(report?.modules?.external_exposure?.coverage?.completed > 0))) {
       const edge = [...unavailableHosts, ...contentHostOutcomes].some((host) => host.reason === "edge_origin_unreachable");
-      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "partial";
       base.summary = edge
         ? "Cloudflare could not reach this host's origin during this scan. Its content and security posture remain unknown."
@@ -708,7 +708,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       const conclusive = exposure.coverage.completed;
       const checked = Array.isArray(exposure.checks) ? exposure.checks.length : conclusive;
       const blocked = exposure.coverage.blocked || 0;
-      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.evidence_count += 1;
       const edge = contentHostOutcomes.some(host => host.reason === "edge_origin_unreachable");
@@ -723,7 +723,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
         report.modules.tls_assessment?.coverage?.completed > 0 &&
         moduleAssessed(report, "certificate_intelligence", skippedSet)) {
       const tls = report.modules.tls_assessment.coverage;
-      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
       base.coverage = "partial";
       base.evidence_count += 1;
       // Name every kind of gap, so the sentence always says what is missing.
@@ -741,7 +741,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       return base;
     }
     if (relevant.length === 0) {
-      base.state = CYBER_MOT_STATES.NOT_YET_ASSESSED;
+      base.state = SECURITY_CHECK_STATES.NOT_YET_ASSESSED;
       base.summary = "Not yet assessed.";
       return base;
     }
@@ -751,7 +751,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // intentionally after positive findings (which must remain visible) and
     // before every negative/healthy conclusion.
     if (signalCoverageLimited) {
-      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "degraded";
       base.summary = `${signalCoverageMessage} Not enough evidence was available to make a healthy conclusion.`;
       return base;
@@ -766,7 +766,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       // (origin_error_no_serviceable_response / origin_not_observed) the remediation
       // exists to produce. The reason is read from the stored per-module record, so the
       // card cannot claim anything the evidence does not itself say.
-      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+      base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "degraded";
       // Two DIFFERENT propositions share `incomplete: true`, and they must not be
       // worded alike:
@@ -792,14 +792,14 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     }
     if (!requiredAssessedAll) {
       // A required module simply never ran (absent) → not assessed, never healthy.
-      base.state = CYBER_MOT_STATES.NOT_YET_ASSESSED;
+      base.state = SECURITY_CHECK_STATES.NOT_YET_ASSESSED;
       base.summary = "Not yet assessed for this domain — required checks did not run.";
       return base;
     }
     if (domainProvisional) {
       // All required evidence assessed, no material finding, BUT the overall scan is
       // provisional (partial/degraded/unknown) → do not assert an authoritative healthy.
-      base.state = CYBER_MOT_STATES.PROVISIONAL;
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
       base.coverage = quality;
       base.summary = "No material issue observed, but this scan's coverage was provisional.";
       return base;
@@ -807,12 +807,12 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // All required evidence assessed on a COMPLETE scan with no material finding →
     // genuinely healthy (domain-specific limitations, e.g. unknown certificate trust,
     // remain attached and are never turned into a positive trust claim).
-    base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;
+    base.state = SECURITY_CHECK_STATES.ASSESSED_HEALTHY;
     base.coverage = "complete";
     base.summary = "Assessed — no material issue observed.";
     return base;
   };
-  return CYBER_MOT_DOMAINS.map((d) => withEmailSenderAlertCaveat(resolveDomain(d), report));
+  return SECURITY_CHECK_DOMAINS.map((d) => withEmailSenderAlertCaveat(resolveDomain(d), report));
 }
 
 // ── Email Protection: an open unauthorised-sending-source alert is not silent ─
@@ -826,7 +826,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
 // evidence either way. Pure: reads only the frozen report.
 function withEmailSenderAlertCaveat(entry, report) {
   if (entry?.domain_key !== "email_protection") return entry;
-  if (entry.state === CYBER_MOT_STATES.NOT_YET_ASSESSED) return entry;
+  if (entry.state === SECURITY_CHECK_STATES.NOT_YET_ASSESSED) return entry;
   const alerts = report?.modules?.email_security?.unauthorised_sending_sources;
   if (!alerts || typeof alerts !== "object" || alerts.state !== "read") return entry;
   const count = Number.isFinite(alerts.count) ? alerts.count : 0;

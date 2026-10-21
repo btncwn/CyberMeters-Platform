@@ -15,7 +15,7 @@ function memoryStorage() {
 }
 
 describe('signup domain handoff', () => {
-  it('sanitizes a dirty Cyber MOT domain before signup persistence', () => {
+  it('sanitizes a dirty security domain before signup persistence', () => {
     expect(sanitizeDomainParam('HTTPS://www.BlackBullBarbers.co.uk/path?q=1')).toBe('blackbullbarbers.co.uk')
   })
 

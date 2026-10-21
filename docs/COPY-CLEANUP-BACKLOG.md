@@ -1,9 +1,9 @@
-# Copy Cleanup Backlog — "scan / attack surface" → Cyber MOT wording pass
+# Copy Cleanup Backlog — "scan / attack surface" → external security check wording pass
 
 > **Owner of wording decisions: ChatGPT** (positioning) → **Codex** builds → **Claude** reviews.
 > This file is the *inventory / spec target* Claude compiled from the codebase so nothing
 > gets missed — it does NOT prescribe final wording. Direction (from Turhan + GROWTH-ROADMAP):
-> lead with **Cyber MOT / Website Security / passive posture / monitoring**; avoid framing the
+> lead with **external security check / Website Security / passive posture / monitoring**; avoid framing the
 > product around "external attack surface" or "scan" in customer-facing *positioning* copy.
 > Not a trust/forbidden-term issue — "Attack Surface" is a real service name and "scan" is an
 > approved action; this is positioning consistency. No urgent deploy.
@@ -18,7 +18,7 @@
   soften only if ChatGPT confirms it stays accurate.
 
 > **Status (2026-07-12): SOFTEN pass DONE.** All positioning copy below now leads
-> with Cyber MOT / Website Security / monitoring — "external attack surface" and
+> with external security check / Website Security / monitoring — "external attack surface" and
 > generic "scan" removed from *positioning* narrative across Pricing, lifecycle
 > welcome email, ServiceLauncher, Dashboard (empty state + insight + CTA),
 > Workspaces, Scans, Onboarding, FirstResultsGuide, PublicLandingPage, and the
@@ -31,7 +31,7 @@
 |---|---|
 | `frontend/src/pages/PricingPage.jsx:189` | "Start with external attack surface monitoring, then add executive reporting, vendor risk, and MSP-ready capabilities as you grow." |
 | `workers/scan-api/src/lib/lifecycle-email.js:170` | "CyberMeters protects your email, brand, external attack surface and certificates from one workspace." |
-| `workers/scan-api/src/lib/lifecycle-email.js:172` | "To get started, add a domain and run your first scan." (→ "run your first Cyber MOT") — *the welcome-email flag from the 2026-07-09 dogfood report* |
+| `workers/scan-api/src/lib/lifecycle-email.js:172` | "To get started, add a domain and run your first scan." (→ "run your first security check") — *the welcome-email flag from the 2026-07-09 dogfood report* |
 | `frontend/src/components/ServiceLauncher.jsx:121` | step "Run your first scan" / "Map your external attack surface and email posture." / actionLabel "Run scan" |
 | `frontend/src/components/ServiceLauncher.jsx:142` | "…monitor email impersonation risk, brand abuse, external attack surface, and certificate trust — all from one workspace." |
 | `frontend/src/pages/Dashboard.jsx:117` | "Run your first security scan" / "Add a domain to discover your external attack surface exposure." / cta "Start Scan" |

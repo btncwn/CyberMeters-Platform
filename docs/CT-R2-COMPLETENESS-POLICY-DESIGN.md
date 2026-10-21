@@ -219,14 +219,14 @@ contract — that gap is what §4 fixes.
 
 Runtime SQL-bearing strings contain **35 predicate occurrences across 26 unique
 statically-resolved SQL sites in 15 files**: `business-risk.js:743`, `current-posture.js:41`,
-`cyber-mot-state-history.js:329`, `historical-scan.js:49`,
+`security-check-state-history.js:329`, `historical-scan.js:49`,
 `portfolio-customers.js:58`, `portfolio-domains.js:174`, `portfolio-risk.js:279`,
 `related-changes.js:60,220`, `report-queries.js:24,38,53`,
 `weekly-digest.js:80`, `routes/executive-dashboard.js:140,152,164,175,189,209`,
 `routes/portfolio.js:174,458,471`, `routes/workspace-analytics.js:404`,
 `routes/workspace-insights.js:304,311`, and `routes/workspaces-core.js:96`. JS/TS comparisons such as
-`cyber-mot-state-history.js:392`, `portfolio-domains.js:237` and
-`cyber-mot-domains.js:197` belong to the separate 49-occurrence semantic inventory; they
+`security-check-state-history.js:392`, `portfolio-domains.js:237` and
+`security-check-domains.js:197` belong to the separate 49-occurrence semantic inventory; they
 are not SQL query sites.
 
 **Counting-unit note:** a site is a statically-resolved SQL-bearing string. A shared fragment
@@ -263,7 +263,7 @@ every other mandatory evidence contract passing*.
 | 6 | Free-scan surface (PR #332, `routes/billing.js:238-268`) | `score=null`, `risk_level=null`, `preview_state=evidence_incomplete` — false-healthy P1 history; **cannot be skipped** | Score/risk shown per band rule; `preview_state` must carry degradation; absence claims stay closed (§4.3) |
 | 7 | Timeline trust (`timeline-trust.js:70,84,94`) | comparison `unavailable`/`not_comparable`; ALL 15 customer change-event types suppressed (incl. 3 certificate events) | Comparable iff both sides complete under the SAME contract version; complete-with-degradations ↔ complete-with-degradations comparability is a [POL] row (§9) |
 | 8 | SPF diff exception (`posture-events.js:213-223`) | SPF diffs still emitted (per-signal completeness) | Unchanged — this is the existing per-signal precedent Option B generalises |
-| 9 | Historical comparison (`historical-scan.js:51`, `scan-engine.js:1074`, `cyber-mot-state-history.js:144,335,392`) | partial scan invisible as baseline; `score_change=null`; trend `not_comparable` | Complete-with-degradations scans enter baseline pools only under matching contract version [POL]; never across the version boundary |
+| 9 | Historical comparison (`historical-scan.js:51`, `scan-engine.js:1074`, `security-check-state-history.js:144,335,392`) | partial scan invisible as baseline; `score_change=null`; trend `not_comparable` | Complete-with-degradations scans enter baseline pools only under matching contract version [POL]; never across the version boundary |
 | 10 | Related Changes (`related-changes.js:62,222,229`) | no correlation window; `correlation_possible=false` | Window opens; correlation output must surface degradation on affected clusters |
 | 11 | Executive PDF (`pdf.js:323,473,501-503`) + `executive-report.js:44,85` | "Provisional Score", no band line, evidence-bounded BRI text | Band per band rule; NEW: degradations rendered in the evidence-completeness section — never silently absent |
 | 12 | Scheduled workspace report (`scheduled-reports.js`) | inherits via pdf.js/report-queries | Same inheritance; no independent decision point (verified: zero own quality logic) |
@@ -278,7 +278,7 @@ every other mandatory evidence contract passing*.
 | 21 | Portfolio/MSP (`portfolio-domains.js:185-341`, `portfolio-risk.js:272-291`, `portfolio.js:181,464,477`, `portfolio-customers.js:62`, `workspaces-core.js:113`, `executive-dashboard.js:166,210`, `workspace-analytics.js:407`) | excluded from averages/trends/rankings; `overall_state='provisional'`; coverage_note shown | Included, with degradation surfaced via existing `coverage_note`/state channels; comparability rules as row 9 |
 | 22 | Domain maturity ledger (`domain-maturity.js:226`) | `skipped: "not_complete"` — no ledger row | Writes a row iff contract version matches ledger contract expectations [POL] |
 | 23 | DMARCbis lifecycle (`dmarcbis-managed-lifecycle.js:197`) | `scan_incomplete` — no advance | Advances (CT degradation is unrelated to DMARC evidence) — per-module gate, row 15 |
-| 24 | Cyber MOT domains (`cyber-mot-domains.js:196-203,342-345`) | `provisional=true`; required-module gate blocks `assessed_healthy` off missing evidence | `provisional` keys on domain-relevant degradations; the `moduleAssessed` fail-closed gate is untouched |
+| 24 | security domains (`security-check-domains.js:196-203,342-345`) | `provisional=true`; required-module gate blocks `assessed_healthy` off missing evidence | `provisional` keys on domain-relevant degradations; the `moduleAssessed` fail-closed gate is untouched |
 | 25 | Frontend ScanDetail (`ScanDetail.jsx:1092-1155`) | amber coverage strip below an unqualified score hero; comparison panel has NO completeness qualifier (gap) | Renders backend `degradations[]`; comparison qualifier comes from backend comparability (row 7). No frontend derivation |
 | 26 | Frontend Dashboard (`Dashboard.jsx:50-56,795-815,907-920`) | best-in-app: provisional eyebrow, band suppressed, honest empty state | Authoritative selection keys on backend fields; wording switches from "provisional" to specific degradation note |
 | 27 | Frontend IntelligencePage (`IntelligencePage.jsx:1013,1121-1126`) | zero quality awareness (Codex corrective in flight — untouched by this design) | Consumes backend fields only; no independent decision |
@@ -396,15 +396,15 @@ in this document that conflicts with a row here is a defect in that sentence.
 | `partial` | Conservative-but-coarse produced grade: core module error, any module `incomplete`, or core budget-skip | `scan-engine.js:187-188` |
 | `incomplete` (module flag) | Module self-report: this module's evidence is ineligible to support absence claims | `subdomains-scan.js:276-303` |
 | `ct_source_degraded` / `ct_sources_unavailable` | One-source-lost / both-sources-lost CT incomplete reasons | `subdomains-scan.js:301`, `cert-intel.js:319` |
-| provisional | Presentation state: quality ≠ `complete` (reader-derived, backend-owned) | `assessment-presentation.js:172-186`, `cyber-mot-domains.js:203` |
+| provisional | Presentation state: quality ≠ `complete` (reader-derived, backend-owned) | `assessment-presentation.js:172-186`, `security-check-domains.js:203` |
 
 ## 4. Mandatory evidence contract
 
 **"Complete = mandatory evidence contracts satisfied" must be a declared, versioned
 artefact, not a magic constant.** Today the de-facto contract is scattered and unversioned
 [OBS]: `isPublishableModuleEvidence` (`scan-budget.js:219-226`) has no version constant;
-the per-domain `required` lists live in `cyber-mot-domains.js:102-123` (versioned
-indirectly via `CYBER_MOT_RESOLVER_VERSION`); the subdomains OR policy and cert-intel AND
+the per-domain `required` lists live in `security-check-domains.js:102-123` (versioned
+indirectly via `SECURITY_CHECK_RESOLVER_VERSION`); the subdomains OR policy and cert-intel AND
 policy are inline booleans with contradictory comments (§2.6).
 
 Proposed artefact [INF→POL]: a per-module **evidence contract**, following the
@@ -417,8 +417,8 @@ grade contract"), declaring for each module:
 - `positive_only` evidence — usable for findings, never for absence claims;
 - `absence_claims` — the evidence set required before "none found / healthy / removed /
   resolved" may be uttered;
-- a `contract_version` bumped under the same discipline as `CYBER_MOT_RESOLVER_VERSION`
-  (`cyber-mot-domains.js:25-50`): any change to what `complete` means is a version bump,
+- a `contract_version` bumped under the same discipline as `SECURITY_CHECK_RESOLVER_VERSION`
+  (`security-check-domains.js:25-50`): any change to what `complete` means is a version bump,
   and comparisons never cross the boundary.
 
 ### 4.1 Are two CT sources mandatory or strengthening for subdomain assessment?

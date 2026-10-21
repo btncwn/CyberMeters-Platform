@@ -20,7 +20,7 @@ const EXPECTED_MODULES = Object.freeze([
   Object.freeze({ module: 'technology_detection', label: 'Technology' }),
 ])
 
-export const EXPECTED_CYBER_MOT_DOMAINS = Object.freeze([
+export const EXPECTED_SECURITY_CHECK_DOMAINS = Object.freeze([
   Object.freeze({ domain_key: 'identity_exposure', display_name: 'Identity Exposure' }),
   Object.freeze({ domain_key: 'attack_surface', display_name: 'Attack Surface' }),
   Object.freeze({ domain_key: 'email_protection', display_name: 'Email Protection' }),
@@ -118,7 +118,7 @@ function normalizedDomains(result) {
     (Array.isArray(result?.cyber_mot_domains) ? result.cyber_mot_domains : [])
       .map((entry) => [entry?.domain_key, entry]),
   )
-  return EXPECTED_CYBER_MOT_DOMAINS.map((expected) => {
+  return EXPECTED_SECURITY_CHECK_DOMAINS.map((expected) => {
     const entry = supplied.get(expected.domain_key)
     const state = DOMAIN_STATES.has(entry?.state)
       ? entry.state

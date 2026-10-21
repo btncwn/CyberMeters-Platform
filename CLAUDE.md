@@ -98,7 +98,7 @@ permission. Stop only at the exact reserved, safety or file-ownership boundary.
 
 # Canonical Product Model
 
-CyberMeters is a multi-tenant, evidence-led, managed Cyber MOT platform for small businesses and MSPs.
+CyberMeters is a multi-tenant, evidence-led, managed external security check platform for small businesses and MSPs.
 
 It helps organisations understand, prioritise, manage and verify their externally observable security posture.
 
@@ -305,7 +305,7 @@ Essentials **Security Update Management** was scored from certificate expiry, ce
 risk and the ASM backlog — none of which measures any question it asks — and is now not
 externally assessable, taking the external readiness indicator to **2 of 5** with an explicit
 methodology version/revision so a denominator change can never read as a posture change
-(`CYBER_MOT_RESOLVER_VERSION` bumped for the same reason). `external` is now its own
+(`SECURITY_CHECK_RESOLVER_VERSION` bumped for the same reason). `external` is now its own
 verification support — an independent third party certifies it, which is neither CyberMeters'
 observation nor the customer's word. ASM/Brand/Identity/Shadow IT keep their blankets, now
 CI-guarded against drift; deriving them per finding was tried and rejected because every real
@@ -326,7 +326,7 @@ never touch the Cyber Metrics Score or the Business Risk Indicator, and still ne
 auto-create a case.
 
 **Historical M5.c Stage-1 record at `v2026.07.17-1` (migration 093), superseded by
-the later M5.d–M5.g closures:** one completed Cyber MOT then produced ONE
+the later M5.d–M5.g closures:** one completed security check then produced ONE
 immutable canonical eight-domain snapshot — canonical JSON in R2
 (tenant-prefixed, per-attempt key) indexed by a D1 row bound to the bytes via SHA-256 —
 because five render paths with three calculation brains could show the same customer

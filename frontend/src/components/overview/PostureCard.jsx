@@ -1,11 +1,11 @@
 // PostureCard — "Your external posture" on the home screen: every area with
 // the word the backend's latest assessment allows, nothing more. The states
-// are the resolver's (GET /workspaces/:id/cyber-mot-domains) mapped by the
+// are the resolver's (GET /workspaces/:id/security-domains) mapped by the
 // common vocabulary; a loading, failed or malformed read shows Loading/Error
 // on every row, never a settled word.
 import { Link } from 'react-router-dom'
 import { MODULES, moduleTheme } from '../../lib/moduleRegistry'
-import { resolveDisplayDomains } from '../../lib/cyberMotDisplay'
+import { resolveDisplayDomains } from '../../lib/securityCheckDisplay'
 import { domainStatus } from '../../lib/statusVocabulary'
 import StatusChip from '../StatusChip'
 import { moduleIcon } from '../shell/moduleIcons'

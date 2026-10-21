@@ -6,7 +6,7 @@
 > Trigger: founder considering a "lightweight DAST" module as a signup/lead-gen
 > hook (crawler + headers/TLS/cookies/robots/security.txt + reflected XSS + SQL
 > error leakage + CSP/HSTS/CORS + AI report), explicitly NOT competing with
-> Burp/Invicti/Acunetix/Detectify/Intruder.
+> Burp/Invicti/Acunetix/Competitor F/Competitor B.
 
 ## Headline verdict (answer first)
 
@@ -22,23 +22,23 @@ This is not the naive "yes/no DAST" the prompt expects — it is what the eviden
 
 ## Most important finding: the closest competitor already ships the unified thesis
 
-`[FACT]` **Red Sift — our most-benchmarked DMARC competitor — acquired Hardenize
-(the SSL Labs team) in October 2022** specifically to combine email + web + DNS +
+`[FACT]` **Competitor A — our most-benchmarked DMARC competitor — acquired Competitor A's web/TLS product
+(the a public TLS grading service team) in October 2022** specifically to combine email + web + DNS +
 nameserver posture into one platform. VentureBeat's framing is our exact thesis:
 "attack surface management should include email." So Q3 ("can email + DMARC +
 domain health + website security combine into one dashboard?") is answered:
 **yes — the closest competitor sells it.**
 
 `[ASSESSMENT]` Two consequences: (1) the unified-posture thesis is validated, not
-speculative. (2) Red Sift/Hardenize's web side is **passive** posture
-(TLS/DNS/headers/cert/nameserver — the SSL Labs lineage), **not active DAST**.
+speculative. (2) Competitor A/Competitor A's web/TLS product's web side is **passive** posture
+(TLS/DNS/headers/cert/nameserver — the a public TLS grading service lineage), **not active DAST**.
 The one player combining "email + web" does it with the *passive* half of the
 list, not XSS/SQLi. This is the single strongest support for the verdict.
 
 ## The free-scanner hook pattern is real and huge — and entirely passive
 
 `[FACT]` Mozilla HTTP Observatory: **6.9M websites, 47M scans** since 2016.
-SecurityHeaders instant letter grade. SSL Labs is the industry standard. All
+SecurityHeaders instant letter grade. a public TLS grading service is the industry standard. All
 three are proven top-of-funnel magnets — **and all three are passive header/TLS
 checks, none do XSS/SQLi.**
 
@@ -53,17 +53,17 @@ scoped.** The entire 47M-scan demand is for passive checks.
 
 | Product | Positioning | Price `[FACT]` | Active DAST? |
 |---|---|---|---|
-| Intruder | Continuous vuln management | $157/mo/app | Yes |
-| Detectify | AppSec, EASM | $89/mo/scan-profile | Yes |
+| Competitor B | Continuous vuln management | $157/mo/app | Yes |
+| Competitor F | AppSec, EASM | $89/mo/scan-profile | Yes |
 | Probely | API/SPA DAST | $98/mo/target | Yes (headless Chrome) |
 | HostedScan | Affordable multi-engine | Free tier + paid | Yes (OWASP ZAP under the hood) |
 | Pentest-Tools / ImmuniWeb | Freemium web scanner | Free demo + paid | Yes |
-| **Red Sift (Hardenize)** | **Email + web/DNS posture** | Enterprise | **No — passive** |
-| SecurityHeaders / Observatory / SSL Labs | Free instant scan | Free | **No — passive** |
+| **Competitor A (Competitor A's web/TLS product)** | **Email + web/DNS posture** | Enterprise | **No — passive** |
+| SecurityHeaders / Observatory / a public TLS grading service | Free instant scan | Free | **No — passive** |
 
 `[ASSESSMENT]` Active DAST is **mature and full at $89-157/mo** — precisely the
 fight we've said we won't pick. Building the active engine means investing
-infrastructure in a battle we're declining. The open lane is Red Sift's:
+infrastructure in a battle we're declining. The open lane is Competitor A's:
 **email-centric unified *passive* posture**, where there is one serious player
 and we are already strong on the email side.
 
@@ -125,7 +125,7 @@ flow is comparatively safe; the active one is not.
 |---|---|---|
 | First MVP | ~1-2 weeks (mostly packaging existing code + report/AI layer) | ~2-3 months (separate container infra + orchestration + ownership gate + reporting) |
 | 3-year maintenance | Low — a few new HTTP checks/year | **High** — Nuclei template drift, false-positive tuning, engine upgrades, ops of the separate tier, legal surface |
-| Differentiation | Email + web unified posture (Red Sift's lane, but we're strong on email) | Low — mature $89/mo competitors own it |
+| Differentiation | Email + web unified posture (Competitor A's lane, but we're strong on email) | Low — mature $89/mo competitors own it |
 | ROI | High (top-of-funnel magnet, low cost) | Uncertain/negative (heavy investment in a market we're declining) |
 
 ## Recommendation
@@ -134,7 +134,7 @@ flow is comparatively safe; the active one is not.
 **passive** email (DMARC/SPF/DKIM, already built) + TLS/cert (already built) +
 security headers/HSTS/CSP/CORS/cookies + robots/security.txt → a polished report +
 AI business-impact explanation → upsell into CyberMeters. This is the self-serve,
-top-of-funnel version of what Red Sift/Hardenize sells to enterprise, and it
+top-of-funnel version of what Competitor A/Competitor A's web/TLS product sells to enterprise, and it
 leverages our email strength.
 
 **Do NOT build (now):** crawler + reflected-XSS + SQLi payload engine. Market
@@ -175,7 +175,7 @@ shows a pull, not as a "nice to have."
 |---|---:|---|
 | Overall market | **3/10** | Every sub-layer is saturated: DAST, ASM/EASM, scanner-consolidation, security-ratings — funded incumbents in each |
 | Technical feasibility | **6/10** | Now possible via Cloudflare Containers GA; but heavy new build + ops + legal + false-positive maintenance |
-| Competitive difficulty | **9/10** | Aikido, ProjectDiscovery Cloud, UpGuard/SecurityScorecard, Red Sift all hold lanes |
+| Competitive difficulty | **9/10** | Aikido, ProjectDiscovery Cloud, Competitor C/Competitor D, Competitor A all hold lanes |
 | Time-to-market | **4/10** | Active-DAST orchestration = months + new container tier; passive posture score = weeks |
 | Differentiation (as framed) | **2-3/10** | "Combine scanners into one dashboard" is Aikido's and PD Cloud's exact value prop |
 | Revenue potential | **4/10** | SMB DMARC niche is real but modest; the DAST-orchestration TAM isn't ours |
@@ -195,11 +195,11 @@ Workers + AI explanation + MSP multi-tenant dashboard). No active Nuclei/ZAP.
   already sell hosted orchestration (asset discovery + Nuclei scanning; free +
   enterprise; former Growth tier $3,500/yr). Orchestrating PD's own tools is
   their product, not a moat.
-- `[FACT]` **UpGuard's security rating already spans five categories: website
+- `[FACT]` **Competitor C's security rating already spans five categories: website
   security, email security, phishing/malware, brand & reputation, network
   security** — the "combine email + web + DNS into one score" thesis, shipped
   (enterprise TPRM, not self-serve SMB/DMARC-first).
-- `[FACT]` **Microsoft Defender EASM / SecurityScorecard** own external attack
+- `[FACT]` **Microsoft Defender EASM / Competitor D** own external attack
   surface at enterprise scale.
 - `[ASSESSMENT]` Adding **active** DAST makes the idea *less* differentiated — it
   walks into Aikido + PD Cloud + mature DAST vendors and away from the founder's
@@ -234,8 +234,8 @@ is competition + founder-fit + moat, not the runtime.
 - Aikido pricing: https://www.aikido.dev/pricing · platform: https://www.aikido.dev/platform
 - Cloudflare Containers docs: https://developers.cloudflare.com/containers/ · GA (InfoQ): https://www.infoq.com/news/2026/04/cloudflare-sandboxes-ga/
 - ProjectDiscovery Cloud: https://projectdiscovery.io/blog/announcing-pdcp · pricing: https://projectdiscovery.io/pricing
-- UpGuard 5-category rating: https://www.upguard.com/security-report/securityscorecard
-- SecurityScorecard EASM: https://securityscorecard.com/platform/external-attack-surface-management/
+- Competitor C 5-category rating: a competitor's public page
+- Competitor D EASM: a competitor's public page
 - Microsoft Defender EASM pricing: https://www.microsoft.com/en-us/security/pricing/microsoft-defender-external-attack-surface-management
 - Invicti — DAST false positives: https://www.invicti.com/blog/web-security/reduce-dast-false-positives
 
@@ -243,15 +243,15 @@ is competition + founder-fit + moat, not the runtime.
 
 ## Sources
 
-- Red Sift/Hardenize: https://redsift.com/blog/why-weve-acquired-hardenize-and-what-this-means-for-our-customers
+- Competitor A/Competitor A's web/TLS product: a competitor's public page
 - VentureBeat (ASM should include email): https://venturebeat.com/security/attack-surface-management-red-sift
-- BusinessWire (acquisition): https://www.businesswire.com/news/home/20221013005168/en/Red-Sift-Acquires-Hardenize-to-Redefine-Enterprise-Attack-Surface-Protection
+- BusinessWire (acquisition): https://www.businesswire.com/news/home/20221013005168/en/Red-Sift-Acquires-Competitor A's web/TLS product-to-Redefine-Enterprise-Attack-Surface-Protection
 - Nuclei license FAQ: https://docs.projectdiscovery.io/opensource/nuclei/faq
 - Nuclei GitHub: https://github.com/projectdiscovery/nuclei
 - OWASP Amass: https://owasp.org/www-project-amass/
 - Mozilla HTTP Observatory: https://developer.mozilla.org/en-US/observatory
-- Intruder pricing: https://www.intruder.io/pricing
-- Detectify pricing: https://detectify.com/pricing
+- Competitor B pricing: a competitor's public page
+- Competitor F pricing: a competitor's public page
 - HostedScan pricing: https://hostedscan.com/pricing
 - Pentest-Tools website scanner: https://pentest-tools.com/website-vulnerability-scanning/website-scanner
 - ImmuniWeb websec: https://www.immuniweb.com/websec/

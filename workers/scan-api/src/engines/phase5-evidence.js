@@ -13,7 +13,7 @@ import {
 } from "./tls-evidence.js";
 import { tlsSupportedCoverageGapReason } from "./tls-quality.js";
 import { buildIdentityEvidenceProjection, summarizeIdentityClaims } from "./identity-evidence-contract.js";
-import { isResolverVersionAtLeast, FIRST_HONEST_RESOLVER_VERSION } from "./cyber-mot-domains.js";
+import { isResolverVersionAtLeast, FIRST_HONEST_RESOLVER_VERSION } from "./security-check-domains.js";
 // READ-ONLY consumption of the canonical authority. `lib/serviceability.js` belongs
 // to the #422 lane and is NOT edited here; importing it is what keeps the historical
 // read projection and the live producer deciding serviceability the same way.
@@ -162,7 +162,7 @@ export function resolvePhase5EvidenceContract(modules = {}) {
 
 // A score-bearing module that was skipped or never ran (budget/deadline) makes a
 // customer score a conclusion over an incomplete assessment. Detected from the
-// SAME per-module skip vocabulary buildScanQuality / cyber-mot-domains read
+// SAME per-module skip vocabulary buildScanQuality / security-check-domains read
 // (explicit skip markers only — an entitled module that simply found nothing
 // carries none of these flags, so it does not trigger suppression).
 export function skippedScoreBearingModules(modules = {}) {

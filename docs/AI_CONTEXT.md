@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-CyberMeters is a Cloudflare-native, multi-tenant, evidence-led, managed **Cyber MOT** platform for small businesses and MSPs. It helps organisations understand, prioritise, manage and verify their **externally observable** security posture across exactly **eight customer-facing security domains** (Email Protection, Brand Protection, Attack Surface, Certificates & Trust, Cyber Essentials Readiness, Website Security, Identity Exposure, Shadow IT & Unmanaged Technology). Attack Surface is one of those eight domains — it is not the product's identity. Deterministic detection decides; AI explains. The product makes no claim of internal-network, endpoint, browser-history or dark-web monitoring, and no exhaustive phishing/social-engineering coverage. Canonical, current release facts live in `CLAUDE.md` and `CHANGELOG.md`.
+CyberMeters is a Cloudflare-native, multi-tenant, evidence-led, managed **external security check** platform for small businesses and MSPs. It helps organisations understand, prioritise, manage and verify their **externally observable** security posture across exactly **eight customer-facing security domains** (Email Protection, Brand Protection, Attack Surface, Certificates & Trust, Cyber Essentials Readiness, Website Security, Identity Exposure, Shadow IT & Unmanaged Technology). Attack Surface is one of those eight domains — it is not the product's identity. Deterministic detection decides; AI explains. The product makes no claim of internal-network, endpoint, browser-history or dark-web monitoring, and no exhaustive phishing/social-engineering coverage. Canonical, current release facts live in `CLAUDE.md` and `CHANGELOG.md`.
 
 Current stack:
 
@@ -204,7 +204,7 @@ Next:
 ## Known Constraints
 
 - Cloudflare Worker runtime
-- No Shodan
+- No an internet-scan database
 - No paid APIs
 - No fake data
 - No mock assets

@@ -167,7 +167,7 @@ export default function PricingPage() {
           <p className="text-xs font-bold uppercase tracking-widest text-brand-700 mb-3">Pricing</p>
           <h1 className="text-4xl font-bold text-gray-900 tracking-tight">Choose the plan that matches your security workflow.</h1>
           <p className="text-gray-500 mt-4">
-            Every paid plan is the full Cyber MOT — your whole external posture, alerts, managed cases,
+            Every paid plan is the full external security check — your whole external posture, alerts, managed cases,
             reports and remediation. Pricing is per monitored domain, starting with a 14-day full trial.
           </p>
         </div>

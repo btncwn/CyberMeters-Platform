@@ -1045,7 +1045,7 @@ export async function verifyManagedAsmCasesForScan(
         const failure = await updateCaseStatus(env, current, "verification_failed", {
           actor_type: "system",
           action: "verification_failed",
-          reason: "CyberMeters still observed this exposure in the latest Cyber MOT.",
+          reason: "CyberMeters still observed this exposure in the latest security check.",
           detail: { scan_id: scanId, expected: "finding_absent", observed: "finding_present", ...(recheck ? { recheck } : {}) },
         });
         if (failure.ok) {

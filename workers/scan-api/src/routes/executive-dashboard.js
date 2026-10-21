@@ -6,9 +6,9 @@
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
 export { withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
-import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../engines/security-check-domains.js";
 import { resolveRemediation } from "../engines/remediation-registry.js";
-import { evidenceFreshness } from "../engines/cyber-mot-state-history.js";
+import { evidenceFreshness } from "../engines/security-check-state-history.js";
 import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
 import { MATURITY_LEDGER_CONTRACT_VERSION, readWorkspaceMaturity, readDomainMaturityHistory } from "../engines/domain-maturity.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
@@ -44,15 +44,16 @@ export async function executiveDashboardRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, requireWorkspaceRole } = rctx;
 
-    // ── GET /api/workspaces/:id/cyber-mot-domains ────────────────────────────
-    // Canonical eight-domain Cyber MOT coverage states for a workspace, resolved
+    // ── GET /api/workspaces/:id/security-domains ─────────────────────────────
+    // (the former path stays as an alias for existing clients; see the match below)
+    // Canonical eight-domain security check coverage states for a workspace, resolved
     // server-side from the latest completed scan's evidence, including a newer
     // provisional scan — or the canonical NO-SCAN states when none exists.
     // ALWAYS returns eight domains so the Dashboard
     // renders all eight even before any scan, and the frontend never invents states.
     // Core coverage: workspace:read only, NO feature gate. Never fails to fewer than
     // eight (any error returns the canonical no-scan set).
-    const motMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/cyber-mot-domains$/);
+    const motMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/(?:security-domains|cyber-mot-domains)$/);
     if (motMatch && request.method === "GET") {
       const wsId = motMatch[1];
       const user = await requireAuth(request, env);
@@ -83,16 +84,18 @@ export async function executiveDashboardRoutes(rctx) {
           .prepare("SELECT COUNT(*) AS n FROM shadow_it_inventory WHERE workspace_id = ?")
           .bind(wsId).first();
         const domains = withShadowItInventoryCount(
-          withEvidenceFreshness(resolveCyberMotDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap })),
+          withEvidenceFreshness(resolveSecurityCheckDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap })),
           inventoryCount?.n, Boolean(sourceScanId),
         );
         return json({
           workspace_id:   wsId,
           source_scan_id: sourceScanId,
           cyber_mot_domains: domains,
+          security_domains: domains,   // neutral alias of cyber_mot_domains
         });
       } catch (e) {
-        return json({ workspace_id: wsId, source_scan_id: null, cyber_mot_domains: withEvidenceFreshness(resolveCyberMotDomainStates(null)) });
+        const noScan = withEvidenceFreshness(resolveSecurityCheckDomainStates(null));
+        return json({ workspace_id: wsId, source_scan_id: null, cyber_mot_domains: noScan, security_domains: noScan });
       }
     }
 

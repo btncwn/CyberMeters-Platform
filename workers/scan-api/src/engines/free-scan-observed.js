@@ -1,4 +1,4 @@
-// What the public Free Cyber MOT checks DID observe, per domain card (19 Oct 2026).
+// What the public free security check DID observe, per domain card (19 Oct 2026).
 //
 // The preview used to show only problems, so a well-configured domain got
 // "0 findings" and an empty card everywhere. These statements report the

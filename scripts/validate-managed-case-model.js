@@ -38,7 +38,7 @@ const mkCase = (over = {}) => ({ id: "mc-test", workspace_id: "ws1", case_type: 
 // ── 1. Exactly eight domain keys ─────────────────────────────────────────────
 eq("exactly 8 canonical domain keys", CANONICAL_DOMAIN_KEYS.length, 8);
 const DOMAINS = ["email_protection","brand_protection","attack_surface","certificates_trust","cyber_essentials_readiness","website_security","identity_exposure","shadow_it_unmanaged_technology"];
-ok("domain keys match the canonical Cyber MOT set", DOMAINS.every((d) => CANONICAL_DOMAIN_KEYS.includes(d)) && CANONICAL_DOMAIN_KEYS.every((d) => DOMAINS.includes(d)));
+ok("domain keys match the canonical external security check set", DOMAINS.every((d) => CANONICAL_DOMAIN_KEYS.includes(d)) && CANONICAL_DOMAIN_KEYS.every((d) => DOMAINS.includes(d)));
 ok("every domain key has a default case_type", DOMAINS.every((d) => DEFAULT_CASE_TYPE_BY_DOMAIN[d]));
 ok("every registered case_type maps to a valid domain key", Object.values(CASE_TYPE_REGISTRY).every((e) => isValidDomainKey(e.domain_key)));
 eq("all eight domains are represented by a case_type", new Set(Object.values(CASE_TYPE_REGISTRY).map((e) => e.domain_key)).size, 8);

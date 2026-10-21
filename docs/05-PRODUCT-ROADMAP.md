@@ -454,7 +454,7 @@ Follow:
 - Engineering Constitution
 - Security Playbook
 - Nessus
-- SSL Labs
+- a public TLS grading service
 - Mozilla Observatory
 - SecurityHeaders
 - Manual web app review

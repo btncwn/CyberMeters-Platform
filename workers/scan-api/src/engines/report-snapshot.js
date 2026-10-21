@@ -1,13 +1,13 @@
-// ── Canonical Cyber MOT reporting snapshot (M5.c) ──
+// ── Canonical security reporting snapshot (M5.c) ──
 //
-// One completed Cyber MOT → one immutable canonical eight-domain snapshot,
+// One completed security check → one immutable canonical eight-domain snapshot,
 // persisted before any report is considered available (founder package,
 // 2026-07-16). This engine is the ONLY writer of scan_report_snapshots
 // (migration 093) and of the reports/snapshots/ R2 prefix.
 //
 // It owns NO calculation brain. Every assessment fact is the verbatim output of
 // the canonical producer that already owns it:
-//   • eight-domain states       → resolveCyberMotDomainStates (cyber-mot-domains.js)
+//   • eight-domain states       → resolveSecurityCheckDomainStates (security-check-domains.js)
 //   • Cyber Metrics Score       → the scan's own computeScore output + the
 //                                 canonical assessment presentation
 //   • Business Risk Indicator   → deriveScanBusinessRisk (business-risk.js)
@@ -27,7 +27,7 @@
 // with the reason in metadata_json — visible and retryable, never silent, never
 // exposed as completed.
 
-import { resolveCyberMotDomainStates, CYBER_MOT_RESOLVER_VERSION } from "./cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates, SECURITY_CHECK_RESOLVER_VERSION } from "./security-check-domains.js";
 import { withShadowItInventoryCount } from "./shadow-it-inventory-count.js";
 import {
   hasUnvalidatedBrandFinding,
@@ -42,7 +42,7 @@ import { CE_QUESTION_SET_VERSION } from "../lib/cyber-essentials.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { findingRemediation, getRemediationById, remediationRegistryFingerprint } from "./remediation-registry.js";
 import { verificationSupportForMethod } from "./managed-case-model.js";
-import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { createId } from "../lib/util.js";
 import { normalizeSignalMonitoringStates } from "./signal-monitoring-state.js";
 import {
@@ -364,7 +364,7 @@ function domainEvidenceGrade(entry, report) {
   ].includes(entry?.state);
   const monitoringIncomplete = Object.values(entry?.monitoring_signals || {})
     .some((signal) => signal?.state !== "monitoring_healthy");
-  const definition = CYBER_MOT_DOMAINS.find(
+  const definition = SECURITY_CHECK_DOMAINS.find(
     (candidate) => candidate.domain_key === entry?.domain_key
   );
   const skipped = new Set(report?.scan_quality?.modules_skipped || []);
@@ -630,7 +630,7 @@ export function composeSnapshot({
   );
 
   // Canonical producers — verbatim, never second-guessed.
-  const resolvedDomains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });
+  const resolvedDomains = resolveSecurityCheckDomainStates(reportForCustomer, { scanId, cyberEssentials });
   const domains = shadowInventoryCount == null
     ? resolvedDomains
     : withShadowItInventoryCount(resolvedDomains, shadowInventoryCount, true);
@@ -672,7 +672,7 @@ export function composeSnapshot({
   // remediation_id below is what lets a renderer show ONE fix instead of three
   // unrelated actions.
   const domainKeysForFinding = (f) =>
-    CYBER_MOT_DOMAINS.filter((d) => {
+    SECURITY_CHECK_DOMAINS.filter((d) => {
       try { return typeof d.match === "function" && d.match(f); } catch { return false; }
     }).map((d) => d.domain_key);
 
@@ -819,7 +819,7 @@ export function composeSnapshot({
       // Trend comparability metadata (the 091 gate): only rows sharing a
       // resolver_version on a complete scan may establish a trend.
       trend: {
-        resolver_version: CYBER_MOT_RESOLVER_VERSION,
+        resolver_version: SECURITY_CHECK_RESOLVER_VERSION,
         scan_quality: qualityStatus,
         comparable_basis: qualityStatus === "complete",
       },
@@ -828,7 +828,7 @@ export function composeSnapshot({
       managed_workflow: reconstruction
         ? WORKFLOW_UNAVAILABLE
         : (workflowByDomain.get(d.domain_key) || { total_cases: 0, open_cases: 0, statuses: {} }),
-      methodology_version: CYBER_MOT_RESOLVER_VERSION,
+      methodology_version: SECURITY_CHECK_RESOLVER_VERSION,
     };
     if (d.domain_key === "cyber_essentials_readiness") {
       // The released CE contract travels with the snapshot VERBATIM — 2-of-5
@@ -904,7 +904,7 @@ export function composeSnapshot({
       // claim. Stored snapshots are never rewritten.
       entry.live_certificate_verified = false;
       if (live) {
-        const domainLimits = CYBER_MOT_DOMAINS.find((definition) => definition.domain_key === "certificates_trust").limitations;
+        const domainLimits = SECURITY_CHECK_DOMAINS.find((definition) => definition.domain_key === "certificates_trust").limitations;
         entry.limitations = [...entry.limitations.filter((limit) => !domainLimits.includes(limit)), ...live.limits];
       } else if (entry.state === "assessed_healthy") {
         // A certificate that could not be read is not a certificate without a
@@ -1036,7 +1036,7 @@ export function composeSnapshot({
     },
     methodology: {
       snapshot_builder_version: SNAPSHOT_BUILDER_VERSION,
-      cyber_mot_resolver_version: CYBER_MOT_RESOLVER_VERSION,
+      cyber_mot_resolver_version: SECURITY_CHECK_RESOLVER_VERSION,
       cyber_metrics_score_methodology_version: CYBER_METRICS_SCORE_METHODOLOGY_VERSION,
       business_risk_methodology_version: BUSINESS_RISK_METHODOLOGY_VERSION,
       ce_readiness_methodology_version: ceReadiness?.readiness_methodology_version ?? null,
@@ -1219,7 +1219,7 @@ export async function buildScanReportSnapshot(env, opts = {}) {
     )
     .bind(
       snapshotId, workspaceId, domainId, scanId, r2Key,
-      SNAPSHOT_SCHEMA_VERSION, CYBER_MOT_RESOLVER_VERSION,
+      SNAPSHOT_SCHEMA_VERSION, SECURITY_CHECK_RESOLVER_VERSION,
       report?.scan_quality?.status ?? null, occurredAt,
       supersedesSnapshotId
     )

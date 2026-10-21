@@ -372,7 +372,7 @@ export function createLocalMcpWorker({ backend, onEvent, backendTimeoutMs = DEFA
     const definitions = [
       ['cybermeters_list_workspaces', emptyInput, 'List the single workspace bound to this internal trial credential.', projectWorkspaces],
       ['cybermeters_get_workspace_summary', workspaceInput, 'Return a bounded assessment summary for one workspace.', projectWorkspaceSummary],
-      ['cybermeters_get_workspace_posture', workspaceInput, 'Return all eight canonical Cyber MOT domain states and limitations.', projectWorkspacePosture],
+      ['cybermeters_get_workspace_posture', workspaceInput, 'Return all eight canonical security domain states and limitations.', projectWorkspacePosture],
       ['cybermeters_list_recent_scans', workspaceInput, 'List a fixed small page of recent scan assessment states.', projectRecentScans],
       ['cybermeters_get_scan_status', scanInput, 'Return a scan lifecycle and separate assessment state.', projectScanStatus],
       ['cybermeters_list_managed_cases', workspaceInput, 'List a fixed small page of managed case phases.', projectManagedCases],

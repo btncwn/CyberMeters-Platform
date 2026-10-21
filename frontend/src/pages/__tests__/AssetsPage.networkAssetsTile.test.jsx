@@ -10,7 +10,7 @@ import { api } from '../../api'
 
 vi.mock('../../api', () => ({
   api: {
-    getCyberMotDomains: vi.fn(), getManagedCases: vi.fn(), getWorkspaceAssetsSummary: vi.fn(), getWorkspaceAssets: vi.fn(),
+    getSecurityCheckDomains: vi.fn(), getManagedCases: vi.fn(), getWorkspaceAssetsSummary: vi.fn(), getWorkspaceAssets: vi.fn(),
     getWorkspaceAssetsTimeline: vi.fn(), getWorkspaceScans: vi.fn(), getScanReport: vi.fn(),
     getNetworkTargets: vi.fn(), getNetworkAssets: vi.fn(), getNetworkScans: vi.fn(),
   },
@@ -28,7 +28,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.setItem('cybermeters_workspace_id', 'ws-1')
   localStorage.setItem('cybermeters_workspace_name', 'Acme')
-  api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: [] })
+  api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: [] })
   api.getManagedCases.mockResolvedValue({ cases: [] })
   api.getWorkspaceAssetsSummary.mockResolvedValue({ total_assets: 2, lifecycle_counts: { observed: 2 } })
   api.getWorkspaceAssets.mockResolvedValue({ assets: [] })

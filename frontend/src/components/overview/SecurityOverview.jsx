@@ -9,7 +9,7 @@
 // render, none of them settled.
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
-import { resolveDisplayDomains } from '../../lib/cyberMotDisplay'
+import { resolveDisplayDomains } from '../../lib/securityCheckDisplay'
 import { customerEvidenceText } from '../../lib/evidenceStrengthDisplay'
 import { MODULES, guidePathForDomainKey, casesPathForDomainKey, moduleTheme } from '../../lib/moduleRegistry'
 import { domainStatus, summariseCases } from '../../lib/statusVocabulary'
@@ -23,7 +23,7 @@ export function requestManagedCases(workspaceId, params = { limit: 200 }) {
 }
 
 export function requestDomainStates(workspaceId) {
-  return Promise.resolve().then(() => api.getCyberMotDomains(workspaceId))
+  return Promise.resolve().then(() => api.getSecurityCheckDomains(workspaceId))
 }
 
 // Only a valid eight-entry backend set is "ok"; anything else is a failed read.
@@ -184,7 +184,7 @@ export default function SecurityOverview({ workspaceName, domains, domainsReques
       <section aria-labelledby="overview-domains-heading">
         <div className="section-head">
           <div>
-            <h2 id="overview-domains-heading" className="section-title">Your Cyber MOT domains</h2>
+            <h2 id="overview-domains-heading" className="section-title">Your security domains</h2>
             <p className="text-xs text-gray-500 mt-1">
               Every area for {workspaceName || 'the selected workspace'}, each with what the latest assessment could establish.
             </p>

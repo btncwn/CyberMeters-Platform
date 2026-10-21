@@ -41,7 +41,7 @@ describe('workspace role rule', () => {
     expect(isForbidden(null)).toBe(false)
   })
   it('a coded 403 is not a role refusal (verification, plan or domain limit keep their own handling)', () => {
-    expect(isForbidden({ status: 403, code: 'domain_verification_required', message: 'Verify domain ownership before starting a Cyber MOT.' })).toBe(false)
+    expect(isForbidden({ status: 403, code: 'domain_verification_required', message: 'Verify domain ownership before starting an external security check.' })).toBe(false)
     expect(isForbidden({ status: 403, code: 'trial_domain_limit', message: 'Your trial includes one domain.' })).toBe(false)
     expect(isForbidden({ status: 403, code: 'x', message: 'Forbidden — admin role required' })).toBe(true)
   })

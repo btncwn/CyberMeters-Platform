@@ -150,7 +150,7 @@ async function checkCreationAndDedup() {
   const r1 = await a.createCase({ case_type: "email_case", domain_key: "email_protection", domain: "example.com", asset_ref: "example.com", source_finding_type: "email_missing_dmarc", source_finding_id: "find-1" });
   eq("1: case creation returns 201", r1.status, 201);
   const d1 = await r1.json();
-  eq("1: case records the Cyber MOT category", d1.case.domain_key, "email_protection");
+  eq("1: case records the external security check category", d1.case.domain_key, "email_protection");
   eq("1: case records the evidence source finding", d1.case.source_finding_type, "email_missing_dmarc");
   eq("1: case records the affected resource", d1.case.asset_ref, "example.com");
   ok("1: case links the canonical remediation", Boolean(d1.case.remediation_id));

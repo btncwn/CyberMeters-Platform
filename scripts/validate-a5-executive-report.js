@@ -29,7 +29,7 @@ const { buildWorkspaceExecutivePdf, buildScanReportPdf, pdfEsc } = await eng("pd
 const { CYBERMETERS_LOGO_DATA_URI, CYBERMETERS_LOGO_SHA256, CYBERMETERS_LOGO_DIMENSIONS } = await eng("brand-logo.js");
 const { prepareLogoXObject } = await eng("pdf-image.js");
 const { loadBrandingLogoDataUri, cyberMetersDescriptor } = await eng("report-branding-v2.js");
-const { CYBER_MOT_DOMAINS } = await eng("cyber-mot-domains.js");
+const { SECURITY_CHECK_DOMAINS } = await eng("security-check-domains.js");
 const fs = await import("node:fs");
 const crypto = await import("node:crypto");
 
@@ -240,10 +240,10 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
 // ── Copy correction: limitation punctuation renders correctly (no dash-loss) ──
 // The ASCII-only PDF renderer strips a non-ASCII em-dash to a space, so a source
 // "only — no" rendered as a malformed "only  no". The canonical limitation copy in
-// cyber-mot-domains.js must use ASCII punctuation (a semicolon) so it renders clean.
+// security-check-domains.js must use ASCII punctuation (a semicolon) so it renders clean.
 {
   // Source-level: the two flagged domain limitations are ASCII with a semicolon.
-  const allLimits = CYBER_MOT_DOMAINS.flatMap((d) => d.limitations || []);
+  const allLimits = SECURITY_CHECK_DOMAINS.flatMap((d) => d.limitations || []);
   const extObs = allLimits.find((l) => l.startsWith("External observation only"));
   const passive = allLimits.find((l) => l.startsWith("Passive external check only"));
   ok("copy: canonical Attack-Surface limitation is ASCII with a semicolon",
@@ -315,9 +315,14 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   // "All times are in UTC." once under its identity and no time carries its own
   // suffix. With only the zone suffix and that line reverted, both prior
   // goldens (3a88ea28…, 698094fe…) reproduce exactly.
+  // Refreshed for the retired product name (21 Oct 2026): the section heading
+  // reads "External security posture" and recommended actions say "security
+  // check". Applying ONLY those wording changes to origin/main reproduces both new
+  // goldens exactly (8e004ddc… / 670babe7…), so the renames and the API alias
+  // move neither.
   const executiveGolden = {
-    false: "0bcfb46445c570fce67d89446acfee5866c4ef28396d463041f63b90d4360352",
-    true: "1986055d445dbf0d680d0656486dff5ed286a3f0d72ac0e7ceae1dbc47b8124e",
+    false: "8e004ddca4b25ccb3db4c15c9c97d2a8d848f0efa60c10f47b0c99e9b1c0dd2a",
+    true: "670babe7eb6f554d224d4be7245523fb74fde3562f87ff66fb1f787309f960f3",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));
@@ -372,7 +377,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const multi = latin1(render(snap, { reads: [readOf(old), { status: "integrity_error", domain_id: "unavailable.example" }, readOf(snap), { status: "building", domain_id: "pending.example" }] }));
   ok("brief latest assessment selected independently of input order", multi.indexOf("cybermeters.com") < multi.indexOf("older.example"));
   ok("brief never omits another supplied website or unavailable entry", ["older.example", "unavailable.example", "pending.example", "still being prepared", "not available"].every((name) => multi.includes(name)));
-  ok("brief additional sites retain their own areas without duplicating the workspace summary", (multi.match(/Cyber MOT: External posture/g) || []).length === 2 && (multi.match(/Recorded findings/g) || []).length === 1);
+  ok("brief additional sites retain their own areas without duplicating the workspace summary", (multi.match(/External security posture/g) || []).length === 2 && (multi.match(/Recorded findings/g) || []).length === 1);
   const newestQuiet = mkSnap({ complete: true });
   newestQuiet.snapshot.domain = "latest-quiet.example";
   newestQuiet.remediation_actions = [{ priority: "low", title: "Routine latest action" }];

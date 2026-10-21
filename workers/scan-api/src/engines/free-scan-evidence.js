@@ -1,6 +1,6 @@
 // ── Anonymous free-scan evidence contract ───────────────────────────────────
 //
-// The public preview executes five bounded modules, not the full Cyber MOT. This module
+// The public preview executes five bounded modules, not the full external security check. This module
 // keeps execution outcome, canonical signal coverage, and customer conclusion
 // separate so a zero-finding response can never become a healthy verdict when a
 // probe failed or returned incomplete evidence.

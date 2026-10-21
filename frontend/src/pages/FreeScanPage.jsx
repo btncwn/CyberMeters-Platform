@@ -1,5 +1,5 @@
 /**
- * Public Free Cyber MOT preview.
+ * Public Free security check preview.
  * Backend owns every verdict/count. This page only presents the bounded,
  * non-persistent eight-domain projection and the verified-domain handoff.
  */
@@ -9,7 +9,7 @@ import { Moon, Sun } from 'lucide-react'
 import { formatDate } from '../utils/dates'
 import PublicSiteHeader from '../components/PublicSiteHeader'
 import PublicSiteFooter from '../components/PublicSiteFooter'
-import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
+import FreeSecurityCheckPreviewGrid from '../components/FreeSecurityCheckPreviewGrid'
 import SomethingWrong from '../components/SomethingWrong'
 import { BASE, api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -133,7 +133,7 @@ function LoadingState({ domain, step }) {
     <main className="fm-shell fm-loading-wrap">
       <section className="fm-loading" aria-live="polite">
         <span className="fm-kicker">Bounded public snapshot</span>
-        <h1>Building the Cyber MOT for {domain}</h1>
+        <h1>Building the security check for {domain}</h1>
         <p>One rate-limited snapshot. No report, scan history or monitoring record is stored.</p>
         <div className="fm-loading__steps">
           {LOADING_STEPS.map((label, index) => (
@@ -263,7 +263,7 @@ export default function FreeScanPage() {
           <section className="fm-hero">
             <div className="fm-shell fm-hero__grid">
               <div>
-                <span className="fm-kicker">Free Cyber MOT</span>
+                <span className="fm-kicker">Free security check</span>
                 <h1>See what your domain shows the internet — before an attacker does.</h1>
                 <p className="fm-hero__lede">
                   Five bounded public checks, summarised across your external posture.
@@ -284,7 +284,7 @@ export default function FreeScanPage() {
                       autoFocus
                     />
                     <button type="submit" disabled={!domain.trim()}>
-                      Run my free Cyber MOT
+                      Run my free security check
                     </button>
                   </div>
                 </form>
@@ -303,7 +303,7 @@ export default function FreeScanPage() {
 
               <aside className="fm-hero-panel" aria-label="What the free check covers">
                 <div className="fm-hero-panel__header">
-                  <span>Free Cyber MOT</span>
+                  <span>Free security check</span>
                   <strong>One honest view</strong>
                 </div>
                 <ul className="fm-area-list">
@@ -327,7 +327,7 @@ export default function FreeScanPage() {
         <main ref={resultsRef} className="fm-shell fm-results">
           <div className="fm-result-title">
             <div>
-              <span className="fm-kicker">Free Cyber MOT snapshot</span>
+              <span className="fm-kicker">Free security check snapshot</span>
               <h1>{result.domain}</h1>
               <p>{result.scanned_at ? `Completed ${formatDate(result.scanned_at)}` : 'Snapshot completed'}</p>
             </div>
@@ -421,7 +421,7 @@ export default function FreeScanPage() {
             </section>
           ) : (
             <section className="fm-cta">
-              <span className="fm-kicker">Turn the snapshot into a managed Cyber MOT</span>
+              <span className="fm-kicker">Turn the snapshot into a managed external security check</span>
               <h2>Start my 14-day trial</h2>
               <p>
                 Verify the domain first, then unlock the full finding list, remediation, Executive PDF,
@@ -440,7 +440,7 @@ export default function FreeScanPage() {
           )}
 
 
-          <FreeCyberMotPreviewGrid domains={presentation.domains} moreWhere={moreWhere} />
+          <FreeSecurityCheckPreviewGrid domains={presentation.domains} moreWhere={moreWhere} />
 
           <aside className="fm-guardrail">
             <div>

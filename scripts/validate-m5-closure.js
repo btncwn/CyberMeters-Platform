@@ -72,7 +72,7 @@ const IDEMPOTENCY = Object.freeze([
     label: "091 cyber_mot_domain_states",
     migration: "database/migrations/091-cyber-mot-domain-states.sql",
     unique: /UNIQUE \(workspace_id, domain_id, scan_id, domain_key\)/,
-    engine: "workers/scan-api/src/engines/cyber-mot-state-history.js",
+    engine: "workers/scan-api/src/engines/security-check-state-history.js",
     insert: /INSERT OR IGNORE INTO cyber_mot_domain_states/,
     table: "cyber_mot_domain_states",
   },

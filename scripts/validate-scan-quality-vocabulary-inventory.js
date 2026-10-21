@@ -66,7 +66,7 @@ const EXPECTED = Object.freeze({
     // null/unknown quality is never presented as complete. The pre-existing
     // runtime comparison sites remain unchanged.
     // Domain decision honesty (17 Oct 2026): the Email Protection sender-alert
-    // caveat adds one coverage guard in cyber-mot-domains.js that never
+    // caveat adds one coverage guard in security-check-domains.js that never
     // upgrades `degraded` to `partial`. No new source file; the partial-only
     // fingerprint is unchanged.
     // HTTP/TLS phase split: one domain-local status membership check was added;
@@ -127,9 +127,13 @@ const EXPECTED = Object.freeze({
     // quality, and the aggregate now checks the projected complete state.
     // PR-A2: three additive PDF checks and one IntelligencePage check suppress
     // numeric scores on partial reports. No comparison was removed.
-    // P1b-3 two-tree diff: cyber-mot-domains.js adds one partial/degraded
+    // P1b-3 two-tree diff: security-check-domains.js adds one partial/degraded
     // membership comparison for domain-local Email/Brand evidence; none removed.
-    fingerprint: "fdf7bfbeda20ab53cf30ef7129ccec1009c2c22a8fa24d574b41d26037092c62",
+    // Retired product name (21 Oct 2026): the resolver files and identifiers were renamed
+    // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
+    // (origin/main vs this head): all 541 entries are identical once the renames and byte
+    // offsets are normalised, and every count is unchanged; only the fingerprints move.
+    fingerprint: "51b7b9fa6741494286864540f05b88fd7a0b76ecf084d08f8064b8797993fab7",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -158,10 +162,10 @@ const EXPECTED = Object.freeze({
     // Deep TLS historical retest added four lines before the existing
     // historical-scan.js query. The two-tree dump shows only its line
     // moving 196 -> 200; predicate text, count and classification are equal.
-    // Cyber MOT coverage now prefers the newest provisional report. One added
+    // security coverage now prefers the newest provisional report. One added
     // route comment shifts the existing executive-dashboard SQL query site by
     // one line; predicate text, site/sink counts and classification are unchanged.
-    // App Experience PR 2: the cyber-mot-domains route gained an additive
+    // App Experience PR 2: the security-domains route gained an additive
     // evidence-freshness helper (import + 11 lines) above the existing
     // executive-dashboard SQL query site, which moves by that much; the
     // two-tree --dump-current diff shows only line/offset shifts — predicate
@@ -178,9 +182,13 @@ const EXPECTED = Object.freeze({
     // the two-tree --dump-current diff keyed by file/kind/slot/snippet shows no
     // other change (same 40 predicates, 29 sites, 22 sinks).
     // BRI 2026-10-20.1: the HSTS deduction table moves business-risk.js SQL sites +22 lines; two-tree diff is position-only.
-    fingerprint: "ae004f42e1e67bfc848b0e14e23e2273cdc3f3d357ebb17402292a09ec831f3b",
+    // Retired product name (21 Oct 2026): the resolver files and identifiers were renamed
+    // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
+    // (origin/main vs this head): all 541 entries are identical once the renames and byte
+    // offsets are normalised, and every count is unchanged; only the fingerprints move.
+    fingerprint: "4099a40001c6afdd8eb662108ee5beb9febabd3dbac52261459db1e45c72f3c9",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "3ca05226b17c1b58d27d519ae41952bf5918b635ea5180777fc00cec7ae935a8",
+    resolved_query_sink_fingerprint: "d7766c2c04e1d242e00c3d285dd94dae1c32efbfba52f34d8539b42e212cdbcd",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -308,7 +316,11 @@ const EXPECTED = Object.freeze({
     // PR-A2: four additive PDF reads plus one executive and three Intelligence
     // presentation reads of backend quality; no direct read was removed.
     // P1b-3: one added resolver read of report.scan_quality; no removals.
-    runtime: { occurrence_count: 139, source_file_count: 48, fingerprint: "bb5c5e1495e5509e2e1d739a6dce8c1b285f4f4c68aac8130552be430ef246d3" },
+    // Retired product name (21 Oct 2026): the resolver files and identifiers were renamed
+    // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
+    // (origin/main vs this head): all 541 entries are identical once the renames and byte
+    // offsets are normalised, and every count is unchanged; only the fingerprints move.
+    runtime: { occurrence_count: 139, source_file_count: 48, fingerprint: "6eca406414963ffbd9e0437491bede1ac9bb7f07435c99ea37a9421984f33586" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -390,7 +402,11 @@ const EXPECTED = Object.freeze({
   // evidence_read field shift the two mcp-projections.js scan SELECTs; the
   // two-tree --dump-current diff shows the same 24 reads with unchanged file,
   // kind and snippet.
-  sql_reads: { projection_occurrences: 24, fingerprint: "7c35abb6cbda79a149d34cee1b775e7d1976d2a2439b5e5faee2bdfbb6a01a20" },
+  // Retired product name (21 Oct 2026): the resolver files and identifiers were renamed
+  // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
+  // (origin/main vs this head): all 541 entries are identical once the renames and byte
+  // offsets are normalised, and every count is unchanged; only the fingerprints move.
+  sql_reads: { projection_occurrences: 24, fingerprint: "331cf1b97e6493ec739b9ec70bb110fcc7b29da5f9d356744c2997e394d3dbfa" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

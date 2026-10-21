@@ -236,14 +236,14 @@ ok("the battlecard never sells a four-service story in its own voice",
    `unanchored: ${fourServiceLines.filter((l) => !/\bv1\b/.test(l)).join(" | ")}`);
 
 // The canonical pricing policy's bundle claim must enumerate the same eight domains
-// and must not present "Cyber MOT" (the product) as if it were a ninth domain.
+// and must not present "external security check" (the product) as if it were a ninth domain.
 const pp = read(CANONICAL_PRICING);
 const bundleClaim = norm((pp.match(/full external-security posture\*\*[\s\S]{0,500}/) || [""])[0]);
 for (const d of EIGHT) {
   ok(`the pricing policy's bundle claim names "${d}"`, bundleClaim.includes(d));
 }
-ok("the pricing policy's bundle claim does not list Cyber MOT as a domain",
-   !/·\s*Cyber MOT\s*·/.test(bundleClaim));
+ok("the pricing policy's bundle claim does not list external security check as a domain",
+   !/·\s*external security check\s*·/.test(bundleClaim));
 
 // ── 9. Docs-only: no secret, no runtime configuration ────────────────────────
 // A commercial-docs pass must never carry a credential or move production config.

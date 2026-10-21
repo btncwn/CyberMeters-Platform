@@ -27,8 +27,8 @@ function stripComments(source) {
 }
 
 // Counting words in customer text: "eight areas", "eight domains", "eight
-// services", "eight Cyber MOT …", "eight-domain …", "all eight", "the eight".
-const COUNTING = /\b(all|the|across|our|your|of)\s+eight\b|\beight[- ](areas?|domains?|services?|security|cyber mot|canonical|area|domain)\b|\bEight[- ]/i
+// services", "eight external security check …", "eight-domain …", "all eight", "the eight".
+const COUNTING = /\b(all|the|across|our|your|of)\s+eight\b|\beight[- ](areas?|domains?|services?|security|security check|canonical|area|domain)\b|\bEight[- ]/i
 
 describe('customer wording speaks of the external posture, not a number of areas', () => {
   it('no customer-visible string counts the areas', () => {

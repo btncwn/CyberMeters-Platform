@@ -320,7 +320,7 @@ test('customer lifecycle: signup, onboarding, scan, email protection, billing, d
   await page.getByRole('button', { name: /verify ownership/i }).click()
   await expect(page.getByText(/domain ownership is verified/i)).toBeVisible()
 
-  await page.getByRole('button', { name: /run first cyber mot/i }).click()
+  await page.getByRole('button', { name: /run first security check/i }).click()
   await expect(page.getByRole('link', { name: /open executive report/i })).toBeVisible()
   expect(state.scanPayload).toMatchObject({ domain: domain.domain, workspace_id: workspace.id })
 

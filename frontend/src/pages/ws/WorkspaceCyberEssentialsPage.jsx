@@ -75,7 +75,7 @@ function evidenceMeta(control) {
 
   if (evidence === 'contradicted_by_scan') {
     return {
-      label: 'Cyber MOT disagrees ⚠',
+      label: 'External check disagrees ⚠',
       helper: 'Your answer suggests this area is in place, but CyberMeters found external evidence that may conflict with it. Review this before applying for Cyber Essentials.',
       className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     }
@@ -83,7 +83,7 @@ function evidenceMeta(control) {
 
   if (evidence === 'externally_corroborated') {
     return {
-      label: 'Checked by Cyber MOT ✓',
+      label: 'Checked externally ✓',
       helper: 'CyberMeters found supporting external evidence from your domain, website, email, DNS or TLS posture.',
       className: 'bg-brand-50 text-brand-700 border-brand-100',
     }
@@ -91,8 +91,8 @@ function evidenceMeta(control) {
 
   if (evidence === 'externally_confirmed_gap') {
     return {
-      label: 'Checked by Cyber MOT ✓',
-      helper: 'Cyber MOT evidence found a gap in this control area. Review the gap before applying for Cyber Essentials.',
+      label: 'Checked externally ✓',
+      helper: 'External evidence found a gap in this control area. Review the gap before applying for Cyber Essentials.',
       className: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
     }
   }
@@ -174,7 +174,7 @@ function QuestionnaireSection({ control, answers, onChange }) {
         <div>
           <h2 className="text-lg font-bold text-gray-900">{controlLabel(control.control_key, control.label)}</h2>
           <p className="mt-1 text-sm leading-relaxed text-gray-500">
-            Some controls can be supported by Cyber MOT evidence. Others depend on your internal users, devices and processes, so they must be self-declared.
+            Some controls can be supported by external evidence. Others depend on your internal users, devices and processes, so they must be self-declared.
           </p>
         </div>
         <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-bold text-gray-600">
@@ -219,7 +219,7 @@ function ControlResultCard({ control, readinessNotAssessed = false }) {
           <p className="mt-1 text-sm leading-relaxed text-gray-500">
             {control.external_coverage === 'none'
               ? 'This area is based on self-declared answers because it depends on internal users, devices and processes.'
-              : 'This area can be supported by external Cyber MOT evidence and your saved answers.'}
+              : 'This area can be supported by external evidence and your saved answers.'}
           </p>
         </div>
         <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold capitalize ${readinessBadgeClass(displayedReadiness)}`}>
@@ -320,7 +320,7 @@ function PriorityGaps({ readiness }) {
     <div className="card p-6">
       <h2 className="font-semibold text-gray-900">Priority gaps to review</h2>
       <p className="mt-1 text-sm leading-relaxed text-gray-500">
-        Start with gaps supported by Cyber MOT evidence, then review self-declared areas with your IT provider or internal owner.
+        Start with gaps supported by external evidence, then review self-declared areas with your IT provider or internal owner.
       </p>
       {gaps.length > 0 ? (
         <ul className="mt-4 space-y-3">
@@ -376,7 +376,7 @@ function Recommendations({ readiness }) {
         </ul>
       ) : (
         <p className="mt-3 text-sm leading-relaxed text-gray-500">
-          Keep your answers current and rerun your Cyber MOT after making changes.
+          Keep your answers current and rerun your security check after making changes.
         </p>
       )}
     </div>
@@ -624,12 +624,12 @@ export default function WorkspaceCyberEssentialsPage() {
           domainKey="cyber_essentials_readiness"
           workspaceId={wsId}
           workspaceName={wsName}
-          description="Save self-declared answers for this workspace and combine them with external Cyber MOT evidence for readiness guidance and gap analysis."
+          description="Save self-declared answers for this workspace and combine them with external evidence for readiness guidance and gap analysis."
           /* The area template (18 Oct 2026): until every question is answered, the
              questionnaire IS the next action — one card, one button. */
           nextAction={progress.total > 0 && progress.answered < progress.total ? {
             title: progress.answered === 0 ? 'Answer the readiness questionnaire' : 'Finish the readiness questionnaire',
-            body: `${progress.answered} of ${progress.total} questions answered. Your answers are self-declared and combine with external Cyber MOT evidence for readiness guidance.`,
+            body: `${progress.answered} of ${progress.total} questions answered. Your answers are self-declared and combine with external evidence for readiness guidance.`,
             label: 'Start questionnaire',
             to: '/ws/cyber-essentials?tab=findings#questionnaire',
           } : null}
@@ -646,7 +646,7 @@ export default function WorkspaceCyberEssentialsPage() {
         <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
           <div className="flex gap-3">
             <p className="text-sm leading-relaxed text-blue-800">
-              Some controls can be supported by Cyber MOT evidence. Others depend on your internal users, devices and processes, so they must be self-declared.
+              Some controls can be supported by external evidence. Others depend on your internal users, devices and processes, so they must be self-declared.
             </p>
           </div>
         </div>

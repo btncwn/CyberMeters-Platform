@@ -915,34 +915,34 @@ export const ARTICLES = [
     findingIds: ['supply_chain_vendor_detected', 'third_party_js_detected', 'known_vulnerable_component'],
   },
 
-  // ── SEO: Cyber MOT ───────────────────────────────────────────────────────
+  // ── SEO: external security check ───────────────────────────────────────────────────────
   {
-    slug: 'what-is-a-cyber-mot-and-why-your-business-needs-one',
-    title: 'What is a Cyber MOT and why your business needs one',
+    slug: 'what-is-an-external-security-check',
+    title: 'What is an external security check and why your business needs one',
     category: 'cyber-essentials',
-    summary: 'A Cyber MOT is a quick, plain-English check of how safe and trusted your business looks from the outside — email, website, TLS, DNS, certificates and Cyber Essentials readiness gaps.',
+    summary: 'An external security check is a quick, plain-English check of how safe and trusted your business looks from the outside — email, website, TLS, DNS, certificates and Cyber Essentials readiness gaps.',
     readTime: 5,
     featured: true,
     publishedAt: '2026-07-08',
     sections: [
       {
-        heading: 'What a Cyber MOT Checks',
+        heading: 'What an External Security Check Covers',
         blocks: [
-          p('A Cyber MOT is a simple way to check whether your business looks safe, trusted and well configured from the outside.'),
-          p('Just like a vehicle MOT does not make a car perfect, a Cyber MOT does not claim your business is fully secure. It checks important visible signals that are often missed: your email protection, website security, TLS, DNS settings, certificates and Cyber Essentials readiness gaps.'),
+          p('An external security check is a simple way to check whether your business looks safe, trusted and well configured from the outside.'),
+          p('An external security check does not make a business perfect, and it does not claim your business is fully secure. It checks important visible signals that are often missed: your email protection, website security, TLS, DNS settings, certificates and Cyber Essentials readiness gaps.'),
           p('For any business, this matters because your domain is part of your reputation. Your website, email setup and public records are often the first things customers, suppliers, insurers and attackers can see. A weak setup can make your business easier to impersonate, easier to distrust and harder to work with.'),
         ],
       },
       {
         heading: 'Why Every Business Needs It',
         blocks: [
-          p('Cyber security can feel like too big a job. Many teams think they need a large consultancy project before they can understand their position. In reality, the first step should be simpler: check the public-facing basics, explain the findings in plain English and fix the highest-risk gaps first. That is the purpose of a Cyber MOT.'),
+          p('Cyber security can feel like too big a job. Many teams think they need a large consultancy project before they can understand their position. In reality, the first step should be simpler: check the public-facing basics, explain the findings in plain English and fix the highest-risk gaps first. That is the purpose of an external security check.'),
           li([
             'Is your business email protected against spoofing? SPF, DKIM and DMARC help receiving mail services decide whether a message really came from your domain.',
             'Does your website give the right trust signals? A modern site should use HTTPS properly, avoid expired certificates and include sensible browser protections.',
             'Are your DNS records clean and understandable? Incorrect records create email delivery problems, trust issues and avoidable operational risk.',
             'Are your certificates healthy? Expired or misconfigured certificates break websites and damage customer confidence.',
-            'Are you ready for Cyber Essentials? A Cyber MOT should not certify you; it should help you spot gaps before you start the formal self-assessment route.',
+            'Are you ready for Cyber Essentials? An external security check should not certify you; it should help you spot gaps before you start the formal self-assessment route.',
           ]),
         ],
       },
@@ -950,16 +950,16 @@ export const ARTICLES = [
         heading: 'Cyber Essentials Readiness, Not Certification',
         blocks: [
           p('This distinction is important. CyberMeters provides readiness support, not certification. IASME is the NCSC\'s official Cyber Essentials Delivery Partner, and certification is delivered through the approved route.'),
-          callout('A Cyber MOT helps you spot readiness gaps before the formal route. It is not a Cyber Essentials certificate and should not be treated as one.', 'info'),
+          callout('An external security check helps you spot readiness gaps before the formal route. It is not a Cyber Essentials certificate and should not be treated as one.', 'info'),
         ],
       },
       {
-        heading: 'What You Get From a Cyber MOT',
+        heading: 'What You Get From an External Security Check',
         blocks: [
-          p('For most businesses, the real value of a Cyber MOT is clarity. You do not need to understand every technical detail. You need to know whether your domain is protected, whether customers can trust your online presence and whether there are obvious gaps that should be fixed.'),
-          p('For MSPs, a Cyber MOT is also a useful client conversation starter. Instead of leading with fear, the MSP can show a simple report: here is what is good, here is what needs attention and here is the plan.'),
-          p('The best Cyber MOT is not about creating panic. It is about making cyber hygiene visible, affordable and repeatable. Run it once to understand your current posture. Run it regularly to catch changes. Use it before supplier reviews, insurance renewals, Cyber Essentials preparation or customer security questions.'),
-          p('You do not need enterprise complexity to make progress. You need a clear starting point. That is what a Cyber MOT gives you.'),
+          p('For most businesses, the real value of an external security check is clarity. You do not need to understand every technical detail. You need to know whether your domain is protected, whether customers can trust your online presence and whether there are obvious gaps that should be fixed.'),
+          p('For MSPs, an external security check is also a useful client conversation starter. Instead of leading with fear, the MSP can show a simple report: here is what is good, here is what needs attention and here is the plan.'),
+          p('The best external security check is not about creating panic. It is about making cyber hygiene visible, affordable and repeatable. Run it once to understand your current posture. Run it regularly to catch changes. Use it before supplier reviews, insurance renewals, Cyber Essentials preparation or customer security questions.'),
+          p('You do not need enterprise complexity to make progress. You need a clear starting point. That is what an external security check gives you.'),
         ],
       },
     ],
@@ -1022,7 +1022,7 @@ export const ARTICLES = [
             'Fix legitimate services that fail authentication',
             'Move towards quarantine or reject once reports are clean',
           ]),
-          p('A Cyber MOT can highlight whether DMARC is missing, weak or only in monitoring mode. That gives you a practical starting point without needing to read raw DNS records yourself.'),
+          p('An external security check can highlight whether DMARC is missing, weak or only in monitoring mode. That gives you a practical starting point without needing to read raw DNS records yourself.'),
         ],
       },
     ],
@@ -1083,12 +1083,12 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'How a Cyber MOT Helps',
+        heading: 'How an External Security Check Helps',
         blocks: [
-          p('A Cyber MOT cannot answer every internal Cyber Essentials question for you, but it can highlight visible gaps that often cause trouble: weak email protection, certificate issues, risky DNS records, missing website protections and externally visible services.'),
+          p('An external security check cannot answer every internal Cyber Essentials question for you, but it can highlight visible gaps that often cause trouble: weak email protection, certificate issues, risky DNS records, missing website protections and externally visible services.'),
           p('Use the report before the formal route so you can fix obvious issues early. That makes the assessment conversation simpler, reduces last-minute surprises and gives directors, insurers or suppliers a clearer view of progress.'),
           li([
-            'Run a Cyber MOT before starting the self-assessment',
+            'Run an external security check before starting the self-assessment',
             'Fix high-priority website, email, DNS and certificate issues first',
             'Review internal controls against the five Cyber Essentials areas',
             'Keep repeating checks so new gaps do not appear unnoticed',

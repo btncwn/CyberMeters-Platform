@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext'
 // workspaces or domains it has.
 
 vi.mock('../../api', () => ({
-  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn(), getCyberMotDomains: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceMembers: vi.fn() },
+  api: { getAccountUsage: vi.fn(), getWorkspaces: vi.fn(), getSecurityCheckDomains: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceMembers: vi.fn() },
   logoutWithToken: vi.fn(),
 }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }))
@@ -36,7 +36,7 @@ function renderLayout(usage, { user = { name: 'Taylor Owner', email: 'owner@exam
   mockViewport(wide)
   useAuth.mockReturnValue({ user, logout: vi.fn(), isAuthenticated: true, isLoading: false })
   api.getWorkspaces.mockResolvedValue({ workspaces: [] })
-  api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: [] })
+  api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: [] })
   api.getWorkspaceDomains.mockImplementation(async (id) => (domainsFor ? domainsFor(id) : { domains: [] }))
   if (usage instanceof Promise) api.getAccountUsage.mockReturnValue(usage)
   else if (usage instanceof Error) api.getAccountUsage.mockRejectedValue(usage)

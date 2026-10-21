@@ -1,7 +1,7 @@
 # Verification Vocabulary — canonical, cross-domain
 
 Status: **canonical** (founder-set, 16 July 2026, during M5.a PR2).
-Scope: all eight Cyber MOT domains, every customer-facing surface.
+Scope: all eight security domains, every customer-facing surface.
 
 This document is the single authority for how a verification outcome may be **worded**.
 It does not decide *whether* something is verified — that is the Canonical Remediation

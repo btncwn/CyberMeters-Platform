@@ -40,7 +40,7 @@ const PLAN_META = {
     color:       'text-blue-600',
     badge:       'bg-blue-50 text-blue-700 border-blue-200',
     ring:        'border-blue-200',
-    description: 'Full Cyber MOT for 1 monitored domain — scheduled scans, PDF reports, alerts and Business Risk Score.',
+    description: 'Full external security check for 1 monitored domain — scheduled scans, PDF reports, alerts and Business Risk Score.',
   },
   professional: {
     label:       'Professional',

@@ -159,7 +159,7 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
     mountOverview()
     await waitFor(() => expect(screen.getAllByText(/Not assessed/i).length).toBeGreaterThanOrEqual(1))
     expect(screen.queryByText(/Externally aligned/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Checked by Cyber MOT/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Checked externally/i)).not.toBeInTheDocument()
     expect(screen.getAllByText(/Not visible externally/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText(/historical-only/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/historical-non-external/i)).not.toBeInTheDocument()
@@ -190,7 +190,7 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
 
     expect(await screen.findByText(/No major readiness gaps found/i)).toBeInTheDocument()
     // The self-assessment control card (Findings) carries the evidence word.
-    expect(screen.getByText(/Checked by Cyber MOT/i)).toBeInTheDocument()
+    expect(screen.getByText(/Checked externally/i)).toBeInTheDocument()
     view.unmount()
     mountOverview()
     // The externally observed controls (Overview) carry the readiness state.

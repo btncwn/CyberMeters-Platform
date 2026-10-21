@@ -1,7 +1,7 @@
 // The canonical eight, in the backend's fixed order. Duplicated here deliberately:
 // the frontend test must fail if the API stops sending one of them, so it cannot import
 // the list from the code under test.
-export const CYBER_MOT_KEYS = [
+export const SECURITY_CHECK_KEYS = [
   'email_protection',
   'brand_protection',
   'attack_surface',

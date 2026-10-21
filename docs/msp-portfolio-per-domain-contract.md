@@ -7,7 +7,7 @@ Authoritative for the MSP Portfolio per-domain surface. Shipped `v2026.07.16-5`
 
 ## 1. The question this surface answers
 
-> For every domain I manage, for each customer: what state is each of the eight Cyber MOT
+> For every domain I manage, for each customer: what state is each of the eight external security check
 > domains in, what materially changed, is the evidence current, and who needs me first?
 
 The pre-existing portfolio (`portfolio-customers.js`, `portfolio-risk.js`) answers a
@@ -18,7 +18,7 @@ dimension away with `GROUP BY wd.workspace_id`. Both remain; they are not duplic
 
 ## 2. Architecture decision: persist the resolver's output
 
-`resolveCyberMotDomainStates()` (`engines/cyber-mot-domains.js`) remains the **only** thing
+`resolveSecurityCheckDomainStates()` (`engines/security-check-domains.js`) remains the **only** thing
 that decides what state a domain is in. Its own header says "No new storage, no migration",
 and that is correct **for its consumers**: Dashboard, Scan Detail, Executive Report and PDF
 each read one R2 report and resolve eight states from it.
@@ -41,7 +41,7 @@ resolver.
 
 | Candidate | Why not |
 |---|---|
-| `portfolio_risk_snapshots` (036) | Four scalars keyed by `users.id`. No workspace dimension, no domain dimension, no Cyber-MOT-domain dimension. 0 rows ever; writer deliberately deleted (#116). **Stays dead.** |
+| `portfolio_risk_snapshots` (036) | Four scalars keyed by `users.id`. No workspace dimension, no domain dimension, no security-domain dimension. 0 rows ever; writer deliberately deleted (#116). **Stays dead.** |
 | `historical_scores` (022) | One *score* per scan, not eight states. Its "domain" is a hostname. |
 | 085–090 lifecycle tables | Four of eight domains, four incompatible grains; `cyber_essentials_control_records` has no `domain_id` by an explicit honesty decision. None carries the resolver's vocabulary (`provisional`, `evidence_insufficient`, `not_yet_assessed`, `monitoring_only`), which derives from `scan_quality` + module presence. |
 | `asset_events` (004) | Right skeleton, wrong vocabulary: hostname/DNS/cert event types, no `domain_key`, no state column. |
@@ -81,7 +81,7 @@ that an **absent row means healthy**. An absent row means **not assessed**.
 
 ## 4. `resolver_version` — the comparability gate
 
-`CYBER_MOT_RESOLVER_VERSION` is the **first algorithm version stamped on a state a customer
+`SECURITY_CHECK_RESOLVER_VERSION` is the **first algorithm version stamped on a state a customer
 sees**. Before it, the repo's only persisted stamp was `PROVIDER_MAP_VERSION`, on one column.
 
 The gap it closes: `comparable` has always meant `scan_quality === 'complete'`. That answers
@@ -90,7 +90,7 @@ The gap it closes: `comparable` has always meant `scan_quality === 'complete'`. 
 with nothing recording that **the ruler moved rather than the thing measured**. A trend built
 on that attributes *our* engineering to *their* security posture.
 
-**Bump it** on any change to: `CYBER_MOT_STATES`, a domain's `modules`/`required` list, a
+**Bump it** on any change to: `SECURITY_CHECK_STATES`, a domain's `modules`/`required` list, a
 `match()` regex, the severity gate, or the resolver's precedence ladder.
 **Do not bump** for display copy (`description`, `summary` prose, `limitations`) — those do
 not change which state is resolved.
@@ -128,7 +128,7 @@ trend says so by name rather than by an arrow.
 
 ## 6. Freshness — a separate axis, never folded into the state
 
-`resolveCyberMotDomainStates` has **no clock**. A `complete` scan from 2019 resolves
+`resolveSecurityCheckDomainStates` has **no clock**. A `complete` scan from 2019 resolves
 `assessed_healthy` with full confidence, because coverage and age are different questions and
 it only answers the first. Defensible for a Dashboard opened right after a scan; not for a
 portfolio whose whole job is *"who has nobody looked at lately"*.
@@ -280,7 +280,7 @@ Worth knowing, because each is a way a test can look right and prove nothing:
 
 | Finding | Sev |
 |---|---|
-| `resolveCyberMotDomainStates` has **no staleness gate**: a `complete` scan from 2019 resolves `assessed_healthy` on Dashboard, Scan Detail, Executive Report and PDF. The portfolio adds freshness as its own axis rather than changing the resolver under four surfaces mid-episode. | **P1** |
+| `resolveSecurityCheckDomainStates` has **no staleness gate**: a `complete` scan from 2019 resolves `assessed_healthy` on Dashboard, Scan Detail, Executive Report and PDF. The portfolio adds freshness as its own axis rather than changing the resolver under four surfaces mid-episode. | **P1** |
 | Four of eight domains unreachable from `WorkspaceNav`; `website_security` has **no page**; `IdentityExposurePage`, `ShadowItInventoryPage`, `CertificateLifecyclePage` read `useParams().workspaceId` against routes declaring no param → `GET /api/workspaces/undefined/...`. `WorkspaceAuditLogPage` silently renders empty for the same reason. | **P1** |
 | **Six** divergent score-band ladders against a module stating every rating surface "MUST delegate here" (`riskLevelForScore` 90/75/50/25 · `pdf.js` same-with-different-labels · `posture-scoring` 90/70/50 · `business-risk` band 90/70/40 · `business-risk` grade 80/60/40/20 · `portfolioRiskBand` 25/50/75 · `portfolioScoreBand` 75/55/35 · `portfolio-customers` 80/60/40). The audit found more than the three previously recorded. | **P2** |
 | `csp_weak_policy` (medium) matches **no** domain regex — a material finding counted in zero domains. `ssl_not_available` and `dse_*` are attributed to a different domain than the remediation registry's `domain_key`. Resolver `match()` and registry `domain_key` are two unreconciled attribution mechanisms. | **P2** |

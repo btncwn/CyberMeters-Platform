@@ -5,10 +5,10 @@
 > `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
 > release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
 
-> Owner: Turhan. Thesis: the **UK Cyber MOT** — a self-serve, affordable cyber
+> Owner: Turhan. Thesis: the **UK external security check** — a self-serve, affordable cyber
 > posture platform for UK SMBs and the MSPs who serve them. Two free hooks pull
 > people in; the paid membership is the four core services. Positioned like
-> Red Sift + Hardenize combined, but **passive, self-serve, and far cheaper** —
+> Competitor A + Competitor A's web/TLS product combined, but **passive, self-serve, and far cheaper** —
 > make them irrelevant to the UK SMB, don't out-feature them.
 > Targets: **£100k Y1 · £150k Y2 · £200k Y3** (bootstrap, high-margin on Cloudflare).
 > Date: 2026-07-08.
@@ -17,14 +17,14 @@
 
 | Internal | Customer-facing name | Notes |
 |---|---|---|
-| Passive web-posture ("DAST") | **Website Security** | Plain English; lives inside the Cyber MOT + as a paid service signal. Best-in-class *passive* (Hardenize/SSL-Labs lineage), never active. |
-| Free instant scan (umbrella hook #1) | **Cyber MOT** | "The 2-minute security MOT for your business." Any domain, no signup. Surfaces Email Security + Website Security + TLS/DNS, passive. |
+| Passive web-posture ("DAST") | **Website Security** | Plain English; lives inside the external security check + as a paid service signal. Best-in-class *passive* (Competitor A's web/TLS product/SSL-Labs lineage), never active. |
+| Free instant scan (umbrella hook #1) | **external security check** | "The 2-minute external security check for your business." Any domain, no signup. Surfaces Email Security + Website Security + TLS/DNS, passive. |
 | Free hook #2 | **Cyber Essentials Readiness** | Measured-evidence + guided-questionnaire hybrid. Readiness/gap, NOT certification. |
 | Paid core services | Email Protection · Brand Protection · Attack Surface · Certificates & Trust | Existing names; may plain-language "Attack Surface"/"Certificates" for SMB later. |
 
 ## The offering map
 
-- **2 free hooks (lead-gen):** Cyber MOT (instant passive scan) + Cyber Essentials Readiness.
+- **2 free hooks (lead-gen):** external security check (instant passive scan) + Cyber Essentials Readiness.
 - **4 paid core services (the membership):** Email / Brand / Attack Surface / Certificates.
 
 ### Cyber Essentials — TWO separate surfaces (IA decision, do not merge)
@@ -34,10 +34,10 @@
 | Route | `/cyber-essentials-readiness` (no login) | `ws/cyber-essentials` (authenticated) |
 | Name | **Cyber Essentials Readiness Preview** | **Cyber Essentials Readiness Dashboard** |
 | Purpose | lead-gen / convince | real service / retain |
-| Data | local/temporary, lightweight preview | saved answers + workspace + Cyber MOT evidence via the authenticated `/cyber-essentials/answers` + readiness `self_assessment` |
-| CTA | Create free account · Run Cyber MOT | Save · review · fix |
+| Data | local/temporary, lightweight preview | saved answers + workspace + external evidence via the authenticated `/cyber-essentials/answers` + readiness `self_assessment` |
+| CTA | Create free account · Run a security check | Save · review · fix |
 
-CTA routing: dashboard/account → `ws/cyber-essentials`; marketing/public → `/cyber-essentials-readiness`; Cyber MOT → `/free-scan`. No surface uses "certification" or implies CyberMeters certifies.
+CTA routing: dashboard/account → `ws/cyber-essentials`; marketing/public → `/cyber-essentials-readiness`; external security check → `/free-scan`. No surface uses "certification" or implies CyberMeters certifies.
 - **2 private validation domains:** cybermeters.com + blackbullbarbers.co.uk (dogfood everything here before public).
 - **Pricing → see [PRICING-POLICY.md](PRICING-POLICY.md) (canonical, research CLOSED).**
   DECIDED 2026-07-09 (MAX-aggressive): Free forever · Starter £9/3 · Growth £29/10 ·
@@ -72,10 +72,10 @@ let it delay the growth path; revisit post-revenue or never.
 - Confirm the first real DMARC report processes on the new email worker (passive watch — does not block).
 - Freeze Stage C; audit the 4 services + 2 domains for "public-ready" gaps.
 - Spec the two free hooks + the self-serve billing funnel for Codex.
-- Stand up the marketing site skeleton + "Cyber MOT" positioning.
+- Stand up the marketing site skeleton + "external security check" positioning.
 
 ### Phase 1 — The two free hooks (Week 3-6)
-- **Cyber MOT** (public, no-signup, any domain): passive Email + Website Security + TLS/DNS → beautiful report + AI business-impact + "fix these" → CTA to sign up. Reuses existing passive capability.
+- **external security check** (public, no-signup, any domain): passive Email + Website Security + TLS/DNS → beautiful report + AI business-impact + "fix these" → CTA to sign up. Reuses existing passive capability.
 - **Cyber Essentials Readiness**: measured-evidence (external subset) + guided questionnaire (internal controls); measured signal overrides optimistic self-attestation → gap list. Readiness, not certification.
 
 ### Phase 2 — Self-serve membership (Week 6-10)
@@ -85,7 +85,7 @@ let it delay the growth path; revisit post-revenue or never.
 ### Phase 3 — Public beta + grants (Week 10-14)
 - Launch open signup (public beta).
 - In parallel: submit grant/funding applications (see Funding track).
-- Turn on the acquisition engine: free Cyber MOT hook + UK DMARC/Cyber-Essentials content/SEO. £3k ad budget = narrow experiments only, not broad spend.
+- Turn on the acquisition engine: free security check hook + UK DMARC/Cyber-Essentials content/SEO. £3k ad budget = narrow experiments only, not broad spend.
 
 ## Funding track (parallel from public-beta launch)
 
@@ -105,7 +105,7 @@ Managed by **risk level, ownership and approval authority** — not "who codes f
 | Role | Owns | Never does |
 |---|---|---|
 | **Turhan** — Founder / final approver | Company direction, pricing sign-off, launch timing, public-beta go/no-go, customer + MSP conversations, design-partner outreach, grant submissions, Cloudflare/Stripe/legal, **final approval on medium/high-risk prod deploys** | Get buried in low-level debugging; let engineering polish delay revenue validation; approve vague work |
-| **ChatGPT** — Product + growth + positioning + task specs | Positioning, Cyber MOT messaging, public-beta scope, growth/SEO/Academy content, CE Readiness wording, competitor teardowns, grant drafts, MSP outreach templates, **Claude/Codex task specs + acceptance criteria** | Write production code; own architecture; approve deploys; change migrations/auth/billing/cron/tenant-isolation |
+| **ChatGPT** — Product + growth + positioning + task specs | Positioning, external security check messaging, public-beta scope, growth/SEO/Academy content, CE Readiness wording, competitor teardowns, grant drafts, MSP outreach templates, **Claude/Codex task specs + acceptance criteria** | Write production code; own architecture; approve deploys; change migrations/auth/billing/cron/tenant-isolation |
 | **Claude** — Technical lead / codebase owner / reviewer | Architecture, Workers backend, D1/R2, migrations, billing backend, auth/session, tenant isolation, cron, report consistency, tests/CI, deploy discipline, **spec boundaries + review + integration of all Codex work** | Own outreach; decide pricing/launch/positioning; **approve its own medium/high-risk deploys**; give Codex unsupervised access to sensitive areas |
 | **Codex** — Scoped implementation engineer | Well-scoped isolated build from specs: free-hook UIs, marketing/Academy pages, result/report cards, fix-list, pricing cards, questionnaire UI, empty/loading states, small isolated fixes | Touch billing/auth/cron/migrations/tenant-isolation unsupervised; merge to main without review; deploy; refactor architecture; work from vague prompts |
 
@@ -117,7 +117,7 @@ Managed by **risk level, ownership and approval authority** — not "who codes f
 | Medium | onboarding, pricing UI, result-page integration, questionnaire frontend | **Claude specs → Codex builds → Claude reviews** |
 | High | auth, billing, D1 migrations, R2, cron, tenant isolation, domain verification | **Claude only** |
 | Business | pricing, launch timing, grants, MSP outreach, public-beta approval | **Turhan (+ ChatGPT)** |
-| Positioning | Cyber MOT wording, CE claims, competitor messaging | **ChatGPT (+ Turhan)** |
+| Positioning | external security check wording, CE claims, competitor messaging | **ChatGPT (+ Turhan)** |
 | Production | deploys, main merge, release readiness | **Claude prepares → Turhan approves** |
 
 ### Required workflow (every meaningful task)
@@ -133,7 +133,7 @@ Stripe/webhook logic · subscription state · plan enforcement · auth/session/M
 1. **Stage C stays frozen** unless Turhan explicitly reopens it.
 2. Codex does not touch billing/auth/cron/migrations without Claude approval.
 3. Claude is the final technical reviewer; Turhan is the final business approver.
-4. No customer-facing "DAST / scanner / pen test / certification / guaranteed secure" — Cyber MOT, Website Security, passive posture check, Cyber Essentials **Readiness** (not certification).
+4. No customer-facing "DAST / scanner / pen test / certification / guaranteed secure" — external security check, Website Security, passive posture check, Cyber Essentials **Readiness** (not certification).
 5. Public beta is blocked by trust-breaking bugs, not missing nice-to-haves.
 6. Revenue-critical work beats architecture polish.
 7. No vague AI tasks — every task carries scope, exclusions, acceptance criteria and test expectations.

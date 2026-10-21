@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// Eight-domain Cyber MOT wiring contract — proves the canonical resolver is wired
+// Eight-domain external security check wiring contract — proves the canonical resolver is wired
 // into all four primary surfaces (Main Dashboard, Scan Detail, Executive Report UI,
 // Executive PDF) with no logic duplicated in the frontend, that the Dashboard no
 // longer defaults absent evidence to "good", and that the Executive PDF actually
@@ -20,7 +20,7 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
   const scans = read("workers/scan-api/src/routes/scans.js");
   ok("scan /report serves cyber_mot_domains from the canonical SNAPSHOT (no live resolver)",
     /readScanReportSnapshot/.test(scans) && /cyber_mot_domains:\s*snap\.domains/.test(scans) &&
-    !/resolveCyberMotDomainStates/.test(scans));
+    !/resolveSecurityCheckDomainStates/.test(scans));
   ok("executive-report-v2 is built from the snapshot read",
     /buildExecutiveReportV2\(\{ scan, workspace, read \}\)/.test(scans));
   const er = read("workers/scan-api/src/engines/executive-report.js");
@@ -28,15 +28,15 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
     /cyber_mot_domains:\s*snap\.domains/.test(er) && !/INTELLIGENCE_ENGINE_REGISTRY/.test(er));
   const pdf = read("workers/scan-api/src/engines/pdf.js");
   ok("PDF module owns no calculation brain (no resolver/scorecard/posture/BRS imports)",
-    !/resolveCyberMotDomainStates|buildScorecardData|computeSecurityPosture|latestScanBusinessRisk|buildCyberEssentialsReadiness/.test(pdf));
+    !/resolveSecurityCheckDomainStates|buildScorecardData|computeSecurityPosture|latestScanBusinessRisk|buildCyberEssentialsReadiness/.test(pdf));
   ok("workspace executive PDF renders the snapshot domains section",
     /buildWorkspaceExecutivePdf/.test(pdf) && /sectionDomains/.test(pdf));
 }
 
 // ── Frontend wiring (renders the server states; no resolver logic duplicated) ──
 {
-  const comp = read("frontend/src/components/CyberMotDomains.jsx");
-  ok("shared presentation component exists and does not import/call the resolver", /export default function CyberMotDomains/.test(comp) && !/from ['"].*cyber-mot-domains/.test(comp) && !/resolveCyberMotDomainStates\(/.test(comp));
+  const comp = read("frontend/src/components/SecurityCheckDomains.jsx");
+  ok("shared presentation component exists and does not import/call the resolver", /export default function SecurityCheckDomains/.test(comp) && !/from ['"].*security-check-domains/.test(comp) && !/resolveSecurityCheckDomainStates\(/.test(comp));
   // Clean app shell (16 Oct 2026): the home screen shows every area through the
   // PostureCard (all eight from the resolver, the vocabulary word per row, Loading/
   // Error on a failed read — never a settled word); the eight-card panel stays on
@@ -44,19 +44,19 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
   const posture = read("frontend/src/components/overview/PostureCard.jsx");
   ok("PostureCard renders all eight areas from the registry with the backend word and no resolver logic",
     /MODULES\.map\(/.test(posture) && /domainStatus\(/.test(posture) && /domainsRequestState\(/.test(posture)
-      && !/from ['"].*cyber-mot-domains/.test(posture) && !/resolveCyberMotDomainStates\(/.test(posture));
+      && !/from ['"].*security-check-domains/.test(posture) && !/resolveSecurityCheckDomainStates\(/.test(posture));
   ok("Main Dashboard renders the PostureCard", /<PostureCard[\s>]/.test(read("frontend/src/pages/Dashboard.jsx")));
   // One home per thing (17 Oct 2026): the separate workspace overview is dissolved —
   // /ws/dashboard redirects and Overview (the PostureCard above) is the one eight-area surface.
   ok("Workspace overview dissolved: /ws/dashboard redirects to /ws/members", /path="ws\/dashboard"\s+element=\{<Navigate to="\/ws\/members" replace \/>\}/.test(read("frontend/src/App.jsx")));
-  ok("Scan Detail renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/ScanDetail.jsx")));
-  ok("Executive Report UI renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/components/ExecutiveReportV2.jsx")));
+  ok("Scan Detail renders SecurityCheckDomains", /<SecurityCheckDomains[\s>]/.test(read("frontend/src/pages/ScanDetail.jsx")));
+  ok("Executive Report UI renders SecurityCheckDomains", /<SecurityCheckDomains[\s>]/.test(read("frontend/src/components/ExecutiveReportV2.jsx")));
   // Dashboard no longer defaults absent evidence to green.
   ok("Dashboard no longer defaults missing evidence to 'good'",
     !/completed\.length > 0 \? 'good'/.test(read("frontend/src/pages/Dashboard.jsx")));
   ok("no resolver logic duplicated in the frontend",
-    !/resolveCyberMotDomainStates/.test(read("frontend/src/pages/Dashboard.jsx")) &&
-    !/resolveCyberMotDomainStates/.test(read("frontend/src/pages/ScanDetail.jsx")));
+    !/resolveSecurityCheckDomainStates/.test(read("frontend/src/pages/Dashboard.jsx")) &&
+    !/resolveSecurityCheckDomainStates/.test(read("frontend/src/pages/ScanDetail.jsx")));
 }
 
 // ── PDF behavioural — all eight domain names + state labels + white-label ─────

@@ -1,10 +1,10 @@
-// ── Canonical per-domain Cyber MOT state history: writer, reader, trend ───────
-// The persistence layer for engines/cyber-mot-domains.js. It adds NO state semantics
-// of its own — resolveCyberMotDomainStates() decides what state a domain is in, this
+// ── Canonical per-domain security state history: writer, reader, trend ───────
+// The persistence layer for engines/security-check-domains.js. It adds NO state semantics
+// of its own — resolveSecurityCheckDomainStates() decides what state a domain is in, this
 // module records what it decided and, later, compares two recordings.
 //
 // Three jobs, deliberately in one file because they share one contract:
-//   1. persistCyberMotDomainStates() — write, at scan finalize, from the report in hand.
+//   1. persistSecurityCheckDomainStates() — write, at scan finalize, from the report in hand.
 //   2. readPortfolioDomainStates()   — read the current eight per domain, D1 only.
 //   3. resolveDomainTrend()          — compare two recordings, honestly.
 //
@@ -15,16 +15,16 @@
 // clock, which the resolver deliberately does not consult).
 
 import {
-  CYBER_MOT_DOMAINS,
-  CYBER_MOT_RESOLVER_VERSION,
-  CYBER_MOT_STATES,
-  resolveCyberMotDomainStates,
-} from "./cyber-mot-domains.js";
+  SECURITY_CHECK_DOMAINS,
+  SECURITY_CHECK_RESOLVER_VERSION,
+  SECURITY_CHECK_STATES,
+  resolveSecurityCheckDomainStates,
+} from "./security-check-domains.js";
 import { projectLegacyWebsiteDomainState } from "./finding-identity.js";
 import { createId } from "../lib/util.js";
 
 // ── Trend vocabulary ─────────────────────────────────────────────────────────
-// Separate from CYBER_MOT_STATES on purpose. "Current critical, improving" and "current
+// Separate from SECURITY_CHECK_STATES on purpose. "Current critical, improving" and "current
 // good, worsening" are both real and both sayable; collapsing state and trend into one
 // word is how a portfolio starts lying. A domain always has both, and they never
 // substitute for each other.
@@ -102,8 +102,8 @@ export function evidenceFreshness(assessedAt, now = Date.now()) {
 // the customer's posture. It is a change in OUR evidence, and the trend says so by name
 // rather than by direction.
 const VERDICT_RANK = {
-  [CYBER_MOT_STATES.ASSESSED_HEALTHY]: 0,
-  [CYBER_MOT_STATES.ISSUE_DETECTED]:   1,
+  [SECURITY_CHECK_STATES.ASSESSED_HEALTHY]: 0,
+  [SECURITY_CHECK_STATES.ISSUE_DETECTED]:   1,
 };
 const isVerdict = (s) => Object.prototype.hasOwnProperty.call(VERDICT_RANK, s);
 
@@ -237,7 +237,7 @@ export function resolveDomainTrend(current, previous) {
 }
 
 /**
- * persistCyberMotDomainStates(env, { workspaceId, domainId, scanId, report, cyberEssentials, assessedAt })
+ * persistSecurityCheckDomainStates(env, { workspaceId, domainId, scanId, report, cyberEssentials, assessedAt })
  *
  * Writes the eight resolved states for one completed scan. Called ONCE, from the scan
  * finalize path, with the report already in memory — so it costs zero R2 reads and the
@@ -252,7 +252,7 @@ export function resolveDomainTrend(current, previous) {
  *
  * @returns {Promise<{written:number, skipped:string|null}>}
  */
-export async function persistCyberMotDomainStates(env, opts = {}) {
+export async function persistSecurityCheckDomainStates(env, opts = {}) {
   const { workspaceId, domainId, scanId, report, cyberEssentials = null, assessedAt = null } = opts;
 
   // Fail closed, quietly. Without a tenant + domain-record + scan identity the row
@@ -261,7 +261,7 @@ export async function persistCyberMotDomainStates(env, opts = {}) {
   if (!report) return { written: 0, skipped: "no_report" };
 
   try {
-    const states = resolveCyberMotDomainStates(report, { scanId, cyberEssentials });
+    const states = resolveSecurityCheckDomainStates(report, { scanId, cyberEssentials });
     const quality = report?.scan_quality?.status ?? null;
     const at = assessedAt || report?.completed_at || report?.created_at || new Date().toISOString();
 
@@ -278,7 +278,7 @@ export async function persistCyberMotDomainStates(env, opts = {}) {
       d.state, d.coverage ?? null, d.summary ?? null,
       d.highest_severity ?? null, d.finding_count ?? 0, d.evidence_count ?? 0,
       JSON.stringify(d.finding_ids ?? []),
-      quality, CYBER_MOT_RESOLVER_VERSION, at,
+      quality, SECURITY_CHECK_RESOLVER_VERSION, at,
     ));
 
     // One batch: eight rows land together or not at all. Falls back to sequential
@@ -295,9 +295,9 @@ export async function persistCyberMotDomainStates(env, opts = {}) {
 }
 
 // The canonical eight, in fixed order, for callers that must render all of them.
-export const CYBER_MOT_DOMAIN_KEYS = Object.freeze(CYBER_MOT_DOMAINS.map((d) => d.domain_key));
+export const SECURITY_CHECK_DOMAIN_KEYS = Object.freeze(SECURITY_CHECK_DOMAINS.map((d) => d.domain_key));
 const DOMAIN_META = Object.freeze(Object.fromEntries(
-  CYBER_MOT_DOMAINS.map((d) => [d.domain_key, { display_name: d.display_name, description: d.description, maturity: d.maturity, managed_status: d.managed_status, limitations: d.limitations }]),
+  SECURITY_CHECK_DOMAINS.map((d) => [d.domain_key, { display_name: d.display_name, description: d.description, maturity: d.maturity, managed_status: d.managed_status, limitations: d.limitations }]),
 ));
 
 /**
@@ -385,9 +385,9 @@ export async function readDomainStateHistory(db, workspaceId, domainId, opts = {
      WHERE workspace_id = ? AND domain_id = ?
      ORDER BY assessed_at DESC, created_at DESC, id DESC
      LIMIT ?`
-  ).bind(workspaceId, domainId, limit * CYBER_MOT_DOMAIN_KEYS.length).all();
+  ).bind(workspaceId, domainId, limit * SECURITY_CHECK_DOMAIN_KEYS.length).all();
 
-  const out = Object.fromEntries(CYBER_MOT_DOMAIN_KEYS.map((k) => [k, []]));
+  const out = Object.fromEntries(SECURITY_CHECK_DOMAIN_KEYS.map((k) => [k, []]));
   for (const raw of (res.results || [])) {
     const r = projectLegacyWebsiteDomainState(raw);
     if (!out[r.domain_key]) continue;
@@ -400,7 +400,7 @@ export async function readDomainStateHistory(db, workspaceId, domainId, opts = {
       // Published so a reader can see WHY two adjacent points were not compared,
       // rather than inferring it from a gap.
       comparable: !r.legacy_identity_projection
-        && r.scan_quality === "complete" && r.resolver_version === CYBER_MOT_RESOLVER_VERSION,
+        && r.scan_quality === "complete" && r.resolver_version === SECURITY_CHECK_RESOLVER_VERSION,
     });
   }
   return out;
@@ -410,18 +410,18 @@ export async function readDomainStateHistory(db, workspaceId, domainId, opts = {
  * buildDomainMatrix(series, now) → exactly EIGHT entries, in canonical order, always.
  *
  * A domain with no row is not omitted and is not green — it is not_yet_assessed with a
- * reason. lib/cyberMotDisplay.js already guarantees eight on the frontend; this
+ * reason. lib/securityCheckDisplay.js already guarantees eight on the frontend; this
  * guarantees eight from the API, so the two cannot disagree about what is missing.
  */
 export function buildDomainMatrix(series, now = Date.now()) {
   const byKey = series?.domains ?? new Map();
-  return CYBER_MOT_DOMAIN_KEYS.map((key) => {
+  return SECURITY_CHECK_DOMAIN_KEYS.map((key) => {
     const meta = DOMAIN_META[key];
     const entry = byKey.get(key);
     if (!entry?.current) {
       return {
         domain_key: key, display_name: meta.display_name, description: meta.description,
-        state: CYBER_MOT_STATES.NOT_YET_ASSESSED,
+        state: SECURITY_CHECK_STATES.NOT_YET_ASSESSED,
         summary: "Not yet assessed — no completed assessment has recorded a state for this domain.",
         coverage: null, highest_severity: null, finding_count: 0, evidence_count: 0,
         last_assessed_at: null, evidence_freshness: EVIDENCE_FRESHNESS.NONE,

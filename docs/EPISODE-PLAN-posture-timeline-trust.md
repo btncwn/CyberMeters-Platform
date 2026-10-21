@@ -47,7 +47,7 @@ and behind the controlled detection corpus (C3).
 | Substrate | Producer file | History mode | Eligibility/version guard today |
 |---|---|---|---|
 | `asset_events` (mig 004) — customer Exposure Timeline + weekly digest + asset-change alert | `posture-events.js`, `asset-inventory.js`, `cert-events.js`, `scan-engine.js` | **Append-only** | **NONE** — only `scan_quality='complete'` baseline + 24 h dedupe; no version stamp |
-| `cyber_mot_domain_states` (mig 091) | `cyber-mot-state-history.js` | Append-only | `resolver_version` + `scan_quality='complete'` → emits `not_comparable`/`insufficient_history` |
+| `cyber_mot_domain_states` (mig 091) | `security-check-state-history.js` | Append-only | `resolver_version` + `scan_quality='complete'` → emits `not_comparable`/`insufficient_history` |
 | `scan_report_snapshots` (mig 093) | `report-snapshot.js` | Immutable + append-supersede | schema+resolver version, registry fingerprint, checksum, fail-closed reader |
 | `domain_maturity_ledger` (mig 095) | `domain-maturity.js` | Append-only | `resolver_version` + `ledger_contract_version` |
 | `workspace_assets` / `certificate_observations` (mig 004 / cert-events) | ASM engines | Upsert, preserves `first_seen`/`last_seen` | None (free-text `source` only) |
@@ -79,7 +79,7 @@ findings + cases follow the universal case model's existing purge order. Soft-de
 emit nothing (existing gate).
 
 **Duplicate-functionality search result:** the eligibility/version-guard logic to be ported
-**already exists** in `cyber-mot-state-history.js:resolveDomainTrend` (the strongest guard in the
+**already exists** in `security-check-state-history.js:resolveDomainTrend` (the strongest guard in the
 codebase). Phase A **reuses that pattern**; it does not invent a second comparability engine.
 Host-level correlation exists **nowhere** (snapshot finding→domain tagging is attribution, not a
 join), so Phase B is genuinely new — but built on existing sensors + the universal case model.

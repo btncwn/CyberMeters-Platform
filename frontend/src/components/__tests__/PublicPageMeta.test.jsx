@@ -35,7 +35,7 @@ describe('public page meta', () => {
 
   it('restores the index.html defaults on the homepage and app routes', () => {
     applyPageMeta('/free-scan')
-    expect(document.title).toBe('Free Cyber MOT — check your domain | CyberMeters')
+    expect(document.title).toBe('Free security check — check your domain | CyberMeters')
     applyPageMeta('/')
     expect(document.title).toBe(HOME_TITLE)
     expect(content('meta[name="description"]')).toBe(HOME_DESCRIPTION)

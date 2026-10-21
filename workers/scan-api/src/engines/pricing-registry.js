@@ -21,7 +21,7 @@ export const CANONICAL_PLANS = {
     key: "free",
     name: "14-Day Full Trial",
     description:
-      "Full Cyber MOT for 14 days — all 8 categories, alerts, cases, reports and remediation. 1 monitored domain. No card required.",
+      "Full external security check for 14 days — all 8 categories, alerts, cases, reports and remediation. 1 monitored domain. No card required.",
     monthly_pence: 0,
     annual_pence: 0,
     included_domains: 1,
@@ -30,7 +30,7 @@ export const CANONICAL_PLANS = {
   starter: {
     key: "starter",
     name: "Starter",
-    description: "Full Cyber MOT for 1 monitored domain.",
+    description: "Full external security check for 1 monitored domain.",
     monthly_pence: 999,
     annual_pence: 9990,
     included_domains: 1,
@@ -39,7 +39,7 @@ export const CANONICAL_PLANS = {
   professional: {
     key: "professional",
     name: "Professional",
-    description: "Full Cyber MOT for up to 3 monitored domains.",
+    description: "Full external security check for up to 3 monitored domains.",
     monthly_pence: 1999,
     annual_pence: 19990,
     included_domains: 3,
@@ -49,7 +49,7 @@ export const CANONICAL_PLANS = {
     key: "business",
     name: "Business",
     description:
-      "Full Cyber MOT for up to 10 monitored domains.",
+      "Full external security check for up to 10 monitored domains.",
     monthly_pence: 4999,
     annual_pence: 49990,
     included_domains: 10,

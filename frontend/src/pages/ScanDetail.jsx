@@ -14,7 +14,7 @@ import ErrorAlert from '../components/ErrorAlert'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
-import CyberMotDomains from '../components/CyberMotDomains'
+import SecurityCheckDomains from '../components/SecurityCheckDomains'
 import LiveTlsEvidence, { TlsAssessmentEvidence } from '../components/LiveTlsEvidence'
 import WebsiteResponseEvidence from '../components/WebsiteResponseEvidence'
 import { bandMeta } from '../lib/score-presentation'
@@ -1170,8 +1170,8 @@ function ReportView({ report, queuedAt = null, waivers = {}, onWaive = null, onU
   return (
     <div className="space-y-4">
 
-      {/* Eight-domain Cyber MOT coverage — all eight always shown, server-resolved */}
-      <CyberMotDomains domains={cyber_mot_domains} subtitle="One honest state per domain from this scan." />
+      {/* Eight-domain security coverage — all eight always shown, server-resolved */}
+      <SecurityCheckDomains domains={cyber_mot_domains} subtitle="One honest state per domain from this scan." />
 
       {/* Score hero */}
       <div className="card-md overflow-hidden">

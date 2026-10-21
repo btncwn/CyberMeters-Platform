@@ -19,7 +19,7 @@ const S = await import(eng("signin-page-findings.js"));
 const { resolveRemediation } = await import(eng("remediation-registry.js"));
 const L = await import(eng("website-security-lifecycle.js"));
 const { buildScanQuality } = await import(eng("scan-engine.js"));
-const { CYBER_MOT_DOMAINS } = await import(eng("cyber-mot-domains.js"));
+const { SECURITY_CHECK_DOMAINS } = await import(eng("security-check-domains.js"));
 const { WEBSITE_CASE_RECURRENCES } = await import(eng("website-security-cases.js"));
 const { severityForRecurrence, INHERIT_SEVERITY } = await import(eng("alert-consumers.js"));
 const { isAsmManagedFinding } = await import(eng("asm-cases.js"));
@@ -60,7 +60,7 @@ const BADCOOKIE = { cookies: [{ name: "sid", secure: false, httponly: true, same
     S.signInPageFindings(disc([home(false), login(NOHSTS)])).map((f) => f.id), []);
   eq("emitter: page check not run → nothing", S.signInPageFindings(disc([], { coverage: "not_run" })), []);
   eq("emitter: page served over http counts as insecure", S.signInPageFindings(disc([home(), login({ https: false })])).map((f) => f.id), ["https_signin_form_insecure"]);
-  ok("emitter ids are Website Security by the canonical domain regex", all.every((f) => CYBER_MOT_DOMAINS.find((d) => d.domain_key === "website_security").match(f)));
+  ok("emitter ids are Website Security by the canonical domain regex", all.every((f) => SECURITY_CHECK_DOMAINS.find((d) => d.domain_key === "website_security").match(f)));
   ok("emitter ids never open an ASM case", all.every((f) => !isAsmManagedFinding(f)));
 }
 

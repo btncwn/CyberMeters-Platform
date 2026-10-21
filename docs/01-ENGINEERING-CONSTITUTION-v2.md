@@ -29,7 +29,7 @@ Validate CyberMeters from an external attacker's perspective using independent i
 Mandatory assessments include:
 
 - Nessus Vulnerability Scanner
-- SSL Labs TLS Assessment
+- a public TLS grading service TLS Assessment
 - Mozilla Observatory
 - SecurityHeaders.com
 
@@ -107,7 +107,7 @@ Security validation does not end after vulnerabilities are fixed.
 Following remediation:
 
 - Re-run Nessus
-- Re-run SSL Labs
+- Re-run a public TLS grading service
 - Re-run Mozilla Observatory
 - Re-run SecurityHeaders.com
 - Verify manual test cases
@@ -120,7 +120,7 @@ Every security improvement must be independently verified before being considere
 ## Recommended Assessment Order
 
 1. External Nessus scan
-2. SSL Labs
+2. a public TLS grading service
 3. Mozilla Observatory
 4. SecurityHeaders.com
 5. Manual browser security review

@@ -1,5 +1,5 @@
 // ── Canonical scorecard domain-state → customer wording behaviour (B) ────────
-// ONE source of truth mapping a canonical Cyber MOT domain state (or the A3 admin
+// ONE source of truth mapping a canonical domain state (or the A3 admin
 // evidence_status) to the four customer-facing scorecard behaviours, so the
 // executive_summary (scorecard.js) and the sections[] (buildScorecardSections) can
 // never disagree, and unavailable / not_assessed evidence can never render as a
@@ -25,8 +25,8 @@ export function canSayHealthy(state) {
 }
 
 // Look up a canonical domain state from the scorecard's cyber_mot_domains array.
-export function domainState(cyberMotDomains, key) {
-  return (Array.isArray(cyberMotDomains) ? cyberMotDomains : [])
+export function domainState(securityCheckDomains, key) {
+  return (Array.isArray(securityCheckDomains) ? securityCheckDomains : [])
     .find((d) => d?.domain_key === key)?.state ?? null;
 }
 

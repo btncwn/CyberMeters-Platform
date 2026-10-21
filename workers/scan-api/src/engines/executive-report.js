@@ -75,6 +75,7 @@ export function buildExecutiveReportV2({ scan, workspace = null, read }) {
     },
 
     cyber_mot_domains: snap.domains ?? [],
+    security_domains: snap.domains ?? [],   // neutral alias of cyber_mot_domains
     certificate_assurance: certificateAssuranceFromSnapshot(snap),
     attack_surface_assurance: attackSurfaceAssuranceFromSnapshot(snap),
     monitoring_states: snap.monitoring_states ?? null,

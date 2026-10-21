@@ -15,8 +15,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VALIDATOR = "scripts/validate-p12e-historical-read-compat.js";
-const resolverSource = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/cyber-mot-domains.js"), "utf8");
-const currentResolverVersion = resolverSource.match(/export const CYBER_MOT_RESOLVER_VERSION = "([^"]+)";/)?.[1];
+const resolverSource = fs.readFileSync(path.join(root, "workers/scan-api/src/engines/security-check-domains.js"), "utf8");
+const currentResolverVersion = resolverSource.match(/export const SECURITY_CHECK_RESOLVER_VERSION = "([^"]+)";/)?.[1];
 if (!currentResolverVersion) throw new Error("Current resolver version is required for the historical-version mutant");
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"} ${n}${!c && d ? " — " + d : ""}`); };

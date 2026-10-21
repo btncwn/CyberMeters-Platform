@@ -15,7 +15,7 @@
 //   • did it resolve                     → absent AND the detecting module RAN
 //   • did it come back                   → a new transition after a resolution
 //   • or did we simply not look          → monitoring_status 'unknown'. Never a fix.
-import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import {
   MONITORING_CHANGED, buildMonitoringTransitionDetail, isMonitoringTransition, parseUtcMs,
 } from "./alert-occurrence.js";
@@ -106,7 +106,7 @@ export function websiteConditionSpec(conditionKey) {
 // The canonical attribution, reused rather than re-implemented: the eight-domain
 // resolver already owns "which findings are Website Security?". A second regex here
 // would be a second source of truth and would drift.
-const WS_DOMAIN = CYBER_MOT_DOMAINS.find((d) => d.domain_key === WEBSITE_SECURITY_DOMAIN_KEY);
+const WS_DOMAIN = SECURITY_CHECK_DOMAINS.find((d) => d.domain_key === WEBSITE_SECURITY_DOMAIN_KEY);
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 const isMaterial = (s) => (SEV_RANK[String(s || "").toLowerCase()] ?? 0) >= 2;
 

@@ -92,9 +92,9 @@ export default function ScansPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-base font-bold text-gray-900 mb-1">No scans yet</p>
                 <p className="text-sm text-gray-500 leading-relaxed">
-                  A Cyber MOT runs CyberMeters' Intelligence Engines across your domain — Website Security, Email Protection,
+                  An external security check runs CyberMeters' Intelligence Engines across your domain — Website Security, Email Protection,
                   Brand Protection, and Certificates &amp; Trust, then turns the evidence into a scored Executive Report in minutes. Run your first
-                  Cyber MOT to start monitoring what is visible from outside.
+                  security check to start monitoring what is visible from outside.
                 </p>
                 {scanAccess === 'rescan' && (
                   <p className="text-sm text-gray-600 mt-2" data-testid="scan-rescan-only">{RESCAN_ONLY_MESSAGE}</p>

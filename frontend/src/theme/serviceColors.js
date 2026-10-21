@@ -1,5 +1,5 @@
 // ── Sea-glass domain palette — SINGLE SOURCE OF TRUTH ───────────────────────────
-// The canonical Cyber MOT domains each own one soft sea-glass colour: a pastel
+// The canonical domains each own one soft sea-glass colour: a pastel
 // fill (chip/card) and a deep ink (text) that reads at 4.5:1 on the fill and on white.
 // Every surface that shows domain navigation, dashboard cards or workspace
 // sections reads its colours from here so customer-facing domain presentation

@@ -16,7 +16,7 @@
 //   • managed_cases (brand_abuse) — cases in a confirmed-abuse state that is
 //     still open.
 // and deriving `candidates_validated` plus a `validation` summary from it. The
-// resolver (cyber-mot-domains.js), scoring (scoring.js), the 091 persisted
+// resolver (security-check-domains.js), scoring (scoring.js), the 091 persisted
 // state rows and the M5.c snapshot all read the SAME report, so they cannot
 // disagree about what was validated.
 //

@@ -390,8 +390,8 @@ const MUTATIONS = [
   {
     name: "remove one domain from the ledger registry",
     file: "workers/scan-api/src/engines/domain-maturity.js",
-    mutate: (s) => s.replace('export const MATURITY_DOMAIN_KEYS = Object.freeze(CYBER_MOT_DOMAINS.map((d) => d.domain_key));',
-      'export const MATURITY_DOMAIN_KEYS = Object.freeze(CYBER_MOT_DOMAINS.map((d) => d.domain_key).slice(0, 7));'),
+    mutate: (s) => s.replace('export const MATURITY_DOMAIN_KEYS = Object.freeze(SECURITY_CHECK_DOMAINS.map((d) => d.domain_key));',
+      'export const MATURITY_DOMAIN_KEYS = Object.freeze(SECURITY_CHECK_DOMAINS.map((d) => d.domain_key).slice(0, 7));'),
     expect: () => /\.map\(\(d\) => d\.domain_key\)\);/.test(getSource("workers/scan-api/src/engines/domain-maturity.js")) ? null : "ledger domain registry no longer the full canonical eight",
   },
   {

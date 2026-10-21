@@ -20,7 +20,7 @@ function responseFor({ moduleState, coverageState }) {
     { module: 'email_security', label: 'Email', attempted: true, state: 'completed' },
     { module: 'technology_detection', label: 'Technology', attempted: true, state: 'completed' },
   ]
-  const cyberMotDomains = [
+  const securityCheckDomains = [
     ['email_protection', 'Email Protection'],
     ['brand_protection', 'Brand Protection'],
     ['attack_surface', 'Attack Surface'],
@@ -56,7 +56,7 @@ function responseFor({ moduleState, coverageState }) {
     exposed_finding_count: 0,
     hidden_count: 0,
     locked_count: 0,
-    cyber_mot_domains: cyberMotDomains,
+    cyber_mot_domains: securityCheckDomains,
     modules_attempted: moduleEvidence.map(entry => entry.module),
     modules_scanned: moduleEvidence
       .filter(entry => entry.state === 'completed')
@@ -126,7 +126,7 @@ async function renderResult(payload, heading = 'Evidence incomplete') {
   fireEvent.change(screen.getByPlaceholderText('yourbusiness.co.uk'), {
     target: { value: 'example.com' },
   })
-  fireEvent.click(screen.getByRole('button', { name: /Run my free Cyber MOT/i }))
+  fireEvent.click(screen.getByRole('button', { name: /Run my free security check/i }))
   await screen.findByRole('heading', { name: heading })
 }
 
@@ -175,7 +175,7 @@ describe('FreeScanPage evidence honesty', () => {
 
     expect(screen.getByText('TLS · Failed')).toBeInTheDocument()
     expect(screen.getByText(/Evidence remains incomplete, so this is not a healthy verdict/i)).toBeInTheDocument()
-    expect(screen.queryByText(/Your Cyber MOT looks healthy/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Your external security check looks healthy/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
     expect(screen.queryByText(/out of 100/i)).not.toBeInTheDocument()
   })
@@ -208,7 +208,7 @@ describe('FreeScanPage evidence honesty', () => {
     vi.stubGlobal('fetch', fetchMock)
     render(<MemoryRouter><FreeScanPage /></MemoryRouter>)
     fireEvent.change(screen.getByPlaceholderText('yourbusiness.co.uk'), { target: { value: 'example.com' } })
-    fireEvent.click(screen.getByRole('button', { name: /Run my free Cyber MOT/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Run my free security check/i }))
     await screen.findByRole('alert')
     fireEvent.click(screen.getByRole('button', { name: 'Something wrong?' }))
     fireEvent.change(screen.getByLabelText('Tell us what looks wrong'), { target: { value: 'I only ran one check' } })

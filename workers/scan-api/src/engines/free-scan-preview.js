@@ -1,4 +1,4 @@
-// Public Free Cyber MOT projection.
+// Public Free security check projection.
 //
 // This module does not create a second scoring or domain-state authority. It
 // builds the bounded, non-persistent preview report, asks the existing scoring
@@ -6,7 +6,7 @@
 // anonymous caller is not entitled to see.
 
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
-import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "./security-check-domains.js";
 import {
   runSaasExposureModule,
   runThirdPartyDiscoveryModule,
@@ -295,9 +295,9 @@ export function buildFreeScanPreview({
       reason: "anonymous_preview_scope",
     },
   };
-  const domainStates = resolveCyberMotDomainStates(report);
+  const domainStates = resolveSecurityCheckDomainStates(report);
   const observed = buildFreeScanObserved(modules, evidenceByModule);
-  const cyberMotDomains = domainStates.map((state) =>
+  const securityCheckDomains = domainStates.map((state) =>
     publicDomainProjection(state, normalised, modules, observed)
   );
   const shownFindings = normalised
@@ -305,7 +305,7 @@ export function buildFreeScanPreview({
     .map((finding) => limitedFinding(finding, resolveAcademySlug));
   const exposedFindingIds = new Set([
     ...shownFindings.map((finding) => finding.id),
-    ...cyberMotDomains.flatMap((domainEntry) =>
+    ...securityCheckDomains.flatMap((domainEntry) =>
       domainEntry.samples
         .filter((sample) => sample.kind === "finding")
         .map((sample) => sample.id)
@@ -332,7 +332,8 @@ export function buildFreeScanPreview({
     exposed_finding_count: exposedFindingCount,
     locked_count: lockedCount,
     hidden_count: lockedCount,
-    cyber_mot_domains: cyberMotDomains,
+    cyber_mot_domains: securityCheckDomains,
+    security_domains: securityCheckDomains,   // neutral alias of cyber_mot_domains
     modules_attempted: freeScanEvidence.modules_attempted,
     modules_scanned: freeScanEvidence.modules_scanned,
     module_evidence: freeScanEvidence.module_evidence,

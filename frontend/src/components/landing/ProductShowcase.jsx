@@ -55,7 +55,7 @@ export default function ProductShowcase({ rows }) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-cm text-[22px] leading-tight text-[#121A2E]">Sample report</p>
-                <p className="text-[14px] text-[#626B80] mt-1">example.co.uk · Cyber MOT</p>
+                <p className="text-[14px] text-[#626B80] mt-1">example.co.uk · External security check</p>
               </div>
               <span className="text-[14px] font-semibold text-[#3D45A8] bg-[#E6E8FD] rounded-full px-3 py-1">Sample</span>
             </div>

@@ -192,7 +192,7 @@ ok("C1_CONTROL_REAL_STACK_STILL_DETECTED",
 // never ran. `incomplete` (it observed, and what it observed was unusable) and
 // `skipped` (it never executed) are different propositions; conflating them hid the
 // F-48 marker from acceptance. These pin the separation and the customer wording.
-const { resolveCyberMotDomainStates } = await import(eng("cyber-mot-domains.js"));
+const { resolveSecurityCheckDomainStates } = await import(eng("security-check-domains.js"));
 const sq503 = buildScanQuality({ headers: hOrigin503 });
 
 ok("C1_SURFACE_INCOMPLETE_LIST_EXISTS", Array.isArray(sq503.modules_incomplete));
@@ -210,7 +210,7 @@ ok("C1_SURFACE_REASON_IS_NOT_NULL",
    && typeof sq503.modules_incomplete[0].incomplete_reason === "string"
    && sq503.modules_incomplete[0].incomplete_reason.length > 0);
 
-const wsCard = resolveCyberMotDomainStates({
+const wsCard = resolveSecurityCheckDomainStates({
   scan_quality: sq503,
   modules: { headers: hOrigin503 },
   findings: [],
@@ -235,7 +235,7 @@ const sqTimeout = buildScanQuality({ headers: hTimedOut });
 eq("C1_SURFACE_TIMEOUT_CARRIES_NULL_REASON",
    sqTimeout.modules_incomplete, [{ module: "headers", incomplete_reason: null }]);
 
-const wsTimeout = resolveCyberMotDomainStates({
+const wsTimeout = resolveSecurityCheckDomainStates({
   scan_quality: sqTimeout,
   modules: { headers: hTimedOut },
   findings: [],

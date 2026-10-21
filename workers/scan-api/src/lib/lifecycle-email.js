@@ -327,7 +327,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
         paras = [
           `${dom} is in your workspace. Verify that you control it to unlock its full findings.`,
           "Verification is one DNS TXT record. It proves control and changes nothing else.",
-          `After that, run your first Cyber MOT across: ${DOMAINS_LINE}`,
+          `After that, run your first security check across: ${DOMAINS_LINE}`,
         ];
         ctaLabel = "Verify your domain"; ctaPath = "/onboarding";
         break;
@@ -335,8 +335,8 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       heading = "Welcome to CyberMeters";
       paras = [
         "CyberMeters helps you understand your whole external posture from one workspace.",
-        `The Cyber MOT domains are: ${DOMAINS_LINE}`,
-        "To get started, add a domain and run your first Cyber MOT.",
+        `The security domains are: ${DOMAINS_LINE}`,
+        "To get started, add a domain and run your first security check.",
       ];
       ctaLabel = "Open CyberMeters"; ctaPath = "/services";
       break;
@@ -345,7 +345,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       heading = "Your workspace is ready";
       paras = [
         `Your workspace (${ws}) is set up.`,
-        `A workspace connects the Cyber MOT domains: ${DOMAINS_LINE}`,
+        `A workspace connects the security domains: ${DOMAINS_LINE}`,
         "Next, add or confirm a domain to start monitoring it.",
       ];
       ctaLabel = "Add a domain"; ctaPath = "/ws/dashboard";

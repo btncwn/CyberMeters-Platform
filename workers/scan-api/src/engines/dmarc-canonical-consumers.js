@@ -1,6 +1,6 @@
 // ── Canonical DMARC consumer mapping (ADR-003 §7 / §11) ──────────────────────
 //
-// ONE source of truth for how backend truth consumers (scoring, Cyber MOT,
+// ONE source of truth for how backend truth consumers (scoring, domain states,
 // email-intel) translate the canonical `dmarc_state.enforcement_level` produced
 // by deriveDmarcState() into their own verdicts. Consumers import from here
 // instead of independently re-deriving enforcement from raw p / pct / sp /
@@ -24,7 +24,7 @@ export function isDmarcScoreNeutral(level) {
   return DMARC_SCORE_NEUTRAL_LEVELS.has(level);
 }
 
-// Cyber MOT contribution per ADR-003 §7 bridge. `skip` = defer to the domain's
+// security contribution per ADR-003 §7 bridge. `skip` = defer to the domain's
 // normal module-presence/finding logic (used for not_yet_assessed, which the
 // module-assessed checks already handle honestly). `evidence_insufficient` =
 // the DMARC lookup was attempted but not obtained (never healthy off a

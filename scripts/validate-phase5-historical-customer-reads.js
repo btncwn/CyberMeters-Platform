@@ -36,7 +36,7 @@ const { getCurrentPosturePresentation } = await eng("current-posture.js");
 const { reconcileLateFindings, runHistoricalModule } = await eng("historical-scan.js");
 const { scanRoutes } = await route("scans.js");
 const { executiveDashboardRoutes } = await route("executive-dashboard.js");
-const { CYBER_MOT_DOMAIN_KEYS } = await eng("cyber-mot-state-history.js");
+const { SECURITY_CHECK_DOMAIN_KEYS } = await eng("security-check-state-history.js");
 
 const healthyMonitoringStates = {
   version: "signal-monitoring-state-v1",
@@ -294,7 +294,7 @@ async function fixtureEnvironment() {
         "2026-07-20T10:00:01.000Z", "2026-07-20T10:00:01.000Z",
       );
 
-    for (const domainKey of CYBER_MOT_DOMAIN_KEYS) {
+    for (const domainKey of SECURITY_CHECK_DOMAIN_KEYS) {
       db.prepare(`INSERT INTO cyber_mot_domain_states
         (id,workspace_id,domain_id,scan_id,domain_key,state,coverage,summary,
          finding_count,evidence_count,finding_ids_json,scan_quality,resolver_version,assessed_at)

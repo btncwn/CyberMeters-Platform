@@ -1,6 +1,6 @@
 # CyberMeters Platform
 
-CyberMeters is a multi-tenant, evidence-led **Cyber MOT platform** for small businesses, IT support providers and MSPs.
+CyberMeters is a multi-tenant, evidence-led **external security check platform** for small businesses, IT support providers and MSPs.
 
 It helps organisations understand, prioritise, manage and verify their externally observable security posture across eight canonical domains:
 

@@ -469,7 +469,7 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
   const findings = [];
 
   // A not_observed / not_yet_assessed DMARC surfaces status MISSING for display,
-  // but is NOT a missing-record finding — it never reaches Cyber MOT as an email
+  // but is NOT a missing-record finding — it never reaches the domain-state resolver as an email
   // issue (ADR-003 §11). observation_unavailable is set only on the canonical path.
   if (dmarc.status === "MISSING" && !dmarc.observation_unavailable) {
     findings.push({

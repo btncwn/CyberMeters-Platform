@@ -46,9 +46,9 @@ import { ALERTS_FEATURE_KEY, channelEnabledForWorkspace, GATED_CHANNELS, workspa
 // alert-occurrence.js has no imports of its own, so this cannot cycle.
 import { LIFECYCLE_EVENT_SOURCES, MONITORING_CHANGED, parseUtcMs } from "./alert-occurrence.js";
 // Canonical eight-domain display names for the email footer — ONE source of truth
-// (cyber-mot-domains.js), never a second hand-written list. Import chain is
-// cyber-mot-domains → dmarc-canonical-consumers → dmarc-state (leaf): no cycle.
-import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+// (security-check-domains.js), never a second hand-written list. Import chain is
+// security-check-domains → dmarc-canonical-consumers → dmarc-state (leaf): no cycle.
+import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 
 // The entitlement and preference decisions now live in alert-gate.js so the legacy
 // senders in alerts.js can share them without a circular import (managed-alerts.js
@@ -419,7 +419,7 @@ export const ALERT_ENTITY_TYPE_LABELS = Object.freeze({
 // source of truth. Unknown domain keys fall back to the neutral footer inside
 // formatAlertEmail rather than borrowing another module's name.
 const DOMAIN_MODULE_NAMES = Object.freeze(Object.fromEntries(
-  CYBER_MOT_DOMAINS.map((d) => [d.domain_key, d.display_name]),
+  SECURITY_CHECK_DOMAINS.map((d) => [d.domain_key, d.display_name]),
 ));
 
 // Bounded evidence sentence from structured metadata.evidence_source — never a raw

@@ -7,7 +7,7 @@ import { api } from '../../api'
 // The area page head (founder, 16 Oct 2026): serif title, description, the
 // backend word, a filter box, four tabs, and the area's sub-page tiles.
 
-vi.mock('../../api', () => ({ api: { getCyberMotDomains: vi.fn(), getCases: vi.fn() } }))
+vi.mock('../../api', () => ({ api: { getSecurityCheckDomains: vi.fn(), getCases: vi.fn() } }))
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
@@ -34,7 +34,7 @@ function renderPage(path = '/ws/email-protection', props = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', highest_severity: 'high', finding_count: 3 } }) })
+  api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', highest_severity: 'high', finding_count: 3 } }) })
   api.getCases.mockResolvedValue({ cases: CASES })
 })
 
@@ -106,7 +106,7 @@ describe('ModuleContract — head and tabs', () => {
   })
 
   it('shows registry titles and links for latest finding IDs without exposing unknown raw IDs', async () => {
-    api.getCyberMotDomains.mockResolvedValueOnce({ cyber_mot_domains: eight({ email_protection: {
+    api.getSecurityCheckDomains.mockResolvedValueOnce({ cyber_mot_domains: eight({ email_protection: {
       state: 'issue_detected', finding_count: 2, source_scan_id: 'scan_1',
       finding_ids: ['email_missing_spf', 'unmapped_internal_key'],
       finding_details: [{ finding_id: 'email_missing_spf', status: 'resolved', customer_title: 'Publish an SPF record', recommended_action: 'Publish the approved SPF record.', owner_type: 'customer_it', verification_method: 'dns_recheck' }, { finding_id: 'unmapped_internal_key', status: 'unmapped' }],
@@ -252,7 +252,7 @@ describe('ModuleContract — head and tabs', () => {
   })
 
   it('a failed read shows Error in the head while Website Security sections remain navigable', async () => {
-    api.getCyberMotDomains.mockRejectedValue(new Error('down'))
+    api.getSecurityCheckDomains.mockRejectedValue(new Error('down'))
     render(
       <MemoryRouter initialEntries={['/ws/website-security']}>
         <ModuleContract domainKey="website_security" workspaceId="ws1" workspaceName="Customer A"><p>body</p></ModuleContract>

@@ -21,7 +21,7 @@ const discover = process.argv.includes("--discover");
 const MUTATIONS = Object.freeze([
   {
     id: "b3-m1-material-severity-admission",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
     replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => (SEV_RANK[String(f?.severity || \"\").toLowerCase()] ?? 0) >= 2 && d.match(f));",
     expectedFailures: [
@@ -37,7 +37,7 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "b3-m2-domain-match-only-admission",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
     replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => d.match(f));",
     expectedFailures: [
@@ -48,7 +48,7 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "b3-m3-score-impact-as-authority",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
     replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => Number(f?.score_impact) < 0 && d.match(f));",
     expectedFailures: [
@@ -66,21 +66,21 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "b3-m4-observation-severity-promotion",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     anchor: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => isActionableFinding(f) && d.match(f));",
     replacement: "    const domainFindings = brandUnvalidated || brandValidationUnknown\n      ? [] : findings.filter((f) => (isActionableFinding(f) || [\"critical\", \"high\"].includes(String(f?.severity || \"\").toLowerCase())) && d.match(f));",
     expectedFailures: ["B3 synthetic critical observation owns no domain issue/count/identity"],
   },
   {
     id: "b3-m5-coverage-before-positive",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     anchor: "    if (domainFindings.length > 0) {",
     replacement: "    if (domainFindings.length > 0 && !anyRequiredInsufficient && !provisional && !signalCoverageLimited) {",
     expectedFailures: ["B3 actionable HSTS finding stays positive-first under required-evidence failure"],
   },
   {
     id: "b3-m6-positive-identity-dropped",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     anchor: "    base.finding_count = domainFindings.length;\n    base.evidence_count = assessed.length;\n    base.finding_ids = [...new Set(domainFindings.map((f) => f.id).filter(Boolean))].sort();",
     replacement: "    base.finding_count = 0;\n    base.evidence_count = assessed.length;\n    base.finding_ids = [];",
     expectedFailures: [
@@ -94,9 +94,9 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "b3-m7-resolver-version-reused",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-18.2";',
-    replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-08-30.1";',
+    file: "workers/scan-api/src/engines/security-check-domains.js",
+    anchor: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-18.2";',
+    replacement: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-08-30.1";',
     expectedFailures: ["current resolver version preserves the evidence-methodology boundary"],
   },
   {
@@ -374,7 +374,7 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "dual-ownership",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
+    file: "workers/scan-api/src/engines/security-check-domains.js",
     anchor: `match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),`,
     replacement: `match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),`,
     expectedFailures: [
@@ -452,9 +452,9 @@ const MUTATIONS = Object.freeze([
   },
   {
     id: "comparable-historical-transition",
-    file: "workers/scan-api/src/engines/cyber-mot-domains.js",
-    anchor: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-10-18.2";',
-    replacement: 'export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";',
+    file: "workers/scan-api/src/engines/security-check-domains.js",
+    anchor: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-18.2";',
+    replacement: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
       "current resolver version preserves the evidence-methodology boundary",
       "historical/new ownership boundary is not_comparable",
