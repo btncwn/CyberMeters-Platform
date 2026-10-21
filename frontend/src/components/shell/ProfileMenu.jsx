@@ -1,5 +1,6 @@
 // ProfileMenu — the account button (the signed-in person's initial) and its
-// popover: name and role, then Field Guide · Account · Billing · Sign out
+// popover: name and role, then Field Guide · Account · AI assistant (MCP) ·
+// Billing · Sign out
 // (founder, 17 Oct 2026: account things live here; workspace things —
 // members, alert channels, usage & retention, audit log — live in the
 // workspace menu). Closes on Escape and on an outside click; focus returns to
@@ -77,6 +78,7 @@ export default function ProfileMenu({ roleLabel = null }) {
           <div className="py-1">
             <Link role="menuitem" to="/guide" onClick={() => close({ refocus: true })} className={itemClass}>Field Guide</Link>
             <Link role="menuitem" to="/account" onClick={() => close({ refocus: true })} className={itemClass}>Account</Link>
+            <Link role="menuitem" to="/account/mcp" onClick={() => close({ refocus: true })} className={itemClass}>AI assistant (MCP)</Link>
             <Link role="menuitem" to="/billing" onClick={() => close({ refocus: true })} className={itemClass}>Billing</Link>
           </div>
           <div className="border-t border-gray-100 py-1">

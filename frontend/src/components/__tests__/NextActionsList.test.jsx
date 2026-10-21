@@ -5,7 +5,7 @@ import { MODULES } from '../../lib/moduleRegistry'
 import { api } from '../../api'
 
 vi.mock('../../api', () => ({
-  api: { getShadowItInventory: vi.fn(), getWorkspaces: vi.fn(), getWorkspaceMembers: vi.fn(), getWorkspaceDomains: vi.fn(), createScan: vi.fn(), getScan: vi.fn() },
+  api: { getShadowItInventory: vi.fn(), getMcpConnections: vi.fn(), getWorkspaces: vi.fn(), getWorkspaceMembers: vi.fn(), getWorkspaceDomains: vi.fn(), createScan: vi.fn(), getScan: vi.fn() },
 }))
 
 const row = (domain_key, state = 'assessed_healthy', extra = {}) => ({ domain_key, state, coverage: 'complete', finding_count: 0, finding_details: [], highest_severity: null, ...extra })
@@ -51,6 +51,14 @@ describe('buildNextActions', () => {
     expect(rows.at(-1).body).toMatch(/Identity Exposure/)
   })
 
+  it('an eligible account with no active MCP connection is offered one; otherwise nothing', () => {
+    const row = buildNextActions({ domains: eight(), mcp: { eligible: true, active: 0 } }).find((r) => r.key === 'mcp-connect')
+    expect(row).toMatchObject({ title: 'Connect your AI assistant', action: { label: 'Connect', to: '/account/mcp' } })
+    expect(buildNextActions({ domains: eight(), mcp: { eligible: true, active: 1 } })).toEqual([])
+    expect(buildNextActions({ domains: eight(), mcp: { eligible: false, active: 0 } })).toEqual([])
+    expect(buildNextActions({ domains: eight(), mcp: null })).toEqual([])
+  })
+
   it('a failed read suggests nothing', () => {
     expect(buildNextActions({ domains: [], request: 'error', unclassified: 3 })).toEqual([])
   })
@@ -60,6 +68,7 @@ describe('NextActionsList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     api.getShadowItInventory.mockResolvedValue({ counts: { unreviewed: 2 } })
+    api.getMcpConnections.mockResolvedValue({ eligible: true, connections: [{ id: 'mcpconn_1', status: 'active' }] })
     api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws1', role: 'owner' }] })
     api.getWorkspaceDomains.mockResolvedValue({ domains: [] })
   })
@@ -81,4 +90,11 @@ describe('NextActionsList', () => {
     render(<MemoryRouter><NextActionsList workspaceId="ws1" request="ok" dmarcConnected domains={eight()} /></MemoryRouter>)
     expect(await screen.findByText(/Nothing to act on from the latest assessment/)).toBeInTheDocument()
   })
+})
+
+it('the Overview offers "Connect your AI assistant" by accessible name when eligible and unconnected', async () => {
+  api.getShadowItInventory.mockResolvedValue({ counts: { unreviewed: 0 } })
+  api.getMcpConnections.mockResolvedValue({ eligible: true, connections: [{ id: 'mcpconn_1', status: 'revoked' }] })
+  render(<MemoryRouter><NextActionsList workspaceId="ws1" request="ok" dmarcConnected domains={eight()} /></MemoryRouter>)
+  expect(await screen.findByRole('link', { name: 'Connect: Connect your AI assistant' })).toHaveAttribute('href', '/account/mcp')
 })
