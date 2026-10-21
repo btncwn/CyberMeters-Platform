@@ -18,12 +18,12 @@ const quote = s => '"' + s.replaceAll('"', '""') + '"';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export function seal(bytes, key) {
-  const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv);
+  const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   return Buffer.concat([iv, cipher.update(bytes), cipher.final(), cipher.getAuthTag()]);
 }
 export function open(bytes, key) {
   if (bytes.length < 28) throw Error('Truncated encrypted recovery member');
-  const decipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12));
+  const decipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12), { authTagLength: 16 });
   decipher.setAuthTag(bytes.subarray(-16));
   return Buffer.concat([decipher.update(bytes.subarray(12, -16)), decipher.final()]);
 }
