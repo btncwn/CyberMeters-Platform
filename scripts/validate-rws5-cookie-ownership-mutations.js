@@ -163,6 +163,7 @@ const MUTATIONS = Object.freeze([
     expectedFailures: [
       "CSP style-only producer is a low observation",
       "CSP style-only producer severity is low",
+      "CSP style-only weakness names 'unsafe-inline' in style-src",
       "shared CSP classifier identifies style-only weakness",
     ],
   },
