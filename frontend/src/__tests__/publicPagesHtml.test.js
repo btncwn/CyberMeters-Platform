@@ -21,6 +21,26 @@ const attr = (html, selector) => {
 const canonicalOf = (html) => (html.match(/<link rel="canonical" href="([^"]*)"/) || [])[1] ?? null
 const unescape = (s) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
 
+describe('versioned brand assets', () => {
+  it.each([
+    ['entrypoint', indexHtml],
+    ['homepage', renderHomeHtml(indexHtml)],
+    ...staticPages().map(page => [page.path, renderPageHtml(indexHtml, page)]),
+  ])('%s uses fresh icon and share-image URLs', (_, html) => {
+    for (const name of ['favicon.ico', 'favicon.svg', 'apple-touch-icon.png']) {
+      expect(html).toContain(`href="/${name}?v=20261021"`)
+    }
+    for (const key of [['property', 'og:image'], ['name', 'twitter:image']]) {
+      expect(attr(html, key)).toBe('https://cybermeters.com/og-image-v3.png')
+    }
+  })
+
+  it('keeps the previous share-image URL available with identical bytes', () => {
+    expect(readFileSync(resolve(frontend, 'public/og-image-v3.png')))
+      .toEqual(readFileSync(resolve(frontend, 'public/og-image-v2.png')))
+  })
+})
+
 describe('static HTML per public page', () => {
   it.each(staticPages().map(p => [p.path, p]))('%s: its own title, description, share tags and canonical link', (_, page) => {
     const html = renderPageHtml(indexHtml, page)
