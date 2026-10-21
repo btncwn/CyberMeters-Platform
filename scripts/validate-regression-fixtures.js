@@ -1090,9 +1090,10 @@ results.push(await asyncSecurityContract("dmarc_dns_check_recommended_value_pres
     { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () => _dmarcDnsAnswer(record) }
   );
   const recommended = result.recommended_txt_value;
-  // RFC 9989 removed pct: it is not carried into the recommendation (p=none
-  // has no testing level, so no t=y either).
-  return recommended.includes("p=none") && recommended.includes("sp=none") && !/pct\s*=/.test(recommended) && !recommended.includes("t=y") &&
+  // The customer's record is kept verbatim, pct included; the obsolete pct is
+  // surfaced as a notice instead (RFC 9989).
+  return recommended.includes("p=none") && recommended.includes("sp=none") && recommended.includes("pct=50") &&
+    result.legacy_pct?.pct === "50" && result.legacy_pct?.managed_by === "customer" &&
     recommended.includes("mailto:existing@example.com") &&
     recommended.includes("mailto:cmrua_abc123def456@reports.cybermeters.com") &&
     !recommended.includes("p=quarantine") && !recommended.includes("p=reject");

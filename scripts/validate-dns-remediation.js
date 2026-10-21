@@ -203,6 +203,7 @@ try{
   const dmarcName='_dmarc.example.test';const originalDmarc=record(dmarcName,'v=DMARC1; p=reject; sp=quarantine; pct=75; adkim=s; rua=mailto:existing@example.test',{comment:'Customer note',tags:['team:mail']});setRecords(dmarcName,[originalDmarc]);
   const dm=await makePreview({action_id:'dmarc_reporting',inputs:{}});
   equal('DMARC preserves enforcement and existing recipient',dm.after.content,'v=DMARC1; p=reject; sp=quarantine; pct=75; adkim=s; rua=mailto:existing@example.test,mailto:cmrua_abcdefgh@reports.cybermeters.test');
+  equal('DMARC obsolete pct is surfaced to the customer, not converted',[dm.legacy_pct?.pct,dm.legacy_pct?.managed_by],['75','customer']);
   equal('DMARC targets exact prior record',dm.after.id,originalDmarc.id);
   equal('DMARC append accepted',(await act(dm,'apply')).body.change.status,'provider_accepted');equal('DMARC preserves tags',current(dmarcName)[0].tags,['team:mail']);
   equal('DMARC undo succeeds',(await act(dm,'rollback')).body.change.status,'rolled_back');equal('DMARC original content and comment restored',[current(dmarcName)[0].content,current(dmarcName)[0].comment],[originalDmarc.content,originalDmarc.comment]);

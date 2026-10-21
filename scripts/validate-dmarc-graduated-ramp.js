@@ -87,6 +87,25 @@ ok("bare looser policy → as written (the step down)", want({ policy: "quaranti
 ok("bare reject from quarantine → reject_testing", want({ policy: "reject" }, "quarantine", "reject_testing"));
 ok("a non-boolean testing is refused", resolveRequestedRampStep({ policy: "reject", testing: "yes" }, at("none")) === -1);
 
+// ── Preserve paths keep a customer-authored record verbatim, pct included ──
+// DNS remediation, the DMARC setup check and a new hosted record's first value
+// all go through buildDmarcDnsRecommendedValue: it only adds our rua. Turning
+// the customer's pct=75 into t=y would weaken p=reject to quarantine at RFC
+// 9989 receivers without their action, so pct stays and a notice says why.
+{
+  const rua = "mailto:cmrua_x@reports.cybermeters.com";
+  const customer = "v=DMARC1; p=reject; sp=quarantine; pct=75; adkim=s; rua=mailto:existing@example.test";
+  ok("preserve: every customer tag kept verbatim, pct included",
+     eng.buildDmarcDnsRecommendedValue(customer, rua) === `v=DMARC1; p=reject; sp=quarantine; pct=75; adkim=s; rua=mailto:existing@example.test,${rua}`);
+  ok("preserve: no t=y is added to a customer's record", !eng.buildDmarcDnsRecommendedValue("v=DMARC1; p=quarantine; pct=0", rua).includes("t=y"));
+  ok("preserve: pct=100 is kept too", eng.buildDmarcDnsRecommendedValue("v=DMARC1; p=reject; pct=100", rua).includes("pct=100"));
+  const notice = legacyPctNotice(customer, { managedBy: "customer" });
+  ok("preserve: the customer gets the notice, worded for their own record",
+     notice?.managed_by === "customer" && /keeps your record as you wrote it/.test(notice.message) && !/removes it/.test(notice.message));
+  ok("hosted: the notice for a CyberMeters-managed record says when it goes",
+     legacyPctNotice(customer)?.managed_by === "cybermeters" && /removes it on your next policy change/.test(legacyPctNotice(customer).message));
+}
+
 // ── API projection: ladder, step keys, step down, the legacy pct notice ─────
 const row = (value) => ({ id: "hd-1", domain: "example.com", record_type: "dmarc", hosted_name: "hd-1.dmarc.cybermeters.com",
   current_value: value, previous_value: null, status: "connected", created_at: "2026-10-01" });

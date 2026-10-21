@@ -32,11 +32,13 @@ function normalizeDmarcRuaForComparison(value) {
 
 // Preserve the customer's existing DMARC tags and policy. This helper only
 // adds the CyberMeters aggregate-reporting URI; it never recommends stronger
-// enforcement or mutates DNS. It is also the first value of a hosted record, so
-// a legacy pct is never carried over: it is rewritten with its intent (a pct
-// below 100 becomes t=y, RFC 9989 Appendix A.6).
+// enforcement or mutates DNS. Every tag is kept verbatim, a legacy pct
+// included: converting it (e.g. to t=y) would change how receivers treat the
+// customer's own policy without their action. The obsolete pct is surfaced as
+// a legacy_pct notice instead. Only CyberMeters' own ladder and rollback writes
+// remove pct (buildDmarcPolicyValue, withoutLegacyPct).
 export function buildDmarcDnsRecommendedValue(record, recommendedRua) {
-  const raw = withoutLegacyPct(normalizeDnsTxtValue(record));
+  const raw = normalizeDnsTxtValue(record);
   if (!raw) return `v=DMARC1; p=none; rua=${recommendedRua}`;
   const parts = raw.split(";").map((part) => part.trim()).filter(Boolean);
   const ruaIndex = parts.findIndex((part) => /^rua\s*=/i.test(part));
@@ -63,6 +65,7 @@ function _dmarcDnsCheckResponse(domain, endpoint, records, checkedAt) {
     policy: null,
     subdomain_policy: null,
     pct: null,
+    legacy_pct: null,
     rua: [],
     recommended_rua: recommendedRua,
     recommended_txt_value: records.length === 0
@@ -86,6 +89,7 @@ function _dmarcDnsCheckResponse(domain, endpoint, records, checkedAt) {
     pct: detail.pct,
     rua: safeRua,
     recommended_txt_value: buildDmarcDnsRecommendedValue(record, recommendedRua),
+    legacy_pct: legacyPctNotice(record, { managedBy: "customer" }),
   };
   if (!detail.valid) return {
     ...response, status: "invalid_dmarc",
@@ -746,13 +750,22 @@ export function withoutLegacyPct(raw) {
   return out.join("; ");
 }
 
-/** A notice for a hosted value that still carries pct, or null. */
-export function legacyPctNotice(raw) {
+/**
+ * A notice for a DMARC value that still carries pct, or null. `managedBy`
+ * says who writes the record next: "cybermeters" (a hosted record, cleaned on
+ * the customer's next policy change) or "customer" (kept as they wrote it).
+ */
+export function legacyPctNotice(raw, { managedBy = "cybermeters" } = {}) {
   const tags = dmarcTags(raw);
   if (!tags.has("pct")) return null;
+  const pct = tags.get("pct");
+  const removed = `RFC 9989 removed pct: receivers that follow it ignore the value and apply the policy as written.`;
   return {
-    pct: tags.get("pct"),
-    message: `This record still carries pct=${tags.get("pct")}. RFC 9989 removed pct: receivers that follow it ignore the value and apply the policy as written. CyberMeters removes it on your next policy change.`,
+    pct,
+    managed_by: managedBy === "customer" ? "customer" : "cybermeters",
+    message: managedBy === "customer"
+      ? `This record carries pct=${pct}. ${removed} CyberMeters keeps your record as you wrote it; remove pct when you next edit it, or publish the policy with t=y to test it first.`
+      : `This record still carries pct=${pct}. ${removed} CyberMeters removes it on your next policy change.`,
   };
 }
 
