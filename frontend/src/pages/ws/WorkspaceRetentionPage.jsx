@@ -181,11 +181,10 @@ function StorageUsageCard({ data, loading, error, onRefresh }) {
           !loading && (
             <button
               onClick={onRefresh}
-              className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors"
-              title="Refresh usage and retention"
-              aria-label="Refresh usage and retention"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Reload</span>
             </button>
           )
         }

@@ -1,4 +1,5 @@
 import { formatDay } from '../../utils/dates'
+import ScanNowButton from '../ScanNowButton'
 // ModuleContract — the ONE template every /ws/<area> page renders (founder,
 // 18 Oct 2026), in this order:
 //
@@ -219,6 +220,7 @@ function SubpageTiles({ domainKey, tiles, theme, summaries = null }) {
  *   workspaceId, workspaceName
  *   description        — the page's one-paragraph description under the title
  *   actions            — the page's own actions (buttons/links), shown under the filter box
+ *   scanDomain         — the domain the page is showing; "Scan now" (top right) scans it
  *   aside              — an optional page-specific block shown under the header (e.g. questionnaire progress)
  *   overview           — the page's own summary blocks for the Overview tab: statistic cards,
  *                        coverage honesty and open-case panels, rendered between the tiles and
@@ -228,7 +230,7 @@ function SubpageTiles({ domainKey, tiles, theme, summaries = null }) {
  *   recommendedAction  — optional node the page already derives from its own backend data (shown in section 5)
  *   children           — the page's findings body (section 4)
  */
-export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, tileSummaries = null, recommendedAction = null, figures = null, nextAction = null, settings = null, children }) {
+export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, tileSummaries = null, recommendedAction = null, figures = null, nextAction = null, settings = null, scanDomain = null, children }) {
   const module = moduleForDomainKey(domainKey)
   const theme = moduleTheme(domainKey)
   const [params, setParams] = useSearchParams()
@@ -482,6 +484,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
             </div>
           </div>
           <div className="flex flex-col items-stretch lg:items-end gap-3 shrink-0">
+            {workspaceId && <ScanNowButton workspaceId={workspaceId} domain={scanDomain} />}
             <label className="cm-area-search">
               <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
               <input

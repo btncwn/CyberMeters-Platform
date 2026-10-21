@@ -12,6 +12,7 @@ vi.mock('../../api', () => ({
     getWorkspaces: vi.fn(), getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceScorecard: vi.fn(),
     getSecurityCheckDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(), getWorkspaceMembers: vi.fn(),
     getWorkspaceSummary: vi.fn(), getDmarcIngestEndpoint: vi.fn(), verifyDmarcDns: vi.fn(),
+    createScan: vi.fn(), getScan: vi.fn(),
   },
 }))
 vi.mock('../../components/OnboardingProgress', () => ({ default: () => null }))
@@ -40,7 +41,9 @@ beforeEach(() => {
   localStorage.clear()
   api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A' }] })
   api.getWorkspaceScans.mockResolvedValue({ scans: [{ id: 's1', domain: 'example.co.uk', status: 'completed', created_at: new Date(Date.now() - 3 * 86400000).toISOString() }] })
-  api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'example.co.uk' }] })
+  api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'example.co.uk', domain_id: 'd1', verification_status: 'verified', verified_at: '2026-10-01T00:00:00Z' }] })
+  api.createScan.mockResolvedValue({ scan: { id: 'scan_new', status: 'queued' } })
+  api.getScan.mockResolvedValue({ scan: { id: 'scan_new', status: 'running' } })
   api.getWorkspaceScorecard.mockResolvedValue(null)
   api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', summary: '2 issues.' }, attack_surface: { state: 'assessed_healthy', last_assessed_at: '2026-10-12T09:00:00Z', evidence_freshness: 'stale' } }) })
   api.getCases.mockResolvedValue({ cases: [] })
@@ -106,10 +109,15 @@ describe('scan box by workspace role (18 Oct 2026)', () => {
     expect(screen.queryByRole('textbox', { name: 'Domain to scan' })).toBeNull()
     expect(screen.queryByTestId('setup-card')).toBeNull()
   })
-  it('an analyst is offered Rescan a verified domain; a viewer is not', async () => {
+  it('an analyst gets Scan now for the verified domain; a viewer does not', async () => {
     api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'analyst' }] })
     const { unmount } = renderHome()
-    expect(await screen.findByTestId('dashboard-rescan')).toHaveAttribute('href', '/scans/new')
+    const button = await screen.findByRole('button', { name: 'Scan now' })
+    await waitFor(() => expect(button).toBeEnabled())
+    fireEvent.click(button)
+    await waitFor(() => expect(api.createScan).toHaveBeenCalledWith('example.co.uk', 'ws_a'))
+    expect(await screen.findByRole('status')).toHaveTextContent('Scan started — results in about 2–3 minutes.')
+    expect(screen.getByRole('link', { name: 'Follow progress' })).toHaveAttribute('href', '/scans/scan_new')
     unmount()
     api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'viewer' }] })
     api.getWorkspaceMembers.mockResolvedValue({ members: [{ role: 'owner', name: 'Taylor Owner' }] })
@@ -125,7 +133,8 @@ describe('scan box by workspace role (18 Oct 2026)', () => {
     await waitFor(() => expect(api.getWorkspaces).toHaveBeenCalled())
     expect(screen.getByRole('form', { name: 'Start a scan' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Domain to scan' })).toBeInTheDocument()
-    expect(screen.queryByTestId('dashboard-rescan')).toBeNull()
+    // The form adds a new domain; Scan now rescans the verified one.
+    expect(await screen.findByRole('button', { name: 'Scan now' })).toBeInTheDocument()
   })
 })
 

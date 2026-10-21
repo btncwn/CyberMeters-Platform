@@ -8,6 +8,7 @@ import PostureCard          from '../components/overview/PostureCard'
 import { NextActionCard } from '../components/overview/SecurityOverview'
 import SetupCard from '../components/SetupCard'
 import { useWorkspaceRole } from '../hooks/useWorkspaceRole'
+import ScanNowButton from '../components/ScanNowButton'
 import { formatDate } from '../utils/dates'
 import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
@@ -454,16 +455,17 @@ export default function Dashboard() {
           <button type="submit" className="btn-primary rounded-full px-5 py-2">Scan</button>
         </form>
         )}
-        {/* A member who may rescan verified domains but not add new ones. */}
-        {scanAccess === 'rescan' && (
-          <div className="mt-6 flex justify-center">
-            <Link to="/scans/new" className="btn-secondary rounded-full px-5 py-2" data-testid="dashboard-rescan">Rescan a verified domain</Link>
+        {/* Scan a domain this workspace already verified, in one click (founder,
+            21 Oct 2026). The form above adds a new domain; this rescans. */}
+        {activeWorkspaceId && scanAccess !== 'none' && (
+          <div className="mt-6" data-testid="dashboard-rescan">
+            <ScanNowButton workspaceId={activeWorkspaceId} domain={latestScan?.domain || null} align="center" />
           </div>
         )}
         <div className="mt-4 flex justify-center">
-          <button onClick={() => load(true)} disabled={refreshing} className="btn-ghost text-xs">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
+          <button type="button" onClick={() => load(true)} disabled={refreshing} className="btn-ghost text-xs">
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Reload results
           </button>
         </div>
       </section>
