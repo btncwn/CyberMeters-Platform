@@ -76,32 +76,93 @@ ok("provider removal approval rejects unrelated deletion", !approvedDestructiveM
 // (an eight-term UNION ALL); D1 does not document its compound limit, so
 // migrations use one INSERT per row-set instead of any compound SELECT. D1 also
 // runs each file in its own transaction and rejects explicit transaction
-// control, and caps a single SQL statement at 100 KB.
+// control, and caps a single SQL statement at 100,000 bytes (UTF-8):
+// https://developers.cloudflare.com/d1/platform/limits/
+// The one-term policy below is conservative repository policy, not a published
+// numeric D1 compound-SELECT limit.
 const D1_MAX_STATEMENT_BYTES = 100_000;
 const stripQuoted = (stmt) => stmt
   .replace(/'(?:[^']|'')*'/g, "''")
   .replace(/"(?:[^"]|"")*"/g, '""')
   .replace(/`[^`]*`/g, "``")
   .replace(/\[[^\]]*\]/g, "[]");
-const COMPOUND = /\b(UNION|INTERSECT|EXCEPT)\b/i;
+// Count each chain independently: nested SELECTs and separate CTEs must not
+// inflate a compound chain's term count. Quoted text is already removed.
+const maxCompoundSelectTerms = (bare) => {
+  const chains = [1];
+  let max = 1;
+  for (const token of bare.match(/[();]|\b(?:UNION|INTERSECT|EXCEPT)\b/gi) || []) {
+    if (token === "(") chains.push(1);
+    else if (token === ")") { if (chains.length > 1) chains.pop(); }
+    else if (token === ";") chains[chains.length - 1] = 1;
+    else max = Math.max(max, ++chains[chains.length - 1]);
+  }
+  return max;
+};
 const TRANSACTION_CONTROL = /^\s*(BEGIN(\s+(DEFERRED|IMMEDIATE|EXCLUSIVE))?(\s+TRANSACTION)?|COMMIT(\s+TRANSACTION)?|END(\s+TRANSACTION)?|ROLLBACK\b[\s\S]*|SAVEPOINT\b[\s\S]*|RELEASE\b[\s\S]*)\s*;?\s*$/i;
 const d1Problems = (stmt) => {
   const problems = [];
   const bare = stripQuoted(stmt);
-  if (COMPOUND.test(bare)) problems.push("compound SELECT (UNION/INTERSECT/EXCEPT); use one INSERT per row-set");
+  const terms = maxCompoundSelectTerms(bare);
+  if (terms > 1) problems.push(`compound SELECT (${terms} terms; repository maximum 1); use one INSERT per row-set`);
   if (TRANSACTION_CONTROL.test(bare)) problems.push("explicit transaction control; D1 wraps each file itself");
   if (Buffer.byteLength(stmt, "utf8") > D1_MAX_STATEMENT_BYTES) problems.push(`statement over ${D1_MAX_STATEMENT_BYTES} bytes`);
   return problems;
 };
+const d1MigrationProblems = (raw) => splitStatements(raw).flatMap((stmt) =>
+  d1Problems(stmt).map((problem) => `${problem} :: ${stmt.replace(/\s+/g, " ").slice(0, 80)}`));
 for (const f of files) {
   const raw = fs.readFileSync(path.join(migDir, f), "utf8");
-  const found = splitStatements(raw).flatMap((stmt) => d1Problems(stmt).map((problem) => `${problem} :: ${stmt.replace(/\s+/g, " ").slice(0, 80)}`));
+  const found = d1MigrationProblems(raw);
   ok(`${f}: D1-compatible`, found.length === 0);
   for (const line of found) console.log(`  → ${line}`);
 }
 // Controls: the rules catch what D1 rejected, and do not misfire on valid SQL.
-const failing132 = "INSERT INTO t (k) SELECT d.k FROM w CROSS JOIN (SELECT 'a' AS k UNION ALL SELECT 'b') d";
-ok("D1 control: the original migration 132 shape is rejected", d1Problems(failing132).length > 0);
+const failing132 = `INSERT OR IGNORE INTO alert_activation
+(id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+SELECT 'aa_bf132_' || lower(hex(randomblob(16))), w.id, d.domain_key, datetime('now'), 0, datetime('now')
+  FROM workspaces w
+  CROSS JOIN (
+    SELECT 'certificates_trust' AS domain_key
+    UNION ALL SELECT 'identity_exposure'
+    UNION ALL SELECT 'shadow_it_unmanaged_technology'
+    UNION ALL SELECT 'brand_protection'
+    UNION ALL SELECT 'attack_surface'
+    UNION ALL SELECT 'email_protection'
+    UNION ALL SELECT 'website_security'
+    UNION ALL SELECT 'cyber_essentials_readiness'
+  ) d
+ WHERE w.deleted_at IS NULL;`;
+const incidentDb = new DatabaseSync(":memory:");
+incidentDb.exec(`CREATE TABLE workspaces (id TEXT, deleted_at TEXT);
+  CREATE TABLE alert_activation (id TEXT, workspace_id TEXT, domain_key TEXT,
+    activated_at TEXT, baseline_count INTEGER, created_at TEXT);
+  INSERT INTO workspaces VALUES ('incident-fixture', NULL);`);
+incidentDb.exec(failing132);
+ok("D1 control: local SQLite accepts the original eight-term migration 132 shape",
+  incidentDb.prepare("SELECT COUNT(*) AS n FROM alert_activation").get().n === 8);
+incidentDb.close();
+ok("D1 control: production validation rejects migration 132 and reports eight terms",
+  d1MigrationProblems(failing132).some((problem) => problem.includes("compound SELECT (8 terms;")));
+ok("D1 control: separate nested chains count independently",
+  maxCompoundSelectTerms("WITH a AS (SELECT 1 UNION SELECT 2), b AS (SELECT 3 EXCEPT SELECT 4) SELECT * FROM a") === 2);
+ok("D1 control: a three-term mixed chain is counted",
+  maxCompoundSelectTerms("SELECT 1 UNION ALL SELECT 2 INTERSECT SELECT 3") === 3);
+ok("D1 control: independent statements reset term counts",
+  d1MigrationProblems("SELECT 1 UNION SELECT 2; SELECT 3 UNION SELECT 4;").every((problem) => problem.includes("(2 terms;")));
+ok("D1 control: comments and quoted operators are ignored",
+  d1MigrationProblems(`-- UNION SELECT 2
+    SELECT 'UNION '' INTERSECT', "EXCEPT", [UNION], \`INTERSECT\` /* EXCEPT */;`).length === 0);
+ok("D1 control: nested single SELECTs are allowed",
+  d1MigrationProblems("SELECT * FROM (SELECT 1) a JOIN (SELECT 2) b;").length === 0);
+const statementAtLimit = "SELECT '" + "x".repeat(D1_MAX_STATEMENT_BYTES - 9) + "'";
+ok("D1 control: exactly 100,000 UTF-8 bytes is allowed",
+  Buffer.byteLength(statementAtLimit, "utf8") === D1_MAX_STATEMENT_BYTES && d1MigrationProblems(statementAtLimit).length === 0);
+ok("D1 control: 100,001 UTF-8 bytes is rejected",
+  d1MigrationProblems(statementAtLimit.slice(0, -1) + "x'").some((problem) => problem.includes("100000 bytes")));
+const multibyteStatement = `SELECT '${"é".repeat(50_000)}'`;
+ok("D1 control: statement size counts UTF-8 bytes, not characters",
+  multibyteStatement.length < D1_MAX_STATEMENT_BYTES && d1MigrationProblems(multibyteStatement).some((problem) => problem.includes("100000 bytes")));
 ok("D1 control: INTERSECT and EXCEPT are rejected", d1Problems("SELECT 1 INTERSECT SELECT 1").length > 0 && d1Problems("SELECT 1 EXCEPT SELECT 2").length > 0);
 ok("D1 control: explicit BEGIN TRANSACTION / COMMIT are rejected", d1Problems("BEGIN TRANSACTION").length > 0 && d1Problems("COMMIT").length > 0);
 ok("D1 control: an oversized statement is rejected", d1Problems(`INSERT INTO t VALUES ('${"x".repeat(D1_MAX_STATEMENT_BYTES)}')`).length > 0);
