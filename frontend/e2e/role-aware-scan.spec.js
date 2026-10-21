@@ -52,12 +52,13 @@ test('analyst: no add-domain box or verify; rescans a domain the workspace alrea
   const calls = await signInAs(page, 'analyst')
   await page.goto('/dashboard')
   await expect(page.getByRole('heading', { level: 1, name: 'Where is Black Bull Barbers exposed today?' })).toBeVisible()
+  // No add-domain box: the analyst picks one of the verified domains.
   await expect(page.getByRole('textbox', { name: 'Domain to scan' })).toHaveCount(0)
-  await expect(page.getByRole('form', { name: 'Start a scan' })).toHaveCount(0)
 
   // One click from the Overview (founder, 21 Oct 2026): Scan now rescans the
   // verified domain without leaving the page.
-  await page.getByRole('button', { name: 'Scan now' }).click()
+  await expect(page.getByRole('combobox', { name: 'Domain to scan' })).toHaveValue('blackbullbarbers.co.uk')
+  await page.getByRole('button', { name: 'Scan', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Scan started — results in about 2–3 minutes.' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Follow progress' })).toHaveAttribute('href', '/scans/scan_rescan_1')
   expect(calls.scans).toEqual([{ domain: 'blackbullbarbers.co.uk', workspace_id: ws.id }])
@@ -91,7 +92,7 @@ test('viewer: no scan action anywhere, and /scans/new asks the owner', async ({ 
   await page.goto('/dashboard')
   await expect(page.getByRole('heading', { level: 1, name: 'Where is Black Bull Barbers exposed today?' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Domain to scan' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Scan now' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Scan', exact: true })).toHaveCount(0)
   await page.goto('/scans/new')
   await expect(page.getByTestId('scan-not-permitted')).toContainText('Only workspace admins can add domains and start scans. Ask Taylor Owner if you need one scanned.')
   await expect(page.getByRole('button', { name: /Rescan|Verify domain ownership|Start Scan/ })).toHaveCount(0)

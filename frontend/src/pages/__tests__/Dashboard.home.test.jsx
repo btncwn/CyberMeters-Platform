@@ -1,5 +1,5 @@
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import Dashboard from '../Dashboard'
 import { api } from '../../api'
 
@@ -23,6 +23,11 @@ vi.mock('../../components/RecentChangesCard', () => ({ default: () => null }))
 const KEYS = ['email_protection', 'attack_surface', 'website_security', 'identity_exposure', 'shadow_it_unmanaged_technology', 'certificates_trust', 'brand_protection', 'cyber_essentials_readiness']
 const eight = (over = {}) => KEYS.map((k) => ({ domain_key: k, display_name: k, description: '', state: 'not_yet_assessed', coverage: null, summary: 'Not yet assessed.', finding_count: 0, recommendation_count: 0, highest_severity: null, limitations: [], last_assessed_at: null, evidence_freshness: 'none', freshness_reason: 'No assessment has been recorded for this domain yet.', ...(over[k] || {}) }))
 
+function NewScanProbe() {
+  const { search } = useLocation()
+  return <div data-testid="new-scan-probe">{decodeURIComponent(search)}</div>
+}
+
 function renderHome() {
   localStorage.setItem('cybermeters_workspace_id', 'ws_a')
   localStorage.setItem('cybermeters_workspace_name', 'Customer A')
@@ -30,7 +35,7 @@ function renderHome() {
     <MemoryRouter initialEntries={['/dashboard']}>
       <Routes>
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/scans/new" element={<div data-testid="new-scan">{window.location.search}</div>} />
+        <Route path="/scans/new" element={<NewScanProbe />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -88,7 +93,8 @@ describe('Home screen', () => {
     expect(input).toHaveAttribute('placeholder', 'Enter a domain to scan, e.g. example.co.uk')
     fireEvent.change(input, { target: { value: '  Shop.Example.co.uk ' } })
     fireEvent.submit(screen.getByRole('form', { name: 'Start a scan' }))
-    expect(await screen.findByTestId('new-scan')).toBeInTheDocument()
+    // A domain this workspace has not verified keeps the new-scan path, normalised.
+    expect(await screen.findByTestId('new-scan-probe')).toHaveTextContent('?domain=shop.example.co.uk')
   })
 
   it('without any scan it says so instead of inventing a last assessment', async () => {
@@ -105,42 +111,54 @@ describe('Home screen', () => {
   })
 })
 
-describe('scan box by workspace role (18 Oct 2026)', () => {
-  it.each(['analyst', 'viewer'])('an %s member is not offered the scan box', async (role) => {
-    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role }] })
-    api.getWorkspaceMembers.mockResolvedValue({ members: [{ role: 'owner', name: 'Taylor Owner' }] })
-    renderHome()
-    await screen.findByRole('heading', { level: 1, name: 'Where is Customer A exposed today?' })
-    await waitFor(() => expect(screen.queryByRole('form', { name: 'Start a scan' })).toBeNull())
-    expect(screen.queryByRole('textbox', { name: 'Domain to scan' })).toBeNull()
-    expect(screen.queryByTestId('setup-card')).toBeNull()
-  })
-  it('an analyst gets Scan now for the verified domain; a viewer does not', async () => {
-    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'analyst' }] })
-    const { unmount } = renderHome()
-    const button = await screen.findByRole('button', { name: 'Scan now' })
-    await waitFor(() => expect(button).toBeEnabled())
-    fireEvent.click(button)
-    await waitFor(() => expect(api.createScan).toHaveBeenCalledWith('example.co.uk', 'ws_a'))
-    expect(await screen.findByRole('status')).toHaveTextContent('Scan started — results in about 2–3 minutes.')
-    expect(screen.getByRole('link', { name: 'Follow progress' })).toHaveAttribute('href', '/scans/scan_new')
-    unmount()
+describe('scan box by workspace role (18 Oct 2026); one scan control (21 Oct 2026)', () => {
+  const scanControls = () => screen.queryAllByRole('button', { name: /^(Scan|Scan now|Run a scan|Run a fresh scan)$/ })
+
+  it('a viewer is not offered the scan box', async () => {
     api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'viewer' }] })
     api.getWorkspaceMembers.mockResolvedValue({ members: [{ role: 'owner', name: 'Taylor Owner' }] })
     renderHome()
     await screen.findByRole('heading', { level: 1, name: 'Where is Customer A exposed today?' })
     await waitFor(() => expect(api.getWorkspaceMembers).toHaveBeenCalled())
-    expect(screen.queryByTestId('dashboard-rescan')).toBeNull()
+    expect(screen.queryByRole('form', { name: 'Start a scan' })).toBeNull()
+    expect(scanControls()).toHaveLength(0)
+    expect(screen.queryByTestId('setup-card')).toBeNull()
   })
-  it.each(['owner', 'admin'])('an %s keeps the scan box', async (role) => {
+
+  it('an analyst picks a verified domain and scans it in place (no free-text domain)', async () => {
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'analyst' }] })
+    renderHome()
+    const picker = await screen.findByRole('combobox', { name: 'Domain to scan' })
+    await waitFor(() => expect(picker).toHaveValue('example.co.uk'))
+    expect(screen.queryByRole('textbox', { name: 'Domain to scan' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Scan' }))
+    await waitFor(() => expect(api.createScan).toHaveBeenCalledWith('example.co.uk', 'ws_a'))
+    expect(await screen.findByRole('status')).toHaveTextContent('Scan started — results in about 2–3 minutes.')
+    expect(screen.getByRole('link', { name: 'Follow progress' })).toHaveAttribute('href', '/scans/scan_new')
+  })
+
+  it.each(['owner', 'admin'])('an %s gets ONE scan control: the field prefilled with the verified domain', async (role) => {
     api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role }] })
     renderHome()
-    await screen.findByRole('heading', { level: 1, name: 'Where is Customer A exposed today?' })
-    await waitFor(() => expect(api.getWorkspaces).toHaveBeenCalled())
+    const field = await screen.findByRole('textbox', { name: 'Domain to scan' })
+    await waitFor(() => expect(field).toHaveValue('example.co.uk'))
     expect(screen.getByRole('form', { name: 'Start a scan' })).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Domain to scan' })).toBeInTheDocument()
-    // The form adds a new domain; Scan now rescans the verified one.
-    expect(await screen.findByRole('button', { name: 'Scan now' })).toBeInTheDocument()
+    expect(scanControls()).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Reload results/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Scan' }))
+    await waitFor(() => expect(api.createScan).toHaveBeenCalledWith('example.co.uk', 'ws_a'))
+  })
+
+  it('a domain not verified yet says so and keeps the new-scan path', async () => {
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'owner' }] })
+    renderHome()
+    const field = await screen.findByRole('textbox', { name: 'Domain to scan' })
+    await waitFor(() => expect(field).toHaveValue('example.co.uk'))
+    fireEvent.change(field, { target: { value: 'new-shop.example' } })
+    expect(screen.getByText(/new-shop\.example is not verified in this workspace yet/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Scan' }))
+    expect(api.createScan).not.toHaveBeenCalled()
+    expect(await screen.findByTestId('new-scan-probe')).toHaveTextContent('new-shop.example')
   })
 })
 

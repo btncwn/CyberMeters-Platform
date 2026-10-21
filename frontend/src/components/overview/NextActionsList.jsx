@@ -68,7 +68,7 @@ export function buildNextActions({ domains = [], request = 'ok', unclassified = 
   return rows
 }
 
-export default function NextActionsList({ workspaceId, domains, request, dmarcConnected, scanDomain = null }) {
+export default function NextActionsList({ workspaceId, domains, request, dmarcConnected, scanDomain = null, showScanRow = true }) {
   const [unclassified, setUnclassified] = useState(null)
   const [mcp, setMcp] = useState(null)
   useEffect(() => {
@@ -92,7 +92,9 @@ export default function NextActionsList({ workspaceId, domains, request, dmarcCo
     return () => { alive = false }
   }, [workspaceId])
 
-  const rows = buildNextActions({ domains, request, unclassified, dmarcConnected, mcp })
+  // On the Overview the scan has its own box at the top; the row would be a
+  // second scan control (design standard §1), so the page shows that fact there.
+  const rows = buildNextActions({ domains, request, unclassified, dmarcConnected, mcp }).filter((r) => showScanRow || r.key !== 'scan')
   return (
     <section className="card p-5" aria-labelledby="next-actions-heading" data-testid="next-actions">
       <h2 id="next-actions-heading" className="section-title">Your next actions</h2>

@@ -61,3 +61,22 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     }
   })
 }
+
+// Design standard, Overview (founder, 21 Oct 2026): ONE scan-starting control.
+const OVERVIEW_SCAN = /^(Scan|Scan now|Run a scan|Run a fresh scan|Start a security check)$/
+for (const [width, height] of [[1440, 900], [390, 844]]) {
+  test(`Overview has exactly one scan-starting control at ${width}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height })
+    await seedSession(context)
+    await installAppMock(page)
+    await page.route(`${API_BASE}/workspaces/${workspace.id}/domains`, (route) => route.fulfill(json({ domains: [{ domain_id: 'dom_e2e', domain: 'blackbullbarbers.co.uk', verification_status: 'verified', verified_at: '2026-07-08T09:06:00Z' }] })))
+    await page.goto('/dashboard', { waitUntil: 'networkidle' })
+    await page.getByRole('textbox', { name: 'Domain to scan' }).waitFor()
+    const buttons = await page.getByRole('button', { name: OVERVIEW_SCAN }).count()
+    const links = await page.getByRole('link', { name: OVERVIEW_SCAN }).count()
+    expect(buttons + links, 'scan-starting controls on the Overview').toBe(1)
+    await expect(page.getByRole('textbox', { name: 'Domain to scan' })).toHaveValue('blackbullbarbers.co.uk')
+    await expect(page.getByRole('button', { name: /Reload results/ })).toHaveCount(0)
+    await expectNoRawKeys(page)
+  })
+}

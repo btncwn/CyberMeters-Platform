@@ -86,10 +86,32 @@ function eventLabel(ev) {
       ? 'Reopened automatically after the condition was re-observed'
       : 'Manually reopened by a workspace member'
   }
-  if (a.startsWith('transition_')) return `Moved to ${sentence(a.replace('transition_', '')).toLowerCase()}`
+  if (a.startsWith('transition_')) return transitionLabel(a.replace('transition_', ''))
   if (a === 'status_changed') return `Status changed from ${sentence(ev.from_status || 'unknown').toLowerCase()} to ${sentence(ev.to_status || 'unknown').toLowerCase()}`
+  // One event per meaning: two system moves that share an action (e.g. a
+  // withdrawn claim moving a case to review and then closing it) are told apart
+  // by where each one went.
+  if (a && ev.to_status) return `${sentence(a)} — ${OUTCOME[ev.to_status] || `moved to ${outcome(ev.to_status)}`}`
   return a ? sentence(a) : 'Update'
 }
+
+const OUTCOME = {
+  triage: 'moved to review', triaged: 'moved to review',
+  false_positive: 'closed as false positive', closed: 'closed', closed_no_action: 'closed — no action needed',
+  rejected: 'closed as rejected', superseded: 'closed as superseded',
+  owner_assigned: 'owner assigned', assigned: 'owner assigned',
+  remediation_in_progress: 'remediation started', action_in_progress: 'remediation started',
+  verification_requested: 'verification requested', awaiting_verification: 'verification requested',
+  resolved: 'verified', verified: 'verified', reopened: 'reopened',
+  risk_accepted: 'risk accepted', accepted_risk: 'risk accepted',
+}
+function transitionLabel(status) {
+  const o = OUTCOME[status]
+  if (!o) return `Moved to ${sentence(status).toLowerCase()}`
+  return o.startsWith('moved to ') ? `Moved to ${o.slice(9)}` : sentence(o)
+}
+const outcome = (status) => sentence(status).toLowerCase()
+const CLOSED_PHASES = new Set(['rejected', 'false_positive', 'closed_no_action', 'superseded'])
 
 // "monitoring_changed" → "Monitoring changed": an event key is never shown raw.
 function sentence(key) {
@@ -184,7 +206,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRou
       {transitions.length === 0 ? (
         // Never "no further actions" on a case that still needs action: a closed
         // case says it is closed; an open one says where it is handled.
-        ['rejected', 'false_positive', 'closed_no_action', 'superseded'].includes(phase) ? (
+        CLOSED_PHASES.has(phase) ? (
           <p className="text-base text-slate-600">This case is closed. If the condition returns, it reopens here.</p>
         ) : domainRoute ? (
           <p className="text-base text-slate-600">This case is handled on the {domainLabel} page. <Link to={domainRoute} className="font-semibold text-brand-700 hover:text-brand-800">Open {domainLabel}</Link></p>
@@ -404,7 +426,7 @@ export default function WorkspaceCaseDetailPage() {
                     left: CyberMeters verifies from its own observation, so a scan is
                     what moves the case on. Never beside the transition buttons. */}
                 {c.verification_support === 'automated' && c.domain && !settled &&
-                  !['rejected', 'false_positive', 'closed_no_action', 'superseded'].includes(c.canonical_phase) &&
+                  !CLOSED_PHASES.has(c.canonical_phase) &&
                   (data?.available_transitions || []).length === 0 && (
                   <div className="mt-3" data-testid="case-recheck"><ScanNowButton workspaceId={wsId} domain={c.domain} label="Run scan to re-check" align="start" /></div>
                 )}
@@ -423,6 +445,7 @@ export default function WorkspaceCaseDetailPage() {
               caseRow={c}
               canManage={canManage}
               onAssigned={() => load()}
+              closed={CLOSED_PHASES.has(c.canonical_phase)}
             />
           </div>
 

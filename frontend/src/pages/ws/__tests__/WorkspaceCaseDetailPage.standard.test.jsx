@@ -93,3 +93,24 @@ describe('case page design standard', () => {
     for (const key of ['asset_exposure_admin_interface', 'asm.exposure.admin', 'mc-1']) expect(body).not.toContain(key)
   })
 })
+
+describe('case page re-check fixes (founder, 21 Oct 21:35)', () => {
+  it('two system moves with one action read as two meanings, not the same label twice', async () => {
+    api.getCase.mockResolvedValue({ case: { ...asmCase, status: 'false_positive', canonical_phase: 'false_positive' }, events: [
+      { id: 'e1', action: 'claim_withdrawn', actor_type: 'system', from_status: 'open', to_status: 'triage', created_at: '2026-10-21T21:01:00Z' },
+      { id: 'e2', action: 'claim_withdrawn', actor_type: 'system', from_status: 'triage', to_status: 'false_positive', created_at: '2026-10-21T21:01:00Z' },
+    ], can_manage: true, available_transitions: [] })
+    renderCase()
+    const history = within(await screen.findByTestId('case-history'))
+    expect(history.getByText(/^Claim withdrawn — moved to review/)).toBeInTheDocument()
+    expect(history.getByText(/^Claim withdrawn — closed as false positive/)).toBeInTheDocument()
+  })
+
+  it('a closed case shows the owner read-only, with no Assign control', async () => {
+    api.getCase.mockResolvedValue({ case: { ...asmCase, status: 'false_positive', canonical_phase: 'false_positive' }, events: [], can_manage: true, available_transitions: [] })
+    renderCase()
+    expect(await screen.findByText('No owner was assigned')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Assign' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Assign owner' })).toBeNull()
+  })
+})
