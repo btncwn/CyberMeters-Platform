@@ -310,6 +310,50 @@ await withMutant(
   },
 );
 
+// The TLS-assessment chain may complete chain / intermediate / algorithm
+// signals only when bound to the live leaf and path validation succeeded.
+const assessedChainModules = ({ leafSha = "leaf", trust = "valid" } = {}) => {
+  const modules = baseModules();
+  modules.ssl.certificate_evidence.live_tls.presented_chain = {
+    collection_performed: false, collection_complete: false, presentation_state: "unknown", intermediates: [],
+  };
+  const offered = [
+    { sha256: leafSha, not_after: 1795699439, key_type: "EC", key_bits: 256, signature_algorithm: "ecdsa_sha256", ca: false },
+    { sha256: "intermediate", not_after: 1866290400, key_type: "EC", key_bits: 256, signature_algorithm: "ecdsa_sha384", ca: true },
+  ];
+  modules.tls_assessment = { endpoints: [{ hostname: "example.com", address: "192.0.2.10", port: 443, checks: [{
+    control: "certificate", state: "accepted", observed_at: NOW,
+    evidence: { certificates: { offered_chain: offered, trust } },
+  }] }] };
+  return modules;
+};
+await withMutant(
+  "certificate-signal-completeness.js",
+  (source) => {
+    const before = "if (!offered.length || cleanString(offered[0]?.sha256).toLowerCase() !== identity) continue;";
+    if (source.split(before).length !== 2) throw new Error("assessment identity-binding anchor must match exactly once");
+    return source.replace(before, "if (!offered.length) continue;");
+  },
+  async (mutant) => {
+    const result = derive(mutant, assessedChainModules({ leafSha: "some-other-leaf" }));
+    ok("MUTANT assessment chain without leaf identity binding makes fixture red",
+      result.signals.chain.observation === "present");
+  },
+);
+await withMutant(
+  "certificate-signal-completeness.js",
+  (source) => {
+    const before = 'if (certificates.trust !== "valid") continue;';
+    if (source.split(before).length !== 2) throw new Error("assessment path-validation anchor must match exactly once");
+    return source.replace(before, "");
+  },
+  async (mutant) => {
+    const result = derive(mutant, assessedChainModules({ trust: "invalid" }));
+    ok("MUTANT assessment chain without successful path validation makes fixture red",
+      result.signals.chain.observation === "present");
+  },
+);
+
 console.log(`\nItem 9 P4 mutations: ${pass} passed, ${fail} failed`);
 if (!fail) console.log("Item 9 P4 mutation proof passed");
 process.exit(fail ? 1 : 0);

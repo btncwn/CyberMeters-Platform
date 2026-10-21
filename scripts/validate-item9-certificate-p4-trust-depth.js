@@ -340,6 +340,68 @@ eq("parallel multiplicity carries no fault severity",
   realParallel.anomalies.find((row) => row.type === "parallel_certificate")?.severity,
   "info");
 
+// ── Bound TLS-assessment chain (21 Oct 2026) ──────────────────────────────────
+// Production shape: the live collector captures the leaf but not the presented
+// chain or signature metadata, while the sandboxed TLS assessment records the
+// offered chain. It may complete chain / intermediate validity / algorithms only
+// for the same leaf (SHA-256 identity) with successful path validation.
+{
+  const epoch = (iso) => Math.floor(Date.parse(iso) / 1000);
+  const assessedModules = ({ leafSha = "fixture-leaf", trust = "valid", state = "accepted",
+    intermediateNotAfter = futureExpiry(1200), leafKey = { key_type: "EC", key_bits: 256, signature_algorithm: "ecdsa_sha256" },
+    liveChain = null, ocspState = "absent" } = {}) => {
+    const modules = clone(fixture.base_modules);
+    const live = modules.ssl.certificate_evidence.live_tls;
+    live.presented_chain = liveChain ?? { collection_performed: false, collection_complete: false, presentation_state: "unknown", intermediates: [] };
+    delete live.leaf_certificate.public_key_algorithm;
+    delete live.leaf_certificate.public_key_size_bits;
+    delete live.leaf_certificate.signature_algorithm;
+    live.revocation_assurance = null;
+    const offered = [
+      { sha256: leafSha, not_before: epoch(futureExpiry(-60)), not_after: epoch(futureExpiry(40)), ca: false, ...leafKey },
+      { sha256: "fixture-intermediate", not_before: epoch(futureExpiry(-900)), not_after: epoch(intermediateNotAfter), key_type: "EC", key_bits: 256, signature_algorithm: "ecdsa_sha384", ca: true },
+    ];
+    const certificateCheck = { control: "certificate", state, reason: "handshake_completed", observed_at: fixture.observed_at,
+      evidence: { certificates: { offered_chain: offered, trusted_chain: offered.map((c) => c.sha256), trust } } };
+    const ocspCheck = { control: "ocsp", state: "accepted", observed_at: fixture.observed_at,
+      evidence: { certificates: { offered_chain: offered }, ocsp: { state: ocspState } } };
+    modules.tls_assessment = { quality: "complete", endpoints: [{ hostname: fixture.domain, address: "192.0.2.10", port: 443, checks: [certificateCheck, ocspCheck] }] };
+    return modules;
+  };
+  const sig = (modules, key) => run(modules).signal_completeness.signals[key];
+
+  const bound = assessedModules();
+  for (const key of ["chain", "intermediate_validity", "certificate_algorithm"]) {
+    const signal = sig(bound, key);
+    eq(`bound assessment: ${key} is observed`, signal.observation, "present");
+    eq(`bound assessment: ${key} source is tls_assessment`, signal.provenance?.source, "tls_assessment");
+  }
+  eq("bound assessment: intermediate validity reads valid", sig(bound, "intermediate_validity").value?.status, "valid");
+  eq("bound assessment: algorithm reads the offered leaf signature", sig(bound, "certificate_algorithm").value?.signature_algorithm, "ecdsa_sha256");
+  ok("bound assessment: absent stapled OCSP is the stated revocation reason",
+    /did not staple an OCSP response/.test(sig(bound, "revocation_assurance").reasons?.[0] || ""), sig(bound, "revocation_assurance").reasons?.[0]);
+
+  const refusals = {
+    "a different leaf": assessedModules({ leafSha: "other-leaf" }),
+    "failed path validation": assessedModules({ trust: "invalid" }),
+    "an unexecuted certificate check": assessedModules({ state: "unexecutable" }),
+  };
+  for (const [label, modules] of Object.entries(refusals)) {
+    for (const key of ["chain", "intermediate_validity", "certificate_algorithm"]) {
+      const signal = sig(modules, key);
+      eq(`${label}: ${key} stays incomplete`, signal.completeness_state, "evidence_incomplete");
+      ok(`${label}: ${key} states why`, (signal.reasons || []).length > 0, JSON.stringify(signal.reasons));
+    }
+  }
+  eq("bound assessment: an expired offered intermediate is caught",
+    sig(assessedModules({ intermediateNotAfter: futureExpiry(-30) }), "intermediate_validity").value?.status, "expired");
+  ok("bound assessment: a weak offered leaf algorithm is caught",
+    sig(assessedModules({ leafKey: { key_type: "RSA", key_bits: 1024, signature_algorithm: "rsa_sha1" } }), "certificate_algorithm").value?.status === "weak");
+  eq("a live-collected chain wins over the assessment",
+    sig(assessedModules({ liveChain: clone(fixture.base_modules.ssl.certificate_evidence.live_tls.presented_chain) }), "chain").provenance?.source,
+    "fixture_live_tls");
+}
+
 console.log(`\nItem 9 P4 trust depth fixtures: ${pass} passed, ${fail} failed`);
 if (!fail) console.log("Item 9 P4 trust depth fixtures passed");
 process.exit(fail ? 1 : 0);

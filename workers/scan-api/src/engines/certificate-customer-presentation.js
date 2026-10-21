@@ -221,11 +221,17 @@ function customerMessage(key, signal, state, presentInModel, absenceReason) {
     return absenceReason ||
       "This signal was not recorded in the historical snapshot. No current value is inferred.";
   }
+  // An incomplete or unavailable signal states why, from the reason the
+  // signal-completeness model recorded for it, so "Incomplete" is never bare.
+  const why = Array.isArray(signal?.reasons)
+    ? signal.reasons.map((reason) => String(reason || "").trim()).find(Boolean)
+    : null;
+  const because = why ? ` ${why.replace(/\.?$/, ".")}` : "";
   if (state === "unavailable") {
-    return `${SIGNAL_META[key]?.[0] || key} evidence was unavailable. This is not an absent or favourable result.`;
+    return `${SIGNAL_META[key]?.[0] || key} evidence was unavailable.${because} This is not an absent or favourable result.`;
   }
   if (state === "incomplete") {
-    return `${SIGNAL_META[key]?.[0] || key} evidence was incomplete. No negative or favourable conclusion is inferred.`;
+    return `${SIGNAL_META[key]?.[0] || key} evidence was incomplete.${because} No negative or favourable conclusion is inferred.`;
   }
   if (state === "unknown") {
     return `${SIGNAL_META[key]?.[0] || key} could not be determined from the recorded evidence.`;
