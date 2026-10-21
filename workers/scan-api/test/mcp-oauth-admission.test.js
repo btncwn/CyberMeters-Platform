@@ -656,12 +656,13 @@ test("DCR accepts bounded loopback, rejects hosted callbacks unless explicitly a
   assert.equal(isMcpOAuthClientAllowed(env, "https://client.example/oauth/metadata.json"), false);
 });
 
-test("production DCR allowlist admits only the Claude hosted callback", async () => {
+test("production DCR allowlist admits only the exact Claude and ChatGPT hosted callbacks", async () => {
   const { sqlite, env } = fixture();
   const toml = readFileSync(fileURLToPath(new URL("../wrangler.toml", import.meta.url)), "utf8");
   const vars = toml.slice(toml.indexOf("\n[vars]"));
   const configured = vars.match(/^MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS = '([^']*)'$/m)?.[1];
-  assert.deepEqual(JSON.parse(configured), ["https://claude.ai/api/mcp/auth_callback"]);
+  const callbacks = ["https://claude.ai/api/mcp/auth_callback", "https://chatgpt.com/connector_platform_oauth_redirect"];
+  assert.deepEqual(JSON.parse(configured), callbacks);
   env.MCP_OAUTH_DCR_ENABLED = "true";
   env.MCP_OAUTH_DCR_LOOPBACK_ENABLED = "false";
   env.MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS = configured;
@@ -669,13 +670,16 @@ test("production DCR allowlist admits only the Claude hosted callback", async ()
     method: "POST", headers: { "Content-Type": "application/json",
       "CF-Connecting-IP": "203.0.113.7" }, body: "{}",
   });
-  const register = (redirect) => {
+  const register = (redirect, method = "none") => {
     sqlite.exec("DELETE FROM api_rate_limits WHERE action = 'mcp_dcr_register'");
     return evaluateMcpDcrRegistration({ request, clientMetadata: {
-      client_name: "Claude", redirect_uris: [redirect], token_endpoint_auth_method: "none",
+      client_name: "Hosted client", redirect_uris: [redirect], token_endpoint_auth_method: method,
       grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] } }, env);
   };
-  assert.equal(await register("https://claude.ai/api/mcp/auth_callback"), undefined);
+  for (const callback of callbacks) {
+    assert.equal(await register(callback), undefined);
+    assert.equal(await register(callback, "client_secret_post"), undefined);
+  }
   for (const other of [
     "https://claude.ai/api/mcp/other_callback",
     "https://claude.ai/api/mcp/auth_callback/",
@@ -683,6 +687,14 @@ test("production DCR allowlist admits only the Claude hosted callback", async ()
     "https://claude.ai/api/mcp/auth_callback#x",
     "https://evil.example/api/mcp/auth_callback",
     "http://claude.ai/api/mcp/auth_callback",
+    "https://chatgpt.com/connector_platform_oauth_redirect/",
+    "https://chatgpt.com/connector_platform_oauth_redirect?next=https://evil.example",
+    "https://chatgpt.com/connector_platform_oauth_redirect#x",
+    "https://chatgpt.com/connector/oauth/unlisted-callback-id",
+    "https://chatgpt.com.evil.example/connector_platform_oauth_redirect",
+    "https://chatgpt.com@evil.example/connector_platform_oauth_redirect",
+    "http://chatgpt.com/connector_platform_oauth_redirect",
+    "https://chatgpt.com:8443/connector_platform_oauth_redirect",
   ]) assert.equal((await register(other)).status, 400, other);
 });
 
