@@ -8,15 +8,24 @@ import ProductShowcase from '../components/landing/ProductShowcase'
 import ProductTour from '../components/landing/ProductTour'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 import { appHostHref } from '../utils/siteLinks'
+import { sortByAreaOrder } from '../../../shared/areas.js'
 
 const APP_URL = 'https://app.cybermeters.com'
 
 // The eight canonical domains, each led with the question a business owner
 // actually asks. Identity colours come from the shared domain palette.
-const SERVICES = [
+// The colour keys below map onto the canonical domain keys, so both lists can
+// follow the one area order used everywhere in the app (shared/areas.js).
+const DOMAIN_OF = {
+  email: 'email_protection', surface: 'attack_surface', website: 'website_security', identity: 'identity_exposure',
+  shadow_it: 'shadow_it_unmanaged_technology', certs: 'certificates_trust', brand: 'brand_protection', cyber_essentials: 'cyber_essentials_readiness',
+}
+const inAreaOrder = (list) => sortByAreaOrder(list, (item) => DOMAIN_OF[item.key])
+
+const SERVICES = inAreaOrder([
   {
     name: 'Identity Exposure',
-    q: 'What is visible about our business identities?',
+    q: 'What is visible about my business identities?',
     copy: 'Review identity-provider relationships, identity-facing hostnames and measured endpoints. HTTP evidence is shown where collected. This is not employee breach or dark-web monitoring.',
     tags: ['Provider relationships', 'Identity-facing hostnames', 'Measured endpoints'],
     key: 'identity',
@@ -71,7 +80,7 @@ const SERVICES = [
     key: 'cyber_essentials',
     more: { to: '/cyber-essentials-readiness', label: 'How the readiness check works' },
   },
-]
+])
 
 const FACTS = [
   { big: 'External', small: 'checks only what is publicly visible' },
@@ -87,7 +96,7 @@ const PRINCIPLES = [
 ]
 
 const STEPS = [
-  { title: 'Check', copy: 'Enter a domain for a bounded, non-persistent external snapshot. Verify ownership before accessing deeper checks.' },
+  { title: 'Check', copy: 'Enter a domain for a one-off check of what is publicly visible; nothing is saved. Verify that you own it before the deeper checks.' },
   { title: 'Verify', copy: 'Create an account and add one DNS TXT record. CyberMeters looks for it before it shows full findings for that domain.' },
   { title: 'Understand and act', copy: 'Each area says what was observed, what needs attention and what could not be assessed. Assign the recommended steps to an owner.' },
   { title: 'Check again', copy: 'When the work is done, CyberMeters checks again where the fix can be seen from outside. Scheduled rechecks and alerts keep watching for changes.' },
@@ -111,7 +120,7 @@ const FAQS = [
 
 // Sample rows for the product view. States use the product's own coverage
 // vocabulary; no scores, no live data.
-const SAMPLE_ROWS = [
+const SAMPLE_ROWS = inAreaOrder([
   { name: 'Email Protection', key: 'email', state: 'Issue detected', note: 'DMARC set to monitor only', tone: 'issue' },
   { name: 'Website Security', key: 'website', state: 'Assessed healthy', note: 'HTTPS and headers in place', tone: 'ok' },
   { name: 'Certificates & Trust', key: 'certs', state: 'Issue detected', note: 'Renews in 9 days', tone: 'issue' },
@@ -120,7 +129,7 @@ const SAMPLE_ROWS = [
   { name: 'Brand Protection', key: 'brand', state: 'Issue detected', note: '1 lookalike candidate', tone: 'issue' },
   { name: 'Shadow IT & Unmanaged Technology', key: 'shadow_it', state: 'Customer input required', note: 'Classify 4 tools', tone: 'input' },
   { name: 'Cyber Essentials Readiness', key: 'cyber_essentials', state: 'Customer input required', note: 'Questionnaire not started', tone: 'input' },
-]
+])
 
 const CONTAINER = 'mx-auto w-full max-w-[1280px] px-6 sm:px-10 lg:px-16'
 
@@ -402,7 +411,7 @@ export default function PublicLandingPage() {
       {/* Eight areas */}
       <section id="areas" aria-labelledby="areas-title" className="scroll-mt-24 py-24 lg:py-[120px]">
         <div className={CONTAINER}>
-          <SectionHeading id="areas-title" center title="Your external posture in one workspace" lead="Start with a bounded, honest external snapshot. The report separates observed issues from missing evidence, so you can decide what needs attention." />
+          <SectionHeading id="areas-title" center title="Your external posture in one workspace" lead="Start with a one-off check of what is publicly visible. The report separates observed issues from missing evidence, so you can decide what needs attention." />
           <AreasOverview />
         </div>
       </section>
@@ -487,10 +496,10 @@ export default function PublicLandingPage() {
       <section id="mcp" aria-labelledby="mcp-title" className="scroll-mt-24 bg-[#193A83] py-20 lg:py-24 text-white">
         <div className={`${CONTAINER} grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-12 lg:gap-20 items-center`}>
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-[.16em] text-[#BFE6FF]">Read-only MCP beta</p>
+            <p className="text-[13px] font-semibold uppercase tracking-[.16em] text-[#BFE6FF]">Read-only AI assistant access (MCP)</p>
             <h2 id="mcp-title" className="font-cm font-normal text-[38px] sm:text-[46px] lg:text-[54px] leading-[1.08] mt-5 text-balance">Bring your security questions to your AI assistant.</h2>
             <p className="mt-6 max-w-[58ch] text-[18px] leading-[1.65] text-white/85">
-              Compatible AI assistants can read CyberMeters evidence from workspaces you approve. The read-only beta helps explain findings and next steps; it does not make changes on your behalf. Client setup and availability vary. AI explanations do not independently verify or fix issues.
+              Compatible AI assistants can read CyberMeters evidence from workspaces you approve. Read-only access helps explain findings and next steps; it does not make changes on your behalf. Client setup and availability vary. AI explanations do not independently verify or fix issues.
             </p>
             <a href="/support#mcp" className="mt-8 h-[50px] px-6 rounded-[8px] bg-white text-[#193A83] text-[16px] font-semibold inline-flex items-center hover:bg-[#EAF4FF] transition-colors">
               Connect an AI assistant
@@ -514,14 +523,14 @@ export default function PublicLandingPage() {
           <div className="mt-14 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="rounded-[14px] bg-white border border-[#DDE2EE] p-8 flex flex-col">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Free check</h3>
-              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence. No scan report or monitoring history is saved. Limited rate-limit records help prevent misuse.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence. No scan report or monitoring history is saved. We keep only a short record of checks run, to stop misuse.</p>
               <ul className="mt-6 space-y-3 text-[17px] text-[#2B3448] list-disc pl-5 marker:text-[#2550B6]">
                 {['External checks, nothing installed', 'Shows what could not be assessed', 'No sign-up needed'].map(t => (
                   <li key={t}>{t}</li>
                 ))}
               </ul>
               <div className="mt-auto pt-8">
-                <Link to="/free-scan" className="h-[50px] px-6 rounded-[8px] btn-amber text-[16px]">Check a domain now</Link>
+                <Link to="/free-scan" className="h-[50px] px-6 rounded-[8px] btn-amber text-[16px]">Run a free check</Link>
               </div>
             </div>
             <div className="rounded-[14px] border-2 border-[#2550B6] p-8 bg-white flex flex-col">
@@ -535,14 +544,14 @@ export default function PublicLandingPage() {
             <div className="rounded-[14px] bg-white border border-[#DDE2EE] p-8 flex flex-col">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Plans</h3>
               <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial.</p>
-              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Pricing is per monitored domain. Prices shown are the live prices from our billing system.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Pricing is per monitored domain.</p>
               <div className="mt-auto pt-8">
                 <Link to="/pricing" className="h-[50px] px-6 rounded-[8px] border-2 border-[#2550B6] text-[#1D46A8] text-[16px] font-semibold inline-flex items-center hover:bg-[#2550B6] hover:text-white transition-colors">See pricing</Link>
               </div>
             </div>
           </div>
           <p className="mt-10 text-[15px] leading-[1.6] text-[#5A6378] border-l-2 border-[#C9D1E4] pl-5">
-            CyberMeters provides cyber posture checks and Cyber Essentials readiness support. It does not provide Cyber Essentials certification. Certification is handled through IASME and approved Certification Bodies.
+            CyberMeters provides cyber posture checks and Cyber Essentials readiness support. It does not provide Cyber Essentials certification. Certification is handled through the official Cyber Essentials scheme and its approved Certification Bodies.
           </p>
         </div>
       </section>

@@ -315,7 +315,7 @@ export default function FreeScanPage() {
                     </li>
                   ))}
                 </ul>
-                <p>These five checks may leave some areas unassessed. Full findings, remediation, PDF and monitoring require a verified domain. Limited rate-limit records are kept to prevent misuse.</p>
+                <p>These five checks may leave some areas unassessed. Full findings, remediation, PDF and monitoring require a verified domain. We keep only a short record of checks run, to stop misuse.</p>
               </aside>
             </div>
           </section>

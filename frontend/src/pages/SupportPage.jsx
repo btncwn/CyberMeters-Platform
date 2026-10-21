@@ -20,7 +20,7 @@ export default function SupportPage() {
         </section>
         <section id="mcp" aria-labelledby="mcp-help-title" className="mt-8 bg-white border border-gray-100 rounded-2xl p-8 space-y-5 text-gray-700">
           <h2 id="mcp-help-title" className="text-2xl font-bold text-gray-900">Connect your AI assistant</h2>
-          <p>CyberMeters offers a read-only MCP beta for eligible workspaces. Your assistant can read approved evidence and explain its limits; it cannot start scans, change settings or fix issues.</p>
+          <p>CyberMeters offers read-only MCP access for eligible workspaces. Your assistant can read approved evidence and explain its limits; it cannot start scans, change settings or fix issues.</p>
           <p>Add this remote server URL in your client and choose OAuth sign-in:</p>
           <code className="block break-all rounded bg-gray-50 p-3">https://mcp.cybermeters.com/mcp</code>
           <p>Sign in to CyberMeters, choose your workspace and approve read access. Portfolio access needs separate consent for the workspaces you select. Your client account and administrator settings may limit availability.</p>

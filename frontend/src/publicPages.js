@@ -99,7 +99,7 @@ export const PUBLIC_PAGE_META = {
   },
   '/pricing': {
     title: 'Pricing',
-    description: 'Every paid plan is the full external security check: external posture, alerts, managed cases, reports and remediation. Priced per monitored domain, starting with a 14-day full trial.',
+    description: 'Every plan includes the full external security check of your domain; larger plans add the executive dashboard, audit log and third-party services view. Priced per monitored domain, starting with a 14-day full trial.',
     host: 'app', indexable: true,
   },
   '/login': { title: 'Sign in', host: 'app', indexable: false },
