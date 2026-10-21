@@ -100,10 +100,10 @@ const env = {
   ALLOWED_ORIGIN: "https://app.cybermeters.com", FRONTEND_URL: "https://app.cybermeters.com", APP_VERSION: "test",
 };
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
-const call = async (method, urlPath, opts = {}) => {
-  const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${urlPath}`, { method, ...opts }), env, ctx);
+const call = async (method, urlPath, opts = {}, requestEnv = env) => {
+  const res = await worker.default.fetch(new Request(`https://app.cybermeters.com${urlPath}`, { method, ...opts }), requestEnv, ctx);
   let body = {}; try { body = await res.json(); } catch { /* non-JSON */ }
-  return { status: res.status, body };
+  return { status: res.status, body, headers: res.headers };
 };
 
 // 401 — unauthenticated request to a protected endpoint.
@@ -115,6 +115,58 @@ if (unauth.status >= 400 && typeof unauth.body === "object") assertContract("int
 const notFound = await call("GET", "/api/this-route-does-not-exist-xyz");
 ok("integration: unknown route is 404", notFound.status === 404);
 if (notFound.status >= 400 && typeof notFound.body === "object") assertContract("integration 404", notFound.body, notFound.status);
+
+// The API is never a search document, including non-JSON early returns.
+const { buildJsonHeaders, json } = await import(pathToFileURL(path.join(root,
+  "workers/scan-api/src/lib/lifecycle-email.js")).href);
+const securityHeaders = {
+  "cache-control": "no-store",
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "content-security-policy": "default-src 'none'",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-site",
+  "cross-origin-embedder-policy": "require-corp",
+  "permissions-policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  "x-permitted-cross-domain-policies": "none",
+};
+function assertHeaders(name, headers, isJson = true) {
+  ok(`${name}: no indexing or following`, headers.get("X-Robots-Tag") === "noindex, nofollow");
+  if (!isJson) return;
+  for (const [key, value] of Object.entries(securityHeaders)) {
+    ok(`${name}: preserves ${key}`, headers.get(key) === value);
+  }
+  ok(`${name}: preserves CORS origin`, headers.get("Access-Control-Allow-Origin") === env.ALLOWED_ORIGIN);
+}
+assertHeaders("shared headers", new Headers(buildJsonHeaders()));
+for (const status of [200, 400, 401, 403, 404, 429, 500, 503]) {
+  assertHeaders(`shared JSON ${status}`, json({ error: "test" }, status).headers);
+}
+for (const [name, status, response] of [
+  ["unauthenticated API", 401, unauth], ["unknown route", 404, notFound],
+  ["API success", 200, await call("POST", "/api/auth/logout")],
+  ["root 404", 404, await call("GET", "/")],
+  ["health", 200, await call("GET", "/health")],
+  ["ready", 200, await call("GET", "/ready")],
+  ["degraded ready", 503, await call("GET", "/ready", {}, { ...env, cybermeters_reports: {} })],
+  ["maintenance", 503, await call("GET", "/api/workspaces", {}, { ...env, MAINTENANCE_MODE: "on" })],
+  ["rate limiter unavailable", 503, await call("GET", "/api/workspaces", {}, { ...env, cybermeters_db: {} })],
+  ["method refusal", 405, await call("CUSTOM", "/health")],
+  ["HEAD health", 404, await call("HEAD", "/health")],
+]) {
+  ok(`${name}: status remains ${status}`, response.status === status);
+  assertHeaders(name, response.headers);
+}
+const preflight = await call("OPTIONS", "/health");
+ok("preflight: still empty 204", preflight.status === 204 && Object.keys(preflight.body).length === 0);
+assertHeaders("preflight", preflight.headers, false);
+ok("preflight: CORS methods unchanged", preflight.headers.get("Access-Control-Allow-Methods") === "GET, POST, PATCH, PUT, DELETE, OPTIONS");
+const redirect = await call("GET", "/api/auth/verify-email");
+ok("redirect: still 302 to the frontend", redirect.status === 302 && redirect.headers.get("Location")?.startsWith(`${env.FRONTEND_URL}/verify-email?error=`));
+assertHeaders("immutable redirect", redirect.headers, false);
+ok("redirect: no JSON security policy added", !redirect.headers.has("Content-Security-Policy"));
 
 console.log(`\nError contract: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("error-contract validation FAILED"); process.exit(1); }

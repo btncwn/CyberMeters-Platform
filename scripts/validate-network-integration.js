@@ -86,7 +86,17 @@ function message(body){return {id:`msg_${body.scan_id}`,body,attempts:1,acks:0,r
 // unrelated work. A stale network run must become failed, never complete.
 {
  const f=fixture();f.target('t');f.scan('abandoned','t');f.db.prepare("UPDATE network_scans SET created_at=datetime('now','-16 minutes') WHERE id='abandoned'").run();
- const waits=[];await worker.scheduled({cron:'0 * * * *'},f.env,{waitUntil:promise=>waits.push(promise)});await Promise.allSettled(waits);
+ // Fix the scheduler's clock at a quiet hour: wall-clock 07:00 otherwise
+ // runs the unrelated DNS canary and violates this fixture's zero-network proof.
+ // Network recovery age is evaluated by SQLite against its own real clock.
+ const RealDate=Date,atMs=Date.UTC(2026,9,21,1);
+ globalThis.Date=class extends RealDate {
+  constructor(...args){super(...(args.length?args:[atMs]));}
+  static now(){return atMs;}
+ };
+ const waits=[];
+ try{await worker.scheduled({cron:'0 * * * *'},f.env,{waitUntil:promise=>waits.push(promise)});await Promise.allSettled(waits);}
+ finally{globalThis.Date=RealDate;}
  eq('hourly production hook recovers abandoned network work',f.db.prepare("SELECT status,quality,reason FROM network_scans WHERE id='abandoned'").get(),{status:'failed',quality:null,reason:'network_execution_interrupted'});
  eq('recovery performs no measurement',f.probeCalls,0);eq('recovery creates no receipt',f.objects.size,0);
  ok('existing domain recovery still runs',f.queries.some(sql=>sql.includes('last_heartbeat_at')&&sql.includes('FROM scans')&&sql.includes('ORDER BY created_at ASC')));

@@ -617,6 +617,7 @@ function buildJsonHeaders(_corsHeaders = buildCorsHeaders(null)) {
     // Scan status, notifications, and workspace data change frequently and must
     // always reflect the current database state.
     'Cache-Control': 'no-store',
+    'X-Robots-Tag': 'noindex, nofollow',
     // Defence-in-depth for a JSON API: none of these responses are documents,
     // but the headers cost nothing and close residual framing/sniffing paths.
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
