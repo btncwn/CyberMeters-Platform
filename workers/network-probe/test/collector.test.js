@@ -279,3 +279,58 @@ test('free_tool boundary mutants are killed',async()=>{
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
  }
 });
+
+// ── Added ports (21 Oct 2026): Telnet 23, Docker API 2375, WinRM 5985/5986,
+// memcached 11211. Open port and unsolicited banner only — nothing is ever sent.
+const NEW_PORTS = [23, 2375, 5985, 5986, 11211];
+const portRequest = (ports) => ({ ...request('network_services'), ports });
+const silentOrBannerServer = async (banner = null) => {
+  let received = 0; const sockets = new Set();
+  const server = net.createServer(socket => {
+    sockets.add(socket); socket.on('data', chunk => { received += chunk.length; }); socket.on('error', () => {});
+    if (banner) socket.write(banner);
+  });
+  await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  return { received: () => received, connect: opts => net.connect({ ...opts, host: '127.0.0.1', port }),
+    close: async () => { for (const s of sockets) s.destroy(); await new Promise(r => server.close(r)); } };
+};
+test('new ports are accepted, unlisted ports and the per-run limits still refuse', () => {
+  for (const port of NEW_PORTS) assert.equal(validateNetworkProbeRequest(portRequest([port])).ok, true, String(port));
+  assert.equal(validateNetworkProbeRequest(portRequest(NEW_PORTS)).ok, true);
+  assert.equal(validateNetworkProbeRequest(portRequest([1234])).reason, 'port_limit');
+  assert.equal(validateNetworkProbeRequest(portRequest([2376])).reason, 'port_limit');
+  assert.equal(validateNetworkProbeRequest(portRequest([...NEW_PORTS, 21, 22, 25, 53, 80, 110, 143, 443, 445, 465, 587, 993])).reason, 'port_limit', 'more than 16 ports per run');
+});
+test('Telnet is identified from its own option negotiation, and nothing is sent to it', async () => {
+  const srv = await silentOrBannerServer(Buffer.from([0xff, 0xfb, 0x01, 0xff, 0xfb, 0x03]));
+  try {
+    const req = portRequest([23]);
+    const receipt = await runCollector(req, { connect: srv.connect });
+    const row = receipt.observations[0];
+    assert.equal(row.state, 'open'); assert.equal(row.service?.name, 'telnet'); assert.equal(row.service?.basis, 'unsolicited_tcp_banner');
+    assert.equal(row.tls, null, 'no TLS attempt on a banner port');
+    assert.equal(srv.received(), 0, 'the collector wrote nothing to the service');
+    assert.deepEqual(validateNetworkProbeReceipt(req, receipt), { ok: true });
+  } finally { await srv.close(); }
+});
+test('Docker API, WinRM and memcached ports: open is reported without any request or claimed service', async () => {
+  for (const port of [2375, 5985, 5986, 11211]) {
+    const srv = await silentOrBannerServer(null);
+    try {
+      const req = portRequest([port]);
+      const receipt = await runCollector(req, { connect: srv.connect });
+      const row = receipt.observations[0];
+      assert.equal(row.state, 'open', String(port)); assert.equal(row.service, null, `${port}: no service is claimed without a banner`);
+      assert.equal(row.tls, null, `${port}: no TLS handshake`);
+      assert.equal(srv.received(), 0, `${port}: the collector wrote nothing`);
+      assert.deepEqual(validateNetworkProbeReceipt(req, receipt), { ok: true });
+    } finally { await srv.close(); }
+  }
+});
+test('the serialized container program accepts the new ports', () => {
+  const source = collectorProgram(); const req = portRequest(NEW_PORTS);
+  const local = source.slice(0, source.indexOf("let raw='';")) + `const result=await runCollector(${JSON.stringify(req)},{connect:()=>{throw Error('fixture');}});process.stdout.write(JSON.stringify(result));`;
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', local], { encoding: 'utf8', timeout: 5000 });
+  assert.equal(run.status, 0, run.stderr); assert.equal(JSON.parse(run.stdout).observations.length, NEW_PORTS.length);
+});

@@ -1,4 +1,4 @@
-import { FREE_TOOL_TLS_LIMITS, isPublicProbeAddress, isProbeHostname, validateNetworkProbeRequest } from './contract.js';
+import { FREE_TOOL_TLS_LIMITS, PROBE_PORTS, isPublicProbeAddress, isProbeHostname, validateNetworkProbeRequest } from './contract.js';
 
 // This function is serialized from reviewed source by the private DO. Input is
 // JSON data only. Test dependency injection is never exposed by the service.
@@ -126,7 +126,10 @@ export async function runCollector(input, dependencies={}) {
   const identifyService=bytes=>{
     if(!bytes.length)return null;
     const text=bytes.toString('utf8');let name=null;
-    if(/^SSH-\d\.\d-/.test(text))name='ssh';
+    // Telnet opens with its own option negotiation (IAC = 0xFF followed by
+    // WILL/WONT/DO/DONT); it is recognised from what the server sent unprompted.
+    if(bytes[0]===0xff&&bytes.length>=3&&[0xfb,0xfc,0xfd,0xfe].includes(bytes[1]))name='telnet';
+    else if(/^SSH-\d\.\d-/.test(text))name='ssh';
     else if(/^220[ -].*(?:ESMTP|SMTP)/im.test(text))name='smtp';
     else if(/^220[ -].*FTP/im.test(text))name='ftp';
     else if(/^\* OK\b.*(?:IMAP|Dovecot)/im.test(text))name='imap';
@@ -172,5 +175,5 @@ export async function runCollector(input, dependencies={}) {
 // Build from immutable module code, never request strings. Native exec uses an
 // argv array and stdin; no shell and no remote package/code download.
 export function collectorProgram() {
-  return `const __name=(value)=>value;\nconst FREE_TOOL_TLS_LIMITS=${JSON.stringify(FREE_TOOL_TLS_LIMITS)};\nconst isPublicProbeAddress=${isPublicProbeAddress.toString()};\nconst isProbeHostname=${isProbeHostname.toString()};\nconst validateNetworkProbeRequest=${validateNetworkProbeRequest.toString()};\nconst runCollector=${runCollector.toString()};\nlet raw='';for await(const chunk of process.stdin){raw+=chunk;if(Buffer.byteLength(raw)>16384)throw new Error('body_limit');}const result=await runCollector(JSON.parse(raw));process.stdout.write(JSON.stringify(result));`;
+  return `const __name=(value)=>value;\nconst FREE_TOOL_TLS_LIMITS=${JSON.stringify(FREE_TOOL_TLS_LIMITS)};\nconst PROBE_PORTS=${JSON.stringify(PROBE_PORTS)};\nconst isPublicProbeAddress=${isPublicProbeAddress.toString()};\nconst isProbeHostname=${isProbeHostname.toString()};\nconst validateNetworkProbeRequest=${validateNetworkProbeRequest.toString()};\nconst runCollector=${runCollector.toString()};\nlet raw='';for await(const chunk of process.stdin){raw+=chunk;if(Buffer.byteLength(raw)>16384)throw new Error('body_limit');}const result=await runCollector(JSON.parse(raw));process.stdout.write(JSON.stringify(result));`;
 }

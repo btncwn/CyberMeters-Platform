@@ -1,5 +1,8 @@
 // Shared private-service protocol. No client supplies an executable, URL or DO ID.
-export const PROBE_PORTS = Object.freeze([21,22,25,53,80,110,143,443,445,465,587,993,995,1433,3306,3389,5432,5900,6379,8080,8443,9200,27017]);
+// Open-port and unsolicited-banner observation only: the collector never sends a
+// request, command or credential to any of these. 23 Telnet, 2375 Docker API,
+// 5985/5986 WinRM and 11211 memcached were added 21 Oct 2026.
+export const PROBE_PORTS = Object.freeze([21,22,23,25,53,80,110,143,443,445,465,587,993,995,1433,2375,3306,3389,5432,5900,5985,5986,6379,8080,8443,9200,11211,27017]);
 export const PROBE_LIMITS = Object.freeze({ targets:32, ports:16, pairs:256, deadlineMs:90_000, requestBytes:16_384, responseBytes:524_288 });
 // Anonymous free-tool TLS check (F2): one hostname, port 443, one pinned public
 // address, one handshake, no retry. The route admits only after Turnstile and
@@ -45,7 +48,7 @@ export function validateNetworkProbeRequest(input, now=Date.now()) {
   const deadline=Date.parse(input.deadline_at);
   if(!Number.isFinite(deadline)||deadline<=now||deadline>now+(freeTool?FREE_TOOL_TLS_LIMITS.deadlineMs:90_000))return fail('invalid_deadline');
   if(!Array.isArray(input.targets)||!input.targets.length||input.targets.length>32)return fail('target_limit');
-  if(!Array.isArray(input.ports)||!input.ports.length||input.ports.length>16||new Set(input.ports).size!==input.ports.length||input.ports.some(p=>!Number.isInteger(p)||![21,22,25,53,80,110,143,443,445,465,587,993,995,1433,3306,3389,5432,5900,6379,8080,8443,9200,27017].includes(p)))return fail('port_limit');
+  if(!Array.isArray(input.ports)||!input.ports.length||input.ports.length>16||new Set(input.ports).size!==input.ports.length||input.ports.some(p=>!Number.isInteger(p)||!PROBE_PORTS.includes(p)))return fail('port_limit');
   if(input.targets.length*input.ports.length>256)return fail('pair_limit');
   const seen=new Set();
   for(const target of input.targets){
