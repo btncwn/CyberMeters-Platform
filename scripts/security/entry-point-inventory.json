@@ -46,7 +46,6 @@
     "workers/scan-api/src/routes/related-changes.js",
     "workers/scan-api/src/routes/scans.js",
     "workers/scan-api/src/routes/shadow-it.js",
-    "workers/scan-api/src/routes/test-surface.js",
     "workers/scan-api/src/routes/tls-authorization.js",
     "workers/scan-api/src/routes/website-security.js",
     "workers/scan-api/src/routes/website-sign-in.js",
@@ -62,9 +61,9 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 309,
+    "total": 307,
     "authed": 263,
-    "public_unauthed": 46,
+    "public_unauthed": 44,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -80,7 +79,7 @@
         "authed": 65
       },
       "public-or-global": {
-        "total": 48,
+        "total": 46,
         "authed": 21
       },
       "account": {
@@ -3288,28 +3287,6 @@
       "scope_helpers": [],
       "authed": true,
       "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": "/",
-      "path_kind": "exact",
-      "file": "workers/scan-api/src/routes/test-surface.js",
-      "scope": "public-or-global",
-      "auth_guards": [],
-      "scope_helpers": [],
-      "authed": false,
-      "public_reason": "root banner — no tenant data"
-    },
-    {
-      "method": "HEAD",
-      "path": "/",
-      "path_kind": "exact",
-      "file": "workers/scan-api/src/routes/test-surface.js",
-      "scope": "public-or-global",
-      "auth_guards": [],
-      "scope_helpers": [],
-      "authed": false,
-      "public_reason": "root banner — no tenant data"
     },
     {
       "method": "GET",

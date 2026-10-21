@@ -283,28 +283,6 @@ ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401
   ok("self policy: a deleted workspace's policy is not served", (await get(FILE)).status === 404);
 }
 
-// ── 8. admin.cybermeters.com: the temporary, clearly marked live-proof page ──
-{
-  const get = async (url, method = "GET") => {
-    const res = await worker.default.fetch(new Request(url, { method }), env, ctx);
-    return { status: res.status, type: res.headers.get("content-type"), robots: res.headers.get("x-robots-tag"), body: await res.text() };
-  };
-  const page = await get("https://admin.cybermeters.com/");
-  ok("test page: served at / as HTML", page.status === 200 && /^text\/html/.test(page.type || ""));
-  ok("test page: says it is a CyberMeters test page", /CyberMeters test page/.test(page.body));
-  ok("test page: no form, no script, no input, noindex", !/<form|<script|<input/i.test(page.body) && /noindex/.test(page.robots || ""));
-  for (const p of ["/login", "/health", "/api/auth/me", "/.well-known/mta-sts.txt", "/?q=1"]) {
-    ok(`test page host: ${p} is 404`, (await get(`https://admin.cybermeters.com${p}`)).status === 404);
-  }
-  ok("test page host: only GET/HEAD", (await get("https://admin.cybermeters.com/", "POST")).status === 404);
-  // The scanner reads it as an administrative surface, and not as a provider's page.
-  const intel = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asset-intel.js")).href);
-  const title = (page.body.match(/<title>([^<]*)<\/title>/) || [])[1];
-  const signals = intel.assetFingerprintSignals({ host: "admin.cybermeters.com", title, status: 200 });
-  ok("test page: the scanner reads an admin hostname and admin title, not a default page", signals.admin_hostname && signals.admin_title && !signals.generic_default_page);
-  ok("test page: not provider-owned infrastructure", intel.classifyProviderInfrastructure({ host: "admin.cybermeters.com", title, server: "cloudflare", tech: ["Cloudflare"] }, null).provider_owned_infrastructure === false);
-}
-
 console.log(`\nHosted MTA-STS: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("hosted-mta-sts validation FAILED"); process.exit(1); }
 console.log("hosted-mta-sts validation passed");
