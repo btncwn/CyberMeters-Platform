@@ -219,17 +219,8 @@ export default function PricingPage() {
             {orderedPlans.map(plan => (
               <section
                 key={plan.key}
-                className={`bg-white rounded-2xl shadow-card p-5 flex flex-col ${
-                  plan.key === 'professional'
-                    ? 'relative border border-brand-500 ring-1 ring-brand-500'
-                    : 'border border-gray-100'
-                }`}
+                className="bg-white rounded-2xl shadow-card p-5 flex flex-col border border-gray-100"
               >
-                {plan.key === 'professional' && (
-                  <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-200 px-3 py-1 text-xs font-semibold text-brand-900 shadow-xs">
-                    Most popular
-                  </span>
-                )}
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">{plan.name || plan.key}</h2>
                   <p className="text-sm text-gray-600 mt-2 min-h-[60px] font-medium">{plan.description}</p>

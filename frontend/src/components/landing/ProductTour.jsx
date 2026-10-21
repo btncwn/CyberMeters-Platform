@@ -115,7 +115,7 @@ function PrioritiseScreen() {
       <dl className="mt-4 mx-5 mb-4 rounded-xl border border-[#E6EAF3]">
         <Row label="Severity"><span className="font-semibold text-[#8A5300]">Medium</span></Row>
         <Row label="Why it matters">A no-action policy asks for reports, but does not ask receivers to quarantine or reject email that fails DMARC.</Row>
-        <Row label="Recommended action">Confirm legitimate senders pass, then ask your DNS or email administrator to move the policy towards quarantine or reject. CyberMeters will not apply the DNS change.</Row>
+        <Row label="Recommended action">Confirm legitimate senders pass, then ask your DNS or email administrator to move the policy towards quarantine or reject. CyberMeters changes a DNS record only after you explicitly confirm the change.</Row>
         <Row label="Owner">Your IT provider</Row>
         <Row label="Effort">Medium</Row>
       </dl>

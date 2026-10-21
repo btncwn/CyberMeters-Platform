@@ -83,6 +83,13 @@ describe('Terms cover the free public checks', () => {
     expect(text).toMatch(/Run the free checks automatically or in bulk, or get around their limits or the robot check/)
   })
 
+  it('says only the free tools use a robot check: the free scan has none (founder, 21 Oct 2026)', () => {
+    const { container } = render(<MemoryRouter><TermsPage /></MemoryRouter>)
+    const text = container.textContent
+    expect(text).toMatch(/the free tools also use a robot check/)
+    expect(text).not.toMatch(/free checks are limited per connection and per domain, use a robot check/)
+  })
+
   it('does not promise portfolio monitoring, which is not customer-accepted (founder, 20 Oct 2026)', () => {
     const { container } = render(<MemoryRouter><TermsPage /></MemoryRouter>)
     expect(container.textContent).not.toMatch(/portfolio monitoring/i)

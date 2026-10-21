@@ -471,8 +471,7 @@ Externally visible assets and exposure signals, including:
 - public admin interfaces;
 - development or staging exposure;
 - public management tools;
-- cloud-storage observations;
-- selected externally visible vulnerability intelligence.
+- cloud-storage observations.
 
 ## 9.4 Certificates & Trust
 
@@ -482,7 +481,6 @@ Externally observable certificate and HTTPS posture, including:
 - replacement;
 - coverage;
 - issuer observations;
-- Certificate Transparency signals;
 - anomalies;
 - renewal readiness.
 
@@ -520,7 +518,6 @@ Externally observable identity-facing exposure, including:
 - public login surfaces;
 - identity-provider exposure;
 - Microsoft 365-related external signals;
-- legacy-authentication indicators where supported;
 - externally visible identity entry points.
 
 Do not claim:

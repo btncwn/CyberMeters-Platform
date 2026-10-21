@@ -53,6 +53,6 @@ describe('ProductTour', () => {
   it('never claims that CyberMeters makes the change itself', () => {
     render(<ProductTour />)
     fireEvent.click(screen.getAllByRole('tab')[2])
-    expect(screen.getByRole('tabpanel')).toHaveTextContent('CyberMeters will not apply the DNS change.')
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('CyberMeters changes a DNS record only after you explicitly confirm the change.')
   })
 })

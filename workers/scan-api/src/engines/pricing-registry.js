@@ -21,7 +21,7 @@ export const CANONICAL_PLANS = {
     key: "free",
     name: "14-Day Full Trial",
     description:
-      "Full external security check for 14 days — all 8 categories, alerts, cases, reports and remediation. 1 monitored domain. No card required.",
+      "Full external security check for 14 days — alerts, cases, reports and remediation. 1 monitored domain. No card required.",
     monthly_pence: 0,
     annual_pence: 0,
     included_domains: 1,
@@ -66,7 +66,7 @@ export const CANONICAL_PLANS = {
     key: "enterprise",
     name: "MSP",
     description:
-      "For MSPs and advisors managing client portfolios. Base fee plus £3/month per monitored domain (minimum 10 domains).",
+      "For MSPs and advisors managing client portfolios. Base fee plus £3/month per monitored domain (minimum 10 domains), invoiced manually.",
     // MSP has no flat monthly price: base + metered per-domain (minimum billed
     // quantity 10 → monthly floor £129.99). monthly_pence stays null so no
     // consumer can render MSP as a flat price.

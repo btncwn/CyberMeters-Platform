@@ -400,7 +400,8 @@ for (const findingType of [
   eq(`${findingType} verification is later DNS recheck`,
     resolved.verification_method, "dns_recheck");
   ok(`${findingType} remediation is suggestion-only`,
-    resolved.recommended_action.includes("CyberMeters will not apply"));
+    // No automatic change: CyberMeters changes DNS only on explicit confirmation.
+    resolved.recommended_action.includes("CyberMeters changes a DNS record only after you explicitly confirm the change"));
   const customerCopy = [
     resolved.technical_explanation,
     resolved.business_impact,
