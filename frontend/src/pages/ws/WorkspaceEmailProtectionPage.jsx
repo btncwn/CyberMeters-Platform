@@ -1690,7 +1690,8 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
 // ── DMARC Setup Wizard (public-beta guided DNS setup) ─────────────────────────
 // Helps a non-technical customer connect DMARC reporting: pick DNS provider →
 // copy the DNS record → verify → wait → Connected. Customer-safe copy only; the
-// customer always edits their own DNS (we never touch it). Never suggests
+// customer edits their own DNS here; CyberMeters changes DNS only after an explicit
+// confirmation (hosted records, a connected DNS provider). Never suggests
 // enforcement (p=quarantine/p=reject) — default stays p=none.
 const DNS_PROVIDERS = [
   { id: 'cloudflare',  label: 'Cloudflare',                 copy: 'Open your Cloudflare dashboard, select the domain, go to DNS Records, and add or edit the TXT record named _dmarc.' },
@@ -2549,7 +2550,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
           <>
             <p className="text-sm text-gray-500 leading-relaxed">
               Set up automatic DMARC reports for <b>{domain}</b> in a few steps. You’ll get a reporting address to add to
-              your DNS — then reports flow in on their own. You always make the DNS change yourself; CyberMeters never edits your DNS.
+              your DNS — then reports flow in on their own. You make this DNS change yourself; CyberMeters changes a DNS record only after you explicitly confirm the change.
             </p>
             <button onClick={activate} disabled={busy} className="btn-primary disabled:opacity-50">
               {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Starting…</> : 'Start DMARC setup'}

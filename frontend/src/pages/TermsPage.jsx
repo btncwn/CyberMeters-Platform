@@ -20,7 +20,7 @@ export default function TermsPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Terms of Service</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 20 October 2026 — Version 1.3</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 21 October 2026 — Version 1.4</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             These Terms of Service ("<strong>Terms</strong>") govern your access to and use of the CyberMeters platform and related services ("<strong>Services</strong>") provided by Turhan Acar, a sole trader trading as CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>").
           </p>
@@ -50,7 +50,7 @@ export default function TermsPage() {
 
           <Section title="3. Acceptable Use">
             <p>You may only use the Services to scan domains and infrastructure that you own, operate, or have explicit written authorisation to assess. Scanning third-party assets without authorisation is a violation of these Terms and may constitute unlawful computer access.</p>
-            <p><strong className="text-gray-800">Free public checks.</strong> The free scan and the free tools read only public information, such as DNS records and a website's public response, and may be used on any public domain. Full findings and monitoring are available only after you verify that you own the domain. The free checks are limited per connection and per domain, use a robot check, and show results only in your browser; see the <Link to="/cookies" className="text-brand-700 hover:underline">Cookie Policy</Link> for exactly what is kept.</p>
+            <p><strong className="text-gray-800">Free public checks.</strong> The free scan and the free tools read only public information, such as DNS records and a website's public response, and may be used on any public domain. Full findings and monitoring are available only after you verify that you own the domain. The free checks are limited per connection and per domain and show results only in your browser, and the free tools also use a robot check; see the <Link to="/cookies" className="text-brand-700 hover:underline">Cookie Policy</Link> for exactly what is kept.</p>
             <p>You must not use the Services to:</p>
             <ul className="list-disc pl-5 space-y-2">
               <li>Scan or probe systems you do not own or are not authorised to assess.</li>

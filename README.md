@@ -131,7 +131,6 @@ Externally visible assets and exposure signals, including:
 - public management surfaces
 - cloud-storage observations
 - externally visible technologies
-- selected vulnerability intelligence
 - historical asset tracking
 
 The platform prioritises evidence quality, false-positive reduction and managed remediation over raw finding volume.
@@ -147,7 +146,6 @@ Externally observable certificate and HTTPS posture, including:
 - subject and SAN observations
 - wildcard use
 - replacement detection
-- Certificate Transparency signals
 - hostname coverage
 - renewal readiness
 - trust-related anomalies
@@ -196,7 +194,6 @@ Externally observable identity-facing exposure, including:
 - public login surfaces
 - identity-provider observations
 - Microsoft 365-related external signals
-- legacy-authentication indicators where supported
 - externally visible identity entry points
 
 CyberMeters does not claim leaked-password, breached-credential, stealer-log or dark-web coverage unless a real approved evidence source is implemented.

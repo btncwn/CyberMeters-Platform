@@ -171,3 +171,12 @@ test('without feature lists (an older API) the card says nothing it cannot back'
   await waitFor(() => expect(screen.getByText('£9.99/mo')).toBeInTheDocument())
   expect(screen.queryByText(/^Not included:/)).toBeNull()
 })
+
+// Founder, 21 Oct 2026: no claim the product cannot back. No plan is "most
+// popular": there is no customer data behind it.
+test('no "Most popular" badge', async () => {
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage()
+  await waitFor(() => expect(screen.getByText('£19.99/mo')).toBeInTheDocument())
+  expect(screen.queryByText(/most popular/i)).not.toBeInTheDocument()
+})

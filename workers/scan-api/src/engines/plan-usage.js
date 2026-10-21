@@ -12,7 +12,7 @@ import { CYBERMETERS_LOGO_DATA_URI } from "./brand-logo.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { getEffectiveDomainLimit, getEffectivePlan, getEffectivePlanState, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS, retentionDaysToPolicy, UNLIMITED_HISTORY_DAYS } from "./entitlements.js";
-import { CANONICAL_PLANS, TRIAL_SPEC, penceToGbp } from "./pricing-registry.js";
+import { CANONICAL_PLANS, TRIAL_SPEC } from "./pricing-registry.js";
 import { getTrialAllowance, inactivePlanError, trialQuotaError, trialUsage, trialUsageSql, REPORT_RESERVATION_MINUTES } from "./trial-allowance.js";
 import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 
@@ -617,10 +617,9 @@ export async function getEffectiveDomainState(ownerUserId, env) {
 }
 
 // domainLimitRejection — honest, plan-aware refusal body for a blocked domain
-// add. Business is special: the canonical policy sells per-domain expansion
-// (11–25 at +£3/month) but per-domain overage billing is not yet wired to
-// Stripe, so the block must say that truthfully instead of pretending 10 is
-// the whole plan. Figures come from the canonical registry, never hand-typed.
+// add. Business: the canonical policy lists per-domain expansion (11–25) but
+// overage billing is not wired to Stripe and entitlement stops at the included
+// count, so the message names no price or cap for domains that cannot be bought.
 export function domainLimitRejection(planKey, isTrial, limit, used) {
   const base = planLimitExceeded("domains", limit, used);
   if (isTrial) {
@@ -635,7 +634,7 @@ export function domainLimitRejection(planKey, isTrial, limit, used) {
     return {
       ...base,
       code: "additional_domain_billing_unavailable",
-      upgrade_message: `Your plan includes ${biz.included_domains} monitored domains. Additional domains (up to ${biz.domain_hard_cap}, at £${penceToGbp(biz.additional_domain_monthly_pence)}/month each) are not yet available for self-service — contact support to add more.`,
+      upgrade_message: `Your plan includes ${biz.included_domains} monitored domains. More domains are not available on Business yet. To monitor more, contact us about the MSP plan.`,
     };
   }
   return {
