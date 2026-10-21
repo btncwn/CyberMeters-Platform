@@ -68,6 +68,9 @@ export const shadowItInventory = {
     monitoring_status: 'observed', last_seen_at: '2026-10-16T08:00:00Z',
   })),
   counts: { unreviewed: 6, approved: 0, rejected: 0, exception: 0, retired: 0 },
+  // A manager's view: classification is offered where each item is listed.
+  actions: ['approve', 'reject', 'mark_exception'],
+  can_manage: true,
 }
 export const ceAnswers = {
   questions: [{ control_key: 'firewalls', label: 'Firewalls', questions: [

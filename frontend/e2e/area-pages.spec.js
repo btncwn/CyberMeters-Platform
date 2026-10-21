@@ -50,11 +50,12 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
       })
     }
 
-    test('Shadow IT Overview lists the first five unclassified items with "See all"', async ({ page }) => {
+    test('Shadow IT Overview lists the first five unclassified items, each with its own Reject', async ({ page }) => {
       await page.goto('/ws/shadow-it')
       const list = page.getByTestId('shadow-it-unclassified')
       await expect(list.getByTestId('shadow-it-unclassified-item')).toHaveCount(5)
-      await expect(list.getByRole('button', { name: 'See all 6' })).toBeVisible()
+      await expect(list.getByRole('button', { name: 'Classify all 6 items' })).toBeVisible()
+      await expect(list.getByRole('button', { name: 'Reject Mailchimp' })).toBeVisible()
       await expect(page.getByTestId('module-next-title')).toHaveText('6 items not yet classified')
     })
 

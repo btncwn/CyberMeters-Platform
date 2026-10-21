@@ -13,7 +13,7 @@ import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleCon
 import {
   SHADOW_IT_FIRST_OBSERVATION_LABEL,
   classificationMeta, monitoringMeta, ownershipMeta, onboardingMeta, removalMeta,
-  toneClass, SHADOW_IT_SCOPE_NOTE,
+  toneClass, SHADOW_IT_SCOPE_NOTE, nextShadowItActions,
 } from '../../lib/shadowItDisplay'
 
 function Pill({ meta }) {
@@ -128,6 +128,9 @@ const ACTION_GROUPS = [
 const ACTION_LABEL = Object.fromEntries(
   ACTION_GROUPS.flatMap((g) => g.actions.map((a) => [a.action, a.label])),
 )
+const ACTION_TONE_BY_ACTION = Object.fromEntries(
+  ACTION_GROUPS.flatMap((g) => g.actions.map((a) => [a.action, a.tone])),
+)
 
 export default function ShadowItInventoryPage() {
   const dialog = useAppDialog()
@@ -145,6 +148,7 @@ export default function ShadowItInventoryPage() {
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
+  const [moreOpenId, setMoreOpenId] = useState(null)
   const requestGeneration = useRef(0)
   // Deep-link target from an alert CTA (/ws/shadow-it?item=<id>). The id is the
   // server's own opaque surrogate; the list below is already workspace-scoped, so
@@ -230,6 +234,10 @@ export default function ShadowItInventoryPage() {
 
   const items = data?.items || []
   const counts = data?.counts || {}
+  // "All" is every item in the workspace, never the length of the filtered list.
+  const countValues = Object.values(counts).filter((n) => Number.isFinite(n))
+  const allCount = countValues.length ? countValues.reduce((a, b) => a + b, 0) : (filter ? null : items.length)
+  const inlineClassify = ['approve', 'reject', 'mark_exception'].filter(can)
   const goToAnchor = useAreaAnchor()
   // Overview lists the unclassified items themselves (founder, 18 Oct 2026): the
   // first five, and "See all" opens the inventory filtered to them.
@@ -270,7 +278,7 @@ export default function ShadowItInventoryPage() {
           <section className="card p-5" aria-labelledby="shadow-it-unclassified-heading" data-testid="shadow-it-unclassified">
             <div className="flex items-baseline justify-between gap-3">
               <h3 id="shadow-it-unclassified-heading" className="text-sm font-semibold text-gray-900">Not yet classified</h3>
-              {unclassified.length > 0 && <button type="button" onClick={seeAllUnclassified} className="text-sm font-semibold text-brand-700 hover:text-brand-800">See all {counts.unreviewed ?? unclassified.length}</button>}
+              {unclassified.length > 0 && <button type="button" onClick={seeAllUnclassified} className="btn-secondary text-sm">Classify all {counts.unreviewed ?? unclassified.length} item{(counts.unreviewed ?? unclassified.length) === 1 ? '' : 's'}</button>}
             </div>
             {loading && <p className="text-sm text-gray-600 mt-2">Loading…</p>}
             {error && <p className="text-sm text-red-700 mt-2">{error}</p>}
@@ -278,11 +286,24 @@ export default function ShadowItInventoryPage() {
             {!loading && !error && unclassified.length > 0 && (
               <ul className="mt-2 divide-y divide-gray-100">
                 {unclassified.slice(0, 5).map((it) => (
-                  <li key={it.inventory_item_id} className="flex items-center justify-between gap-3 py-2" data-testid="shadow-it-unclassified-item">
+                  <li key={it.inventory_item_id} className="flex flex-wrap items-center justify-between gap-3 py-2" data-testid="shadow-it-unclassified-item">
                     <span className="min-w-0">
                       <span className="block text-sm font-medium text-gray-900 break-words">{it.display_name}</span>
                       <span className="block text-xs text-gray-600 capitalize">{(it.category || 'Uncategorised').replace(/_/g, ' ')}{it.last_seen_at ? ` · last seen ${it.last_seen_at.slice(0, 10)}` : ''}</span>
                     </span>
+                    {/* Classify right here (founder, 21 Oct 2026) — the same act() path
+                        and dialogs as the inventory, only the server's actions. */}
+                    {inlineClassify.length > 0 && (
+                      <span className="flex flex-wrap gap-1.5" aria-busy={busy === it.inventory_item_id}>
+                        {inlineClassify.map((action) => (
+                          <button key={action} type="button" disabled={busy === it.inventory_item_id} onClick={() => act(it, action)}
+                            aria-label={`${ACTION_LABEL[action]} ${it.display_name}`}
+                            className={`text-xs font-semibold rounded-md border px-2.5 py-1 disabled:opacity-50 disabled:cursor-not-allowed ${ACTION_TONE[ACTION_TONE_BY_ACTION[action]]}`}>
+                            {ACTION_LABEL[action]}
+                          </button>
+                        ))}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -297,7 +318,7 @@ export default function ShadowItInventoryPage() {
             onClick={() => setFilter(c)}
             className={`text-xs rounded-full border px-3 py-1 ${filter === c ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
           >
-            {c === '' ? `All (${items.length})` : `${classificationMeta(c).label} (${counts[c] ?? 0})`}
+            {c === '' ? (allCount == null ? 'All' : `All (${allCount})`) : `${classificationMeta(c).label} (${counts[c] ?? 0})`}
           </button>
         ))}
       </div>
@@ -383,17 +404,20 @@ export default function ShadowItInventoryPage() {
                   <td className="py-2 px-3">
                     <Pill meta={ownershipMeta(it.ownership_status)} />
                     {(it.business_owner || it.technical_owner) && <div className="text-xs text-slate-400 mt-0.5">{it.business_owner || it.technical_owner}</div>}
+                  </td>
+                  <td className="py-2 px-3">
+                    <Pill meta={monitoringMeta(it.monitoring_status)} />
                     {/* Server-owned recurrence meaning — the same sentence the alert
-                        email and in-app card carry. Falls back to the raw type only
-                        when the server sent no summary. */}
+                        email and in-app card carry. It describes what CyberMeters
+                        observed, so it sits with Monitoring, not under Owner. Falls
+                        back to the raw type only when the server sent no summary. */}
                     {(it.recurrence_summary || it.recurrence_type) && (
-                      <div className="text-xs text-brand-700 mt-0.5">{it.recurrence_summary || it.recurrence_type.replace(/_/g, ' ')}</div>
+                      <div className="text-xs text-brand-700 mt-1" data-testid="shadow-it-recurrence">{it.recurrence_summary || it.recurrence_type.replace(/_/g, ' ')}</div>
                     )}
                     {it.inventory_item_id === focusItemId && it.recommended_next_action && (
                       <div className="text-xs text-slate-500 mt-0.5"><span className="font-medium">Recommended:</span> {it.recommended_next_action}</div>
                     )}
                   </td>
-                  <td className="py-2 px-3"><Pill meta={monitoringMeta(it.monitoring_status)} /></td>
                   <td className="py-2 px-3 text-slate-400 text-xs">{it.last_seen_at ? it.last_seen_at.slice(0, 10) : '—'}</td>
                   <td className="py-2 px-3" aria-busy={busy === it.inventory_item_id}>
                     <button type="button" className="mb-2 text-xs rounded-sm border border-slate-200 text-slate-700 px-2 py-0.5"
@@ -401,13 +425,36 @@ export default function ShadowItInventoryPage() {
                       aria-controls={`shadow-it-history-${it.inventory_item_id}`}
                       onClick={() => setExpandedId(expandedId === it.inventory_item_id ? null : it.inventory_item_id)}
                     >History</button>
+                    {/* The next sensible step first (founder, 21 Oct 2026: a row
+                        offered thirteen buttons at once); every other advertised
+                        action is one click away under More. */}
+                    {nextShadowItActions(it).filter(can).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-1.5" data-testid="shadow-it-next-actions">
+                        {nextShadowItActions(it).filter(can).map((action) => (
+                          <button key={action} type="button" disabled={busy === it.inventory_item_id} onClick={() => act(it, action)}
+                            className={`text-xs font-semibold rounded-sm border px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed ${ACTION_TONE[ACTION_TONE_BY_ACTION[action]]}`}>
+                            {ACTION_LABEL[action]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {serverActions.some((a) => !nextShadowItActions(it).includes(a)) && (
+                      <button type="button" className="mb-1.5 ml-1 text-xs rounded-sm border border-slate-200 text-slate-700 px-2 py-0.5"
+                        aria-expanded={moreOpenId === it.inventory_item_id}
+                        aria-controls={`shadow-it-more-${it.inventory_item_id}`}
+                        aria-label={`More actions for ${it.display_name}`}
+                        onClick={() => setMoreOpenId(moreOpenId === it.inventory_item_id ? null : it.inventory_item_id)}
+                      >More</button>
+                    )}
                     {/* One control per server-advertised action, grouped for
                         hierarchy. A group disappears entirely when the server
                         advertises none of its actions, so a viewer (actions: [])
                         sees no action surface at all. */}
+                    {moreOpenId === it.inventory_item_id && (
+                    <div id={`shadow-it-more-${it.inventory_item_id}`}>
                     <div className="space-y-1.5 min-w-48">
                       {ACTION_GROUPS.map((group) => {
-                        const available = group.actions.filter((a) => can(a.action))
+                        const available = group.actions.filter((a) => can(a.action) && !nextShadowItActions(it).includes(a.action))
                         if (available.length === 0) return null
                         return (
                           <div key={group.key} role="group" aria-label={`${group.label} actions for ${it.display_name}`}>
@@ -429,6 +476,8 @@ export default function ShadowItInventoryPage() {
                         )
                       })}
                     </div>
+                    </div>
+                    )}
                   </td>
                 </tr>
                 {expandedId === it.inventory_item_id && <tr id={`shadow-it-history-${it.inventory_item_id}`}>
