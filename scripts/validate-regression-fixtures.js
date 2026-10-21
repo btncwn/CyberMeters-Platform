@@ -443,12 +443,31 @@ results.push(
       email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
       subdomains: { count: 1, items: ["admin.example.com"], sensitive: [] },
       subdomain_takeover: { risks: [] },
-      asset_exposure: { assets: [{ host: "admin.example.com", status: 200, reachable: true, title: "Administrator Login", tech: [] }] },
+      asset_exposure: { assets: [{ host: "admin.example.com", status: 200, reachable: true, title: "Administrator Login", tech: [],
+        authentication_observation: { schema_version: "identity_http.v1", password_form_observed: true } }] },
       brand_monitoring: null,
     }, "example.com");
     const finding = result.findings.find((item) => item.id === "asset_exposure_admin_interface");
     return finding?.finding_type === "finding" && finding?.confidence === 80 &&
       finding?.score_impact === -8 && result.score === 92;
+  }),
+  // 21 Oct 2026: name + title with no observed login form is not an admin
+  // interface claim; it is the hedged info observation and costs no score.
+  securityContract("detection_admin_name_and_title_without_form_is_observation", () => {
+    const result = scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: true },
+      email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+      subdomains: { count: 1, items: ["admin.example.com"], sensitive: [] },
+      subdomain_takeover: { risks: [] },
+      asset_exposure: { assets: [{ host: "admin.example.com", status: 200, reachable: true, title: "Admin surface test page", tech: [],
+        authentication_observation: { schema_version: "identity_http.v1", password_form_observed: null } }] },
+      brand_monitoring: null,
+    }, "example.com");
+    const ids = new Set(result.findings.map((item) => item.id));
+    const observation = result.findings.find((item) => item.id === "asset_exposure_interface_observed");
+    return !ids.has("asset_exposure_admin_interface") && observation?.severity === "info" &&
+      observation?.score_impact === 0 && result.score === 100;
   }),
   securityContract("detection_sensitive_products_are_findings", () => {
     const titles = ["Jenkins", "Grafana", "phpMyAdmin", "Kibana", "Prometheus", "Portainer", "SonarQube"];

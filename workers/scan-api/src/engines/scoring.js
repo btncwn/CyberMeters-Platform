@@ -1037,7 +1037,12 @@ export function computeScore(modules, domain) {
       }));
     }
 
-    // Generic admin/login terms require corroboration from both hostname and title.
+    // Generic admin/login terms require corroboration from both hostname and title,
+    // AND interface evidence before the medium "administrative interface" claim:
+    // a password/login form observed on the page (2xx HTML only). Name and title
+    // alone stay the hedged info observation below (21 Oct 2026: a test page on
+    // admin.<domain> with no form and no controls was called an admin interface).
+    // A known management-tool fingerprint is the separate sensitive-tool finding.
     const adminCandidates = ok200.filter((asset) => {
       if (toolAssets.includes(asset)) return false;
       const signals = assetFingerprintSignals(asset);
@@ -1046,6 +1051,7 @@ export function computeScore(modules, domain) {
     const adminAssets = adminCandidates.filter((asset) => {
       const signals = assetFingerprintSignals(asset);
       return signals.admin_hostname && signals.admin_title &&
+        asset.authentication_observation?.password_form_observed === true &&
         !signals.generic_default_page &&
         !asset.provider_owned_infrastructure &&
         !subMod?.wildcard_dns;
@@ -1303,7 +1309,7 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
 // the score. Scores persisted under earlier stamps keep the deduction they
 // were finalised with; read-time projection never recomputes it.
 // 2026-10-16.1 — unvalidated lookalike candidates no longer deduct points.
-export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-16.1";
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-21.1";
 
 // The modules whose findings move computeScore(). If any of these was skipped or
 // never ran, the customer score is a conclusion over an incomplete assessment and

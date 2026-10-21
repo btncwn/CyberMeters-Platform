@@ -142,7 +142,7 @@ ok("a stored scan with no vulnerability modules recorded still fails closed, as 
 const scoring = await eng("scoring.js");
 ok("the score owner no longer exports an exploited-vulnerability deduction",
   !("computeKevCveDeduction" in scoring) && !("applyKevCveDeduction" in scoring) && !("KEV_CVE_SCORE_WEIGHTS" in scoring));
-eq("the score methodology stamp records the change", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-10-16.1");
+eq("the score methodology stamp records the change", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-10-21.1");
 
 // ── 6. Registration data (registry RDAP) is optional ─────────────────────────
 // The one outside service a scan still asks besides DNS. A registry that does

@@ -87,6 +87,14 @@ const adminAsset = (over = {}) => ({
   ok("annotated admin: provider_owned false, tech still Cloudflare", admin.provider_owned_infrastructure === false && (admin.tech || []).includes("Cloudflare"));
 
   const modules = { dns: { resolves: true }, subdomains: { wildcard_dns: false, items: [] }, asset_exposure: exposure };
+  // Name and title alone (this fixture is a test page with no form): the hedged
+  // info observation, never the medium "administrative interface" claim.
+  const nameOnly = computeScore(modules, "blackbullbarbers.co.uk").findings;
+  eq("name + title without a login form is not an administrative interface",
+    nameOnly.filter((f) => f.id === "asset_exposure_admin_interface").length, 0);
+  ok("→ it stays the hedged info observation", nameOnly.some((f) => f.id === "asset_exposure_interface_observed" && f.severity === "info"));
+  // With interface evidence (a password form observed on the page) it is.
+  admin.authentication_observation = { schema_version: "identity_http.v1", password_form_observed: true };
   const { findings } = computeScore(modules, "blackbullbarbers.co.uk");
   const adminFindings = findings.filter((f) => f.id === "asset_exposure_admin_interface");
   eq("asset_exposure_admin_interface fires exactly once (no duplicate)", adminFindings.length, 1);
@@ -105,6 +113,31 @@ const adminAsset = (over = {}) => ({
   const { findings } = computeScore(modules, "blackbullbarbers.co.uk");
   eq("provider-CNAME asset → admin-interface finding suppressed", findings.filter((f) => f.id === "asset_exposure_admin_interface").length, 0);
   ok("provider-CNAME asset → provider_owned true", exposure.assets[0].provider_owned_infrastructure === true);
+}
+
+// ── Mutant: promote on hostname + title alone (pre-21-Oct-2026 rule) ─────────
+// The admin-interface claim must need interface evidence; removing the password
+// form requirement must turn the test page back into a false medium claim.
+{
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "workers", "scan-api", "src", "engines", "scoring.js");
+  const source = fs.readFileSync(file, "utf8");
+  const anchor = "        asset.authentication_observation?.password_form_observed === true &&\n";
+  ok("mutant anchor present exactly once", source.split(anchor).length === 2);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admin-evidence-mutant-"));
+  try {
+    const mutated = source.replace(anchor, "")
+      .replace(/from "(\.\.?\/[^"]+)"/g, (_, rel) => `from ${JSON.stringify(pathToFileURL(path.resolve(path.dirname(file), rel)).href)}`);
+    fs.writeFileSync(path.join(dir, "scoring.mjs"), mutated);
+    const mutant = await import(pathToFileURL(path.join(dir, "scoring.mjs")).href);
+    let exposure = { checked: 1, reachable: 1, assets: [adminAsset()], source: "http_probe", error: null };
+    exposure = annotateExposureInfrastructure(exposure, []);
+    const findings = mutant.computeScore({ dns: { resolves: true }, subdomains: { wildcard_dns: false, items: [] }, asset_exposure: exposure },
+      "blackbullbarbers.co.uk").findings;
+    ok("MUTANT name+title-only promotion calls the test page an admin interface (caught)",
+      findings.some((f) => f.id === "asset_exposure_admin_interface"));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
 console.log(`\nprovider-classification: ${pass} passed, ${fail} failed`);
