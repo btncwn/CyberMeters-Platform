@@ -209,6 +209,14 @@ ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401
       method: "PUT", headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }), env, ctx);
     return { status: res.status, body: await res.json().catch(() => ({})) };
   };
+  // The interlock cannot be evaluated (its threshold configuration fails to
+  // read): a confirmed tightening is refused, nothing is written.
+  Object.defineProperty(env, "HOSTED_DMARC_MIN_MESSAGES", { configurable: true, get() { throw new Error("config unavailable"); } });
+  const unavailable = await put({ step: "reject", confirm: true });
+  delete env.HOSTED_DMARC_MIN_MESSAGES;
+  ok("interlock: an interlock that cannot be evaluated fails closed (503, nothing written)",
+    unavailable.status === 503 && unavailable.body.code === "readiness_unavailable" && patched.length === 0
+    && db.prepare("SELECT target_value FROM hosted_dns_entries WHERE id='hd-dm'").get().target_value.includes("t=y"));
   const unconfirmed = await put({ step: "reject" });
   ok("interlock: an unconfirmed tightening with no reporting volume is refused", unconfirmed.status === 409 && unconfirmed.body.code === "readiness_check_failed" && patched.length === 0);
   ok("interlock: an over-long override reason is refused", (await put({ step: "reject", confirm: true, override_reason: "x".repeat(281) })).status === 400 && patched.length === 0);

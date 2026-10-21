@@ -432,13 +432,26 @@ export async function emailProtectionRoutes(rctx) {
           // is allowed, and the audit records who, why and the interlock state.
           let override = null;
           if (tightening) {
-            const rate = await getHostedDmarcPassRate(env, workspaceId, domain);
-            const changeMs = parseServerMsHosted(existing.last_change_at);
-            const readiness = evaluateRampReadiness({
-              pass_rate: rate.pass_rate,
-              total_messages: rate.total,
-              days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
-            }, resolveRampThresholds(env));
+            // Fail closed: an interlock that cannot be evaluated never lets a
+            // stricter policy through, confirmed or not.
+            let rate, readiness;
+            try {
+              rate = await getHostedDmarcPassRate(env, workspaceId, domain);
+              const changeMs = parseServerMsHosted(existing.last_change_at);
+              readiness = evaluateRampReadiness({
+                pass_rate: rate.pass_rate,
+                total_messages: rate.total,
+                days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
+              }, resolveRampThresholds(env));
+            } catch {
+              readiness = null;
+            }
+            if (!rate || typeof readiness?.ready !== "boolean" || !Array.isArray(readiness.reasons)) {
+              return json({
+                error: "The safety interlock could not be evaluated, so no stricter policy was published. Try again shortly.",
+                code: "readiness_unavailable",
+              }, 503);
+            }
             const projectedImpact = await forecastPolicyImpact(env, workspaceId, domain, {
               targetPolicy: policy,
               testing,
