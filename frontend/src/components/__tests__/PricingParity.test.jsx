@@ -117,7 +117,7 @@ test.each([
   try {
     renderPage()
     const starter = (await screen.findByRole('heading', { name: 'Starter' })).closest('section')
-    fireEvent.click(within(starter).getByRole('button', { name: 'Start Checkout' }))
+    fireEvent.click(within(starter).getByRole('button', { name: 'Choose Starter' }))
     await waitFor(() => expect(location.href).toBe(target))
     expect(api.startCheckout).toHaveBeenCalledTimes(1)
     expect(api.startCheckout).toHaveBeenCalledWith(
@@ -141,7 +141,7 @@ test('ambiguous workspace refusal stays visible without navigating to payment', 
   try {
     renderPage()
     const starter = (await screen.findByRole('heading', { name: 'Starter' })).closest('section')
-    const button = within(starter).getByRole('button', { name: 'Start Checkout' })
+    const button = within(starter).getByRole('button', { name: 'Choose Starter' })
     fireEvent.click(button)
     expect(await screen.findByText('Open Billing in the workspace you own to choose a plan.')).toBeInTheDocument()
     expect(location.href).toBe('https://app.cybermeters.com/pricing')
@@ -179,4 +179,30 @@ test('no "Most popular" badge', async () => {
   renderPage()
   await waitFor(() => expect(screen.getByText('£19.99/mo')).toBeInTheDocument())
   expect(screen.queryByText(/most popular/i)).not.toBeInTheDocument()
+})
+
+// Public site audit (21 Oct 2026): every pricing sentence is true, every
+// button is verb + object, and the MSP price is stated as billing computes it.
+test('the intro claims only what every plan includes', async () => {
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage()
+  await waitFor(() => expect(screen.getByText('£9.99/mo')).toBeInTheDocument())
+  expect(screen.getByText(/Every plan includes the full external security check of your domain/)).toBeInTheDocument()
+  expect(screen.queryByText(/Every paid plan is the full external security check/)).toBeNull()
+})
+
+test('each paid plan button names the plan', async () => {
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage()
+  for (const name of ['Choose Starter', 'Choose Professional', 'Choose Business']) {
+    expect(await screen.findByRole('button', { name })).toBeInTheDocument()
+  }
+  expect(screen.queryByRole('button', { name: 'Start Checkout' })).toBeNull()
+})
+
+test('MSP pricing is stated exactly as billing computes it, with a worked example', async () => {
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  renderPage()
+  expect(await screen.findByText('£99.99/month base fee plus £3/month per monitored domain, billed for at least 10 domains')).toBeInTheDocument()
+  expect(screen.getByText('For example: 10 domains = £129.99/month; 25 domains = £174.99/month')).toBeInTheDocument()
 })

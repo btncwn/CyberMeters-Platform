@@ -189,7 +189,7 @@ function DisclaimerBox({ compact = false }) {
         <div>
           <h2 className="text-sm font-bold text-brand-700">Readiness, not certification</h2>
           <p className={`mt-1 text-sm leading-relaxed text-brand-700 ${compact ? 'max-w-3xl' : ''}`}>
-            CyberMeters helps you prepare for Cyber Essentials by highlighting likely gaps and areas to review. It does not issue Cyber Essentials certification. Formal certification is handled through IASME and approved Certification Bodies.
+            CyberMeters helps you prepare for Cyber Essentials by highlighting likely gaps and areas to review. It does not issue Cyber Essentials certification. Formal certification is handled through the official Cyber Essentials scheme and its approved Certification Bodies.
           </p>
         </div>
       </div>
@@ -530,7 +530,7 @@ function ResultView({ result, onEdit }) {
       <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5">
         <div className="flex items-start gap-3">
           <p className="text-sm leading-relaxed text-gray-600">
-            CyberMeters provides readiness guidance only. It does not issue Cyber Essentials certification and cannot fully verify internal controls such as MFA, admin account separation, endpoint protection or patching across your devices. Formal Cyber Essentials certification is handled through IASME and approved Certification Bodies.
+            CyberMeters provides readiness guidance only. It does not issue Cyber Essentials certification and cannot fully verify internal controls such as MFA, admin account separation, endpoint protection or patching across your devices. Formal Cyber Essentials certification is handled through the official Cyber Essentials scheme and its approved Certification Bodies.
           </p>
         </div>
       </div>

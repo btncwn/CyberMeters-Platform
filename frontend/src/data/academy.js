@@ -949,7 +949,7 @@ export const ARTICLES = [
       {
         heading: 'Cyber Essentials Readiness, Not Certification',
         blocks: [
-          p('This distinction is important. CyberMeters provides readiness support, not certification. IASME is the NCSC\'s official Cyber Essentials Delivery Partner, and certification is delivered through the approved route.'),
+          p('This distinction is important. CyberMeters provides readiness support, not certification. Certification is delivered through the official Cyber Essentials scheme and its approved Certification Bodies.'),
           callout('An external security check helps you spot readiness gaps before the formal route. It is not a Cyber Essentials certificate and should not be treated as one.', 'info'),
         ],
       },
@@ -1079,7 +1079,7 @@ export const ARTICLES = [
             'Missing security updates on laptops, servers or network devices',
             'Treating Cyber Essentials as paperwork rather than operational hygiene',
           ]),
-          callout('CyberMeters provides Cyber Essentials readiness support, not certification. Certification is handled through IASME and approved Certification Bodies.', 'info'),
+          callout('CyberMeters provides Cyber Essentials readiness support, not certification. Certification is handled through the official Cyber Essentials scheme and its approved Certification Bodies.', 'info'),
         ],
       },
       {

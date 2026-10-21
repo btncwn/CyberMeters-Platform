@@ -33,7 +33,7 @@ const READINESS_STYLES = {
   gaps: 'bg-transparent text-brand-700 border-[1.5px] border-brand-700',
 }
 
-const FINAL_DISCLAIMER = 'CyberMeters provides readiness guidance only. It does not issue Cyber Essentials certification and cannot fully verify internal controls such as MFA, admin account separation, endpoint protection or patching across your devices. Formal Cyber Essentials certification is handled through IASME and approved Certification Bodies.'
+const FINAL_DISCLAIMER = 'CyberMeters provides readiness guidance only. It does not issue Cyber Essentials certification and cannot fully verify internal controls such as MFA, admin account separation, endpoint protection or patching across your devices. Formal Cyber Essentials certification is handled through the official Cyber Essentials scheme and its approved Certification Bodies.'
 
 function titleCaseStatus(value) {
   return String(value || 'unknown').replace(/_/g, ' ')

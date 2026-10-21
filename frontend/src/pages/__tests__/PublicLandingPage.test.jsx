@@ -9,7 +9,8 @@ function renderLanding() {
   return render(<MemoryRouter><PublicLandingPage /></MemoryRouter>)
 }
 
-const CANONICAL = ['Identity Exposure', 'Attack Surface', 'Email Protection', 'Website Security', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
+// The one canonical area order used across the app and the site (shared/areas.js).
+const CANONICAL = ['Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness']
 
 describe('PublicLandingPage', () => {
   it('presents the eight canonical domains by name, in canonical order', () => {
@@ -22,7 +23,9 @@ describe('PublicLandingPage', () => {
     // CyberMeters must never imply it issues Cyber Essentials certification.
     renderLanding()
     expect(screen.getByText(/does not provide Cyber Essentials certification/i)).toBeInTheDocument()
-    expect(screen.getByText(/IASME and approved Certification Bodies/i)).toBeInTheDocument()
+    expect(screen.getByText(/official Cyber Essentials scheme and its approved Certification Bodies/i)).toBeInTheDocument()
+    // No other organisation is named in public copy (founder rule).
+    expect(document.body.textContent).not.toMatch(/IASME/i)
   })
 
   it('leads with the exposure headline', () => {
@@ -32,7 +35,9 @@ describe('PublicLandingPage', () => {
 
   it('sends every free-check call to action to the free scan, with the domain when typed', () => {
     const { container } = renderLanding()
-    expect(screen.getByRole('link', { name: 'Run a free check' })).toHaveAttribute('href', '/free-scan')
+    // One label for the one action: every free-check link reads "Run a free check".
+    for (const link of screen.getAllByRole('link', { name: 'Run a free check' })) expect(link).toHaveAttribute('href', '/free-scan')
+    expect(screen.queryByRole('link', { name: 'Check a domain now' })).toBeNull()
     const forms = [...container.querySelectorAll('form')]
     expect(forms).toHaveLength(2) // hero + closing call to action
     for (const form of forms) {
@@ -48,7 +53,8 @@ describe('PublicLandingPage', () => {
     expect(screen.getByText(/A one-off snapshot of public evidence. No scan report or monitoring history is saved/)).toBeInTheDocument()
     expect(screen.getByText(/Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain/i)).toBeInTheDocument()
     expect(screen.getByText(/Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial/i)).toBeInTheDocument()
-    expect(screen.getByText(/bounded, non-persistent external snapshot/i)).toBeInTheDocument()
+    expect(screen.getByText(/a one-off check of what is publicly visible; nothing is saved/i)).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/bounded, (non-persistent|honest)/i)
     expect(screen.getAllByText(/what could not be assessed/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/Nothing is marked as passed on silence/i)).toBeInTheDocument()
     expect(screen.queryByText(/two minutes/i)).not.toBeInTheDocument()
@@ -107,7 +113,7 @@ describe('PublicLandingPage', () => {
 
   it('limits the free-check storage promise to reports and monitoring history', () => {
     renderLanding()
-    expect(screen.getByText(/No scan report or monitoring history is saved/)).toHaveTextContent('Limited rate-limit records help prevent misuse')
+    expect(screen.getByText(/No scan report or monitoring history is saved/)).toHaveTextContent('We keep only a short record of checks run, to stop misuse.')
     expect(document.body.textContent).not.toContain('nothing is stored')
   })
 
@@ -142,7 +148,7 @@ describe('PublicLandingPage product story', () => {
     renderLanding()
     const toggles = screen.getAllByRole('button', { name: 'What it checks' })
     expect(toggles).toHaveLength(8)
-    const email = toggles[2]
+    const email = toggles[0] // Email Protection leads the canonical order
     expect(email).toHaveAttribute('aria-expanded', 'false')
     expect(document.getElementById('area-email')).not.toBeVisible()
     fireEvent.click(email)
@@ -152,7 +158,7 @@ describe('PublicLandingPage product story', () => {
 
   it('keeps the free check, the trial and paid plans apart, with honest labels', () => {
     renderLanding()
-    expect(screen.getByRole('link', { name: 'Check a domain now' })).toHaveAttribute('href', '/free-scan')
+    expect(screen.getAllByRole('link', { name: 'Run a free check' }).every((l) => l.getAttribute('href') === '/free-scan')).toBe(true)
     expect(screen.getByRole('link', { name: 'Start my 14-day trial' })).toHaveAttribute('href', 'https://app.cybermeters.com/signup')
     for (const link of screen.getAllByRole('link', { name: 'See pricing' })) expect(link).toHaveAttribute('href', '/pricing')
   })
@@ -218,5 +224,24 @@ describe('Cyber Essentials readiness page', () => {
     expect(text).toMatch(/partly check two of the five control areas: boundary protection/)
     expect(text).toMatch(/Email security results are not counted towards Cyber Essentials/)
     expect(text).not.toMatch(/such as website security, TLS, DNS and email protection/)
+  })
+})
+
+describe('public site audit (21 Oct 2026)', () => {
+  it('says "read-only", never "beta", about AI assistant access', () => {
+    renderLanding()
+    expect(screen.getByText('Read-only AI assistant access (MCP)')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/\bbeta\b/i)
+  })
+
+  it('asks every area question in the owner\'s voice', () => {
+    renderLanding()
+    expect(screen.getByText('What is visible about my business identities?')).toBeInTheDocument()
+    expect(screen.queryByText(/our business identities/)).toBeNull()
+  })
+
+  it('does not mention live prices where no price is shown', () => {
+    renderLanding()
+    expect(document.body.textContent).not.toMatch(/live prices from our billing system/i)
   })
 })

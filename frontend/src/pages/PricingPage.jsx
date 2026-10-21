@@ -44,7 +44,14 @@ function planFeatures(plan, plans) {
   if (plan.key === 'enterprise') {
     features.push('Built for MSPs and advisors managing client portfolios')
     if (pm.per_domain_monthly_gbp != null && pm.min_billed_domains != null) {
-      features.push(`Base fee + ${gbp(pm.per_domain_monthly_gbp)}/month per monitored domain (minimum ${pm.min_billed_domains} domains)`)
+      // Exactly as billing computes it: base + per-domain × max(domains, minimum).
+      if (pm.base_monthly_gbp != null) {
+        const at = (n) => gbp(pm.base_monthly_gbp + pm.per_domain_monthly_gbp * Math.max(n, pm.min_billed_domains))
+        features.push(`${gbp(pm.base_monthly_gbp)}/month base fee plus ${gbp(pm.per_domain_monthly_gbp)}/month per monitored domain, billed for at least ${pm.min_billed_domains} domains`)
+        features.push(`For example: ${pm.min_billed_domains} domains = ${at(pm.min_billed_domains)}/month; 25 domains = ${at(25)}/month`)
+      } else {
+        features.push(`Base fee + ${gbp(pm.per_domain_monthly_gbp)}/month per monitored domain (minimum ${pm.min_billed_domains} domains)`)
+      }
     }
     return features
   }
@@ -167,8 +174,9 @@ export default function PricingPage() {
           <p className="text-xs font-bold uppercase tracking-widest text-brand-700 mb-3">Pricing</p>
           <h1 className="text-4xl font-bold text-gray-900 tracking-tight">Choose the plan that matches your security workflow.</h1>
           <p className="text-gray-500 mt-4">
-            Every paid plan is the full external security check — your whole external posture, alerts, managed cases,
-            reports and remediation. Pricing is per monitored domain, starting with a 14-day full trial.
+            Every plan includes the full external security check of your domain. Larger plans add the executive
+            dashboard, the audit log and the third-party services view. Pricing is per monitored domain, starting with
+            a 14-day full trial.
           </p>
         </div>
 
@@ -245,7 +253,7 @@ export default function PricingPage() {
                   {checkoutPlan === plan.key ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    plan.key === 'free' ? 'Start free trial' : plan.key === 'enterprise' ? 'Contact Sales' : 'Start Checkout'
+                    plan.key === 'free' ? 'Start free trial' : plan.key === 'enterprise' ? 'Contact Sales' : `Choose ${plan.name}`
                   )}
                 </button>
               </section>

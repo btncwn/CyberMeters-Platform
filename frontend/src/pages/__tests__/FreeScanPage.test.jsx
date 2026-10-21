@@ -300,7 +300,7 @@ describe('FreeScanPage hand-over from the landing page', () => {
     render(<MemoryRouter><FreeScanPage /></MemoryRouter>)
     expect(screen.getByText(/Five bounded public checks, summarised across your external posture/)).toBeInTheDocument()
     expect(screen.getByText('No scan report saved')).toBeInTheDocument()
-    expect(screen.getByText(/Limited rate-limit records are kept to prevent misuse/)).toHaveTextContent('These five checks may leave some areas unassessed')
+    expect(screen.getByText(/We keep only a short record of checks run, to stop misuse/)).toHaveTextContent('These five checks may leave some areas unassessed')
     expect(document.body.textContent).not.toContain('Nothing stored')
   })
   it('runs the check once for a valid ?domain= and drops the parameter', async () => {
