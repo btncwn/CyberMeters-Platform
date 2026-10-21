@@ -20,7 +20,7 @@
 // SUPPRESS a finding). Omitting them can only make this profile see "still present" more
 // readily than the scan did — it can never manufacture a false "fixed". That asymmetry is
 // the point: an over-cautious verifier leaves a case open, an over-eager one lies.
-import { assetFingerprintSignals, runAdminSurfaceModule } from "./asset-intel.js";
+import { assetFingerprintSignals, observesPasswordField, runAdminSurfaceModule } from "./asset-intel.js";
 import { classifyFetchObservation } from "../lib/fetch-observation.js";
 import { classifyServiceability, maySupportHealthyConclusion } from "../lib/serviceability.js";
 import { evaluateCookieObservation, isCookieFindingType } from "./cookie-observation.js";
@@ -42,10 +42,14 @@ export const MAX_VERIFICATION_HOSTS = 10;
 // ── Presence predicates — pure, evaluated against a probed asset record ───────
 // Each returns true iff the original finding's condition still holds for this host.
 
-// asset_exposure_admin_interface (scoring.js): a reachable generic admin/login interface.
+// asset_exposure_admin_interface (scoring.js): a reachable generic admin/login
+// interface. Same evidence as the finding since score methodology 2026-10-21.1:
+// admin hostname AND title AND an observed login/password form. Without the
+// form, verification and scoring would disagree about the same page.
 function presentAdminInterface(asset) {
   const s = assetFingerprintSignals(asset);
-  return asset.status === 200 && s.admin_hostname && s.admin_title && !s.generic_default_page;
+  return asset.status === 200 && s.admin_hostname && s.admin_title && !s.generic_default_page &&
+    asset.authentication_observation?.password_form_observed === true;
 }
 
 // asset_exposure_sensitive_tool (scoring.js): a directly fingerprinted management tool.
@@ -193,14 +197,20 @@ async function assetFromResponse(host, res) {
   const server = res.headers.get("server") || null;
   const rawCT = res.headers.get("content-type") || null;
   let title = null;
+  let passwordFormObserved = null;
   if (rawCT && /text\/html/i.test(rawCT)) {
     try {
-      const body = await res.text();
-      const m = body.slice(0, 8_192).match(/<title[^>]*>([^<]{1,200})<\/title>/i);
+      const snippet = (await res.text()).slice(0, 8_192);
+      const m = snippet.match(/<title[^>]*>([^<]{1,200})<\/title>/i);
       title = m ? m[1].trim() : null;
+      // The same login-form measurement the scan's exposure probe makes, so the
+      // admin-interface condition is judged on the same evidence here.
+      passwordFormObserved = observesPasswordField(snippet);
     } catch { title = null; }
   }
-  return { host, url: res.url || `https://${host}`, status, reachable: status < 500, title, server, tech: [] };
+  return { host, url: res.url || `https://${host}`, status, reachable: status < 500, title, server, tech: [],
+    authentication_observation: { schema_version: "identity_http.v1",
+      password_form_observed: status >= 200 && status < 300 ? passwordFormObserved : null } };
 }
 
 // Probe ONE host over https then http. Returns { completeness, res } — any outcome

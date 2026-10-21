@@ -1142,7 +1142,9 @@ export function computeScore(modules, domain) {
         validation_quality: "weak",
         finding_type: "observation",
         title:        "Potential Administrative or Development Surface Observed",
-        description:  `${genericHeuristicAssets.length} reachable hostname${genericHeuristicAssets.length > 1 ? "s" : ""} matched only a generic hostname, title, wildcard response, or default-page heuristic. No specific sensitive service was confirmed.`,
+        // Name the heuristic each host matched (21 Oct 2026): the generic list of
+        // four kinds read as if every kind applied.
+        description:  `${genericHeuristicAssets.length} reachable hostname${genericHeuristicAssets.length > 1 ? "s" : ""} matched only a generic heuristic: ${genericHeuristicAssets.map((asset) => `${asset.host} (${heuristicMatchLabel(asset, subMod)})`).join(", ")}. No specific sensitive service was confirmed.`,
         score_impact: 0,
         evidence: {
           evidence_type:  "http_fingerprint_observation",
@@ -1287,6 +1289,19 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
   if (Number.isFinite(storedValue)) return storedValue;
   const reportValue = reportScore == null || reportScore === "" ? NaN : Number(reportScore);
   return Number.isFinite(reportValue) ? reportValue : 0;
+}
+
+// Which generic heuristic a weak admin/dev observation rests on, in words.
+function heuristicMatchLabel(asset, subMod) {
+  const s = assetFingerprintSignals(asset);
+  const parts = [];
+  if (s.admin_hostname) parts.push("admin-style hostname");
+  if (s.admin_title) parts.push("admin-style page title");
+  if (s.dev_hostname) parts.push("development-style hostname");
+  if (s.dev_title) parts.push("development-style page title");
+  if (s.generic_default_page) parts.push("default page");
+  if (subMod?.wildcard_dns) parts.push("wildcard DNS response");
+  return parts.length ? parts.join(", ") : "generic heuristic";
 }
 
 // Methodology stamp for the Cyber Metrics Score (M5.c). The value dates the CURRENT

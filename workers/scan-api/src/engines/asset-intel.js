@@ -160,7 +160,7 @@ async function readProbeSnippet(response) {
 // Inspect complete input tags only; quoted examples, comments and inert/raw-text
 // elements are not sign-in fields. This is a positive markup hint, not a DOM or
 // authentication test. Unsupported/malformed markup stays unknown.
-function observesPasswordField(snippet) {
+export function observesPasswordField(snippet) {
   const markup = snippet.replace(/<!--[\s\S]*?(?:-->|$)/g, "")
     .replace(/<(script|style|textarea|title|xmp|template|noscript)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, "");
   for (const tag of markup.matchAll(/<([a-z][a-z0-9:-]*)\b((?:"[^"]*"|'[^']*'|[^'">])*)>/gi)) {
