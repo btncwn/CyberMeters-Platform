@@ -36,6 +36,13 @@ subrequests = 10_000
 pattern = "api.cybermeters.com"
 custom_domain = true
 
+# Serves only https://mta-sts.cybermeters.com/.well-known/mta-sts.txt, the
+# MTA-STS policy file for CyberMeters' own domain (routes/mta-sts-self.js).
+# The host is checked before any API route; everything else on it is 404.
+[[routes]]
+pattern = "mta-sts.cybermeters.com"
+custom_domain = true
+
 [[d1_databases]]
 binding = "cybermeters_db"
 database_name = "cybermeters-db"
@@ -136,6 +143,9 @@ EXPOSURE_SCAN_MODE = "evidence-v1"
 # Supported TLS checks only; Heartbleed, ROBOT and CCS remain unexecutable.
 # Set to disabled to stop new TLS dispatch while queued work drains honestly.
 TLS_ASSESSMENT_MODE = "evidence-v1"
+# The daily 07:00 UTC free-check canary makes real DNS lookups; "on" here only,
+# so test and staging environments never run it (cron/scheduled.js).
+FREE_CHECK_CANARY = "on"
 # APP_VERSION (the release stamp at GET /health) is set at deploy time by
 # scripts/deploy-scan-api.sh from the checked-out commit — never here.
 # DNS_PROVIDER_KEY is a dedicated versioned encryption key ring, staged as a

@@ -73,15 +73,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2759 | preflight | public | — |
-| DELETE | `(none)` | 2765 | unknown | **GAP** | — |
-| GET | `(none)` | 2765 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2765 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2765 | unknown | **GAP** | — |
-| POST | `(none)` | 2765 | unknown | **GAP** | — |
-| PUT | `(none)` | 2765 | unknown | **GAP** | — |
-| GET | `/health` | 2770 | public-or-global | public | — |
-| GET | `/ready` | 2789 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2763 | preflight | public | — |
+| DELETE | `(none)` | 2769 | unknown | **GAP** | — |
+| GET | `(none)` | 2769 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2769 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2769 | unknown | **GAP** | — |
+| POST | `(none)` | 2769 | unknown | **GAP** | — |
+| PUT | `(none)` | 2769 | unknown | **GAP** | — |
+| GET | `/health` | 2774 | public-or-global | public | — |
+| GET | `/ready` | 2793 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 

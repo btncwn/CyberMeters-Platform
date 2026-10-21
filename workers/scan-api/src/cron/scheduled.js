@@ -344,8 +344,10 @@ export async function runScheduled(event, env, ctx, tasks) {
   // ── Free-check canary ────────────────────────────────────────────────
   // Daily at 07:00 UTC, before the founder email reads it: the free-scan target
   // check and the DMARC/SPF tools on a fixed public corpus, compared with the
-  // day before (engines/free-check-canary.js). Bounded, DNS only.
-  if (tasks.runFreeCheckCanary && new Date(now).getUTCHours() === 7) {
+  // day before (engines/free-check-canary.js). Bounded, DNS only. It makes real
+  // DNS lookups, so it runs only where FREE_CHECK_CANARY = "on" (production
+  // wrangler.toml); a test or staging environment never reaches the network.
+  if (tasks.runFreeCheckCanary && env?.FREE_CHECK_CANARY === "on" && new Date(now).getUTCHours() === 7) {
     ctx.waitUntil(runCronTask(env, "free_check_canary", () => tasks.runFreeCheckCanary(env)));
   }
 
