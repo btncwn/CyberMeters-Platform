@@ -188,9 +188,10 @@ const EXPECTED = Object.freeze({
     // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
     // (origin/main vs this head): all 541 entries are identical once the renames and byte
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
-    fingerprint: "4099a40001c6afdd8eb662108ee5beb9febabd3dbac52261459db1e45c72f3c9",
+    // BRI 2026-10-21.1: the confirmed-exposure deductions move business-risk.js SQL sites +8 lines; keyed two-tree diff (origin/main vs this head) shows 0 entries added or removed.
+    fingerprint: "8696e890c867d5f8df66e9bc476ad637dc5a46a07494b54c01b65ce8030e765c",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "d7766c2c04e1d242e00c3d285dd94dae1c32efbfba52f34d8539b42e212cdbcd",
+    resolved_query_sink_fingerprint: "62b2663b661a98a3a5a7f74b7f293e509fbae57ad22819d84258f137c14179d0",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1

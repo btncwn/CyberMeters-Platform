@@ -636,7 +636,38 @@ for (const [name, partial] of [
     `website_trust=${websiteTrust(true)}`);
   check("CM-P1-013 missing HSTS without an observed redirect deducts 20", websiteTrust(false) === 80,
     `website_trust=${websiteTrust(false)}`);
-  check("CM-P1-013 BRI methodology stamp moved with the weight", BUSINESS_RISK_METHODOLOGY_VERSION === "2026-10-20.1");
+  check("BRI methodology stamp is current (2026-10-21.1, after CM-P1-013's 2026-10-20.1)", BUSINESS_RISK_METHODOLOGY_VERSION === "2026-10-21.1");
+
+  // Attack Surface reads confirmed exposure findings (21 Oct 2026). With three or
+  // more reachable hosts the reachable-host deduction is capped, so before this a
+  // newly exposed management tool or login-protected admin interface moved nothing.
+  const reachable = (extra = []) => ({ checked: 4, reachable: 4, assets: [
+    { host: "www.bri-asm.example.com", status: 200, reachable: true, title: "Home", tech: [] },
+    { host: "api.bri-asm.example.com", status: 404, reachable: true, title: null, tech: [] },
+    { host: "app.bri-asm.example.com", status: 200, reachable: true, title: "App", tech: [] },
+    ...extra,
+  ], source: "http_probe" });
+  const attack = (assets) => {
+    const modules = { dns: { resolves: true }, ssl: { https_available: true, http_redirects_to_https: true },
+      subdomains: { wildcard_dns: false, items: assets.assets.map((a) => a.host) }, asset_exposure: assets };
+    const findings = computeScore(modules, "bri-asm.example.com").findings;
+    return { score: deriveScanBusinessRisk({ findings, modules }).categories.attack_surface_exposure.score,
+      ids: new Set(findings.map((f) => f.id)) };
+  };
+  const baseline = attack(reachable());
+  const adminNoForm = attack(reachable([{ host: "admin.bri-asm.example.com", status: 200, reachable: true, title: "Admin test page", tech: [],
+    authentication_observation: { schema_version: "identity_http.v1", password_form_observed: null } }]));
+  const adminWithForm = attack(reachable([{ host: "admin.bri-asm.example.com", status: 200, reachable: true, title: "Admin login", tech: [],
+    authentication_observation: { schema_version: "identity_http.v1", password_form_observed: true } }]));
+  const tool = attack(reachable([{ host: "ci.bri-asm.example.com", status: 200, reachable: true, title: "Dashboard [Jenkins]", tech: ["Jenkins"] }]));
+  check("BRI attack surface: an admin name/title with no login form deducts nothing beyond the capped host count",
+    adminNoForm.score === baseline.score, `baseline=${baseline.score} adminNoForm=${adminNoForm.score}`);
+  check("BRI attack surface: a confirmed admin interface (login form) deducts 10",
+    adminWithForm.ids.has("asset_exposure_admin_interface") && adminWithForm.score === baseline.score - 10,
+    `baseline=${baseline.score} adminWithForm=${adminWithForm.score}`);
+  check("BRI attack surface: an exposed management tool deducts 15",
+    tool.ids.has("asset_exposure_sensitive_tool") && tool.score === baseline.score - 15,
+    `baseline=${baseline.score} tool=${tool.score} ids=${[...tool.ids].join(",")}`);
   const { readFileSync } = await import("node:fs");
   const engineSource = readFileSync(new URL(engine("scan-engine.js")), "utf8");
   check("CM-P1-013 the scan-engine BRS passes the HSTS finding's severity",
