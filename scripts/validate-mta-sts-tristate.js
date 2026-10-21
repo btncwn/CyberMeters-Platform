@@ -132,7 +132,8 @@ ok("genuine-absent: production impact admitted", genuineImpacts.some((i) => i.te
 
 const forgedFindings = buildEmailIntelFindings(stubs.spf, { status: "FULLY_PROTECTED" }, stubs.dkim, forgedAbsent, stubs.tlsRpt);
 ok("forged-absent: production finding fail-closed", !forgedFindings.some((f) => f.id === "email_intel_mta_sts_missing"));
-const genuineFindings = buildEmailIntelFindings(stubs.spf, { status: "FULLY_PROTECTED" }, stubs.dkim, genuineAbsent, stubs.tlsRpt);
+const genuineFindings = buildEmailIntelFindings(stubs.spf, { status: "FULLY_PROTECTED" }, stubs.dkim, genuineAbsent, stubs.tlsRpt, "cybermeters.com");
+ok("missing MTA-STS names the actual domain", genuineFindings.find((f) => f.id === "email_intel_mta_sts_missing")?.description.includes("https://mta-sts.cybermeters.com/.well-known/mta-sts.txt"));
 ok("genuine-absent: production finding admitted", genuineFindings.some((f) => f.id === "email_intel_mta_sts_missing"));
 
 const forgedDetail = buildEmailTransportDetails({ mta_sts: forgedPresent });

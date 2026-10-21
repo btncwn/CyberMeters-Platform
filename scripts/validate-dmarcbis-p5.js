@@ -321,6 +321,10 @@ for (const recurrence of DMARC_ALERT_RECURRENCES) {
     domain_id: "dom-alert",
     author_domain: "alerts.example.test",
     to_recurrence_type: recurrence,
+    ...(recurrence === "enforcement_weakened" ? {
+      before: { t: null, declared_policy: "reject", effective_requested_policy: "reject" },
+      after: { t: "y", declared_policy: "reject", effective_requested_policy: "quarantine" },
+    } : {}),
   }), T2);
   descriptors.push({
     event_id: eventId,
@@ -333,10 +337,20 @@ for (const recurrence of DMARC_ALERT_RECURRENCES) {
   });
 }
 
+db.prepare(`INSERT INTO hosted_dns_entries
+  (id, workspace_id, domain, record_kind, customer_name, target_name, target_value, verification_state)
+  VALUES ('hd-copy-fixture', 'ws-alert', 'alerts.example.test', 'dmarc', '_dmarc.alerts.example.test', 'fixture.dmarc.cybermeters.com', 'v=DMARC1; p=reject; t=y', 'connected')`).run();
+
 const alerted = await emitDmarcPolicyAlerts(env, {
   workspace_id: "ws-alert",
   lifecycle_result: { actionable_events: descriptors },
 });
+const weakenedCopy = JSON.parse(db.prepare(`SELECT metadata_json FROM notification_events WHERE workspace_id = 'ws-alert' AND type = 'email_protection.enforcement_weakened'`).get()?.metadata_json || '{}');
+ok("hosted testing regression tells user to remove t=y in Enforcement journey",
+  weakenedCopy.recommended_action?.includes("remove testing mode (t=y)") &&
+  weakenedCopy.recommended_action?.includes("Enforcement journey") &&
+  !weakenedCopy.recommended_action?.includes("administrator") &&
+  !weakenedCopy.recommended_action?.includes("towards quarantine"));
 eq("all five definitive regressions reach canonical alert emitter",
   alerted.attempted, 5);
 eq("five canonical in-app events are written",

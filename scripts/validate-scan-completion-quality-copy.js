@@ -90,12 +90,12 @@ function captureScanCompletionAudit(scanQuality) {
   const complete = buildScanCompletionPresentation({
     domain: "example.com", score: 95, riskLevel: "excellent", scanQuality: "complete",
   });
-  eq("complete audit description is byte-unchanged",
+  eq("complete audit description is uses the recorded band",
     complete.description,
-    "Scan completed for example.com — score 95, risk excellent");
-  eq("complete notification message is byte-unchanged",
+    "Scan completed for example.com — score 95, Excellent");
+  eq("complete notification message is uses the recorded band",
     complete.message,
-    "Score: 95 · excellent risk");
+    "Score: 95 · Excellent");
   eq("complete quality has no caveat", complete.disclosure, null);
 
   assertNonCompleteCopy("partial", buildScanCompletionPresentation({
@@ -153,9 +153,9 @@ async function captureScanNotification(scanQuality) {
 {
   const complete = await captureScanNotification("complete");
   eq("complete in-app notification title is unchanged", complete?.title, "Scan completed for example.com");
-  eq("complete in-app notification message is byte-unchanged",
+  eq("complete in-app notification message is uses the recorded band",
     complete?.message,
-    "Score: 95 · excellent risk · 1 critical finding · 1 high finding");
+    "Score: 95 · Excellent · 1 critical finding · 1 high finding");
 
   const partial = await captureScanNotification("partial");
   ok("partial in-app notification discloses incomplete coverage", partial?.message.includes("Partial scan"));
@@ -180,7 +180,7 @@ const assetArgs = [
   // Pinned again when the raw workspace id left the email's first line; the
   // rest of the counts-only email (used for alerts recorded before change
   // records) is unchanged.
-  eq("complete asset-alert email is byte-unchanged",
+  eq("complete asset-alert email is uses the recorded band",
     sha256(complete),
     "f55666fc0914b7e013cabc11ae135087d514df7cbdfc78e92ebcde80a55a5e4f");
   ok("the asset-alert email never shows the raw workspace id",
@@ -210,7 +210,7 @@ const lifecycleArgs = {
   const complete = buildLifecycleEmail("lifecycle_first_scan_completed", {
     ...lifecycleArgs, scanQuality: "complete",
   });
-  eq("complete first-scan lifecycle email is byte-unchanged",
+  eq("complete first-scan lifecycle email is uses the recorded band",
     sha256(complete),
     "f0e37dbabd2021b54578dafebde1b8a37c799ca4581c7932b50e2e33265ba620");
 

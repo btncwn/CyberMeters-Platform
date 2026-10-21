@@ -598,8 +598,8 @@ export function computeScore(modules, domain) {
             description:  csp.classification === "no_script_restriction"
               ? `The Content-Security-Policy header on ${domain} has no script-src or default-src, so it does not restrict which scripts the page may load.`
               : actionable
-              ? `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in ${csp.dangerous_directives.join(" and ")}, so it does little to stop injected scripts.`
-              : `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in style-src only. Scripts are still restricted, so this is a low-risk observation.`,
+              ? `The Content-Security-Policy header on ${domain} ${csp.details.replace(/^CSP /, "")}, so it does little to stop injected scripts.`
+              : `The Content-Security-Policy header on ${domain} ${csp.details.replace(/^CSP /, "")}. Scripts are still restricted, so this is a low-risk observation.`,
             score_impact: 0,
             evidence: {
               evidence_type:               "http_header_probe",

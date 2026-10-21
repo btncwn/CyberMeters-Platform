@@ -226,6 +226,7 @@ const notifs = (ws) => db.prepare("SELECT * FROM notification_events WHERE works
      Object.keys(ALERT_ENTITY_TYPE_LABELS).every((k) => ["domain", "hostname", "service", "vendor", "technology", "certificate", "control_area", "identity_surface", "sender"].includes(k)));
   eq("missing evidence yields NO confident statement", boundedEvidenceSentence(null), null);
   eq("empty evidence object yields NO statement", boundedEvidenceSentence({}), null);
+  eq("DMARC observation grammar has one final full stop", boundedEvidenceSentence({ label: "Complete DMARC DNS observations", detail: "Derived from immutable previous and current CyberMeters snapshots." }), "Complete DMARC DNS observations: Derived from immutable previous and current CyberMeters snapshots.");
 }
 
 // ── 3. What changed ≠ recommended action; owner_missing truth ────────────────

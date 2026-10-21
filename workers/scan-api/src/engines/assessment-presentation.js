@@ -125,25 +125,28 @@ export function buildScanCompletionPresentation({
     otherChecksCompleted: rawQuality.complete,
   });
   const hasScore = Number.isFinite(score);
+  // This recorded value is a score band, not a separately assessed risk level.
+  const band = String(riskLevel || "").trim();
+  const bandLabel = band ? band[0].toUpperCase() + band.slice(1) : null;
   if (quality.complete) {
     if (signalDisclosure) {
       return {
         ...quality,
         disclosure: signalDisclosure,
         description: hasScore
-          ? `Scan completed for ${domain} — score ${score}, risk ${riskLevel}. ${signalDisclosure}`
+          ? `Scan completed for ${domain} — score ${score}${bandLabel ? `, ${bandLabel}` : ""}. ${signalDisclosure}`
           : `Scan completed for ${domain}. ${signalDisclosure}`,
         message: hasScore
-          ? `Score: ${score} · ${riskLevel} risk · ${signalDisclosure}`
+          ? `Score: ${score} · ${bandLabel || "Score recorded"} · ${signalDisclosure}`
           : signalDisclosure,
       };
     }
     return {
       ...quality,
       description: hasScore
-        ? `Scan completed for ${domain} — score ${score}, risk ${riskLevel}`
+        ? `Scan completed for ${domain} — score ${score}${bandLabel ? `, ${bandLabel}` : ""}`
         : `Scan completed for ${domain}`,
-      message: hasScore ? `Score: ${score} · ${riskLevel} risk` : "Scan completed.",
+      message: hasScore ? `Score: ${score} · ${bandLabel || "Score recorded"}` : "Scan completed.",
     };
   }
   const disclosure = signalDisclosure || quality.disclosure;

@@ -621,7 +621,19 @@ export async function emitLifecycleAlert(env, {
 
     // 2. Customer-facing meaning from the canonical registry — never hand-written
     //    here, or alerts become a second source of remediation truth.
-    const remediation = finding_type ? resolveRemediation({ finding_type }) : null;
+    let dmarcContext;
+    if (domain_key === "email_protection" && recurrence === "enforcement_weakened") {
+      const hosted = await env.cybermeters_db
+        .prepare(`SELECT id FROM hosted_dns_entries
+                  WHERE workspace_id = ? AND domain = ? AND record_kind = 'dmarc'
+                    AND verification_state = 'connected' LIMIT 1`)
+        .bind(workspace_id, hostname || entity).first().catch(() => undefined);
+      dmarcContext = {
+        dmarc_transition: occurrence.detail,
+        hosted_dmarc: hosted === undefined ? null : Boolean(hosted),
+      };
+    }
+    const remediation = finding_type ? resolveRemediation({ finding_type, context: dmarcContext }) : null;
     const resolved = remediation?.status === "resolved" ? remediation : null;
     // 3. Occurrence identity is the event id, so repeated hourly evaluation of the
     //    same occurrence yields the same key (=> deduplicated), while a genuine

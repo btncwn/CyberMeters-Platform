@@ -175,7 +175,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: true,
       style_only_weakness: false,
       dangerous_directives: dangerousDirectives,
-      details: `CSP contains dangerous source tokens in ${dangerousDirectives.join(" and ")}`,
+      details: `CSP allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}`,
     };
   }
   if (styleDanger.length > 0) {
@@ -186,7 +186,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: false,
       style_only_weakness: true,
       dangerous_directives: ["style-src"],
-      details: "CSP permits an unsafe style source but has no dangerous script-src/default-src token",
+      details: `CSP allows ${styleDanger.join(" and ")} in style-src only`,
     };
   }
   return {
