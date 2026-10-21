@@ -36,7 +36,8 @@ describe('<SetupCard>', () => {
     expect(screen.getByTestId('setup-step-domain')).toHaveAttribute('data-status', 'done')
     expect(screen.getByTestId('setup-step-scan')).toHaveAttribute('data-status', 'next')
     expect(screen.getByTestId('setup-step-dmarc')).toHaveAttribute('data-status', 'waiting')
-    expect(screen.getByRole('link', { name: 'Start a security check' })).toHaveAttribute('href', '/scans/new')
+    // The scan step points at the Overview's one scan box (design standard §1).
+    expect(screen.getByRole('link', { name: 'Go to the scan box' })).toHaveAttribute('href', '#overview-scan')
     expect(screen.queryByRole('link', { name: 'Add domain' })).toBeNull()
   })
 

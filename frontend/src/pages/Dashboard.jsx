@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { ACTIVE_WORKSPACE_EVENT, readActiveWorkspace } from '../lib/activeWorkspace'
 import Spinner from '../components/Spinner'
@@ -8,8 +7,8 @@ import PostureCard          from '../components/overview/PostureCard'
 import { NextActionCard } from '../components/overview/SecurityOverview'
 import SetupCard from '../components/SetupCard'
 import { useWorkspaceRole } from '../hooks/useWorkspaceRole'
-import ScanNowButton from '../components/ScanNowButton'
-import NextActionsList from '../components/overview/NextActionsList'
+import NextActionsList, { buildNextActions } from '../components/overview/NextActionsList'
+import OverviewScanForm from '../components/overview/OverviewScanForm'
 import { formatDate } from '../utils/dates'
 import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
@@ -266,12 +265,11 @@ export default function Dashboard() {
   const [motRequest,    setMotRequest]    = useState('loading') // how the eight-domain read went
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
-  const [refreshing,    setRefreshing]    = useState(false)
+  const [, setRefreshing]                = useState(false)
   const [domainCount,   setDomainCount]   = useState(null)
   const [setupState,    setSetupState]    = useState(null)
   // null = unknown (still loading), true/false once resolved
   const [hasWorkspaces, setHasWorkspaces] = useState(null)
-  const [scanInput,     setScanInput]     = useState('')
 
   // Workspace isolation — read from localStorage; re-derive on storage events
   const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => readActiveWorkspace().id)
@@ -279,7 +277,7 @@ export default function Dashboard() {
   const [loadedWorkspaceId,   setLoadedWorkspaceId]   = useState(null)
 
   // Members who cannot add domains are not offered the scan box (18 Oct 2026).
-  const { canScanNewDomain, scanAccess } = useWorkspaceRole(activeWorkspaceId)
+  const { canScanNewDomain } = useWorkspaceRole(activeWorkspaceId)
 
   const reportFetchedForRef = useRef(null) // tracks which scan ID we fetched report for
   const requestGeneration = useRef(0)
@@ -415,6 +413,8 @@ export default function Dashboard() {
   }
 
   const hasCompletedScan = ins.completed.length > 0
+  // Areas the scan could not establish: said once, beside the one scan box.
+  const freshScanHint = hasCompletedScan ? (buildNextActions({ domains: motDomains, request: motRequest }).find((r) => r.key === 'scan')?.body || null) : null
   const dmarcConnected = setupState?.workspaceId === activeWorkspaceId ? setupState.flags.dmarcConnected : null
 
   return (
@@ -434,41 +434,17 @@ export default function Dashboard() {
         <p className="text-[15px] text-gray-500 mt-3">
           {lastAssessmentLabel(latestScan)}
         </p>
-        {canScanNewDomain && (
-        <form
-          className="cm-hero-input mt-6"
-          aria-label="Start a scan"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const value = scanInput.trim()
-            navigate(value ? `/scans/new?domain=${encodeURIComponent(value)}` : '/scans/new')
-          }}
-        >
-          <input
-            type="text"
-            inputMode="url"
-            autoComplete="off"
-            value={scanInput}
-            onChange={(e) => setScanInput(e.target.value)}
-            aria-label="Domain to scan"
-            placeholder="Enter a domain to scan, e.g. example.co.uk"
+        {/* ONE scan control (founder, 21 Oct 2026): the domain field, prefilled
+            with the verified domain. No separate "Scan now", no "Reload results":
+            the page updates itself when the scan finishes. */}
+        {activeWorkspaceId && (
+          <OverviewScanForm
+            workspaceId={activeWorkspaceId}
+            preferredDomain={latestScan?.domain || null}
+            hint={freshScanHint}
+            onScanComplete={() => load(true)}
           />
-          <button type="submit" className="btn-primary rounded-full px-5 py-2">Scan</button>
-        </form>
         )}
-        {/* Scan a domain this workspace already verified, in one click (founder,
-            21 Oct 2026). The form above adds a new domain; this rescans. */}
-        {activeWorkspaceId && scanAccess !== 'none' && (
-          <div className="mt-6" data-testid="dashboard-rescan">
-            <ScanNowButton workspaceId={activeWorkspaceId} domain={latestScan?.domain || null} align="center" />
-          </div>
-        )}
-        <div className="mt-4 flex justify-center">
-          <button type="button" onClick={() => load(true)} disabled={refreshing} className="btn-ghost text-xs">
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
-            Reload results
-          </button>
-        </div>
       </section>
 
       {ins.postureProvisional && <IncompleteAssessmentNote scan={ins.completed[0]} first={ins.completed.length === 1} />}
@@ -490,7 +466,7 @@ export default function Dashboard() {
       {/* One ordered list across all eight areas (founder, 21 Oct 2026). Before a
           first scan or without a workspace, the single-step ladder still guides. */}
       {activeWorkspaceId && hasCompletedScan
-        ? <NextActionsList workspaceId={activeWorkspaceId} domains={motDomains} request={motRequest} dmarcConnected={dmarcConnected} scanDomain={latestScan?.domain || null} />
+        ? <NextActionsList workspaceId={activeWorkspaceId} domains={motDomains} request={motRequest} dmarcConnected={dmarcConnected} scanDomain={latestScan?.domain || null} showScanRow={false} />
         : <NextActionCard signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0, dmarcConnected }} />}
 
       {/* Recent Scans (compact) */}

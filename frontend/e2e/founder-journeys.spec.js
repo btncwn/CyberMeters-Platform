@@ -63,7 +63,9 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     test('start a scan from the Overview in one click', async ({ page }) => {
       const calls = await installJourneyMock(page)
       await page.goto('/dashboard')
-      const n = await clicks(page, [() => page.getByRole('button', { name: 'Scan now' }).click()])
+      // The Overview's one scan control: the field prefilled with the verified domain + Scan.
+      await expect(page.getByRole('textbox', { name: 'Domain to scan' })).toHaveValue(domain.domain)
+      const n = await clicks(page, [() => page.getByRole('button', { name: 'Scan', exact: true }).click()])
       await expect(page.getByRole('status').filter({ hasText: 'Scan started — results in about 2–3 minutes.' })).toBeVisible()
       expect(calls.filter((c) => c.p === '/scan')).toEqual([{ m: 'POST', p: '/scan', body: { domain: domain.domain, workspace_id: workspace.id } }])
       expect(n).toBeLessThanOrEqual(3)

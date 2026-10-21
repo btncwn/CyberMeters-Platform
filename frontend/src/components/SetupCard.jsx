@@ -21,7 +21,7 @@ export function setupSteps({ hasDomain, hasScan, dmarcConnected } = {}) {
   const dmarc = dmarcConnected === true
   return [
     { key: 'domain', title: 'Add or confirm your primary domain', explanation: 'Tell CyberMeters which domain to protect.', status: domain ? 'done' : 'next', actionLabel: 'Add domain', to: '/ws/domains' },
-    { key: 'scan',   title: 'Run your first security check', explanation: 'Check your website, email posture, certificates and visible external posture.', status: scan ? 'done' : domain ? 'next' : 'waiting', actionLabel: 'Start a security check', to: '/scans/new' },
+    { key: 'scan',   title: 'Run your first security check', explanation: 'Check your website, email posture, certificates and visible external posture.', status: scan ? 'done' : domain ? 'next' : 'waiting', actionLabel: 'Go to the scan box', to: '#overview-scan' },
     { key: 'dmarc',  title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: dmarc ? 'done' : scan ? 'next' : 'waiting', actionLabel: dmarc ? 'Review' : 'Set up', to: '/ws/email-protection' },
   ]
 }
@@ -95,7 +95,11 @@ export default function SetupCard({ workspaceId, onFlags }) {
                 <p className="text-xs text-gray-600 mt-0.5">{s.explanation}</p>
               </div>
               <span className={`inline-flex whitespace-nowrap text-xs font-semibold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
-              {s.status !== 'done' && <Link to={s.to} className="btn-secondary text-sm shrink-0">{s.actionLabel}</Link>}
+              {/* The scan step points at the Overview's one scan box rather than
+                  being a second scan control (design standard §1). */}
+              {s.status !== 'done' && (s.to.startsWith('#')
+                ? <a href={s.to} className="btn-secondary text-sm shrink-0">{s.actionLabel}</a>
+                : <Link to={s.to} className="btn-secondary text-sm shrink-0">{s.actionLabel}</Link>)}
             </li>
           )
         })}

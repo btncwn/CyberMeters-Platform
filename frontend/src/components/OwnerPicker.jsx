@@ -14,7 +14,9 @@ function memberLabel(m) {
   return m?.name?.trim() || m?.email || m?.user_id || 'Unknown member'
 }
 
-export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, onAssigned }) {
+// `closed`: a closed case has no job to assign — the owner is shown read-only
+// and there is no Assign control (design standard §3, founder 21 Oct 2026).
+export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, onAssigned, closed = false }) {
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState('')
@@ -73,11 +75,11 @@ export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, 
         ) : ownerRef ? (
           <span>{ownerRef}{assignedUserId ? <span className="text-slate-400 text-xs"> · former member</span> : null}</span>
         ) : (
-          <span className="text-slate-400">Unassigned</span>
+          <span className="text-slate-500">{closed ? 'No owner was assigned' : 'Unassigned'}</span>
         )}
       </div>
 
-      {canManage && (
+      {canManage && !closed && (
         <div className="mt-3 flex items-center gap-2">
           <select
             aria-label="Assign owner"
@@ -102,10 +104,10 @@ export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, 
           </button>
         </div>
       )}
-      {!canManage && (
+      {!canManage && !closed && (
         <p className="text-xs text-slate-400 mt-1">Only workspace admins and owners can change the accountable owner.</p>
       )}
-      {error && <p className="text-xs text-red-700 mt-2">{error}</p>}
+      {error && !closed && <p className="text-xs text-red-700 mt-2">{error}</p>}
     </div>
   )
 }
