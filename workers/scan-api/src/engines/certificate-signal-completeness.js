@@ -875,7 +875,7 @@ function resolveOneSignal(signal, rawInput, {
     ...contractDefinition.limitations,
     ...(Array.isArray(input.limitations) ? input.limitations : []),
     ...(GRADE_RANK[achievedGrade] < GRADE_RANK[contractDefinition.beta_target]
-      ? [`Delivered below the declared beta target ${contractDefinition.beta_target}; achieved ${achievedGrade}.`]
+      ? [`Evidence is below the target level for this check (${contractDefinition.beta_target}); this scan achieved ${achievedGrade}.`]
       : []),
   ]);
 
