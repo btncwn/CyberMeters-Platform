@@ -51,6 +51,10 @@ the weekly monitoring setting until a real off-site run has succeeded.
 2. In this repository, **Settings → Secrets and variables → Actions → Secrets →
    New repository secret**, add it as `CLOUDFLARE_BACKUP_TOKEN`. Add a separate
    random 32-byte encryption key, encoded as base64, as `CM_WEEKLY_BACKUP_KEY`.
+   Its value source is the newly generated private local file
+   `~/dev/private-cybermeters-recovery/weekly-backup-key.base64` (mode 0600);
+   the value has not been printed or uploaded. The API-token value comes from
+   the preceding Cloudflare token-creation screen, not a local OAuth session.
    Keep a separately protected recovery copy of the key outside the repository
    and its Actions secrets. Losing the key loses the export; anyone with the key
    and artifact can read the database. Do not publish the key in a comment.
