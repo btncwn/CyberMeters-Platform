@@ -1,5 +1,9 @@
-import { parseServerDate, formatDate, formatNumber, formatDay } from '../../utils/dates'
-import { formatReportTime } from '../../lib/reportTime'
+import { parseServerDate, formatNumber } from '../../utils/dates'
+import { formatReportDay, formatReportTime } from '../../lib/reportTime'
+
+// One time convention on this page: every time in UTC with the zone named,
+// every date in UTC (the same report must never show 10:16 UTC and 11:16).
+export const pageTime = (value) => (value ? `${formatReportTime(value)} UTC` : null)
 import { useAppDialog } from '../../components/AppDialog'
 import { MailTransportCard } from '../../components/MailTransportCard'
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -718,7 +722,7 @@ function fmtDate(str) {
   if (!str) return '—'
   const d = new Date(str.includes('T') ? str : str.replace(' ', 'T') + 'Z')
   if (Number.isNaN(d.getTime())) return '—'
-  return formatDay(d)
+  return formatReportDay(d)
 }
 
 const COMPLETED = new Set(['completed'])
@@ -934,7 +938,7 @@ function ChangeReviewQueue({ wsId }) {
                 <span className="font-semibold text-gray-900">{c.to_policy}</span>
               </span>
               <span className="text-xs text-gray-400">
-                requested by {c.requested_by || 'unknown'} · {formatDate(c.created_at)}
+                requested by {c.requested_by || 'unknown'} · {pageTime(c.created_at)}
               </span>
             </div>
             {typeof c.evidence?.score === 'number' && (
@@ -1432,7 +1436,7 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
 function fmtUnixDay(sec) {
   if (!sec) return '—'
   try {
-    return formatDay(new Date(sec * 1000))
+    return formatReportDay(new Date(sec * 1000))
   } catch { return '—' }
 }
 
@@ -1568,7 +1572,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   const inboundAddress = endpoint?.inbound_address || null
   const ruaValue = endpoint?.rua_mailto || (inboundAddress ? `rua=mailto:${inboundAddress}` : null)
   const lastInbound = endpoint?.last_inbound_at
-  const fmt = (t) => (t ? formatDate(t) : null)
+  const fmt = pageTime
   // DNS-verified = the live DMARC record (from the latest scan) lists our address.
   // "Connected" requires BOTH this AND a received report — same rule as the top
   // overview, so the two panels never contradict each other.
@@ -1664,7 +1668,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                 <div className="space-y-3 pt-1">
                   <p className="text-xs text-gray-500 leading-relaxed">
                     Inbound RUA is the recommended setup. A signed upload key is useful for scripts or MSP automation that
-                    POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? formatDate(endpoint.last_signed_upload_at) : 'never'}</b>.
+                    POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? pageTime(endpoint.last_signed_upload_at) : 'never'}</b>.
                   </p>
                   {rawToken && (
                     <div className="rounded-lg border border-[1.5px] border-brand-700 bg-transparent p-3 space-y-2">
@@ -1757,6 +1761,22 @@ const HOSTED_STATUS_META = {
   disconnected:    { label: 'Disconnected',        kind: 'bad',  hint: 'The CNAME no longer points at CyberMeters, so your policy may not be published. Restore the CNAME or review your DNS.' },
   pending_removal: { label: 'Removing…',           kind: 'na',   hint: 'Remove the CNAME at your DNS provider; the hosted value stays live until your DNS no longer depends on it.' },
 }
+// The connected/disconnected hints name the record; the rest are shared.
+const HOSTED_STATUS_HINTS = {
+  tlsrpt: {
+    connected: 'Your TLS-RPT record is hosted by CyberMeters. TLS failure reports go to your reporting address.',
+    disconnected: 'The CNAME no longer points at CyberMeters, so your TLS-RPT record may not be published. Restore the CNAME or review your DNS.',
+  },
+  mtasts: {
+    connected: 'Your MTA-STS policy ID is managed by CyberMeters. The HTTPS policy file is still published by you or your web provider.',
+    disconnected: 'The CNAME no longer points at CyberMeters, so your MTA-STS policy ID may not be published. Restore the CNAME or review your DNS.',
+  },
+}
+export function hostedStatusMeta(kind, status) {
+  const base = HOSTED_STATUS_META[status] || HOSTED_STATUS_META.pending_dns
+  const hint = HOSTED_STATUS_HINTS[kind]?.[status]
+  return hint ? { ...base, hint } : base
+}
 
 function TlsRptHealthCard({ wsId, domain }) {
   const [data, setData] = useState(undefined) // undefined=loading, null=none
@@ -1828,7 +1848,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
   }
 
   if (rec === undefined) return null
-  const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
+  const meta = rec ? hostedStatusMeta('tlsrpt', rec.status) : null
 
   return (
     <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-gray-50/50 p-5">
@@ -1867,7 +1887,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
             Host TLS-RPT
           </button>
           {!endpointReady && (
-            <p className="text-xs text-gray-400 mt-2">Activate DMARC reporting below first — TLS-RPT reuses the same reporting address.</p>
+            <p className="text-xs text-gray-400 mt-2">Activate DMARC reporting in the setup above first — TLS-RPT reuses the same reporting address.</p>
           )}
         </div>
       ) : (
@@ -1945,7 +1965,7 @@ export function ManagedMtaStsCard({ wsId, domain }) {
   }
 
   if (rec === undefined) return null
-  const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
+  const meta = rec ? hostedStatusMeta('mtasts', rec.status) : null
   const policyVerified = rec?.https_policy?.state === 'reachable_valid' && rec?.https_policy?.matches_pinned_policy
   const dnsConnected = rec?.dns_txt?.state === 'connected' || rec?.status === 'connected'
   const complete = Boolean(rec?.complete)
@@ -1997,7 +2017,7 @@ export function ManagedMtaStsCard({ wsId, domain }) {
             className="btn-secondary text-sm disabled:opacity-50"
           >
             {busy === 'create' && <RefreshCw className="w-4 h-4 animate-spin" />}
-            Generate MTA-STS guidance
+            Set up MTA-STS
           </button>
           <p className="text-xs text-gray-400 mt-2">Starts in testing mode. CyberMeters will not switch this to enforce automatically.</p>
         </div>
@@ -2086,7 +2106,7 @@ export function complianceDetail(compliance) {
   const reason = compliance?.pass_rate_unavailable_reason
   if (reason === 'reports_not_used_for_pass_rate') {
     const last = compliance.last_report_received_at
-      ? `${formatReportTime(parseServerDate(compliance.last_report_received_at))} UTC`
+      ? pageTime(parseServerDate(compliance.last_report_received_at))
       : null
     return `Reports are arriving${last ? ` (last: ${last})` : ''}. The pass rate is not calculated from these reports.`
   }
@@ -2127,7 +2147,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   }
 
   if (rec === undefined) return null
-  const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
+  const meta = rec ? hostedStatusMeta('dmarc', rec.status) : null
   const automationSuspended = ramp?.interpretation?.automation_status === 'suspended'
   // A ladder step by its key; a step from an older API (no key) by policy and pct.
   const requestStep = (step, confirm = false) => (step.key
@@ -2179,7 +2199,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
             Set up managed DMARC
           </button>
           {!endpointReady && (
-            <p className="text-xs text-gray-400 mt-2">Activate DMARC reporting below first — the managed record includes your reporting address.</p>
+            <p className="text-xs text-gray-400 mt-2">Activate DMARC reporting in the setup above first — the managed record includes your reporting address.</p>
           )}
         </div>
       ) : (
@@ -2443,7 +2463,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   )
 }
 
-function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessages }) {
+export function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessages }) {
   const [endpoint, setEndpoint] = useState(null)
   const [loading, setLoading]   = useState(true)
   const [busy, setBusy]         = useState(false)
@@ -2554,7 +2574,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   const vm = VERIFY_MSG[verifyState]
 
   const providerCopy = DNS_PROVIDERS.find(p => p.id === provider)?.copy
-  const fmt = (t) => (t ? formatDate(t) : null)
+  const fmt = pageTime
 
   // Per-step completion — explicitly non-linear.
   const steps = ['Choose DNS provider', 'Copy DNS record', 'Verify setup', 'Wait for reports', 'Connected']
@@ -2563,11 +2583,12 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   const currentStep = firstIncomplete === -1 ? steps.length - 1 : firstIncomplete
 
   return (
-    <section className="card overflow-hidden">
+    <div className="space-y-6">
+    <section className="card overflow-hidden" aria-labelledby="dmarc-reporting-setup-title">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
         <div>
           <span className="eyebrow">Get connected</span>
-          <h2 className="section-title leading-tight">DMARC setup wizard</h2>
+          <h2 id="dmarc-reporting-setup-title" className="section-title leading-tight">DMARC reporting setup</h2>
         </div>
         {fullyConnected ? (
           <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-100 text-xs font-semibold text-brand-700">
@@ -2579,11 +2600,6 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
           </span>
         ) : null}
       </div>
-
-      <ManagedDmarcCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
-      <ManagedTlsRptCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
-      <ManagedMtaStsCard wsId={wsId} domain={domain} />
-      <TlsRptHealthCard wsId={wsId} domain={domain} />
 
       <div className="p-6 space-y-5">
         {loading ? (
@@ -2689,6 +2705,20 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
         {err && <span className="text-sm text-red-700">{err}</span>}
       </div>
     </section>
+
+    {/* Records CyberMeters can host: kept out of the reporting stepper above so
+        its steps never read as belonging to MTA-STS or TLS-RPT. */}
+    <section className="card overflow-hidden pb-5" aria-labelledby="hosted-email-records-title">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70">
+        <span className="eyebrow">Hosted records</span>
+        <h2 id="hosted-email-records-title" className="section-title leading-tight">Records CyberMeters can host for you</h2>
+      </div>
+      <ManagedDmarcCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
+      <ManagedTlsRptCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
+      <ManagedMtaStsCard wsId={wsId} domain={domain} />
+      <TlsRptHealthCard wsId={wsId} domain={domain} />
+    </section>
+    </div>
   )
 }
 
@@ -2697,7 +2727,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
 // do I do next?" Fetches the ingestion endpoint and derives DNS-verified from
 // the latest scan's DMARC record (refined by a live check). Never shows
 // "Connected" unless the CyberMeters RUA is in DNS AND a report has arrived.
-function epFmt(t) { return t ? formatDate(t) : null }
+function epFmt(t) { return pageTime(t) }
 
 function EpStatusChecklist({ items }) {
   const ICON = {
@@ -3172,8 +3202,8 @@ function becEvidenceChips(ev) {
   const has = (k) => ev[k] !== undefined && ev[k] !== null
   if (has('dmarc_policy'))   out.push({ label: `DMARC: ${ev.dmarc_policy}`, tone: ev.dmarc_policy === 'none' ? 'warn' : 'neutral' })
   if (Object.hasOwn(ev, 'pass_rate')) out.push(Number(ev.total_messages) > 0 && typeof ev.pass_rate === 'number'
-    ? { label: `Customer-uploaded pass rate ${ev.pass_rate}%`, tone: ev.pass_rate < 90 ? 'warn' : 'neutral' }
-    : { label: 'Customer-uploaded pass rate: Not measured', tone: 'neutral' })
+    ? { label: `Pass rate in reports you uploaded: ${ev.pass_rate}%`, tone: ev.pass_rate < 90 ? 'warn' : 'neutral' }
+    : { label: 'Pass rate in reports you uploaded: not measured', tone: 'neutral' })
   if (has('failed_messages'))out.push({ label: `${ev.failed_messages} failed`, tone: ev.failed_messages > 0 ? 'warn' : 'neutral' })
   if (has('unknown_senders'))out.push({ label: `${ev.unknown_senders} unknown sender${ev.unknown_senders === 1 ? '' : 's'}`, tone: ev.unknown_senders > 0 ? 'warn' : 'neutral' })
   if (has('suspicious_senders')) out.push({ label: `${ev.suspicious_senders} suspicious`, tone: ev.suspicious_senders > 0 ? 'warn' : 'neutral' })
@@ -3257,7 +3287,7 @@ export function BecExposure({ wsId, domain }) {
             {/* Evidence chips */}
             {chips.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Customer-uploaded report evidence</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence from reports you uploaded</p>
                 <p className="text-xs text-gray-500 mb-2">Sender figures here use customer-submitted reports. Automatically received reports appear separately in sender activity and do not establish trust in the sender.</p>
                 <div className="flex flex-wrap gap-1.5">
                   {chips.map((c, i) => (
@@ -3373,10 +3403,10 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
 
   const tiles = [
     { label: 'Reports received', value: reportsReceived === null ? 'Unknown' : reportsReceived ? 'Yes' : 'No', tone: reportsReceived ? 'ok' : 'na' },
-    { label: 'Latest report period', value: lastReportPeriod ? formatDay(new Date(Number(lastReportPeriod) * 1000)) : reportsReceived === false ? 'Not yet' : 'Not available' },
+    { label: 'Latest report period', value: lastReportPeriod ? formatReportDay(new Date(Number(lastReportPeriod) * 1000)) : reportsReceived === false ? 'Not yet' : 'Not available' },
     { label: 'DNS verification', value: dnsLabel, tone: dnsVerified === false ? 'warn' : dnsVerified ? 'ok' : 'na' },
   ]
-  if (bec) tiles.push({ label: 'Customer-uploaded BEC pass rate', value: passRate != null ? `${passRate}%` : 'Not measured', tone: passRate == null ? 'na' : passRate < 90 ? 'warn' : 'ok' })
+  if (bec) tiles.push({ label: 'DMARC pass rate in reports you uploaded', value: passRate != null ? `${passRate}%` : 'Not measured', tone: passRate == null ? 'na' : passRate < 90 ? 'warn' : 'ok' })
 
   const hasSenders = hasMeasuredMessages && (known != null || unknown != null || suspicious != null)
   const senderSummary = hasSenders ? [
@@ -3697,7 +3727,7 @@ export default function WorkspaceEmailProtectionPage() {
   }, [lifecycle])
 
   // Settings tab (the area template, 18 Oct 2026): everything configurable about
-  // reporting — connection status, ingestion, the DMARC setup wizard, connecting
+  // reporting — connection status, ingestion, the DMARC reporting setup, connecting
   // report delivery and importing a report by hand.
   const emailReady = domainScans.length > 0 && !reportLoading && Boolean(es) && !moduleErrored && !notApplicable
   const emailSettings = !emailReady ? (
@@ -3882,7 +3912,7 @@ export default function WorkspaceEmailProtectionPage() {
             <EmailLifecycleHistory data={lifecycle} error={lifecycleError} />
           </div>
 
-          {/* Sender validation — its own section (the DMARC setup wizard, connect
+          {/* Sender validation — its own section (the DMARC reporting setup, connect
               reporting and report import moved to the Settings tab, 18 Oct 2026). */}
           <section id="sender-validation" className="scroll-mt-20 space-y-3" aria-labelledby="sender-validation-heading">
             <ZoneHeader title="Sender validation" hint="Check whether a sending source passes SPF and DKIM for this domain — no waiting for reports." />
