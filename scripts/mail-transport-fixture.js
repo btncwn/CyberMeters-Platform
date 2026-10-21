@@ -74,6 +74,26 @@ assert.throws(() => projectTlsCollectorReceipt({...foreignMx,scope:{...foreignMx
 const sourcePath=fileURLToPath(new URL('../workers/scan-api/src/engines/mail-transport.js',import.meta.url));
 const source=readFileSync(sourcePath,'utf8');
 assert(source.includes('isWeakTlsCipher(cipher)'));
+// A dead MX host (21 Oct 2026: a cancelled tenant's MX read only "not tested").
+// NXDOMAIN on A and AAAA, confirmed by an independent resolver, is a definitive
+// observation; one resolver alone, or any transient failure, never is.
+{
+  const deadDns = { mx_records: [{ value: '0 tenant-example.mail.protection.example.net.' }] };
+  const nx = async (host,type) => ({Status:3,TC:false,Question:[{name:host,type:type==='A'?1:28}]});
+  let probes = 0;
+  const noProbe = async () => { probes++; return receipt(); };
+  const dead = await runMailTransportModule(env,scan,deadDns,{lookup:nx,confirmLookup:host=>nx(host,'A'),collect:noProbe});
+  assert.equal(dead.hosts[0].state,'no_address');
+  assert.equal(dead.hosts[0].reason,'mx_host_does_not_exist');
+  assert.equal(dead.state,'observed','a definitively absent MX host is an observation, not a gap');
+  assert.equal(probes,0,'no connection is attempted to a host that does not exist');
+  const disagreed = await runMailTransportModule(env,scan,deadDns,{lookup:nx,
+    confirmLookup:async host=>({Status:0,Question:[{name:host,type:1}],Answer:[{type:1,name:host,data:'192.0.2.9'}]}),collect:noProbe});
+  assert.equal(disagreed.hosts[0].reason,'probe_unavailable','the second resolver disagreeing keeps it unproven');
+  const flaky = await runMailTransportModule(env,scan,deadDns,{lookup:async()=>{throw new Error('timeout');},
+    confirmLookup:host=>nx(host,'A'),collect:noProbe});
+  assert.equal(flaky.hosts[0].reason,'probe_unavailable','a failed lookup is never a dead MX');
+}
 const directory=mkdtempSync(join(tmpdir(),'cm-mail-mutation-'));
 try {
   const imports=source.replaceAll("from '../../../network-probe/src/contract.js'",`from '${new URL('../workers/network-probe/src/contract.js',import.meta.url)}'`)
@@ -81,10 +101,21 @@ try {
     .replaceAll("from './dns.js'",`from '${new URL('../workers/scan-api/src/engines/dns.js',import.meta.url)}'`)
     .replaceAll("from './tls-planner.js'",`from '${new URL('../workers/scan-api/src/engines/tls-planner.js',import.meta.url)}'`)
     .replaceAll("from '../../../../shared/tls/catalog.js'",`from '${new URL('../shared/tls/catalog.js',import.meta.url)}'`)
-    .replaceAll("from '../lib/util.js'",`from '${new URL('../workers/scan-api/src/lib/util.js',import.meta.url)}'`);
+    .replaceAll("from '../lib/util.js'",`from '${new URL('../workers/scan-api/src/lib/util.js',import.meta.url)}'`)
+    .replaceAll("from '../lib/ssrf.js'",`from '${new URL('../workers/scan-api/src/lib/ssrf.js',import.meta.url)}'`);
   const target=join(directory,'mail-transport-mutant.mjs');
   writeFileSync(target,imports.replace('isWeakTlsCipher(cipher) ?','false ?'));
   const mutant=await import(`file://${target}`);
   assert.throws(() => assert.equal(mutant.projectMailMxReceipt(mx,receipt('handshake_completed','RC4-SHA')).cipher_class,'weak'));
+  // Mutant: a dead MX proven by ONE resolver (no independent confirmation).
+  const anchor='primaryPackets.every(packet=>nxdomainFor(packet,name))&&nxdomainFor(confirmPacket,name)';
+  assert.equal(imports.split(anchor).length,2,'dead-MX mutation anchor present once');
+  const target2=join(directory,'mail-transport-mutant-2.mjs');
+  writeFileSync(target2,imports.replace(anchor,'primaryPackets.every(packet=>nxdomainFor(packet,name))'));
+  const mutant2=await import(`file://${target2}`);
+  const host='tenant-example.mail.protection.example.net';
+  const nxPacket={Status:3,TC:false,Question:[{name:host,type:1}]};
+  assert.equal(mutant2.provesNxdomain([nxPacket,nxPacket],{Status:0,Question:[{name:host,type:1}],Answer:[{type:1,data:'192.0.2.9'}]},host),true,
+    'mutant without independent confirmation wrongly proves a dead MX (caught)');
 } finally { rmSync(directory,{recursive:true,force:true}); }
 console.log('mail transport: present, absent, weak, verified gate, five-MX cap and mutation passed');

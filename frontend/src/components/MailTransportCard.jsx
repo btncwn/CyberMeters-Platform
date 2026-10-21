@@ -26,6 +26,8 @@ export function MailTransportCard({ transport, mtaSts, tlsRpt, embedded = false 
           <p className="text-gray-600">{host.state === 'tested' ? 'STARTTLS offered · TLS handshake completed' :
             host.state === 'not_offered' ? 'STARTTLS not offered' :
             host.reason === 'starttls_rejected' ? 'STARTTLS offered; server rejected the upgrade' :
+            host.reason === 'mx_host_does_not_exist' ? 'This mail server does not exist in public DNS, so mail sent to this domain cannot be delivered to it.' :
+            host.reason === 'mx_host_has_no_address' ? 'This mail server has no address in public DNS, so mail sent to this domain cannot be delivered to it.' :
             'Not tested — connection or TLS evidence unavailable'}</p>
           {host.state === 'tested' && <p className="text-xs text-gray-600 mt-1">
             {({ tls1_2: 'TLS 1.2', tls1_3: 'TLS 1.3' })[host.tls_version] || 'TLS version not recorded'} · {host.cipher || 'Cipher not recorded'}
