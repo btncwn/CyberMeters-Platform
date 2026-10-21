@@ -523,17 +523,26 @@ function FindingRow({ f, index, isObservation = false, onWaive = null }) {
   )
 }
 
-// Whether every check of a finished scan completed, from the backend's
-// scan_quality. Shown beside the run status, never folded into it.
+// The backend assessment can be degraded even when every scan module finished.
+// Show its recorded area messages beside the separate run status.
 const CHECKS_COMPLETION = {
   complete: { label: 'All completed', cls: 'text-gray-700' },
   partial:  { label: 'Some did not complete', cls: 'text-brand-700' },
   degraded: { label: 'Some did not complete', cls: 'text-brand-700' },
 }
 
-function ChecksCompletion({ quality }) {
-  const meta = CHECKS_COMPLETION[String(quality || '').toLowerCase()] || { label: 'Not recorded', cls: 'text-gray-500' }
-  return <span className={`text-xs font-semibold ${meta.cls}`}>{meta.label}</span>
+function ChecksCompletion({ quality, assessment, scanQuality }) {
+  const effectiveQuality = String(assessment?.quality ?? scanQuality?.status ?? quality ?? '').toLowerCase()
+  const meta = CHECKS_COMPLETION[effectiveQuality] || { label: 'Not recorded', cls: 'text-gray-500' }
+  const areaMessages = Object.values(assessment?.coverage?.monitoring_signals ?? {})
+    .filter(entry => entry?.state !== 'monitoring_healthy')
+    .map(entry => entry?.message)
+    .filter(message => typeof message === 'string' && message.trim())
+  const warnings = Array.isArray(scanQuality?.warnings)
+    ? scanQuality.warnings.filter(message => typeof message === 'string' && message.trim()) : []
+  const messages = ['degraded', 'partial'].includes(effectiveQuality)
+    ? [...new Set(areaMessages.length ? areaMessages : warnings)] : []
+  return <span className={`text-xs font-semibold ${meta.cls}`}>{messages.length ? messages.join(' ') : meta.label}</span>
 }
 
 function FindingsPanel({ findings, isObservation = false, onWaive = null, checksComplete = false }) {
@@ -1791,7 +1800,7 @@ export default function ScanDetail() {
                   <KV label="Domain"    value={<span className="block truncate" title={scan.domain} data-testid="scan-info-domain">{scan.domain}</span>} />
                   {/* The run finishing and its checks all completing are two facts. */}
                   <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} />} />
-                  {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} />} />}
+                  {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} assessment={assessment} scanQuality={report?.scan_quality} />} />}
                   {/* The backend decides finality; an incomplete assessment has no customer-facing number. */}
                   {headline.mode === 'established' && (
                     <KV label="Score" value={<span className="font-bold text-brand-700" data-testid="scan-score-headline">{headline.score} / 100</span>} />

@@ -86,7 +86,7 @@ const EXPECTED = Object.freeze({
     // Two-tree semantic diff (file/kind/operator/status/snippet) against
     // origin/main shows exactly these; direct reads unchanged at 278; the
     // partial-only fingerprint is unchanged.
-    comparison_occurrences: 67,
+    comparison_occurrences: 68,
     source_file_count: 28,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -133,7 +133,9 @@ const EXPECTED = Object.freeze({
     // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
     // (origin/main vs this head): all 541 entries are identical once the renames and byte
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
-    fingerprint: "51b7b9fa6741494286864540f05b88fd7a0b76ecf084d08f8064b8797993fab7",
+    // C-11: one additive ScanDetail partial/degraded membership comparison
+    // selects recorded backend area messages; the two-tree diff removes none.
+    fingerprint: "361d9b911f45a2b37d69c0d04ed36063739b74ce01b1bf1a12c0477dda1d8448",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -321,7 +323,9 @@ const EXPECTED = Object.freeze({
     // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
     // (origin/main vs this head): all 541 entries are identical once the renames and byte
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
-    runtime: { occurrence_count: 139, source_file_count: 48, fingerprint: "6eca406414963ffbd9e0437491bede1ac9bb7f07435c99ea37a9421984f33586" },
+    // C-11: only the ScanDetail scanQuality prop and report.scan_quality read
+    // are added. All earlier reads and SQL projections remain unchanged.
+    runtime: { occurrence_count: 141, source_file_count: 48, fingerprint: "7a26f0a0224d0fd4d0dddcc975dd31d77d744cf2a8b5b3841dca37cd849341be" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
