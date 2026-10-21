@@ -143,6 +143,7 @@ async function runEngineLedger(mode, {
   variableFanout = false,
   takeoverAnswerMultiplicity = 1,
   mailTransport = false,
+  platformCeiling = null,
 } = {}) {
   const counter = { total: 0, byCategory: {}, dnsQuestions: [] };
   globalThis.fetch = async (url) => {
@@ -223,6 +224,7 @@ async function runEngineLedger(mode, {
     // A private network-probe binding makes the engine launch mail_transport
     // alongside later phases, as in production.
     ...(mailTransport ? { NETWORK_PROBE: { fetch: async () => new Response("{}", { status: 503 }) } } : {}),
+    ...(platformCeiling == null ? {} : { SCAN_PLATFORM_SUBREQUEST_CEILING: String(platformCeiling) }),
     ...(subrequestLimit == null ? {} : {
       SCAN_SUBREQUEST_LIMIT: String(subrequestLimit),
     }),
@@ -297,10 +299,13 @@ async function runEngineLedger(mode, {
 
 // ── Section D: real engine traces for the optional RFC 9990 phase ───────────
 {
+  // The optional phase is measured against the physical ceiling; a fixture
+  // ceiling of 50 leaves no room for one 11-question host, deterministically.
   const coreOnly = await runEngineLedger("legacy", {
     dmarcRua: true,
     authorizeExternal: true,
     subrequestLimit: 50,
+    platformCeiling: 50,
   });
   eq("core-only degraded trace completes runScanEngine", coreOnly.threw, null);
   eq("core-only degraded trace preserves complete core",
@@ -317,6 +322,21 @@ async function runEngineLedger(mode, {
       String(question.name).includes("._report._dmarc.")).length,
     0);
 
+  // Live finding (21 Oct 2026, scan_b384ffeb): a real scan issues ~700 calls,
+  // far above the application figure, while the physical ceiling is 10,000.
+  // Measured against the application figure the phase was refused on every
+  // real domain; against the ceiling it runs.
+  const overApplicationFigure = await runEngineLedger("legacy", {
+    dmarcRua: true,
+    authorizeExternal: true,
+    subrequestLimit: 50,
+  });
+  eq("a scan above the application figure still runs the RFC 9990 phase",
+    JSON.stringify([overApplicationFigure.report?.modules?.dmarc_core?.external_rua_authorisation?.launch_gate?.reason ?? null,
+      overApplicationFigure.report?.modules?.dmarc_core?.rua_authorisation_completeness]),
+    JSON.stringify([null, "complete"]));
+  ok("...because its physical calls stay far below the ceiling",
+    overApplicationFigure.counter.total > 50 && overApplicationFigure.counter.total < 10_000, `total ${overApplicationFigure.counter.total}`);
   const completeExternal = await runEngineLedger("legacy", {
     dmarcRua: true,
     authorizeExternal: true,
