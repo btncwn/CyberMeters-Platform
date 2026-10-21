@@ -367,7 +367,7 @@ function arraysEqual(a, b) {
 function compareFixture(deriveDmarcState, fixture) {
   const state = deriveDmarcState(fixture.input);
   if (!hasAllRequiredFields(state)) return `${fixture.name}_missing_required_field`;
-  if (state.state_model_version !== "2026-07-18") return `${fixture.name}_wrong_version`;
+  if (state.state_model_version !== "2026-10-21") return `${fixture.name}_wrong_version`;
   if (!CANONICAL_LEVELS.includes(state.enforcement_level)) return `${fixture.name}_unknown_level`;
   if (!arraysEqual(state.caveats, [...state.caveats].sort((a, b) => CANONICAL_CAVEAT_ORDER.indexOf(a) - CANONICAL_CAVEAT_ORDER.indexOf(b)))) {
     return `${fixture.name}_wrong_caveat_order`;
@@ -385,7 +385,7 @@ function compareFixture(deriveDmarcState, fixture) {
 async function contract(mod) {
   const { deriveDmarcState, DMARC_STATE_MODEL_VERSION, DMARC_ENFORCEMENT_LEVELS, DMARC_CAVEAT_PRIORITY } = mod;
   if (typeof deriveDmarcState !== "function") return "derive_function_missing";
-  if (DMARC_STATE_MODEL_VERSION !== "2026-07-18") return "state_model_version_wrong";
+  if (DMARC_STATE_MODEL_VERSION !== "2026-10-21") return "state_model_version_wrong";
   if (!arraysEqual(DMARC_ENFORCEMENT_LEVELS, CANONICAL_LEVELS)) return "canonical_levels_wrong";
   if (!arraysEqual(DMARC_CAVEAT_PRIORITY, CANONICAL_CAVEAT_ORDER)) return "canonical_caveat_order_wrong";
 

@@ -4,7 +4,10 @@
 // persistence, scoring, API serialization, reporting, alerting, or UI work.
 // Production consumers are not switched to this module in PR-1.
 
-export const DMARC_STATE_MODEL_VERSION = "2026-07-18";
+// 2026-10-21: testing mode (t=y) lowers the graded policy one level, as RFC 9989
+// section 4.7 asks receivers to do; before this a raw-record p=reject; t=y
+// graded reject_enforced.
+export const DMARC_STATE_MODEL_VERSION = "2026-10-21";
 
 export const DMARC_ENFORCEMENT_LEVELS = Object.freeze([
   "not_yet_assessed",
@@ -156,7 +159,14 @@ export function deriveDmarcState(input = {}) {
     });
   }
 
-  const policy = normalizePolicy(parsed?.policy);
+  // The policy graded is the effective requested one: t=y asks receivers to
+  // apply one level less (RFC 9989 section 4.7). Policy evidence already
+  // carries the effective policy and no tags, so it is not lowered twice.
+  const declaredPolicy = normalizePolicy(parsed?.policy);
+  const testing = String(parsed?.tags?.t ?? "").trim().toLowerCase() === "y";
+  const policy = testing
+    ? ({ reject: "quarantine", quarantine: "none" }[declaredPolicy] ?? declaredPolicy)
+    : declaredPolicy;
   const pct = normalizePct(parsed?.pct ?? parsed?.percentage);
   const sp = normalizePolicy(parsed?.subdomain_policy);
   const spValid = !sp || VALID_SUBDOMAIN_POLICIES.has(sp);

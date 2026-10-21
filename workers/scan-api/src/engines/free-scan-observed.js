@@ -30,12 +30,17 @@ function emailStatements(email) {
   const out = [];
   const dmarcState = email?.dmarc_state || {};
   const dmarc = email?.dmarc_detail || {};
+  // dmarc_state.policy is the effective (RFC 9989) policy; the record's own
+  // p= is reported as declared, with testing mode stated when it lowers it.
   const policy = String(dmarcState.policy || dmarc.policy || "").toLowerCase();
+  const declared = String(dmarc.policy || policy).toLowerCase();
   if (dmarcState.evidence_status === "observed" && dmarcState.record_validity === "valid"
       && (policy === "reject" || policy === "quarantine")) {
     const pct = Number(dmarc.pct ?? dmarc.percentage ?? dmarcState.pct ?? 100);
     const sp = String(dmarc.subdomain_policy || "").toLowerCase();
-    const parts = [`DMARC policy p=${policy} observed`];
+    const parts = [declared !== policy
+      ? `DMARC policy p=${declared} observed in testing mode (t=y), so receivers are asked to ${policy}`
+      : `DMARC policy p=${policy} observed`];
     if (sp === "reject" || sp === "quarantine") parts.push(`with sp=${sp} for subdomains`);
     if (Number.isFinite(pct) && pct < 100) parts.push(`with a legacy pct=${pct} tag (removed by RFC 9989)`);
     out.push(statement("dmarc_enforcing_policy", parts.join(", "), "email_security"));
