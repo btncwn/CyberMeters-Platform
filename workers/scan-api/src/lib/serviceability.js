@@ -61,7 +61,11 @@ export const SERVICEABILITY_REASONS = Object.freeze({
 // service. Bot protection answering 403 tells us nothing about what a browser would
 // receive, and treating it as a definitive answer is how a false ISSUE is born for
 // enterprise-edge domains. These are evidence-insufficient.
-export const ACCESS_RESTRICTED_STATUSES = Object.freeze([401, 403, 429]);
+// 451 (Unavailable For Legal Reasons) joins them (decision 21 Oct 2026): the
+// resource exists but is withheld from this requester, so it is never a
+// definitive "not found". Read as absence it could turn a sensitive-path check
+// into a false pass, or a withheld probe into a verified fix.
+export const ACCESS_RESTRICTED_STATUSES = Object.freeze([401, 403, 429, 451]);
 
 // The admissible HTTP status range. A value outside it is a malformed observation,
 // NOT an origin that answered with an unusual code.
