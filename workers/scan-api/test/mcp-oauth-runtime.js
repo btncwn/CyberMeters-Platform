@@ -22,8 +22,10 @@ async function main() {
   const port = randomInt(20_000, 45_000);
   const origin = `http://127.0.0.1:${port}`;
   const resource = "https://mcp-staging.cybermeters.com/mcp";
-  const callback = `http://127.0.0.1:${port + 1}/callback`;
-  const hostedCallback = "https://client.example/callback";
+  // Gemini CLI's default loopback shape; the OS-selected port is registered
+  // exactly and must stay identical through authorization and token exchange.
+  const callback = `http://localhost:${port + 1}/oauth/callback`;
+  const hostedCallback = "https://chatgpt.com/connector_platform_oauth_redirect";
   const reviewedCimd = "https://reviewed-client.example/oauth/client.json";
   const unreviewedCimd = "https://unreviewed-client.example/oauth/client.json";
   const configPath = join(temp, "worker.json");
@@ -242,7 +244,7 @@ export default { async fetch(request, env, ctx) {
     const approvedFetches = await (await fetch(`${origin}/__outbound_urls`)).json();
     assert.ok(approvedFetches.length >= 1 && approvedFetches.every((url) => url === reviewedCimd));
     const changedCimdRedirect = cimdAuthorize(reviewedCimd);
-    changedCimdRedirect.searchParams.set("redirect_uri", `http://127.0.0.1:${port + 2}/callback`);
+    changedCimdRedirect.searchParams.set("redirect_uri", `http://localhost:${port + 2}/oauth/callback`);
     assert.equal((await fetch(changedCimdRedirect, { redirect: "manual" })).status, 400,
       "SDK loopback port relaxation must be fenced by exact registered URI");
 
@@ -306,7 +308,7 @@ export default { async fetch(request, env, ctx) {
     const changedDcrRedirect = new URL(`${origin}/authorize`);
     await resetBudget();
     for (const [key, value] of Object.entries({ response_type: "code", client_id: clientId,
-      redirect_uri: `http://127.0.0.1:${port + 2}/callback`, scope: "mcp:read",
+      redirect_uri: `http://localhost:${port + 2}/oauth/callback`, scope: "mcp:read",
       state: "port-mismatch", code_challenge: pkce("m".repeat(43)),
       code_challenge_method: "S256", resource })) changedDcrRedirect.searchParams.set(key, value);
     assert.equal((await fetch(changedDcrRedirect, { redirect: "manual" })).status, 400);
@@ -431,7 +433,7 @@ export default { async fetch(request, env, ctx) {
         const wrongRedirect = await fetch(`${origin}/oauth/token`, {
           method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({ grant_type: "authorization_code", code,
-            client_id: clientId, redirect_uri: `http://127.0.0.1:${port + 2}/callback`,
+            client_id: clientId, redirect_uri: `http://localhost:${port + 2}/oauth/callback`,
             code_verifier: verifier, resource }),
         });
         assert.equal(wrongRedirect.status, 400);

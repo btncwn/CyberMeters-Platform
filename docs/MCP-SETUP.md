@@ -52,14 +52,18 @@ connection permission and follow CyberMeters sign-in/consent. Install or enable
 the resulting private plugin before asking it to read a workspace. Some account
 surfaces still label connections **Apps**; access depends on workspace policy.
 
-**Current production limitation:** ChatGPT web is not yet accepted. Its hosted
-OAuth callback is not in the current exact allowlist, so registration can be
-refused before sign-in. These are the client setup steps, not a claim that the
-current server will complete the flow. If it is refused, contact support with
-the client name and time; never send tokens or passwords. The operator must
-inspect the actual refusal and review any exact callback change. This docs
-update does not change authorization configuration. A successful Codex CLI
-connection is not proof of ChatGPT web compatibility.
+The hosted callback configuration includes the exact URI
+`https://chatgpt.com/connector_platform_oauth_redirect`. This stable callback
+requires matching issuer metadata and RFC 9207 issuer identification; the server
+advertises that support and returns `iss` on authorization responses. A different
+callback shown by the client's management page needs its own exact review and
+allowlist entry. Callback-ID patterns and wildcard hosts are not accepted.
+
+ChatGPT web still needs a recorded production read/revoke/reconnect acceptance.
+Callback admission and local OAuth tests alone do not establish that result. If
+connection is refused, contact support with the client name and time; never send
+tokens or passwords. A successful Codex CLI connection does not establish
+ChatGPT web compatibility.
 
 ## Gemini CLI
 
@@ -73,6 +77,11 @@ Start Gemini CLI and use `/mcp auth cybermeters`, then complete CyberMeters
 sign-in and workspace consent in the browser. `/mcp list` shows connection
 status. OAuth discovery/DCR and a variable-port loopback callback are the
 expected path. The CLI's own model login does not authorize CyberMeters data.
+The default callback shape is `http://localhost:<random-port>/oauth/callback`;
+the CLI also supports an explicit `oauth.redirectUri`. Existing bounded loopback
+registration accepts that local shape. The exact URI selected at registration,
+including its port, must be reused for authorization and token exchange. Changing
+the registered port is refused; no hosted callback wildcard is involved.
 This is a documented configuration path; a complete production Gemini CLI
 read/revoke/reconnect has not yet been recorded. It does not establish Gemini
 web, mobile or API compatibility.

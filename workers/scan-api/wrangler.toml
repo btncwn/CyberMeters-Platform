@@ -129,9 +129,9 @@ max_retries = 5
 # The founder identity is a production secret; a missing value denies
 # authorization and it never belongs in the public repository.
 MCP_DEPLOYMENT_TIER = "production"
-# Exact hosted DCR callbacks, compared by string. The Claude hosted connector
-# always registers this one fixed callback; anything else is refused.
-MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS = '["https://claude.ai/api/mcp/auth_callback"]'
+# Exact hosted DCR callbacks, compared by string. ChatGPT's stable callback
+# applies because this server advertises and returns RFC 9207 issuer identity.
+MCP_OAUTH_DCR_ALLOWED_REDIRECT_URIS = '["https://claude.ai/api/mcp/auth_callback","https://chatgpt.com/connector_platform_oauth_redirect"]'
 MCP_CUSTOMER_OAUTH_ENABLED = "true"
 MCP_CUSTOMER_READ_ENABLED = "true"
 # Who may connect: "customers" = any verified member of a live workspace on a
