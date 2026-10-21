@@ -70,6 +70,47 @@ const removalRaw = fs.readFileSync(path.join(migDir, removalName), "utf8");
 ok("provider removal approval is restricted to exact migration bytes", approvedDestructiveMigration(removalName, removalRaw));
 ok("provider removal approval rejects unrelated deletion", !approvedDestructiveMigration(removalName, removalRaw + "\nDROP TABLE users;"));
 
+// ── 1b. Cloudflare D1 compatibility ──
+// Local SQLite accepts statements that remote D1 rejects. Migration 132 applied
+// locally and in CI, then failed on D1 with "too many terms in compound SELECT"
+// (an eight-term UNION ALL); D1 does not document its compound limit, so
+// migrations use one INSERT per row-set instead of any compound SELECT. D1 also
+// runs each file in its own transaction and rejects explicit transaction
+// control, and caps a single SQL statement at 100 KB.
+const D1_MAX_STATEMENT_BYTES = 100_000;
+const stripQuoted = (stmt) => stmt
+  .replace(/'(?:[^']|'')*'/g, "''")
+  .replace(/"(?:[^"]|"")*"/g, '""')
+  .replace(/`[^`]*`/g, "``")
+  .replace(/\[[^\]]*\]/g, "[]");
+const COMPOUND = /\b(UNION|INTERSECT|EXCEPT)\b/i;
+const TRANSACTION_CONTROL = /^\s*(BEGIN(\s+(DEFERRED|IMMEDIATE|EXCLUSIVE))?(\s+TRANSACTION)?|COMMIT(\s+TRANSACTION)?|END(\s+TRANSACTION)?|ROLLBACK\b[\s\S]*|SAVEPOINT\b[\s\S]*|RELEASE\b[\s\S]*)\s*;?\s*$/i;
+const d1Problems = (stmt) => {
+  const problems = [];
+  const bare = stripQuoted(stmt);
+  if (COMPOUND.test(bare)) problems.push("compound SELECT (UNION/INTERSECT/EXCEPT); use one INSERT per row-set");
+  if (TRANSACTION_CONTROL.test(bare)) problems.push("explicit transaction control; D1 wraps each file itself");
+  if (Buffer.byteLength(stmt, "utf8") > D1_MAX_STATEMENT_BYTES) problems.push(`statement over ${D1_MAX_STATEMENT_BYTES} bytes`);
+  return problems;
+};
+for (const f of files) {
+  const raw = fs.readFileSync(path.join(migDir, f), "utf8");
+  const found = splitStatements(raw).flatMap((stmt) => d1Problems(stmt).map((problem) => `${problem} :: ${stmt.replace(/\s+/g, " ").slice(0, 80)}`));
+  ok(`${f}: D1-compatible`, found.length === 0);
+  for (const line of found) console.log(`  → ${line}`);
+}
+// Controls: the rules catch what D1 rejected, and do not misfire on valid SQL.
+const failing132 = "INSERT INTO t (k) SELECT d.k FROM w CROSS JOIN (SELECT 'a' AS k UNION ALL SELECT 'b') d";
+ok("D1 control: the original migration 132 shape is rejected", d1Problems(failing132).length > 0);
+ok("D1 control: INTERSECT and EXCEPT are rejected", d1Problems("SELECT 1 INTERSECT SELECT 1").length > 0 && d1Problems("SELECT 1 EXCEPT SELECT 2").length > 0);
+ok("D1 control: explicit BEGIN TRANSACTION / COMMIT are rejected", d1Problems("BEGIN TRANSACTION").length > 0 && d1Problems("COMMIT").length > 0);
+ok("D1 control: an oversized statement is rejected", d1Problems(`INSERT INTO t VALUES ('${"x".repeat(D1_MAX_STATEMENT_BYTES)}')`).length > 0);
+ok("D1 control: the word union inside a string literal is allowed", d1Problems("INSERT INTO t (note) VALUES ('trade union member')").length === 0);
+ok("D1 control: a trigger body's BEGIN ... END is allowed",
+  splitStatements("CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET n = n + 1; END;").every((stmt) => d1Problems(stmt).length === 0));
+ok("D1 control: one INSERT per row-set (the 132 fix) is allowed",
+  d1Problems("INSERT OR IGNORE INTO alert_activation (id, k) SELECT 'x', 'email_protection' FROM workspaces w WHERE w.deleted_at IS NULL").length === 0);
+
 // ── 2. Fresh-apply convergence ──
 // schema.sql + every migration in order must apply so the resulting database has
 // the core tables. Individual `IF NOT EXISTS`/ordering no-ops are tolerated (as
