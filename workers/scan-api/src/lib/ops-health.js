@@ -12,8 +12,8 @@
 // signals make the aggregate unhealthy rather than reporting a false zero.
 //
 // F-027 EXTENDS this file (additive): the /ready operational booleans + deadman
-// verdict below reuse the operational_events ledger. The existing daily heartbeat
-// (computeOpsHealth / formatOpsHealthEmail) is UNCHANGED.
+// verdict below reuse the operational_events ledger. The daily heartbeat also
+// includes weekly-backup freshness when its separate monitoring switch is on.
 import { latestOperationalEvent, readRecentOperationalEventCount, OPS_EVENT_TYPES } from "./operational-events.js";
 import { weeklyBackupHealth } from "./weekly-backup-health.js";
 
