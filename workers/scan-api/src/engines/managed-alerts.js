@@ -433,8 +433,9 @@ export function boundedEvidenceSentence(evidence) {
   const detail = String(evidence.detail || "").trim().slice(0, 200);
   if (!label && !detail) return null;
   const seen = String(evidence.last_seen_at || "").trim().slice(0, 10); // date part only
-  let s = label ? `Observed via ${label}` : "Observed";
-  if (detail) s += `: ${detail}`;
+  const clean = (value) => value.replace(/[.!?]+$/, "");
+  let s = label ? clean(label) : "Observation";
+  if (detail) s += `: ${clean(detail)}`;
   if (seen) s += ` (last seen ${seen})`;
   return `${s}.`;
 }

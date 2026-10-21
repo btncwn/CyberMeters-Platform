@@ -760,7 +760,10 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
       const posture = [];
       if (findings.length) posture.push(`${findings.length} finding${findings.length === 1 ? "" : "s"}${hs ? ` (highest: ${String(hs).toUpperCase()})` : ""}`);
       if (observations.length) posture.push(`${observations.length} observation${observations.length === 1 ? "" : "s"}`);
-      if (wf.open_cases) posture.push(`${wf.open_cases} open managed case${wf.open_cases === 1 ? "" : "s"}`);
+      const awaiting = wf.statuses?.awaiting_verification || 0;
+      const otherOpen = Math.max(0, (wf.open_cases || 0) - awaiting);
+      if (otherOpen) posture.push(`${otherOpen} open managed case${otherOpen === 1 ? "" : "s"}`);
+      if (awaiting) posture.push(`${awaiting} case${awaiting === 1 ? "" : "s"} awaiting verification`);
       if (posture.length) w.text(posture.join(" · "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
 
       if (detail === "full") {

@@ -5,6 +5,7 @@ import { composeSnapshot } from '../workers/scan-api/src/engines/report-snapshot
 import { buildExecutiveReportV2 } from '../workers/scan-api/src/engines/executive-report.js'
 import { buildDseFindings } from '../workers/scan-api/src/engines/dse-findings.js'
 import { computeScore } from '../workers/scan-api/src/engines/scoring.js'
+import { resolveRemediation } from '../workers/scan-api/src/engines/remediation-registry.js'
 import { normalizeFindingSchema } from '../workers/scan-api/src/engines/findings.js'
 
 let passed = 0
@@ -676,6 +677,43 @@ ok('B3 historical snapshot bytes and stored resolver identity remain immutable a
   historicalBytesBefore.every((byte, index) => byte === historicalBytesAfter[index]) &&
   historicalSnapshot.methodology.cyber_mot_resolver_version === '2026-08-30.1' &&
   historicalExecutive.methodology.cyber_mot_resolver_version === '2026-08-30.1')
+
+// Founder C-7: specific observed wording without changing classification.
+const preloadEvidence = dseEvidence()
+preloadEvidence.hsts.preload_directive = false
+preloadEvidence.hsts.preload_eligible = false
+const preloadFinding = rawDseFinding('dse_hsts_not_preload_eligible', preloadEvidence)
+ok('preload finding and canonical action both name preload',
+  preloadFinding.description.includes('preload') &&
+  resolveRemediation({ finding_type: preloadFinding.id }).recommended_action.includes('preload directive'))
+for (const token of ["'unsafe-inline'", "'unsafe-eval'", '*']) {
+  const description = cspProducer(`default-src 'self'; style-src ${token}`).finding.description
+  ok(`style-only description names only observed ${token}`, description.includes(`${token} in style-src only`) &&
+    ["'unsafe-inline'", "'unsafe-eval'", '*'].filter((other) => other !== token).every((other) => !description.includes(other)))
+}
+ok('script CSP description preserves token-to-directive relationship',
+  cspProducer("default-src 'self'; script-src 'unsafe-eval'; style-src 'unsafe-inline'").finding.description.includes("'unsafe-eval' in script-src") &&
+  !cspProducer("default-src 'self'; script-src 'unsafe-eval'; style-src 'unsafe-inline'").finding.description.includes("'unsafe-inline'"))
+const awaitingSnapshot = structuredClone(snapshot)
+awaitingSnapshot.domains[0].managed_workflow = { open_cases: 1, statuses: { awaiting_verification: 1 } }
+const awaitingText = pdfPlainText(buildScanReportPdf({}, { snapshot: awaitingSnapshot }))
+ok('awaiting-verification case is named truthfully on the domain card',
+  awaitingText.includes('1 case awaiting verification') && !awaitingText.includes('1 open managed case'))
+const mixedSnapshot = structuredClone(awaitingSnapshot)
+mixedSnapshot.domains[0].managed_workflow.open_cases = 2
+const mixedText = pdfPlainText(buildScanReportPdf({}, { snapshot: mixedSnapshot }))
+ok('mixed workflow preserves both case states without double-counting',
+  mixedText.includes('1 open managed case') && mixedText.includes('1 case awaiting verification'))
+const dmarcAction = (before, after, hosted) => resolveRemediation({
+  finding_type: 'email_dmarc_policy_none',
+  context: { dmarc_transition: { before, after }, hosted_dmarc: hosted },
+}).recommended_action
+ok('policy reduction is not mislabelled as testing-only',
+  !dmarcAction({ declared_policy: 'reject', effective_requested_policy: 'reject' },
+    { declared_policy: 'none', effective_requested_policy: 'none', t: 'y' }, true).includes('remove testing mode'))
+ok('external policy action retains the administrator path',
+  dmarcAction({ declared_policy: 'reject', effective_requested_policy: 'reject' },
+    { declared_policy: 'reject', effective_requested_policy: 'quarantine', t: 'y' }, false).includes('DNS or email administrator'))
 
 console.log(`Report-first CX validation: ${passed} passed, ${failed} failed`)
 if (failed) process.exit(1)

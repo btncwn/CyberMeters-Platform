@@ -408,7 +408,9 @@ const EXPECTED = Object.freeze({
   // to security-check-domains.js / SECURITY_CHECK_* / SecurityCheck*, with no behaviour change. Two-tree --dump-current diff
   // (origin/main vs this head): all 541 entries are identical once the renames and byte
   // offsets are normalised, and every count is unchanged; only the fingerprints move.
-  sql_reads: { projection_occurrences: 24, fingerprint: "331cf1b97e6493ec739b9ec70bb110fcc7b29da5f9d356744c2997e394d3dbfa" },
+  // Per-scan house-logo fallback shifts scans.js reads 423 -> 424 and 952 -> 954.
+  // Two-tree dumps retain all 24 identical file/kind/query-text projections.
+  sql_reads: { projection_occurrences: 24, fingerprint: "68f7cb9a2c8f0133c85886da4d6bd00e2501c0ebed04b1ea493d0ee6ec4a82f7" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

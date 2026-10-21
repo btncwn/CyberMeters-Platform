@@ -351,7 +351,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     customer_title: "Enable MTA-STS",
     technical_explanation: "No MTA-STS policy was observed. MTA-STS tells sending servers to require TLS when delivering mail to your domain.",
     business_impact: "Without MTA-STS, inbound mail can be delivered over an unencrypted or downgraded connection, exposing it to interception.",
-    recommended_action: "Once SPF, DKIM and DMARC are deployed, publish an MTA-STS policy file over HTTPS and the supporting _mta-sts.<domain> TXT record; start in testing mode, then move to enforce.",
+    recommended_action: "Once SPF, DKIM and DMARC are deployed, publish an MTA-STS policy file over HTTPS and the supporting _mta-sts TXT record for the domain; start in testing mode, then move to enforce.",
     effort: "high",
     owner_type: "customer_it",
     verification_method: "https_recheck",
@@ -922,7 +922,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     severity_policy: HSTS_MISSING_SEVERITY_POLICY,
     technical_explanation: "The Strict-Transport-Security header is missing, weak or malformed, so browsers are not told to always use HTTPS.",
     business_impact: "Without strong HSTS, users can be downgraded to HTTP by an attacker on the network.",
-    recommended_action: "Send Strict-Transport-Security with a max-age of at least 31536000 seconds and includeSubDomains once all subdomains support HTTPS.",
+    recommended_action: "Send Strict-Transport-Security with a max-age of at least 31536000 seconds and includeSubDomains once all subdomains support HTTPS. For preload eligibility, also add the preload directive after confirming the preload requirements and accepting the long-term HTTPS commitment.",
     effort: "low",
     owner_type: "customer_it",
     verification_method: "https_recheck",
@@ -1565,9 +1565,33 @@ function assertResolverArgs(args) {
   }
 }
 
+// Wording only: use the persisted transition, never infer DNS changes from copy.
+function dmarcEnforcementAction(context, fallback) {
+  const after = context?.dmarc_transition?.after;
+  const before = context?.dmarc_transition?.before;
+  let action = fallback;
+  if (after?.t === "y" && before?.t !== "y" &&
+      ["quarantine", "reject"].includes(after?.declared_policy) &&
+      after.declared_policy === before?.declared_policy) {
+    action = "Return to enforcement: remove testing mode (t=y) after confirming legitimate sending sources pass alignment.";
+  } else if (["quarantine", "reject"].includes(before?.effective_requested_policy)) {
+    action = `Review legitimate sending sources, then restore the previous requested policy (${before.effective_requested_policy}) when ready.`;
+  }
+  // An unavailable hosted lookup must not send a managed-policy owner elsewhere.
+  if (context?.hosted_dmarc !== false) {
+    const next = context?.hosted_dmarc === true
+      ? "Open Email Protection → Enforcement journey in CyberMeters to review and confirm the hosted policy change."
+      : "For a CyberMeters-hosted policy, open Email Protection → Enforcement journey; otherwise review the change with your DNS or email administrator.";
+    // Replace the generic administrator action when the observed change is known.
+    if (action === fallback) action = "Confirm legitimate sending sources pass alignment, then strengthen the requested policy when ready.";
+    return `${action} ${next} CyberMeters changes DNS only after your explicit confirmation.`;
+  }
+  return action === fallback ? fallback : `${action} Review the change with your DNS or email administrator.`;
+}
+
 export function resolveRemediation(args = {}) {
   assertResolverArgs(args);
-  const { finding_type: findingType, domain_key: domainKey, evidence, surface } = args;
+  const { finding_type: findingType, domain_key: domainKey, evidence, context, surface } = args;
   if (!findingType) return unknownResolution(null, domainKey);
 
   const { canonical, viaAlias } = canonicalFindingType(findingType);
@@ -1603,6 +1627,9 @@ export function resolveRemediation(args = {}) {
     applicable,
     secondary_remediations,
     surface: surface || null,
+    ...(e.remediation_id === "email.dmarc.enforce" && context?.dmarc_transition
+      ? { recommended_action: dmarcEnforcementAction(context, e.recommended_action) }
+      : {}),
     ...(deprecatedFrom ? { deprecated_from: deprecatedFrom, is_deprecated_source: true } : {}),
   });
 }

@@ -465,7 +465,7 @@ export function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
  * These findings live in modules.email_security_intelligence.findings only,
  * NOT in the main findings array, to avoid double-counting.
  */
-export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
+export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt, domain = null) {
   const findings = [];
 
   // A not_observed / not_yet_assessed DMARC surfaces status MISSING for display,
@@ -537,7 +537,7 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
       module:         "email_security_intelligence",
       severity:       "low",
       title:          "MTA-STS policy not published",
-      description:    "No MTA-STS policy was found at https://mta-sts.<domain>/.well-known/mta-sts.txt. MTA-STS instructs sending servers to require TLS for delivery to this domain.",
+      description:    `No MTA-STS policy was found at ${domain ? `https://mta-sts.${domain}/.well-known/mta-sts.txt` : "the domain's HTTPS policy endpoint"}. MTA-STS instructs sending servers to require TLS for delivery to this domain.`,
       recommendation: "Publish an MTA-STS policy file and a supporting _mta-sts.<domain> DNS TXT record once SPF, DKIM, and DMARC are fully deployed.",
       score_impact:   0,
     });
@@ -631,7 +631,7 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
   else                  { rating = "Critical";  businessRisk = "Critical"; }
 
   // Step 8: Module-scoped findings (score_impact: 0 — not added to main findings array)
-  const findings = buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt);
+  const findings = buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt, domain);
 
   return {
     domain,
