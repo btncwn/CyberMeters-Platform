@@ -42,13 +42,13 @@ function SampleRow({ sample }) {
   )
 }
 
-export default function FreeCyberMotPreviewGrid({ domains = [], moreWhere = 'in the trial' }) {
+export default function FreeSecurityCheckPreviewGrid({ domains = [], moreWhere = 'in the trial' }) {
   return (
-    <section aria-labelledby="cyber-mot-grid-title">
+    <section aria-labelledby="security-check-grid-title">
       <div className="fm-section-heading">
         <div>
           <span className="fm-kicker">External posture snapshot</span>
-          <h2 id="cyber-mot-grid-title">Your external Cyber MOT</h2>
+          <h2 id="security-check-grid-title">Your external security check</h2>
         </div>
         <p>Every card stays visible. Incomplete or gated evidence is never shown as healthy.</p>
       </div>

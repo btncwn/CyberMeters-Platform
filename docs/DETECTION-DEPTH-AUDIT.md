@@ -66,15 +66,15 @@ Format: scenario → verdict. **PASS** deterministic end-to-end · **PARTIAL** l
 Categories: broad EASM/ratings · email specialists · brand specialists · cert/CT specialists · SMB.
 | # | Competitor | Category | Their documented strength | CyberMeters equivalent | Parity necessary for our SMB/MSP target? |
 |---|-----------|----------|---------------------------|------------------------|------------------------------------------|
-| 1 | UpGuard | broad EASM/ratings | continuous EASM + vendor risk + ratings | partial (external posture; no rating-as-product) | differentiate on lifecycle, not ratings |
-| 2 | SecurityScorecard/Bitsight | ratings benchmark | third-party security ratings | intentionally not a rating product | not necessary (benchmark, not competitor) |
+| 1 | Competitor C | broad EASM/ratings | continuous EASM + vendor risk + ratings | partial (external posture; no rating-as-product) | differentiate on lifecycle, not ratings |
+| 2 | Competitor D/Competitor E | ratings benchmark | third-party security ratings | intentionally not a rating product | not necessary (benchmark, not competitor) |
 | 3 | Attaxion | EASM challenger | asset discovery breadth + CVE mapping | takeover+KEV yes; version→CVE depth NT | version→CVE matters (§6.2) |
-| 4 | Intruder | SMB vuln scanning | authenticated+external vuln scans | external only (no auth vuln scan) | bounded — we are not a vuln scanner |
-| 5 | Valimail | email specialist | full sender governance + SPF/DMARC enforcement + auto | detect/explain/correlate, not manage/rewrite | NOT parity — different product class |
-| 6 | Red Sift (OnDMARC/Brand/Certs) | email+brand+cert | dynamic SPF, brand+CT monitoring | SPF change-intel (deploy-pending), CT yes | partial; IDN gap §6.1 |
-| 7 | EasyDMARC/Dmarcian | SMB email | DMARC reporting + SPF/DKIM management | RUA ingest + change intel | close on detection; not on management |
+| 4 | Competitor B | SMB vuln scanning | authenticated+external vuln scans | external only (no auth vuln scan) | bounded — we are not a vuln scanner |
+| 5 | a DMARC vendor | email specialist | full sender governance + SPF/DMARC enforcement + auto | detect/explain/correlate, not manage/rewrite | NOT parity — different product class |
+| 6 | Competitor A (Competitor A's DMARC product/Brand/Certs) | email+brand+cert | dynamic SPF, brand+CT monitoring | SPF change-intel (deploy-pending), CT yes | partial; IDN gap §6.1 |
+| 7 | a DMARC vendor/a DMARC vendor | SMB email | DMARC reporting + SPF/DKIM management | RUA ingest + change intel | close on detection; not on management |
 | 8 | ZeroFox/Bolster/PhishLabs | brand/phishing | takedown execution + IDN/homograph + campaign | prepare/track takedown; IDN gap | IDN parity matters (§6.1); takedown-exec intentionally not us |
-| 9 | Censys/Hardenize | cert/CT + host | CT + trust posture + config | CT + issuer/SAN/wildcard | reasonable parity; OCSP/chain is our disclaimed limit |
+| 9 | an internet-scan database/Competitor A's web/TLS product | cert/CT + host | CT + trust posture + config | CT + issuer/SAN/wildcard | reasonable parity; OCSP/chain is our disclaimed limit |
 | 10 | Deepinfo / SURFACEMON | TR/EMEA EASM | surface discovery scoring | eight-domain lifecycle | differentiate on honest lifecycle |
 
 *Do not read a blank cell as "competitor lacks it" — private implementation = "not publicly verified".*

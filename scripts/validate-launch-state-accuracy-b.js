@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engine = (name) => pathToFileURL(path.join(root, "workers/scan-api/src/engines", name)).href;
 const { runEmailModule, applyDmarcbisEmailCompatibilityProjection } = await import(engine("email-scan.js"));
-const { resolveCyberMotDomainStates, CYBER_MOT_DOMAINS } = await import(engine("cyber-mot-domains.js"));
+const { resolveSecurityCheckDomainStates, SECURITY_CHECK_DOMAINS } = await import(engine("security-check-domains.js"));
 const { composeSnapshot } = await import(engine("report-snapshot.js"));
 const { computeScore } = await import(engine("scoring.js"));
 const { projectPhase5ScanRowsForCustomer } = await import(engine("phase5-evidence.js"));
@@ -33,7 +33,7 @@ function check(name, condition, detail = "") {
   else { failed++; console.error(`FAIL ${name}${detail ? ` — ${detail}` : ""}`); }
 }
 const roundTrip = (value) => JSON.parse(JSON.stringify(value));
-const domainState = (report, key) => resolveCyberMotDomainStates(report)
+const domainState = (report, key) => resolveSecurityCheckDomainStates(report)
   .find((entry) => entry.domain_key === key)?.state;
 const reportWith = (modules, findings = []) => ({
   scan_id: "fixture-scan", completed_at: "2026-10-16T00:00:00.000Z",
@@ -91,7 +91,7 @@ check("CM-P1-006 unvalidated candidate is not a scored threat",
   !unvalidatedFindings.some((finding) => /^brand_/.test(finding.id || "")));
 check("CM-P1-006 dashboard marks watchlist provisional",
   domainState(provisionalReport, "brand_protection") === "provisional" &&
-  /candidate|watchlist/i.test(resolveCyberMotDomainStates(provisionalReport)
+  /candidate|watchlist/i.test(resolveSecurityCheckDomainStates(provisionalReport)
     .find((entry) => entry.domain_key === "brand_protection")?.summary || ""));
 check("CM-P1-006 stored snapshot stays provisional",
   snapshot(roundTrip(provisionalReport)).domains.find((entry) => entry.domain_key === "brand_protection")?.state === "provisional");
@@ -218,7 +218,7 @@ const generated = {
 };
 const brandFindingsOf = (mod) => computeScore({ brand_monitoring: mod }, "fixture.example").findings
   .filter((finding) => /^brand_/.test(finding.id || ""));
-const brandEntry = (mod, findings = []) => resolveCyberMotDomainStates(reportWith({ brand_monitoring: mod }, findings))
+const brandEntry = (mod, findings = []) => resolveSecurityCheckDomainStates(reportWith({ brand_monitoring: mod }, findings))
   .find((entry) => entry.domain_key === "brand_protection");
 const row = (candidate_domain, dns_resolves, extra = {}) => ({
   candidate_domain, dns_resolves, https_available: null, classification: "unreviewed", risk_level: "high", status: "unverified",
@@ -390,7 +390,7 @@ const identityModule = {
   provider_relationship_count: 2, surface_candidate_count: 2, reachability_evaluated_count: 1, reachable_surface_count: 1,
   password_form_count: 0, high_risk_count: 1, providers: [], portals: [], source: "identity_discovery", error: null,
 };
-const identityOf = (mod) => resolveCyberMotDomainStates(reportWith({ identity_discovery: mod })).find((entry) => entry.domain_key === "identity_exposure");
+const identityOf = (mod) => resolveSecurityCheckDomainStates(reportWith({ identity_discovery: mod })).find((entry) => entry.domain_key === "identity_exposure");
 const identityEntry = identityOf(identityModule);
 check("CM-P1-008 identity inventory counts reach the summary without changing the state",
   identityEntry?.state === "evidence_insufficient" && identityEntry.evidence_count === 5 &&
@@ -429,7 +429,7 @@ check("CM-P1-009 unavailable, deferred or errored registries add nothing",
   [{ ...whoisAnswered, unavailable: true }, { ...whoisAnswered, incomplete: true }, { ...whoisAnswered, error: "lookup failed" },
     { ...whoisAnswered, outcome: "deadline_exceeded" }, { ...whoisAnswered, findings: [] }, null, undefined]
     .every((mod) => whoisReportFindings(mod).length === 0));
-const attackSurfaceOf = (findings) => resolveCyberMotDomainStates(reportWith({ subdomains: { count: 1 }, dns: {}, whois_intelligence: whoisAnswered }, findings))
+const attackSurfaceOf = (findings) => resolveSecurityCheckDomainStates(reportWith({ subdomains: { count: 1 }, dns: {}, whois_intelligence: whoisAnswered }, findings))
   .find((entry) => entry.domain_key === "attack_surface");
 const expiring = attackSurfaceOf(whoisFindings);
 check("CM-P1-009 expiring registration turns Attack Surface to issue_detected",
@@ -441,7 +441,7 @@ check("CM-P1-009 expired registration is high; the 90-day warning is medium",
   expired?.state === "issue_detected" && expired.highest_severity === "high" &&
   warning?.state === "issue_detected" && warning.highest_severity === "medium");
 check("CM-P1-009 registration finding belongs to exactly one domain",
-  JSON.stringify(CYBER_MOT_DOMAINS.filter((d) => d.match(whoisExpiry)).map((d) => d.domain_key)) === JSON.stringify(["attack_surface"]));
+  JSON.stringify(SECURITY_CHECK_DOMAINS.filter((d) => d.match(whoisExpiry)).map((d) => d.domain_key)) === JSON.stringify(["attack_surface"]));
 const observationOnly = attackSurfaceOf([{ id: "whois_new_domain", finding_type: "observation", severity: "low", score_impact: 0, module: "whois_intelligence" }]);
 check("CM-P1-009 registration observations never own the Attack Surface state",
   observationOnly?.state !== "issue_detected" && observationOnly.finding_count === 0);
@@ -488,7 +488,7 @@ check("CM-P1-010 sender alerts are read per source, tenant-scoped, within the co
   /w\.deleted_at IS NULL/.test(alertDb.calls[0].sql) && /n\.type = 'email_spf_unauthorised_source'/.test(alertDb.calls[0].sql) &&
   /datetime\('now', '-30 days'\)/.test(alertDb.calls[0].sql) && /LIMIT \d+/.test(alertDb.calls[0].sql));
 const healthyEmail = { dmarc_state: { enforcement_level: "reject_enforced" } };
-const emailEntryOf = (emailModule) => resolveCyberMotDomainStates(reportWith({ email_security: emailModule })).find((entry) => entry.domain_key === "email_protection");
+const emailEntryOf = (emailModule) => resolveSecurityCheckDomainStates(reportWith({ email_security: emailModule })).find((entry) => entry.domain_key === "email_protection");
 const emailBaseline = emailEntryOf(healthyEmail);
 const emailWithAlert = emailEntryOf({ ...healthyEmail, unauthorised_sending_sources: senderAlerts });
 check("CM-P1-010 healthy decision is unchanged but coverage and summary name the open alert",

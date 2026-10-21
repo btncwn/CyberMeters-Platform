@@ -1,5 +1,5 @@
-// Shared canonical-phase presentation for managed cases across all eight Cyber
-// MOT domains. This is the ONE place the frontend maps a case's canonical phase
+// Shared canonical-phase presentation for managed cases across all eight
+// security domains. This is the ONE place the frontend maps a case's canonical phase
 // to a display label/tone, so cross-domain queues render consistently and no
 // screen re-invents a divergent state map. The frontend NEVER decides legal
 // transitions — those are enforced by the backend universal validator

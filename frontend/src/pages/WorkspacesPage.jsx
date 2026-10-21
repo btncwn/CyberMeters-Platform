@@ -199,7 +199,7 @@ export default function WorkspacesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               { title: 'Domain Management', desc: 'Add and verify domains. CyberMeters tracks ownership and monitors for unauthorised changes.'         },
-              { title: 'Cyber MOT monitoring', desc: 'Run on-demand or scheduled Cyber MOT checks to monitor your domains from the outside.'          },
+              { title: 'External security monitoring', desc: 'Run on-demand or scheduled security checks to monitor your domains from the outside.'          },
               { title: 'Executive Reports',  desc: 'Generate PDF risk reports for clients, stakeholders, or compliance purposes in one click.'        },
             ].map(({ title, desc }) => (
               <div key={title} className="card p-5">

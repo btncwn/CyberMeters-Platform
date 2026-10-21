@@ -76,7 +76,7 @@ No High findings.
 
 ---
 
-### SSL Labs
+### a public TLS grading service
 
 Validate:
 
@@ -350,7 +350,7 @@ After remediation:
 Repeat:
 
 - Nessus
-- SSL Labs
+- a public TLS grading service
 - Mozilla Observatory
 - SecurityHeaders.com
 

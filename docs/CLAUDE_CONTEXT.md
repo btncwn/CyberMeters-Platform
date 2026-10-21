@@ -2,7 +2,7 @@
 
 ## Product
 
-CyberMeters is a cloud-native Cyber MOT and Attack Surface Management (ASM) platform for SMBs.
+CyberMeters is a cloud-native external security check and Attack Surface Management (ASM) platform for SMBs.
 
 ## Core Capabilities
 
@@ -10,7 +10,7 @@ CyberMeters is a cloud-native Cyber MOT and Attack Surface Management (ASM) plat
 - Hidden Asset Intelligence
 - CISA KEV Intelligence
 - Historical Exposure Tracking
-- Cyber MOT Scoring
+- external security check Scoring
 - Executive Reporting
 
 ## Infrastructure
@@ -69,7 +69,7 @@ Workspace tables (migration 003-workspaces.sql):
 ### In Progress
 
 - Scan Engine Integration
-- Cyber MOT Scoring
+- external security check Scoring
 
 ### Not Started
 
@@ -93,7 +93,7 @@ Do NOT use:
 
 Focus on:
 
-- Cyber MOT Score
+- external security check Score
 - Risk Posture
 - Exposure Tracking
 - Executive Reporting

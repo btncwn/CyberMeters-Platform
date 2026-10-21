@@ -13,7 +13,7 @@ import {
   projectMcpPosture,
 } from "../src/routes/mcp-projections.js";
 import { projectUnvalidatedBrandSnapshotForCustomer } from "../src/engines/brand-candidate-presentation.js";
-import { resolveCyberMotDomainStates } from "../src/engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../src/engines/security-check-domains.js";
 import { CE_QUESTIONS } from "../src/lib/cyber-essentials.js";
 
 const TOKEN_A = `cm_${"a".repeat(64)}`;
@@ -326,7 +326,7 @@ test("MCP posture withholds assessed state when a historical brand candidate sup
   const domainId = "domain_a";
   const canonical = {
     snapshot: { workspace_id: workspaceId, scan_id: scanId, domain_id: domainId },
-    domains: resolveCyberMotDomainStates(null, { scanId }).map((domain) =>
+    domains: resolveSecurityCheckDomainStates(null, { scanId }).map((domain) =>
       domain.domain_key === "brand_protection"
         ? { ...domain, state: "assessed_healthy", evidence_grade: { grade: "L1" } }
         : domain),

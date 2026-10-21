@@ -577,7 +577,7 @@ const vendorRelationship = await import(engineUrl("vendor-relationship.js"));
 const spfResolver = await import(engineUrl("spf-resolver.js"));
 const emailAnalysis = await import(engineUrl("email-analysis.js"));
 const emailScan = await import(engineUrl("email-scan.js"));
-const cyberMot = await import(engineUrl("cyber-mot-domains.js"));
+const securityCheck = await import(engineUrl("security-check-domains.js"));
 const relatedRules = await import(engineUrl("related-changes-rules.js"));
 const readRepo = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const LATER = "2026-08-10T12:00:00.000Z";
@@ -703,7 +703,7 @@ const CSP_MODULES = { headers: { values: { "content-security-policy": "script-sr
 // F39: the Shadow IT limitation is observation language — the inventory exists and
 // approval is the customer's record, never "not yet configured" or "unapproved".
 {
-  const entry = cyberMot.CYBER_MOT_DOMAINS.find((d) => d.domain_key === "shadow_it_unmanaged_technology");
+  const entry = securityCheck.SECURITY_CHECK_DOMAINS.find((d) => d.domain_key === "shadow_it_unmanaged_technology");
   const text = (entry?.limitations || []).join(" ");
   verdict("F39", /customer's own record in the Shadow IT inventory, not an external verdict/i.test(text) &&
     !/not yet configured|unauthoris|unapproved/i.test(text) && /no internal-network, endpoint, casb or edr visibility/i.test(text), text);
@@ -842,7 +842,7 @@ const loadedProof = Object.fromEntries([
   "workers/scan-api/src/engines/vendor-relationship.js",
   "workers/scan-api/src/engines/spf-resolver.js",
   "workers/scan-api/src/engines/email-analysis.js",
-  "workers/scan-api/src/engines/cyber-mot-domains.js",
+  "workers/scan-api/src/engines/security-check-domains.js",
   "workers/scan-api/src/engines/related-changes-rules.js",
 ].map((relative) => [relative, crypto.createHash("sha256").update(fs.readFileSync(path.join(root, relative))).digest("hex")]));
 console.log(`SHADOW_IT_FB1_EH1_LOADED_PROOF ${JSON.stringify(loadedProof)}`);

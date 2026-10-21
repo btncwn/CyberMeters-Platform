@@ -736,7 +736,7 @@ function highestSev(items) {
   return best;
 }
 function sectionDomains(w, snap, { detail = "full" } = {}) {
-  w.heading("Cyber MOT: External posture");
+  w.heading("External security posture");
   for (const d of reportDomains(snap.domains)) {
     const findings = domainItems(snap, d.domain_key, "finding");
     const observations = domainItems(snap, d.domain_key, "observation");
@@ -1286,7 +1286,7 @@ const SNAPSHOT_PROVENANCE_LABELS = Object.freeze({
 
 const METHODOLOGY_LABELS = Object.freeze({
   snapshot_builder_version: "Snapshot builder",
-  cyber_mot_resolver_version: "Cyber MOT resolver",
+  cyber_mot_resolver_version: "Domain state resolver",
   cyber_metrics_score_methodology_version: "Cyber Metrics Score methodology",
   business_risk_methodology_version: "Business Risk Indicator methodology",
   ce_readiness_methodology_version: "Cyber Essentials readiness methodology",
@@ -1773,7 +1773,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
   executiveRelatedChanges(w, relatedChanges);
   ok.forEach((r) => {
     w.newPage();
-    w.display("Cyber MOT: External posture", { size: 19 });
+    w.display("External security posture", { size: 19 });
     w.prose(r.snapshot.snapshot?.domain || "Website name not recorded", { size: 11, bold: true, width: 84 });
     w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot?.as_of, true, { zone: false })}`, { size: 9, color: "0.35 0.38 0.44" });
     if (r.snapshot.snapshot?.provenance === "reconstructed_on_demand") w.prose("Reconstructed from recorded evidence; historical workflow details may be unavailable.", { size: 8, width: 110 });

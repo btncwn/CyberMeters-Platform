@@ -2,7 +2,7 @@
 // These are called only after fresh MCP admission and never dispatch public
 // routes: some public GETs intentionally perform report repair on read.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
-import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../engines/security-check-domains.js";
 import { readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 import {
@@ -351,7 +351,7 @@ export async function projectMcpPosture(env, grant, {
     ? await verifiedPostureSnapshot(reports.env, workspaceId, sourceScanId, readSnapshot)
     : null;
   reports.assertWithinBudget();
-  const resolved = snapshot?.domains ?? resolveCyberMotDomainStates(null, { scanId: null });
+  const resolved = snapshot?.domains ?? resolveSecurityCheckDomainStates(null, { scanId: null });
   if (!Array.isArray(resolved) || resolved.length !== 8) throw new Error("invalid_projection");
   const state = scoreState(posture);
   const established = authoritativeSnapshotScore(snapshot, posture) !== null;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { tlsAssessmentFindings, evaluateTlsCondition } from '../workers/scan-api/src/engines/tls-findings.js';
 import { resolveRemediation } from '../workers/scan-api/src/engines/remediation-registry.js';
 import { buildTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
-import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
+import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 
 const identity='mail.example.org|mail.example.org|8.8.8.8|587|tcp|smtp';
 const engine={family:'legacy',version:'1.0.2u',build_id:'a'.repeat(64),sandboxed:true};
@@ -17,7 +17,7 @@ const module=checks=>({source:'tls_assessment',quality:'complete',endpoints:[end
 const baseline=module([protocol('tls1'),protocol('tls1_3')]);
 const [finding]=tlsAssessmentFindings(baseline);
 assert(finding?.id.startsWith('tls_legacy_protocol__'));
-const domainState = report => resolveCyberMotDomainStates(report).find(row=>row.domain_key==='certificates_trust');
+const domainState = report => resolveSecurityCheckDomainStates(report).find(row=>row.domain_key==='certificates_trust');
 const report = (assessment,findings=[]) => ({scan_quality:{status:'complete',modules_skipped:[]},
   modules:{certificate_intelligence:{},tls_assessment:assessment},findings});
 assert.equal(domainState(report({...baseline,coverage:{completed:2}},[finding])).state,'issue_detected');

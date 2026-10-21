@@ -152,7 +152,7 @@ a real-time dashboard — until scale justifies more.
 
 The product roadmap deliberately keeps scope tight; AI is not a Faz 0 blocker.
 One cheap, high-leverage option worth holding on the table: an **AI Executive
-Report / remediation summary** that turns the MOT findings into plain-English
+Report / remediation summary** that turns the check's findings into plain-English
 business language — a genuine MSP differentiator, reusing the Claude access we
 already have. Decide in Faz 1, alongside white-label reporting.
 

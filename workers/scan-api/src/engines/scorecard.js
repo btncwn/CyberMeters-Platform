@@ -4,7 +4,7 @@
 // index.js (monolith decomposition, Phase 1c).
 import { computeSecurityPosture } from "./posture-scoring.js";
 import { getCurrentPosturePresentation } from "./current-posture.js";
-import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "./security-check-domains.js";
 import { canSayHealthy, domainState, neutralSummary, scorecardBehaviour, sectionStatus } from "./scorecard-domain-state.js";
 import { resolvePhase5HistoricalCustomerProjection } from "./phase5-evidence.js";
 import { suppressedLegacyTlsRemediationSql, visibleFindingSql } from "./finding-identity.js";
@@ -294,17 +294,17 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   const urgent            = [];
 
   // B canonicalisation: reassuring "healthy / none detected / looks normal" wording
-  // is now gated on the canonical Cyber MOT domain state (already resolved from the
+  // is now gated on the canonical domain state (already resolved from the
   // report) and the A3 admin evidence_status — an empty raw count / null / failed
   // query can never by itself produce a positive verdict.
-  const cyberMotStates = Array.isArray(report?.cyber_mot_domains)
+  const securityCheckStates = Array.isArray(report?.cyber_mot_domains)
     ? report.cyber_mot_domains
-    : resolveCyberMotDomainStates(report);
+    : resolveSecurityCheckDomainStates(report);
   const adminEvidence = report?.modules?.admin_surface_detection?.evidence_status ?? null;
-  const brandStateB = domainState(cyberMotStates, "brand_protection");
-  const certStateB  = domainState(cyberMotStates, "certificates_trust");
-  const asStateB    = domainState(cyberMotStates, "attack_surface");
-  const shadowStateB = domainState(cyberMotStates, "shadow_it_unmanaged_technology");
+  const brandStateB = domainState(securityCheckStates, "brand_protection");
+  const certStateB  = domainState(securityCheckStates, "certificates_trust");
+  const asStateB    = domainState(securityCheckStates, "attack_surface");
+  const shadowStateB = domainState(securityCheckStates, "shadow_it_unmanaged_technology");
   // A non-healthy, non-issue domain gets a neutral "could not assess / not yet
   // assessed" line (never a reassuring one, never silent healthy).
   const noteNeutral = (behaviour, subject) => {
@@ -434,7 +434,7 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     },
     report
   );
-  const cyber_mot_domains = cyberMotStates;   // resolved once above (B), reused here
+  const cyber_mot_domains = securityCheckStates;   // resolved once above (B), reused here
 
   // ── Final scorecard object ─────────────────────────────────────────────────
   return {
@@ -481,13 +481,14 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     top_recommendations: topRemediation,
     security_posture,
     cyber_mot_domains,
+    security_domains: cyber_mot_domains,   // neutral alias of cyber_mot_domains
   };
 }
 
 // ── B: /scorecard/report sections, built from the scorecard payload ──────────
 // Moved out of the route so the sections and the executive_summary share ONE state
 // mapping and the route never re-derives health from raw counts. Brand /
-// Certificates / Shadow-IT / Admin wording is gated on canonical Cyber MOT state
+// Certificates / Shadow-IT / Admin wording is gated on canonical state
 // (+ the A3 admin evidence_status) — an empty count / null / failed query can never
 // by itself produce a healthy "none detected" / "looks normal".
 export function buildScorecardSections(scorecard) {

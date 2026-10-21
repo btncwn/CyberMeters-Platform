@@ -78,7 +78,7 @@ const {
 } = await import(engUrl("email-analysis.js"));
 const { enrichSpf, enrichDkim } = await import(engUrl("email-intel.js"));
 const { moduleCompletionGate } = await import(engUrl("asm-cases.js"));
-const { CYBER_MOT_DOMAINS } = await import(engUrl("cyber-mot-domains.js"));
+const { SECURITY_CHECK_DOMAINS } = await import(engUrl("security-check-domains.js"));
 const { buildExecutiveReportV2 } = await import(engUrl("executive-report.js"));
 const pdfModuleUrl = process.env.EMAIL_DEADLINE_PDF_MODULE_URL || engUrl("pdf.js");
 const { buildScanReportPdf } = await import(pdfModuleUrl);
@@ -1735,7 +1735,7 @@ for (const executionContext of ["queue", "cron"]) {
 console.log("\n── B8. DSE evidence reaches the report without cross-domain ASM cases ──");
 const caaFindings = (t2.report?.findings || []).filter((finding) => finding.id === "dse_missing_caa");
 const caaDomainKeys = caaFindings.length === 1
-  ? CYBER_MOT_DOMAINS.filter((definition) => definition.match(caaFindings[0]))
+  ? SECURITY_CHECK_DOMAINS.filter((definition) => definition.match(caaFindings[0]))
     .map((definition) => definition.domain_key)
   : [];
 const scoreWithoutDse = computeScore({

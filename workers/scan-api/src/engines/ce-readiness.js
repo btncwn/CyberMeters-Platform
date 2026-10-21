@@ -131,7 +131,7 @@ function ceContainmentCopy(reason) {
   if (reason === CE_WORKSPACE_NO_DOMAIN_REASON) {
     return {
       summary: "Cyber Essentials readiness cannot currently be assessed because this workspace has no linked domain.",
-      limitation: "Link one domain and complete a Cyber MOT before using the external readiness estimate.",
+      limitation: "Link one domain and complete an external security check before using the external readiness estimate.",
     };
   }
   return {

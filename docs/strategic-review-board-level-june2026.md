@@ -44,12 +44,12 @@
 | Engine | Purpose | Maturity | Strength | Weakness | Competitive Value |
 |---|---|---|---|---|---|
 | **DNS Analysis** | A/AAAA/MX/NS resolution via Cloudflare DoH | 95% | Fast, reliable, uses DoH (no DNS interception risk) | No DNSSEC validation beyond presence/absence | Table stakes — every scanner does this |
-| **SSL/TLS** | HTTPS availability, redirect, basic cert check | 85% | Quick and reliable | No cipher suite analysis, no TLS version pinning, no certificate chain depth, no OCSP stapling | Below Hardenize and SSL Labs depth |
+| **SSL/TLS** | HTTPS availability, redirect, basic cert check | 85% | Quick and reliable | No cipher suite analysis, no TLS version pinning, no certificate chain depth, no OCSP stapling | Below Competitor A's web/TLS product and a public TLS grading service depth |
 | **Security Headers** | HSTS, CSP, X-Frame, X-Content-Type, Referrer, Permissions-Policy | 90% | Confidence scoring on uncertain findings is genuinely good | CSP policy quality assessment is surface-level (presence, not effectiveness) | Good for the market. Not better than Observatory by Mozilla (free) — the difference is platform integration |
 | **Email Security** | SPF, DMARC, DKIM (13 selectors), MTA-STS, TLS-RPT | 90% | DKIM selector coverage across 13 common selectors is above average | No BIMI detection, no DMARC aggregate report analysis | Genuinely valuable. Most SMBs fail here and don't know it. |
 | **Certificate Intelligence** | CT logs, cert expiry, CA mapping, SAN discovery | 85% | CA-to-vendor mapping is clever. Cert timeline tracking is useful. | Not a replacement for cert transparency monitoring (Cert Spotter, Facebook) — no real-time alerts | Solid differentiator when packaged well |
 | **Subdomain Discovery** | CT via crt.sh + CertSpotter + DNS brute-force | 85% | Multi-source. Sensitive label classification is comprehensive. | crt.sh dependency (rate limited). No active DNS enumeration (AXFR attempts, etc.). 200 subdomain cap | Adequate for SMB. Would fail on large enterprise with 10,000+ subdomains |
-| **Subdomain Takeover Detection** | CNAME fingerprinting against 4 providers | 70% | Pattern is correct | Only 4 providers (GitHub Pages, Heroku, Azure, Netlify). The real fingerprint list has 150+ providers. EdgesInfra, Fastly, Pantheon, WP Engine, etc. all missing. | Meaningful gap vs. Detectify and Intruder |
+| **Subdomain Takeover Detection** | CNAME fingerprinting against 4 providers | 70% | Pattern is correct | Only 4 providers (GitHub Pages, Heroku, Azure, Netlify). The real fingerprint list has 150+ providers. EdgesInfra, Fastly, Pantheon, WP Engine, etc. all missing. | Meaningful gap vs. Competitor F and Competitor B |
 | **Asset Exposure Detection** | HTTP/HTTPS probe of up to 50 subdomains | 75% | Reachability + metadata capture | Hard cap at 50 subdomains. No port scanning (80/443 only). No service fingerprinting beyond basic HTTP | Weak vs. dedicated ASM tools. Adequate for SMB awareness |
 | **Admin Surface Discovery** | Detection of admin panels, management interfaces | 75% | Right concept | Implementation details unclear from outside; likely path-based guessing, not protocol-level detection | Useful but limited coverage |
 | **SaaS Exposure** | Detection of SaaS portals and third-party services | 70% | Relevant to modern attack surface | Coverage breadth unknown. Likely header/DNS-based inference | Early stage |
@@ -57,7 +57,7 @@
 | **Cloud Asset Discovery** | Cloud infrastructure detection | 70% | Relevant | Technology fingerprinting based — not provider API. Cannot see what isn't public. | Surface-level |
 | **Brand Monitoring** | Typosquat candidate generation + DNS resolution | 60% | Covers the basics | No domain registration monitoring. No dark web monitoring. No lookalike logo detection. Typosquat generation only detects domains if they resolve — not if registered without active use. | Well below dedicated brand protection platforms (BrandShield, DomainTools) |
 | **Vendor Risk Intelligence** | Third-party vendor detection from scan data | 80% | Smart approach: derive vendor dependencies from existing scan data (CSP, CNAME, DNS, headers). 10-category taxonomy is correct. | Only sees what the target's website reveals. Cannot assess vendor's own security posture. | Clever MVP. The positioning matters: this is "what do you depend on" not "how secure is your vendor" |
-| **Supply Chain Intelligence** | Cross-workspace supply chain concentration analysis | 75% | Addresses the fastest-growing breach category | Highly derivative of vendor risk data. Cannot replace BitSight/Black Kite for Nth-party analysis. | Genuine competitive angle if positioned correctly |
+| **Supply Chain Intelligence** | Cross-workspace supply chain concentration analysis | 75% | Addresses the fastest-growing breach category | Highly derivative of vendor risk data. Cannot replace Competitor E/Black Kite for Nth-party analysis. | Genuine competitive angle if positioned correctly |
 | **Business Risk Score (BRS)** | Executive-facing composite metric (0-100) | 85% | Translates technical findings into business language. Five weighted categories. Workspace-level vs scan-level distinction is sophisticated. | Not externally audited. Non-technical buyers will not instinctively trust a single number. Needs story, not just score. | Highest commercial leverage in the product. This closes non-technical deals. |
 | **Cyber Essentials Readiness** | UK compliance readiness assessment | 80% | UK-specific. Commercially smart. Uses only existing scan data. Correct caveats (not a replacement for assessors). | Limited to external signals — cannot assess internal policies, access controls, or patch management reality | Genuine UK market differentiator. No mainstream competitor does this simply |
 | **Historical Monitoring** | Score delta, finding diff, asset diff across scans | 90% | first_seen / last_seen tracking is production-quality. The change diff is genuinely useful. | No anomaly detection. No baseline deviation alerts. No "this has never changed in 2 years and now it has" intelligence | Strong foundation. Most direct value to recurring customers |
@@ -140,7 +140,7 @@ The risk to this positioning: if the scanning depth is questioned by a technical
 - A vulnerability scanner (no CVE matching, no exploitation testing)
 - A DAST tool (no active attack simulation)
 - An internal network scanner
-- An enterprise risk rating platform (not a SecurityScorecard competitor)
+- An enterprise risk rating platform (not a Competitor D competitor)
 - A compliance management platform (no policy generation, no evidence collection, no audit packs)
 - A pen testing tool
 
@@ -148,34 +148,34 @@ The risk to this positioning: if the scanning depth is questioned by a technical
 
 ## Deliverable 4 — Competitive Analysis
 
-### Hardenize
-**CyberMeters wins:** Executive layer (BRS, narrative reporting), Cyber Essentials, Academy, pricing, UK focus, self-service onboarding. Hardenize is deeply technical — excellent for network engineers, intimidating for SMB owners.
-**CyberMeters loses:** TLS depth (Hardenize's TLS analysis is industry-leading), email security depth, DNSSEC detail, certificate transparency intelligence. Hardenize has been doing this longer and the scan accuracy is higher.
+### Competitor A's web/TLS product
+**CyberMeters wins:** Executive layer (BRS, narrative reporting), Cyber Essentials, Academy, pricing, UK focus, self-service onboarding. Competitor A's web/TLS product is deeply technical — excellent for network engineers, intimidating for SMB owners.
+**CyberMeters loses:** TLS depth (Competitor A's web/TLS product's TLS analysis is industry-leading), email security depth, DNSSEC detail, certificate transparency intelligence. Competitor A's web/TLS product has been doing this longer and the scan accuracy is higher.
 **Gaps that matter:** TLS cipher and protocol analysis is a genuine gap. SMBs asking "is my TLS configuration correct" cannot get a definitive answer from CyberMeters today.
-**Gaps that don't matter:** Hardenize's UI is not designed for the non-technical buyer. CyberMeters wins that audience easily.
+**Gaps that don't matter:** Competitor A's web/TLS product's UI is not designed for the non-technical buyer. CyberMeters wins that audience easily.
 
-### SecurityScorecard
-**CyberMeters wins:** Price, self-service, simplicity, onboarding speed. SecurityScorecard starts at $500+/month and requires enterprise sales.
-**CyberMeters loses:** Data breadth (SecurityScorecard has indexed tens of millions of organisations), third-party vendor ratings, financial sector credibility, enterprise features (SSO, SAML, enterprise SLAs).
-**Gaps that matter:** CyberMeters cannot rate vendors in SecurityScorecard's sense — it can only scan domains you own or have added. This is a fundamental difference.
-**Gaps that don't matter:** SecurityScorecard's enterprise feature set is overkill and over-priced for the SMB and MSP market CyberMeters is targeting. The direct competitive overlap is limited.
+### Competitor D
+**CyberMeters wins:** Price, self-service, simplicity, onboarding speed. Competitor D starts at $500+/month and requires enterprise sales.
+**CyberMeters loses:** Data breadth (Competitor D has indexed tens of millions of organisations), third-party vendor ratings, financial sector credibility, enterprise features (SSO, SAML, enterprise SLAs).
+**Gaps that matter:** CyberMeters cannot rate vendors in Competitor D's sense — it can only scan domains you own or have added. This is a fundamental difference.
+**Gaps that don't matter:** Competitor D's enterprise feature set is overkill and over-priced for the SMB and MSP market CyberMeters is targeting. The direct competitive overlap is limited.
 
-### UpGuard
-**CyberMeters wins:** Price, simplicity, speed to value, Cyber Essentials (UpGuard doesn't have this).
+### Competitor C
+**CyberMeters wins:** Price, simplicity, speed to value, Cyber Essentials (Competitor C doesn't have this).
 **CyberMeters loses:** Data depth, third-party rating coverage, questionnaire workflows, risk register features, customer success infrastructure.
-**Gaps that matter:** UpGuard's questionnaire and third-party risk management capability is a complete feature category that CyberMeters does not have.
-**Gaps that don't matter:** UpGuard's questionnaire features are designed for enterprise procurement teams. CyberMeters' target buyer doesn't run vendor questionnaire programmes.
+**Gaps that matter:** Competitor C's questionnaire and third-party risk management capability is a complete feature category that CyberMeters does not have.
+**Gaps that don't matter:** Competitor C's questionnaire features are designed for enterprise procurement teams. CyberMeters' target buyer doesn't run vendor questionnaire programmes.
 
 ### RiskRecon (Mastercard)
 **CyberMeters wins:** Price, accessibility, Cyber Essentials, self-service.
 **CyberMeters loses:** RiskRecon has financial sector trust (Mastercard brand), breadth of scanned organisations, deep enterprise integration.
 **Gaps that matter / don't matter:** Fully different market. There is no realistic near-term overlap.
 
-### Detectify
-**CyberMeters wins:** Executive layer, BRS, MSP portfolio, Cyber Essentials, pricing for SMBs. Detectify's strength is in technical depth for DevOps/AppSec teams.
-**CyberMeters loses:** Subdomain takeover fingerprint coverage (Detectify has 150+ providers; CyberMeters has 4), DAST capability, CVE/exploit correlation, Crowdsource vulnerability feed.
+### Competitor F
+**CyberMeters wins:** Executive layer, BRS, MSP portfolio, Cyber Essentials, pricing for SMBs. Competitor F's strength is in technical depth for DevOps/AppSec teams.
+**CyberMeters loses:** Subdomain takeover fingerprint coverage (Competitor F has 150+ providers; CyberMeters has 4), DAST capability, CVE/exploit correlation, Crowdsource vulnerability feed.
 **Gaps that matter:** The subdomain takeover gap is significant. It is one of the most visible ASM findings and CyberMeters' coverage is incomplete. This should be the first scanner improvement.
-**Gaps that don't matter:** Detectify's DAST features are for development teams — not the SMB market CyberMeters is targeting.
+**Gaps that don't matter:** Competitor F's DAST features are for development teams — not the SMB market CyberMeters is targeting.
 
 ### Pentest Tools
 **CyberMeters wins:** Continuous monitoring, historical tracking, executive reporting, MSP portfolio, BRS. Pentest Tools is point-in-time, not continuous.
@@ -183,22 +183,22 @@ The risk to this positioning: if the scanning depth is questioned by a technical
 **Gaps that matter:** CyberMeters cannot do port scanning. A buyer who asks "what ports are exposed on my servers" gets no answer.
 **Gaps that don't matter:** Manual testing workflows, report templates, engagement management — not in CyberMeters' target use case.
 
-### Intruder
-**CyberMeters wins:** Executive layer, BRS, Cyber Essentials, MSP portfolio, Academy. Intruder's strength is vulnerability scanning depth.
+### Competitor B
+**CyberMeters wins:** Executive layer, BRS, Cyber Essentials, MSP portfolio, Academy. Competitor B's strength is vulnerability scanning depth.
 **CyberMeters loses:** CVE detection, exploit intelligence, CVSS scoring, authenticated scanning, internal network scanning.
-**Gaps that matter:** Intruder would be the natural alternative for a buyer who has been told they need to know about CVEs. CyberMeters cannot answer that question.
+**Gaps that matter:** Competitor B would be the natural alternative for a buyer who has been told they need to know about CVEs. CyberMeters cannot answer that question.
 **Gaps that don't matter:** Authenticated internal scanning, agent-based scanning — outside CyberMeters' design scope and target market.
 
-### Rapid7 ASM (formerly InsightVM/Surface Command)
-**CyberMeters wins:** Price, simplicity, UK SMB focus, Cyber Essentials. Rapid7 is enterprise-only.
+### Competitor I ASM (formerly InsightVM/Surface Command)
+**CyberMeters wins:** Price, simplicity, UK SMB focus, Cyber Essentials. Competitor I is enterprise-only.
 **CyberMeters loses:** Everything technical. Scale, depth, integration, enterprise credibility.
 **Gaps that matter / don't matter:** Fully different market. No direct competition.
 
 ### Competitive Summary
 
-CyberMeters' most direct competitors in its actual target market are **Intruder** and **Detectify** at the SMB/growth company level, and **Hardenize** for the technically sophisticated buyer. The practical pitch is: CyberMeters is what Hardenize would look like if it were designed for an SMB owner instead of a network engineer, and what Intruder would look like if it were designed for board reporting instead of DevOps.
+CyberMeters' most direct competitors in its actual target market are **Competitor B** and **Competitor F** at the SMB/growth company level, and **Competitor A's web/TLS product** for the technically sophisticated buyer. The practical pitch is: CyberMeters is what Competitor A's web/TLS product would look like if it were designed for an SMB owner instead of a network engineer, and what Competitor B would look like if it were designed for board reporting instead of DevOps.
 
-The existential competitive risk is not SecurityScorecard. It is a well-funded competitor building a similar executive-layer ASM product for the UK SMB/MSP market. That competitor does not yet exist at scale. The window to establish market position is real but not unlimited.
+The existential competitive risk is not Competitor D. It is a well-funded competitor building a similar executive-layer ASM product for the UK SMB/MSP market. That competitor does not yet exist at scale. The window to establish market position is real but not unlimited.
 
 ---
 
@@ -217,7 +217,7 @@ The confidence scoring system and evidence framework on findings is genuine inte
 Zero server infrastructure. Global edge distribution. Worker, D1, R2, Pages — total infrastructure cost at early scale is likely under £100/month. Competitors running on AWS/GCP/Azure at equivalent scale spend 10x that in infrastructure. This creates a margin advantage that matters enormously in the SMB market where you are competing on price and the comparison is with doing nothing (rather than buying an enterprise alternative).
 
 **5. MSP Portfolio Monitoring**
-The workspace model is MSP-native. Multiple workspaces, cross-workspace portfolio dashboard, portfolio risk aggregation, per-workspace reports, team members with roles. An MSP account manager can log in, see all client workspaces at once, see which clients are deteriorating, and produce client-ready PDFs — from one platform. No dedicated SMB ASM tool does this well. Intruder has multi-tenant management. Detectify does not. Hardenize is single-tenant by default.
+The workspace model is MSP-native. Multiple workspaces, cross-workspace portfolio dashboard, portfolio risk aggregation, per-workspace reports, team members with roles. An MSP account manager can log in, see all client workspaces at once, see which clients are deteriorating, and produce client-ready PDFs — from one platform. No dedicated SMB ASM tool does this well. Competitor B has multi-tenant management. Competitor F does not. Competitor A's web/TLS product is single-tenant by default.
 
 **6. Historical Change Tracking**
 Score history, finding diff, subdomain change, exposed asset change — tracked per scan with first_seen/last_seen granularity. The recurring revenue story in SaaS security is "you need to keep watching, not just scan once." CyberMeters' historical tracking is the technical justification for that story. A customer who has 6 months of scan history has a genuine compliance and audit trail. This is the retention mechanism.
@@ -343,7 +343,7 @@ Additional requirements for commercial launch: External validation (1–3 paying
 
 ### Next 90 Days — Establish Private Beta and First Revenue
 
-1. **Expand subdomain takeover fingerprints** — From 4 to 50+ providers. This directly addresses the most visible gap vs. Detectify and Intruder. This is not a new feature — it is making an existing feature honest.
+1. **Expand subdomain takeover fingerprints** — From 4 to 50+ providers. This directly addresses the most visible gap vs. Competitor F and Competitor B. This is not a new feature — it is making an existing feature honest.
 2. **Public customer API** — Document and expose the existing Worker API for customer use. Add API key management UI. This unblocks technical buyers and opens the integration story (SIEM, Slack, Jira).
 3. **Onboarding sequence** — Guided first-scan experience. Email sequence for trial users (Day 1 welcome, Day 3 "have you tried X", Day 10 "your trial ends in 4 days"). These are the highest-ROI conversion levers.
 4. **Remediation workflow v1** — Ability to mark a finding as "accepted risk" or "in progress." Export finding list as CSV. This is the minimum viable risk management workflow.
@@ -362,7 +362,7 @@ Additional requirements for commercial launch: External validation (1–3 paying
 ### Next 12 Months — Scale the Commercial Engine
 
 1. **SIEM integration** — Webhook output for Splunk, Microsoft Sentinel, QRadar. This opens the enterprise and MSP market where every serious environment has a SIEM.
-2. **Intruder/Detectify substitution** — Expand scanning depth enough to make CyberMeters a credible alternative: TLS cipher analysis, CVE correlation for detected software versions, DAST for basic web vulnerabilities. These raise the technical ceiling without abandoning the executive-layer positioning.
+2. **Competitor B/Competitor F substitution** — Expand scanning depth enough to make CyberMeters a credible alternative: TLS cipher analysis, CVE correlation for detected software versions, DAST for basic web vulnerabilities. These raise the technical ceiling without abandoning the executive-layer positioning.
 3. **MSP partner programme** — Formal reseller structure, white-label branding, MSP-specific pricing, dedicated MSP onboarding. This is the fastest path to scale in the UK market.
 4. **Series A framing** — By 12 months: £50,000+ MRR, 3+ case studies, independent technical validation of the scanning engine, clear MSP traction, documented roadmap to supply chain risk intelligence. This is the investor narrative.
 
@@ -371,7 +371,7 @@ Additional requirements for commercial launch: External validation (1–3 paying
 ## Deliverable 9 — What Should NOT Be Built
 
 **1. Internal Network Scanning / Agent-Based Scanning**
-Do not build this. It changes the product category (from external ASM to endpoint management), the deployment model (requires software installation), the compliance requirements (agents in customer environments create liability), and the target buyer. CyberMeters wins by being zero-install and external. The moment it requires installing an agent, it is competing with CrowdStrike, SentinelOne, and Qualys Agent — and it will lose.
+Do not build this. It changes the product category (from external ASM to endpoint management), the deployment model (requires software installation), the compliance requirements (agents in customer environments create liability), and the target buyer. CyberMeters wins by being zero-install and external. The moment it requires installing an agent, it is competing with CrowdStrike, SentinelOne, and Competitor G Agent — and it will lose.
 
 **2. A SIEM**
 Do not build a SIEM. Feed into SIEMs (via webhooks, API, SIEM connectors). Building a SIEM is a decade of engineering and hundreds of millions of dollars. Feeding into existing SIEMs is a single integration sprint.
@@ -383,7 +383,7 @@ This is a professional services business, not a SaaS feature. Do not build a pen
 Unless you have access to dark web data sources (which requires either expensive licensing from providers like Digital Shadows or genuinely dangerous infrastructure), do not build this. The label creates expectations the product cannot meet. The actual dark web monitoring of real value requires near-real-time data from marketplaces, paste sites, and Telegram channels. This is a full product category, not a feature.
 
 **5. Questionnaire / Vendor Assessment Portals**
-UpGuard, CyberVadis, and Prevalent are questionnaire platforms. CyberMeters is an external scanning platform. Questionnaires are a completely different product requiring different UI, different workflows (multi-party), different compliance expertise, and different legal frameworks. Building questionnaire features dilutes the platform and competes on a dimension where CyberMeters has no advantage.
+Competitor C, CyberVadis, and Prevalent are questionnaire platforms. CyberMeters is an external scanning platform. Questionnaires are a completely different product requiring different UI, different workflows (multi-party), different compliance expertise, and different legal frameworks. Building questionnaire features dilutes the platform and competes on a dimension where CyberMeters has no advantage.
 
 **6. Compliance Frameworks Beyond Cyber Essentials (Near Term)**
 SOC 2, ISO 27001, GDPR, NIST CSF — these are audit and governance frameworks. CyberMeters can provide *signals* relevant to these frameworks from external data, but building a full compliance management platform is a different product. The trap is building a compliance module that creates the impression of audit readiness where there is none. Cyber Essentials is the right near-term compliance hook because it is genuinely achievable from external data.

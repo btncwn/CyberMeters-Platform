@@ -20,9 +20,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href;
 const { hashToken } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "auth-crypto.js")).href);
 const { resolveDomainTrend, DOMAIN_TREND, EVIDENCE_FRESHNESS, evidenceFreshness, readPortfolioDomainStates,
-        buildDomainMatrix, CYBER_MOT_DOMAIN_KEYS, persistCyberMotDomainStates } = await import(eng("cyber-mot-state-history.js"));
+        buildDomainMatrix, SECURITY_CHECK_DOMAIN_KEYS, persistSecurityCheckDomainStates } = await import(eng("security-check-state-history.js"));
 const { computePortfolioDomainRows, applyPortfolioView, buildPortfolioDomainSummary } = await import(eng("portfolio-domains.js"));
-const { CYBER_MOT_RESOLVER_VERSION, CYBER_MOT_STATES } = await import(eng("cyber-mot-domains.js"));
+const { SECURITY_CHECK_RESOLVER_VERSION, SECURITY_CHECK_STATES } = await import(eng("security-check-domains.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -59,7 +59,7 @@ const makeD1 = (db, log) => {
 };
 const domainWrites = () => writeLog.filter((s) => !INFRA_WRITE.test(s));
 
-const RV = CYBER_MOT_RESOLVER_VERSION;
+const RV = SECURITY_CHECK_RESOLVER_VERSION;
 const iso = (daysAgo) => new Date(Date.now() - daysAgo * 86400000).toISOString();
 let cmdsN = 0;
 // Seed one recorded state. `domain_key` defaults across all eight so a row is complete.
@@ -71,12 +71,12 @@ const seedState = (ws, domId, scanId, key, o = {}) => db.prepare(
    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 ).run(
   `cmds_${++cmdsN}`, ws, domId, scanId, key,
-  o.state ?? CYBER_MOT_STATES.ASSESSED_HEALTHY, o.coverage ?? "complete",
+  o.state ?? SECURITY_CHECK_STATES.ASSESSED_HEALTHY, o.coverage ?? "complete",
   o.summary ?? "Assessed — no material issue observed.", o.highest_severity ?? null,
   o.finding_count ?? 0, o.evidence_count ?? 1, JSON.stringify(o.finding_ids ?? []),
   o.scan_quality ?? "complete", o.resolver_version ?? RV, o.assessed_at ?? iso(1),
 );
-const seedAllEight = (ws, domId, scanId, o = {}) => { for (const k of CYBER_MOT_DOMAIN_KEYS) seedState(ws, domId, scanId, k, o); };
+const seedAllEight = (ws, domId, scanId, o = {}) => { for (const k of SECURITY_CHECK_DOMAIN_KEYS) seedState(ws, domId, scanId, k, o); };
 
 // ── Seed ─────────────────────────────────────────────────────────────────────
 // MSP A (entitled, business) with two customers; MSP B (entitled) with one. Both MSPs
@@ -240,7 +240,7 @@ ok("SAME HOSTNAME: drill-down targets the caller's OWN workspace + domain record
 for (const r of aRows) {
   ok(`all EIGHT domains present for ${r.hostname}`, r.cyber_mot_domains.length === 8);
   ok(`eight domains in canonical order for ${r.hostname}`,
-     r.cyber_mot_domains.map((d) => d.domain_key).join(",") === CYBER_MOT_DOMAIN_KEYS.join(","));
+     r.cyber_mot_domains.map((d) => d.domain_key).join(",") === SECURITY_CHECK_DOMAIN_KEYS.join(","));
 }
 ok("summary rolls up all EIGHT domains", a.data?.summary?.by_domain?.length === 8);
 
@@ -252,7 +252,7 @@ const noneRow = withNone.find((r) => r.domain_id === "d_none");
 ok("never-assessed domain is PRESENT, not dropped", !!noneRow);
 ok("never-assessed domain shows eight domains", noneRow.cyber_mot_domains.length === 8);
 ok("GREEN-BY-ABSENCE: no row ⇒ not_yet_assessed on all eight, never assessed_healthy",
-   noneRow.cyber_mot_domains.every((d) => d.state === CYBER_MOT_STATES.NOT_YET_ASSESSED));
+   noneRow.cyber_mot_domains.every((d) => d.state === SECURITY_CHECK_STATES.NOT_YET_ASSESSED));
 ok("never-assessed domain is NOT priority low", noneRow.priority !== "low", noneRow.priority);
 ok("never-assessed domain has no fabricated score", noneRow.overall_score === null && noneRow.overall_rating === null);
 ok("never-assessed domain freshness is none, not current", noneRow.evidence_freshness === EVIDENCE_FRESHNESS.NONE);
@@ -260,23 +260,23 @@ ok("no history ⇒ insufficient_history, NEVER stable",
    noneRow.cyber_mot_domains.every((d) => d.trend === DOMAIN_TREND.INSUFFICIENT_HISTORY));
 
 // ═════════════════ 3. Trend honesty ═════════════════════════════════════════
-const row = (o) => ({ scan_quality: "complete", resolver_version: RV, state: CYBER_MOT_STATES.ASSESSED_HEALTHY, assessed_at: iso(1), scan_id: "s1", finding_ids_json: "[]", highest_severity: null, ...o });
+const row = (o) => ({ scan_quality: "complete", resolver_version: RV, state: SECURITY_CHECK_STATES.ASSESSED_HEALTHY, assessed_at: iso(1), scan_id: "s1", finding_ids_json: "[]", highest_severity: null, ...o });
 
 ok("no previous ⇒ insufficient_history, not stable",
    resolveDomainTrend(row({}), null).trend === DOMAIN_TREND.INSUFFICIENT_HISTORY);
 
 // The load-bearing one: evidence vanished. previous said "issue", current cannot see.
 const vanished = resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT }),
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "critical", finding_ids_json: '["x"]', assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "critical", finding_ids_json: '["x"]', assessed_at: iso(8) }),
 );
 ok("DISAPPEARED EVIDENCE IS NOT RECOVERY", vanished.trend !== DOMAIN_TREND.RECOVERED && vanished.trend !== DOMAIN_TREND.IMPROVING, vanished.trend);
 ok("disappeared evidence says why", /not evidence that it has been resolved/i.test(vanished.trend_reason));
 
 // A partial scan is not an improvement.
 const partial = resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.ASSESSED_HEALTHY, scan_quality: "partial" }),
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "high", assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.ASSESSED_HEALTHY, scan_quality: "partial" }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "high", assessed_at: iso(8) }),
 );
 ok("INCOMPLETE SCAN IS NOT RECOVERY/IMPROVEMENT", partial.trend === DOMAIN_TREND.NOT_COMPARABLE, partial.trend);
 const failedPrev = resolveDomainTrend(row({}), row({ scan_quality: null, assessed_at: iso(8) }));
@@ -284,8 +284,8 @@ ok("failed/unknown-quality baseline is not comparable", failedPrev.trend === DOM
 
 // THE resolver-version gate: identical evidence, different ruler.
 const versionChanged = resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "critical", finding_ids_json: '["x"]', resolver_version: "9999-01-01.1" }),
-  row({ state: CYBER_MOT_STATES.ASSESSED_HEALTHY, assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "critical", finding_ids_json: '["x"]', resolver_version: "9999-01-01.1" }),
+  row({ state: SECURITY_CHECK_STATES.ASSESSED_HEALTHY, assessed_at: iso(8) }),
 );
 ok("RESOLVER-VERSION-ONLY CHANGE IS NOT WORSENING", versionChanged.trend === DOMAIN_TREND.NOT_COMPARABLE, versionChanged.trend);
 ok("resolver-version change says it was US, not them",
@@ -293,24 +293,24 @@ ok("resolver-version change says it was US, not them",
 
 // Real movement still resolves.
 ok("healthy → issue = new_risk", resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["dmarc_missing"]' }),
-  row({ state: CYBER_MOT_STATES.ASSESSED_HEALTHY, assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["dmarc_missing"]' }),
+  row({ state: SECURITY_CHECK_STATES.ASSESSED_HEALTHY, assessed_at: iso(8) }),
 ).trend === DOMAIN_TREND.NEW_RISK);
 ok("issue → healthy on two complete scans = recovered", resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.ASSESSED_HEALTHY }),
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["x"]', assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.ASSESSED_HEALTHY }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["x"]', assessed_at: iso(8) }),
 ).trend === DOMAIN_TREND.RECOVERED);
 ok("severity escalation = worsening", resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "critical", finding_ids_json: '["x"]' }),
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "medium", finding_ids_json: '["x"]', assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "critical", finding_ids_json: '["x"]' }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "medium", finding_ids_json: '["x"]', assessed_at: iso(8) }),
 ).trend === DOMAIN_TREND.WORSENING);
 ok("identical evidence = stable", resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["x"]' }),
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["x"]', assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["x"]' }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["x"]', assessed_at: iso(8) }),
 ).trend === DOMAIN_TREND.STABLE);
 const named = resolveDomainTrend(
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["a","b"]' }),
-  row({ state: CYBER_MOT_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["a"]', assessed_at: iso(8) }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["a","b"]' }),
+  row({ state: SECURITY_CHECK_STATES.ISSUE_DETECTED, highest_severity: "high", finding_ids_json: '["a"]', assessed_at: iso(8) }),
 );
 ok("a trend names WHICH evidence changed, not just that a number moved",
    named.new_finding_ids.includes("b") && /b/.test(named.trend_reason));
@@ -321,7 +321,7 @@ ok("score movement alone invents no cause (identical evidence at both ends ⇒ s
 // Acme's real Email Protection trend, end to end through the API.
 const acme = aRows.find((r) => r.hostname === "acme.co.uk");
 const email = acme?.cyber_mot_domains.find((d) => d.domain_key === "email_protection");
-ok("API: Acme email_protection is issue_detected", email?.state === CYBER_MOT_STATES.ISSUE_DETECTED);
+ok("API: Acme email_protection is issue_detected", email?.state === SECURITY_CHECK_STATES.ISSUE_DETECTED);
 ok("API: Acme email_protection trend is new_risk", email?.trend === DOMAIN_TREND.NEW_RISK, email?.trend);
 ok("API: trend cites the finding id", (email?.new_finding_ids || []).includes("dmarc_missing"));
 ok("API: a critical domain is NOT hidden by a healthy overall score",
@@ -343,7 +343,7 @@ mkScan("sc_stale", "d_stale", "stale.co.uk", "complete", 99, "ws_a1", 400);
 seedAllEight("ws_a1", "d_stale", "sc_stale", { assessed_at: iso(400) });
 const staleRows = await computePortfolioDomainRows(D1, ["ws_a1"]);
 const staleRow = staleRows.find((r) => r.domain_id === "d_stale");
-ok("STALE HEALTHY: state is still the resolver's verdict", staleRow.cyber_mot_domains[0].state === CYBER_MOT_STATES.ASSESSED_HEALTHY);
+ok("STALE HEALTHY: state is still the resolver's verdict", staleRow.cyber_mot_domains[0].state === SECURITY_CHECK_STATES.ASSESSED_HEALTHY);
 ok("STALE HEALTHY: freshness is stale, not current", staleRow.evidence_freshness === EVIDENCE_FRESHNESS.STALE);
 ok("STALE HEALTHY: does not read as a clean low-priority customer", staleRow.priority !== "low", staleRow.priority);
 ok("STALE HEALTHY: attention is required and says why",
@@ -457,7 +457,7 @@ ok("the platform's own writes still happen (rate limiting must not be disabled)"
    writeLog.some((s) => /api_rate_limits/i.test(s)));
 
 const srcOf = (f) => fs.readFileSync(path.join(root, "workers", "scan-api", "src", f), "utf8");
-const portfolioSrc = srcOf("engines/portfolio-domains.js") + srcOf("engines/cyber-mot-state-history.js");
+const portfolioSrc = srcOf("engines/portfolio-domains.js") + srcOf("engines/security-check-state-history.js");
 // The exact emitters and senders a portfolio must never reach. A portfolio that mints an
 // occurrence would pass an evaluation timestamp as observed_at and clear the alert
 // watermark — releasing the entire backlog to every customer at once.
@@ -484,22 +484,22 @@ const report = {
   modules: { dns: {}, ssl: {}, headers: {}, email_security: {}, subdomains: {}, certificate_intelligence: {}, brand_monitoring: {}, identity_discovery: {} },
   findings: [],
 };
-const again = await persistCyberMotDomainStates(env, { workspaceId: "ws_a1", domainId: "d_a1", scanId: "sc_a1_new", report, assessedAt: iso(1) });
+const again = await persistSecurityCheckDomainStates(env, { workspaceId: "ws_a1", domainId: "d_a1", scanId: "sc_a1_new", report, assessedAt: iso(1) });
 ok("re-persisting the SAME scan is idempotent — no second identity",
    db.prepare("SELECT COUNT(*) AS n FROM cyber_mot_domain_states").get().n === beforeRows, `wrote ${again.written}`);
 const preserved = db.prepare("SELECT state FROM cyber_mot_domain_states WHERE scan_id='sc_a1_new' AND domain_key='email_protection'").get();
 ok("APPEND-ONLY: a prior snapshot is NOT overwritten by a re-persist", preserved.state === "issue_detected", preserved.state);
 ok("engine issues no UPDATE/DELETE against the history table",
-   !/(UPDATE|DELETE\s+FROM)\s+cyber_mot_domain_states/i.test(srcOf("engines/cyber-mot-state-history.js")));
+   !/(UPDATE|DELETE\s+FROM)\s+cyber_mot_domain_states/i.test(srcOf("engines/security-check-state-history.js")));
 
 // Fails closed on a missing identity rather than writing an unscopeable row.
-ok("no workspace_id ⇒ nothing written (fails closed)", (await persistCyberMotDomainStates(env, { domainId: "d", scanId: "s", report })).written === 0);
-ok("no domain_id ⇒ nothing written (fails closed)", (await persistCyberMotDomainStates(env, { workspaceId: "w", scanId: "s", report })).written === 0);
-ok("no report ⇒ nothing written (fails closed)", (await persistCyberMotDomainStates(env, { workspaceId: "w", domainId: "d", scanId: "s", report: null })).written === 0);
+ok("no workspace_id ⇒ nothing written (fails closed)", (await persistSecurityCheckDomainStates(env, { domainId: "d", scanId: "s", report })).written === 0);
+ok("no domain_id ⇒ nothing written (fails closed)", (await persistSecurityCheckDomainStates(env, { workspaceId: "w", scanId: "s", report })).written === 0);
+ok("no report ⇒ nothing written (fails closed)", (await persistSecurityCheckDomainStates(env, { workspaceId: "w", domainId: "d", scanId: "s", report: null })).written === 0);
 
 // A new scan DOES append a new generation.
 const newReport = { ...report, scan_id: "sc_a1_third", completed_at: iso(0) };
-await persistCyberMotDomainStates(env, { workspaceId: "ws_a1", domainId: "d_a1", scanId: "sc_a1_third", report: newReport, assessedAt: iso(0) });
+await persistSecurityCheckDomainStates(env, { workspaceId: "ws_a1", domainId: "d_a1", scanId: "sc_a1_third", report: newReport, assessedAt: iso(0) });
 ok("a NEW scan appends a new generation (8 more rows)",
    db.prepare("SELECT COUNT(*) AS n FROM cyber_mot_domain_states").get().n === beforeRows + 8);
 ok("every persisted row carries the resolver version",

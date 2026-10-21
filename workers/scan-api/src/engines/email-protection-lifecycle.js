@@ -150,7 +150,7 @@ export const EMAIL_RECURRENCES = Object.freeze([
 ]);
 
 // finding_type → the Canonical Remediation Registry. Prefixed `email_` so they
-// match the email_protection domain matcher in cyber-mot-domains.js, which tests
+// match the email_protection domain matcher in security-check-domains.js, which tests
 // /^(email_|dmarc_|spf_|dkim_|mta_|bimi_|tlsrpt_)/ — a `hosted_dmarc_*` slug
 // would NOT match and would land the finding in no domain at all.
 export const EMAIL_RECURRENCE_FINDING_TYPE = Object.freeze({

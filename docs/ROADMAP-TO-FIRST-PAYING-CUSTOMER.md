@@ -35,14 +35,14 @@ see `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`.
 
 - **M5.a–M5.g** — managed-case verticals, CE honesty/hygiene, Certificates verify-by-observation + reconciliation, Unified Reporting snapshot + renderer migration, eight-domain parity, maturity ledger, and the final CI closure — **ALL CLOSED**.
 - **M6** — gated by **M6.0**. **M6.0-A** (competitive differentiation hypothesis) **PASSED**. **M6.0-B** (sensor sufficiency + real-data empirical proof) **RAN 2026-07-18 (read-only, no code) and the founder ruled RESCOPE**: the GO criteria were not met (only one of the needed ≥2 correlation use cases is sensor-sufficient — UC1 Brand weaponisation needs four prohibited new sensors/stores, and UC2 Email's core transition is already shipped by `posture-events.js`). M6 "External Behaviour Intelligence Engine" was therefore **rescoped to the episode "Posture Timeline Trust & Actionability"** (plan: `docs/EPISODE-PLAN-posture-timeline-trust.md`); this bullet preserves the historical phase decision and does not override the current frozen-backlog status above.
-- **Cross-source correlation** is canonicalised by `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`. The correct framing is **correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas** — never "correlation across the eight domains". **Cyber Essentials Readiness and Website Security summaries are DERIVED OUTPUTS, not independent corroborating inputs** (a raw HTTP/TLS/header signal enters once; the result maps back to Website Security). **B1** (deterministic Related Changes, pre-beta) is founder-approved and covers a broad producer scope — Attack Surface, Certificates, app-probe/login/admin, Identity Exposure, Email configuration, one bounded Email sender-behaviour rule, Brand Protection, and provenance-safe Shadow IT. The registrable-domain resolver is **UK-scoped (not full-PSL) today** — sufficient for the UK private beta; a full Public Suffix List upgrade is a gated prerequisite before any non-UK customer. **B2 (baselines/unusualness) and B3 (statistical/AI behaviour intelligence) remain DEFERRED** — post-beta and post-revenue respectively, founder-gated.
+- **Cross-source correlation** is canonicalised by `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`. The correct framing is **correlation across eligible evidence producers, mapped to affected customer-facing external security check areas** — never "correlation across the eight domains". **Cyber Essentials Readiness and Website Security summaries are DERIVED OUTPUTS, not independent corroborating inputs** (a raw HTTP/TLS/header signal enters once; the result maps back to Website Security). **B1** (deterministic Related Changes, pre-beta) is founder-approved and covers a broad producer scope — Attack Surface, Certificates, app-probe/login/admin, Identity Exposure, Email configuration, one bounded Email sender-behaviour rule, Brand Protection, and provenance-safe Shadow IT. The registrable-domain resolver is **UK-scoped (not full-PSL) today** — sufficient for the UK private beta; a full Public Suffix List upgrade is a gated prerequisite before any non-UK customer. **B2 (baselines/unusualness) and B3 (statistical/AI behaviour intelligence) remain DEFERRED** — post-beta and post-revenue respectively, founder-gated.
 - **M7** — Pricing + Billing Alignment — remains the following gate (after the rescoped episode).
 
 Earlier canonical episodes — Alerts Across All Eight Domains and MSP Portfolio Per-Domain State and Trend — are Live. Engineering is closed on the shipped M5 items, but genuine authenticated live-event acceptance remains outstanding for every managed vertical (gate 10 below). This roadmap uses milestone language; for exact release tags, migrations, deployment IDs, rollback identities and production proof see `CHANGELOG.md` — the sole source of truth for fast-aging release facts, which are deliberately not duplicated here.
 
 ## Mission
 
-Complete the managed Cyber MOT platform, prove reliability and security, convert controlled users into customer evidence, and acquire the first paying customer without allowing marketing, funding applications, or feature expansion to distract from product trust.
+Complete the managed external security check platform, prove reliability and security, convert controlled users into customer evidence, and acquire the first paying customer without allowing marketing, funding applications, or feature expansion to distract from product trust.
 
 ## North-star outcome
 
@@ -147,7 +147,7 @@ Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before 
 | 4 | M5.e Eight-domain Parity | CLOSED — deployed `v2026.07.17-4` (migration `094`) |
 | 5 | M5.f Maturity Ledger | CLOSED — deployed `v2026.07.17-5` (migration `095`); founder-controlled complete-scan acceptance passed |
 | 6 | M5.g Final CI Closure | CLOSED — `validate-m5-closure.js` locks the full M5 gate + append-only idempotency (CI-only, no deploy); CE double-build cost is a tracked deploy-gated residual |
-| 7 | **M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability**, then split into **B1 / B2 / B3** | M6.0-A PASSED; M6.0-B ran 2026-07-18 (read-only), founder **ruled RESCOPE**. **Phase A** (timeline-trust: eligibility/producer-version guards + flip-flop dedupe on `asset_events`) is **shipped (PR #169) → deployed (Worker `89c398b1`) → production-accepted (PASS, 18 Jul 2026)**; code-only, no migration. **M6 is now split by the canonical design `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** **B1 — Deterministic Related Changes (pre-public-beta, founder-approved in principle 19 Jul 2026)** — correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas (NOT "eight-domain correlation"); **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. Historical status at this decision: B1 not started. Later B1/B2/B3 work is preserved and scheduled only under the current canonical order. |
+| 7 | **M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability**, then split into **B1 / B2 / B3** | M6.0-A PASSED; M6.0-B ran 2026-07-18 (read-only), founder **ruled RESCOPE**. **Phase A** (timeline-trust: eligibility/producer-version guards + flip-flop dedupe on `asset_events`) is **shipped (PR #169) → deployed (Worker `89c398b1`) → production-accepted (PASS, 18 Jul 2026)**; code-only, no migration. **M6 is now split by the canonical design `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** **B1 — Deterministic Related Changes (pre-public-beta, founder-approved in principle 19 Jul 2026)** — correlation across eligible evidence producers, mapped to affected customer-facing external security check areas (NOT "eight-domain correlation"); **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. Historical status at this decision: B1 not started. Later B1/B2/B3 work is preserved and scheduled only under the current canonical order. |
 | 8 | M7 Pricing + Billing Alignment | Planned |
 | 9 | Final Beta Hardening | Planned |
 | 10 | Controlled Authenticated / Live Acceptance | Planned |
@@ -163,11 +163,11 @@ Founder-approved (16 July 2026; **re-sequenced 18 July 2026 to insert M6 before 
 
 **Gate specifics that are not obvious from the phase text:**
 
-- **7 — M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability.** Honest re-diagnosis: the app ALREADY does change-over-time (`posture-events.js` is a posture-diff engine feeding the Exposure Timeline + weekly digest). So **M6 was NOT "change over time"** — its only defensible new value would have been **cross-source correlation + bounded DETERMINISTIC significance** (correlation across eligible evidence producers mapped to affected Cyber MOT areas — NOT "correlation across the eight customer-facing domains"; see the canonical split below) the existing diff timeline cannot produce. Significance is composed deterministically (`change type + security direction + persistence + recurrence + inventory mismatch + corroborating signals`; historical rarity is one enriching factor, not the base) — **not** statistical anomaly; customer-facing wording avoids "anomalous/suspicious/attacker/statistically unusual" in favour of "material / correlated / requires verification / higher-confidence progression". Correlation is kept small (**≤3 signal families** per use case). Deterministic decides, AI explains; change ≠ compromise; honest-by-default; emits through the canonical alert/case/remediation systems (no parallel platform).
+- **7 — M6.0 Viability Gate → RESCOPE: Posture Timeline Trust & Actionability.** Honest re-diagnosis: the app ALREADY does change-over-time (`posture-events.js` is a posture-diff engine feeding the Exposure Timeline + weekly digest). So **M6 was NOT "change over time"** — its only defensible new value would have been **cross-source correlation + bounded DETERMINISTIC significance** (correlation across eligible evidence producers mapped to affected external security check areas — NOT "correlation across the eight customer-facing domains"; see the canonical split below) the existing diff timeline cannot produce. Significance is composed deterministically (`change type + security direction + persistence + recurrence + inventory mismatch + corroborating signals`; historical rarity is one enriching factor, not the base) — **not** statistical anomaly; customer-facing wording avoids "anomalous/suspicious/attacker/statistically unusual" in favour of "material / correlated / requires verification / higher-confidence progression". Correlation is kept small (**≤3 signal families** per use case). Deterministic decides, AI explains; change ≠ compromise; honest-by-default; emits through the canonical alert/case/remediation systems (no parallel platform).
   - **M6.0-A — Competitive differentiation hypothesis: PASSED** (structurally verified: provider audit logs — Cloudflare, GoDaddy — are control-plane-only / own-account / external-blind; the external, cross-provider and attacker-side blind spots are real).
   - **M6.0-B — Sensor sufficiency + real-data empirical proof: RAN 2026-07-18 (read-only, no code).** Candidate use cases ranked (1) Brand weaponisation progression, (2) Email posture transition, (3) New public surface correlation, each tested against the three counterfactuals (provider / existing-timeline / analyst-at-scale-or-SME-continuity). **Result — GO criteria not met:** only **one** of the needed ≥2 correlation use cases is sensor-sufficient. UC1 Brand needs **four prohibited** new sensors/stores (CT monitor, content fetch, MX-over-time persistence, per-lookalike baseline store — real data confirmed `mx_present`/`https_available` dead across 880 lookalikes, `brand_abuse_campaigns` empty). UC2 Email's core transition is **already shipped** by `posture-events.js`. Only UC3 host-level correlation is buildable from existing sensors, and it carries the weakest provider counterfactual. Founder-domain honesty was proven live (silent-on-stable; the existing eligibility gate correctly returned `not_comparable` on a would-be fake regression).
   - **Outcome — founder ruled RESCOPE (18 Jul 2026):** the episode is **"Posture Timeline Trust & Actionability"** (plan: `docs/EPISODE-PLAN-posture-timeline-trust.md`) — Phase A ports the eligibility/producer-version guards that already exist on migrations `091`/`093`/`095` onto `asset_events` (mig `004`) + flip-flop dedupe; Phase B builds the single sensor-sufficient UC3 host-level correlation (one canonical managed case + canonical owner or explicitly unassigned). It must **NOT** carry a "behaviour intelligence" claim. Six founder constraints govern: (1) `not_comparable`/`unavailable`/`insufficient_history` are comparison-STATUS outcomes, not customer security events — fail closed, diagnostic transparency separate; (2) canonical ownership only, never fabricated; (3) controlled detection fixtures (positive/negative/stable/unavailable-source/cross-version/recurrence/dedupe) mandatory before UC3 is production-enabled; (4) no pre-committed migration; (5) `asset_events` never mutated or deleted; (6) remediation must map to the registry or stay explicit-unknown. **Phase A status (18 Jul 2026): shipped (PR #169) → deployed (Worker `89c398b1`; rollback `9d2f96b1`) → production-accepted (PASS); code-only, no migration. Phase B (UC3 correlation) NOT started — founder-gated, blocked on the controlled detection-fixture gate.**
-  - **Canonical split (superseding the "Phase B / host-level correlation" framing above), founder-approved-in-principle 19 Jul 2026 — see `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** the honest re-diagnosis stands, but the correct framing is **correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas** — never "correlation across the eight domains", and **Cyber Essentials Readiness / Website Security summaries are derived OUTPUTS, not independent corroborating inputs**. M6 splits into: **B1 — Deterministic Related Changes (pre-public-beta)**, a broad but bounded producer scope (Attack Surface, Certificates, app-probe/login/admin, Identity Exposure, Email configuration, one bounded Email sender-behaviour rule, Brand Protection, provenance-safe Shadow IT), deterministic rules requiring ≥2 independent signal families in a bounded window (same registrable domain alone is insufficient), evidence pointers (no copies), managed expected/unrelated feedback, manual case linking, no automatic case/alert creation, no attack-chain language; **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. Registrable-domain resolver is UK-scoped (not full-PSL) today — sufficient for the UK private beta; full-PSL is a gated prerequisite before any non-UK customer. B2 and B3 remain explicitly DEFERRED (sensor/real-data dependent, founder-gated).
+  - **Canonical split (superseding the "Phase B / host-level correlation" framing above), founder-approved-in-principle 19 Jul 2026 — see `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`:** the honest re-diagnosis stands, but the correct framing is **correlation across eligible evidence producers, mapped to affected customer-facing external security check areas** — never "correlation across the eight domains", and **Cyber Essentials Readiness / Website Security summaries are derived OUTPUTS, not independent corroborating inputs**. M6 splits into: **B1 — Deterministic Related Changes (pre-public-beta)**, a broad but bounded producer scope (Attack Surface, Certificates, app-probe/login/admin, Identity Exposure, Email configuration, one bounded Email sender-behaviour rule, Brand Protection, provenance-safe Shadow IT), deterministic rules requiring ≥2 independent signal families in a bounded window (same registrable domain alone is insufficient), evidence pointers (no copies), managed expected/unrelated feedback, manual case linking, no automatic case/alert creation, no attack-chain language; **B2 — Customer baselines & unusualness (post-beta, real-data gated)**; **B3 — Statistical/AI Behaviour Intelligence (post-revenue, founder-gated)**. Registrable-domain resolver is UK-scoped (not full-PSL) today — sufficient for the UK private beta; full-PSL is a gated prerequisite before any non-UK customer. B2 and B3 remain explicitly DEFERRED (sensor/real-data dependent, founder-gated).
   - **Scanner boundary (canonical):** CyberMeters will not embed or depend on open-source vulnerability scanner engines or community scanning-template ecosystems in its production scanning pipeline. External checks must be proprietary CyberMeters probes or separately founder-approved commercial integrations. Public vulnerability data such as KEV, NVD and CVE metadata may be used only for enrichment and prioritisation; it must not independently create or verify a finding. No new scanner dependency may be introduced implicitly. The rescoped episode consumes selected existing, inventoried and approved sensor outputs; developing a new vulnerability detection framework requires a separate founder-gated programme.
   - Founder decision (18 Jul 2026): the rescoped episode precedes pricing (M7).
   - **Parked, non-blocking post-Phase-A follow-up observations (recorded, not implemented; sequenced behind Phase B and founder-gated):**
@@ -583,7 +583,7 @@ register
 → log in
 → create workspace
 → add and verify domain
-→ run Cyber MOT
+→ run external security check
 → review all eight domains
 → open remediation
 → assign owner
@@ -731,7 +731,7 @@ The first paying customer must be acquired on the adopted pricing. Do not change
 
 ## F2. Initial offer
 
-> A managed Cyber MOT for your business domain, with an eight-domain report, prioritised actions, ongoing monitoring, alerts, and clear follow-up.
+> A managed external security check for your business domain, with an eight-domain report, prioritised actions, ongoing monitoring, alerts, and clear follow-up.
 
 State clearly what is included, monitored-domain limits, monitoring frequency, reports, alerts, managed cases, support, price, cancellation, and evidence limitations.
 
@@ -743,7 +743,7 @@ Prepare:
 
 - one-page product overview;
 - eight-domain overview;
-- redacted sample Cyber MOT report;
+- redacted sample external security check report;
 - sample Executive PDF;
 - “what CyberMeters can and cannot see” page;
 - pricing page;
@@ -760,7 +760,7 @@ Prepare:
 
 ## F4. Measurement foundation
 
-Configure Search Console, analytics, conversion events, consent, CRM/lead tracker, source/medium, free Cyber MOT start/completion, booked call, qualified lead, pilot, and paid conversion.
+Configure Search Console, analytics, conversion events, consent, CRM/lead tracker, source/medium, free security check start/completion, booked call, qualified lead, pilot, and paid conversion.
 
 Primary metric:
 
@@ -784,7 +784,7 @@ Confirm crawlability, canonical URLs, sitemap, robots rules, titles, meta descri
 
 Create focused pages for:
 
-- Cyber MOT for small businesses;
+- external security check for small businesses;
 - website security monitoring UK;
 - DMARC monitoring UK;
 - external attack surface monitoring for SMEs;
@@ -794,8 +794,8 @@ Create focused pages for:
 - identity exposure monitoring;
 - Shadow IT monitoring;
 - MSP cyber-security monitoring;
-- Cyber MOT Scotland;
-- Cyber MOT UK.
+- external security check Scotland;
+- external security check UK.
 
 Avoid thin, duplicated location pages.
 
@@ -803,7 +803,7 @@ Avoid thin, duplicated location pages.
 
 Publish useful content such as:
 
-- what a Cyber MOT checks;
+- what an external security check checks;
 - what external posture can and cannot see;
 - DMARC reports explained;
 - certificate expiry and business interruption;
@@ -820,7 +820,7 @@ Every page answers a real question, uses plain language, includes examples/evide
 
 ## SEO KPIs
 
-Track indexed pages, non-brand impressions, qualified organic visits, free Cyber MOT starts, booked calls, and paid conversions. Do not celebrate impressions without qualified action.
+Track indexed pages, non-brand impressions, qualified organic visits, free security check starts, booked calls, and paid conversions. Do not celebrate impressions without qualified action.
 
 ---
 
@@ -842,7 +842,7 @@ Message structure:
 
 1. specific observation;
 2. business relevance;
-3. simple Cyber MOT explanation;
+3. simple external security check explanation;
 4. no fear-based language;
 5. one low-friction next action.
 
@@ -1053,7 +1053,7 @@ Open findings, tenant isolation, auth testing, pentest/retest.
 
 ## Acquisition
 
-Qualified organic visits, Cyber MOT starts, leads, calls, pilots, paid conversions, source.
+Qualified organic visits, external security check starts, leads, calls, pilots, paid conversions, source.
 
 ## Commercial
 

@@ -147,7 +147,7 @@ export default function OnboardingPage() {
   const [reportState, setReportState] = useState(null)
   const [reportRefresh, setReportRefresh] = useState(0)
   const [workspaceName, setWorkspaceName] = useState('')
-  // Prefill from the free Cyber MOT handoff (/signup?domain=… stored by SignupPage),
+  // Prefill from the free security check handoff (/signup?domain=… stored by SignupPage),
   // so the domain the user just scanned is waiting for them here.
   const [domainName, setDomainName] = useState(() => {
     try { return localStorage.getItem(PENDING_SIGNUP_DOMAIN_KEY) || '' } catch { return '' }
@@ -557,7 +557,7 @@ export default function OnboardingPage() {
         )}
       </StepCard>
 
-      <StepCard number={4} title="Run First Cyber MOT" done={steps.scan} active={activeStep === 4}>
+      <StepCard number={4} title="Run First Security Check" done={steps.scan} active={activeStep === 4}>
         {!steps.verification ? (
           <p className="text-sm text-gray-500">Verify the domain before starting your first passive posture check.</p>
         ) : steps.scan ? (
@@ -570,7 +570,7 @@ export default function OnboardingPage() {
           <button onClick={runFirstScan} className="btn-primary" disabled={actionLoading === 'scan'}>
             {actionLoading === 'scan'
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Starting...</>
-              : 'Run First Cyber MOT'
+              : 'Run First Security Check'
             }
           </button>
         )}
@@ -627,7 +627,7 @@ export default function OnboardingPage() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">Run your first Cyber MOT to generate the Executive Report.</p>
+          <p className="text-sm text-gray-500">Run your first security check to generate the Executive Report.</p>
         )}
       </StepCard>
       </div>

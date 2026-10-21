@@ -148,7 +148,7 @@ function isMarketingHost() {
 
 // Marketing host serves only landing/legal/CE-readiness. Auth and app routes
 // live on the app subdomain — a react-router <Navigate> cannot cross hosts, so
-// without this, links like "Sign in" or "Run your Cyber MOT" on cybermeters.com
+// without this, links like "Sign in" or "Run your security check" on cybermeters.com
 // silently bounced back to the landing page via the catch-all route.
 function AppHostRedirect() {
   const location = useLocation()

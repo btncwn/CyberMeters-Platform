@@ -20,7 +20,7 @@ import { formatDay } from '../../utils/dates'
 //
 // The page keeps its own findings body (passed as children); the contract
 // renders the framing sections from backend values only: the area's resolver
-// row (GET /workspaces/:id/cyber-mot-domains) and its managed cases
+// row (GET /workspaces/:id/security-domains) and its managed cases
 // (GET /workspaces/:id/cases?domain_key=…, the same query as Operations). The words are the common
 // vocabulary (lib/statusVocabulary.js); nothing here derives a state, and a
 // read that fails or is still pending is shown as that. The filter box narrows

@@ -24,7 +24,7 @@ import { RDAP_UA, safeFetch } from "../lib/http.js";
 export const REGISTRATION_DATA_OPTIONAL = Object.freeze({ source: "rdap", optional: true });
 
 // The registration findings that reach the report's findings array, where the
-// Attack Surface domain owns them (cyber-mot-domains.js `whois_` match). They
+// Attack Surface domain owns them (security-check-domains.js `whois_` match). They
 // keep score_impact 0 — registration data never moves the Cyber Metrics Score —
 // but carry explicit finding authority so an expired or expiring registration
 // can own the domain's issue state. `whois_new_domain` and

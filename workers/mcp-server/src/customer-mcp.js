@@ -516,7 +516,7 @@ function projectResult(name, raw, input, boundWorkspaceId) {
 const tools = Object.freeze([
   ['cybermeters_list_workspaces', 'listWorkspaces', cursorInput, 'List your currently authorised workspaces in bounded pages.'],
   ['cybermeters_get_workspace_summary', 'getWorkspaceSummary', workspaceInput, 'Summarise one authorised workspace and its evidence quality.'],
-  ['cybermeters_get_workspace_posture', 'getWorkspacePosture', workspaceInput, 'Read the eight Cyber MOT domain states and limitations.'],
+  ['cybermeters_get_workspace_posture', 'getWorkspacePosture', workspaceInput, 'Read the eight security domain states and limitations.'],
   ['cybermeters_list_recent_scans', 'listRecentScans', workspaceCursorInput, 'List a bounded page of recent scan states.'],
   ['cybermeters_get_scan_status', 'getScanStatus', scanInput, 'Read one scan lifecycle and assessment state.'],
   ['cybermeters_list_managed_cases', 'listManagedCases', workspaceCursorInput, 'List a bounded page of managed case phases.'],

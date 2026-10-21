@@ -12,7 +12,7 @@ import { redactedJson } from "./redact.js";
 // Customer-safe rejection returned by every scan-start path for an unverified link.
 export const DOMAIN_VERIFICATION_REQUIRED = Object.freeze({
   error:   "domain_verification_required",
-  message: "Verify domain ownership before starting a Cyber MOT.",
+  message: "Verify domain ownership before starting an external security check.",
 });
 
 // True ONLY when the exact (workspace_id, domain_id) link is 'verified'. Fails

@@ -14,7 +14,7 @@ The short answer is neither extreme. The correct move is to use ASM as a *detect
 
 **Three headline conclusions:**
 
-1. Supply chain risk is a genuine strategic opportunity — but the timing and scope must be right. A v1 built from CyberMeters' existing data is feasible and valuable. An attempt to out-index BitSight at the platform level is not.
+1. Supply chain risk is a genuine strategic opportunity — but the timing and scope must be right. A v1 built from CyberMeters' existing data is feasible and valuable. An attempt to out-index Competitor E at the platform level is not.
 
 2. Business Risk Score has the highest immediate commercial leverage. It translates existing scan data into executive language. It closes deals with non-technical buyers. It should ship before anything else.
 
@@ -32,13 +32,13 @@ However, "Supply Chain Risk is a differentiator" and "CyberMeters should immedia
 
 **The honest challenge with supply chain risk as a near-term differentiator for CyberMeters:**
 
-Traditional supply chain risk platforms (BitSight, SecurityScorecard, Black Kite) derive their value from *scale of indexed data*. BitSight has rated 100M+ organisations. SecurityScorecard covers an enormous universe of vendors. Black Kite offers Nth-party visibility. Their moat is data breadth, which took them years and tens of millions of dollars to build.
+Traditional supply chain risk platforms (Competitor E, Competitor D, Black Kite) derive their value from *scale of indexed data*. Competitor E has rated 100M+ organisations. Competitor D covers an enormous universe of vendors. Black Kite offers Nth-party visibility. Their moat is data breadth, which took them years and tens of millions of dollars to build.
 
 CyberMeters' competitive position is not "scan more organisations than the incumbents." That race is lost before it starts. The question is whether CyberMeters can offer *meaningful supply chain risk intelligence* for SMBs and MSPs — without needing to index the entire internet.
 
 The answer is yes, but only by defining the problem correctly. CyberMeters can detect what vendors a target organisation *depends on* by examining its own scan data — technology fingerprints in JavaScript, DNS records, HTTP headers, TLS certificate authorities, CNAME chains. That is supply chain dependency mapping without any external data licensing. It is scoped to the target's attack surface, which is exactly what an SMB or MSP buyer needs to know.
 
-This is a different product than SecurityScorecard's vendor ratings universe. It is not inferior — it is differently focused. And for the SMB buyer who does not have a vendor procurement team, knowing that their website silently depends on 14 third-party SaaS platforms — three of which had security incidents in the last 12 months — is *more actionable* than a letter grade on their own domain.
+This is a different product than Competitor D's vendor ratings universe. It is not inferior — it is differently focused. And for the SMB buyer who does not have a vendor procurement team, knowing that their website silently depends on 14 third-party SaaS platforms — three of which had security incidents in the last 12 months — is *more actionable* than a letter grade on their own domain.
 
 **Conclusion:** Supply Chain Risk is a real differentiator opportunity for CyberMeters — but only when framed as "supply chain *dependency visibility* for your own environment," not "ratings for all your vendors." That reframe makes it achievable.
 
@@ -107,7 +107,7 @@ Supply Chain Risk v1 should be built as an extension of the Vendor Risk layer, a
 - Critical path identification (single points of vendor failure)
 - Cascading risk scoring (what is the blast radius if vendor X fails)
 - Executive supply chain risk report as a standalone deliverable
-- Public breach feed integration (free sources: Have I Been Pwned, OSV, CISA KEV) for contextual risk signals
+- Public breach feed integration (free sources: a public breach-notification service, OSV, CISA KEV) for contextual risk signals
 
 By month 12, CyberMeters should be positioned as: "The business risk and supply chain visibility platform for SMBs and MSPs — powered by attack surface scanning." This is a defensible, differentiated position that no existing player owns cleanly at the SMB price point.
 
@@ -203,7 +203,7 @@ The Vendor Risk dashboard should be accessible at the workspace level and portfo
 
 ### What is Realistically Achievable
 
-The supply chain risk platforms targeting enterprises (Black Kite's Nth-party visibility, BitSight's four-tier supply chain intelligence) require a combination of licensed breach data, dark web monitoring, financial modelling, and a pre-indexed universe of rated organisations. None of this is achievable for CyberMeters within 12 months without significant external investment.
+The supply chain risk platforms targeting enterprises (Black Kite's Nth-party visibility, Competitor E's four-tier supply chain intelligence) require a combination of licensed breach data, dark web monitoring, financial modelling, and a pre-indexed universe of rated organisations. None of this is achievable for CyberMeters within 12 months without significant external investment.
 
 What *is* achievable is a supply chain risk layer built entirely on discovered data — the organisation's own attack surface extended to its immediately visible dependencies. This is first-party supply chain risk intelligence: not "what is the risk of your 5th-tier supplier" but "what external systems does your organisation trust, and what happens if they fail."
 
@@ -261,33 +261,33 @@ This report is designed to be put in front of a board or a CFO without technical
 
 ### The Honest Landscape
 
-**Hardenize** is no longer an independent competitor. Red Sift acquired them and is building an email-focused ASM product. This removes one direct ASM comparison point and actually strengthens CyberMeters' position in the "technical ASM + email security" quadrant.
+**Competitor A's web/TLS product** is no longer an independent competitor. Competitor A acquired them and is building an email-focused ASM product. This removes one direct ASM comparison point and actually strengthens CyberMeters' position in the "technical ASM + email security" quadrant.
 
-**BitSight** is the most dangerous competitor for CyberMeters' aspirations. They were named a Forrester Wave Leader in Q2 2026 and have unified EASM, threat intelligence, and TPRM in a single platform. Their enterprise moat is nearly unassailable. However, their pricing (typically $20K–$100K+/year) and implementation complexity make them inaccessible to SMBs and small MSPs. This is CyberMeters' primary opening.
+**Competitor E** is the most dangerous competitor for CyberMeters' aspirations. They were named a Forrester Wave Leader in Q2 2026 and have unified EASM, threat intelligence, and TPRM in a single platform. Their enterprise moat is nearly unassailable. However, their pricing (typically $20K–$100K+/year) and implementation complexity make them inaccessible to SMBs and small MSPs. This is CyberMeters' primary opening.
 
-**SecurityScorecard** leads the market by volume but trails on technical depth. Their strength is executive dashboards and ratings at scale. Their weakness is that their ratings are frequently contested as inaccurate (they rate organisations based on passive observation that can produce false positives). CyberMeters' active scan approach, when properly tuned, produces *more accurate findings* than passive observation. This is a genuine quality differentiator.
+**Competitor D** leads the market by volume but trails on technical depth. Their strength is executive dashboards and ratings at scale. Their weakness is that their ratings are frequently contested as inaccurate (they rate organisations based on passive observation that can produce false positives). CyberMeters' active scan approach, when properly tuned, produces *more accurate findings* than passive observation. This is a genuine quality differentiator.
 
-**UpGuard** is the closest comparator in terms of market segment (mid-market, combined ASM + vendor risk) but is showing signs of strategic drift — trailing in the April 2026 Forrester Wave on ratings trust, data quality, and integration depth. UpGuard's questionnaire workflow is its main differentiator for formal vendor onboarding. CyberMeters should not compete on questionnaire workflow in v1 — it is a feature that requires significant operational infrastructure to build correctly.
+**Competitor C** is the closest comparator in terms of market segment (mid-market, combined ASM + vendor risk) but is showing signs of strategic drift — trailing in the April 2026 Forrester Wave on ratings trust, data quality, and integration depth. Competitor C's questionnaire workflow is its main differentiator for formal vendor onboarding. CyberMeters should not compete on questionnaire workflow in v1 — it is a feature that requires significant operational infrastructure to build correctly.
 
 **Black Kite** is differentiated by Nth-party visibility and financial impact modelling. Their positioning is increasingly enterprise and vertically focused (manufacturing, financial services). They are not a direct SMB competitor but they define what "advanced supply chain risk" looks like. CyberMeters should watch Black Kite's product evolution closely and identify which features they push down-market.
 
 ### Where CyberMeters Can Win
 
-**Price point accessibility.** The entire TPRM market is underserved at the sub-$500/month tier. BitSight, SecurityScorecard, and Black Kite all start at pricing that excludes SMBs and most small MSPs. CyberMeters can be the first platform to offer Business Risk + Vendor Risk + Supply Chain visibility at a price SMBs can actually justify. This is not a race to the bottom — it is capturing a market that currently has no viable vendor.
+**Price point accessibility.** The entire TPRM market is underserved at the sub-$500/month tier. Competitor E, Competitor D, and Black Kite all start at pricing that excludes SMBs and most small MSPs. CyberMeters can be the first platform to offer Business Risk + Vendor Risk + Supply Chain visibility at a price SMBs can actually justify. This is not a race to the bottom — it is capturing a market that currently has no viable vendor.
 
 **Speed to value.** Enterprise TPRM platforms take weeks to onboard. CyberMeters can produce a business risk report and vendor dependency map in minutes. For SMB buyers and MSPs managing 50+ clients, time-to-insight is the primary buying criterion.
 
-**Integrated ASM + Business Risk + Vendor Risk.** No incumbent offers this combination in a single product at the SMB tier. BitSight is close at enterprise scale but is not SMB-accessible. CyberMeters can own the integrated stack for the segment nobody else is serving.
+**Integrated ASM + Business Risk + Vendor Risk.** No incumbent offers this combination in a single product at the SMB tier. Competitor E is close at enterprise scale but is not SMB-accessible. CyberMeters can own the integrated stack for the segment nobody else is serving.
 
 **UK and European market.** The major incumbents are US-founded and US-first. CyberMeters' UK base positions it well to serve UK and European buyers who have NIS2, DORA, and UK Cyber Essentials compliance obligations. These regulatory frameworks create mandatory vendor risk assessment requirements that CyberMeters' tooling can directly address. This is a market entry angle that the US incumbents are poorly positioned to exploit with SMB-appropriate pricing.
 
-**MSP multiplier.** SecurityScorecard and BitSight are built for enterprise direct buyers, not MSPs managing portfolios of SMB clients. CyberMeters' existing portfolio platform and workspace model is architecturally MSP-native. An MSP who can white-label CyberMeters reports for 50 clients at £100/client/month is a £60K ARR customer who generates enormous leverage.
+**MSP multiplier.** Competitor D and Competitor E are built for enterprise direct buyers, not MSPs managing portfolios of SMB clients. CyberMeters' existing portfolio platform and workspace model is architecturally MSP-native. An MSP who can white-label CyberMeters reports for 50 clients at £100/client/month is a £60K ARR customer who generates enormous leverage.
 
 ### Where CyberMeters Should Not Compete
 
 **Raw data breadth.** Do not attempt to build a ratings universe. Do not promise coverage of "all your vendors." The data investment required is prohibitive, and inaccurate ratings are worse than no ratings.
 
-**Enterprise GRC workflows.** Security questionnaire management, evidence collection, remediation tracking, compliance mapping, and audit-readiness workflows are valuable but require deep integrations (Jira, ServiceNow, Archer) and professional services to deploy. This is UpGuard and BitSight territory. Do not start here.
+**Enterprise GRC workflows.** Security questionnaire management, evidence collection, remediation tracking, compliance mapping, and audit-readiness workflows are valuable but require deep integrations (Jira, ServiceNow, Archer) and professional services to deploy. This is Competitor C and Competitor E territory. Do not start here.
 
 **Fortune 500 procurement cycles.** Enterprise deals involve procurement reviews, security questionnaires, SOC 2 requirements, legal review, and 6–12 month sales cycles. CyberMeters is not ready for this segment and does not need to be in the next 12 months.
 
@@ -321,7 +321,7 @@ This does not mean abandon ASM. ASM is the *foundation* — without it, there is
 
 **Commoditisation of ASM.** Microsoft Defender EASM, Cloudflare's native security tooling, and AWS Security Hub are all embedding attack surface functionality at the infrastructure layer for free or near-free. CyberMeters must move up the value stack faster than the infrastructure vendors move down. Business Risk Intelligence and Vendor Risk are the correct direction.
 
-**Funded incumbents moving down-market.** BitSight and SecurityScorecard are both showing signs of interest in the SMB segment. If either launches an SMB-priced product, CyberMeters' window narrows. The correct response is to accelerate MSP partnerships and geographic differentiation (UK/EU) rather than purely competing on features.
+**Funded incumbents moving down-market.** Competitor E and Competitor D are both showing signs of interest in the SMB segment. If either launches an SMB-priced product, CyberMeters' window narrows. The correct response is to accelerate MSP partnerships and geographic differentiation (UK/EU) rather than purely competing on features.
 
 ### Strategic Opportunities
 
@@ -356,4 +356,4 @@ The market is moving toward CyberMeters' natural position. The correct move is t
 
 ---
 
-*Sources: Verizon 2025 Data Breach Investigations Report, Black Kite 2026 Supply Chain Vulnerability Report, Forrester Wave Cybersecurity Risk Rating Platforms Q2 2026, Red Sift/Hardenize acquisition announcement, supply chain cyber security market projections (13.7% CAGR to $2.2B by 2033).*
+*Sources: Verizon 2025 Data Breach Investigations Report, Black Kite 2026 Supply Chain Vulnerability Report, Forrester Wave Cybersecurity Risk Rating Platforms Q2 2026, Competitor A/Competitor A's web/TLS product acquisition announcement, supply chain cyber security market projections (13.7% CAGR to $2.2B by 2033).*

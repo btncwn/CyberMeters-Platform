@@ -26,7 +26,7 @@ import { exposureIdentity } from '../shared/exposure/redaction.js';
 import { EXPOSURE_RULES } from '../shared/exposure/catalog.js';
 import { ensureExposureReady, readExposureForScan, readTlsAssessmentForScan, exposureHostHttpApplicability, exposureIncompleteReason, EXPOSURE_JOB_LIMITS, EXPOSURE_INCOMPLETE_REASONS } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { externalExposureModule } from '../workers/scan-api/src/engines/exposure-findings.js';
-import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
+import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
 
 let pass = 0, fail = 0;
@@ -91,7 +91,7 @@ const SIGNALS = {
 };
 const baseModules = { ssl: { https_available: true, https_probe_executed: true }, headers: { accessible: true, headers_assessed: true }, dns: { resolves: true } };
 const quality = { status: 'complete', modules_skipped: [], modules_incomplete: [] };
-const card = (exposure) => resolveCyberMotDomainStates({ modules: { ...baseModules, external_exposure: exposure }, findings: [], scan_quality: quality }).find(d => d.domain_key === 'website_security');
+const card = (exposure) => resolveSecurityCheckDomainStates({ modules: { ...baseModules, external_exposure: exposure }, findings: [], scan_quality: quality }).find(d => d.domain_key === 'website_security');
 const BUDGET_SENTENCE = /did not complete within the scan budget/;
 
 // ── X1: the production shape — a FINISHED job whose checks were inconclusive ─
@@ -282,7 +282,7 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
   ok('X5_ASSET_INCOMPLETE_REASON_RETAINED', scanQuality.modules_incomplete.some(item =>
     item.module === 'asset_exposure' && item.incomplete_reason === 'server_error'));
   const report = { modules, findings: [], scan_quality: scanQuality };
-  const domains = resolveCyberMotDomainStates(report);
+  const domains = resolveSecurityCheckDomainStates(report);
   const website = domains.find(d => d.domain_key === 'website_security');
   const certificates = domains.find(d => d.domain_key === 'certificates_trust');
   eq('X5_WEBSITE_PROVISIONAL_NOT_HEALTHY', website?.state, 'provisional');
@@ -292,10 +292,10 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
     !/did not complete within the scan budget/.test(certificates?.summary || ''));
   const unfinished = structuredClone(report);
   unfinished.modules.tls_assessment.phase_state = 'budget_exhausted';
-  eq('X5_UNFINISHED_TLS_REMAINS_INSUFFICIENT', resolveCyberMotDomainStates(unfinished)
+  eq('X5_UNFINISHED_TLS_REMAINS_INSUFFICIENT', resolveSecurityCheckDomainStates(unfinished)
     .find(d => d.domain_key === 'certificates_trust')?.state, 'evidence_insufficient');
   unfinished.modules.external_exposure.phase_state = 'budget_exhausted';
-  eq('X5_UNFINISHED_HTTP_REMAINS_INSUFFICIENT', resolveCyberMotDomainStates(unfinished)
+  eq('X5_UNFINISHED_HTTP_REMAINS_INSUFFICIENT', resolveSecurityCheckDomainStates(unfinished)
     .find(d => d.domain_key === 'website_security')?.state, 'evidence_insufficient');
 
   // Source mutations: an implementation that drops the phase-complete gate or
@@ -309,15 +309,15 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
     try { return await inspect(await import(mutantUrl.href)); }
     finally { unlinkSync(mutantUrl); }
   }
-  ok('X5_MUTATION_TLS_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/cyber-mot-domains.js',
+  ok('X5_MUTATION_TLS_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/security-check-domains.js',
     'report.modules.tls_assessment?.phase_state === "complete"',
     'report.modules.tls_assessment?.phase_state === "budget_exhausted"',
-    m => /did not complete within the scan budget/.test(m.resolveCyberMotDomainStates(report)
+    m => /did not complete within the scan budget/.test(m.resolveSecurityCheckDomainStates(report)
       .find(d => d.domain_key === 'certificates_trust')?.summary || '')));
-  ok('X5_MUTATION_HTTP_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/cyber-mot-domains.js',
+  ok('X5_MUTATION_HTTP_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/security-check-domains.js',
     'report.modules.external_exposure?.phase_state === "complete"',
     'report.modules.external_exposure?.phase_state === "budget_exhausted"',
-    m => m.resolveCyberMotDomainStates(report).find(d => d.domain_key === 'website_security')?.state !== 'provisional'));
+    m => m.resolveSecurityCheckDomainStates(report).find(d => d.domain_key === 'website_security')?.state !== 'provisional'));
   ok('X5_MUTATION_SKIPPED_MERGE_CAUGHT', await mutant('../workers/scan-api/src/engines/scan-engine.js',
     'for (const name of incompleteModules) {\n    warnings.push(`Module incomplete: ${name}`);',
     'for (const name of incompleteModules) {\n    modulesSkipped.push(name);\n    warnings.push(`Module incomplete: ${name}`);',

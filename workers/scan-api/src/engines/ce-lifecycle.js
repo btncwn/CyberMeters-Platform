@@ -1,7 +1,7 @@
 // ── Cyber Essentials external-evidence lifecycle ─────────────────────────────
 // The eighth and last canonical alerting domain.
 //
-// CE detects nothing of its own (cyber-mot-domains.js: `modules: []`,
+// CE detects nothing of its own (security-check-domains.js: `modules: []`,
 // `match: () => false`). Every control it grades re-interprets evidence another
 // domain already owns and already alerts on. So it must never raise a second
 // "we found X" — it owns exactly one claim no other domain makes:

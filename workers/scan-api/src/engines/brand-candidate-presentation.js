@@ -1,4 +1,4 @@
-import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "./security-check-domains.js";
 
 const CANDIDATE_TITLE = "Unvalidated lookalike candidate on the watchlist";
 const CANDIDATE_EXPLANATION =
@@ -44,7 +44,7 @@ export function projectUnvalidatedBrandSnapshotForCustomer(snapshot, sourceRepor
     ? (snapshot?.domains || []).some((entry) => entry.domain_key === "brand_protection")
       ? { state: "evidence_insufficient", summary: "Brand evidence is unavailable for this report." }
       : null
-    : resolveCyberMotDomainStates(
+    : resolveSecurityCheckDomainStates(
       projectUnvalidatedBrandReportForCustomer(sourceReport),
     ).find((entry) => entry.domain_key === "brand_protection");
   if (!brand) return snapshot;
@@ -88,7 +88,7 @@ export function projectUnvalidatedBrandSnapshotForCustomer(snapshot, sourceRepor
     overall: {
       ...snapshot.overall,
       summary: snapshot?.overall?.summary == null ? null
-        : `Across the eight Cyber MOT domains: ${healthy} assessed healthy, ${issues} with issues detected, and ${attention} needing further evidence, customer input or monitoring.`,
+        : `Across the eight security domains: ${healthy} assessed healthy, ${issues} with issues detected, and ${attention} needing further evidence, customer input or monitoring.`,
       not_fully_assessed: notFullyAssessed,
       ...((!sourceReport || (sourceUnavailable && converted.length > 0) || hasUnvalidatedBrandFinding(sourceReport)) ? {
         cyber_metrics_score: null,

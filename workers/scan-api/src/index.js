@@ -1147,7 +1147,7 @@ const WORKSPACE_PURGE_TABLES = [
   "website_sign_in_attempts", "website_sign_in_profiles",
   // Cyber Essentials lifecycle (mig 090). Events first: no FK to the records table.
   "cyber_essentials_events", "cyber_essentials_control_records",
-  // Canonical per-domain Cyber MOT state history (mig 091). Append-only, one row per
+  // Canonical per-domain security state history (mig 091). Append-only, one row per
   // (workspace, domain, scan, domain_key). Holds no FK to scans — history outlives the
   // scan it describes — so it is purged on its own workspace_id here and never appears
   // in SCAN_CHILD_TABLES.

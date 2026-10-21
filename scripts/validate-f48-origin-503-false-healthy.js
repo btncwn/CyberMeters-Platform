@@ -34,7 +34,7 @@
 //
 // ── WHAT THIS HARNESS ASSERTS ───────────────────────────────────────────────
 // Every scenario drives the REAL runHeadersModule, runTechModule, runSslModule,
-// computeScore, buildScanQuality and the CANONICAL resolveCyberMotDomainStates,
+// computeScore, buildScanQuality and the CANONICAL resolveSecurityCheckDomainStates,
 // with only network observations stubbed. Verdicts are read from the resolver —
 // a module-flag-only assertion would not have caught this defect in the first
 // place, since every module flag looked fine.
@@ -49,7 +49,7 @@ const { runTechModule } = await import(eng("tech-scan.js"));
 const { runSslModule } = await import(eng("ssl-scan.js"));
 const { computeScore } = await import(eng("scoring.js"));
 const { buildScanQuality } = await import(eng("scan-engine.js"));
-const { resolveCyberMotDomainStates } = await import(eng("cyber-mot-domains.js"));
+const { resolveSecurityCheckDomainStates } = await import(eng("security-check-domains.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"} ${n}${!c && d ? " — " + d : ""}`); };
@@ -90,7 +90,7 @@ async function observe(router) {
     const modules = { dns: { resolves: true }, ssl, headers, technology_detection, email_security: {} };
     const scan_quality = buildScanQuality(modules);
     const findings = computeScore(modules, DOMAIN)?.findings || [];
-    const website = resolveCyberMotDomainStates(
+    const website = resolveSecurityCheckDomainStates(
       { scan_quality, modules, findings, completed_at: "2026-08-17T00:00:00Z" }, { scanId: "f48" },
     ).find((d) => d.domain_key === "website_security");
     const websiteMaterial = findings

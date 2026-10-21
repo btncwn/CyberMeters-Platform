@@ -295,7 +295,7 @@ export async function runSslModule(domain, opts = {}) {
     //
     // This was `httpsProbeExecuted ? {} : {incomplete}`, so a Cloudflare-signed
     // 522/530 — which DOES return a Response, hence executed:true — never marked the
-    // module incomplete. The scan then finalized `complete` and the Cyber MOT
+    // module incomplete. The scan then finalized `complete` and the external security check
     // resolver published website_security and certificates_trust as
     // "Assessed — no material issue observed" having observed no TLS at all. That is
     // the false-healthy half of the same defect: swapping a false alarm for a false

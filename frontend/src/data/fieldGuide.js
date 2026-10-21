@@ -564,7 +564,7 @@ export const ARTICLE_AREAS = {
   'microsoft-365-exposure-risks': 'identity-exposure',
   'vendor-risk-explained': 'shadow-it',
   'supply-chain-attacks-explained': 'shadow-it',
-  'what-is-a-cyber-mot-and-why-your-business-needs-one': 'cyber-essentials',
+  'what-is-an-external-security-check': 'cyber-essentials',
   'cyber-essentials-what-you-actually-need-to-pass': 'cyber-essentials',
 }
 

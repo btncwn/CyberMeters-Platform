@@ -14,7 +14,7 @@ import { api } from '../api'
 // Email, Attack Surface, Website, Identity, Shadow IT, Certificates, Brand,
 // Cyber Essentials.
 
-vi.mock('../api', () => ({ api: { getCyberMotDomains: vi.fn(), getWorkspaces: vi.fn() } }))
+vi.mock('../api', () => ({ api: { getSecurityCheckDomains: vi.fn(), getWorkspaces: vi.fn() } }))
 vi.mock('../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
@@ -37,7 +37,7 @@ describe('shared area order', () => {
 describe('the three surfaces render in that order', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: ORDER.map((k) => ({ domain_key: k, display_name: k, state: 'assessed_healthy', coverage: 'complete', summary: '' })) })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: ORDER.map((k) => ({ domain_key: k, display_name: k, state: 'assessed_healthy', coverage: 'complete', summary: '' })) })
   })
 
   it('area sheet', async () => {

@@ -829,6 +829,7 @@ export async function scanRoutes(rctx) {
           risk_level: raw.risk_level ?? null,
           assessment: null,
           cyber_mot_domains: [],
+          security_domains: [],   // neutral alias of cyber_mot_domains
           findings: reportFindings.map((f) => ({ ...f, remediation: f.unvalidated_brand_candidate ? null : findingRemediation(f) })),
           recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
           scan_quality: projectTlsScanQualityForCustomer(
@@ -885,6 +886,7 @@ export async function scanRoutes(rctx) {
           risk_level: overall.score_band ?? null,
           assessment,
           cyber_mot_domains: snap.domains || [],
+          security_domains: snap.domains || [],   // neutral alias of cyber_mot_domains
           findings: reportFindings.map((f) => ({ ...f, remediation: f.unvalidated_brand_candidate ? null : findingRemediation(f) })),
           recommendations: Array.isArray(customerReport.recommendations) ? customerReport.recommendations : [],
           scan_quality: projectTlsScanQualityForCustomer(

@@ -1,7 +1,7 @@
 // ── Universal managed-cases routes ─────────────────────────────────────────
 // One cross-domain case surface over the shared managed_cases table. Read
 // endpoints fold every case_type onto its canonical phase so a single queue can
-// render all eight Cyber MOT domains. The transition endpoint routes EVERY change
+// render all eight security domains. The transition endpoint routes EVERY change
 // through the universal validator canTransitionCase — no bypass. The rich,
 // domain-specific ASM (/managed-cases) and Brand (/brand/cases) routes remain the
 // place to drive their bespoke side effects (owner assignment, evidence bundles,

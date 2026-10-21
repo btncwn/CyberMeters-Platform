@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildScanQuality } from "../../workers/scan-api/src/engines/scan-engine.js";
 import { blockingTlsUnexecutable, classifyTlsRefusals } from "../../workers/scan-api/src/engines/tls-quality.js";
-import { resolveCyberMotDomainStates } from "../../workers/scan-api/src/engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../../workers/scan-api/src/engines/security-check-domains.js";
 import { tlsAssessmentFindings } from "../../workers/scan-api/src/engines/tls-findings.js";
 
 // Same counting as readTlsAssessmentForScan in exposure-jobs.js.
@@ -59,7 +59,7 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
       `tls_uncertain=${modules.tls_assessment?.coverage?.uncertain}->${replayed.tls_assessment?.coverage?.uncertain}`,
       `still_incomplete=${after.modules_incomplete.map((m) => `${m.module}:${m.incomplete_reason}`).join("|") || "none"}`,
       `tls_findings_unchanged=${ids(modules.tls_assessment) === ids(replayed.tls_assessment)}`,
-      `certificates_trust=${resolveCyberMotDomainStates({ ...report, modules: replayed, scan_quality: after }).find((d) => d.domain_key === "certificates_trust")?.state}`,
+      `certificates_trust=${resolveSecurityCheckDomainStates({ ...report, modules: replayed, scan_quality: after }).find((d) => d.domain_key === "certificates_trust")?.state}`,
     ].join("  "));
   }
 }

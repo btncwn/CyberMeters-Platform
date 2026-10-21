@@ -35,7 +35,7 @@ claims. Full behaviour intelligence (B2/B3) remains post-beta and real-data gate
 
 **We do NOT correlate the eight customer-facing domains.** We correlate the raw
 **evidence producers / signal sources**, then MAP the resulting cluster onto the
-affected customer-facing Cyber MOT areas.
+affected customer-facing external security check areas.
 
 ```
 Attack Surface events   ┐
@@ -50,7 +50,7 @@ app-probe/login events  ┘                          deterministic correlation r
                                                      Related Change Cluster
                                                                  │
                                                                  ▼
-                                        Affected customer-facing Cyber MOT areas
+                                        Affected customer-facing external security check areas
                                         (CE Readiness / Website Security = OUTPUTS)
 ```
 

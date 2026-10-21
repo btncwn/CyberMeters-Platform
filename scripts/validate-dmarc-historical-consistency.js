@@ -16,7 +16,7 @@ import { applyDmarcbisEmailCompatibilityProjection } from "../workers/scan-api/s
 import { applyScanComparability, reconcileLateFindings, runHistoricalModule } from "../workers/scan-api/src/engines/historical-scan.js";
 import { runScanEngine } from "../workers/scan-api/src/engines/scan-engine.js";
 import { computeScore } from "../workers/scan-api/src/engines/scoring.js";
-import { resolveCyberMotDomainStates } from "../workers/scan-api/src/engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../workers/scan-api/src/engines/security-check-domains.js";
 import { projectHistoricalChangesForCustomer, scanRoutes } from "../workers/scan-api/src/routes/scans.js";
 import { splitStatements, isToleratedStatement } from "./lib/migration-apply-tolerated.js";
 
@@ -206,10 +206,10 @@ ok("production projection emits the canonical p=none finding",
     productionFinding?.finding_type === "finding");
 ok("production projection emits monitoring-only remediation",
   productionEmail.remediation_actions?.some((item) => item.id === "dmarc_policy_monitoring_only"));
-const productionMot = resolveCyberMotDomainStates(
+const productionMot = resolveSecurityCheckDomainStates(
   reportFor(productionEmail, fixture, productionScore.findings),
 ).find((item) => item.domain_key === "email_protection");
-ok("Cyber MOT surfaces the observed p=none policy as issue_detected",
+ok("external security check surfaces the observed p=none policy as issue_detected",
   productionMot?.state === "issue_detected", productionMot?.state);
 
 const unavailable = unavailableFixture();
@@ -233,10 +233,10 @@ ok("direct action rebuild also rejects unavailable canonical state", (() => {
   Object.defineProperty(details, "dmarc_state", { value: unavailableState });
   return !buildEmailRemediationActions(DOMAIN, details).some((item) => item.id.startsWith("dmarc_"));
 })());
-const unavailableMot = resolveCyberMotDomainStates(
+const unavailableMot = resolveSecurityCheckDomainStates(
   reportFor(unavailableEmail, unavailable, unavailableScore.findings),
 ).find((item) => item.domain_key === "email_protection");
-ok("Cyber MOT surfaces unavailable DMARC evidence as evidence_insufficient",
+ok("external security check surfaces unavailable DMARC evidence as evidence_insufficient",
   unavailableMot?.state === "evidence_insufficient", unavailableMot?.state);
 
 const incompleteConclusion = incompleteConclusionFixture();

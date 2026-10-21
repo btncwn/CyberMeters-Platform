@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import ExecutiveReportV2 from '../ExecutiveReportV2'
-import { CYBER_MOT_DISPLAY_ORDER } from '../../lib/cyberMotDisplay'
+import { SECURITY_CHECK_DISPLAY_ORDER } from '../../lib/securityCheckDisplay'
 
 const evidence = {
   grade: 'L1',
@@ -55,7 +55,7 @@ describe('ExecutiveReportV2 Evidence-Grade pilot', () => {
             evidence_grade: { ...evidence, grade: 'L0' },
             priority_actions: [],
           },
-          cyber_mot_domains: CYBER_MOT_DISPLAY_ORDER.map((domain) => ({
+          cyber_mot_domains: SECURITY_CHECK_DISPLAY_ORDER.map((domain) => ({
             ...domain,
             state: 'evidence_insufficient',
             coverage: 'partial',

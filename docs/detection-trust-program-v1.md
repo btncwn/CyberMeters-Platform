@@ -402,7 +402,7 @@ The finding is currently "info" with score_impact 0. The audit question: should 
 **Arguments for promoting to a scored finding:**
 - DNS spoofing is a real attack vector on corporate networks and cafe WiFi
 - DNSSEC is available on most major providers (Cloudflare, Route53, Google Cloud DNS)
-- Other platforms (SecurityScorecard, Qualys SSL Labs) surface DNSSEC absence as a finding
+- Other platforms (Competitor D, a public TLS grading service) surface DNSSEC absence as a finding
 
 **Assessment:** The current "info, zero score" is correct for a platform targeting SMBs and consumer businesses. Scoring DNSSEC absence would penalize ~95% of scanned domains for a control they cannot easily implement. The issue is not the classification — it is the **presentation**.
 

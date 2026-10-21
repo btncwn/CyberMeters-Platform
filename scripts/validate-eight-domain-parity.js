@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 //
-// Eight-domain Cyber MOT PARITY — behavioural + static proof of the parity patch:
+// Eight-domain external security check PARITY — behavioural + static proof of the parity patch:
 // (A) Cyber Essentials shows the SAME state on every surface because all four
 //     producers (scan /report, executive-report-v2, executive PDF, dashboard
-//     /cyber-mot-domains) pass the SAME canonical CE snapshot
+//     /security-domains) pass the SAME canonical CE snapshot
 //     (getCyberEssentialsSnapshot) into the SAME resolver;
 // (B) the Dashboard renders all eight domains even with NO scan (no-scan states,
-//     unconditional <CyberMotDomains> render, endpoint no-scan fallback);
+//     unconditional <SecurityCheckDomains> render, endpoint no-scan fallback);
 // (C) per-domain healthy-eligibility — a domain is assessed_healthy ONLY when its
 //     own required evidence was collected on a complete scan; insufficient/absent
 //     required evidence or a provisional scan never renders healthy.
@@ -22,8 +22,8 @@ import "./honesty-contradictions-regression.js";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const enginesDir = path.join(root, "workers", "scan-api", "src", "engines");
 const routesDir = path.join(root, "workers", "scan-api", "src", "routes");
-const { resolveCyberMotDomainStates, CYBER_MOT_DOMAINS, CYBER_MOT_STATES } =
-  await import(pathToFileURL(path.join(enginesDir, "cyber-mot-domains.js")).href);
+const { resolveSecurityCheckDomainStates, SECURITY_CHECK_DOMAINS, SECURITY_CHECK_STATES } =
+  await import(pathToFileURL(path.join(enginesDir, "security-check-domains.js")).href);
 const { getCyberEssentialsSnapshot } =
   await import(pathToFileURL(path.join(enginesDir, "ce-readiness.js")).href);
 const { executiveDashboardRoutes } =
@@ -35,7 +35,7 @@ let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const byKey = (arr, k) => arr.find((x) => x.domain_key === k);
 const KEYS = ["email_protection","brand_protection","attack_surface","certificates_trust","cyber_essentials_readiness","website_security","identity_exposure","shadow_it_unmanaged_technology"];
-const HEALTHY = CYBER_MOT_STATES.ASSESSED_HEALTHY;
+const HEALTHY = SECURITY_CHECK_STATES.ASSESSED_HEALTHY;
 const healthyMonitoring = () => healthyMonitoringStates();
 
 // A complete scan, all required+relevant modules assessed cleanly, no findings.
@@ -59,37 +59,37 @@ const cleanComplete = () => ({
 
 // A1. Workspace WITHOUT answers → customer_input_required on every surface.
 {
-  const r = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: false, status: null, top_gaps: [] } });
+  const r = resolveSecurityCheckDomainStates(cleanComplete(), { cyberEssentials: { has_answers: false, status: null, top_gaps: [] } });
   ok("A1: CE snapshot without answers → customer_input_required",
-    byKey(r, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
+    byKey(r, "cyber_essentials_readiness").state === SECURITY_CHECK_STATES.CUSTOMER_INPUT_REQUIRED);
 }
 
 // A2. Workspace with a COMPLETE questionnaire → gaps remain issues; a
 // favourable 2-of-5 external indicator cannot make the full domain healthy.
 {
-  const ready = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "likely_ready", top_gaps: [] } });
+  const ready = resolveSecurityCheckDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "likely_ready", top_gaps: [] } });
   ok("A2: CE complete + favourable 2-of-5 indicator → evidence_insufficient",
-    byKey(ready, "cyber_essentials_readiness").state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
+    byKey(ready, "cyber_essentials_readiness").state === SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT &&
     byKey(ready, "cyber_essentials_readiness").coverage === "partial");
-  const gaps = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "not_ready", top_gaps: [{}, {}] } });
+  const gaps = resolveSecurityCheckDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "not_ready", top_gaps: [{}, {}] } });
   ok("A2: CE complete + not_ready + gaps → issue_detected",
-    byKey(gaps, "cyber_essentials_readiness").state === CYBER_MOT_STATES.ISSUE_DETECTED &&
+    byKey(gaps, "cyber_essentials_readiness").state === SECURITY_CHECK_STATES.ISSUE_DETECTED &&
     byKey(gaps, "cyber_essentials_readiness").finding_count === 2);
 }
 
 // A2b. A PARTIAL questionnaire (answers present but not complete) → customer_input_required,
 // NEVER healthy — a single/partial answer set must not permit assessed_healthy.
 {
-  const partialReady = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: false, status: "likely_ready", top_gaps: [] } });
+  const partialReady = resolveSecurityCheckDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: false, status: "likely_ready", top_gaps: [] } });
   ok("A2b: CE partial answers + likely_ready → customer_input_required (never healthy)",
-    byKey(partialReady, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
+    byKey(partialReady, "cyber_essentials_readiness").state === SECURITY_CHECK_STATES.CUSTOMER_INPUT_REQUIRED);
 }
 
 // A3. Determinism/parity — four surfaces passing the SAME snapshot get the SAME CE state.
 {
   const snapshot = { has_answers: true, complete: true, status: "likely_ready", top_gaps: [] };
   const states = [1, 2, 3, 4].map(() =>
-    byKey(resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: snapshot }), "cyber_essentials_readiness").state);
+    byKey(resolveSecurityCheckDomainStates(cleanComplete(), { cyberEssentials: snapshot }), "cyber_essentials_readiness").state);
   ok("A3: four surfaces with the same CE snapshot resolve the same CE state",
     states.every((s) => s === states[0]), `got [${states.join(", ")}]`);
 }
@@ -102,20 +102,20 @@ const cleanComplete = () => ({
   // surfaces render the same frozen resolver output by construction.
   const scansSrc = await fs.readFile(path.join(routesDir, "scans.js"), "utf8");
   ok("A4: scans.js report surfaces consume the canonical snapshot (no live resolver)",
-    scansSrc.includes("readScanReportSnapshot") && !scansSrc.includes("resolveCyberMotDomainStates"));
+    scansSrc.includes("readScanReportSnapshot") && !scansSrc.includes("resolveSecurityCheckDomainStates"));
 
   const pdfSrc = await fs.readFile(path.join(enginesDir, "pdf.js"), "utf8");
   ok("A4: pdf.js renders snapshot domains (no live resolver, no CE fetch)",
-    pdfSrc.includes("sectionDomains") && !pdfSrc.includes("resolveCyberMotDomainStates") && !pdfSrc.includes("getCyberEssentialsSnapshot"));
+    pdfSrc.includes("sectionDomains") && !pdfSrc.includes("resolveSecurityCheckDomainStates") && !pdfSrc.includes("getCyberEssentialsSnapshot"));
 
   const rsSrc = await fs.readFile(path.join(enginesDir, "report-snapshot.js"), "utf8");
   ok("A4: the snapshot builder passes cyberEssentials: into the resolver (the one place)",
-    rsSrc.includes("cyberEssentials:") && rsSrc.includes("resolveCyberMotDomainStates("));
+    rsSrc.includes("cyberEssentials:") && rsSrc.includes("resolveSecurityCheckDomainStates("));
 
   const dashSrc = await fs.readFile(path.join(routesDir, "executive-dashboard.js"), "utf8");
   ok("A4: executive-dashboard.js uses getCyberEssentialsSnapshot", dashSrc.includes("getCyberEssentialsSnapshot"));
-  ok("A4: executive-dashboard.js /cyber-mot-domains endpoint passes cyberEssentials: into the resolver",
-    dashSrc.includes("cyber-mot-domains") && dashSrc.includes("cyberEssentials:") && dashSrc.includes("resolveCyberMotDomainStates("));
+  ok("A4: executive-dashboard.js /security-domains endpoint passes cyberEssentials: into the resolver",
+    dashSrc.includes("security-domains") && dashSrc.includes("cyberEssentials:") && dashSrc.includes("resolveSecurityCheckDomainStates("));
 }
 
 // A5. BEHAVIOURAL — getCyberEssentialsSnapshot gates on real answer rows in D1.
@@ -169,7 +169,7 @@ const cleanComplete = () => ({
 
 // B1. resolver(null) → all eight, explicit non-null states, none healthy, canonical order.
 {
-  const r = resolveCyberMotDomainStates(null);
+  const r = resolveSecurityCheckDomainStates(null);
   ok("B1: no scan → exactly eight entries", r.length === 8);
   ok("B1: no scan → every entry has non-null domain_key + state", r.every((x) => x.domain_key && x.state));
   ok("B1: no scan → zero domains assessed_healthy", r.every((x) => x.state !== HEALTHY));
@@ -179,15 +179,15 @@ const cleanComplete = () => ({
 // B2. STATIC — the endpoint exists and falls back to resolver(null) on failure.
 {
   const dashSrc = await fs.readFile(path.join(routesDir, "executive-dashboard.js"), "utf8");
-  ok("B2: /api/workspaces/:id/cyber-mot-domains endpoint exists",
-    /cyber-mot-domains/.test(dashSrc) && /url\.pathname\.match\([\s\S]{0,120}?cyber-mot-domains/.test(dashSrc));
-  ok("B2: endpoint catch path returns resolveCyberMotDomainStates(null)",
-    /catch[\s\S]{0,300}resolveCyberMotDomainStates\(null\)/.test(dashSrc));
+  ok("B2: /api/workspaces/:id/security-domains endpoint exists",
+    /security-domains/.test(dashSrc) && /url\.pathname\.match\([\s\S]{0,120}?security-domains/.test(dashSrc));
+  ok("B2: endpoint catch path returns resolveSecurityCheckDomainStates(null)",
+    /catch[\s\S]{0,300}resolveSecurityCheckDomainStates\(null\)/.test(dashSrc));
 }
 
 // B3. STATIC — Dashboard.jsx renders the eight-area PostureCard UNCONDITIONALLY
 // (clean app shell, 16 Oct 2026: the home screen's eight-area surface); the
-// workspace overview still renders <CyberMotDomains unconditionally.
+// workspace overview still renders <SecurityCheckDomains unconditionally.
 {
   const jsx = await fs.readFile(path.join(root, "frontend", "src", "pages", "Dashboard.jsx"), "utf8");
   ok("B3: Dashboard.jsx renders <PostureCard", jsx.includes("<PostureCard"));
@@ -240,7 +240,7 @@ const cleanComplete = () => ({
   const posture = await getCurrentPosturePresentation(env, { workspaceId: "ws-parity" });
   ok("B4 fixture keeps the older score authoritative and the newer scan provisional",
     posture.authoritative_scan_id === older.scan_id && posture.latest_provisional_scan_id === newer.scan_id);
-  const url = new URL("https://api.cybermeters.com/api/workspaces/ws-parity/cyber-mot-domains");
+  const url = new URL("https://api.cybermeters.com/api/workspaces/ws-parity/security-domains");
   const response = await executiveDashboardRoutes({ request: new Request(url), env, url,
     json: (body, status = 200) => Response.json(body, { status }),
     requireAuth: async () => ({ id: "founder" }), requireWorkspaceRole: async () => true,
@@ -249,7 +249,7 @@ const cleanComplete = () => ({
   const body = await response.json();
   ok("B4 grid selects the newer provisional scan's evidence", body.source_scan_id === newer.scan_id);
   ok("B4 incomplete TLS cannot read Healthy from the older complete scan",
-    byKey(body.cyber_mot_domains, "certificates_trust")?.state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
+    byKey(body.cyber_mot_domains, "certificates_trust")?.state === SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT);
 }
 
 // ════ SECTION C — Per-domain healthy-eligibility matrix ════════════════════════
@@ -264,7 +264,7 @@ const ACTIONABLE_FIXTURES = Object.freeze({
   identity_exposure: { id: "identity_admin_login_exposed", module: "identity_discovery" },
 });
 for (const key of SCAN_DOMAINS) {
-  const cfg = CYBER_MOT_DOMAINS.find((d) => d.domain_key === key);
+  const cfg = SECURITY_CHECK_DOMAINS.find((d) => d.domain_key === key);
   ok(`C ${key}: domain config has a non-empty required list`, Array.isArray(cfg?.required) && cfg.required.length > 0);
   const required = cfg?.required || [];
   // Fixture with every required module for THIS domain present (brand_monitoring is
@@ -277,8 +277,8 @@ for (const key of SCAN_DOMAINS) {
 
   // Healthy path: complete scan + required evidence + no finding → assessed_healthy.
   {
-    const r = resolveCyberMotDomainStates(withRequired());
-    const expected = key === "identity_exposure" ? CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT : HEALTHY;
+    const r = resolveSecurityCheckDomainStates(withRequired());
+    const expected = key === "identity_exposure" ? SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT : HEALTHY;
     ok(`C ${key}: clean complete scan → ${expected}`, byKey(r, key).state === expected,
       `got ${byKey(r, key).state}`);
   }
@@ -287,21 +287,21 @@ for (const key of SCAN_DOMAINS) {
   {
     const rep = withRequired();
     rep.modules[required[0]] = { error: "x" };
-    const s = byKey(resolveCyberMotDomainStates(rep), key).state;
+    const s = byKey(resolveSecurityCheckDomainStates(rep), key).state;
     ok(`C ${key}: required module '${required[0]}' errored → not healthy`, s !== HEALTHY, `got ${s}`);
     ok(`C ${key}: required module '${required[0]}' errored → evidence_insufficient`,
-      s === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT, `got ${s}`);
+      s === SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT, `got ${s}`);
   }
 
   // Absent path: one required module never ran → never healthy (not_yet_assessed).
   {
     const rep = withRequired();
     delete rep.modules[required[0]];
-    const s = byKey(resolveCyberMotDomainStates(rep), key).state;
+    const s = byKey(resolveSecurityCheckDomainStates(rep), key).state;
     ok(`C ${key}: required module '${required[0]}' absent → not healthy`, s !== HEALTHY, `got ${s}`);
     const expected = key === "identity_exposure"
-      ? CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT
-      : CYBER_MOT_STATES.NOT_YET_ASSESSED;
+      ? SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT
+      : SECURITY_CHECK_STATES.NOT_YET_ASSESSED;
     ok(`C ${key}: required module '${required[0]}' absent → ${expected}`,
       s === expected, `got ${s}`);
   }
@@ -310,10 +310,10 @@ for (const key of SCAN_DOMAINS) {
   {
     const rep = withRequired();
     rep.scan_quality = { status: "partial", warnings: [], modules_skipped: [] };
-    const s = byKey(resolveCyberMotDomainStates(rep), key).state;
+    const s = byKey(resolveSecurityCheckDomainStates(rep), key).state;
     const expected = key === "identity_exposure"
-      ? CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT
-      : CYBER_MOT_STATES.PROVISIONAL;
+      ? SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT
+      : SECURITY_CHECK_STATES.PROVISIONAL;
     ok(`C ${key}: partial-quality scan → ${expected}, never healthy`,
       s === expected && s !== HEALTHY, `got ${s}`);
   }
@@ -328,9 +328,9 @@ for (const key of SCAN_DOMAINS) {
     };
     const rep = withRequired();
     rep.findings = [row];
-    const state = byKey(resolveCyberMotDomainStates(rep), key);
+    const state = byKey(resolveSecurityCheckDomainStates(rep), key);
     ok(`C ${key}: explicit low score-neutral finding owns issue state/count/identity`,
-      state.state === CYBER_MOT_STATES.ISSUE_DETECTED && state.coverage === "complete" &&
+      state.state === SECURITY_CHECK_STATES.ISSUE_DETECTED && state.coverage === "complete" &&
       state.finding_count === 1 && JSON.stringify(state.finding_ids) === JSON.stringify([fixture.id]),
       `got ${JSON.stringify(state)}`);
 
@@ -339,9 +339,9 @@ for (const key of SCAN_DOMAINS) {
       ...incomplete.modules[required[0]], incomplete: true, incomplete_reason: "focused_incomplete",
     };
     incomplete.findings = [row];
-    const caveated = byKey(resolveCyberMotDomainStates(incomplete), key);
+    const caveated = byKey(resolveSecurityCheckDomainStates(incomplete), key);
     ok(`C ${key}: actionable finding stays positive-first under required-evidence failure`,
-      caveated.state === CYBER_MOT_STATES.ISSUE_DETECTED && caveated.coverage === "partial" &&
+      caveated.state === SECURITY_CHECK_STATES.ISSUE_DETECTED && caveated.coverage === "partial" &&
       caveated.finding_count === 1 && JSON.stringify(caveated.finding_ids) === JSON.stringify([fixture.id]),
       `got ${JSON.stringify(caveated)}`);
 
@@ -349,34 +349,34 @@ for (const key of SCAN_DOMAINS) {
     observation.findings = [{
       ...fixture, finding_type: "observation", severity: "critical", score_impact: -100,
     }];
-    const refused = byKey(resolveCyberMotDomainStates(observation), key);
+    const refused = byKey(resolveSecurityCheckDomainStates(observation), key);
     ok(`C ${key}: critical explicit observation owns no issue/count/identity`,
-      refused.state !== CYBER_MOT_STATES.ISSUE_DETECTED && refused.finding_count === 0 &&
+      refused.state !== SECURITY_CHECK_STATES.ISSUE_DETECTED && refused.finding_count === 0 &&
       JSON.stringify(refused.finding_ids) === "[]", `got ${JSON.stringify(refused)}`);
   }
 }
 
 // C-final. Certificates healthy still carries the honest revocation/unknown limitation.
 {
-  const r = resolveCyberMotDomainStates(cleanComplete());
+  const r = resolveSecurityCheckDomainStates(cleanComplete());
   const certs = byKey(r, "certificates_trust");
   ok("C certificates_trust: healthy verdict retains the revocation-unknown limitation",
     certs.state === HEALTHY && certs.limitations.some((l) => /revocation/i.test(l) && /unknown/i.test(l)));
 }
 
 // ── SECTION D — Dashboard endpoint-FAILURE resilience (never fewer than eight) ──
-// When the /cyber-mot-domains request fails or returns malformed data, the frontend
+// When the /security-domains request fails or returns malformed data, the frontend
 // display helper must still render all eight canonical domains in a non-healthy
 // "unavailable" state — no domain disappears and none becomes healthy.
 {
-  const { resolveDisplayDomains, CYBER_MOT_DISPLAY_ORDER } =
-    await import(pathToFileURL(path.join(root, "frontend", "src", "lib", "cyberMotDisplay.js")).href);
+  const { resolveDisplayDomains, SECURITY_CHECK_DISPLAY_ORDER } =
+    await import(pathToFileURL(path.join(root, "frontend", "src", "lib", "securityCheckDisplay.js")).href);
 
   const displayKeys = ['email_protection', 'attack_surface', 'website_security', 'identity_exposure', 'shadow_it_unmanaged_technology', 'certificates_trust', 'brand_protection', 'cyber_essentials_readiness'];
   ok("D: display order has all eight canonical domain keys",
-    CYBER_MOT_DISPLAY_ORDER.length === 8 && [...CYBER_MOT_DISPLAY_ORDER.map((d) => d.domain_key)].sort().join(",") === [...KEYS].sort().join(","));
+    SECURITY_CHECK_DISPLAY_ORDER.length === 8 && [...SECURITY_CHECK_DISPLAY_ORDER.map((d) => d.domain_key)].sort().join(",") === [...KEYS].sort().join(","));
   ok("D: display order follows the founder service order",
-    CYBER_MOT_DISPLAY_ORDER.map((d) => d.domain_key).join(",") === displayKeys.join(","));
+    SECURITY_CHECK_DISPLAY_ORDER.map((d) => d.domain_key).join(",") === displayKeys.join(","));
 
   for (const [label, input] of [["null", null], ["undefined", undefined], ["empty array", []], ["malformed (missing state)", [{ domain_key: "email_protection" }]], ["short array", [{ domain_key: "email_protection", state: "assessed_healthy" }]]]) {
     const out = resolveDisplayDomains(input);
@@ -386,7 +386,7 @@ for (const key of SCAN_DOMAINS) {
   }
 
   // Reorder the view only: every server object and the original array remain unchanged.
-  const valid = resolveCyberMotDomainStates(cleanComplete());
+  const valid = resolveSecurityCheckDomainStates(cleanComplete());
   const original = JSON.stringify(valid);
   const passthrough = resolveDisplayDomains(valid);
   ok("D: a valid eight-entry server set follows presentation order", passthrough.map((d) => d.domain_key).join(",") === displayKeys.join(","));

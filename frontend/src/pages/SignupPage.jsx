@@ -85,7 +85,7 @@ export default function SignupPage() {
   const location = useLocation()
   const invitationReturn = invitationPathFor(location.state?.invitationToken) || invitationPathFor(pendingInviteToken())
 
-  // Carry the Cyber MOT domain through signup → verify → onboarding.
+  // Carry the checked domain through signup → verify → onboarding.
   const [searchParams] = useSearchParams()
   const pendingDomain = sanitizeDomainParam(searchParams.get('domain'))
   useEffect(() => {

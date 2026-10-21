@@ -263,7 +263,7 @@ async function main() {
     !/w\.proseKeep\(`Limitation:/.test(pdfSrc));
   ok("no PDF copy claims certificates are 'fully validated'",
     !/fully\s+(?:validated|verified)/i.test(pdfSrc));
-  const domSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js"), "utf8");
+  const domSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "security-check-domains.js"), "utf8");
   ok("the Certificates & Trust domain limitation names what is NOT checked, verbatim",
     domSrc.includes("TLS conclusions apply only to the tested endpoints and completed controls.") &&
     domSrc.includes("Without a valid stapled OCSP response, revocation status remains unknown; no external revocation lookup is made."));

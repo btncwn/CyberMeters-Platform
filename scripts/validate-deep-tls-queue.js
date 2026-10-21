@@ -6,7 +6,7 @@ import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointI
 import { projectTlsCollectorReceipt } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
-import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
+import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 
 const sql=new DatabaseSync(':memory:');
 sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
@@ -128,7 +128,7 @@ const resumedTlsModule=await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_
 assert.deepEqual(resumedTlsModule,rollbackAssessment);
 const resumedReport={scan_quality:{status:'complete',modules_skipped:[]},
   modules:{certificate_intelligence:{},tls_assessment:resumedTlsModule},findings:[]};
-const certificateState=resolveCyberMotDomainStates(resumedReport).find(row=>row.domain_key==='certificates_trust');
+const certificateState=resolveSecurityCheckDomainStates(resumedReport).find(row=>row.domain_key==='certificates_trust');
 assert.equal(certificateState.state,'evidence_insufficient');
 assert.equal(await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'not_planned',durableInvocation:true}),null);
 assert.equal(await loadTlsAssessmentModuleForScan(env,{workspaceId:'w_interrupt',scanId:'tls_flag_off',durableInvocation:false}),null);
@@ -257,7 +257,7 @@ for (const [scanId, unexecutableReason, expected] of [
   const assessment = await readTlsAssessmentForScan(env, { workspaceId: workspace, scanId });
   assert.equal(assessment.coverage.unexecutable, 1);
   assert.equal(assessment.quality, expected, `TLS module quality for ${unexecutableReason}`);
-  const certificates = resolveCyberMotDomainStates({ scan_quality: { status: 'complete', modules_skipped: [] },
+  const certificates = resolveSecurityCheckDomainStates({ scan_quality: { status: 'complete', modules_skipped: [] },
     modules: { certificate_intelligence: {}, tls_assessment: assessment }, findings: [] }).find(row => row.domain_key === 'certificates_trust');
   if (expected === 'complete') {
     assert.notEqual(certificates.state, 'provisional', 'a complete TLS run is not provisional');

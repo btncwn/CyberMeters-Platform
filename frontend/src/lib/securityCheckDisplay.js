@@ -1,4 +1,4 @@
-// Cyber MOT display helper — PRESENTATION SAFETY ONLY.
+// External security check display helper — PRESENTATION SAFETY ONLY.
 // The eight domain STATES are always resolved server-side. This helper exists solely
 // so the UI can never render FEWER than eight domains: if the server data is absent,
 // malformed, or the request failed, it falls back to the eight canonical domain NAMES
@@ -7,7 +7,7 @@
 
 // Canonical domain names in customer presentation order (display copy only — no evidence, no derived state).
 // Founder order (14 Oct 2026): the same order as the service sidebar — strongest evidence first, readiness last.
-export const CYBER_MOT_DISPLAY_ORDER = [
+export const SECURITY_CHECK_DISPLAY_ORDER = [
   { domain_key: 'email_protection',               display_name: 'Email Protection' },
   { domain_key: 'attack_surface',                 display_name: 'Attack Surface' },
   { domain_key: 'website_security',               display_name: 'Website Security' },
@@ -19,7 +19,7 @@ export const CYBER_MOT_DISPLAY_ORDER = [
 ]
 
 // Presentation order never mutates the API array or any evidence/state field.
-const DISPLAY_RANK = new Map(CYBER_MOT_DISPLAY_ORDER.map((d, index) => [d.domain_key, index]))
+const DISPLAY_RANK = new Map(SECURITY_CHECK_DISPLAY_ORDER.map((d, index) => [d.domain_key, index]))
 export function sortDisplayDomains(domains) {
   return [...domains].sort((a, b) =>
     (DISPLAY_RANK.get(a.domain_key) ?? Infinity) - (DISPLAY_RANK.get(b.domain_key) ?? Infinity))
@@ -35,7 +35,7 @@ export function resolveDisplayDomains(domains) {
   if (Array.isArray(domains) && domains.length === 8 && domains.every(isValidDomainEntry)) {
     return sortDisplayDomains(domains)
   }
-  return CYBER_MOT_DISPLAY_ORDER.map((d) => ({
+  return SECURITY_CHECK_DISPLAY_ORDER.map((d) => ({
     ...d,
     state: 'unavailable',
     coverage: null,

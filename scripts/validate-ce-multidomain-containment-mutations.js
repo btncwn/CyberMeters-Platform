@@ -13,9 +13,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const validator = path.join(root, "scripts", "validate-ce-multidomain-containment.js");
 const readiness = path.join(root, "workers", "scan-api", "src", "engines", "ce-readiness.js");
 const lifecycle = path.join(root, "workers", "scan-api", "src", "engines", "ce-lifecycle.js");
-const cyberMot = path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js");
+const securityCheck = path.join(root, "workers", "scan-api", "src", "engines", "security-check-domains.js");
 const frontend = path.join(root, "frontend", "src", "pages", "ws", "WorkspaceCyberEssentialsPage.jsx");
-const targets = [readiness, lifecycle, cyberMot, frontend];
+const targets = [readiness, lifecycle, securityCheck, frontend];
 const EXPECTED_MUTANTS = 20;
 const EXPECTED_ASSERTIONS = 26;
 
@@ -222,7 +222,7 @@ const mutants = [
     edits: [["  if (domainCount.count === 1) return null;", "  if (false) return null;"]],
   },
   {
-    id: "M19", name: "restore misleading no-scan Cyber MOT copy", file: cyberMot,
+    id: "M19", name: "restore misleading no-scan external security check copy", file: securityCheck,
     target: "complete-questionnaire containment degrades canonical state and maturity writers honestly",
     edits: [[`        base.summary = cyberEssentials.containment_reason && typeof cyberEssentials.summary === "string"`,
       `        base.summary = false && cyberEssentials.containment_reason && typeof cyberEssentials.summary === "string"`]],

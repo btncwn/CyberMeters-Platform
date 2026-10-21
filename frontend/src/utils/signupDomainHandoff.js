@@ -1,6 +1,6 @@
 export const PENDING_SIGNUP_DOMAIN_KEY = 'cm_pending_domain'
 
-// Free Cyber MOT links to /signup?domain=<scanned-domain>. Keep this helper
+// Free security check links to /signup?domain=<scanned-domain>. Keep this helper
 // strict so script-like or malformed values never enter the onboarding handoff.
 export function sanitizeDomainParam(raw) {
   if (!raw) return null

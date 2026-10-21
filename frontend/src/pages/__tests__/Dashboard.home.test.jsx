@@ -10,7 +10,7 @@ import { api } from '../../api'
 vi.mock('../../api', () => ({
   api: {
     getWorkspaces: vi.fn(), getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceScorecard: vi.fn(),
-    getCyberMotDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(), getWorkspaceMembers: vi.fn(),
+    getSecurityCheckDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(), getWorkspaceMembers: vi.fn(),
     getWorkspaceSummary: vi.fn(), getDmarcIngestEndpoint: vi.fn(), verifyDmarcDns: vi.fn(),
   },
 }))
@@ -42,7 +42,7 @@ beforeEach(() => {
   api.getWorkspaceScans.mockResolvedValue({ scans: [{ id: 's1', domain: 'example.co.uk', status: 'completed', created_at: new Date(Date.now() - 3 * 86400000).toISOString() }] })
   api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'example.co.uk' }] })
   api.getWorkspaceScorecard.mockResolvedValue(null)
-  api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', summary: '2 issues.' }, attack_surface: { state: 'assessed_healthy', last_assessed_at: '2026-10-12T09:00:00Z', evidence_freshness: 'stale' } }) })
+  api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', summary: '2 issues.' }, attack_surface: { state: 'assessed_healthy', last_assessed_at: '2026-10-12T09:00:00Z', evidence_freshness: 'stale' } }) })
   api.getCases.mockResolvedValue({ cases: [] })
   api.getScanReport.mockResolvedValue({ cyber_mot_domains: null })
   api.getWorkspaceSummary.mockResolvedValue({ latest_score: 82 })
@@ -89,7 +89,7 @@ describe('Home screen', () => {
   })
 
   it('a failed posture read shows Error on every row', async () => {
-    api.getCyberMotDomains.mockRejectedValue(new Error('down'))
+    api.getSecurityCheckDomains.mockRejectedValue(new Error('down'))
     renderHome()
     const card = within(await screen.findByTestId('posture-card'))
     await waitFor(() => expect(card.getAllByText('Error')).toHaveLength(8))

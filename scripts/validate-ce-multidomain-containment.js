@@ -16,14 +16,17 @@ const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
 // RESCUE SUCCESSION: the semantic inventory remains unchanged at 27 consumers;
 // no CE consumer was added, removed or reclassified. Exact source anchors still
 // have to exist once, but harmless line movement is not part of their identity.
-const EXPECTED_RUNTIME_CONSUMER_SHA256 = "bd064aeff6f722ef6dd48641192ee7bb7d80edd1b528dd791593f51e72fbbb36";
+// Retired product name (21 Oct 2026): the eight-domain resolver file was renamed to
+// security-check-domains.js. Still 27 consumers; mapping that one path back and
+// re-sorting reproduces the previous fingerprint (bd064aef…) exactly.
+const EXPECTED_RUNTIME_CONSUMER_SHA256 = "86387ebf75b89a806fed6cba84eaecdd2c9b52269195d4c0fe13b08fc4a37f9b";
 const ONLY = process.env.CE_CONTAINMENT_ONLY || null;
 
 const readinessMod = await import(eng("ce-readiness.js"));
 const lifecycleMod = await import(eng("ce-lifecycle.js"));
 const occurrenceMod = await import(eng("alert-occurrence.js"));
-const cyberMotMod = await import(eng("cyber-mot-domains.js"));
-const stateHistoryMod = await import(eng("cyber-mot-state-history.js"));
+const securityCheckMod = await import(eng("security-check-domains.js"));
+const stateHistoryMod = await import(eng("security-check-state-history.js"));
 const maturityMod = await import(eng("domain-maturity.js"));
 const { CE_QUESTIONS } = await import(pathToFileURL(src("lib", "cyber-essentials.js")).href);
 const {
@@ -236,7 +239,7 @@ function runtimeConsumerInventory() {
     ["workers/scan-api/src/engines/ce-readiness.js", "export async function buildCyberEssentialsReadiness", "buildCyberEssentialsReadiness", "canonical-builder"],
     ["workers/scan-api/src/engines/ce-readiness.js", "export async function getCyberEssentialsSnapshot", "getCyberEssentialsSnapshot", "canonical-snapshot"],
     ["workers/scan-api/src/engines/cyber-essentials-cases.js", "UPDATE cyber_essentials_control_records", "UPDATE-linked_case_id", "case-writer"],
-    ["workers/scan-api/src/engines/cyber-mot-domains.js", "if (d.domain_key === \"cyber_essentials_readiness\")", "cyber_essentials_readiness", "eight-domain-resolver"],
+    ["workers/scan-api/src/engines/security-check-domains.js", "if (d.domain_key === \"cyber_essentials_readiness\")", "cyber_essentials_readiness", "eight-domain-resolver"],
     ["workers/scan-api/src/engines/report-snapshot.js", "ceReadiness = await buildCyberEssentialsReadiness(workspaceId, env)", "buildCyberEssentialsReadiness", "report-snapshot"],
     ["workers/scan-api/src/engines/report-snapshot.js", "ceSnap = await getCyberEssentialsSnapshot(scanRow.workspace_id, env)", "getCyberEssentialsSnapshot", "report-snapshot"],
     ["workers/scan-api/src/engines/scan-engine.js", "ceSnap = await getCyberEssentialsSnapshot(workspaceId, env)", "getCyberEssentialsSnapshot", "domain-state-091-writer"],
@@ -533,11 +536,11 @@ const tests = [
       ...HEALTHY(), findings: [], scan_quality: { status: "complete" },
       completed_at: "2026-08-02T01:15:00Z",
     };
-    const states = cyberMotMod.resolveCyberMotDomainStates(report, {
+    const states = securityCheckMod.resolveSecurityCheckDomainStates(report, {
       scanId: "scan-contained", cyberEssentials: snapshot,
     });
     const current = states.find((state) => state.domain_key === "cyber_essentials_readiness");
-    const stateWrite = await stateHistoryMod.persistCyberMotDomainStates(env, {
+    const stateWrite = await stateHistoryMod.persistSecurityCheckDomainStates(env, {
       workspaceId: "ws1", domainId: "d1", scanId: "scan-contained", report,
       cyberEssentials: snapshot, assessedAt: report.completed_at,
     });
@@ -554,9 +557,9 @@ const tests = [
         snapshot.containment_reason === CE_WORKSPACE_MULTI_DOMAIN_REASON &&
         /more than one linked domain/i.test(snapshot.summary || "") &&
         !/no completed external scan evidence/i.test(snapshot.summary || "") &&
-        current?.state === cyberMotMod.CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
+        current?.state === securityCheckMod.SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT &&
         current?.summary === snapshot.summary &&
-        stateWrite.written === 8 && storedState?.state === cyberMotMod.CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
+        stateWrite.written === 8 && storedState?.state === securityCheckMod.SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT &&
         storedState?.summary === snapshot.summary &&
         maturityWrite.written === 8 && maturity?.maturity_stage === "not_established" &&
         maturity?.reason_code === "domain_not_observed",

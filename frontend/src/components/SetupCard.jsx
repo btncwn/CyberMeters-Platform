@@ -1,6 +1,6 @@
 // SetupCard — the "Get set up" steps that lived on /services, now at the top
 // of Overview while setup is incomplete (founder, 17 Oct 2026). It reads the
-// same flags the launcher read — a domain exists, a Cyber MOT has run, DMARC
+// same flags the launcher read — a domain exists, an external security check has run, DMARC
 // reporting is connected (#673's definition: an inbound report has been received
 // AND the DMARC DNS record verifies) — and renders nothing once every step is Done.
 // Statuses are never invented: an unknown flag reads as a step still to take.
@@ -21,7 +21,7 @@ export function setupSteps({ hasDomain, hasScan, dmarcConnected } = {}) {
   const dmarc = dmarcConnected === true
   return [
     { key: 'domain', title: 'Add or confirm your primary domain', explanation: 'Tell CyberMeters which domain to protect.', status: domain ? 'done' : 'next', actionLabel: 'Add domain', to: '/ws/domains' },
-    { key: 'scan',   title: 'Run your first Cyber MOT', explanation: 'Check your website, email posture, certificates and visible external posture.', status: scan ? 'done' : domain ? 'next' : 'waiting', actionLabel: 'Start Cyber MOT', to: '/scans/new' },
+    { key: 'scan',   title: 'Run your first security check', explanation: 'Check your website, email posture, certificates and visible external posture.', status: scan ? 'done' : domain ? 'next' : 'waiting', actionLabel: 'Start a security check', to: '/scans/new' },
     { key: 'dmarc',  title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: dmarc ? 'done' : scan ? 'next' : 'waiting', actionLabel: dmarc ? 'Review' : 'Set up', to: '/ws/email-protection' },
   ]
 }

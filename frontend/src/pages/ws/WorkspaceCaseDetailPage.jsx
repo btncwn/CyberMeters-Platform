@@ -1,5 +1,5 @@
 // Universal Case Detail — the ONE canonical customer-facing case surface across
-// all eight Cyber MOT domains. It is ADDITIVE: it coexists with the bespoke ASM,
+// all eight security domains. It is ADDITIVE: it coexists with the bespoke ASM,
 // Brand and per-domain lifecycle panels (which keep their domain-specific side
 // effects) and links out to them for domain-specific actions. It never decides a
 // transition — the backend universal validator does — and it never re-derives a

@@ -395,7 +395,7 @@ async function contract(mod) {
   }
 
   const source = deriveDmarcState.toString();
-  if (/email-scan|computeScore|business-risk|cyber-mot|posture-events|api|frontend/i.test(source)) {
+  if (/email-scan|computeScore|business-risk|security-check|posture-events|api|frontend/i.test(source)) {
     return "pure_derivation_scope_leaked";
   }
 

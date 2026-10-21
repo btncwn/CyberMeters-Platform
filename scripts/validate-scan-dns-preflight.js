@@ -18,7 +18,7 @@ import { computeSecurityPosture } from "../workers/scan-api/src/engines/posture-
 import { buildPostureDiffEvents } from "../workers/scan-api/src/engines/posture-events.js";
 import { buildScanQuality } from "../workers/scan-api/src/engines/scan-engine.js";
 import { moduleCompletionGate } from "../workers/scan-api/src/engines/asm-cases.js";
-import { resolveCyberMotDomainStates } from "../workers/scan-api/src/engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../workers/scan-api/src/engines/security-check-domains.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 let passed = 0, failed = 0;
@@ -255,7 +255,7 @@ try {
       .some(event => event.event_type === "exposed_service_resolved"));
     const posture = computeSecurityPosture({ brand_risks: {}, vendor_risk: {}, certificate_risks: {} }, { modules });
     ok(`NO_ADDRESS_${rcode}_NO_ADMIN_SCORE`, posture.admin_exposure.score === null);
-    const mot = resolveCyberMotDomainStates({ modules, findings: [], scan_quality: { status: "complete" } });
+    const mot = resolveSecurityCheckDomainStates({ modules, findings: [], scan_quality: { status: "complete" } });
     ok(`NO_ADDRESS_${rcode}_MOT_NOT_HEALTHY`, mot.find(d => d.domain_key === "attack_surface")?.state === "evidence_insufficient");
   }
   for (const [label, alter] of [

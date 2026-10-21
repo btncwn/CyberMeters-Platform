@@ -107,7 +107,7 @@ export function deriveInsights(scans, report) {
   // Recommended actions
   const actions = []
   if (scans.length === 0) {
-    actions.push({ id: 'a1', priority: 1, title: 'Start your first Cyber MOT',  desc: 'Add a domain to see what is visible from outside and get a plain-English fix list.',   cta: 'Start Cyber MOT', href: '/scans/new' })
+    actions.push({ id: 'a1', priority: 1, title: 'Start your first security check',  desc: 'Add a domain to see what is visible from outside and get a plain-English fix list.',   cta: 'Start a security check', href: '/scans/new' })
   } else if (failed > 0) {
     actions.push({ id: 'a2', priority: 1, title: 'Investigate failed scans',      desc: `${failed} scan${failed !== 1 ? 's' : ''} stopped with an error, so ${failed !== 1 ? 'their' : 'its'} checks did not finish. Review and run ${failed !== 1 ? 'them' : 'it'} again.`, cta: 'View Scans', href: '/scans' })
   }
@@ -360,7 +360,7 @@ export default function Dashboard() {
         api.getWorkspaceScans(wsId),
         api.getWorkspaceDomains(wsId).catch(() => null),
         api.getWorkspaceScorecard(wsId).catch(() => null), // optional; feeds the recommended next action
-        api.getCyberMotDomains(wsId).catch(() => null),    // canonical eight-domain states (server-resolved)
+        api.getSecurityCheckDomains(wsId).catch(() => null),    // canonical eight-domain states (server-resolved)
       ])
       if (requestGeneration.current !== generation) return
       const list = data.scans || []

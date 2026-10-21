@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const source=fileURLToPath(new URL('../workers/scan-api/src/engines/cyber-mot-domains.js',import.meta.url));
+const source=fileURLToPath(new URL('../workers/scan-api/src/engines/security-check-domains.js',import.meta.url));
 const validator=fileURLToPath(new URL('./test-target-outcomes.js',import.meta.url));
 const original=readFileSync(source,'utf8');
 const mutants=[

@@ -4,7 +4,7 @@
 // is gone (founder prototype v2, 17 Oct 2026): the areas now show only in the
 // sheet the brand button opens (shell/AreaMenu.jsx) and as tiles on each area
 // page. This file is the data; it renders nothing.
-// ── Canonical Cyber MOT domains — the areas ─────────────────────
+// ── Canonical security domains — the areas ─────────────────────
 // Founder order (14 Oct): strongest evidence first, down to the readiness area.
 // `items` are the area's sub-pages (route or in-page anchor), shown as tiles on
 // the area page; the area name itself opens its overview. An anchor opens the

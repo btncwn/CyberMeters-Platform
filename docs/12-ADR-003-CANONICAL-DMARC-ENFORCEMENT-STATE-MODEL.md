@@ -27,7 +27,7 @@ This is a decision record, not an implementation. It contains no code and no pse
 3. BEC policy normalisation — `bec.js:61` (`missing | unknown | none | quarantine | reject`)
 4. Readiness stages — `sender-provenance.js:297` / `rua-routing.js:117` (`reject_ready | quarantine_ready | monitoring`)
 5. Hosted ramp ladder — `hosted-dmarc.js:641` (`DMARC_RAMP_LADDER`)
-6. Cyber MOT states — `cyber-mot-domains.js:53` (`CYBER_MOT_STATES`)
+6. security states — `security-check-domains.js:53` (`SECURITY_CHECK_STATES`)
 7. Posture-event severity — `posture-events.js:17` (`absent` sentinel + `high|medium|low`)
 
 Plus independent numeric scoring in two more places — `email-intel.js:220` (`_score_dmarc` interpolation bands) and `posture-scoring.js:84` (−30 / −10 deltas).
@@ -36,7 +36,7 @@ Plus independent numeric scoring in two more places — `email-intel.js:220` (`_
 
 **Why this is not merely a UI consistency issue [Inference].** Three of the affected consumers change customer-visible risk truth, not presentation:
 - **Scoring / Business Risk** penalise "missing DMARC" (`business-risk.js:96`, `posture-scoring.js:84`) — so an unobservable domain is scored as unprotected.
-- **Cyber MOT** rolls the finding into `email_protection` domain state (`cyber-mot-domains.js:74`) — so the eight-domain coverage honesty contract is violated (an unknown is shown as an issue).
+- **The domain-state resolver** rolls the finding into `email_protection` domain state (`security-check-domains.js:74`) — so the eight-domain coverage honesty contract is violated (an unknown is shown as an issue).
 - **Timeline** (`posture-events.js:77`) can emit `email_dmarc_policy_changed` on the `absent` sentinel — so a transient DNS failure can manufacture a false "policy regression". This is precisely the failure class the Phase A "Posture Timeline Trust" episode exists to prevent.
 
 **Why the parser is already canonical [Verified].** `parseDmarcRecord` is the single source of the DMARC *primitives* (`policy`, `subdomain_policy`, `percentage`/`pct`, `rua`, `ruf`, `adkim`, `aspf`, `valid`, `record_count`, `warnings`). No consumer re-parses raw DNS text. The primitive layer is sound and this ADR does not change it.
@@ -71,7 +71,7 @@ parseDmarcRecord()            ← engines/email-analysis.js:100  (CANONICAL, sin
 │ posture-events policy diff    posture-events.js:17-86 → timeline severity + `absent` sentinel    │
 │ business-risk email block     business-risk.js:96-247 → BRI findings + security_posture          │
 │ hosted-dmarc ramp mapping     hosted-dmarc.js:641-725 → ramp step index / ladder                 │
-│ cyber-mot roll-up             cyber-mot-domains.js:74 → email_protection domain state            │
+│ domain-state roll-up          security-check-domains.js:74 → email_protection domain state       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
         ▼
 API responses (routes/email-protection.js, scan detail)
@@ -79,7 +79,7 @@ API responses (routes/email-protection.js, scan detail)
 Frontend (mirrors backend vocab: JOURNEY_STAGES WorkspaceEmailProtectionPage.jsx:73;
           DMARC_STATUS_STYLE IntelligencePage.jsx:54; raw p= pill ScanDetail.jsx:755)
         ▼
-Cyber MOT domain state · Executive Report / PDF · Business Risk Indicator · Scoring · Alerts · Timeline
+security domain state · Executive Report / PDF · Business Risk Indicator · Scoring · Alerts · Timeline
 ```
 
 **Where the independent derivations live [Verified].** See the table above and §1. The key structural fact: the divergence begins one layer *below* the API, inside the Worker engines, so it cannot be fixed at the API or frontend alone. The frontend vocabularies (`JOURNEY_STAGES`, `DMARC_STATUS_STYLE`) are *mirrors* of two of the backend vocabularies — they are downstream symptoms, not the cause.
@@ -109,7 +109,7 @@ Cyber MOT domain state · Executive Report / PDF · Business Risk Indicator · S
 ## Likely [Inference]
 
 - **False timeline regressions from transient DNS failure.** Because `absent` is a real sentinel in `posture-events.js:21` and DNS failure collapses to absent, a flaky resolver can emit `email_dmarc_policy_changed` as if the customer removed their record. Not separately reproduced in the audit, but mechanically implied by problems #1 and the `posture-events` path. [Inference]
-- **Cyber MOT understating/overstating email state on unobservable domains.** The roll-up (`cyber-mot-domains.js:74`) consumes the missing finding, so an unobservable domain likely renders `issue_detected` rather than `unavailable`/`evidence_insufficient`. [Inference — exact rendered state not captured in the audit.]
+- **external security check understating/overstating email state on unobservable domains.** The roll-up (`security-check-domains.js:74`) consumes the missing finding, so an unobservable domain likely renders `issue_detected` rather than `unavailable`/`evidence_insufficient`. [Inference — exact rendered state not captured in the audit.]
 
 ## Open questions [Unknown]
 
@@ -318,7 +318,7 @@ Behaviour of `deriveDmarcState()` (name illustrative). Pure function of parser p
 | Consumer | Current independent derivation to retire [Verified] | May consume (canonical fields) | Must NOT do |
 |---|---|---|---|
 | **Email Protection** (page/engine) | `buildDmarcPolicyJourney` (`email-analysis.js:218`), `enrichDmarc` (`email-intel.js:46`), **inline `DmarcCard` kind derivation (`WorkspaceEmailProtectionPage.jsx`)** | `enforcement_level`, `caveats`, `confidence`, `evidence_status`, `last_observed` (and `policy`/`pct` for display only) | re-map policy→stage; keep parallel vocabularies; derive a card "kind"/colour inline |
-| **Cyber MOT** | roll-up in `cyber-mot-domains.js:74` | `enforcement_level` → mapped to `CYBER_MOT_STATES` via one documented table (below) | infer domain state from raw `policy`; render `not_observed` as `issue_detected` |
+| **external security check** | roll-up in `security-check-domains.js:74` | `enforcement_level` → mapped to `SECURITY_CHECK_STATES` via one documented table (below) | infer domain state from raw `policy`; render `not_observed` as `issue_detected` |
 | **Executive Report** | `computeSecurityPosture` reasons (`posture-scoring.js:66`), `buildDmarcSenderIntelligenceEvidence` (`sender-provenance.js:297`) | `enforcement_level`, `caveats`, `confidence`, `evidence_status` | invent its own reason strings from primitives |
 | **PDF** | findings from `scoring.js:600-660` | canonical wording table (§9) keyed by `enforcement_level` (+`caveats`) | branch on raw `p=` or re-read `policy` to tell quarantine from reject |
 | **Dashboard / badges** | `DMARC_STATUS_STYLE` (`IntelligencePage.jsx:54`), `JOURNEY_STAGES` (`WorkspaceEmailProtectionPage.jsx:73`), raw pill (`ScanDetail.jsx:755`), **inline `DmarcCard` kind derivation (`WorkspaceEmailProtectionPage.jsx`)** | `enforcement_level` → one badge map (§9) | four different colourings/kinds for one posture |
@@ -330,7 +330,7 @@ Behaviour of `deriveDmarcState()` (name illustrative). Pure function of parser p
 | **API** | route shapes in `routes/email-protection.js` | serialise the canonical object verbatim (§8) | expose a second derived shape |
 | **Validator** | scattered `validate-*.js` | assert parity against canonical state | assert against a legacy vocabulary as ground truth |
 
-**Cyber MOT mapping table [Recommendation]** (the one documented, deterministic bridge from `enforcement_level` to `CYBER_MOT_STATES` — no `provisional`/severity-ranking ambiguity):
+**external security check mapping table [Recommendation]** (the one documented, deterministic bridge from `enforcement_level` to `SECURITY_CHECK_STATES` — no `provisional`/severity-ranking ambiguity):
 
 ```text
 not_yet_assessed    → not_yet_assessed
@@ -391,7 +391,7 @@ One label, colour and wording set per `enforcement_level` rung — the rung alre
 
 **Rules [Recommendation]:**
 - **Only `reject_enforced` may be green.** It is the single final "done" state.
-- **`quarantine_enforced` gets its own distinct presentation** — a near-complete colour (blue/teal), neither the reject green nor an amber alarm — and always shows remediation to progress to reject. It must never be styled identically to `reject_enforced` and never treated as "done". Wording must **acknowledge that enforcement is active** ("DMARC is enforcing at quarantine") while recommending progression to reject, and must **never** describe it as missing, invalid, monitoring-only, partial, or unverified — even though it maps to `issue_detected` in Cyber MOT (§7). The rung, not the wording, carries "enforcing but not the final healthy state". [Founder decision, 18 July 2026]
+- **`quarantine_enforced` gets its own distinct presentation** — a near-complete colour (blue/teal), neither the reject green nor an amber alarm — and always shows remediation to progress to reject. It must never be styled identically to `reject_enforced` and never treated as "done". Wording must **acknowledge that enforcement is active** ("DMARC is enforcing at quarantine") while recommending progression to reject, and must **never** describe it as missing, invalid, monitoring-only, partial, or unverified — even though it maps to `issue_detected` in external security check (§7). The rung, not the wording, carries "enforcing but not the final healthy state". [Founder decision, 18 July 2026]
 - `partial_quarantine` and `partial_reject` are separate visual states; `monitoring` is never green (Principle 9).
 - `not_observed` is never red and never worded as a failure of the customer's setup (Principle 7).
 - The quarantine-vs-reject and partial-vs-full distinctions come from the **rung**, never re-derived from `policy`/`pct`. Remediation specifics come from `caveats`.
@@ -449,7 +449,7 @@ These two are excluded from the monotonic ladder entirely: they are score-neutra
 
 **Distinctions the scoring MUST preserve [Recommendation]:** `unavailable` ≠ `missing` (neutral vs full penalty); `invalid` ≠ `monitoring` (different remediation, similar low credit); `partial_*` < `*_enforced`; `quarantine_enforced` < `reject_enforced`; `partial_reject` > `partial_quarantine`. All are enforced by the fixture matrix (§16).
 
-**Methodology versioning [Recommendation]:** any change to these weights bumps the DMARC scoring methodology version (as with `CYBER_MOT_RESOLVER_VERSION` / CMS+BRI stamps), so a weight change can never read as a posture movement across history. Cross-version comparison is `not_comparable`.
+**Methodology versioning [Recommendation]:** any change to these weights bumps the DMARC scoring methodology version (as with `SECURITY_CHECK_RESOLVER_VERSION` / CMS+BRI stamps), so a weight change can never read as a posture movement across history. Cross-version comparison is `not_comparable`.
 
 ---
 
@@ -492,7 +492,7 @@ Split into minimal, independently reviewable, additive PRs. Every PR is additive
 |---|---|---|---|
 | **PR-1** | `deriveDmarcState()` + canonical object (nine-rung `enforcement_level` + `caveats` array) + `evidence_status`/`not_observed` DNS-failure signal at the probe (`email-scan.js:23`). Unit + mutation tests for the full decision tree (§6), incl. the `pct=0` intent-family cases. No consumer switched yet. | **Codex (backend)** | Foundational. Must fix the probe so `unavailable` is distinguishable *before* any consumer reads it. |
 | **PR-2** | Point scoring + Business Risk (`_score_dmarc`, `posture-scoring.js`, `business-risk.js`) at the canonical object; enforce §11 **monotonic ladder** (weaker rung ≤ stronger; only `reject_enforced` full-credit; `quarantine_enforced` small penalty; `not_observed`/`not_yet_assessed` score-neutral). Monotonicity fixture. | **Codex** | Highest correctness impact — stops scoring unobservable domains as unprotected and stops treating quarantine@100 as full green. |
-| **PR-3** | Cyber MOT roll-up + Executive Report/PDF reasons consume canonical state (§7 tables), incl. the **deterministic** bridge (both `partial_*` → `issue_detected`; `quarantine_enforced` → `issue_detected`; only `reject_enforced` → `assessed_healthy`). | **Codex** | Includes the `CYBER_MOT_STATES` bridge table. |
+| **PR-3** | external security check roll-up + Executive Report/PDF reasons consume canonical state (§7 tables), incl. the **deterministic** bridge (both `partial_*` → `issue_detected`; `quarantine_enforced` → `issue_detected`; only `reject_enforced` → `assessed_healthy`). | **Codex** | Includes the `SECURITY_CHECK_STATES` bridge table. |
 | **PR-4** | Timeline / posture-events consume `enforcement_level` ladder transitions + comparability gate; "weakening" = move down the ladder; guarantee no event across `not_observed` (§10). | **Codex** | Directly reinforces Phase A trust invariants. |
 | **PR-5** | API serialisation of `dmarc_state` (§8) with `enforcement_level`, `caveats`, `state_model_version`; legacy fields become derived. | **Codex** | Additive; legacy fields retained. |
 | **PR-6** | Frontend: replace `JOURNEY_STAGES`, `DMARC_STATUS_STYLE`, the raw `p=` pill **and the inline `DmarcCard` kind derivation (`WorkspaceEmailProtectionPage.jsx`)** with one `enforcement_level`(+`caveats`)-keyed badge/label/wording map (§9), incl. the **distinct `quarantine_enforced` presentation** (near-complete, not reject-green). | **Claude (frontend)** | Copy, badges, tooltips, caveat-driven remediation; loading/empty/error/`not_observed` states. |
@@ -536,12 +536,12 @@ Objective, verifiable at completion:
 3. **API parity.** Every DMARC-bearing response carries `dmarc_state` with all twelve fields (incl. `enforcement_level` as one of the nine rungs and `caveats` as an array) + `state_model_version`; legacy fields equal the canonical derivation. [Verified by contract test]
 4. **Report parity.** Executive Report and PDF wording for a given domain match the dashboard for the same scan, including the quarantine-vs-reject and partial-vs-full distinction. [Verified by fixture]
 5. **Alert/timeline parity.** No event fires across a `not_observed` observation or a `state_model_version` boundary; "weakening" is a move down the ladder; silent-on-stable holds. [Verified by `validate-posture-events` extension]
-6. **Cross-surface state parity.** A fixture matrix (the §6 examples, at minimum — all nine rungs + every caveat, incl. both `pct=0` intent cases and both `sp=none` cases) yields identical `enforcement_level` and `caveats` across scoring, Cyber MOT, report, API and frontend. [Verified by new validator]
-6a. **`quarantine_enforced` classification + wording.** `quarantine_enforced` maps to Cyber MOT `issue_detected` (never `assessed_healthy`), and its customer/executive wording acknowledges active enforcement while recommending progression to reject — and never labels it missing, invalid, monitoring-only, partial, or unverified. [Founder decision item 1 — verified by fixture + frontend copy test]
+6. **Cross-surface state parity.** A fixture matrix (the §6 examples, at minimum — all nine rungs + every caveat, incl. both `pct=0` intent cases and both `sp=none` cases) yields identical `enforcement_level` and `caveats` across scoring, external security check, report, API and frontend. [Verified by new validator]
+6a. **`quarantine_enforced` classification + wording.** `quarantine_enforced` maps to external security check `issue_detected` (never `assessed_healthy`), and its customer/executive wording acknowledges active enforcement while recommending progression to reject — and never labels it missing, invalid, monitoring-only, partial, or unverified. [Founder decision item 1 — verified by fixture + frontend copy test]
 6b. **Multiple-caveat preservation + lead ordering.** A fixture with co-occurring caveats (e.g. `p=reject; pct=0; sp=none` → `[policy_applies_to_zero_percent, subdomain_gap]`) proves every applicable caveat is preserved in the API and surfaced in the UI, and that the lead remediation follows the canonical priority `policy_applies_to_zero_percent > subdomain_gap > pct_below_100`. No caveat is dropped, suppressed, overwritten, or hidden. [Founder decision item 2 — verified by new validator]
 7. **Monotonic scoring parity.** The fixture matrix proves the score is monotonic along the ladder (`no_record ≤ invalid_record ≤ monitoring ≤ partial_quarantine ≤ quarantine_enforced ≤ partial_reject ≤ reject_enforced`), that **only `reject_enforced`** takes full credit, that `quarantine_enforced` carries a strictly-smaller-than-full penalty, and that `not_observed`/`not_yet_assessed` are score-neutral (neither credit nor debit). [New validator — enforces founder revision item 7]
 8. **Ramp-ladder ordering parity.** A parity validator asserts the read-side `enforcement_level` ordering mirrors the hosted `DMARC_RAMP_LADDER` macro-ordering (`none → quarantine-ramp → quarantine@100 → reject-ramp → reject@100`), so the read-side and change-management subsystems cannot drift apart. [New validator — enforces founder revision item 2; complements `scripts/validate-dmarc-graduated-ramp.js`]
-9. **The unavailable-≠-missing proof.** A simulated DNS failure yields `enforcement_level=not_observed`, **no score penalty**, `unavailable` Cyber MOT state, and **no timeline regression** — reproduced end-to-end. [Primary acceptance gate for Problem #1]
+9. **The unavailable-≠-missing proof.** A simulated DNS failure yields `enforcement_level=not_observed`, **no score penalty**, `unavailable` security state, and **no timeline regression** — reproduced end-to-end. [Primary acceptance gate for Problem #1]
 10. **Production verification.** On a founder-controlled domain: authenticated API returns the canonical object; a known enforcing record renders the correct rung (e.g. `reject_enforced`) consistently across surfaces; a deliberately induced resolver failure renders `not_observed`, not `no_record`. (Unauthenticated route existence is not proof — CLAUDE.md.)
 
 ---

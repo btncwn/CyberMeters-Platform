@@ -87,7 +87,7 @@ export async function installAppMock(page, { notificationCount = 4 } = {}) {
     if (p === '/account/usage') return route.fulfill(json({ plan: 'professional', features: ['scheduled_scans', 'alerts', 'pdf_reports'], usage: {}, limits: {} }))
     if (p === `/workspaces/${workspace.id}/domains`) return route.fulfill(json({ domains: [domain] }))
     if (p === '/scans' && u.searchParams.get('workspace_id') === workspace.id) return route.fulfill(json({ scans: [scan] }))
-    if (p === `/workspaces/${workspace.id}/cyber-mot-domains`) return route.fulfill(json({ workspace_id: workspace.id, source_scan_id: scan.id, cyber_mot_domains: motDomains }))
+    if (p === `/workspaces/${workspace.id}/security-domains`) return route.fulfill(json({ workspace_id: workspace.id, source_scan_id: scan.id, cyber_mot_domains: motDomains }))
     if (p === `/scans/${scan.id}/report`) return route.fulfill(json(report))
     if (p === `/scans/${scan.id}`) return route.fulfill(json({ scan, report_availability: { status: 'report_ready' } }))
     if (p.endsWith('/cases')) return route.fulfill(json(cases))

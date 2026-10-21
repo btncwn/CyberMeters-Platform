@@ -12,7 +12,7 @@ import { laneCounts } from '../operations/OperationsBoard'
 // counts → tabs Overview · Findings · Cases · Settings · Field Guide → Scope &
 // limits at the bottom. The framing reads backend values only.
 
-vi.mock('../../api', () => ({ api: { getCyberMotDomains: vi.fn(), getCases: vi.fn() } }))
+vi.mock('../../api', () => ({ api: { getSecurityCheckDomains: vi.fn(), getCases: vi.fn() } }))
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
@@ -45,7 +45,7 @@ describe('ModuleContract — the one area template', () => {
       { case_id: `${domain_key}-open`, domain_key, canonical_phase: 'assigned' },
       { case_id: `${domain_key}-closed`, domain_key, canonical_phase: 'verified', verification_support: 'automated' },
     ])
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockImplementation(async (_wsId, params) => ({ cases: records.filter((c) => c.domain_key === params.domain_key) }))
     for (const key of KEYS) {
       const view = show(key)
@@ -58,7 +58,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('renders the template in order: first screen on every tab, each tab its own sections, scope & limits last', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     expect(MODULE_CONTRACT_SECTIONS.map((s) => s.label)).toEqual(['What we observed', 'Do this next', 'Findings, cases and verification', 'Findings', 'Recommended action', 'Managed case', 'Verification', 'Settings', 'Field Guide', 'Scope & limits'])
     const perTab = { overview: [], findings: ['Findings', 'Recommended action'], cases: ['Managed case', 'Verification'], settings: ['Settings'], guide: ['Field Guide'] }
@@ -74,7 +74,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('Overview carries no page body, cases or guide; scope names the workspace', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     show()
     await waitFor(() => expect(headChip()).toBe('not_assessed'))
@@ -82,12 +82,12 @@ describe('ModuleContract — the one area template', () => {
     expect(screen.queryByText('page body')).not.toBeInTheDocument()
     expect(section('module-cases')).toBeNull()
     expect(section('module-guide')).toBeNull()
-    expect(api.getCyberMotDomains).toHaveBeenCalledWith('ws1')
+    expect(api.getSecurityCheckDomains).toHaveBeenCalledWith('ws1')
     expect(api.getCases).toHaveBeenCalledWith('ws1', { domain_key: 'website_security', limit: 200 })
   })
 
   it('Findings carries the page body; Cases links to Operations for the area; Field Guide links to the guide', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     let r = show('website_security', {}, 'findings')
     expect(within(section('module-findings')).getByText('page body')).toBeInTheDocument()
@@ -100,7 +100,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('every one of the eight areas resolves to its own Field Guide page and names itself in the header', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     for (const m of MODULES) {
       let r = show(m.domainKey, {}, 'guide')
@@ -114,7 +114,7 @@ describe('ModuleContract — the one area template', () => {
 
   it('shows Loading before the reads return, then the backend word, the observed figures and freshness', async () => {
     let resolveDomains
-    api.getCyberMotDomains.mockReturnValue(new Promise((r) => { resolveDomains = r }))
+    api.getSecurityCheckDomains.mockReturnValue(new Promise((r) => { resolveDomains = r }))
     api.getCases.mockResolvedValue({ cases: [] })
     show('email_protection')
     expect(headChip()).toBe('loading')
@@ -133,13 +133,13 @@ describe('ModuleContract — the one area template', () => {
     expect(count('findings')).toHaveTextContent('4')
     expect(within(section('module-scope')).getByText('DKIM is checked against common selectors only.')).toBeInTheDocument()
     // The recommendation count is stated on the Findings tab.
-    api.getCyberMotDomains.mockResolvedValue(resolved)
+    api.getSecurityCheckDomains.mockResolvedValue(resolved)
     show('email_protection', {}, 'findings')
     await waitFor(() => expect(within(section('module-recommended')).getByText(/2 recommendations recorded/)).toBeInTheDocument())
   })
 
   it('a page may supply its own figures — never more than four are shown', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     show('certificates_trust', { figures: [1, 2, 3, 4, 5].map((n) => ({ key: `f${n}`, label: `Figure ${n}`, value: n })) })
     await waitFor(() => expect(screen.getAllByTestId('module-figure')).toHaveLength(4))
@@ -147,7 +147,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('Do this next: the first registry-mapped finding, one card, one button that opens Findings', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ website_security: row('website_security', 'issue_detected', { finding_count: 2, finding_ids: ['unmapped_x', 'header_missing_hsts'], finding_details: [
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ website_security: row('website_security', 'issue_detected', { finding_count: 2, finding_ids: ['unmapped_x', 'header_missing_hsts'], finding_details: [
       { finding_id: 'unmapped_x', status: 'unmapped' },
       { finding_id: 'header_missing_hsts', status: 'resolved', customer_title: 'Send the HSTS header', recommended_action: 'Add Strict-Transport-Security with max-age of at least six months.' },
     ] }) }) })
@@ -172,20 +172,20 @@ describe('ModuleContract — the one area template', () => {
     ]
     api.getCases.mockResolvedValue({ cases: [] })
     for (const [entry, title, label] of cases) {
-      api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ website_security: entry }) })
+      api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ website_security: entry }) })
       const r = show('website_security')
       await waitFor(() => expect(screen.getByTestId('module-next-title')).toHaveTextContent(title))
       expect(screen.getByTestId('module-next-action')).toHaveTextContent(label)
       r.unmount()
     }
-    api.getCyberMotDomains.mockRejectedValue(new Error('boom'))
+    api.getSecurityCheckDomains.mockRejectedValue(new Error('boom'))
     show('website_security')
     await waitFor(() => expect(screen.getByTestId('module-next-title')).toHaveTextContent('The latest assessment could not be read'))
     expect(screen.getByTestId('module-next-action')).toHaveAttribute('href', '/scans/new')
   })
 
   it('a page’s own next action replaces the resolver, still one button', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     show('cyber_essentials_readiness', { nextAction: { title: 'Answer the readiness questionnaire', body: '0 of 20 answered.', label: 'Start questionnaire', to: '/ws/cyber-essentials?tab=findings#questionnaire' } })
     expect(screen.getByTestId('module-next-title')).toHaveTextContent('Answer the readiness questionnaire')
@@ -194,7 +194,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('the three counts open their tabs', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [{ case_id: 'c1', domain_key: 'website_security', canonical_phase: 'awaiting_verification', verification_support: 'automated', title: 'HSTS' }] })
     show('website_security')
     await waitFor(() => expect(count('verification')).toHaveTextContent('Verification1'))
@@ -207,7 +207,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('Settings shows the page’s configurable blocks, or says there is nothing to configure', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     let r = show('certificates_trust', { settings: <form aria-label="TLS scan permissions" /> }, 'settings')
     expect(within(section('module-settings')).getByRole('form', { name: 'TLS scan permissions' })).toBeInTheDocument()
@@ -218,7 +218,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('backend-stale evidence reads Stale in the header', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight({ certificates_trust: row('certificates_trust', 'assessed_healthy', { evidence_freshness: 'stale', freshness_reason: 'Last assessed 70 days ago — this evidence is stale.' }) }) })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ certificates_trust: row('certificates_trust', 'assessed_healthy', { evidence_freshness: 'stale', freshness_reason: 'Last assessed 70 days ago — this evidence is stale.' }) }) })
     api.getCases.mockResolvedValue({ cases: [] })
     show('certificates_trust')
     await waitFor(() => expect(headChip()).toBe('stale'))
@@ -226,7 +226,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('a failed eight-domain read is Error with no figures; a failed case read says so on every tab that shows cases', async () => {
-    api.getCyberMotDomains.mockRejectedValue(new Error('boom'))
+    api.getSecurityCheckDomains.mockRejectedValue(new Error('boom'))
     api.getCases.mockRejectedValue(new Error('boom'))
     let r = show()
     await waitFor(() => expect(headChip()).toBe('error'))
@@ -244,7 +244,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('a bundle whose API has no case function shows Error for cases, not an empty settled list', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     const saved = api.getCases
     delete api.getCases
     try {
@@ -257,15 +257,15 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('a malformed or seven-entry backend set is an Error, never a state', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight().slice(0, 7) })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight().slice(0, 7) })
     api.getCases.mockResolvedValue({ cases: [] })
     show()
-    await waitFor(() => expect(api.getCyberMotDomains).toHaveBeenCalled())
+    await waitFor(() => expect(api.getSecurityCheckDomains).toHaveBeenCalled())
     await waitFor(() => expect(headChip()).toBe('error'))
   })
 
   it('managed cases: open cases first with the case word; verification splits observed from attested; the count shows the open cases', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [
       { case_id: 'c1', domain_key: 'email_protection', canonical_phase: 'awaiting_verification', verification_support: 'automated', title: 'DMARC policy missing', domain: 'example.co.uk' },
       { case_id: 'c2', domain_key: 'email_protection', canonical_phase: 'verified', verification_support: 'manual', title: 'Hosted record rolled back', domain: 'example.co.uk' },
@@ -295,7 +295,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('no cases: says there is nothing to verify, without claiming anything is verified', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     show('website_security', {}, 'cases')
     await waitFor(() => expect(within(section('module-cases')).getByText(/No managed case exists for this area/)).toBeInTheDocument())
@@ -304,7 +304,7 @@ describe('ModuleContract — the one area template', () => {
   })
 
   it('a page may add its own backend-derived recommended action above the registry note', async () => {
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: eight() })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [] })
     show('certificates_trust', { recommendedAction: <p>Renew the expired certificate.</p> }, 'findings')
     await waitFor(() => expect(api.getCases).toHaveBeenCalled())

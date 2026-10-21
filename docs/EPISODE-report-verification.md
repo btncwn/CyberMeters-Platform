@@ -1,4 +1,4 @@
-# QUEUED EPISODE — Report Verification (tamper-evident Cyber MOT reports)
+# QUEUED EPISODE — Report Verification (tamper-evident external security check reports)
 
 Status: **QUEUED — post-backlog / around M7 or first-paying-customer. NOT pre-beta, NOT a
 launch-blocker, does NOT jump the frozen backlog (remaining items 6–18).** Captured 24 Jul 2026 from a

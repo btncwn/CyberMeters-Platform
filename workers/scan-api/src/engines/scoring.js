@@ -670,7 +670,7 @@ export function computeScore(modules, domain) {
     // use the same decision. Historical reports without the field still use the
     // legacy raw read. Scoring only expresses two DMARC
     // findings; the full nine-rung ladder (invalid/quarantine/partials as issues,
-    // reject as healthy) is the Cyber MOT authority (cyber-mot-domains.js).
+    // reject as healthy) is the security authority (security-check-domains.js).
     const dmarcState = modules.email_security?.dmarc_state;
     const dmarcLevel = dmarcState?.enforcement_level ?? null;
     // not_observed / not_yet_assessed → neither branch → score-neutral (ADR §11):
@@ -1280,7 +1280,7 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
 // Methodology stamp for the Cyber Metrics Score (M5.c). The value dates the CURRENT
 // deduction weights + band cutoffs; bump it whenever either changes, so a persisted
 // snapshot can refuse to present a methodology change as posture movement
-// (the CYBER_MOT_RESOLVER_VERSION / CE_READINESS_METHODOLOGY_VERSION precedent).
+// (the SECURITY_CHECK_RESOLVER_VERSION / CE_READINESS_METHODOLOGY_VERSION precedent).
 // 2026-08-23.1 — AS-B2: KEV/CVE evidence now moves the customer score (was 0-impact).
 // 2026-08-24.1 — score-suppression unification: a SCORE-BEARING module that was
 // skipped / never-ran (budget or deadline) now withholds the customer score

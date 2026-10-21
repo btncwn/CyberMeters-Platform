@@ -2,7 +2,7 @@
 // Local controlled evidence only. Terminal execution must never certify health
 // or clear a prior finding when the host did not provide assessable content.
 import { runExposureModule, runAdminSurfaceModule } from '../workers/scan-api/src/engines/asset-intel.js';
-import { resolveCyberMotDomainStates } from '../workers/scan-api/src/engines/cyber-mot-domains.js';
+import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 import { deriveAttackSurfaceSignalCompleteness } from '../workers/scan-api/src/engines/attack-surface-signal-completeness.js';
 import { buildScanAssetEvidence } from '../workers/scan-api/src/engines/asset-evidence.js';
 import { moduleCompletionGate } from '../workers/scan-api/src/engines/asm-cases.js';
@@ -65,7 +65,7 @@ const report=assets=>({modules:{subdomains:{checked:1},dns:{resolves:true},admin
   scan_quality:{status:'complete',modules_skipped:[],modules_incomplete:[],degradations:[]},
   monitoring_states:{version:'signal-monitoring-state-v3',signals:{
     attack_surface:{state:'monitoring_healthy'},website_security:{state:'monitoring_healthy'}}}});
-const area=(assets,domain)=>resolveCyberMotDomainStates(report(assets)).find(row=>row.domain_key===domain);
+const area=(assets,domain)=>resolveSecurityCheckDomainStates(report(assets)).find(row=>row.domain_key===domain);
 check('T2_CLEAN_CONTROL_CAN_BE_HEALTHY',area([{host,status:200,reachable:true}],'attack_surface')?.state==='assessed_healthy');
 check('T2_UNAVAILABLE_HOST_NEVER_HEALTHY',area([asset],'attack_surface')?.state==='evidence_insufficient');
 check('T2_NON_RESOLVING_HOST_NEVER_HEALTHY',area([{host,probe_status:'not_applicable',reason:'authoritative_no_address',reachable:null}],'attack_surface')?.state==='evidence_insufficient');
@@ -81,7 +81,7 @@ for(const outcome of [{state:'target_unavailable',reason:'server_error',statuses
       omitted_checks:0,pending_assets:0,not_applicable_hosts:0,target_unavailable_hosts:outcome.state==='target_unavailable'?1:0,
       non_resolving_hosts:outcome.state==='host_does_not_resolve'?1:0,execution_complete_hosts:1},checks:[],findings:[],observed_at:new Date().toISOString()};
   const module=externalExposureModule(receipt);
-  const website=resolveCyberMotDomainStates({...report([]),modules:{...report([]).modules,headers:{accessible:true,headers_assessed:true},
+  const website=resolveSecurityCheckDomainStates({...report([]),modules:{...report([]).modules,headers:{accessible:true,headers_assessed:true},
     ssl:{https_available:true,https_probe_executed:true},external_exposure:module}})
     .find(row=>row.domain_key==='website_security');
   const key=exposureConditionKey({rule_id:'env-config',url:`https://${host}/.env`,identity:exposureIdentity('env-config',`https://${host}/.env`)});

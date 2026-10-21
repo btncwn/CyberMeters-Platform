@@ -44,4 +44,4 @@ Full report JSON stored in R2
 ↓
 Scan metadata updated in D1
 ↓
-Dashboard displays Cyber MOT Score, findings, trends, and remediation actions
+Dashboard displays external security check Score, findings, trends, and remediation actions

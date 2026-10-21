@@ -17,7 +17,7 @@ import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, norm
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
 import { visibleFindingSql } from "../engines/finding-identity.js";
 import { projectTlsModulesForCustomer } from "../engines/tls-evidence.js";
-import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
+import { resolveSecurityCheckDomainStates } from "../engines/security-check-domains.js";
 import { resolveRemediation } from "../engines/remediation-registry.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
@@ -1678,7 +1678,7 @@ export async function attackSurfaceRoutes(rctx) {
         const ci = projectTlsModulesForCustomer(report?.modules ?? {}).certificate_intelligence;
         if (!ci) continue;
 
-        const certificateDomain = resolveCyberMotDomainStates(report, { scanId: scanRows[i]?.id || null })
+        const certificateDomain = resolveSecurityCheckDomainStates(report, { scanId: scanRows[i]?.id || null })
           .find((entry) => entry.domain_key === "certificates_trust");
         const finding_actions = (certificateDomain?.finding_ids || []).map((finding_id) => {
           const remediation = resolveRemediation({ finding_type: finding_id, domain_key: "certificates_trust" });

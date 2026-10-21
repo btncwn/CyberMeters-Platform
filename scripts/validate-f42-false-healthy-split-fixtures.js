@@ -28,7 +28,7 @@
 // ── WHAT THIS HARNESS PROVES, AND HOW ───────────────────────────────────────
 // Every scenario drives the REAL producers (runHeadersModule, runTechModule,
 // runSslModule), the REAL grader (buildScanQuality) and the CANONICAL customer
-// resolver (resolveCyberMotDomainStates). Only `globalThis.fetch` is stubbed;
+// resolver (resolveSecurityCheckDomainStates). Only `globalThis.fetch` is stubbed;
 // no network call is made and no module output is hand-written.
 //
 // Bar item 6 is deliberate and load-bearing: the verdicts below are asserted on
@@ -38,7 +38,7 @@
 //
 // SCOPE: this file asserts evidence-completeness truth only. It takes no
 // position on scoring/regrade semantics, changes no product behaviour, and does
-// not touch cyber-mot-domains.js.
+// not touch security-check-domains.js.
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -49,7 +49,7 @@ const { runHeadersModule } = await import(eng("headers-scan.js"));
 const { runTechModule } = await import(eng("tech-scan.js"));
 const { runSslModule } = await import(eng("ssl-scan.js"));
 const { buildScanQuality } = await import(eng("scan-engine.js"));
-const { resolveCyberMotDomainStates } = await import(eng("cyber-mot-domains.js"));
+const { resolveSecurityCheckDomainStates } = await import(eng("security-check-domains.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"} ${n}${!c && d ? " — " + d : ""}`); };
@@ -125,7 +125,7 @@ async function observe(router) {
     const modules = { dns: { resolves: true }, ssl, headers, technology_detection, email_security: {} };
     const scan_quality = buildScanQuality(modules);
     const report = { scan_quality, modules, findings: [], completed_at: "2026-08-16T00:00:00Z" };
-    const website = resolveCyberMotDomainStates(report, { scanId: "f42" })
+    const website = resolveSecurityCheckDomainStates(report, { scanId: "f42" })
       .find((d) => d.domain_key === "website_security");
     return { headers, technology_detection, ssl, scan_quality, website };
   } finally { globalThis.fetch = realFetch; }

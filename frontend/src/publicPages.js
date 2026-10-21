@@ -93,13 +93,13 @@ export const PUBLIC_PAGE_META = {
     host: 'marketing', indexable: true, priority: '0.8',
   },
   '/free-scan': {
-    title: 'Free Cyber MOT — check your domain',
+    title: 'Free security check — check your domain',
     description: 'A free, passive check of your domain: public DNS, HTTPS, website headers, email authentication and technology signals. It says what it could not check, and no report is stored.',
     host: 'app', indexable: true,
   },
   '/pricing': {
     title: 'Pricing',
-    description: 'Every paid plan is the full Cyber MOT: external posture, alerts, managed cases, reports and remediation. Priced per monitored domain, starting with a 14-day full trial.',
+    description: 'Every paid plan is the full external security check: external posture, alerts, managed cases, reports and remediation. Priced per monitored domain, starting with a 14-day full trial.',
     host: 'app', indexable: true,
   },
   '/login': { title: 'Sign in', host: 'app', indexable: false },

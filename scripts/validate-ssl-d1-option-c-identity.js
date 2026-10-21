@@ -448,7 +448,7 @@ const scanEngine = fs.readFileSync(path.join(ROOT, "workers", "scan-api", "src",
 check("writer.shared_forward_path", /persistFindingsWithIdentity\(env,\s*\{/.test(scanEngine),
   "scan-engine does not delegate finding writes to the identity layer");
 
-const historySource = fs.readFileSync(path.join(ROOT, "workers", "scan-api", "src", "engines", "cyber-mot-state-history.js"), "utf8");
+const historySource = fs.readFileSync(path.join(ROOT, "workers", "scan-api", "src", "engines", "security-check-state-history.js"), "utf8");
 check("domain.history_shared_projection", /projectLegacyWebsiteDomainState/.test(historySource),
   "persisted Website state readers do not use the bounded projection");
 

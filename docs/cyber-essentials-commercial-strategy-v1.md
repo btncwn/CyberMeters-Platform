@@ -268,7 +268,7 @@ White-label reports are the key feature: a vCISO cannot send a CyberMeters-brand
 
 ---
 
-### Basic Vulnerability Scanners (Qualys, Tenable, Nessus, OpenVAS)
+### Basic Vulnerability Scanners (Competitor G, Competitor H, Nessus, OpenVAS)
 
 **What they do:** Vulnerability scanners identify known technical vulnerabilities in systems and networks. They produce long lists of CVEs, severity scores, and patch recommendations. They are powerful tools designed for security professionals with dedicated expertise.
 
@@ -276,11 +276,11 @@ White-label reports are the key feature: a vCISO cannot send a CyberMeters-brand
 
 **CyberMeters position:** CyberMeters speaks in business language, not CVE language. It maps findings to CE control areas, produces a readiness assessment rather than a vulnerability list, and generates a board-ready report rather than a technical remediation backlog. It is designed for the person responsible for security posture, not the person responsible for patching systems.
 
-**Messaging:** *"Qualys tells your security team what's broken. CyberMeters tells your board whether you're ready for Cyber Essentials."*
+**Messaging:** *"Competitor G tells your security team what's broken. CyberMeters tells your board whether you're ready for Cyber Essentials."*
 
 ---
 
-### Security Scorecard Tools (SecurityScorecard, UpGuard, BitSight, RiskRecon)
+### Security Scorecard Tools (Competitor D, Competitor C, Competitor E, RiskRecon)
 
 **What they do:** External risk rating platforms continuously monitor the external attack surface of organisations (and their vendors) and assign risk scores, typically on a letter-grade scale. They are used primarily by enterprise risk, procurement, and vendor management teams to assess third-party risk.
 
@@ -291,9 +291,9 @@ White-label reports are the key feature: a vCISO cannot send a CyberMeters-brand
 - They produce vendor risk intelligence, not self-assessment readiness reports
 - Their output is comparative (how do you compare to peers?) not prescriptive (what do you need to fix to pass Cyber Essentials?)
 
-**CyberMeters position:** CyberMeters shares the external monitoring approach of these tools but is purpose-built for the UK market, CE-aligned, and priced for SMBs. Where SecurityScorecard answers "how risky is this vendor?", CyberMeters answers "would we pass Cyber Essentials today, and what do we need to fix?"
+**CyberMeters position:** CyberMeters shares the external monitoring approach of these tools but is purpose-built for the UK market, CE-aligned, and priced for SMBs. Where Competitor D answers "how risky is this vendor?", CyberMeters answers "would we pass Cyber Essentials today, and what do we need to fix?"
 
-**Messaging:** *"SecurityScorecard is built for enterprise vendor risk teams. CyberMeters is built for UK IT Managers who need to know if they're Cyber Essentials ready."*
+**Messaging:** *"Competitor D is built for enterprise vendor risk teams. CyberMeters is built for UK IT Managers who need to know if they're Cyber Essentials ready."*
 
 ---
 

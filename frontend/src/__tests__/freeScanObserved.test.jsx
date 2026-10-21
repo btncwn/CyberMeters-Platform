@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { render, screen, within } from '@testing-library/react'
 import { buildFreeScanEvidence, FREE_SCAN_MODULE_DEFINITIONS } from '../../../workers/scan-api/src/engines/free-scan-evidence.js'
 import { buildFreeScanPreview } from '../../../workers/scan-api/src/engines/free-scan-preview.js'
-import FreeCyberMotPreviewGrid from '../components/FreeCyberMotPreviewGrid'
+import FreeSecurityCheckPreviewGrid from '../components/FreeSecurityCheckPreviewGrid'
 import { deriveFreeScanPresentation } from '../lib/freeScanPresentation'
 
 // F0 (founder, 19 Oct 2026, "never send them away empty-handed"): the free scan
@@ -154,7 +154,7 @@ describe('the card shows what was observed', () => {
   it('lists the observed evidence instead of an empty card, and keeps the empty line where nothing was seen', () => {
     // The page's own path: API response → presentation adapter → grid.
     const result = deriveFreeScanPresentation(JSON.parse(JSON.stringify(preview(load('own-site-like')))))
-    render(<FreeCyberMotPreviewGrid domains={result.domains} />)
+    render(<FreeSecurityCheckPreviewGrid domains={result.domains} />)
     const email = screen.getByRole('heading', { name: 'Email Protection' }).closest('article')
     expect(within(email).getByText('Observed in the completed checks')).toBeInTheDocument()
     expect(within(email).getByText('DMARC policy p=reject observed')).toBeInTheDocument()

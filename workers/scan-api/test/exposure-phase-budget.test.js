@@ -8,7 +8,7 @@ import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, tlsEndpointIdentity } from '..
 import { projectTlsCollectorReceipt } from '../../network-probe/src/tls-contract.js';
 import { externalExposureModule } from '../src/engines/exposure-findings.js';
 import { EXPOSURE_JOB_LIMITS, processExposureMessage, readExposureForScan, readTlsAssessmentForScan, sizeExposureJobBudget } from '../src/engines/exposure-jobs.js';
-import { resolveCyberMotDomainStates } from '../src/engines/cyber-mot-domains.js';
+import { resolveSecurityCheckDomainStates } from '../src/engines/security-check-domains.js';
 import { deriveSignalMonitoringStates } from '../src/engines/signal-monitoring-state.js';
 
 const domain = 'budget.example.org';
@@ -170,7 +170,7 @@ test('completed HTTP remains assessable when TLS later exhausts', async () => {
     certificate_intelligence: {certificate: {hostname_match: true, trust: 'valid'}},
     asset_exposure: {skipped: true}}, findings: []};
   report.monitoring_states = deriveSignalMonitoringStates({modules: report.modules, scanQuality: report.scan_quality});
-  const domains = resolveCyberMotDomainStates(report);
+  const domains = resolveSecurityCheckDomainStates(report);
   assert.equal(domains.find(item => item.domain_key === 'website_security').state, 'assessed_healthy',
     JSON.stringify(domains.find(item => item.domain_key === 'website_security')));
   // Asset-exposure monitoring really was skipped, so that separate signal
@@ -187,7 +187,7 @@ test('completed HTTP remains assessable when TLS later exhausts', async () => {
   tlsOnly.scan_quality.warnings = ['Module incomplete: tls_assessment'];
   tlsOnly.monitoring_states = deriveSignalMonitoringStates({modules: tlsOnly.modules,
     scanQuality: tlsOnly.scan_quality});
-  assert.equal(resolveCyberMotDomainStates(tlsOnly).find(item => item.domain_key === 'attack_surface').state,
+  assert.equal(resolveSecurityCheckDomainStates(tlsOnly).find(item => item.domain_key === 'attack_surface').state,
     'assessed_healthy');
   assert.equal(await readExposureForScan(env, {workspaceId: 'foreign', scanId: 'scan_partial_tls'}), null);
 });
@@ -210,7 +210,7 @@ test('finished but inconclusive HTTP cites its own evidence gap, not TLS budget'
     modules_skipped: ['tls_assessment'], warnings: ['Module incomplete: tls_assessment']},
   modules: {external_exposure: externalExposureModule(exposure),
     headers: {}, ssl: {https_available: true}, dns: {}}, findings: []};
-  const website = resolveCyberMotDomainStates(report).find(item => item.domain_key === 'website_security');
+  const website = resolveSecurityCheckDomainStates(report).find(item => item.domain_key === 'website_security');
   assert.equal(website.state, 'provisional');
   assert.match(website.summary, /1 of 380 external content checks were conclusive/);
   assert.doesNotMatch(website.summary, /budget exhausted/);

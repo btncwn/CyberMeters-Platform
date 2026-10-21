@@ -16,12 +16,12 @@ import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PortfolioDomainsPage from '../PortfolioDomainsPage'
-import { CYBER_MOT_KEYS } from './portfolioDomainsFixtures'
+import { SECURITY_CHECK_KEYS } from './portfolioDomainsFixtures'
 import { api } from '../../api'
 
 vi.mock('../../api', () => ({ api: { getPortfolioDomains: vi.fn() } }))
 
-const eight = (over = {}) => CYBER_MOT_KEYS.map((k, i) => ({
+const eight = (over = {}) => SECURITY_CHECK_KEYS.map((k, i) => ({
   domain_key: k, display_name: k.replace(/_/g, ' '),
   state: 'assessed_healthy', summary: 'Assessed — no material issue observed.',
   coverage: 'complete', highest_severity: null, finding_count: 0, evidence_count: 1,
@@ -73,13 +73,13 @@ beforeEach(() => vi.clearAllMocks())
 describe('PortfolioDomainsPage — honesty', () => {
   it('renders all EIGHT domains for a row, never fewer', async () => {
     await renderPage(mkResp([mkRow()]))
-    for (const k of CYBER_MOT_KEYS) {
+    for (const k of SECURITY_CHECK_KEYS) {
       expect(screen.getAllByText(k.replace(/_/g, ' ')).length).toBeGreaterThan(0)
     }
   })
 
   it('a never-assessed domain renders as Not assessed, NEVER Healthy', async () => {
-    const cells = eight(Object.fromEntries(CYBER_MOT_KEYS.map((k) => [k, {
+    const cells = eight(Object.fromEntries(SECURITY_CHECK_KEYS.map((k) => [k, {
       state: 'not_yet_assessed', trend: 'insufficient_history',
       trend_reason: 'No assessment has been recorded for this domain yet.',
       evidence_freshness: 'none', evidence_age_days: null,

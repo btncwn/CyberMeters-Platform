@@ -7,7 +7,7 @@ import { api } from '../../api'
 vi.mock('../../api', () => ({
   api: {
     getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(),
-    getWorkspaceScorecard: vi.fn(), getCyberMotDomains: vi.fn(),
+    getWorkspaceScorecard: vi.fn(), getSecurityCheckDomains: vi.fn(),
     getScanReport: vi.fn(),
   },
 }))
@@ -15,7 +15,7 @@ vi.mock('../../components/OnboardingProgress', () => ({ default: () => null }))
 vi.mock('../../components/FirstResultsGuide', () => ({ default: () => null }))
 vi.mock('../../components/TeamOnboardingCard', () => ({ default: () => null }))
 vi.mock('../../components/RecentChangesCard', () => ({ default: () => null }))
-vi.mock('../../components/CyberMotDomains', () => ({ default: () => null }))
+vi.mock('../../components/SecurityCheckDomains', () => ({ default: () => null }))
 
 const scans = [
   { id: 'tls-partial', domain: 'cybermeters.com', status: 'completed', score: 100,
@@ -42,7 +42,7 @@ describe('Dashboard TLS quality honesty', () => {
     api.getWorkspaceScans.mockResolvedValue({ scans })
     api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'cybermeters.com' }] })
     api.getWorkspaceScorecard.mockResolvedValue({})
-    api.getCyberMotDomains.mockResolvedValue({ cyber_mot_domains: [] })
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: [] })
     api.getScanReport.mockResolvedValue({ status: 'completed', scan_id: 'tls-partial',
       cyber_metrics_score: 100, findings: [], cyber_mot_domains: [] })
   })

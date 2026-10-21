@@ -1,5 +1,5 @@
 // ── Universal Managed-Case Model ───────────────────────────────────────────
-// One shared case platform across all eight Cyber MOT domains. It does NOT
+// One shared case platform across all eight security domains. It does NOT
 // replace the existing Attack Surface (asm_exposure) and Brand (brand_abuse)
 // state machines — it registers them alongside a canonical BASE lifecycle used
 // by the six domains that do not yet have a bespoke workflow, and provides:
@@ -23,12 +23,12 @@ import { applyCaseTransition, createCaseMachine, isTerminal, canTransition,
   newManagedCaseId, newCaseEventId } from "./case-workflow.js";
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
 import { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES } from "./brand-case-machine.js";
-import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
+import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { findingRemediation, getRemediationById } from "./remediation-registry.js";
 
-// The eight canonical domain keys are DERIVED from the Cyber MOT model so they
+// The eight canonical domain keys are DERIVED from the domain model so they
 // can never drift from it.
-export const CANONICAL_DOMAIN_KEYS = Object.freeze(CYBER_MOT_DOMAINS.map((d) => d.domain_key));
+export const CANONICAL_DOMAIN_KEYS = Object.freeze(SECURITY_CHECK_DOMAINS.map((d) => d.domain_key));
 const DOMAIN_KEY_SET = new Set(CANONICAL_DOMAIN_KEYS);
 
 // ── Canonical base lifecycle ────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { runTechModule } from "../workers/scan-api/src/engines/tech-scan.js";
 import { deriveAttackSurfaceSignalCompleteness } from "../workers/scan-api/src/engines/attack-surface-signal-completeness.js";
-import { isResolverVersionAtLeast, CYBER_MOT_RESOLVER_VERSION, FIRST_HONEST_RESOLVER_VERSION } from "../workers/scan-api/src/engines/cyber-mot-domains.js";
+import { isResolverVersionAtLeast, SECURITY_CHECK_RESOLVER_VERSION, FIRST_HONEST_RESOLVER_VERSION } from "../workers/scan-api/src/engines/security-check-domains.js";
 import { projectIdentitySnapshotForCustomer } from "../workers/scan-api/src/engines/phase5-evidence.js";
 
 let passed = 0;
@@ -60,7 +60,7 @@ const legacy = deriveAttackSurfaceSignalCompleteness({ technology_detection: {
   observation_state: "unavailable", incomplete: true, incomplete_reason: "origin_error_no_serviceable_response",
 } });
 ok("stored legacy non-empty value cannot bypass marker", legacy.signals.technology.state === "incomplete");
-ok("resolver successor is not read as legacy", isResolverVersionAtLeast(CYBER_MOT_RESOLVER_VERSION));
+ok("resolver successor is not read as legacy", isResolverVersionAtLeast(SECURITY_CHECK_RESOLVER_VERSION));
 ok("predecessor remains below successor boundary", !isResolverVersionAtLeast("2026-08-12.1"));
 // ── FIXED HONESTY FLOOR (P1.2-C successor) ─────────────────────────────────
 // The projection must key on a FIXED point in history, not on the moving current
@@ -71,7 +71,7 @@ ok("predecessor remains below successor boundary", !isResolverVersionAtLeast("20
 ok("honest floor is a fixed constant, not the moving current version",
   FIRST_HONEST_RESOLVER_VERSION === "2026-08-12.1");
 ok("the floor is NOT the moving resolver constant",
-  FIRST_HONEST_RESOLVER_VERSION !== CYBER_MOT_RESOLVER_VERSION);
+  FIRST_HONEST_RESOLVER_VERSION !== SECURITY_CHECK_RESOLVER_VERSION);
 {
   const snap = (v) => ({
     methodology: { cyber_mot_resolver_version: v },
@@ -80,7 +80,7 @@ ok("the floor is NOT the moving resolver constant",
   const stateFor = (v) => projectIdentitySnapshotForCustomer(snap(v), {})
     .domains.find((d) => d.domain_key === "identity_exposure").state;
   ok("F52_FLOOR_HONEST_PREDECESSOR_STAYS_HEALTHY", stateFor("2026-08-12.1") === "assessed_healthy");
-  ok("F52_FLOOR_CURRENT_VERSION_STAYS_HEALTHY", stateFor(CYBER_MOT_RESOLVER_VERSION) === "assessed_healthy");
+  ok("F52_FLOOR_CURRENT_VERSION_STAYS_HEALTHY", stateFor(SECURITY_CHECK_RESOLVER_VERSION) === "assessed_healthy");
   // The projection must still BITE below the floor — the fix corrects where the
   // boundary sits, it does not switch the projection off.
   ok("F52_FLOOR_GENUINELY_LEGACY_STILL_PROJECTED", stateFor("2026-07-16.1") === "evidence_insufficient");

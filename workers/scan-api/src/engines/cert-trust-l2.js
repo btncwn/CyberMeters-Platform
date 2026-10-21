@@ -169,7 +169,7 @@ function buildRenewalReadiness(cert, rows, nowMs) {
     recommended_actions.push("Confirm certificate expiry with your hosting provider or certificate authority.");
   } else if (days < 0) {
     blockers.push("The observed certificate has expired.");
-    recommended_actions.push("Renew and deploy the certificate immediately, then run a fresh Cyber MOT.");
+    recommended_actions.push("Renew and deploy the certificate immediately, then run a fresh security check.");
   } else if (days <= 30) {
     blockers.push(`The observed certificate expires in ${days} day${days === 1 ? "" : "s"}.`);
     recommended_actions.push("Schedule renewal before the certificate enters the final renewal window.");
@@ -297,7 +297,7 @@ export function buildCertificateTrustL2(cert, options = {}) {
       title: "Certificate expired",
       reasons: [`The observed certificate expired ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago.`],
       evidence: [certEvidence(current, { days_until_expiry: days })],
-      remediation: ["Renew and deploy the certificate, then run a fresh Cyber MOT to confirm the new evidence."],
+      remediation: ["Renew and deploy the certificate, then run a fresh security check to confirm the new evidence."],
     });
   } else if (days !== null && days <= 30) {
     addFinding(findings, {
@@ -336,7 +336,7 @@ export function buildCertificateTrustL2(cert, options = {}) {
         ? "The certificate the site presents was not observed in the latest scan."
         : "The latest evidence did not include issuer, subject or expiry details."],
       evidence: [{ source: "certificate_intelligence", observed_via: via }],
-      remediation: ["Run a fresh Cyber MOT and confirm the domain serves HTTPS where expected."],
+      remediation: ["Run a fresh security check and confirm the domain serves HTTPS where expected."],
     });
   }
 

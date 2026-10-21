@@ -17,7 +17,7 @@ const enginePath = (f) => path.join(root, "workers", "scan-api", "src", "engines
 const eng = (f) => pathToFileURL(enginePath(f)).href;
 const W = await import(eng("website-availability.js"));
 const { resolveRemediation } = await import(eng("remediation-registry.js"));
-const { CYBER_MOT_DOMAINS } = await import(eng("cyber-mot-domains.js"));
+const { SECURITY_CHECK_DOMAINS } = await import(eng("security-check-domains.js"));
 const { composeSnapshot } = await import(eng("report-snapshot.js"));
 const { buildScanReportPdf } = await import(eng("pdf.js"));
 
@@ -147,7 +147,7 @@ const run = (h, domain = DOMAIN) => W.homePageAvailabilityFindings({ headers: h 
   ok("the down observation resolves to its own canonical remediation",
     down.status === "resolved" && down.remediation_id === "web.homepage.unavailable" && down.domain_key === "website_security"
       && down.verification_method === "https_recheck");
-  const website = CYBER_MOT_DOMAINS.find((d) => d.domain_key === "website_security");
+  const website = SECURITY_CHECK_DOMAINS.find((d) => d.domain_key === "website_security");
   ok("observation belongs to the Website Security domain", website.match({ id: W.HOME_PAGE_NOT_FOUND_ID }) === true);
 }
 

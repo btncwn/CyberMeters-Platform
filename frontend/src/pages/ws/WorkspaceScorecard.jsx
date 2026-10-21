@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
-import CyberMotDomains from '../../components/CyberMotDomains'
+import SecurityCheckDomains from '../../components/SecurityCheckDomains'
 import DomainMaturity from '../../components/DomainMaturity'
 import { bandMeta } from '../../lib/score-presentation'
 
@@ -88,7 +88,7 @@ export default function WorkspaceScorecard() {
     try {
       const [r, mot, mat] = await Promise.allSettled([
         api.getWorkspaceScorecardReport(wsId),
-        api.getCyberMotDomains(wsId),
+        api.getSecurityCheckDomains(wsId),
         api.getWorkspaceMaturity(wsId),
       ])
       if (r.status === 'fulfilled') setReport(r.value)
@@ -137,7 +137,7 @@ export default function WorkspaceScorecard() {
       </div>
 
       <div className="mb-8">
-        <CyberMotDomains domains={motDomains} />
+        <SecurityCheckDomains domains={motDomains} />
       </div>
 
       <div className="mb-8">

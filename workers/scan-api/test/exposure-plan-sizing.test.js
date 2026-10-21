@@ -6,7 +6,7 @@ import { planExposureChecks } from '../../../shared/exposure/discovery.js';
 import { EXPOSURE_JOB_LIMITS, budgetedExposurePrefix, estimateExposureJobBudget, readExposureForScan, workspaceExposureWindow } from '../src/engines/exposure-jobs.js';
 import { DatabaseSync } from 'node:sqlite';
 import { reconcileCurrentDnsHostCoverage } from '../src/engines/exposure-findings.js';
-import { resolveCyberMotDomainStates } from '../src/engines/cyber-mot-domains.js';
+import { resolveSecurityCheckDomainStates } from '../src/engines/security-check-domains.js';
 
 function representativePlan(hostCount) {
   const hosts = Array.from({length: hostCount}, (_, index) => index ? `h${index}.example.org` : 'example.org');
@@ -92,18 +92,18 @@ function partialReport() {
 }
 
 test('unrelated TLS uncertainty does not demote complete Email and Brand evidence', async () => {
-  const rows = resolveCyberMotDomainStates(partialReport());
+  const rows = resolveSecurityCheckDomainStates(partialReport());
   assert.equal(rows.find(row => row.domain_key === 'email_protection')?.state, 'assessed_healthy');
   assert.equal(rows.find(row => row.domain_key === 'brand_protection')?.state, 'assessed_healthy');
-  const sourceUrl = new URL('../src/engines/cyber-mot-domains.js', import.meta.url);
+  const sourceUrl = new URL('../src/engines/security-check-domains.js', import.meta.url);
   const source = readFileSync(sourceUrl, 'utf8');
   const anchor = 'completeDomainDespiteUnrelatedPhase(report, d, skippedSet)';
   assert.ok(source.includes(anchor));
-  const mutantUrl = new URL(`../src/engines/.cyber-mot-local-mutant-${randomUUID()}.js`, import.meta.url);
+  const mutantUrl = new URL(`../src/engines/.security-check-local-mutant-${randomUUID()}.js`, import.meta.url);
   writeFileSync(mutantUrl, source.replace(anchor, 'false'));
   try {
     const mutant = await import(mutantUrl.href);
-    const wrong = mutant.resolveCyberMotDomainStates(partialReport());
+    const wrong = mutant.resolveSecurityCheckDomainStates(partialReport());
     assert.equal(wrong.find(row => row.domain_key === 'email_protection')?.state, 'provisional');
     assert.equal(wrong.find(row => row.domain_key === 'brand_protection')?.state, 'provisional');
   } finally { unlinkSync(mutantUrl); }
@@ -115,18 +115,18 @@ test('unchecked hosts cannot become a healthy Attack Surface', async () => {
   // host receipt remains authoritative for the five unchecked hosts.
   report.scan_quality = {status: 'complete', degradations: [], modules_incomplete: [],
     modules_skipped: [], warnings: []};
-  const normal = resolveCyberMotDomainStates(report).find(row => row.domain_key === 'attack_surface');
+  const normal = resolveSecurityCheckDomainStates(report).find(row => row.domain_key === 'attack_surface');
   assert.equal(normal?.state, 'provisional');
   assert.match(normal.summary, /4 of 9 hosts checked this scan/);
-  const sourceUrl = new URL('../src/engines/cyber-mot-domains.js', import.meta.url);
+  const sourceUrl = new URL('../src/engines/security-check-domains.js', import.meta.url);
   const source = readFileSync(sourceUrl, 'utf8');
   const anchor = "exposureCoverage?.hosts_total > exposureCoverage?.hosts_checked";
   assert.ok(source.includes(anchor));
-  const mutantUrl = new URL(`../src/engines/.cyber-mot-rotation-mutant-${randomUUID()}.js`, import.meta.url);
+  const mutantUrl = new URL(`../src/engines/.security-check-rotation-mutant-${randomUUID()}.js`, import.meta.url);
   writeFileSync(mutantUrl, source.replace(anchor, 'false'));
   try {
     const mutant = await import(mutantUrl.href);
-    const wrong = mutant.resolveCyberMotDomainStates(report).find(row => row.domain_key === 'attack_surface');
+    const wrong = mutant.resolveSecurityCheckDomainStates(report).find(row => row.domain_key === 'attack_surface');
     assert.notEqual(wrong?.state, normal?.state, 'mutation must change the verdict');
     assert.equal(wrong?.state, 'assessed_healthy');
     assert.doesNotMatch(wrong.summary, /4 of 9 hosts checked this scan/);
@@ -145,24 +145,24 @@ test('a DNS-absent name is covered without clearing prior findings or concealing
   report.scan_quality.modules_incomplete.push({module: 'external_exposure',
     incomplete_reason: 'host_does_not_resolve'});
   report.scan_quality.warnings.push('Module incomplete: external_exposure');
-  const resolved = resolveCyberMotDomainStates(report).find(row => row.domain_key === 'attack_surface');
+  const resolved = resolveSecurityCheckDomainStates(report).find(row => row.domain_key === 'attack_surface');
   assert.equal(resolved?.state, 'assessed_healthy');
   assert.match(resolved.limitations.join(' '), /web service was not assessed/);
   report.modules.external_exposure.coverage.deferred_prior_findings = 1;
-  const prior = resolveCyberMotDomainStates(report).find(row => row.domain_key === 'attack_surface');
+  const prior = resolveSecurityCheckDomainStates(report).find(row => row.domain_key === 'attack_surface');
   assert.equal(prior?.state, 'provisional');
   assert.match(prior.summary, /No finding was cleared/);
   report.modules.external_exposure.coverage.deferred_prior_findings = 0;
-  const sourceUrl = new URL('../src/engines/cyber-mot-domains.js', import.meta.url);
+  const sourceUrl = new URL('../src/engines/security-check-domains.js', import.meta.url);
   const source = readFileSync(sourceUrl, 'utf8');
   const anchor = "const dnsAbsenceOnly = domain.domain_key === 'attack_surface'";
   assert.ok(source.includes(anchor));
-  const mutantUrl = new URL(`../src/engines/.cyber-mot-dns-mutant-${randomUUID()}.js`, import.meta.url);
+  const mutantUrl = new URL(`../src/engines/.security-check-dns-mutant-${randomUUID()}.js`, import.meta.url);
   writeFileSync(mutantUrl, source.replace(anchor,
     "const dnsAbsenceOnly = false && domain.domain_key === 'attack_surface'"));
   try {
     const mutant = await import(mutantUrl.href);
-    const wrong = mutant.resolveCyberMotDomainStates(report).find(row => row.domain_key === 'attack_surface');
+    const wrong = mutant.resolveSecurityCheckDomainStates(report).find(row => row.domain_key === 'attack_surface');
     assert.notEqual(wrong?.state, resolved?.state);
   } finally { unlinkSync(mutantUrl); }
 });
@@ -173,22 +173,22 @@ test('an Email or Brand phase that is itself incomplete stays provisional', asyn
   report.scan_quality.warnings.push('Module incomplete: email_security');
   report.scan_quality.modules_incomplete.push({module: 'brand_monitoring', incomplete_reason: 'validation_incomplete'});
   report.scan_quality.warnings.push('Module incomplete: brand_monitoring');
-  const rows = resolveCyberMotDomainStates(report);
+  const rows = resolveSecurityCheckDomainStates(report);
   assert.notEqual(rows.find(row => row.domain_key === 'email_protection')?.state, 'assessed_healthy');
   assert.notEqual(rows.find(row => row.domain_key === 'brand_protection')?.state, 'assessed_healthy');
   // Mutant: the domain-local shortcut forgets to exclude the domain's own
   // incomplete modules. It must flip the verdict to healthy, proving the guard.
-  const sourceUrl = new URL('../src/engines/cyber-mot-domains.js', import.meta.url);
+  const sourceUrl = new URL('../src/engines/security-check-domains.js', import.meta.url);
   const source = readFileSync(sourceUrl, 'utf8');
   const anchor = '[...other].some(name => !name || domain.modules.includes(name))';
   assert.ok(source.includes(anchor));
-  const mutantUrl = new URL(`../src/engines/.cyber-mot-own-module-mutant-${randomUUID()}.js`, import.meta.url);
+  const mutantUrl = new URL(`../src/engines/.security-check-own-module-mutant-${randomUUID()}.js`, import.meta.url);
   writeFileSync(mutantUrl, source.replace(anchor, '[...other].some(name => !name)')
     .replace("domain.modules.every(name => report?.modules?.[name] == null || moduleAssessed(report, name, skippedSet))", 'true')
     .replace("return domain.required.every(name => moduleAssessed(report, name, skippedSet)) &&\n    true", 'return true'));
   try {
     const mutant = await import(mutantUrl.href);
-    const wrong = mutant.resolveCyberMotDomainStates(report);
+    const wrong = mutant.resolveSecurityCheckDomainStates(report);
     assert.equal(wrong.find(row => row.domain_key === 'email_protection')?.state, 'assessed_healthy',
       'mutation must let the incomplete Email phase read healthy');
   } finally { unlinkSync(mutantUrl); }

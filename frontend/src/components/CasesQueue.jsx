@@ -2,7 +2,7 @@
 // /cases queue for a workspace, folding every case_type onto its canonical phase
 // via the shared caseDisplay descriptor. Read-only: it displays server-provided
 // state and NEVER decides which transitions are legal — that is enforced by the
-// backend universal validator. A single presentation for all eight Cyber MOT
+// backend universal validator. A single presentation for all eight external security check
 // domains, replacing per-page hardcoded state maps for the cross-domain view.
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'

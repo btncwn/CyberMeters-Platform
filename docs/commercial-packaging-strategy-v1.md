@@ -9,7 +9,7 @@
 >
 > **Why non-canonical.** It explores candidate prices (£9.90, then £49 Starter)
 > that were rejected at the time and are not the adopted policy either. Its
-> competitor set is enterprise-band (UpGuard, SecurityScorecard, Qualys, RiskXchange)
+> competitor set is enterprise-band (Competitor C, Competitor D, Competitor G, RiskXchange)
 > and is not the SME comparison CyberMeters actually competes in — see the canonical
 > battlecard. Its feature matrix predates the eight-domain product model. Its
 > portfolio and MSP lines describe intent, not shipped capability: MSP Portfolio
@@ -71,12 +71,12 @@ CyberMeters is not a consumer cybersecurity product. It is a B2B Attack Surface 
 
 | Competitor / Tool | Entry Pricing | Target Buyer |
 |---|---|---|
-| UpGuard Cyber Risk | $500+/month | Mid-market |
-| SecurityScorecard | $500+/month | Mid-market |
+| Competitor C Cyber Risk | $500+/month | Mid-market |
+| Competitor D | $500+/month | Mid-market |
 | RiskXchange | £200+/month | SMB / MSP |
 | Hacker Target Pro | £50–200/month | Technical SMB |
-| Qualys VMDR | £300+/month | Mid-market |
-| Detectify | £200+/month | Dev/Security teams |
+| Competitor G VMDR | £300+/month | Mid-market |
+| Competitor F | £200+/month | Dev/Security teams |
 
 CyberMeters at £9.90/month does not compete in this landscape — it sits below it entirely, implying it is a basic tool rather than a professional platform. In B2B security, price is a signal of capability and trustworthiness. Underpricing communicates risk, not value.
 

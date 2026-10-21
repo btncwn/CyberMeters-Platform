@@ -153,12 +153,12 @@ async function main() {
   const { buildScanReportSnapshot, composeSnapshot, snapshotSha256Hex, verificationCeiling,
           SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_BUILDER_VERSION, EVIDENCE_GRADES,
           EVIDENCE_SOURCE_TYPES } = snapEngine;
-  const { resolveCyberMotDomainStates, CYBER_MOT_RESOLVER_VERSION } = await import(pathToFileURL(srcPath("engines", "cyber-mot-domains.js")).href);
+  const { resolveSecurityCheckDomainStates, SECURITY_CHECK_RESOLVER_VERSION } = await import(pathToFileURL(srcPath("engines", "security-check-domains.js")).href);
   const { buildDmarcEvidenceFromDnsResult } = await import(pathToFileURL(srcPath("engines", "email-scan.js")).href);
   const completeDmarc = buildDmarcEvidenceFromDnsResult({
     status: "fulfilled", value: { Status: 0, Answer: [{ type: 16, data: "v=DMARC1; p=reject" }] },
   }).dmarc_state;
-  const { CYBER_MOT_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "cyber-mot-state-history.js")).href);
+  const { SECURITY_CHECK_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "security-check-state-history.js")).href);
   const { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "business-risk.js")).href);
   const { CYBER_METRICS_SCORE_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "scoring.js")).href);
   const { CE_QUESTION_SET_VERSION } = await import(pathToFileURL(srcPath("lib", "cyber-essentials.js")).href);
@@ -233,7 +233,7 @@ async function main() {
 
   ok("exactly eight domains, canonical keys, fixed order",
      !!snap1 && Array.isArray(snap1.domains) &&
-     JSON.stringify(snap1.domains.map((d) => d.domain_key)) === JSON.stringify([...CYBER_MOT_DOMAIN_KEYS]));
+     JSON.stringify(snap1.domains.map((d) => d.domain_key)) === JSON.stringify([...SECURITY_CHECK_DOMAIN_KEYS]));
   const domainKeySet = new Set((snap1?.domains ?? []).map((d) => d.domain_key));
   ok("no ninth Admin Exposure domain", !domainKeySet.has("admin_exposure"));
   ok("no Vendor Risk / Supply Chain customer domains",
@@ -245,7 +245,7 @@ async function main() {
   // Value equality on EVERY stamp — a stale hardcoded constant would defeat the
   // stamps' whole purpose (methodology change reading as posture change).
   ok("methodology block carries every stamp, by VALUE",
-     snap1?.methodology?.cyber_mot_resolver_version === CYBER_MOT_RESOLVER_VERSION &&
+     snap1?.methodology?.cyber_mot_resolver_version === SECURITY_CHECK_RESOLVER_VERSION &&
      snap1?.methodology?.cyber_metrics_score_methodology_version === CYBER_METRICS_SCORE_METHODOLOGY_VERSION &&
      snap1?.methodology?.business_risk_methodology_version === BUSINESS_RISK_METHODOLOGY_VERSION &&
      snap1?.methodology?.snapshot_builder_version === SNAPSHOT_BUILDER_VERSION &&
@@ -253,7 +253,7 @@ async function main() {
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
   ok("current resolver methodology stamp is independently pinned",
-     CYBER_MOT_RESOLVER_VERSION === "2026-10-18.2" &&
+     SECURITY_CHECK_RESOLVER_VERSION === "2026-10-18.2" &&
      snap1?.methodology?.cyber_mot_resolver_version === "2026-10-18.2");
   // 2026-10-13.1: outside vulnerability data left the check pack, so no
   // exploited-vulnerability match can move the score (scoring.js).
@@ -266,12 +266,12 @@ async function main() {
   ok("as_of is the SCAN's time, never build time", snap1?.snapshot?.as_of === report1.completed_at);
 
   const row1 = db.prepare("SELECT * FROM scan_report_snapshots WHERE scan_id='scan1'").get();
-  ok("D1 row completed with resolver version + assessed_at", row1?.status === "completed" && row1?.resolver_version === CYBER_MOT_RESOLVER_VERSION && row1?.assessed_at === report1.completed_at);
+  ok("D1 row completed with resolver version + assessed_at", row1?.status === "completed" && row1?.resolver_version === SECURITY_CHECK_RESOLVER_VERSION && row1?.assessed_at === report1.completed_at);
   ok("checksum binds the D1 row to the exact R2 bytes",
      !!row1?.checksum_sha256 && row1.checksum_sha256 === await snapshotSha256Hex(put1.body));
 
   // ═══ D. Truth consistency ══════════════════════════════════════════════════
-  const independent = resolveCyberMotDomainStates(report1, { scanId: "scan1", cyberEssentials: ceSnap1 });
+  const independent = resolveSecurityCheckDomainStates(report1, { scanId: "scan1", cyberEssentials: ceSnap1 });
   const same = snap1 && independent.every((d, i) =>
     snap1.domains[i].domain_key === d.domain_key &&
     snap1.domains[i].state === d.state &&
@@ -651,7 +651,7 @@ async function main() {
 
   // Later scan supersedes append-only.
   const laterRow = db.prepare("SELECT * FROM scan_report_snapshots WHERE scan_id='scan_p'").get();
-  ok("a later completed Cyber MOT records supersedes_snapshot_id at creation",
+  ok("a later completed security check records supersedes_snapshot_id at creation",
      laterRow?.supersedes_snapshot_id === res1.snapshot_id);
   ok("the superseded historical row itself is UNCHANGED (append-only supersession)",
      db.prepare("SELECT checksum_sha256 FROM scan_report_snapshots WHERE id=?").get(res1.snapshot_id).checksum_sha256 === row1.checksum_sha256);
@@ -662,7 +662,7 @@ async function main() {
   const snapRouteBlock = routeSrc.slice(routeSrc.indexOf("GET /api/scans/:id/snapshot"), routeSrc.indexOf("GET /api/scans/:id/report "));
   ok("snapshot read route exists and never re-resolves/re-scores/re-remediates",
      snapRouteBlock.length > 200 &&
-     !/resolveCyberMotDomainStates|deriveScanBusinessRisk|findingRemediation|buildCyberEssentials/.test(snapRouteBlock));
+     !/resolveSecurityCheckDomainStates|deriveScanBusinessRisk|findingRemediation|buildCyberEssentials/.test(snapRouteBlock));
 
   // ═══ C. Concurrency / partial failure ═══════════════════════════════════════
   seedScan("scan_c", "ws1", "dom1");
@@ -707,7 +707,7 @@ async function main() {
   seedScan("scan_s", "ws1", "dom1");
   db.prepare(`INSERT INTO scan_report_snapshots (id, workspace_id, domain_id, scan_id, status, r2_key, snapshot_schema_version, resolver_version, assessed_at, created_at)
               VALUES ('snap-stale','ws1','dom1','scan_s','building','reports/snapshots/ws1/scan_s/snap-stale.json','1',?, '2026-07-16T11:50:00.000Z', datetime('now','-40 minutes'))`)
-    .run(CYBER_MOT_RESOLVER_VERSION);
+    .run(SECURITY_CHECK_RESOLVER_VERSION);
   const sReport = makeReport("scan_s", "dom1", "shared.example", { completedAt: "2026-07-16T11:50:00.000Z" });
   const rs = await buildScanReportSnapshot(env, { workspaceId: "ws1", domainId: "dom1", scanId: "scan_s", domain: "shared.example", report: sReport, cyberEssentials: ceSnap1, assessedAt: sReport.completed_at });
   ok("a stale crashed claim is reclaimed as failed and the retry completes",
@@ -752,7 +752,7 @@ async function main() {
     await runScanEngine("scanE2E", "domE", "wsE2E", "e2e.example", env, {});
     const eRow = db.prepare("SELECT * FROM scan_report_snapshots WHERE scan_id='scanE2E'").get();
     ok("scan finalize (Phase 8o) builds a completed snapshot through the REAL path",
-       eRow?.status === "completed" && eRow?.resolver_version === CYBER_MOT_RESOLVER_VERSION);
+       eRow?.status === "completed" && eRow?.resolver_version === SECURITY_CHECK_RESOLVER_VERSION);
     const eBody = eRow ? store.get(eRow.r2_key) : null;
     const eSnap = eBody ? JSON.parse(eBody) : null;
     const e091 = db.prepare("SELECT domain_key, state FROM cyber_mot_domain_states WHERE scan_id='scanE2E' ORDER BY domain_key").all();
@@ -806,7 +806,7 @@ async function main() {
     // A 'building' row must never be served — the D1 status gate, not R2 existence.
     seedScan("scan_b", "ws1", "dom1");
     db.prepare(`INSERT INTO scan_report_snapshots (id, workspace_id, domain_id, scan_id, status, r2_key, snapshot_schema_version, resolver_version, assessed_at)
-                VALUES ('snap-bld','ws1','dom1','scan_b','building','reports/snapshots/ws1/scan_b/snap-bld.json','1',?, '2026-07-16T13:00:00.000Z')`).run(CYBER_MOT_RESOLVER_VERSION);
+                VALUES ('snap-bld','ws1','dom1','scan_b','building','reports/snapshots/ws1/scan_b/snap-bld.json','1',?, '2026-07-16T13:00:00.000Z')`).run(SECURITY_CHECK_RESOLVER_VERSION);
     const bld = await call("GET", "/api/scans/scan_b/snapshot");
     ok("a building snapshot is 409, never served", bld.status === 409);
 
@@ -834,7 +834,7 @@ async function main() {
     const reportR = makeReport("scan_r", "dom1", "shared.example", { completedAt: "2026-07-16T14:00:00.000Z" });
     store.set("reports/scan_r.json", JSON.stringify(reportR));
     db.prepare(`INSERT INTO scan_report_snapshots (id, workspace_id, domain_id, scan_id, status, r2_key, snapshot_schema_version, resolver_version, assessed_at, metadata_json)
-                VALUES ('snap-fail-r','ws1','dom1','scan_r','failed','reports/snapshots/ws1/scan_r/snap-fail-r.json','1',?, '2026-07-16T14:00:00.000Z','{"failure_reason":"injected"}')`).run(CYBER_MOT_RESOLVER_VERSION);
+                VALUES ('snap-fail-r','ws1','dom1','scan_r','failed','reports/snapshots/ws1/scan_r/snap-fail-r.json','1',?, '2026-07-16T14:00:00.000Z','{"failure_reason":"injected"}')`).run(SECURITY_CHECK_RESOLVER_VERSION);
     const failedRowsBeforePassiveRead = db.prepare(
       "SELECT COUNT(*) c FROM scan_report_snapshots WHERE scan_id='scan_r'"
     ).get().c;
@@ -857,7 +857,7 @@ async function main() {
     const reportT = makeReport("scan_t", "dom1", "shared.example", { completedAt: "2026-07-16T14:10:00.000Z" });
     store.set("reports/scan_t.json", JSON.stringify(reportT));
     db.prepare(`INSERT INTO scan_report_snapshots (id, workspace_id, domain_id, scan_id, status, r2_key, snapshot_schema_version, resolver_version, assessed_at, created_at)
-                VALUES ('snap-stuck','ws1','dom1','scan_t','building','reports/snapshots/ws1/scan_t/snap-stuck.json','1',?, '2026-07-16T14:10:00.000Z', datetime('now','-40 minutes'))`).run(CYBER_MOT_RESOLVER_VERSION);
+                VALUES ('snap-stuck','ws1','dom1','scan_t','building','reports/snapshots/ws1/scan_t/snap-stuck.json','1',?, '2026-07-16T14:10:00.000Z', datetime('now','-40 minutes'))`).run(SECURITY_CHECK_RESOLVER_VERSION);
     const unstuck = await call("GET", "/api/scans/scan_t/snapshot");
     ok("a stale crashed 'building' attempt is repaired on read (never a permanent 409)",
        unstuck.status === 200 &&
@@ -1050,9 +1050,9 @@ async function main() {
       },
       {
         name: "Cyber Essentials full-domain conclusion promoted back to healthy",
-        file: srcPath("engines", "cyber-mot-domains.js"),
-        from: "          base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;\n          base.coverage = provisional ? quality : \"partial\";",
-        to:   "          base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n          base.coverage = provisional ? quality : \"complete\";",
+        file: srcPath("engines", "security-check-domains.js"),
+        from: "          base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;\n          base.coverage = provisional ? quality : \"partial\";",
+        to:   "          base.state = SECURITY_CHECK_STATES.ASSESSED_HEALTHY;\n          base.coverage = provisional ? quality : \"complete\";",
       },
       {
         name: "unrelated partial module globally caps every domain Evidence Grade",
@@ -1081,13 +1081,13 @@ async function main() {
       {
         name: "insufficient evidence promoted to healthy (resolver second-guessed)",
         file: srcPath("engines", "report-snapshot.js"),
-        from: "  const resolvedDomains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials });",
-        to:   "  const resolvedDomains = resolveCyberMotDomainStates(reportForCustomer, { scanId, cyberEssentials }).map((d) => (d.state === \"evidence_insufficient\" || d.state === \"provisional\" || d.state === \"not_yet_assessed\" ? { ...d, state: \"assessed_healthy\" } : d));",
+        from: "  const resolvedDomains = resolveSecurityCheckDomainStates(reportForCustomer, { scanId, cyberEssentials });",
+        to:   "  const resolvedDomains = resolveSecurityCheckDomainStates(reportForCustomer, { scanId, cyberEssentials }).map((d) => (d.state === \"evidence_insufficient\" || d.state === \"provisional\" || d.state === \"not_yet_assessed\" ? { ...d, state: \"assessed_healthy\" } : d));",
       },
       {
         name: "methodology stamp dropped from the snapshot",
         file: srcPath("engines", "report-snapshot.js"),
-        from: "      cyber_mot_resolver_version: CYBER_MOT_RESOLVER_VERSION,",
+        from: "      cyber_mot_resolver_version: SECURITY_CHECK_RESOLVER_VERSION,",
         to:   "      cyber_mot_resolver_version: null,",
       },
       {

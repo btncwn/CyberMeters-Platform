@@ -65,7 +65,7 @@ describe('an analyst rescans verified domains (decision, 18 Oct 2026)', () => {
     expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent('blackbullbarbers.co.uk')
   })
   it('a domain that needs verifying again says so plainly, no red error', async () => {
-    vi.spyOn(api, 'createScan').mockRejectedValue(Object.assign(new Error('Verify domain ownership before starting a Cyber MOT.'), { status: 403, code: 'domain_verification_required' }))
+    vi.spyOn(api, 'createScan').mockRejectedValue(Object.assign(new Error('Verify domain ownership before starting an external security check.'), { status: 403, code: 'domain_verification_required' }))
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: 'Rescan blackbullbarbers.co.uk' }))
     expect(await screen.findByText('A workspace admin needs to verify this domain again before it can be scanned.')).toBeInTheDocument()
@@ -151,7 +151,7 @@ describe('a verification-required refusal is not a role refusal', () => {
   it('owner: the gate falls back to verification, not the ask-the-owner sentence', async () => {
     vi.spyOn(api, 'getWorkspaces').mockResolvedValue({ workspaces: [{ id: 'ws_bbb', name: 'Black Bull Barbers', role: 'owner' }] })
     vi.spyOn(api, 'getWorkspaceDomains').mockResolvedValue({ domains: [VERIFIED] })
-    vi.spyOn(api, 'createScan').mockRejectedValue(Object.assign(new Error('Verify domain ownership before starting a Cyber MOT.'), { status: 403, code: 'domain_verification_required', domain_id: 'd1', workspace_id: 'ws_bbb' }))
+    vi.spyOn(api, 'createScan').mockRejectedValue(Object.assign(new Error('Verify domain ownership before starting an external security check.'), { status: 403, code: 'domain_verification_required', domain_id: 'd1', workspace_id: 'ws_bbb' }))
     renderPage()
     const u = userEvent.setup()
     await u.type(screen.getByRole('textbox'), 'blackbullbarbers.co.uk')

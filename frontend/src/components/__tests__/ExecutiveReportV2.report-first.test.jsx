@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ExecutiveReportV2 from '../ExecutiveReportV2'
-import { CYBER_MOT_DISPLAY_ORDER } from '../../lib/cyberMotDisplay'
+import { SECURITY_CHECK_DISPLAY_ORDER } from '../../lib/securityCheckDisplay'
 import { composeSnapshot } from '../../../../workers/scan-api/src/engines/report-snapshot.js'
 import { buildExecutiveReportV2 } from '../../../../workers/scan-api/src/engines/executive-report.js'
 import { buildDseFindings } from '../../../../workers/scan-api/src/engines/dse-findings.js'
@@ -69,7 +69,7 @@ function reportFixture() {
         { signal: 'attack_surface', state: 'signal_unavailable', message: 'Attack-surface data was unavailable in this run.' },
       ],
     },
-    cyber_mot_domains: CYBER_MOT_DISPLAY_ORDER.map((domain) => ({
+    cyber_mot_domains: SECURITY_CHECK_DISPLAY_ORDER.map((domain) => ({
       ...domain,
       state: 'evidence_insufficient',
       coverage: 'partial',

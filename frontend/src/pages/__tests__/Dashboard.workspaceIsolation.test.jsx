@@ -5,7 +5,7 @@ import { api } from '../../api'
 
 vi.mock('../../api', () => ({ api: {
   getWorkspaces: vi.fn(), getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(),
-  getWorkspaceScorecard: vi.fn(), getCyberMotDomains: vi.fn(), getScanReport: vi.fn(),
+  getWorkspaceScorecard: vi.fn(), getSecurityCheckDomains: vi.fn(), getScanReport: vi.fn(),
 } }))
 vi.mock('../../components/overview/SecurityOverview', async importOriginal => ({
   ...(await importOriginal()),
@@ -34,7 +34,7 @@ beforeEach(() => {
   localStorage.setItem('cybermeters_workspace_name', 'Customer a')
   api.getWorkspaceDomains.mockImplementation(id => Promise.resolve({ domains: [{ domain: `${id}.example` }] }))
   api.getWorkspaceScorecard.mockImplementation(id => Promise.resolve({ workspace: id }))
-  api.getCyberMotDomains.mockImplementation(id => Promise.resolve(domains(id === 'a' ? 'issue_detected' : 'assessed_healthy')))
+  api.getSecurityCheckDomains.mockImplementation(id => Promise.resolve(domains(id === 'a' ? 'issue_detected' : 'assessed_healthy')))
   api.getWorkspaceScans.mockImplementation(id => Promise.resolve(scans(`${id}.example`)))
 })
 
@@ -73,7 +73,7 @@ it('shows failed B optional reads without retaining A values', async () => {
   api.getWorkspaceScans.mockResolvedValue(scans('b.example'))
   api.getWorkspaceDomains.mockRejectedValue(new Error('unavailable'))
   api.getWorkspaceScorecard.mockRejectedValue(new Error('unavailable'))
-  api.getCyberMotDomains.mockRejectedValue(new Error('unavailable'))
+  api.getSecurityCheckDomains.mockRejectedValue(new Error('unavailable'))
   selectWorkspace('b')
   expect(await screen.findByText('b.example')).toBeInTheDocument()
   expect(screen.getByTestId('action-signals')).not.toHaveTextContent('"workspace":"a"')

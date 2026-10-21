@@ -17,8 +17,8 @@ Accuracy is our brand; the battlecard must live by it.
 · Cyber Essentials boundary → `docs/cyber-essentials-readiness.md` · shipped truth →
 `CHANGELOG.md`.
 
-**Last verified:** competitor landscape 7 July 2026 (Red Sift/Cloudflare 6 July;
-Intruder 7 July), carried forward from v1. Competitor **pricing** benchmarks are the
+**Last verified:** competitor landscape 7 July 2026 (Competitor A/the edge provider 6 July;
+Competitor B 7 July), carried forward from v1. Competitor **pricing** benchmarks are the
 settled set recorded in `PRICING-POLICY.md` §8 — **research is CLOSED; cite, do not
 re-research.** Re-verify the landscape quarterly (next: October 2026).
 
@@ -26,12 +26,12 @@ re-research.** Re-verify the landscape quarterly (next: October 2026).
 
 ## What changed from v1, and why
 
-v1 was accurate about Red Sift, Cloudflare and Intruder, and its evidence culture and
+v1 was accurate about Competitor A, the edge provider and Competitor B, and its evidence culture and
 self-audit were sound. Four things were wrong or missing, and this version fixes them.
 
 1. **The competitor set was off-band.** v1 benchmarked us against enterprise products
    whose pricing and buying motion make the comparison misleading — and other
-   commercial documents went further, comparing us to UpGuard and SecurityScorecard.
+   commercial documents went further, comparing us to Competitor C and Competitor D.
    We do not sell into that market. §2 fixes the band.
 2. **Scope was framed as a weakness to apologise for.** It is the product. §3 states
    the narrow-scope / high-evidential-accuracy principle positively and honestly.
@@ -77,8 +77,8 @@ prices, cited as recorded; do not re-derive them in a sales conversation.
 | In our band | Model | Recorded signal |
 |---|---|---|
 | **DMARC Digests** | DMARC only | Flat **$14/mo per domain**, 60-day history — the cheapest per-domain DMARC benchmark |
-| **URIports** | DMARC/TLS/DNS packs | €5/5 · €25/25 · €100/100 · €400/400 domains — domain bundles are market-normal |
-| **Red Sift / OnDMARC (entry)** | DMARC, tiered | **Express $9/mo (4 domains)**; Essentials 25 sender domains; upper tiers sales-led |
+| **a reporting vendor** | DMARC/TLS/DNS packs | €5/5 · €25/25 · €100/100 · €400/400 domains — domain bundles are market-normal |
+| **Competitor A / Competitor A's DMARC product (entry)** | DMARC, tiered | **Express $9/mo (4 domains)**; Essentials 25 sender domains; upper tiers sales-led |
 | **Attack Surface Center** (UK) | ASM | Free · **£89/10 assets** · £179/30 · £499/100 — closest UK ASM analog |
 | **HostedScan** | External scanning | $39 / $109 / $189 per month, 5 targets each |
 | **Mailhardener MSP** | DMARC MSP | **€149 base + €1/domain** — the MSP model we emulate |
@@ -88,12 +88,12 @@ prices, cited as recorded; do not re-derive them in a sales conversation.
 
 | Out of band | Why the comparison misleads |
 |---|---|
-| **UpGuard** | $1,750/mo (50 vendors), +$79/vendor. Enterprise ratings/vendor-risk, procurement-led. A prospect who can buy UpGuard is not our buyer. |
-| **SecurityScorecard / BitSight** | Enterprise security ratings, $500–$5,000+/mo, sales-led. Different product, different buyer. |
-| **Qualys / Tenable / Nessus** | Enterprise vulnerability management. We do not do CVE scanning at all (§3). |
-| **Censys ASM** | Credit-based internet-visibility packages. Enterprise motion. |
+| **Competitor C** | $1,750/mo (50 vendors), +$79/vendor. Enterprise ratings/vendor-risk, procurement-led. A prospect who can buy Competitor C is not our buyer. |
+| **Competitor D / Competitor E** | Enterprise security ratings, $500–$5,000+/mo, sales-led. Different product, different buyer. |
+| **Competitor G / Competitor H / Nessus** | Enterprise vulnerability management. We do not do CVE scanning at all (§3). |
+| **an internet-scan database ASM** | Credit-based internet-visibility packages. Enterprise motion. |
 | **Vanta / Drata** | Compliance automation. Adjacent category; we are not a compliance platform. |
-| **Detectify** | Platform fee + per-domain/per-target with an app-scanning core we do not have. |
+| **Competitor F** | Platform fee + per-domain/per-target with an app-scanning core we do not have. |
 
 Quoting an enterprise price to make our price look good is a **losing move**: it
 invites a feature comparison we lose, against a buyer we cannot serve. Compare us to
@@ -111,55 +111,55 @@ Our Cloudflare-native cost base (~£0.10–0.20/domain/mo all-in) is what makes 
 defensible and, per policy, is the real moat behind a **Free tier competitors cannot
 match** — not undercutting any single price.
 
-### 2.3 Red Sift (includes Hardenize)
+### 2.3 Competitor A (with its web/TLS product)
 
-**The single most misunderstood fact:** Hardenize is not a separate competitor. Red
-Sift acquired Hardenize in January 2022; its technology powers Red Sift ASM, and
-founder Ivan Ristić (creator of SSL Labs) joined Red Sift. *Verified live 6 July 2026:
-hardenize.com carries Red Sift navigation and its legal links point to redsift.com
+**The single most misunderstood fact:** Competitor A's web/TLS product is not a separate competitor. Red
+Sift acquired Competitor A's web/TLS product in January 2022; its technology powers Competitor A ASM, and
+founder Ivan Ristić (creator of a public TLS grading service) joined Competitor A. *Verified live 6 July 2026:
+a competitor's site carries Competitor A navigation and its legal links point to a competitor's site
 customer agreements.*
 
-Red Sift mirrors us product-for-product on four of our eight domains:
+Competitor A mirrors us product-for-product on four of our eight domains:
 
-| CyberMeters domain | Red Sift product | Notes |
+| CyberMeters domain | Competitor A product | Notes |
 |---|---|---|
-| Email Protection | **OnDMARC** | Their flagship; hosted DMARC management, strong enforcement tooling |
+| Email Protection | **Competitor A's DMARC product** | Their flagship; hosted DMARC management, strong enforcement tooling |
 | Brand Protection | **Brand Trust** | Lookalike/impersonation discovery — do NOT claim they lack this |
-| Attack Surface | **ASM** (Hardenize engine) | Deep hygiene heritage: TLS, DNSSEC, headers, CT |
+| Attack Surface | **ASM** (Competitor A's web/TLS product engine) | Deep hygiene heritage: TLS, DNSSEC, headers, CT |
 | Certificates & Trust | **Certificates** | Real-time certificate discovery/monitoring |
 | — | **Radar** | AI assistant layer across the platform |
 
 **Their DNA:** enterprise security suite — analyst-grade depth, enterprise pricing and
 sales motion. **Their customer:** security teams with budget and process.
 
-**Band note:** Red Sift is the one competitor spanning both bands. Their **Express
+**Band note:** Competitor A is the one competitor spanning both bands. Their **Express
 tier ($9/mo, 4 domains)** is genuinely in our band and is the tier we actually meet in
 a deal; their upper tiers are not. Compare against Express, not against an enterprise
-OnDMARC contract.
+Competitor A's DMARC product contract.
 
-### 2.4 Cloudflare Security Insights
+### 2.4 An edge provider's security dashboard
 
 Free, bundled with the zone dashboard, enormous distribution. **But measurably
 inaccurate on our shared test:** on cybermeters.com (6 July 2026) it produced a DMARC
 false positive (reported ×3), a security.txt false negative, and 13/16 findings that
-were prompts to enable Cloudflare's own products — and its own DMARC Management
-product contradicted its Security Insights on the same record, same day. Full
-reproducible pack: `docs/evidence-pack-accuracy-vs-cloudflare-v1.md` (Findings 1–4).
+were prompts to enable the edge provider's own products — and its own DMARC Management
+product contradicted its security dashboard on the same record, same day. Full
+reproducible pack: `docs/evidence-pack-accuracy-vs-edge-dashboard-v1.md` (Findings 1–4).
 
-### 2.5 Intruder — adjacent, NOT a competitor
+### 2.5 Competitor B — adjacent, NOT a competitor
 
-*Verified live 7 July 2026 (intruder.io): a unified exposure-management platform —
+*Verified live 7 July 2026 (a competitor's site): a unified exposure-management platform —
 external/internal vulnerability scanning, web/DAST, cloud config checks, API testing,
 ASM. Detection + prioritisation + remediation **guidance** — it does **not**
 auto-remediate. No email security anywhere.*
 
 The only shared surface is external exposure discovery, and even there we do not
-compete on their core: Intruder does real vulnerability detection (versioned services,
-CVE matching, CVSS); we do exposure/hygiene signals. **On the overlap Intruder is
+compete on their core: Competitor B does real vulnerability detection (versioned services,
+CVE matching, CVSS); we do exposure/hygiene signals. **On the overlap Competitor B is
 deeper**, and our Workers architecture structurally caps scan depth.
 
 They are the neighbour, not the rival. A serious company runs both. **Never** claim
-"Intruder finds it, we fix it" — what Intruder detects is almost entirely what we
+"Competitor B finds it, we fix it" — what Competitor B detects is almost entirely what we
 neither detect nor remediate.
 
 ---
@@ -171,12 +171,12 @@ Scope discipline is the product, not an apology.
 
 **What we are not, and must never be sold as:**
 
-- not a replacement for **Nessus / Qualys / Tenable** — we do no CVE scanning
+- not a replacement for **Nessus / Competitor G / Competitor H** — we do no CVE scanning
 - not **EDR** — no endpoint or device visibility
 - not **SIEM** — no log or telemetry ingestion
 - not full **DAST** — no active application testing
 - not **penetration testing** — no exploitation, no manual assessment
-- not **enterprise ASM** — Intruder and Red Sift/Hardenize are deeper on raw discovery
+- not **enterprise ASM** — Competitor B and Competitor A/Competitor A's web/TLS product are deeper on raw discovery
 - not a **certification body** — see §6
 
 **What we actually are:** passive, external, evidence-led observation of eight domains,
@@ -351,21 +351,21 @@ one we can stand behind.
 |---|---|
 | Brand recognition, enterprise references, certifications | We are pre-public-beta; we have no logos to drop |
 | Integrations (SIEM/SOAR, SSO ecosystems, MSP channel) | Ours are minimal today |
-| Analyst-grade DMARC forensics at scale | OnDMARC has processed billions of RUA reports; we have processed ~zero |
-| CT/passive-DNS data scale (SSL Labs heritage) | Their raw coverage depth exceeds ours in places |
-| Vulnerability depth (Intruder) | Real CVE detection; we do not do this at all |
-| Cloudflare: free and already in the dashboard | We must be visibly more accurate and more actionable to justify existing |
+| Analyst-grade DMARC forensics at scale | Competitor A's DMARC product has processed billions of RUA reports; we have processed ~zero |
+| CT/passive-DNS data scale (a public TLS grading service heritage) | Their raw coverage depth exceeds ours in places |
+| Vulnerability depth (Competitor B) | Real CVE detection; we do not do this at all |
+| The edge provider: free and already in the dashboard | We must be visibly more accurate and more actionable to justify existing |
 
-**Consequence:** we do not fight Red Sift for the enterprise RFP, and we do not fight
-Cloudflare on price. We win the underserved middle: companies that need the eight
+**Consequence:** we do not fight Competitor A for the enterprise RFP, and we do not fight
+the edge provider on price. We win the underserved middle: companies that need the eight
 answers, in business language, this week, without procurement.
 
 ---
 
 ## 8. Killer lines
 
-**Primary (vs Red Sift, incl. Hardenize):**
-> "Red Sift sells enterprise products that grade your configuration. CyberMeters is one
+**Primary (vs Competitor A, incl. Competitor A's web/TLS product):**
+> "Competitor A sells enterprise products that grade your configuration. CyberMeters is one
 > platform that turns the same signals into a single business answer — and then keeps
 > the thread: who owns the fix, did it hold, did it come back."
 
@@ -378,9 +378,9 @@ answers, in business language, this week, without procurement.
 > checks whether someone in the neighbourhood is cutting keys with your name on them —
 > and tells you which problem to fix first."
 
-**Vs Cloudflare (backed by the evidence pack):**
-> "On the same domain, on the same day, Cloudflare's scanner reported a DMARC record as
-> missing while Cloudflare's own DMARC tool confirmed it exists. We publish reproducible
+**Vs the edge provider (backed by the evidence pack):**
+> "On the same domain, on the same day, the edge provider's scanner reported a DMARC record as
+> missing while the edge provider's own DMARC tool confirmed it exists. We publish reproducible
 > accuracy packs instead — you don't have to take our word for anything."
 
 **Vs "we already have a DMARC tool":**
@@ -401,18 +401,18 @@ answers, in business language, this week, without procurement.
 
 ## 9. Objection handling
 
-**"We use OnDMARC / Red Sift."**
+**"We use Competitor A's DMARC product / Competitor A."**
 Respect it — a strong enforcement tool. Ask: "Who reads it?" If the answer is "our
 analyst", ask what the board sees. Our value: the executive translation layer plus the
 other seven domains in the same pane, and a lifecycle that remembers. We coexist with
-OnDMARC before we replace it.
+Competitor A's DMARC product before we replace it.
 
-**"We used Hardenize" / "Hardenize was great."**
-Agree — genuinely excellent hygiene engineering (its founder built SSL Labs). Then:
-"It's part of Red Sift's enterprise suite now. If you want that depth on an enterprise
+**"We used Competitor A's web/TLS product" / "Competitor A's web/TLS product was great."**
+Agree — genuinely excellent hygiene engineering (its founder built a public TLS grading service). Then:
+"It's part of Competitor A's enterprise suite now. If you want that depth on an enterprise
 contract, that's a fair choice. If you want the answers without the suite, that's us."
 
-**"Cloudflare already shows us security insights."**
+**"Our edge provider already shows us a security dashboard."**
 Never mock the free tool. Show the accuracy pack: two factual errors and a
 self-contradiction on one domain in one day, and 13/16 findings that were product
 prompts. "Free is the right price for that signal-to-noise ratio. Accuracy is what we
@@ -423,7 +423,7 @@ charge for."
 buying is what happens after: the issue gets an identity, an owner, an action, evidence
 that it was actually fixed, and a flag when it comes back."
 
-**"Why not UpGuard / SecurityScorecard?"**
+**"Why not Competitor C / Competitor D?"**
 Don't take the bait — reframe the band. "Different product for a different buyer, at
 $1,750 a month with a procurement cycle. If you have a vendor-risk programme and a team
 to run it, buy that. If you need to know what's exposed about *your* eight domains by
@@ -440,12 +440,12 @@ claims. Ask our competitors for the same." Then be straight about §11.
 
 - No monetary loss figures we cannot substantiate ("this will cost you £X" is banned;
   "invoice-fraud exposure" as a category is fine).
-- No claim that Red Sift "can't do brand protection" (Brand Trust exists) or "can't do
-  ASM" (Hardenize engine exists). Our edge is integration + translation + lifecycle +
+- No claim that Competitor A "can't do brand protection" (Brand Trust exists) or "can't do
+  ASM" (Competitor A's web/TLS product engine exists). Our edge is integration + translation + lifecycle +
   accessibility, not their absence.
 - No feature-parity claims against enterprise capabilities we lack (hosted DMARC
   forensics at scale, SIEM integrations, analyst tooling).
-- No new scores invented for marketing. Score proliferation is the Cloudflare noise
+- No new scores invented for marketing. Score proliferation is the edge provider's noise
   trap we criticise.
 - **No enterprise-band price comparisons** (§2.1) — they invite a feature fight we lose
   with a buyer we cannot serve.
@@ -482,12 +482,12 @@ v1's self-audit was the most honest section in the document; this updates it.
    that free-funnel virality plus the MSP channel convert better than higher prices. It
    is volume-bound and **distribution, not engineering, is the constraint.**
 
-### Honest gaps vs Red Sift
+### Honest gaps vs Competitor A
 
-- **DMARC maturity:** OnDMARC has processed billions of RUA reports over years; we have
+- **DMARC maturity:** Competitor A's DMARC product has processed billions of RUA reports over years; we have
   processed ~zero. Our BEC score and sender heuristics are calibrated on tiny data and
   may not hold at scale.
-- **Data-scale moat:** Hardenize brings a CT firehose and years of passive DNS; our
+- **Data-scale moat:** Competitor A's web/TLS product brings a CT firehose and years of passive DNS; our
   detection is lighter. Their Brand Trust data depth beats ours.
 - **Missing capabilities they have:** dynamic SPF hosting, DKIM key management/rotation,
   BIMI/VMC execution.
@@ -515,7 +515,7 @@ v1's self-audit was the most honest section in the document; this updates it.
 
 ---
 
-*Maintenance: re-verify the Red Sift product line-up and Hardenize status quarterly
+*Maintenance: re-verify the Competitor A product line-up and Competitor A's web/TLS product status quarterly
 (next: October 2026). Competitor pricing is settled in `PRICING-POLICY.md` §8 — do not
 re-research. Update the shipped-vs-planned table in §5.3 the moment an episode closes;
 a stale `Planned` row is how a battlecard starts lying.*

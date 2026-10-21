@@ -748,9 +748,14 @@ export const api = {
   /** GET /api/workspaces/:id/executive-dashboard */
   getExecutiveDashboard: (id) => request(`/workspaces/${id}/executive-dashboard`),
 
-  // Canonical eight-domain Cyber MOT coverage states (always returns eight, even
+  // Canonical eight-domain security check coverage states (always returns eight, even
   // with no scan). Server-resolved; the frontend never derives domain states.
-  getCyberMotDomains: (id) => request(`/workspaces/${id}/cyber-mot-domains`),
+  // The former path stays served as an alias; it is tried only while a Worker
+  // without /security-domains is still live (one deploy window).
+  getSecurityCheckDomains: (id) => request(`/workspaces/${id}/security-domains`).catch((e) => {
+    if (e?.code === 'not_found' || e?.status === 404) return request(`/workspaces/${id}/cyber-mot-domains`)
+    throw e
+  }),
 
   /** GET /api/workspaces/:id/maturity — per-workspace eight-domain maturity ledger (M5.f) */
   getWorkspaceMaturity: (id) => request(`/workspaces/${id}/maturity`),
@@ -1680,7 +1685,7 @@ export const api = {
   getPortfolioRisk: () => request('/portfolio/risk'),
 
   /**
-   * GET /api/portfolio/domains — per-domain state + trend across all eight Cyber MOT
+   * GET /api/portfolio/domains — per-domain state + trend across all eight external security check
    * domains. params: { limit, offset, sort, filter, domain_key, state }
    */
   getPortfolioDomains: (params = {}) => {

@@ -48,7 +48,7 @@ the dated 23-August successor package remains historical decision evidence.
 
 # 1. Project Overview
 
-CyberMeters is a multi-tenant, evidence-led, managed Cyber MOT platform for small businesses and MSPs.
+CyberMeters is a multi-tenant, evidence-led, managed external security check platform for small businesses and MSPs.
 
 It helps organisations understand, prioritise, manage and verify their externally observable security posture.
 
@@ -79,7 +79,7 @@ CyberMeters is in pre-public-beta managed-platform completion.
 
 The objective is not to add more scanner breadth.
 
-The objective is to complete an honest, evidence-led and operational lifecycle across all eight Cyber MOT domains while preserving:
+The objective is to complete an honest, evidence-led and operational lifecycle across all eight security domains while preserving:
 
 - multi-tenant security;
 - evidence honesty;
@@ -95,7 +95,7 @@ CyberMeters is no longer in the Scanner Development Phase.
 
 # 3. Primary Objective
 
-Complete the eight-domain managed Cyber MOT lifecycle before public beta.
+Complete the eight-domain managed external security check lifecycle before public beta.
 
 The target lifecycle is:
 
@@ -143,7 +143,7 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
-| M5 Completion Across All Eight Domains | Complete — **M5.a–M5.g all CLOSED** (deployed through `v2026.07.17-5`, migration `095`). History: evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed Cyber MOT → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated at Stage 1; 0 snapshots existed in production at that point (created by future scans; no backfill). M5.d–M5.g subsequently closed (renderer migration, eight-domain parity, maturity ledger, final CI closure). |
+| M5 Completion Across All Eight Domains | Complete — **M5.a–M5.g all CLOSED** (deployed through `v2026.07.17-5`, migration `095`). History: evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed security check → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated at Stage 1; 0 snapshots existed in production at that point (created by future scans; no backfill). M5.d–M5.g subsequently closed (renderer migration, eight-domain parity, maturity ledger, final CI closure). |
 | Current canonical execution order | **ACTIVE; PRODUCTION/CUSTOMER HOLD.** Read the exact queue only from `docs/PRE-BETA-EXECUTION-BACKLOG.md`; dated governance packages are historical evidence. |
 | Posture Timeline Trust & Actionability — the RESCOPE of M6 | Historical July episode record. Phase A was deployed and production-accepted on 18 July 2026. This row is not the current source/release gate; use the current canonical-order row and `CHANGELOG.md`. |
 | M7 Pricing + Billing Alignment | Earlier roadmap gate; this corrective does not reclassify its historical product status. |
@@ -1054,7 +1054,7 @@ CyberMeters is in pre-public-beta managed-platform completion.
 
 The mission is not to maximise the number of scanners or findings.
 
-The mission is to deliver an honest, consistent and managed Cyber MOT lifecycle across all eight domains.
+The mission is to deliver an honest, consistent and managed external security check lifecycle across all eight domains.
 
 When uncertain:
 
