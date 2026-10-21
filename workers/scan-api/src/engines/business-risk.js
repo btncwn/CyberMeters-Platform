@@ -37,7 +37,7 @@ import { visibleFindingSql } from "./finding-identity.js";
 // Public endpoint reachability is now inventory-only, without a risk deduction.
 // 2026-10-20.1: missing HSTS deducts 10, not 20, when its finding carries the
 // observed-redirect severity of HSTS_MISSING_SEVERITY_POLICY.
-export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-21.1";
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-21.2";
 
 // Website Trust deduction for a missing HSTS header, keyed by the severity the
 // finding carries. The severity already encodes whether CyberMeters observed
@@ -405,7 +405,11 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   } = workspaceData;
   let attackDed = 0;
   attackDed += Math.min(30, subdomainTakeoverCount * 15);
-  attackDed += Math.min(15, assetExposureCount * 5);
+  // Reachable hosts are inventory, not risk (21 Oct 2026, BRI 2026-10-21.2):
+  // counting them cost a clean domain with 3+ public hosts 15 points while no
+  // finding existed. Risk on those hosts deducts through the confirmed
+  // exposure findings below. assetExposureCount stays accepted for callers.
+  void assetExposureCount;
   // Confirmed exposure findings (21 Oct 2026). Before this the category read only
   // counts, so a newly exposed management tool or login-protected admin interface
   // moved nothing once the reachable-host cap was reached. Only evidence-backed
@@ -414,10 +418,11 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   // stay non-deducting, as for identity reachability below.
   if (findingIds.has("asset_exposure_sensitive_tool")) attackDed += 15;
   if (findingIds.has("asset_exposure_admin_interface")) attackDed += 10;
+  // Missing vendor evidence is not a risk observed (BRI 2026-10-21.2): the
+  // per-scan path never supplies vendor counts, so "+10 for no vendor
+  // visibility" was charged to every scan of every domain.
   if (vendorTotal > 0) {
     attackDed += Math.min(30, vendorHigh * 12 + vendorMedium * 5);
-  } else {
-    attackDed += 10; // No vendor visibility signal
   }
   // Public identity reachability is inventory evidence, not a vulnerability.
   // Neither hostname heuristics nor a working login page deduct risk points.

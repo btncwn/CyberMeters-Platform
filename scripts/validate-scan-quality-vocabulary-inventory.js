@@ -194,9 +194,10 @@ const EXPECTED = Object.freeze({
     // sites; keyed two-tree --dump-current diff (origin/main vs this head): sql_sites,
     // sql_static_sites, sql_query_sink_sites and sql_projection_sites 0 added / 0 removed,
     // one runtime comparison differs only in byte offsets. Counts unchanged.
-    fingerprint: "c8c9f07981bffc0c5196968424605d5af8cbe52eed1c6c8c5a34be0dfdaad244",
+    // BRI 2026-10-21.2: removing the inventory and no-vendor deductions moves business-risk.js SQL sites; keyed two-tree diff (origin/main vs this head) shows 0 entries added or removed.
+    fingerprint: "24ab563a03f9cd2ea484a91bea865fdc557551bb6276d447d2683dbea0591cb2",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "2baf43d21a654f78e20e70f57816dae5ebe4fff6214bc6a34a2e19564c8fc920",
+    resolved_query_sink_fingerprint: "c0f6e9c32fbd1ed30a470417e558ed4af906d8480c14a73078e27c32a1ca2623",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
