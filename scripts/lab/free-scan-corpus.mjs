@@ -77,6 +77,16 @@ function moduleReason(entry, settlement) {
 }
 
 export async function runFreeScanCorpusDomain(domain) {
+  const { target, settlements, subrequests, ms } = await runFreeScanSettlements(domain);
+  const evidence = buildFreeScanEvidence(settlements);
+  const modules = Object.fromEntries(evidence.module_evidence.map((entry) =>
+    [entry.module, { state: entry.state, reason: moduleReason(entry, settlements[entry.module]) }]));
+  return { domain, target, modules, coverage: evidence.evidence_coverage.state, subrequests, ms };
+}
+
+// The target check plus the five module settlements, exactly as the route runs
+// them. Shared with accuracy-ground-truth.mjs, which builds the customer preview.
+export async function runFreeScanSettlements(domain) {
   const startedAt = Date.now();
   const physicalCounter = new PhysicalSubrequestCounter({ limit: FREE_SCAN_SUBREQUEST_LIMIT, safetyMargin: 0 });
   const remainingMs = () => Math.max(0, FREE_SCAN_DEADLINE_MS - (Date.now() - startedAt));
@@ -111,12 +121,9 @@ export async function runFreeScanCorpusDomain(domain) {
   } finally {
     clearTimeout(timer);
   }
-  const evidence = buildFreeScanEvidence(settlements);
-  const modules = Object.fromEntries(evidence.module_evidence.map((entry) =>
-    [entry.module, { state: entry.state, reason: moduleReason(entry, settlements[entry.module]) }]));
   const snapshot = physicalCounter.snapshot();
-  return { domain, target, modules, coverage: evidence.evidence_coverage.state,
-    subrequests: { issued: snapshot.issued, denied: snapshot.denied }, ms: Date.now() - startedAt };
+  return { target, settlements, subrequests: { issued: snapshot.issued, denied: snapshot.denied },
+    execution: snapshot, ms: Date.now() - startedAt };
 }
 
 async function pool(items, size, work) {
