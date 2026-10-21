@@ -37,7 +37,7 @@ import { visibleFindingSql } from "./finding-identity.js";
 // Public endpoint reachability is now inventory-only, without a risk deduction.
 // 2026-10-20.1: missing HSTS deducts 10, not 20, when its finding carries the
 // observed-redirect severity of HSTS_MISSING_SEVERITY_POLICY.
-export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-20.1";
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-21.1";
 
 // Website Trust deduction for a missing HSTS header, keyed by the severity the
 // finding carries. The severity already encodes whether CyberMeters observed
@@ -406,6 +406,14 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   let attackDed = 0;
   attackDed += Math.min(30, subdomainTakeoverCount * 15);
   attackDed += Math.min(15, assetExposureCount * 5);
+  // Confirmed exposure findings (21 Oct 2026). Before this the category read only
+  // counts, so a newly exposed management tool or login-protected admin interface
+  // moved nothing once the reachable-host cap was reached. Only evidence-backed
+  // findings deduct: a known management-tool fingerprint, or an admin interface
+  // with an observed login form. Name/title heuristics and hedged observations
+  // stay non-deducting, as for identity reachability below.
+  if (findingIds.has("asset_exposure_sensitive_tool")) attackDed += 15;
+  if (findingIds.has("asset_exposure_admin_interface")) attackDed += 10;
   if (vendorTotal > 0) {
     attackDed += Math.min(30, vendorHigh * 12 + vendorMedium * 5);
   } else {
