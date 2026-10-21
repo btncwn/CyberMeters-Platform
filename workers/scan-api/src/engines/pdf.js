@@ -15,6 +15,7 @@
 // frozen-vs-live policy — white-label branding (logo/company name/accent) and
 // the workspace display name. No clock is read here; every date printed comes
 // from the snapshot (as_of / built_at) or an explicit caller argument.
+import { formatCitedStandard } from "../../../../shared/cited-standard.js";
 import { buildDmarcPolicyPresentation } from "./dmarcbis-presentation.js";
 import { certificateAssuranceFromSnapshot } from "./certificate-customer-presentation.js";
 import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-presentation.js";
@@ -1412,11 +1413,8 @@ function sectionEvidenceGradeAppendix(w, snap) {
     const authorities = (signal.cited_authorities || [])
       .filter((authority) => authority?.requirement_type !== "product_policy")
       .map((authority) => {
-        const name = authority.standard_id || authority.id || authority.authority;
-        const version = authority.standard_version || authority.version;
         const section = authority.section ? String(authority.section) : "";
-        const versionText = version ? (/[()]/.test(String(version)) ? String(version) : `(${version})`) : null;
-        return [name, versionText, /^\d/.test(section) ? `section ${section}` : null]
+        return [formatCitedStandard(authority), /^\d/.test(section) ? `section ${section}` : null]
           .filter(Boolean).join(" ");
       })
       .filter(Boolean);

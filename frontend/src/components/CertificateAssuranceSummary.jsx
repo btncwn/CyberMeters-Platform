@@ -1,3 +1,4 @@
+import { formatCitedStandard } from '../../../shared/cited-standard.js'
 import LiveTlsEvidence from './LiveTlsEvidence'
 import { customerEvidenceText } from '../lib/evidenceStrengthDisplay'
 import { useEvidenceTime } from '../lib/reportTime'
@@ -46,10 +47,8 @@ function citedStandards(authorities) {
   const standards = list
     .filter((a) => a?.requirement_type !== 'product_policy')
     .map((a) => {
-      const name = a.standard_id || a.id || a.authority
-      const version = a.standard_version || a.version
       const section = a.section ? String(a.section) : ''
-      return [name, version ? `(${String(version).replace(/^\(|\)$/g, '')})` : null, section || null].filter(Boolean).join(' ')
+      return [formatCitedStandard(a), section || null].filter(Boolean).join(' ')
     })
     .filter(Boolean)
   if (list.some((a) => a?.requirement_type === 'product_policy')) standards.push('CyberMeters product policy')

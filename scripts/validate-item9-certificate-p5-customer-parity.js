@@ -3,6 +3,8 @@
 //
 // Production engines provide the canonical P1-P4 model. This validator only
 // checks the additive customer projection and its snapshot/report/PDF readers.
+import { formatCitedStandard } from "../shared/cited-standard.js";
+import { CERTIFICATE_SIGNAL_CONTRACTS } from "../workers/scan-api/src/engines/certificate-signal-completeness.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,6 +89,32 @@ for (const key of presentation.signal_order) {
   ok(`${key}: no healthy/passed customer state`,
     !["healthy", "passed", "secure", "compliant"].includes(customer.state));
 }
+// Guard every registered standard, including authorities absent from this
+// particular report fixture. Equal counts alone do not catch a premature ')'.
+const balancedParentheses = (text) => {
+  let depth = 0;
+  for (const char of text) {
+    if (char === "(") depth++;
+    if (char === ")" && --depth < 0) return false;
+  }
+  return depth === 0;
+};
+ok("citation guard rejects missing and premature parentheses",
+  !balancedParentheses("Standard (2.2.8 (16 June 2026)") &&
+  !balancedParentheses("Standard )version(") &&
+  balancedParentheses("Standard (version (date))"));
+for (const [signalKey, contract] of Object.entries(CERTIFICATE_SIGNAL_CONTRACTS)) {
+  for (const authority of contract.authorities) {
+    const cited = formatCitedStandard(authority);
+    ok(`${signalKey}: every cited standard has balanced parentheses`,
+      balancedParentheses(cited), cited);
+    if (authority.standard_id === "CA/Browser Forum TLS Baseline Requirements") {
+      eq(`${signalKey}: dated baseline citation is exact`, cited,
+        "CA/Browser Forum TLS Baseline Requirements 2.2.8 (16 June 2026)");
+    }
+  }
+}
+
 const authorityIds = new Set(
   Object.values(presentation.signals)
     .flatMap((signal) => signal.cited_authorities || [])
@@ -400,6 +428,12 @@ for (const phrase of [
   ok(`PDF renders certificate semantic: ${phrase}`, pdfText.includes(phrase));
 }
 ok("PDF retains RFC 5280 authority", pdfText.includes("RFC 5280"));
+const visiblePdfText = [...pdfText.matchAll(/\(((?:\\.|[^()\\])*)\) Tj/g)]
+  .map((match) => match[1].replace(/\\([()\\])/g, "$1"))
+  .join(" ").replace(/\s+/g, " ");
+ok("actual technical PDF retains the exact balanced baseline citation",
+  visiblePdfText.includes("CA/Browser Forum TLS Baseline Requirements 2.2.8 (16 June 2026)") &&
+  !visiblePdfText.includes("Requirements (2.2.8"));
 // The PDF's per-signal rows read the backend check outcome for name, expiry and
 // trust (the same label the web shows), never a bare "Observed".
 for (const key of ["hostname_match", "expiry", "trust_store_validation"]) {
