@@ -43,6 +43,12 @@ custom_domain = true
 pattern = "mta-sts.cybermeters.com"
 custom_domain = true
 
+# TEMPORARY (S2-5 live alert proof, 21 Oct 2026): one static, clearly marked
+# CyberMeters test page (routes/test-surface.js). Remove after the proof.
+[[routes]]
+pattern = "admin.cybermeters.com"
+custom_domain = true
+
 [[d1_databases]]
 binding = "cybermeters_db"
 database_name = "cybermeters-db"

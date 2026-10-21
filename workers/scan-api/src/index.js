@@ -1,4 +1,5 @@
 import { handleMtaStsSelf, isMtaStsSelfHost } from "./routes/mta-sts-self.js";
+import { handleTestSurface, isTestSurfaceHost } from "./routes/test-surface.js";
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { handleScanDispatchBatch, dispatchAdmittedScan, isScheduledQueueDispatchMode } from "./engines/scan-dispatch.js";
@@ -2707,6 +2708,8 @@ const scanApi = {
     // mta-sts.cybermeters.com serves one policy file and nothing else; it is
     // checked before any API routing (routes/mta-sts-self.js).
     if (isMtaStsSelfHost(url)) return handleMtaStsSelf(request, env);
+    // admin.cybermeters.com: one temporary live-proof page (routes/test-surface.js).
+    if (isTestSurfaceHost(url)) return handleTestSurface(request);
     // Build CORS headers once per request, honouring the ALLOWED_ORIGIN binding.
     const corsHeaders = buildRequestCorsHeaders(
       request.headers.get("Origin"),
