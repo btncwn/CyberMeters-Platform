@@ -408,6 +408,38 @@ try {
   ok("free tools: gate, limits, cache, deferral, share and engine tests", tools.status === 0, `exit ${tools.status}`);
 }
 
+// ── Every incomplete module states why (S3-8, 21 Oct 2026) ──────────────────
+// module_evidence carries a closed-set reason code for every module that did not
+// complete, the customer copy table words every code, and a module's own error
+// text never reaches the response.
+{
+  const evidenceModule = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "free-scan-evidence.js")).href);
+  const { CUSTOMER_CODE_COPY } = await import(pathToFileURL(path.join(root, "frontend", "src", "lib", "customerReasonText.js")).href);
+  const { buildFreeScanEvidence: build, FREE_SCAN_MODULE_REASONS } = evidenceModule;
+  const unmapped = FREE_SCAN_MODULE_REASONS.filter((code) => !Object.hasOwn(CUSTOMER_CODE_COPY, code));
+  ok("every free-scan reason code has customer copy", unmapped.length === 0, unmapped.join(","));
+  const fulfilled = (value) => ({ status: "fulfilled", value });
+  const evidence = build({
+    dns: fulfilled({ records: {} }),
+    ssl: fulfilled({ incomplete: true, incomplete_reason: "https_origin_timeout" }),
+    headers: fulfilled({ accessible: true, validation_uncertain: true, present: [], missing: [] }),
+    email_security: { status: "rejected", reason: Object.assign(new Error("secret internal detail at /var/x"), { code: "SOMETHING_INTERNAL" }) },
+    technology_detection: fulfilled({ incomplete: true, incomplete_reason: "origin_access_restricted", error: "raw upstream text" }),
+  });
+  const byModule = Object.fromEntries(evidence.module_evidence.map((e) => [e.module, e]));
+  eq("timed-out HTTPS states https_origin_timeout", byModule.ssl.reason, "https_origin_timeout");
+  eq("bot-protected headers state validation_uncertain", byModule.headers.reason, "validation_uncertain");
+  eq("restricted technology states origin_access_restricted", byModule.technology_detection.reason, "origin_access_restricted");
+  eq("a thrown module states check_failed, never its error text", byModule.email_security.reason, "check_failed");
+  ok("a completed module carries no reason", !("reason" in byModule.dns), JSON.stringify(byModule.dns));
+  ok("every non-completed module carries a closed-set reason",
+    evidence.module_evidence.every((e) => e.state === "completed" ? !e.reason : FREE_SCAN_MODULE_REASONS.includes(e.reason)),
+    JSON.stringify(evidence.module_evidence.map((e) => [e.module, e.state, e.reason])));
+  ok("no module error text reaches module_evidence", !/secret internal|raw upstream|SOMETHING_INTERNAL/.test(JSON.stringify(evidence.module_evidence)));
+  eq("an unfinished module at the deadline states the deadline",
+    evidenceModule.freeScanModuleReason("incomplete", { status: "rejected", reason: { code: "free_scan_deadline_exhausted" } }), "free_scan_deadline_exhausted");
+}
+
 console.log(`\nFree-scan false-healthy: ${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);
 console.log("Free-scan false-healthy validation passed");

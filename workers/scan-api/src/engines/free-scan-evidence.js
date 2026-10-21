@@ -213,6 +213,48 @@ function canonicalModuleEvidence(state, value) {
   }
 }
 
+// Why a module did not complete, as a stable machine code the customer copy
+// table (frontend/src/lib/customerReasonText.js) words. Closed set: a module's
+// own error text never reaches the response; anything unrecognised becomes
+// check_not_completed, which still says the check did not finish.
+export const FREE_SCAN_MODULE_REASONS = Object.freeze([
+  "origin_access_restricted",
+  "http_redirect_access_restricted",
+  "origin_not_observed",
+  "origin_timeout",
+  "origin_error_no_serviceable_response",
+  "https_origin_timeout",
+  "https_probe_not_executed",
+  "https_origin_not_observed",
+  "https_transport_unavailable",
+  "http_redirect_not_observed",
+  "probe_not_executed",
+  "validation_uncertain",
+  "email_dns_lookup_unavailable",
+  "free_scan_deadline_exhausted",
+  "check_failed",
+  "check_not_completed",
+]);
+const REASON_SET = new Set(FREE_SCAN_MODULE_REASONS);
+
+export function freeScanModuleReason(state, settlement, moduleName = null) {
+  if (state === FREE_SCAN_MODULE_STATES.COMPLETED) return null;
+  if (settlement?.status === "rejected") {
+    const code = settlement.reason?.code ?? settlement.reason?.message ?? settlement.reason;
+    return code === "free_scan_deadline_exhausted" ? code : "check_failed";
+  }
+  if (!settlement || settlement.status === "pending") return "free_scan_deadline_exhausted";
+  const value = settlement.value || {};
+  const own = [value.incomplete_reason, value.unavailable_reason, value.reason,
+    typeof value.error === "string" ? value.error : value.error?.code]
+    .find((code) => typeof code === "string" && REASON_SET.has(code));
+  if (own) return own;
+  if (moduleName === "email_security") return "email_dns_lookup_unavailable";
+  if (value.validation_uncertain === true) return "validation_uncertain";
+  if (value.executed === false) return "probe_not_executed";
+  return "check_not_completed";
+}
+
 export function deriveFreeScanModulesScanned(moduleEvidence) {
   return moduleEvidence
     .filter((entry) => entry.state === FREE_SCAN_MODULE_STATES.COMPLETED)
@@ -222,12 +264,15 @@ export function deriveFreeScanModulesScanned(moduleEvidence) {
 export function buildFreeScanEvidence(settlements = {}) {
   const moduleEvidence = FREE_SCAN_MODULE_DEFINITIONS.map(({ module, label, checks }) => {
     const settlement = settlements[module] ?? null;
+    const state = classifyFreeScanSettlement(settlement, module);
+    const reason = freeScanModuleReason(state, settlement, module);
     return {
       module,
       label,
       checks,
       attempted: settlement != null,
-      state: classifyFreeScanSettlement(settlement, module),
+      state,
+      ...(reason ? { reason } : {}),
     };
   });
 

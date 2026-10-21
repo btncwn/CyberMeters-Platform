@@ -171,6 +171,9 @@
 .fm-domain-observed ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .fm-domain-observed li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: start; color: var(--fm-text); font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .fm-observed-mark { color: var(--fm-accent); font-weight: 900; line-height: 1.45; }
+.fm-module-why { margin: -30px 0 42px; padding: 0; list-style: none; display: grid; gap: 6px; color: var(--fm-muted); font-size: 14px; line-height: 1.5; }
+.fm-module-why strong { color: var(--fm-text); font-weight: 800; }
+.fm-module-why + .fm-module-scope { margin-top: -30px; }
 .fm-module-scope { margin: -30px 0 42px; color: var(--fm-muted); font-size: 14px; }
 .fm-module-scope summary { cursor: pointer; font-weight: 800; color: var(--fm-accent); }
 .fm-module-scope dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 10px 0 0; }

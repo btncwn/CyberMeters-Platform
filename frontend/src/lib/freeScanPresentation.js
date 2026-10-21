@@ -92,6 +92,9 @@ function normalizedModuleEvidence(result) {
       checks: typeof entry?.checks === 'string' ? entry.checks : null,
       attempted: entry?.attempted === true,
       state,
+      // Why it did not complete, as an API reason code; null when complete or
+      // from an older API.
+      reason: state !== 'completed' && typeof entry?.reason === 'string' ? entry.reason : null,
     }
   })
 }
