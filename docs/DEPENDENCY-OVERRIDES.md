@@ -38,6 +38,39 @@ and must carry a near-term review date and a removal check.
 The records below are the human-readable half; the register is authoritative for exact
 versions, paths, owners and dates.
 
+## Hygiene review — 21 October 2026 (C-12)
+
+All five lockfile roots were audited with Node 24 and `npm audit --json --audit-level=high --include=dev --ignore-scripts`, including development dependencies. Each returned zero vulnerabilities at every severity:
+
+| Lockfile root | High | Critical | Total |
+| --- | ---: | ---: | ---: |
+| `frontend` | 0 | 0 | 0 |
+| `workers/email-ingest` | 0 | 0 | 0 |
+| `workers/mcp-server` | 0 | 0 | 0 |
+| `workers/network-probe` | 0 | 0 | 0 |
+| `workers/scan-api` | 0 | 0 | 0 |
+
+No package or override change was required. `node scripts/validate-dependency-overrides.js` passed all 20 checks. `node scripts/security/secret-scan.js` passed the tracked-file scan, both exact-line exception checks, and its baseline plus nine must-fail controls.
+
+A separate Gitleaks 8.30.1 scan covered 1,049 commits reachable from all fetched refs dated 1 October through 21 October 2026, 16:50:31 UTC, including first-parent merge diffs. It used built-in rules, full redaction, no ignore file and no inline allow directives. A synthetic-token control first proved detection and redaction. The scanner correctly exited 1 for 24 matches; historical-source review classified every match:
+
+| Classification | Matches | Evidence |
+| --- | ---: | --- |
+| Migration filename | 4 | The ops-observability test imports a tracked SQL filename; no credential material. |
+| Test fixtures and negative controls | 18 | Repeated/sequential or explicitly synthetic exposure values, mock verification values, and verification-change labels used only as a hook dependency. |
+| Public analytics identifier | 2 | The browser beacon site identifier is deliberately serialized into the public script's data attribute; it grants no account access. |
+
+No live credential was identified in this scope. The secret-scanning alert review found zero open alerts; the sole alert created this month was the already-resolved synthetic exposure fixture (used in tests). Values were never included in the receipt, logs or PR. This is a point-in-time review of reachable history and the available alert state, not proof about unreachable commits or unrecognized secret formats. No history was rewritten and no scanner exceptions were added.
+
+Reproduction (run from the repository root; `npm --prefix <root> audit --json --audit-level=high --include=dev --ignore-scripts` for each root above):
+
+```sh
+git fetch origin '+refs/heads/*:refs/remotes/origin/*' --tags
+env -u GITLEAKS_CONFIG -u GITLEAKS_CONFIG_TOML gitleaks git . --redact=100 --report-format=json --report-path=<private-report-path> --no-banner --no-color --log-level=error --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null --log-opts="--all --since-as-filter=2026-10-01T00:00:00Z --until=2026-10-21T16:50:31Z --diff-merges=first-parent"
+node scripts/security/secret-scan.js
+node scripts/validate-dependency-overrides.js
+```
+
 ## Retired OV-6 — `postcss-selector-parser` forced to `7.1.6` (frontend build only)
 
 **Retired 15 October 2026.** Tailwind CSS 4.3.3 removed this parser from the
