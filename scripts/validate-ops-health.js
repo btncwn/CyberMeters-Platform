@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { computeOpsHealth, formatOpsHealthEmail, OPS_THRESHOLDS } = await import(
@@ -288,6 +289,13 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
   const order = ['Capture and encrypt', 'Store encrypted copy', 'Download the durable', 'Verify off-site readback'].map(name => workflow.indexOf(name));
   ok('weekly workflow records only after upload and download', order.every((index, n) => index >= 0 && (n === 0 || index > order[n-1])));
   ok('weekly workflow has bounded free allocation and explicit founder enable', workflow.includes('retention-days: 21') && workflow.includes('timeout-minutes: 10') && workflow.includes("vars.WEEKLY_BACKUP_ENABLED == 'true'"));
+  ok('weekly workflow refuses public artifact destinations before any steps', /^    if: github\.event\.repository\.private == true && /m.test(workflow));
+  const sourceGate = workflow.match(/^        run: '(\[\[.*\]\])'$/m)?.[1];
+  for (const [ref, expected] of [['a'.repeat(40), 0], ['main', 1], ['', 1], ['$(echo unsafe)', 1]]) {
+    const result = sourceGate ? spawnSync('bash', ['-c', sourceGate], { env: { ...process.env, BACKUP_SOURCE_REF: ref } }) : {};
+    ok(`weekly source pin gate ${ref === 'main' ? 'rejects mutable main' : expected === 0 ? 'accepts reviewed SHA' : ref ? 'rejects shell-shaped value' : 'rejects missing SHA'}`, result.status === expected);
+  }
+  ok('weekly workflow checks out only the pinned public implementation', workflow.includes('repository: btncwn/CyberMeters-Platform') && workflow.includes('ref: ${{ vars.BACKUP_SOURCE_REF }}'));
   ok('weekly workflow uploads only encrypted bytes', workflow.includes('/captured/weekly-backup.bin') && !workflow.includes('path: ${{ runner.temp }}/captured\n'));
 }
 

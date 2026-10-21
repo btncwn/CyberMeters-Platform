@@ -8,8 +8,9 @@ not a recurring backup.
 `weekly-backup.yml` adds a Sunday 03:43 UTC export. It captures D1 SQL and a
 stable R2 inventory (object keys, sizes, ETags, metadata returned by listing and
 the observed object-response headers), compresses and encrypts the
-package with AES-256-GCM, and uploads only ciphertext to this private repository's
-workflow artifacts. This is outside the Cloudflare account and provider. The
+package with AES-256-GCM, and uploads only ciphertext to a **private recovery
+repository's** workflow artifacts. The application source repository is public;
+the workflow refuses to run there, even if its enable variable is set. This is outside the Cloudflare account and provider. The
 same job downloads the artifact, checks the local ciphertext digest, decrypts it,
 checks captured SQL integrity and foreign keys, and only then appends and reads
 back `weekly_backup_completed`. No production restore, DNS or schema write occurs.
@@ -41,16 +42,24 @@ is sent during local tests, and inbox receipt is not claimed from a unit test.
 ## Founder setup needed before activation
 
 No durable backup token or encryption key exists in repository secrets today.
-The workflow is deliberately gated by `WEEKLY_BACKUP_ENABLED=true`. Do not deploy
+The workflow requires a private repository and is deliberately gated by
+`WEEKLY_BACKUP_ENABLED=true`. Do not deploy
 the weekly monitoring setting until a real off-site run has succeeded.
 
-1. In the Cloudflare dashboard, open **Profile → API Tokens → Create Token →
+1. In GitHub, **+ → New repository → owner btncwn → name cybermeters-recovery
+   → Private → Add a README → Create repository** (or use an existing private
+   recovery repository). Leave visibility private. In that repository, **Add file
+   → Create new file → .github/workflows/weekly-backup.yml**, paste the exact
+   reviewed workflow from this source PR after merge, and commit to main. It
+   checks out the public implementation at a reviewed full commit SHA; scripts
+   and artifacts execute in the private repository context.
+2. In the Cloudflare dashboard, open **Profile → API Tokens → Create Token →
    Create Custom Token**. Give the backup job **Account / D1 / Edit** (export and
    the success-event insert/readback) and **Account / Workers R2 Storage / Read**
    for only the CyberMeters account. Do not grant DNS, Worker deployment, account
    management or R2 write permissions. Account-level D1 Edit can write production
    data; this is a sensitive operator credential. Keep it out of chats and logs.
-2. In this repository, **Settings → Secrets and variables → Actions → Secrets →
+3. In the **private recovery repository**, **Settings → Secrets and variables → Actions → Secrets →
    New repository secret**, add it as `CLOUDFLARE_BACKUP_TOKEN`. Add a separate
    random 32-byte encryption key, encoded as base64, as `CM_WEEKLY_BACKUP_KEY`.
    Its value source is the newly generated private local file
@@ -60,22 +69,25 @@ the weekly monitoring setting until a real off-site run has succeeded.
    Keep a separately protected recovery copy of the key outside the repository
    and its Actions secrets. Losing the key loses the export; anyone with the key
    and artifact can read the database. Do not publish the key in a comment.
-3. Confirm unused **included** Actions minutes and artifact storage before
+4. Confirm unused **included** Actions minutes and artifact storage before
    enabling. This job uses a standard runner, at most ten minutes per weekly
    attempt, no caches, and at most 10 MiB per artifact for 21 days (normally three
    weekly copies; allow four at a retention boundary). GitHub Free includes
-   2,000 minutes/month and 500 MB artifact storage, shared with other workloads.
-   The repository's existing CI may consume that allocation. These bounds do
+   2,000 minutes/month and 500 MB artifact storage, shared with other private workloads.
+   The public source repository's standard-runner CI is free; other private workloads can consume the private allowance. These bounds do
    **not** prove spare account quota or make overage free. If no included quota
    remains, leave disabled and choose a genuinely free execution location; do not
    buy a plan or raise a spending limit for this job.
-4. **Settings → Secrets and variables → Actions → Variables → New repository
-   variable**: `WEEKLY_BACKUP_ENABLED` = `true`. Then **Actions → weekly-backup →
+5. In the **private recovery repository**, **Settings → Secrets and variables
+   → Actions → Variables → New repository variable**: set `BACKUP_SOURCE_REF` to
+   the full reviewed merge commit from this PR release comment (40 hexadecimal
+   characters, never `main`). Add `WEEKLY_BACKUP_ENABLED` = `true`. Then
+   **Actions → weekly-backup →
    Run workflow → main → Run workflow** once for the operational proof. Check all
    capture/upload/download/record steps and retain the run/artifact ID. A skipped
    job, successful export without durable upload, or green unrelated CI is not
    backup success.
-5. The source can be deployed with the weekly switch absent; existing readiness
+6. The source can be deployed with the weekly switch absent; existing readiness
    behavior remains in place. Check the PR release comment for the actual
    deployed Version. After the successful job, in **Cloudflare →
    Compute → Workers & Pages → cybermeters-platform → Settings → Variables and

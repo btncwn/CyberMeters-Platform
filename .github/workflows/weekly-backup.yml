@@ -13,12 +13,18 @@ concurrency:
   cancel-in-progress: false
 jobs:
   backup:
-    if: github.ref == 'refs/heads/main' && vars.WEEKLY_BACKUP_ENABLED == 'true'
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main' && vars.WEEKLY_BACKUP_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Require the reviewed immutable source commit
+        env:
+          BACKUP_SOURCE_REF: ${{ vars.BACKUP_SOURCE_REF }}
+        run: '[[ "$BACKUP_SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]'
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          repository: btncwn/CyberMeters-Platform
+          ref: ${{ vars.BACKUP_SOURCE_REF }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
