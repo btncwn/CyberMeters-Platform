@@ -634,8 +634,12 @@ const parity = states.map(parityOutputs);
 // fixture has no exposure asset, so only the stamped score methodology version
 // moves. With ONLY CYBER_METRICS_SCORE_METHODOLOGY_VERSION reverted to 2026-10-16.1
 // the previous hashes (efcecdda… / 69f17b6e…) reproduce exactly.
-const GOLDEN_F13 = "0b744ecb4d3446f957744ab498d0ee46ad61a9b3cf4f753cd111f7305b71a3a9";
-const GOLDEN_F14 = "8772c1dcccd5a42f14e7dd27ccb472b6d0dab51ff2e8847e66790e358f255518";
+// BRI methodology 2026-10-21.1 (21 Oct 2026): Attack Surface deducts for
+// confirmed exposure findings. This certificate-only fixture has none, so only
+// the stamped BRI version moves. With ONLY BUSINESS_RISK_METHODOLOGY_VERSION
+// reverted to 2026-10-20.1 the previous hashes (0b744ecb… / 8772c1dc…) reproduce.
+const GOLDEN_F13 = "1d63ba5d3f0d757916cabac284fab67cd219a319090b75d55a75a2f01533b7d4";
+const GOLDEN_F14 = "46d84fdc2866fd67db1a03290c2c5b04ebbe0f32913faa05d035a21353714f80";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

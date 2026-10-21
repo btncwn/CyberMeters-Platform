@@ -668,6 +668,29 @@ for (const [name, partial] of [
   check("BRI attack surface: an exposed management tool deducts 15",
     tool.ids.has("asset_exposure_sensitive_tool") && tool.score === baseline.score - 15,
     `baseline=${baseline.score} tool=${tool.score} ids=${[...tool.ids].join(",")}`);
+  // Mutant: drop the confirmed-exposure deductions; the category must then stop
+  // moving for a confirmed admin interface (the pre-21-Oct-2026 behaviour).
+  {
+    const fsm = await import("node:fs"), osm = await import("node:os"), pm = await import("node:path");
+    const { fileURLToPath: f2p, pathToFileURL: p2u } = await import("node:url");
+    const file = f2p(engine("business-risk.js"));
+    const source = fsm.readFileSync(file, "utf8");
+    const anchor = '  if (findingIds.has("asset_exposure_sensitive_tool")) attackDed += 15;\n  if (findingIds.has("asset_exposure_admin_interface")) attackDed += 10;\n';
+    check("BRI mutant anchor present exactly once", source.split(anchor).length === 2);
+    const dir = fsm.mkdtempSync(pm.join(osm.tmpdir(), "bri-mutant-"));
+    try {
+      const mutated = source.replace(anchor, "")
+        .replace(/from "(\.\.?\/[^"]+)"/g, (_, rel) => `from ${JSON.stringify(p2u(pm.resolve(pm.dirname(file), rel)).href)}`);
+      fsm.writeFileSync(pm.join(dir, "bri.mjs"), mutated);
+      const mutant = await import(p2u(pm.join(dir, "bri.mjs")).href);
+      const modules = { dns: { resolves: true }, ssl: { https_available: true, http_redirects_to_https: true },
+        subdomains: { wildcard_dns: false, items: [] }, asset_exposure: reachable([{ host: "admin.bri-asm.example.com", status: 200, reachable: true,
+          title: "Admin login", tech: [], authentication_observation: { schema_version: "identity_http.v1", password_form_observed: true } }]) };
+      const findings = computeScore(modules, "bri-asm.example.com").findings;
+      check("MUTANT without the confirmed-exposure deductions leaves Attack Surface unmoved (caught)",
+        mutant.deriveScanBusinessRisk({ findings, modules }).categories.attack_surface_exposure.score === baseline.score);
+    } finally { fsm.rmSync(dir, { recursive: true, force: true }); }
+  }
   const { readFileSync } = await import("node:fs");
   const engineSource = readFileSync(new URL(engine("scan-engine.js")), "utf8");
   check("CM-P1-013 the scan-engine BRS passes the HSTS finding's severity",
