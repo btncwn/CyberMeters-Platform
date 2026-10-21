@@ -26,6 +26,7 @@ import {
   purgeExpiredMcpOAuthBrowserRows, readBoundedMcpOAuthBody,
   readMcpOAuthBrowserSession, readMcpOAuthIntent, requireMcpWebSession,
 } from "../src/routes/mcp-oauth-browser.js";
+import { withMcpClientNames } from "../src/routes/mcp-oauth-client-names.js";
 
 function fixture() {
   const sqlite = new DatabaseSync(":memory:");
@@ -958,4 +959,29 @@ test("OAuth browser request bodies are capped without Content-Length", async () 
     method: "POST", duplex: "half", body: new ReadableStream({ start() {} }),
   });
   assert.equal(await readBoundedMcpOAuthBody(stalled, 32, 20), null);
+});
+
+test("connections carry the name each registered client gave, looked up safely", async () => {
+  const lookups = [];
+  const lookupClient = async (id) => {
+    lookups.push(id);
+    if (id === "boom") throw new Error("kv unavailable");
+    return { bhSWf6RgdRikkev: { clientName: "ChatGPT" }, ctrl: { clientName: "Evil\u0007Name\u202e" } }[id] || null;
+  };
+  const named = await withMcpClientNames([
+    { id: "c1", client_id: "bhSWf6RgdRikkev" },
+    { id: "c2", client_id: "bhSWf6RgdRikkev" },
+    { id: "c3", client_id: "https://client.example/oauth/client.json" },
+    { id: "c4", client_id: "boom" },
+    { id: "c5", client_id: "ctrl" },
+    { id: "c6", client_id: "unknown" },
+  ], lookupClient);
+  assert.deepEqual(named.map((c) => c.client_name), ["ChatGPT", "ChatGPT", null, null, "EvilName", null]);
+  // Distinct ids only, and a URL id (a remote metadata document) is never looked up.
+  assert.deepEqual(lookups.sort(), ["bhSWf6RgdRikkev", "boom", "ctrl", "unknown"]);
+  // Bounded.
+  const many = Array.from({ length: 30 }, (_, i) => ({ id: `c${i}`, client_id: `client${i}` }));
+  const seen = [];
+  await withMcpClientNames(many, async (id) => { seen.push(id); return null; }, { max: 10 });
+  assert.equal(seen.length, 10);
 });
