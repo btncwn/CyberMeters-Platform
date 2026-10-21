@@ -105,10 +105,11 @@ export default function ScanNowButton({ workspaceId, domain = null, align = 'end
 
   const running = started && ACTIVE.has(started.status)
   const centre = align === 'center'
-  const textAlign = centre ? 'text-center' : 'lg:text-right'
+  const alignStart = align === 'start'
+  const textAlign = centre ? 'text-center' : alignStart ? 'text-left' : 'lg:text-right'
   return (
-    <div className={`flex flex-col gap-1.5 ${centre ? 'items-center' : 'items-stretch lg:items-end'}`} data-testid="scan-now">
-      <div className={`flex flex-wrap items-center gap-2 ${centre ? 'justify-center' : 'lg:justify-end'}`}>
+    <div className={`flex flex-col gap-1.5 ${centre ? 'items-center' : alignStart ? 'items-start' : 'items-stretch lg:items-end'}`} data-testid="scan-now">
+      <div className={`flex flex-wrap items-center gap-2 ${centre ? 'justify-center' : alignStart ? 'justify-start' : 'lg:justify-end'}`}>
         {needsPicker && (
           <>
             <label htmlFor={pickerId} className="text-xs font-semibold text-gray-600">Domain to scan</label>

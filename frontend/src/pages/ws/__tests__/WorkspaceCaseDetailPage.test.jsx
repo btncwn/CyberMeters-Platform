@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { api } from '../../../api'
 import WorkspaceCaseDetailPage from '../WorkspaceCaseDetailPage'
 
-vi.mock('../../../api', () => ({ api: { getCase: vi.fn(), getWorkspaceMembers: vi.fn() } }))
+vi.mock('../../../api', () => ({ api: { getCase: vi.fn(), getWorkspaceMembers: vi.fn(), getWorkspaces: vi.fn(), getWorkspaceDomains: vi.fn(), createScan: vi.fn(), getScan: vi.fn() } }))
 vi.mock('../../../hooks/useWorkspace', () => ({
   useWorkspace: () => ({ wsId: 'ws1', wsName: 'WS', workspaces: [{ id: 'ws1', role: 'admin' }], loading: false }),
 }))
@@ -30,6 +30,8 @@ beforeEach(() => {
   api.getCase.mockReset()
   api.getWorkspaceMembers.mockReset()
   api.getWorkspaceMembers.mockResolvedValue({ members: [] })
+  api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws1', role: 'admin' }] })
+  api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'example.com', domain_id: 'd1', verification_status: 'verified', verified_at: '2026-07-01T00:00:00Z' }] })
 })
 
 describe('WorkspaceCaseDetailPage — verification honesty', () => {
@@ -53,12 +55,17 @@ describe('WorkspaceCaseDetailPage — verification honesty', () => {
     expect(screen.queryByText(/Attested by customer/i)).toBeNull()
   })
 
-  it('renders evidence source, affected resource and canonical remediation', async () => {
+  it('says what was seen in words; internal keys never reach the page body', async () => {
     api.getCase.mockResolvedValue({ case: { ...baseCase, verification_support: 'manual' }, events: [] })
     renderCase()
-    expect(await screen.findByText('identity_exposed_login')).toBeInTheDocument()
+    expect(await screen.findByText('An admin login surface was observed.')).toBeInTheDocument()
     expect(screen.getByText('admin.example.com')).toBeInTheDocument()
-    expect(screen.getByText('identity.exposed_login.remove')).toBeInTheDocument()
+    // Design standard §4: no finding keys, remediation ids or case ids in body text.
+    const body = screen.getByTestId('case-detail').textContent
+    expect(body).not.toContain('identity_exposed_login')
+    expect(body).not.toContain('identity.exposed_login.remove')
+    expect(body).not.toMatch(/\bc1\b/)
+    expect(screen.getByRole('button', { name: 'Copy case ID' })).toBeInTheDocument()
   })
 
   it('renders the backend traceability classification verbatim (blocker 3)', async () => {
@@ -85,8 +92,8 @@ describe('WorkspaceCaseDetailPage — verification honesty', () => {
   it('omits the traceability block when the backend supplies none', async () => {
     api.getCase.mockResolvedValue({ case: { ...baseCase, verification_support: 'manual' }, events: [] })
     renderCase()
-    await screen.findByText('identity_exposed_login')
-    expect(screen.queryByText(/Relationship to the latest scan/)).toBeNull()
+    await screen.findByText('An admin login surface was observed.')
+    expect(screen.queryByText(/historical evidence/)).toBeNull()
   })
 
   it('does not use a green "settled" tone for an automated case that is not yet verified', async () => {
@@ -120,23 +127,37 @@ describe('WorkspaceCaseDetailPage — verification honesty', () => {
     expect(screen.getByText('Owner assigned')).toBeInTheDocument()
   })
 
-  it('links out to the domain-specific workflow (coexist, not replace)', async () => {
-    api.getCase.mockResolvedValue({ case: { ...baseCase, verification_support: 'manual' }, events: [] })
+  it('a case with no customer move left says where it is handled, never "no further actions"', async () => {
+    api.getCase.mockResolvedValue({ case: { ...baseCase, domain_key: 'brand_protection', case_type: 'brand_abuse', status: 'detected', canonical_phase: 'detected', verification_support: 'automated' }, events: [], can_manage: true, available_transitions: [] })
     renderCase()
-    const link = await screen.findByRole('link', { name: /Identity Exposure workflow/i })
-    expect(link).toHaveAttribute('href', '/ws/identity-exposure')
+    expect(await screen.findByRole('link', { name: 'Open Brand Protection' })).toHaveAttribute('href', '/ws/brand-monitoring')
+    expect(screen.queryByText(/No further actions/)).toBeNull()
+  })
+
+  it('one exit per job: no domain-workflow card and no separate recheck link', async () => {
+    api.getCase.mockResolvedValue({ case: { ...baseCase, verification_support: 'manual' }, events: [], can_manage: true, available_transitions: [{ target_status: 'action_in_progress', label: 'Start remediation' }] })
+    renderCase()
+    await screen.findByText('An admin login surface was observed.')
+    expect(screen.queryByRole('link', { name: /workflow/i })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Recheck domain' })).toBeNull()
   })
 })
 
 
-it.each(['email_protection', 'website_security', 'attack_surface', 'certificates_trust', 'identity_exposure', 'shadow_it_unmanaged_technology', 'brand_protection', 'cyber_essentials_readiness'])('offers the shared scan form for backend-supported automated verification: %s', async (domain_key) => {
-  api.getCase.mockResolvedValue({ case: { ...baseCase, domain_key, domain: 'example.com', verification_support: 'automated' }, events: [] })
+it.each(['email_protection', 'website_security', 'attack_surface', 'certificates_trust', 'identity_exposure', 'shadow_it_unmanaged_technology', 'brand_protection', 'cyber_essentials_readiness'])('with no customer move left, an automated case re-checks in place: %s', async (domain_key) => {
+  api.getCase.mockResolvedValue({ case: { ...baseCase, domain_key, domain: 'example.com', verification_support: 'automated' }, events: [], can_manage: true, available_transitions: [] })
   renderCase()
-  expect(await screen.findByRole('link', { name: 'Recheck domain' })).toHaveAttribute('href', '/scans/new?domain=example.com')
+  expect(await screen.findByRole('button', { name: 'Run scan to re-check' })).toBeInTheDocument()
+})
+it('the re-check never competes with an available transition', async () => {
+  api.getCase.mockResolvedValue({ case: { ...baseCase, domain: 'example.com', verification_support: 'automated' }, events: [], can_manage: true, available_transitions: [{ target_status: 'action_in_progress', label: 'Start remediation' }] })
+  renderCase()
+  await screen.findByRole('button', { name: 'Start remediation' })
+  expect(screen.queryByRole('button', { name: 'Run scan to re-check' })).toBeNull()
 })
 it.each(['manual', 'external', 'unsupported'])('does not offer an automated recheck for %s verification', async (verification_support) => {
   api.getCase.mockResolvedValue({ case: { ...baseCase, domain: 'example.com', verification_support }, events: [] })
   renderCase()
   await screen.findByText('Exposed admin login')
-  expect(screen.queryByRole('link', { name: 'Recheck domain' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Run scan to re-check' })).toBeNull()
 })

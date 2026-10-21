@@ -269,9 +269,49 @@ const BASE_TRANSITION_META = Object.freeze({
   superseded:            { label: "Mark superseded", note: true },
 });
 
+// Attack Surface cases keep their own machine and endpoint (POST
+// /managed-cases/:id/transition, with its domain side effects). Their customer
+// moves are advertised here too, flagged `endpoint: "attack_surface"`, so the
+// universal case page can offer them (founder, 21 Oct 2026: an exposure could not
+// be closed as a false positive from its case page). The generic route still
+// refuses these case types; system-only states are never advertised.
+const ASM_TRANSITION_META = Object.freeze({
+  triage:                    { label: "Begin triage" },
+  owner_assigned:            { label: "Move to Assigned", owner: true },
+  remediation_in_progress:   { label: "Start remediation", owner: true },
+  verification_requested:    { label: "Request verification" },
+  risk_acceptance_requested: { label: "Request risk acceptance", note: true },
+  risk_accepted:             { label: "Accept risk", note: true, expiry: true },
+  false_positive:            { label: "Mark false positive", note: true },
+  closed:                    { label: "Close case" },
+});
+
+function asmTransitionsForCase(caseRecord, entry, actor_type) {
+  const from = String(caseRecord.status || "");
+  const hasOwner = Boolean(String(caseRecord.owner_ref ?? "").trim());
+  const out = [];
+  for (const target of entry.machine.transitions[from] || []) {
+    if (entry.system_only?.has?.(target) && actor_type !== "system") continue;
+    const meta = ASM_TRANSITION_META[target];
+    if (!meta) continue; // fail closed: no honest label, no control
+    out.push({
+      target_status: target,
+      label: meta.label,
+      requires_owner: Boolean(meta.owner) && !hasOwner,
+      requires_note: Boolean(meta.note),
+      requires_expiry: Boolean(meta.expiry),
+      requires_attestation: false,
+      verification_mode: null,
+      endpoint: "attack_surface",
+    });
+  }
+  return out;
+}
+
 export function availableTransitionsForCase(caseRecord = {}, { actor_type = "customer" } = {}) {
   const entry = caseTypeEntry(caseRecord.case_type);
-  if (!entry || !entry.base) return []; // ASM/Brand use bespoke flows — no generic controls
+  if (entry && caseRecord.case_type === ASM_CASE_TYPE) return asmTransitionsForCase(caseRecord, entry, actor_type);
+  if (!entry || !entry.base) return []; // Brand uses its own flow — no generic controls
   const from = String(caseRecord.status || "");
   const targets = entry.machine.transitions[from] || [];
   const hasOwner = Boolean(String(caseRecord.owner_ref ?? "").trim());

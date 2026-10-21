@@ -100,7 +100,8 @@ describe('WorkspaceCaseDetailPage — input-required transitions still open a fo
     api.transitionCase.mockResolvedValue({ case: baseCase })
     renderCase()
     fireEvent.click(await screen.findByRole('button', { name: 'Reject case' }))
-    const confirm = await screen.findByRole('button', { name: 'Confirm' })
+    // The submit button names the action (verb + object), not "Confirm".
+    const confirm = await screen.findByRole('button', { name: 'Reject case' })
     expect(confirm).toBeDisabled()
     fireEvent.change(screen.getByPlaceholderText(/Why is this the right outcome/i), { target: { value: 'Duplicate case.' } })
     expect(confirm).toBeEnabled()
@@ -116,7 +117,8 @@ describe('WorkspaceCaseDetailPage — input-required transitions still open a fo
     api.transitionCase.mockResolvedValue({ case: baseCase })
     renderCase()
     fireEvent.click(await screen.findByRole('button', { name: 'Accept risk' }))
-    const confirm = await screen.findByRole('button', { name: 'Confirm' })
+    // The submit button names the action (verb + object), not "Confirm".
+    const confirm = await screen.findByRole('button', { name: 'Accept risk' })
     expect(confirm).toBeDisabled()
     fireEvent.change(screen.getByPlaceholderText(/Why is this the right outcome/i), { target: { value: 'Accepted by security.' } })
     expect(confirm).toBeDisabled() // still needs expiry
@@ -140,7 +142,7 @@ describe('WorkspaceCaseDetailPage — input-required transitions still open a fo
     fireEvent.click(await screen.findByRole('button', { name: 'Record customer attestation' }))
     expect((await screen.findAllByText(/Attested by customer — not externally verifiable/i)).length).toBeGreaterThan(0)
     expect(screen.queryByText('Verified by CyberMeters')).toBeNull()
-    const confirm = screen.getByRole('button', { name: 'Confirm' })
+    const confirm = screen.getByRole('button', { name: 'Record customer attestation' })
     expect(confirm).toBeDisabled()
     fireEvent.change(screen.getByPlaceholderText(/Describe what you changed/i), { target: { value: 'Removed the unmanaged app.' } })
     fireEvent.click(confirm)
