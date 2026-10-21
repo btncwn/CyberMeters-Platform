@@ -13,18 +13,68 @@ info cybermeters-db` and `wrangler d1 time-travel info cybermeters-db`; a succes
 read is not a restore drill. Time Travel restores overwrite the database in place
 and are not a routine production test. See [Cloudflare's Time Travel documentation](https://developers.cloudflare.com/d1/reference/time-travel/).
 
-R2 report objects need their own recovery copy in Cloudflare; D1 Time Travel does
-not recover them. A completed canonical snapshot with a missing R2 object returns
-`integrity_error/object_missing`; the product does not regenerate that historical
-snapshot from D1. This repository does not establish a configured same-provider
-copy or a completed R2 recovery. Bucket reachability and bucket locks are not
-backup proof. Do not apply a blanket lock to the live reports bucket: normal
-updates and customer-data purges need to work.
+## Verified Cloudflare recovery copy — 21 October 2026
 
-The independent-backup deadman monitor is explicitly off for this policy (see
-`MONITORING.md`). Missing evidence remains `backup_fresh: false`; no synthetic
-`backup_completed` event is recorded. This removes the provider requirement,
-without claiming an unperformed backup or restore.
+A manual encrypted backup completed at **09:35:43 UTC** and a full disposable
+restore completed at **09:48:59 UTC**. Run `20261021T092842Z-65ed735e` contains a
+12,574,513-byte D1 SQL export and all 157 R2 report objects (25,544,308 bytes).
+The encrypted copy is in the private Standard-storage `cybermeters-recovery`
+bucket. AES-256-GCM authentication and SHA-256 readback passed for every member;
+the source R2 inventory was unchanged across the copy. The success event is
+`opev_26c69324d5f6660588328e4f2eb912ac` (`cloudflare:<run>` correlation).
+
+The actual remote restore target was D1
+`0b758122-fa25-4e59-8bec-e5cd50b86559`, named
+`restore-scratch-20261021t092842z-65ed735e-9a55`, with a separate R2 bucket of the
+same name. All 122 application-table schemas and every row matched the captured
+SQL, remote foreign-key checks returned no violations, and every restored R2
+object matched its backup bytes. Local SQLite integrity of the captured SQL was
+`ok`. Remote D1 `PRAGMA integrity_check` is not authorized; it was not counted as
+a passing remote check. No production database was restored or overwritten.
+Earlier failed scratch imports are not success evidence. No Worker is bound to
+these scratch resources and they have no public endpoint.
+
+The large JSON rows in this export exceed D1's SQL-text limit. The manual helper
+replays captured values with bound parameters into a freshly created scratch
+D1, then independently compares remote contents with the captured SQL. A transient
+R2 HTTP 500 interrupted the first object restore; the resumed run rechecked the
+same scratch database and the entire object set. Retries apply only to reads and
+identical-byte PUTs, never to resource creation or database mutations.
+
+Run from the repository with Node 24 and an authenticated local Wrangler session
+(or an explicit `CLOUDFLARE_API_TOKEN`), keeping credentials out of shell arguments:
+
+```sh
+export CM_RECOVERY_KEY_FILE=/private/path/to/32-byte-key
+export CM_RECOVERY_EVIDENCE_DIR=/private/path/to/evidence
+node scripts/ops/cloudflare-recovery.mjs backup
+node scripts/ops/cloudflare-recovery.mjs restore <run>
+# Resume only a previously recorded scratch identity whose D1 replay completed:
+node scripts/ops/cloudflare-recovery.mjs restore <run> --resume
+```
+
+The key file must be private (0600). The measured run's key and private evidence
+are at `~/dev/private-cybermeters-recovery/`; neither belongs in Git. Store a
+separate protected copy of the key before relying on laptop-loss recovery. The
+helper never writes plaintext database exports or report objects to local disk.
+It caps each run at 100 MiB and 1,000 report objects, uses only existing D1 and
+Standard R2 capabilities, and has no paid add-on or external provider dependency.
+Current R2 included usage is 10 GB-month, one million Class A operations and ten
+million Class B operations; this drill added less than 0.2 GB, including scratch
+attempts. These are run bounds, not a guarantee about all account usage.
+
+**Limits:** this is a manual run, not an installed daily schedule. No 24-hour RPO
+is claimed. The D1 export and stable R2 object inventory are captured sequentially,
+not as one atomic cross-store snapshot. R2 byte contents and keys are restored;
+HTTP/custom object metadata is not part of this version's recovery contract.
+This same-account copy does not protect against loss of the Cloudflare account.
+D1/R2 readiness and a Time Travel bookmark alone do not prove recovery.
+
+The optional independent-backup monitor remains explicitly off, following the
+8 October policy; the verified same-provider `backup_completed` event now gives
+`backup_fresh` real evidence. No synthetic freshness event was written. A recurring
+runner would need its own private credential/key provisioning and separate review;
+this manual drill does not silently install one.
 
 > **Historical measured result — 11 July 2026:** a production D1 SQL export was
 > restored into a fresh **local SQLite database**, then checked for schema, data
