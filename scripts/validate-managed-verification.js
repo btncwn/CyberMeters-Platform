@@ -98,7 +98,9 @@ function mkCase(status) {
 }
 
 // fetch that resolves admin.example.com (A public), returns a scripted GET, throws past 50.
-function installFetch({ getStatus = 200, getTitle = "Admin Login", throwAt = 51, budgetThrowsOnGet = false, dnsStatus = 0 }) {
+// A real admin login page carries a password field; the admin-interface
+// condition needs it since score methodology 2026-10-21.1.
+function installFetch({ getStatus = 200, getTitle = "Admin Login", throwAt = 51, budgetThrowsOnGet = false, dnsStatus = 0, passwordForm = true }) {
   const calls = [];
   globalThis.fetch = async (url) => {
     const s = String(url); const n = calls.length + 1; const cat = classifyRequest(s);
@@ -111,7 +113,7 @@ function installFetch({ getStatus = 200, getTitle = "Admin Login", throwAt = 51,
     }
     if (cat === "exposure") {
       if (budgetThrowsOnGet) { throw new Error("Too many subrequests by single Worker invocation."); }
-      return new Response(`<title>${getTitle}</title>`, { status: getStatus, headers: { "content-type": "text/html" } });
+      return new Response(`<title>${getTitle}</title>${passwordForm ? '<form><input type="password" name="p"></form>' : ""}`, { status: getStatus, headers: { "content-type": "text/html" } });
     }
     return new Response("{}", { status: 200 });
   };
@@ -153,6 +155,13 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
 }
 
 // ── 2. conclusively fixed → system resolves ──────────────────────────────────
+{
+  // Same admin hostname and title, no login form: the admin-interface condition
+  // (score methodology 2026-10-21.1) no longer holds, so verification agrees with
+  // scoring and reads it as fixed.
+  const { result } = await scenario("verification_requested", { getStatus: 200, getTitle: "Admin Login", passwordForm: false });
+  eq("admin page without a login form: verification agrees with scoring (fixed)", result.decision, "fixed");
+}
 {
   const { result, caseAfter } = await scenario("verification_requested", { getStatus: 200, getTitle: "Welcome" }); // no admin title
   eq("fixed: decision", result.decision, "fixed");
@@ -322,7 +331,9 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
       if (cat === "exposure") {
         const host = new URL(s).hostname;
         if (budgetHosts.has(host)) throw new Error("Too many subrequests by single Worker invocation.");
-        return new Response(`<title>${titles[host] ?? "Welcome"}</title>`, { status: 200, headers: { "content-type": "text/html" } });
+        // An admin-titled page here is a real login page (password field).
+        const title = titles[host] ?? "Welcome";
+        return new Response(`<title>${title}</title>${/admin/i.test(title) ? '<form><input type="password" name="p"></form>' : ""}`, { status: 200, headers: { "content-type": "text/html" } });
       }
       return new Response("{}", { status: 200 });
     };
