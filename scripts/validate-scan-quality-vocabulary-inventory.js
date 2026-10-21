@@ -220,7 +220,8 @@ const EXPECTED = Object.freeze({
     // whose scan_quality is null (validate-scan-queue-dispatch.js).
     // The completed exposure-job fixture adds one governance comparison in one
     // validator; runtime comparison membership remains 59 across 26 files.
-    comparison_occurrences: 84,
+    // 451 access-restricted (21 Oct 2026): validate-p1-serviceability-contract.js GATE 2b adds one governed comparison (r.scan_quality.status !== "complete"); 84 -> 85, files unchanged; keyed two-tree diff shows no other change.
+    comparison_occurrences: 85,
     source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -240,7 +241,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "8b78f7e4439bd59b6247be15e6cad1daf6459cd1be7f2cdcebea2b5bfc67f1e0",
+    fingerprint: "72b2c7ba65c3045a06263e91ba42a600bd73f33af310974de696125ab154fe06",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -361,7 +362,8 @@ const EXPECTED = Object.freeze({
     // four in its own-module-incomplete mutation case (Email/Brand pushes);
     // production reads and SQL are unchanged by this governance addition.
     // TLS refusal replay (20 Oct 2026): scripts/lab/tls-refusal-replay.mjs reads report.scan_quality once to show the stored status beside the rebuilt one (138 -> 139 reads, 44 -> 45 files); keyed two-tree diff shows no other change.
-    governance: { occurrence_count: 139, source_file_count: 45, fingerprint: "e5bc10323bdacee1f1815ba9dcefbc2189e728b4dbf99bb1779f38cd020cbbaf" },
+    // 451 access-restricted (21 Oct 2026): the same GATE 2b read adds one governed direct read (139 -> 140, files unchanged at 45); keyed two-tree diff shows no other change.
+    governance: { occurrence_count: 140, source_file_count: 45, fingerprint: "49167c36974821d706b21096d46133f6dcfd429b5a24e0b4f82fdf2f8204eca3" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
