@@ -338,8 +338,12 @@ ok("serialized network envelope fits executable budget",
   );
   eq("canonical testing adjustment does not reinterpret legacy exact p",
     testing.dmarc.policy, "reject");
-  eq("legacy ADR-003 state remains based on exact parser semantics",
-    testing.dmarc_state.enforcement_level, "reject_enforced");
+  // 21 Oct 2026 (DMARC state model 2026-10-21): the legacy state still keeps
+  // the record's declared p (above), but grades the RFC 9989 section 4.7
+  // effective policy. Grading p=reject; t=y as reject_enforced was a false
+  // full-enforcement claim on this compatibility path.
+  eq("legacy ADR-003 state grades the effective policy for t=y, never reject_enforced",
+    testing.dmarc_state.enforcement_level, "quarantine_enforced");
 }
 
 // ── External RUA: complete, core-only refusal, and no false healthy ─────────
