@@ -65,7 +65,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { loadUnauthorisedSendingSourceAlerts, recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, durableCoreModuleBudget, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, durableCoreModuleBudget, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_DURABLE_SURFACE_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
@@ -1411,6 +1411,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       let exposureThrown = null;
       try {
         const exposureRun = await runCappedModule("asset_exposure", {
+          // Launch with the measured 2.5s estimate; on a durable (queue/cron)
+          // scan the race cap is the module's structural worst case, still
+          // bounded by the remaining deadline.
+          ...(durableInvocation ? { hardMs: SCAN_DURABLE_SURFACE_MODULE_BUDGETS.asset_exposure } : {}),
           fallback: () => markDeadlineDeferred({
             checked: 0,
             reachable: 0,

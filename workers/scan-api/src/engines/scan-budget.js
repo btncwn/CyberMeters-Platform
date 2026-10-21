@@ -299,6 +299,18 @@ export function durableCoreModuleBudget(module) {
     : null;
 }
 
+// Queue/Cron attack-surface hard caps. A hard ceiling, not an expected
+// duration, and still bounded by the remaining 115s deadline at race time.
+// Asset exposure: hosts run in parallel; one host's worst case is
+// (protocols x probeTimeoutMs + bodyTimeoutMs) x 2 + serverErrorRetryDelayMs
+// = (2 x 8s + 2s) x 2 + 2s = 38s (EXPOSURE_PROBE_TIMING), so 40s. The legacy
+// 2.5s cap stays the LAUNCH estimate; before 21 Oct 2026 it was also the race
+// cap on queue scans, so one slow host on a 9-host domain left the module
+// unfinished with ~100s of the scan budget unused.
+export const SCAN_DURABLE_SURFACE_MODULE_BUDGETS = Object.freeze({
+  asset_exposure:                40_000,
+});
+
 // Queue/Cron Phase-5 source envelope. A hard module ceiling, not an expected
 // duration: Email Intelligence contains a 10s HTTP leaf plus bounded parallel
 // DNS work. The global 115s executable deadline remains the upper authority.

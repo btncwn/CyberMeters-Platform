@@ -109,6 +109,18 @@ function isProbeTimeout(err) {
 // cache supplied by runScanEngine. A direct/legacy caller without a cache retains the
 // old uncached behaviour. The Worker subrequest-budget guard backstops any exhaustion
 // honestly (probe_status:not_executed, never a false clean).
+// One host's probe timing. probeAsset tries HTTPS then HTTP in sequence, each
+// bounded by probeTimeoutMs, then reads at most bodyTimeoutMs of body; a 5xx is
+// retried once after serverErrorRetryDelayMs. All hosts run in parallel, so the
+// module's structural worst case is one host's worst case (see
+// SCAN_DURABLE_SURFACE_MODULE_BUDGETS in scan-budget.js).
+export const EXPOSURE_PROBE_TIMING = Object.freeze({
+  protocols: 2,
+  probeTimeoutMs: 8_000,
+  bodyTimeoutMs: 2_000,
+  serverErrorRetryDelayMs: 2_000,
+});
+
 function makeDefaultProbeFetch(cache = null) {
   return makeSsrfSafeProbeFetch({
     resolver: (name, type, opts = {}) => dnsQuery(name, type, {
@@ -116,7 +128,7 @@ function makeDefaultProbeFetch(cache = null) {
       cache,
       signal: opts.signal,
     }),
-    timeoutMs: 8_000,
+    timeoutMs: EXPOSURE_PROBE_TIMING.probeTimeoutMs,
   });
 }
 const defaultProbeFetch = makeDefaultProbeFetch();
@@ -128,7 +140,7 @@ async function readProbeSnippet(response) {
   let length = 0;
   let timer;
   const deadline = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error("probe_body_timeout")), 2_000);
+    timer = setTimeout(() => reject(new Error("probe_body_timeout")), EXPOSURE_PROBE_TIMING.bodyTimeoutMs);
   });
   try {
     while (length < buffer.length) {
@@ -693,7 +705,7 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
         signal?.addEventListener("abort", abort, { once: true });
       });
     try {
-      await wait(2000, opts.signal);
+      await wait(EXPOSURE_PROBE_TIMING.serverErrorRetryDelayMs, opts.signal);
       if (opts.signal?.aborted) return first;
       const second = await probeAsset(host, probeOpts);
       if (Number.isInteger(second?.status) && second.status >= 500 &&
