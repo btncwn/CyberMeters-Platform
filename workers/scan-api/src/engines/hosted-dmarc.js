@@ -902,6 +902,35 @@ export async function getHostedDmarcPassRate(env, workspaceId, domain, { sinceDa
   }
 }
 
+/**
+ * Whether DMARC aggregate reports are arriving for this workspace domain, from
+ * any source, and why the 7-day pass rate is absent. The pass rate counts only
+ * reports external automation may use (dmarcExternalAutomationSourceSql), so
+ * reports that arrive by email can be present while the pass rate is null.
+ * pass_rate_unavailable_reason: "reports_not_used_for_pass_rate" when reports
+ * arrived but none count, "no_reports" when none arrived in the window, or
+ * null when the pass rate is calculated. Unknown on a read failure.
+ */
+export async function getHostedDmarcReportReceipt(env, workspaceId, domain, { sinceDays = 7, passRate = null } = {}) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(`SELECT SUM(CASE WHEN rep.created_at >= datetime('now', ?) THEN 1 ELSE 0 END) AS recent,
+                       MAX(rep.created_at) AS last_received_at
+                FROM dmarc_aggregate_reports rep
+                WHERE rep.workspace_id = ? AND rep.domain = ?
+                  AND ${aggregateReportCompleteSql("rep", "dmarc")}`)
+      .bind(`-${Math.max(1, sinceDays)} days`, workspaceId, domain).first();
+    const recent = Number(row?.recent || 0);
+    return {
+      reports_received: recent,
+      last_report_received_at: row?.last_received_at || null,
+      pass_rate_unavailable_reason: passRate != null ? null : recent > 0 ? "reports_not_used_for_pass_rate" : "no_reports",
+    };
+  } catch {
+    return { reports_received: null, last_report_received_at: null, pass_rate_unavailable_reason: passRate != null ? null : "unknown" };
+  }
+}
+
 async function countHostedPolicyChangesToday(env, recordId) {
   try {
     const row = await env.cybermeters_db

@@ -1,4 +1,5 @@
 import { parseServerDate, formatDate, formatNumber, formatDay } from '../../utils/dates'
+import { formatReportTime } from '../../lib/reportTime'
 import { MailTransportCard } from '../../components/MailTransportCard'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
@@ -2063,6 +2064,21 @@ export function ManagedMtaStsCard({ wsId, domain }) {
   )
 }
 
+// The line under the 7-day compliance figure. The backend says why the pass
+// rate is absent (compliance.pass_rate_unavailable_reason); this only words it.
+export function complianceDetail(compliance) {
+  if (compliance?.pass_rate != null) return `${formatNumber(compliance.total_messages)} messages`
+  const reason = compliance?.pass_rate_unavailable_reason
+  if (reason === 'reports_not_used_for_pass_rate') {
+    const last = compliance.last_report_received_at
+      ? `${formatReportTime(parseServerDate(compliance.last_report_received_at))} UTC`
+      : null
+    return `Reports are arriving${last ? ` (last: ${last})` : ''}. The pass rate is not calculated from these reports.`
+  }
+  if (reason === 'no_reports') return 'No reports in the last 7 days'
+  return 'Pass rate not calculated'
+}
+
 export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
   const [ramp, setRamp]       = useState(null)      // { policyAllowed, compliance, readiness }
@@ -2224,9 +2240,8 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                       : ramp.compliance.pass_rate >= 97 ? 'text-brand-700' : 'text-brand-700'}`}>
                       {ramp.compliance.pass_rate != null ? `${ramp.compliance.pass_rate}%` : '—'}
                     </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {ramp.compliance.pass_rate == null ? 'no reports yet'
-                        : `${formatNumber(ramp.compliance.total_messages)} messages`}
+                    <p className="text-xs text-gray-500 mt-0.5 max-w-[17rem] ml-auto" data-testid="compliance-detail">
+                      {complianceDetail(ramp.compliance)}
                     </p>
                   </div>
                 )}
