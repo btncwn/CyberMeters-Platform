@@ -1,3 +1,4 @@
+import { NETWORK_SCOPE_LIMITS } from './network-ownership.js';
 import { normalizeNetworkTarget, normalizeNetworkPorts } from './network-targets.js';
 import { createId } from '../lib/util.js';
 
@@ -31,7 +32,7 @@ async function failScan(env,row,reason) {
 export async function processNetworkScanMessage(body,env,deps={}) {
   if(!body||body.kind!=='network_probe'||body.v!==1||typeof body.scan_id!=='string'||body.scan_id.length>100)return {action:'ack',outcome:'malformed'};
   let row;
-  try{row=await env.cybermeters_db.prepare(`SELECT s.*,t.target,t.addresses_json,t.authorization_status FROM network_scans s JOIN network_targets t ON t.id=s.target_id AND t.workspace_id=s.workspace_id JOIN workspaces w ON w.id=s.workspace_id AND w.deleted_at IS NULL WHERE s.id=?`).bind(body.scan_id).first();}
+  try{row=await env.cybermeters_db.prepare(`SELECT s.*,t.target,t.addresses_json,t.authorization_status,t.scope_state,t.scope_checked_at FROM network_scans s JOIN network_targets t ON t.id=s.target_id AND t.workspace_id=s.workspace_id JOIN workspaces w ON w.id=s.workspace_id AND w.deleted_at IS NULL WHERE s.id=?`).bind(body.scan_id).first();}
   catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
   if(!row)return {action:'ack',outcome:'missing'};
   if(body.workspace_id!=null&&body.workspace_id!==row.workspace_id)return {action:'ack',outcome:'identity_mismatch'};
@@ -42,6 +43,12 @@ export async function processNetworkScanMessage(body,env,deps={}) {
     normalized=await normalizeNetworkTarget(row.target);ports=normalizeNetworkPorts(JSON.parse(row.ports_json),normalized.address_count);
     if(row.receipt_key!==`network-reports/${row.workspace_id}/${row.id}.json`||row.authorization_status!=='attested'||JSON.stringify(normalized.addresses)!==row.addresses_json)throw new Error('scope');
   }catch{try{await failScan(env,row,'network_scope_invalid');}catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}return {action:'ack',outcome:'scope_rejected'};}
+  // The scope decision made at admission (network-ownership.js) must still be
+  // in scope and fresh: an address no longer observed in verified DNS is not probed.
+  if(row.scope_state!=='in_scope'||!(Date.parse(row.scope_checked_at)>Date.now()-NETWORK_SCOPE_LIMITS.max_age_ms)){
+    try{await failScan(env,row,'network_target_out_of_scope');}catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
+    return {action:'ack',outcome:'out_of_scope'};
+  }
   let claimed;
   try{claimed=await env.cybermeters_db.prepare("UPDATE network_scans SET status='running',started_at=? WHERE id=? AND status='queued'").bind(new Date().toISOString(),row.id).run();}
   catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}

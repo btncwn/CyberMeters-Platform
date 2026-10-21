@@ -33,7 +33,7 @@ export async function tlsAuthorizationRoutes(rctx, { specialControlsAvailable = 
       const [authorization,services,domains,targets] = await Promise.all([
         readAuthorization(),readServices(),
         db.prepare("SELECT d.id AS domain_id,d.domain FROM workspace_domains wd JOIN domains d ON d.id=wd.domain_id WHERE wd.workspace_id=? AND wd.verification_status='verified' ORDER BY d.domain").bind(workspaceId).all(),
-        db.prepare("SELECT id,target FROM network_targets WHERE workspace_id=? AND authorization_status='attested' ORDER BY target,id LIMIT 32").bind(workspaceId).all(),
+        db.prepare("SELECT id,target FROM network_targets WHERE workspace_id=? AND authorization_status='attested' AND scope_state='in_scope' ORDER BY target,id LIMIT 32").bind(workspaceId).all(),
       ]);
       return json({authorization,services,verified_domains:domains.results,network_targets:targets.results,capabilities:{can_manage:canManage,assessment_available:assessmentAvailable,special_controls_available:specialControlsAvailable},allowed_services:TLS_SERVICE_PORTS,max_services:TLS_SERVICE_LIMIT,consent_version:TLS_SPECIAL_CONSENT_VERSION});
     }
@@ -86,7 +86,7 @@ export async function tlsAuthorizationRoutes(rctx, { specialControlsAvailable = 
       SELECT ?,?,?,?,?,?,?,?,'active',1,?,?,?
       WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
       AND EXISTS(SELECT 1 FROM workspace_domains wd JOIN domains d ON d.id=wd.domain_id WHERE wd.workspace_id=? AND wd.domain_id=? AND wd.verification_status='verified' AND d.domain=?)
-      AND EXISTS(SELECT 1 FROM network_targets WHERE workspace_id=? AND id=? AND authorization_status='attested')
+      AND EXISTS(SELECT 1 FROM network_targets WHERE workspace_id=? AND id=? AND authorization_status='attested' AND scope_state='in_scope')
       AND (SELECT COUNT(*) FROM workspace_tls_service_authorizations WHERE workspace_id=? AND authorization_status='active')<64`)
       .bind(id,workspaceId,body.domain_id,body.hostname,body.sni,body.port,body.application_protocol,body.network_target_id,user.id,now,now,workspaceId,workspaceId,body.domain_id,domain.domain,workspaceId,body.network_target_id,workspaceId);
     let results;

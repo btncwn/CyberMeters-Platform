@@ -2768,13 +2768,9 @@
       "path_kind": null,
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
-      "auth_guards": [
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [
-        "getWorkspaceBillingUserId"
-      ],
-      "authed": true,
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
       "public_reason": null
     },
     {
@@ -2783,9 +2779,13 @@
       "path_kind": null,
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
-      "auth_guards": [],
-      "scope_helpers": [],
-      "authed": false,
+      "auth_guards": [
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
       "public_reason": null
     },
     {

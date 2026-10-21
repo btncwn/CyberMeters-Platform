@@ -4,9 +4,12 @@ import { NETWORK_LIMITS, NETWORK_PORTS, normalizeNetworkTarget, normalizeNetwork
 import { createId } from '../lib/util.js';
 import { networkReceiptHash } from '../engines/network-scan-dispatch.js';
 import { buildNetworkSuggestions, hostsNeedingResolution, NETWORK_SUGGESTION_LIMITS, resolveHostAddresses } from '../engines/network-suggestions.js';
+import { checkNetworkTargetScope, evaluateTargetScope, NETWORK_SCOPE_VERSION, networkScopeProjection, observedNetworkAddresses, scopeMessage } from '../engines/network-ownership.js';
 
 const parseJson = value => value ? JSON.parse(value) : null;
-export const networkTargetProjection = row => ({ id:row.id,target:row.target,target_type:row.target_type,address_count:row.address_count,label:row.label,authorization_status:row.authorization_status,authorized_by:row.authorized_by,authorized_at:row.authorized_at,created_at:row.created_at });
+export const networkTargetProjection = row => ({ id:row.id,target:row.target,target_type:row.target_type,address_count:row.address_count,label:row.label,authorization_status:row.authorization_status,authorized_by:row.authorized_by,authorized_at:row.authorized_at,created_at:row.created_at,scope:networkScopeProjection(row) });
+const scopeRefusal = decision => ({ state:decision.state,reason:decision.reason,message:scopeMessage(decision.reason),unobserved:decision.unobserved,shared:decision.shared });
+const scopeStale = row => !row.scope_state || !(Date.parse(row.scope_checked_at) > Date.now()-24*3600_000);
 export const networkScanProjection = row => ({ id:row.id,target_id:row.target_id,target:row.target,status:row.status,quality:row.quality,ports:parseJson(row.ports_json),retest_of:row.retest_of,created_at:row.created_at,started_at:row.started_at,completed_at:row.completed_at,reason:row.reason,coverage:parseJson(row.coverage_json),receipt_sha256:row.receipt_sha256 });
 async function bodyJson(request) {
   const reader=request.body?.getReader();
@@ -40,7 +43,14 @@ export async function networkAssetRoutes(rctx) {
   const db=env.cybermeters_db;
   try {
     if(request.method==='GET'&&resource==='network-targets'&&!id) {
-      const rows=await db.prepare('SELECT * FROM network_targets WHERE workspace_id=? ORDER BY created_at DESC,id').bind(workspaceId).all();
+      let rows=await db.prepare('SELECT * FROM network_targets WHERE workspace_id=? ORDER BY created_at DESC,id').bind(workspaceId).all();
+      // Show the customer why a target is or is not scanned: unchecked or day-old
+      // decisions are refreshed here, bounded by a rate limit (DNS lookups).
+      const stale=(rows.results||[]).filter(scopeStale);
+      if(stale.length&&!await consumeApiRateLimit(env,[{scope:'workspace',scope_id:workspaceId}],'network_scope_check',30,3600)) {
+        await checkNetworkTargetScope(env,workspaceId,stale);
+        rows=await db.prepare('SELECT * FROM network_targets WHERE workspace_id=? ORDER BY created_at DESC,id').bind(workspaceId).all();
+      }
       const manage=await requireWorkspaceRole(user,workspaceId,'domain:import',env);
       const scan=await requireWorkspaceRole(user,workspaceId,'scan:create',env);
       const owner=await getWorkspaceBillingUserId(workspaceId,user.id,env);
@@ -64,11 +74,17 @@ export async function networkAssetRoutes(rctx) {
       if(body.authorization_confirmed!==true)return json({error:'network_authorization_required'},400);
       if(body.label!=null&&(typeof body.label!=='string'||body.label.length>120))throw new Error('invalid_network_label');
       const normalized=await normalizeNetworkTarget(body.target),targetId=createId('nettarget'),now=new Date().toISOString();
-      const insert=db.prepare(`INSERT INTO network_targets (id,workspace_id,target,target_type,addresses_json,address_count,label,authorization_status,authorized_by,authorized_at,created_at) SELECT ?,?,?,?,?,?,?,'attested',?,?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) AND (SELECT COUNT(*) FROM network_targets WHERE workspace_id=?)<?`)
-        .bind(targetId,workspaceId,normalized.target,normalized.target_type,JSON.stringify(normalized.addresses),normalized.address_count,body.label||null,user.id,now,now,workspaceId,workspaceId,NETWORK_LIMITS.max_targets);
+      // The attestation is necessary, not sufficient: every address must be
+      // observed in this workspace's verified-domain DNS (network-ownership.js).
+      const observed=await observedNetworkAddresses(env,workspaceId);
+      const decision=evaluateTargetScope(normalized.addresses,observed);
+      if(decision.state!=='in_scope')return json({error:'network_target_not_observed',scope:scopeRefusal(decision)},422);
+      const scopeEvidence=JSON.stringify({version:NETWORK_SCOPE_VERSION,unobserved:[],shared:[],evidence:decision.evidence,roots:observed.roots,lookups_failed:observed.lookups_failed});
+      const insert=db.prepare(`INSERT INTO network_targets (id,workspace_id,target,target_type,addresses_json,address_count,label,authorization_status,authorized_by,authorized_at,created_at,scope_state,scope_reason,scope_checked_at,scope_evidence_json) SELECT ?,?,?,?,?,?,?,'attested',?,?,?,'in_scope',?,?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) AND (SELECT COUNT(*) FROM network_targets WHERE workspace_id=?)<?`)
+        .bind(targetId,workspaceId,normalized.target,normalized.target_type,JSON.stringify(normalized.addresses),normalized.address_count,body.label||null,user.id,now,now,decision.reason,now,scopeEvidence,workspaceId,workspaceId,NETWORK_LIMITS.max_targets);
       // The audit selects the inserted identity so reaching the target cap leaves no false authorization event.
       const audit=db.prepare(`INSERT INTO audit_events (id,workspace_id,user_id,actor_type,event_type,entity_type,entity_id,description,metadata_json,created_at) SELECT ?,?,?,'customer','network_target_authorized','network_target',?,'Network scope authorization declared',?,? WHERE EXISTS(SELECT 1 FROM network_targets WHERE id=? AND workspace_id=?)`)
-        .bind(createId('audit'),workspaceId,user.id,targetId,JSON.stringify({target:normalized.target,authorization_status:'attested',independently_verified:false}),now,targetId,workspaceId);
+        .bind(createId('audit'),workspaceId,user.id,targetId,JSON.stringify({target:normalized.target,authorization_status:'attested',independently_verified:false,scope:{state:'in_scope',reason:decision.reason,evidence:decision.evidence}}),now,targetId,workspaceId);
       let result;try{result=await db.batch([insert,audit]);}catch(e){if(/unique/i.test(String(e?.message)))return json({error:'network_target_exists'},409);throw e;}
       if(result[0]?.meta?.changes!==1)return json({error:'network_target_limit'},409);
       const row=await db.prepare('SELECT * FROM network_targets WHERE id=? AND workspace_id=?').bind(targetId,workspaceId).first();
@@ -123,6 +139,10 @@ export async function networkAssetRoutes(rctx) {
       if(rejected)return json(rejected.body,rejected.status);
       const rate=await consumeApiRateLimit(env,[{scope:'user',scope_id:user.id},{scope:'workspace',scope_id:workspaceId},{scope:'account',scope_id:owner}],'scan_start',limits.scan_starts_per_hour,3600,{failClosed:true});
       if(rate)return json(rate.body,rate.status);
+      // Checked again now, after the plan and rate checks: DNS may have moved
+      // since the target was declared (network-ownership.js).
+      const decision=(await checkNetworkTargetScope(env,workspaceId,[target])).get(target.id);
+      if(decision?.state!=='in_scope')return json({error:'network_target_out_of_scope',scope:scopeRefusal(decision||{state:'out_of_scope',reason:null,unobserved:[],shared:[]})},409);
       const scanId=createId('netscan'),now=new Date().toISOString(),key=`network-reports/${workspaceId}/${scanId}.json`;
       // The quota predicate executes in the same D1 statement as admission.
       const admission=await getOperationAdmission(env,workspaceId,user.id,'scans');

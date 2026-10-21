@@ -368,12 +368,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 42 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `(none)` | 52 | unknown | **GAP** | — |
-| POST | `(none)` | 61 | unknown | ✓ | requireWorkspaceRole |
-| GET | `(none)` | 77 | unknown | **GAP** | — |
-| GET | `(none)` | 96 | unknown | **GAP** | — |
-| POST | `(none)` | 106 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 45 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 62 | unknown | **GAP** | — |
+| POST | `(none)` | 71 | unknown | ✓ | requireWorkspaceRole |
+| GET | `(none)` | 93 | unknown | **GAP** | — |
+| GET | `(none)` | 112 | unknown | **GAP** | — |
+| POST | `(none)` | 122 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/portfolio.js`
 

@@ -131,6 +131,10 @@ await test('real manual route keeps verification visible and mandatory; failed q
 await test('network scan uses same allowance and member uses billing owner',async()=>{
   const f=setup(); f.seedScan('one');f.seedScan('two');
   f.db.prepare("INSERT INTO network_targets(id,workspace_id,target,target_type,addresses_json,address_count,authorization_status,authorized_by,authorized_at,created_at) VALUES('target','wa','8.8.8.8','ip','[\"8.8.8.8\"]',1,'attested','owner',datetime('now'),datetime('now'))").run();
+  // The address is observed in the workspace's verified DNS (network-ownership.js).
+  f.db.prepare("INSERT INTO domains(id,user_id,domain) VALUES('d_net','owner','net.example')").run();
+  f.db.prepare("INSERT INTO workspace_domains(workspace_id,domain_id,verification_status) VALUES('wa','d_net','verified')").run();
+  f.db.prepare("INSERT INTO workspace_assets(id,workspace_id,domain_id,hostname,first_seen,last_seen,created_at,updated_at,ip_addresses,wildcard_dns,lifecycle_state,status) VALUES('net1','wa','d_net','vpn.net.example',datetime('now'),datetime('now'),datetime('now'),datetime('now'),'[\"8.8.8.8\"]',0,'observed','active')").run();
   const call=()=>networkAssetRoutes(f.context('/api/workspaces/wa/network-targets/target/scans',{method:'POST',user:'member',body:{ports:[443]}}));
   let res=await call();assert.equal(res.status,202,await res.text());assert.equal(await trialUsage(f.env,'scans','owner'),3);
   f.db.exec("UPDATE network_scans SET status='completed'");
