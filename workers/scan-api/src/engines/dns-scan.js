@@ -99,9 +99,11 @@ export async function runDnsModule(domain, opts = {}) {
   // Google as the fallback resolver). Exposed as records so later pure modules
   // (vendor signatures: SaaS verification tokens) can read them without another
   // DNS query. Quoted-string framing is removed; values are otherwise verbatim.
-  const txtAnswers  = pick(cloudflareTxtBaseRes).length ? pick(cloudflareTxtBaseRes) : pick(googleTxtBaseRes);
+  const txtSource = pick(cloudflareTxtBaseRes).length ? cloudflareTxtBaseRes : googleTxtBaseRes;
+  const txtAnswers = pick(txtSource);
+  const txtLookupStatus = txtSource.status === "fulfilled" ? txtSource.value?.Status : null;
   const txtRecords  = txtAnswers
-    .map((r) => ({ value: String(r?.data ?? "").trim().replace(/^"|"$/g, "").replace(/"\s*"/g, ""), ttl: r?.TTL }))
+    .map((r) => ({ value: String(r?.data ?? "").trim().replace(/^"|"$/g, "").replace(/"\s*"/g, ""), ttl: r?.TTL, name: r?.name, type: r?.type, lookup_status: txtLookupStatus }))
     .filter((r) => r.value);
 
   // ── CAA Record Analysis ─────────────────────────────────────────────────

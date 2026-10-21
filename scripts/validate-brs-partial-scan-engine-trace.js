@@ -13,7 +13,8 @@ const worker = await import(pathToFileURL(path.join(workerRoot, "index.js")).hre
 
 const NOW = "2026-07-28T09:00:00.000Z";
 const PARTIAL_NOW = new Date(Date.parse(NOW) + 60 * 60 * 1000).toISOString();
-const EXPECTED_ASSERTIONS = 24;
+const registrationFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/dns-service-registrations.json"), "utf8"));
+const EXPECTED_ASSERTIONS = 26;
 let passed = 0;
 let failed = 0;
 const check = (name, condition, detail = "") => {
@@ -121,6 +122,9 @@ globalThis.fetch = async (input) => {
     if (providerMode === "partial" && name.startsWith("cybermeters-wildcard-check-")) {
       return jsonResponse({}, 503);
     }
+    if (name === registrationFixture.domain && type === "TXT") {
+      return jsonResponse({ Status: 0, Answer: registrationFixture.answers });
+    }
     if (["example.com", "www.example.com"].includes(name) && type === "A") {
       return jsonResponse({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
     }
@@ -162,7 +166,7 @@ try {
   `).run();
   db.prepare("INSERT INTO workspace_members (id,workspace_id,user_id,role) VALUES ('member','ws','user','admin')").run();
   db.prepare("INSERT INTO domains (id,user_id,domain) VALUES ('dom','user','example.com')").run();
-  db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id) VALUES ('ws','dom')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id,verification_status) VALUES ('ws','dom','verified')").run();
   db.prepare(`
     INSERT INTO subscriptions (id,owner_user_id,plan,subscription_status,current_period_end,created_at)
     VALUES ('sub','user','starter','active','2099-12-31T23:59:59.000Z','2026-07-28T00:00:00.000Z')
@@ -206,11 +210,29 @@ try {
   eq("real complete scan exact BRS basis", completePayload.basis_scan?.scan_id, "scan-complete");
   eq("real complete scan basis quality", completePayload.basis_scan?.scan_quality, "complete");
 
+  const storedFor = (scanId) => [...store.values()].flatMap((body) => {
+    try { return [JSON.parse(body)]; } catch { return []; }
+  });
+  const completeArtifacts = storedFor("scan-complete");
+  const registrationReport = completeArtifacts.find((value) => value.scan_id === "scan-complete" && value.modules);
+  const registrationSnapshot = completeArtifacts.find((value) => value.snapshot?.scan_id === "scan-complete" && value.observations);
+  const registrationFact = registrationReport?.findings?.find((row) => row.id === "shadow_it_dns_registration");
+  const registrationProjection = registrationSnapshot?.observations?.find((row) => row.finding_id === "shadow_it_dns_registration");
+  check("C20 real verified DNS -> scan engine -> report -> snapshot preserves qualified registration facts",
+    registrationFact?.evidence?.length === registrationFixture.expected_services
+    && registrationFact?.finding_type === "observation" && registrationFact?.score_impact === 0
+    && registrationProjection?.domain_keys?.join() === "shadow_it_unmanaged_technology"
+    && registrationProjection?.remediation_id === "shadow_it.dns_registration.review");
+  db.prepare("UPDATE workspace_domains SET verification_status='pending' WHERE workspace_id='ws' AND domain_id='dom'").run();
+
   providerMode = "partial";
   const partialError = await run("scan-partial", PARTIAL_NOW, Date.parse(PARTIAL_NOW));
   eq("real partial engine trace does not throw", partialError, null);
   const partialScan = db.prepare("SELECT status,scan_quality FROM scans WHERE id='scan-partial'").get();
   eq("real second scan terminal completed", partialScan.status, "completed");
+  const unverifiedRegistrationReport = storedFor("scan-partial").find((value) => value.scan_id === "scan-partial" && value.modules);
+  check("C20 real unverified scan does not publish registration observations",
+    Boolean(unverifiedRegistrationReport) && !unverifiedRegistrationReport.findings.some((row) => row.id === "shadow_it_dns_registration"));
   // providerMode="partial" makes the discovery wildcard check fail, so the
   // word-list answers cannot be trusted. FD-006 grades that `partial`
   // (incomplete), never `degraded` and never complete.

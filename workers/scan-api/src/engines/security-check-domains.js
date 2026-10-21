@@ -262,7 +262,7 @@ export const SECURITY_CHECK_DOMAINS = Object.freeze([
     modules: ["saas_exposure", "third_party_assets", "technology_detection", "cloud_storage_discovery", "vendor_relationships"],
     monitoring_signals: ["technology_visibility"],
     monitoring_degradation_message: "Technology observation coverage was incomplete this run.",
-    match: () => false, // observation-only; not attributed authoritative findings this episode
+    match: (f) => f.id === "shadow_it_dns_registration" && f.finding_type === "observation", // registration facts only; never a use or approval verdict
     maturity: "M0", managed_status: "monitoring",
     limitations: ["Externally observed technology only: items are shown as observed. Whether a technology is approved, rejected or excepted is the customer's own record in the Shadow IT inventory, not an external verdict. No internal-network, endpoint, CASB or EDR visibility."],
   },
