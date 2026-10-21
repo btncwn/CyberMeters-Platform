@@ -175,13 +175,14 @@ describe('ModuleContract — the one area template', () => {
       api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ website_security: entry }) })
       const r = show('website_security')
       await waitFor(() => expect(screen.getByTestId('module-next-title')).toHaveTextContent(title))
-      expect(screen.getByTestId('module-next-action')).toHaveTextContent(label)
+      // "Run a scan" starts the scan in place (21 Oct 2026); other actions stay links/buttons.
+      expect(screen.queryByTestId('module-next-action') || screen.getByTestId('module-next-action-scan')).toHaveTextContent(label)
       r.unmount()
     }
     api.getSecurityCheckDomains.mockRejectedValue(new Error('boom'))
     show('website_security')
     await waitFor(() => expect(screen.getByTestId('module-next-title')).toHaveTextContent('The latest assessment could not be read'))
-    expect(screen.getByTestId('module-next-action')).toHaveAttribute('href', '/scans/new')
+    expect(within(screen.getByTestId('module-next-action-scan')).getByRole('button', { name: 'Run a scan' })).toBeInTheDocument()
   })
 
   it('a page’s own next action replaces the resolver, still one button', async () => {

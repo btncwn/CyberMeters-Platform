@@ -12,7 +12,7 @@ vi.mock('../../api', () => ({
     getWorkspaces: vi.fn(), getWorkspaceScans: vi.fn(), getWorkspaceDomains: vi.fn(), getWorkspaceScorecard: vi.fn(),
     getSecurityCheckDomains: vi.fn(), getCases: vi.fn(), getScanReport: vi.fn(), getWorkspaceMembers: vi.fn(),
     getWorkspaceSummary: vi.fn(), getDmarcIngestEndpoint: vi.fn(), verifyDmarcDns: vi.fn(),
-    createScan: vi.fn(), getScan: vi.fn(),
+    createScan: vi.fn(), getScan: vi.fn(), getShadowItInventory: vi.fn(),
   },
 }))
 vi.mock('../../components/OnboardingProgress', () => ({ default: () => null }))
@@ -44,6 +44,7 @@ beforeEach(() => {
   api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'example.co.uk', domain_id: 'd1', verification_status: 'verified', verified_at: '2026-10-01T00:00:00Z' }] })
   api.createScan.mockResolvedValue({ scan: { id: 'scan_new', status: 'queued' } })
   api.getScan.mockResolvedValue({ scan: { id: 'scan_new', status: 'running' } })
+  api.getShadowItInventory.mockResolvedValue({ counts: { unreviewed: 0 } })
   api.getWorkspaceScorecard.mockResolvedValue(null)
   api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight({ email_protection: { state: 'issue_detected', summary: '2 issues.' }, attack_surface: { state: 'assessed_healthy', last_assessed_at: '2026-10-12T09:00:00Z', evidence_freshness: 'stale' } }) })
   api.getCases.mockResolvedValue({ cases: [] })
@@ -55,11 +56,16 @@ beforeEach(() => {
 
 describe('Home screen', () => {
   it('uses the setup connection proof before recommending the next email action', async () => {
+    const { unmount } = renderHome()
+    // No report has arrived yet: the list asks for DMARC reporting, opening exactly where it is set up.
+    const list = within(await screen.findByTestId('next-actions'))
+    expect(await list.findByRole('link', { name: 'Set up: Connect DMARC reporting' })).toHaveAttribute('href', '/ws/email-protection?tab=settings#dmarc-setup')
+    unmount()
     api.getDmarcIngestEndpoint.mockResolvedValue({ endpoint: { last_inbound_at: '2026-10-18T00:00:00Z' } })
     renderHome()
-    const action = within(await screen.findByTestId('next-action'))
-    await waitFor(() => expect(action.getByText(/connected DMARC reporting/)).toBeInTheDocument())
-    expect(action.queryByText(/Connect Email Protection/)).not.toBeInTheDocument()
+    const proven = within(await screen.findByTestId('next-actions'))
+    await waitFor(() => expect(api.getDmarcIngestEndpoint).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(proven.queryByText('Connect DMARC reporting')).not.toBeInTheDocument())
   })
   it('asks where the workspace is exposed, names the last assessment, and lists the posture from the backend', async () => {
     renderHome()

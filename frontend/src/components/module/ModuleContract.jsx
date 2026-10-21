@@ -237,11 +237,29 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   const { hash } = useLocation()
   const tab = tabForLocation(params, hash)
   const [query, setQuery] = useState('')
-  // An anchor in the URL scrolls to its element once the tab that holds it has rendered.
+  // An anchor in the URL scrolls to its element once the tab that holds it has
+  // rendered. Cards that load their own data appear later, so wait for the
+  // element for a bounded time (the Overview's next actions link straight to them).
   useEffect(() => {
-    if (!hash) return
-    const el = document.getElementById(hash.slice(1))
-    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' })
+    if (!hash) return undefined
+    const id = hash.slice(1)
+    let settle = null
+    const scroll = () => {
+      const el = document.getElementById(id)
+      if (!el) return false
+      if (typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'start' })
+        // Content above may still be loading; settle once more where it lands.
+        clearTimeout(settle)
+        settle = setTimeout(() => el.isConnected && el.scrollIntoView({ block: 'start' }), 800)
+      }
+      return true
+    }
+    if (scroll() || typeof MutationObserver !== 'function') return () => clearTimeout(settle)
+    const observer = new MutationObserver(() => { if (scroll()) observer.disconnect() })
+    observer.observe(document.body, { childList: true, subtree: true })
+    const timer = setTimeout(() => observer.disconnect(), 8000)
+    return () => { observer.disconnect(); clearTimeout(timer); clearTimeout(settle) }
   }, [hash, tab])
   const { domainsRequest, entry, casesRequest, cases } = useModuleContract(workspaceId, domainKey)
   const evidenceStatus = domainStatus(entry, domainsRequest === 'ok' && !entry ? 'error' : domainsRequest)
@@ -319,7 +337,11 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
           <p className="text-[15px] font-semibold text-gray-900" data-testid="module-next-title">{next.title}</p>
           {next.body && <p className="text-sm text-gray-700 mt-1 leading-relaxed">{customerEvidenceText(next.body)}</p>}
         </div>
-        {next.label && (next.to
+        {/* "Do this next" does the job (founder, 21 Oct 2026): a scan starts here
+            instead of sending the customer to another page. */}
+        {next.label && workspaceId && next.to === '/scans/new' ? (
+          <div className="shrink-0" data-testid="module-next-action-scan"><ScanNowButton workspaceId={workspaceId} domain={scanDomain} label={next.label} /></div>
+        ) : next.label && (next.to
           ? <Link to={next.to} className="btn-primary shrink-0" data-testid="module-next-action">{next.label}</Link>
           : <button type="button" onClick={next.onClick || (() => selectTab(next.tab || 'findings'))} className="btn-primary shrink-0" data-testid="module-next-action">{next.label}</button>)}
       </div>

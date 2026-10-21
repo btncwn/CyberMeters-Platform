@@ -25,7 +25,7 @@ export const SCAN_STARTED_TEXT = 'Scan started — results in about 2–3 minute
  * in words. `domain` is the domain the page is showing; otherwise one verified
  * domain is used directly and several get a labelled picker.
  */
-export default function ScanNowButton({ workspaceId, domain = null, align = 'end' }) {
+export default function ScanNowButton({ workspaceId, domain = null, align = 'end', label = 'Scan now' }) {
   const [domains, setDomains] = useState(null) // null = loading
   const [loadFailed, setLoadFailed] = useState(false)
   const [choice, setChoice] = useState('')
@@ -125,7 +125,7 @@ export default function ScanNowButton({ workspaceId, domain = null, align = 'end
           aria-describedby={reason ? reasonId : undefined}
           className="btn-primary"
         >
-          {starting ? <><Spinner size="sm" /><span>Starting…</span></> : <span>Scan now</span>}
+          {starting ? <><Spinner size="sm" /><span>Starting…</span></> : <span>{label}</span>}
         </button>
       </div>
       {!needsPicker && target && !started && !reason && (
