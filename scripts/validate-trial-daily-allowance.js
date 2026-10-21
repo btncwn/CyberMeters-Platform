@@ -361,4 +361,36 @@ for(const report_type of ['manual','weekly_executive','monthly_executive','quart
     assert.equal(await trialUsage(f.env,'reports','owner'),1);
   });
 }
+// C-7(8): exercise the actual per-scan route, including its frozen branding and
+// R2 logo loader. Customer/MSP logos keep winning over the house fallback.
+const { CYBERMETERS_LOGO_DATA_URI } = await import('../workers/scan-api/src/engines/brand-logo.js');
+const { prepareLogoXObject } = await import('../workers/scan-api/src/engines/pdf-image.js');
+const houseImage = await prepareLogoXObject(CYBERMETERS_LOGO_DATA_URI, '#FFFFFF');
+const customerJpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x2A, 0x00, 0x64, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xFF, 0xD9]);
+for (const mode of ['cybermeters', 'co_brand', 'white_label']) {
+  await test(`per-scan PDF embeds the correct frozen ${mode} logo`, async () => {
+    const f = setup(), scanId = `logo_${mode}`;
+    f.seedSnapshot(scanId);
+    const branding = mode === 'cybermeters'
+      ? { mode, source: 'cybermeters', logo_r2_key: null, display_name: 'CyberMeters', accent: null, attribution: 'full' }
+      : { mode, source: 'workspace', logo_r2_key: 'branding/wa/fixture.jpg', logo_mime: 'image/jpeg',
+          logo_sha256: createHash('sha256').update(customerJpeg).digest('hex'), display_name: 'Customer brand', accent: '#123456', attribution: 'full' };
+    f.objects.set('branding/wa/fixture.jpg', customerJpeg);
+    const frozen = JSON.stringify(branding);
+    f.db.prepare('UPDATE scan_report_snapshots SET branding_json=? WHERE scan_id=?').run(frozen, scanId);
+    const response = await scanRoutes(f.context(`/api/scans/${scanId}/report/pdf`));
+    assert.equal(response.status, 200);
+    const bytes = Buffer.from(await response.arrayBuffer()), text = bytes.toString('latin1');
+    assert(text.includes('/XObject << /Im0 '));
+    if (mode === 'cybermeters') {
+      assert(text.includes(`/Width ${houseImage.width} /Height ${houseImage.height}`));
+      assert(bytes.includes(Buffer.from(houseImage.bytes)), 'house transparency must flatten over white');
+    } else {
+      assert(text.includes('/Width 100 /Height 42'));
+      assert(bytes.includes(Buffer.from(customerJpeg)), 'customer logo must be embedded verbatim');
+      assert(!bytes.includes(Buffer.from(houseImage.bytes)), 'house logo must not replace a customer logo');
+    }
+    assert.equal(f.db.prepare('SELECT branding_json FROM scan_report_snapshots WHERE scan_id=?').get(scanId).branding_json, frozen);
+  });
+}
 console.log(`Trial daily allowance: ${passed} scenarios passed`);

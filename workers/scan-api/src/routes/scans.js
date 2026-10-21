@@ -18,6 +18,7 @@ import { buildScanReportPdf } from "../engines/pdf.js";
 import { buildRelatedChangesSummary } from "../engines/related-changes.js";
 import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
+import { CYBERMETERS_LOGO_DATA_URI } from "../engines/brand-logo.js";
 import { readOrGenerateTrialTechnicalPdf, admitDomainScan, checkScanLimit, checkScheduledScanLimit, domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { findingRemediation } from "../engines/remediation-registry.js";
@@ -574,8 +575,9 @@ export async function scanRoutes(rctx) {
                   .bind(JSON.stringify(branding), read.row.id).run();
               }
             }
-            const dataUri = await loadBrandingLogoDataUri(env, branding);
-            if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
+            let dataUri = await loadBrandingLogoDataUri(env, branding);
+            if (!dataUri && branding?.mode === "cybermeters") dataUri = CYBERMETERS_LOGO_DATA_URI;
+            if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent || "#FFFFFF");
           } catch { branding = null; logoImage = null; }
 
           // Freeze the Related Changes summary (M6 B1) into the snapshot the first time
