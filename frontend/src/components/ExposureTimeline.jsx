@@ -179,11 +179,10 @@ export default function ExposureTimeline({ workspaceId }) {
           <button
             onClick={() => fetchPage(0, false)}
             disabled={loading}
-            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
-            title="Refresh exposure timeline"
-            aria-label="Refresh exposure timeline"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-40"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            <span>Reload</span>
           </button>
         </div>
       </div>

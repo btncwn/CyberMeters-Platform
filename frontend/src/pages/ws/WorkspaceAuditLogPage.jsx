@@ -182,11 +182,10 @@ export default function WorkspaceAuditLogPage() {
             <button
               onClick={() => load(offset)}
               disabled={loading}
-              className="btn-secondary p-2"
-              title="Refresh audit log"
-              aria-label="Refresh audit log"
+              className="btn-secondary text-sm"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              <span>Reload</span>
             </button>
           </div>
         </div>

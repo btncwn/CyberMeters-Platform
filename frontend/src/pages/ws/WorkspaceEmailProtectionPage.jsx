@@ -3779,8 +3779,10 @@ export default function WorkspaceEmailProtectionPage() {
             <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         )}
-        <button onClick={loadScans} className="btn-ghost text-sm" disabled={loading} title="Refresh scans" aria-label="Refresh scans">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        {/* Reloads what is already recorded; "Scan now" (top right) starts a scan. */}
+        <button type="button" onClick={loadScans} className="btn-ghost text-sm" disabled={loading}>
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+          <span>Reload results</span>
         </button>
     </>
   )
@@ -3791,6 +3793,7 @@ export default function WorkspaceEmailProtectionPage() {
         domainKey="email_protection"
         workspaceId={wsId}
         workspaceName={wsName}
+        scanDomain={selectedDomain}
         description={selectedDomain ? `Monitor DMARC alignment, sender authentication and report ingestion for ${selectedDomain}.` : 'Monitor DMARC alignment, sender authentication and report ingestion for your domains.'}
         actions={headerActions}
         nextAction={domainScans.length === 0 ? {
