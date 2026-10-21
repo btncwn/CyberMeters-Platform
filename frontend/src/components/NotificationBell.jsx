@@ -347,7 +347,9 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
                         )}
                         <div className="flex items-start justify-between gap-2">
                           <p className={`text-xs font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
-                            {n.title}
+                            {link
+                              ? <button type="button" onClick={(e) => { e.stopPropagation(); handleNotifClick() }} className="text-left hover:underline">{n.title}</button>
+                              : n.title}
                           </p>
                           <div className="flex items-center gap-1 shrink-0">
                             {link && (

@@ -157,7 +157,9 @@ function NotificationCard({ n, onMarkRead }) {
               <p className="text-xs text-gray-500 mb-0.5">{DOMAIN_KEY_LABELS[meta?.domain_key || meta?.domain]}</p>
             )}
             <p className={`text-sm font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
-              {n.title}
+              {link
+                ? <button type="button" onClick={(e) => { e.stopPropagation(); handleClick() }} className="text-left hover:underline">{n.title}</button>
+                : n.title}
             </p>
             {n.message && (
               <p className="text-sm text-gray-400 mt-0.5 leading-relaxed">{presentNotificationMessage(n.message)}</p>

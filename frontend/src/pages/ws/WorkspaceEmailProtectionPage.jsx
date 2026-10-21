@@ -684,7 +684,7 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
             {rows.map(r => (
               <tr key={r.domain} onClick={() => onSelect(r.domain)}
                 className={`cursor-pointer transition-colors ${r.domain === selectedDomain ? 'bg-brand-50/50' : 'hover:bg-gray-50/60'}`}>
-                <td><span className="font-semibold text-gray-800 text-sm">{r.domain}</span></td>
+                <td><button type="button" onClick={(e) => { e.stopPropagation(); onSelect(r.domain) }} aria-pressed={r.domain === selectedDomain} className="font-semibold text-gray-800 text-sm text-left hover:underline">{r.domain}</button></td>
                 <td><span className="text-xs font-semibold text-gray-700">{STAGE_LABEL[r.stage] || '—'}</span></td>
                 <td className="text-center">{compCell(r.compliance)}</td>
                 <td>{becCell(r.bec)}</td>
@@ -1040,7 +1040,7 @@ function SenderRow({ sender, onClassify, classifying }) {
   return (
     <>
       <tr onClick={() => setOpen(o => !o)} className="cursor-pointer hover:bg-gray-50/60 transition-colors">
-        <td><span className="mono text-xs font-semibold text-gray-800">{sender.source_ip}</span></td>
+        <td><button type="button" onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }} aria-expanded={open} className="mono text-xs font-semibold text-gray-800 text-left hover:underline">{sender.source_ip}</button></td>
         <td>
           <span className="text-sm text-gray-700 capitalize">{sender.provider_guess || 'unknown'}</span>
           {sender.provider_confidence && <span className="block text-xs text-gray-400">{sender.provider_confidence} confidence</span>}

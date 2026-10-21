@@ -699,6 +699,10 @@
 }
 .cm-area-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 15px; color: #111827; }
 .cm-area-search input::placeholder { color: #9ca3af; }
+/* The pill wrappers draw the keyboard focus ring: their inputs carry outline 0,
+   which (unlayered) beats the global :focus-visible rule. Same ring, keyboard only. */
+.cm-hero-input:has(input:focus-visible),
+.cm-area-search:has(input:focus-visible) { outline: 2px solid #117362; outline-offset: 2px; }
 .cm-tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(16, 24, 40, 0.1); overflow-x: auto; }
 .cm-tab {
   padding: 10px 14px; margin-bottom: -1px; font-size: 15px; font-weight: 600; color: #4b5563; white-space: nowrap;

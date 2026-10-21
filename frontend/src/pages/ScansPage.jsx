@@ -145,7 +145,7 @@ export default function ScansPage() {
                   <td>
                     <div className="flex items-center gap-2.5">
                       <div>
-                        <p className="font-semibold text-gray-900">{scan.domain}</p>
+                        <Link to={`/scans/${scan.id}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-gray-900 hover:underline">{scan.domain}</Link>
                         <InternalIdCopyButton id={scan.id} label="scan" />
                       </div>
                     </div>

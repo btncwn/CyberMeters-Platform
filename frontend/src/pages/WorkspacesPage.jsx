@@ -2,6 +2,7 @@ import { parseServerDate, formatDay } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { RefreshCw, X } from 'lucide-react'
+import { useDialog } from '../lib/useDialog'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -18,6 +19,7 @@ function formatDate(str) {
 // ── Create Workspace Modal ────────────────────────────────────────────────────
 
 function CreateWorkspaceModal({ onCreated, onClose }) {
+  const dialogRef = useDialog(onClose)
   const [name, setName]       = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState(null)
@@ -44,7 +46,7 @@ function CreateWorkspaceModal({ onCreated, onClose }) {
         className="absolute inset-0 bg-gray-900/40 backdrop-blur-xs"
         onClick={onClose}
       />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New workspace" tabIndex={-1} className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-gray-900">New Workspace</h2>
           <button
