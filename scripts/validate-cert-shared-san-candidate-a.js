@@ -629,8 +629,13 @@ const parity = states.map(parityOutputs);
 // security_domains alias of cyber_mot_domains (additive). F14 is unchanged.
 // origin/main with ONLY the wording applied gives 6be5c1e8…; this head with ONLY
 // the alias lines removed gives the same 6be5c1e8…, so wording + alias explain F13.
-const GOLDEN_F13 = "efcecdda0c6faba356ee985feb9e6b16f07774a01e71ee5cc98e174e80bb0f74";
-const GOLDEN_F14 = "69f17b6e1a0c9fd4cd95b0eda1559fa43d9f6e0617d5f3c335948291ac77369a";
+// Score methodology 2026-10-21.1 (21 Oct 2026): an admin name + title needs an
+// observed login form to be an "administrative interface". This certificate-only
+// fixture has no exposure asset, so only the stamped score methodology version
+// moves. With ONLY CYBER_METRICS_SCORE_METHODOLOGY_VERSION reverted to 2026-10-16.1
+// the previous hashes (efcecdda… / 69f17b6e…) reproduce exactly.
+const GOLDEN_F13 = "0b744ecb4d3446f957744ab498d0ee46ad61a9b3cf4f753cd111f7305b71a3a9";
+const GOLDEN_F14 = "8772c1dcccd5a42f14e7dd27ccb472b6d0dab51ff2e8847e66790e358f255518";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
