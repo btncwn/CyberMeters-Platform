@@ -13,14 +13,18 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import OwnerPicker from '../../components/OwnerPicker'
 import CaseGuidance from '../../components/CaseGuidance'
 import InternalIdCopyButton from '../../components/InternalIdCopyButton'
+import StatusChip from '../../components/StatusChip'
+import ScanNowButton from '../../components/ScanNowButton'
+import { caseStatus } from '../../lib/statusVocabulary'
 import {
-  phaseMeta, phaseClass, domainKeyLabel,
+  domainKeyLabel,
   ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL,
   caseDisplayTitle,
 } from '../../lib/caseDisplay'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 
-// domain_key → { service-colour key, bespoke domain workflow route }.
+// domain_key → { service-colour key, the area page that handles a case the
+// universal page cannot move (Brand Protection) }.
 const DOMAIN_META = {
   email_protection:               { svc: 'email',            route: '/ws/email-protection',        actionLabel: 'Email Protection workflow' },
   brand_protection:               { svc: 'brand',            route: '/ws/brand-monitoring',        actionLabel: 'Brand Monitoring workflow' },
@@ -82,9 +86,15 @@ function eventLabel(ev) {
       ? 'Reopened automatically after the condition was re-observed'
       : 'Manually reopened by a workspace member'
   }
-  if (a.startsWith('transition_')) return `Moved to ${a.replace('transition_', '').replace(/_/g, ' ')}`
-  if (a === 'status_changed') return `Status changed ${ev.from_status || '?'} → ${ev.to_status || '?'}`
-  return a.replace(/_/g, ' ') || 'Update'
+  if (a.startsWith('transition_')) return `Moved to ${sentence(a.replace('transition_', '')).toLowerCase()}`
+  if (a === 'status_changed') return `Status changed from ${sentence(ev.from_status || 'unknown').toLowerCase()} to ${sentence(ev.to_status || 'unknown').toLowerCase()}`
+  return a ? sentence(a) : 'Update'
+}
+
+// "monitoring_changed" → "Monitoring changed": an event key is never shown raw.
+function sentence(key) {
+  const words = String(key || '').replace(/[_.]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : ''
 }
 
 // ── Next action ─────────────────────────────────────────────────────────────
@@ -95,7 +105,7 @@ function eventLabel(ev) {
 // attestation opens an inline form that collects ONLY those fields (no native
 // prompt/confirm). Manual verification is recorded honestly as a customer
 // attestation, never as "Verified by CyberMeters".
-function NextActionSection({ wsId, caseId, transitions, onDone }) {
+function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRoute, domainLabel }) {
   const [selected, setSelected] = useState(null)   // the transition whose input form is open
   const [note, setNote] = useState('')
   const [expiry, setExpiry] = useState('')
@@ -116,7 +126,15 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
     if (busy) return
     setBusy(target); setActionError(null)
     try {
-      await api.transitionCase(wsId, caseId, payload)
+      // Attack Surface cases move through their own endpoint (domain side effects);
+      // the backend says which one each advertised move uses.
+      if (selected?.endpoint === 'attack_surface' || payload.endpoint === 'attack_surface') {
+        const { target_status: status, endpoint: _e, ...rest } = payload
+        await api.transitionManagedCase(wsId, caseId, { status, ...rest })
+      } else {
+        const { endpoint: _e, ...rest } = payload
+        await api.transitionCase(wsId, caseId, rest)
+      }
       setSelected(null); resetForm()
       onDone?.()
     } catch {
@@ -130,7 +148,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
     if (busy) return
     setActionError(null)
     if (needsForm(t)) { setSelected(t); resetForm() }
-    else run(t.target_status, { target_status: t.target_status })   // no input required → execute directly
+    else run(t.target_status, { target_status: t.target_status, endpoint: t.endpoint })   // no input required → execute directly
   }
 
   const noteOk        = !selected?.requires_note        || note.trim().length > 0
@@ -141,7 +159,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
 
   function submitForm() {
     if (!canSubmit) return
-    const payload = { target_status: selected.target_status }
+    const payload = { target_status: selected.target_status, endpoint: selected.endpoint }
     if (selected.requires_note)   payload.reason = note.trim()
     if (selected.requires_expiry) payload.risk_accepted_until = new Date(expiry).toISOString()
     if (selected.requires_attestation) {
@@ -164,18 +182,29 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
       </div>
 
       {transitions.length === 0 ? (
-        <p className="text-base text-slate-500">No further actions are available for this case in its current state.</p>
+        // Never "no further actions" on a case that still needs action: a closed
+        // case says it is closed; an open one says where it is handled.
+        ['rejected', 'false_positive', 'closed_no_action', 'superseded'].includes(phase) ? (
+          <p className="text-base text-slate-600">This case is closed. If the condition returns, it reopens here.</p>
+        ) : domainRoute ? (
+          <p className="text-base text-slate-600">This case is handled on the {domainLabel} page. <Link to={domainRoute} className="font-semibold text-brand-700 hover:text-brand-800">Open {domainLabel}</Link></p>
+        ) : (
+          <p className="text-base text-slate-600">CyberMeters is handling the next step for this case; it updates here when the evidence changes.</p>
+        )
       ) : !selected ? (
         <>
           <div className="flex flex-wrap gap-2">
-            {transitions.map((t) => (
+            {transitions.map((t, index) => (
               <button
                 key={t.target_status}
                 type="button"
                 onClick={() => onButtonClick(t)}
                 disabled={Boolean(busy)}
                 aria-busy={busy === t.target_status}
-                className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-primary={index === 0 ? 'true' : undefined}
+                className={index === 0
+                  ? 'btn-primary min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed'
+                  : 'inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed'}
               >
                 {busy === t.target_status ? 'Working…' : t.label}
               </button>
@@ -247,7 +276,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
               disabled={!canSubmit}
               className="inline-flex items-center rounded-lg bg-brand-200 px-4 min-h-[40px] text-sm font-semibold text-brand-900 hover:bg-brand-300 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {busy ? 'Working…' : 'Confirm'}
+              {busy ? 'Working…' : selected.label}
             </button>
             <button
               type="button"
@@ -291,7 +320,6 @@ export default function WorkspaceCaseDetailPage() {
 
   const c = data?.case
   const events = data?.events || []
-  const meta = c ? phaseMeta(c.canonical_phase, c.verification_support) : null
   const dmeta = c ? (DOMAIN_META[c.domain_key] || null) : null
   const svc = dmeta ? SERVICE_COLORS[dmeta.svc] : null
   const support = c ? (SUPPORT_EXPLAINER[c.verification_support] || SUPPORT_EXPLAINER.unsupported) : null
@@ -299,118 +327,95 @@ export default function WorkspaceCaseDetailPage() {
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading || wsLoading} error={error} onRetry={load}>
       {c && (
-        <div className="space-y-5">
-          <button onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+        <div className="space-y-5" data-testid="case-detail">
+          <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
             Back
           </button>
 
-          {/* ── Header ─────────────────────────────────────────────────── */}
+          {/* ── 1 · What it is + status (one badge, the list's vocabulary) ── */}
           <div className={CARD}>
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border mb-2"
+              style={svc ? { backgroundColor: svc.chip, color: svc.text, borderColor: svc.ring } : undefined}
+            >
+              {domainKeyLabel(c.domain_key)}
+            </span>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border mb-2"
-                  style={svc ? { backgroundColor: svc.chip, color: svc.text, borderColor: svc.ring } : undefined}
-                >
-                  {domainKeyLabel(c.domain_key)}
-                </span>
-                <h1 className="text-lg font-semibold text-slate-900 truncate">{c.display_title || caseDisplayTitle(c)}</h1>
-                {c.summary && <p className="text-sm text-slate-600 mt-1">{c.summary}</p>}
-              </div>
-              <span className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium whitespace-nowrap ${phaseClass(c.canonical_phase, c.verification_support)}`}>
-                {meta.label}
-              </span>
+              <h1 className="text-lg font-semibold text-slate-900 min-w-0 wrap-break-word">{c.display_title || caseDisplayTitle(c)}</h1>
+              <StatusChip status={caseStatus(c)} className="shrink-0" />
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs text-slate-500">
               <span>Severity: <span className="text-slate-700 capitalize">{c.severity || '—'}</span></span>
               <span>Opened: {fmt(c.created_at)}</span>
               <span>Updated: {fmt(c.updated_at)}</span>
-              <span className="font-mono text-slate-400">{c.case_id}</span>
             </div>
           </div>
 
-          {/* ── Observed evidence & affected resource ──────────────────── */}
+          {/* ── 2 · What we saw ───────────────────────────────────────────── */}
           <div className={CARD}>
-            <div className="flex items-center gap-2 mb-3">
-              <h2 className="text-sm font-semibold text-slate-800">Observed evidence</h2>
-            </div>
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <div>
-                <dt className="text-xs text-slate-400">Evidence source (finding)</dt>
-                <dd className="text-slate-700 font-mono text-xs mt-0.5 break-all">{c.source_finding_type || c.source_finding_id || '—'}</dd>
+            <h2 className="text-sm font-semibold text-slate-800 mb-2">What we saw</h2>
+            <p className="text-sm text-slate-700">
+              {c.summary || 'CyberMeters recorded this condition in a scan of your external posture.'}
+            </p>
+            <p className="text-sm text-slate-600 mt-2">
+              Affected: <span className="text-slate-800 break-all">{c.resource || c.asset_ref || c.domain || 'not recorded'}</span>
+            </p>
+            {c.traceability && (
+              <p className="text-sm text-slate-600 mt-2">
+                <span className="font-medium text-slate-700">{c.traceability.relationship_label}</span>{' · '}{c.traceability.customer_message}
+              </p>
+            )}
+            <details className="mt-3 text-sm" data-testid="case-evidence">
+              <summary className="cursor-pointer text-slate-600 hover:text-slate-800">Evidence</summary>
+              <div className="mt-2 space-y-1 text-slate-600">
+                <p>{c.source_scan_id ? <Link className="text-brand-700 hover:underline" to={`/scans/${encodeURIComponent(c.source_scan_id)}`}>Open the scan that observed this</Link> : 'The observing scan was not recorded.'}</p>
+                {!c.remediation_id && <p>No registered remediation is mapped for this finding, so none is invented here.</p>}
+                <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500">For support: <InternalIdCopyButton id={c.case_id} label="case" />{c.source_scan_id && <InternalIdCopyButton id={c.source_scan_id} label="scan" />}</p>
               </div>
-              <div>
-                <dt className="text-xs text-slate-400 flex items-center gap-1">Affected resource</dt>
-                <dd className="text-slate-700 mt-0.5 break-all">{c.resource || c.asset_ref || c.domain || <span className="text-slate-400">Not recorded</span>}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-400">Canonical remediation</dt>
-                <dd className="text-slate-700 font-mono text-xs mt-0.5 break-all">{c.remediation_id || '— (unmapped finding — no invented remediation)'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-400">Source scan</dt>
-                <dd className="text-slate-700 mt-0.5">
-                  {c.source_scan_id ? <><Link className="text-brand-700 hover:underline text-xs" to={`/scans/${encodeURIComponent(c.source_scan_id)}`}>View scan</Link>{' · '}<InternalIdCopyButton id={c.source_scan_id} label="scan" /></> : <span className="text-slate-400">Not recorded</span>}
-                </dd>
-              </div>
-              {/* Backend-owned provenance classification (ASM traceability). The
-                  relationship and its explanation arrive from the canonical
-                  classifier and are rendered verbatim — the frontend derives
-                  nothing (an observation is never promoted to a finding, and a
-                  historical case is never attributed to the current scan). */}
-              {c.traceability && (
-                <div className="sm:col-span-2">
-                  <dt className="text-xs text-slate-400">Relationship to the latest scan</dt>
-                  <dd className="text-slate-700 mt-0.5 font-medium">{c.traceability.relationship_label}</dd>
-                  <dd className="text-xs text-slate-500 mt-1">{c.traceability.customer_message}</dd>
-                </div>
-              )}
-            </dl>
+            </details>
           </div>
 
-          {/* ── What to do, how the fix is checked, last re-check, closure ─ */}
-          {/* Backend-owned (engines/case-guidance.js), rendered verbatim. */}
+          {/* ── 3 · What to do (backend guidance) + the one action ─────────── */}
           <CaseGuidance guidance={c.guidance} />
-
-          {c.verification_support === 'automated' && c.domain && (
-            <div className="flex flex-wrap items-center gap-3">
-              <Link className="rounded-lg bg-brand-200 px-4 py-2.5 text-sm font-semibold text-brand-900 hover:bg-brand-300"
-                    to={`/scans/new?domain=${encodeURIComponent(c.domain)}`}>
-                Recheck domain
-              </Link>
-              <p className="text-sm text-slate-600">Review and start a new scan. The case updates only when its evidence supports verification.</p>
-            </div>
+          {data?.can_manage && (
+            <NextActionSection
+              wsId={wsId}
+              caseId={c.case_id}
+              transitions={data?.available_transitions || []}
+              onDone={() => load()}
+              phase={c.canonical_phase}
+              domainRoute={dmeta?.route || null}
+              domainLabel={domainKeyLabel(c.domain_key)}
+            />
           )}
 
-          {/* ── Remediation state & verification honesty ───────────────── */}
-          <div className={CARD}>
-            <div className="flex items-center gap-2 mb-3">
-              <h2 className="text-sm font-semibold text-slate-800">Remediation &amp; verification</h2>
-            </div>
-            <p className="text-sm text-slate-600 mb-3">
-              Current state: <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${phaseClass(c.canonical_phase, c.verification_support)}`}>{meta.label}</span>
-            </p>
-            {support && (() => {
-              // The explainer describes HOW this case may be verified — it is not a
-              // claim that it already is. Green (reads as "settled") is reserved for a
-              // case that has ACTUALLY reached verified with automated support; every
-              // other state uses a neutral/informational tone so nothing looks settled
-              // before it is. (Founder honesty rule: tone must not over-claim.)
-              const settled = c.canonical_phase === 'verified' && c.verification_support === 'automated'
-              const tone = support.tone === 'green' && !settled ? 'slate' : support.tone
-              return (
-                <div className={`rounded-lg border px-3 py-2.5 text-xs flex gap-2 ${SUPPORT_TONE[tone]}`}>
-                  <span>{support.text}</span>
-                </div>
-              )
-            })()}
-            <p className="text-xs text-slate-400 mt-3">
-              A customer-declared completion is an assertion — it moves the case to “Awaiting verification”, never to a verified state.
-              Verification is decided by CyberMeters’ own observation (or, where noted, an independent third party).
-            </p>
-          </div>
+          {/* ── 4 · How the fix is checked (verification honesty) ──────────── */}
+          {support && (() => {
+            // Green (reads as "settled") only for a case that ACTUALLY reached
+            // verified with automated support; otherwise neutral (founder honesty rule).
+            const settled = c.canonical_phase === 'verified' && c.verification_support === 'automated'
+            const tone = support.tone === 'green' && !settled ? 'slate' : support.tone
+            return (
+              <div className={CARD}>
+                <h2 className="text-sm font-semibold text-slate-800 mb-2">How verification works</h2>
+                {settled && <p className="text-sm font-semibold text-brand-800 mb-2">Verified by CyberMeters</p>}
+                <div className={`rounded-lg border px-3 py-2.5 text-sm ${SUPPORT_TONE[tone]}`}>{support.text}</div>
+                {/* The re-check is this page's one action only when no customer move is
+                    left: CyberMeters verifies from its own observation, so a scan is
+                    what moves the case on. Never beside the transition buttons. */}
+                {c.verification_support === 'automated' && c.domain && !settled &&
+                  !['rejected', 'false_positive', 'closed_no_action', 'superseded'].includes(c.canonical_phase) &&
+                  (data?.available_transitions || []).length === 0 && (
+                  <div className="mt-3" data-testid="case-recheck"><ScanNowButton workspaceId={wsId} domain={c.domain} label="Run scan to re-check" align="start" /></div>
+                )}
+                <p className="text-xs text-slate-500 mt-2">
+                  Your completion is an assertion: it moves the case to awaiting verification, never to verified.
+                </p>
+              </div>
+            )
+          })()}
 
-          {/* ── Owner ──────────────────────────────────────────────────── */}
+          {/* ── 5 · Owner ─────────────────────────────────────────────────── */}
           <div className={CARD}>
             <OwnerPicker
               wsId={wsId}
@@ -421,84 +426,41 @@ export default function WorkspaceCaseDetailPage() {
             />
           </div>
 
-          {/* ── Next action — server-authoritative; managers only ──────── */}
-          {/* can_manage + available_transitions come from the backend (the
-              canonical machine). A viewer/analyst gets neither, so this section
-              does not render for them — they still see all state and history. */}
-          {data?.can_manage && (
-            <NextActionSection
-              wsId={wsId}
-              caseId={c.case_id}
-              transitions={data?.available_transitions || []}
-              onDone={() => load()}
-            />
-          )}
-
-          {/* ── Recurrence / reopen ────────────────────────────────────── */}
-          {/* Honest per-cause copy, derived from the persisted reopen events'
-              actor_type — a manual/customer reopen is NOT a re-observation, and
-              the re-observation counter describes only automatic recurrences. */}
+          {/* ── 6 · History (append-only), with the reopen record ─────────── */}
           <div className={CARD}>
-            <div className="flex items-center gap-2 mb-2">
-              <h2 className="text-sm font-semibold text-slate-800">Recurrence</h2>
-            </div>
+            <h2 className="text-sm font-semibold text-slate-800 mb-1">History</h2>
             {(() => {
+              // Honest per-cause copy from the persisted reopen events' actor_type:
+              // a manual reopen is NOT a re-observation.
               const reopens = events.filter(isReopenEvent)
               const autoCount = reopens.filter(isAutomaticReopen).length
               const manualCount = reopens.length - autoCount
-              if (reopens.length === 0 && !(c.reopened_count > 0)) {
-                return <p className="text-sm text-slate-500">Not reopened. If the condition returns after resolution, this case reopens rather than a duplicate being created.</p>
-              }
               const plural = (n) => (n === 1 ? '' : 's')
-              return (
-                <div className="text-sm text-slate-700 space-y-1">
-                  {autoCount > 0 && (
-                    <p className="font-medium">{`Automatically reopened ${autoCount} time${plural(autoCount)} after the condition was re-observed.`}</p>
-                  )}
-                  {manualCount > 0 && (
-                    <p className="font-medium">{`Manually reopened ${manualCount} time${plural(manualCount)} by a workspace member.`}</p>
-                  )}
-                  {/* Fallback: reopened_count records a reopen we have no event for — never attribute it to a re-observation. */}
-                  {reopens.length === 0 && c.reopened_count > 0 && (
-                    <p className="font-medium">{`This case has been reopened ${c.reopened_count} time${plural(c.reopened_count)}. See history below.`}</p>
-                  )}
-                  <p className="text-slate-500">Reopen history is preserved below.</p>
-                </div>
-              )
+              const lines = []
+              if (autoCount > 0) lines.push(`Automatically reopened ${autoCount} time${plural(autoCount)} after the condition was re-observed.`)
+              if (manualCount > 0) lines.push(`Manually reopened ${manualCount} time${plural(manualCount)} by a workspace member.`)
+              if (reopens.length === 0 && c.reopened_count > 0) lines.push(`This case has been reopened ${c.reopened_count} time${plural(c.reopened_count)}.`)
+              if (lines.length === 0) lines.push('Not reopened. If the condition returns after resolution, this case reopens rather than a duplicate being created.')
+              return lines.map((l) => <p key={l} className="text-xs text-slate-500">{l}</p>)
             })()}
-          </div>
-
-          {/* ── Append-only history ────────────────────────────────────── */}
-          <div className={CARD}>
-            <div className="flex items-center gap-2 mb-3">
-              <h2 className="text-sm font-semibold text-slate-800">History</h2>
-            </div>
             {events.length === 0 ? (
-              <p className="text-xs text-slate-400">No history recorded yet.</p>
+              <p className="text-xs text-slate-500 mt-3">No history recorded yet.</p>
             ) : (
-              <ol className="space-y-2.5">
+              <ol className="mt-3 divide-y divide-slate-100" data-testid="case-history">
                 {events.map((ev) => (
-                  <li key={ev.id} className="flex items-start gap-3 text-sm">
-                    <span className="text-xs text-slate-400 font-mono whitespace-nowrap mt-0.5 w-28 shrink-0">{fmt(ev.created_at)}</span>
-                    <span className="text-slate-700">
+                  // Time and event never overlap: stacked on a phone, a fixed
+                  // column from sm up.
+                  <li key={ev.id} className="py-2 grid grid-cols-1 sm:grid-cols-[10rem_1fr] gap-x-4 gap-y-0.5 text-sm">
+                    <time className="text-xs text-slate-500 tabular-nums sm:pt-0.5" dateTime={ev.created_at || undefined}>{fmt(ev.created_at)}</time>
+                    <span className="text-slate-700 min-w-0 wrap-break-word">
                       {eventLabel(ev)}
-                      <span className="text-slate-400 text-xs"> · {actorLabel(ev)}</span>
+                      <span className="text-slate-500 text-xs"> · {actorLabel(ev)}</span>
                     </span>
                   </li>
                 ))}
               </ol>
             )}
           </div>
-
-          {/* ── Link-out to domain-specific actions (coexist, never replace) ── */}
-          {dmeta && (
-            <div className={`${CARD} flex items-center justify-between gap-3`}>
-              <p className="text-sm text-slate-600">Domain-specific actions (evidence bundles, takedown, renewal and verification) live in the domain workflow.</p>
-              <Link to={dmeta.route} className="btn-secondary text-sm px-3 py-1.5 inline-flex items-center gap-1.5 whitespace-nowrap">
-                {dmeta.actionLabel}
-              </Link>
-            </div>
-          )}
         </div>
       )}
     </WsPage>

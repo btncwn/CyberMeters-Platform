@@ -169,8 +169,8 @@ const mutants = [
   {
     name: "frontend derives its own relationship label from the raw enum",
     target: T.detailPage,
-    anchor: '<dd className="text-slate-700 mt-0.5 font-medium">{c.traceability.relationship_label}</dd>',
-    replacement: "<dd className=\"text-slate-700 mt-0.5 font-medium\">{c.traceability.relationship === 'retained_historical' ? 'Resolved historically' : c.traceability.relationship_label}</dd>",
+    anchor: '<span className="font-medium text-slate-700">{c.traceability.relationship_label}</span>',
+    replacement: "<span className=\"font-medium text-slate-700\">{c.traceability.relationship === 'retained_historical' ? 'Resolved historically' : c.traceability.relationship_label}</span>",
     expectedFailures: [B13B],
   },
   {

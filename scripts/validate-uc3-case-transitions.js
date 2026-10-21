@@ -33,6 +33,7 @@ const imp = (f) => import(pathToFileURL(path.join(enginesDir, f)).href);
 
 const mcm = await imp("managed-case-model.js");
 const { availableTransitionsForCase, canTransitionCase, verificationSupportForCase, BASE_CASE_MACHINE } = mcm;
+const caseTypeEntryForTest = (t) => mcm.CASE_TYPE_REGISTRY[t];
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -100,7 +101,25 @@ const autoAttempt = canTransitionCase({ case: autoCase, target_status: "verified
 ok("canTransitionCase REFUSES a customer verifying an automated case", autoAttempt.ok === false);
 
 // ── 5. ASM/Brand expose no generic transitions here (bespoke, untouched) ───────
-ok("ASM case exposes no generic transitions", availableTransitionsForCase({ case_type: "asm_exposure", status: "open" }).length === 0);
+// Attack Surface cases advertise their OWN machine's customer moves, flagged for
+// the Attack Surface endpoint (the generic route still refuses them, below).
+{
+  const open = availableTransitionsForCase({ case_type: "asm_exposure", status: "open" });
+  ok("ASM open case advertises only Begin triage, for the Attack Surface endpoint",
+     open.length === 1 && open[0].target_status === "triage" && open[0].endpoint === "attack_surface");
+  const triage = availableTransitionsForCase({ case_type: "asm_exposure", status: "triage" }).map((t) => t.target_status);
+  ok("ASM triage case can be marked false positive (reason required)",
+     triage.includes("false_positive") &&
+     availableTransitionsForCase({ case_type: "asm_exposure", status: "triage" }).find((t) => t.target_status === "false_positive").requires_note === true);
+  ok("ASM never advertises a system-only state to a customer",
+     ["open", "triage", "owner_assigned", "remediation_in_progress", "verification_requested", "verifying", "resolved", "verification_failed", "reopened"]
+       .flatMap((status) => availableTransitionsForCase({ case_type: "asm_exposure", status, owner_ref: "x" }))
+       .every((t) => !["verifying", "resolved", "verification_failed", "reopened"].includes(t.target_status)));
+  ok("every advertised ASM move is a real edge of the ASM machine",
+     ["open", "triage", "owner_assigned", "remediation_in_progress"].every((status) =>
+       availableTransitionsForCase({ case_type: "asm_exposure", status, owner_ref: "x" })
+         .every((t) => caseTypeEntryForTest("asm_exposure").machine.transitions[status].includes(t.target_status))));
+}
 ok("Brand case exposes no generic transitions", availableTransitionsForCase({ case_type: "brand_abuse", status: "detected" }).length === 0);
 
 // ── 6. Terminal states expose nothing ─────────────────────────────────────────
