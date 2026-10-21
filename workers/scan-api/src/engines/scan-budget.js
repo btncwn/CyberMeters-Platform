@@ -24,9 +24,16 @@ function clampInt(value, dflt, min, max) {
 // Resolve the effective capacity config from env. Default mode is "legacy" so the
 // first production deploy does NOT switch scans globally to reserved — that only
 // happens once the env flag is flipped after live acceptance.
+// The authenticated Workers Paid provider ceiling (wrangler.toml [limits]),
+// the physical bound on outbound calls per invocation. SCAN_SUBREQUEST_LIMIT is
+// the application's admission/report figure, not a physical counter.
+export const PLATFORM_SUBREQUEST_CEILING = 10_000;
+
 export function resolveScanCapacity(env = {}) {
   return {
     limit:                clampInt(env.SCAN_SUBREQUEST_LIMIT, CAPACITY_DEFAULTS.limit, 1, 10_000),
+    // Overridable only downwards, for fixtures that need a small ceiling.
+    platformCeiling:      clampInt(env.SCAN_PLATFORM_SUBREQUEST_CEILING, PLATFORM_SUBREQUEST_CEILING, 1, PLATFORM_SUBREQUEST_CEILING),
     mode:                 env.SCAN_CAPACITY_MODE === "reserved" ? "reserved" : "legacy",
     safetyMargin:         CAPACITY_DEFAULTS.safetyMargin,
     perHostCost:          CAPACITY_DEFAULTS.perHostCost,

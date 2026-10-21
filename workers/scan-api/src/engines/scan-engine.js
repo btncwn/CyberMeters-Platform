@@ -1900,9 +1900,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         .subrequest_capacity_accounting_complete) {
         externalGateReason = "outbound_accounting_incomplete";
       } else {
+        // Physical headroom: every outbound call so far is counted, so the
+        // optional phase is measured against the provider ceiling. The
+        // application figure (SCAN_SUBREQUEST_LIMIT) is below what a real
+        // scan already issues (~700), so measuring against it refused the
+        // phase on every real domain (21 Oct 2026, scan_b384ffeb).
         externalCapacityRemaining = Math.max(
           0,
-          capacity.limit - capacity.safetyMargin
+          capacity.platformCeiling - capacity.safetyMargin
             - externalAccountingSnapshot.outbound_attempts_observed,
         );
         if (externalCapacityRemaining < DMARCBIS_EXTERNAL_HOST_RESERVATION) {
