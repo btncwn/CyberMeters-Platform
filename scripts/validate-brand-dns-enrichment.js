@@ -10,6 +10,7 @@
 //
 // Node 24+.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -174,6 +175,70 @@ function rowOf(db, ws, cand) {
   const res = await runBrandDnsEnrichmentSweep(env, { workspacesPerTick: 10, batchSize: 10, dnsQuery: mockDns({}), fireEvents: false });
   eq("sweep selects only the pending workspace", res.workspaces, 1);
   ok("pending candidate now checked", rowOf(db, "wsPending", "p.com").dns_resolves === 1);
+}
+
+// ── 7b. Weekly recheck reaches fully-checked workspaces (21 Oct 2026) ────────
+// The sweep used to select only workspaces with UNCHECKED candidates, so once
+// every candidate had been checked once a workspace was never visited again and
+// a lookalike registered later was never re-detected. In production every
+// candidate's last check was months old.
+{
+  const db = buildDb();
+  const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const fresh = new Date().toISOString();
+  seedCandidate(db, "wsStale", "registered-later.com", { dns: 0, lastChecked: old });
+  seedCandidate(db, "wsFresh", "f.com", { dns: 0, lastChecked: fresh });
+  const env = { cybermeters_db: makeD1(db) };
+  const res = await runBrandDnsEnrichmentSweep(env, { workspacesPerTick: 10, batchSize: 10,
+    dnsQuery: mockDns({ "registered-later.com": "resolves" }), fireEvents: false });
+  eq("sweep visits the fully-checked workspace whose candidate is stale", res.workspaces, 1);
+  ok("a candidate that was NXDOMAIN and is now registered is re-detected",
+    rowOf(db, "wsStale", "registered-later.com").dns_resolves === 1, JSON.stringify(rowOf(db, "wsStale", "registered-later.com")));
+  ok("a freshly checked workspace is not re-probed", rowOf(db, "wsFresh", "f.com").last_checked_at === fresh);
+}
+{
+  // Fairness: unchecked work first, then the longest-waiting workspace; a large
+  // stale backlog cannot keep a smaller, older one out of the tick.
+  const db = buildDb();
+  const days = (n) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+  for (let i = 0; i < 30; i++) seedCandidate(db, "wsBig", `big${i}.com`, { dns: 0, lastChecked: days(10) });
+  seedCandidate(db, "wsOld", "old.com", { dns: 0, lastChecked: days(40) });
+  seedCandidate(db, "wsNew", "new.com");
+  const env = { cybermeters_db: makeD1(db) };
+  const picked = [];
+  const original = env.cybermeters_db.prepare.bind(env.cybermeters_db);
+  env.cybermeters_db.prepare = (sql) => {
+    const stmt = original(sql);
+    if (/GROUP BY a.workspace_id/.test(sql)) {
+      const bind = stmt.bind;
+      stmt.bind = (...args) => { const b = bind(...args); const all = b.all; b.all = async () => { const r = await all(); picked.push(...r.results.map((x) => x.workspace_id)); return r; }; return b; };
+    }
+    return stmt;
+  };
+  await runBrandDnsEnrichmentSweep(env, { workspacesPerTick: 2, batchSize: 10, dnsQuery: mockDns({}), fireEvents: false });
+  eq("unchecked work is visited first", picked[0], "wsNew");
+  eq("then the longest-waiting workspace, not the largest backlog", picked[1], "wsOld");
+}
+
+{
+  // Mutant: put back the unchecked-only workspace selection; the stale
+  // workspace must then be skipped, proving the fixture above is load-bearing.
+  const file = path.join(root, "workers", "scan-api", "src", "engines", "brand-dns-enrichment.js");
+  const source = fs.readFileSync(file, "utf8");
+  const before = "WHERE (a.dns_resolves IS NULL OR a.last_checked_at IS NULL OR a.last_checked_at < ?)";
+  ok("mutant anchor present exactly once", source.split(before).length === 2);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "brand-dns-mutant-"));
+  try {
+    const mutated = source.replace(before, "WHERE (a.dns_resolves IS NULL OR ? IS NULL)")
+      .replace(/from "(\.\.?\/[^"]+)"/g, (_, rel) => `from ${JSON.stringify(pathToFileURL(path.resolve(path.dirname(file), rel)).href)}`);
+    fs.writeFileSync(path.join(dir, "m.mjs"), mutated);
+    const mutant = await import(pathToFileURL(path.join(dir, "m.mjs")).href);
+    const db = buildDb();
+    seedCandidate(db, "wsStale", "registered-later.com", { dns: 0, lastChecked: new Date(Date.now() - 30 * 86400000).toISOString() });
+    const res = await mutant.runBrandDnsEnrichmentSweep({ cybermeters_db: makeD1(db) },
+      { workspacesPerTick: 10, batchSize: 10, dnsQuery: mockDns({}), fireEvents: false });
+    eq("MUTANT unchecked-only selection skips the stale workspace (caught)", res.workspaces, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
 // ── 8. Summary invariant + unchecked ≠ inactive (break-list) ─────────────────
