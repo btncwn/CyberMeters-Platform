@@ -9,12 +9,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerRoot = path.join(root, "workers", "scan-api", "src");
 const { runScanEngine } = await import(pathToFileURL(path.join(workerRoot, "engines", "scan-engine.js")).href);
+const { enrichBrandCandidatesDns } = await import(pathToFileURL(path.join(workerRoot, "engines", "brand-dns-enrichment.js")).href);
 const worker = await import(pathToFileURL(path.join(workerRoot, "index.js")).href);
 
 const NOW = "2026-07-28T09:00:00.000Z";
 const PARTIAL_NOW = new Date(Date.parse(NOW) + 60 * 60 * 1000).toISOString();
 const registrationFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/dns-service-registrations.json"), "utf8"));
-const EXPECTED_ASSERTIONS = 26;
+const watchlistFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/brand-watchlist-dns.json"), "utf8"));
+const EXPECTED_ASSERTIONS = 28;
 let passed = 0;
 let failed = 0;
 const check = (name, condition, detail = "") => {
@@ -167,6 +169,16 @@ try {
   db.prepare("INSERT INTO workspace_members (id,workspace_id,user_id,role) VALUES ('member','ws','user','admin')").run();
   db.prepare("INSERT INTO domains (id,user_id,domain) VALUES ('dom','user','example.com')").run();
   db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id,verification_status) VALUES ('ws','dom','verified')").run();
+  const watched = watchlistFixture.candidates[0];
+  db.prepare(`INSERT INTO workspace_brand_assets
+    (id,workspace_id,domain,candidate_domain,variant_type,similarity_score,risk_level,status,classification,
+     first_seen,last_seen,created_at,updated_at)
+    VALUES ('watchlist-proof','ws','example.com',?,'omission',80,'low','unverified','unreviewed',?,?,?,?)`)
+    .run(watched.name, NOW, NOW, NOW, NOW);
+  const watchlistEnrichment = await enrichBrandCandidatesDns(env, "ws", {
+    now: NOW, fireEvents: false,
+    dnsQuery: async (name, type) => name === watched.name ? structuredClone(watched[type]) : { Status: 3, Answer: [] },
+  });
   db.prepare(`
     INSERT INTO subscriptions (id,owner_user_id,plan,subscription_status,current_period_end,created_at)
     VALUES ('sub','user','starter','active','2099-12-31T23:59:59.000Z','2026-07-28T00:00:00.000Z')
@@ -223,10 +235,20 @@ try {
     && registrationFact?.finding_type === "observation" && registrationFact?.score_impact === 0
     && registrationProjection?.domain_keys?.join() === "shadow_it_unmanaged_technology"
     && registrationProjection?.remediation_id === "shadow_it.dns_registration.review");
+  const watchlistFact = registrationReport?.findings?.find((row) => row.id === "brand_watchlist_dns_observation");
+  const watchlistProjection = registrationSnapshot?.observations?.find((row) => row.finding_id === "brand_watchlist_dns_observation");
+  check("C21 real watchlist enrichment -> normal scan -> report -> Brand Protection snapshot",
+    watchlistEnrichment.checked === 1 && watchlistFact?.evidence?.length === 2
+    && watchlistFact.finding_type === "observation" && watchlistFact.score_impact === 0
+    && watchlistProjection?.domain_keys?.join() === "brand_protection"
+    && watchlistProjection.remediation_id === "brand.watchlist_dns.review");
   db.prepare("UPDATE workspace_domains SET verification_status='pending' WHERE workspace_id='ws' AND domain_id='dom'").run();
 
   providerMode = "partial";
   const partialError = await run("scan-partial", PARTIAL_NOW, Date.parse(PARTIAL_NOW));
+  const partialWatchlistReport = storedFor("scan-partial").find((value) => value.scan_id === "scan-partial" && value.modules);
+  check("C21 real unverified scan cannot publish retained watchlist DNS receipts",
+    !!partialWatchlistReport && !partialWatchlistReport.findings?.some((row) => row.id === "brand_watchlist_dns_observation"));
   eq("real partial engine trace does not throw", partialError, null);
   const partialScan = db.prepare("SELECT status,scan_quality FROM scans WHERE id='scan-partial'").get();
   eq("real second scan terminal completed", partialScan.status, "completed");

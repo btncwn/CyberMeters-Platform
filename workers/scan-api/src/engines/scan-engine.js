@@ -6,6 +6,7 @@
 // decomposition, Phase 1c). buildCanonicalUrlProfile is a nested function inside runScanEngine.
 import { customerSafeFailure } from "../lib/errors.js";
 import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
+import { brandWatchlistDnsObservations } from "./brand-dns-enrichment.js";
 import { createAuditEvent, createNotificationsForDomain, scanCompletionAuditStatement } from "../lib/events.js";
 import { json, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
@@ -2526,6 +2527,9 @@ function buildCanonicalUrlProfile(modules) {
     modules.vendor_risk = detectVendorsFromModules(modules);
     const registrationScopeVerified = await isWorkspaceDomainVerified(env, workspaceId, domainId);
     findings.push(...dnsServiceRegistrationObservations(modules, {
+      domain, checkedAt: startedAt, verified: registrationScopeVerified,
+    }));
+    findings.push(...brandWatchlistDnsObservations(modules.brand_monitoring, {
       domain, checkedAt: startedAt, verified: registrationScopeVerified,
     }));
 

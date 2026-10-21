@@ -103,6 +103,7 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   // Verified-domain TXT service registration is observation-only; registry
   // guidance is available without admitting a scored remediation action.
   "shadow_it_dns_registration",
+  "brand_watchlist_dns_observation",
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
@@ -141,14 +142,14 @@ ok("all other remediation identities remain version 1",
 // sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure);
 // the home-page availability observations add two (web.homepage.not_served / unavailable),
 // and the qualified DNS registration observation adds one review entry.
-ok("registry has exactly 110 entries including DNS registration guidance", REMEDIATION_REGISTRY.length === 110);
+ok("registry has exactly 111 entries including watchlist DNS guidance", REMEDIATION_REGISTRY.length === 111);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including DNS registration guidance is exact", remediationRegistryFingerprint() === "r110-f8e28c62", remediationRegistryFingerprint());
+ok("registry fingerprint including watchlist DNS guidance is exact", remediationRegistryFingerprint() === "r111-5205ce96", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
@@ -172,7 +173,7 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
-  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js", "tls-findings.js", "vendor-signatures.js",
+  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js", "tls-findings.js", "vendor-signatures.js", "brand-dns-enrichment.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).

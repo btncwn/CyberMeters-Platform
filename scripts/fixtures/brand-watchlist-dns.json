@@ -1,0 +1,42 @@
+{
+  "protected_domain": "example.com",
+  "checked_at": "2026-07-28T09:00:00.000Z",
+  "candidates": [
+    {
+      "name": "example-mail.net",
+      "A": {"Status": 0, "Answer": [{"type": 1, "data": "203.0.113.9"}]},
+      "MX": {"Status": 0, "Answer": [{"type": 15, "data": "10 mx.example-mail.net."}]},
+      "resolves": true, "mx_present": true, "null_mx": false
+    },
+    {
+      "name": "example-null-mx.net",
+      "A": {"Status": 0, "Answer": [{"type": 1, "data": "203.0.113.10"}]},
+      "MX": {"Status": 0, "Answer": [{"type": 15, "data": "0 ."}]},
+      "resolves": true, "mx_present": false, "null_mx": true
+    },
+    {
+      "name": "example-v6.net",
+      "A": {"Status": 0, "Answer": []},
+      "AAAA": {"Status": 0, "Answer": [{"type": 28, "data": "2001:db8::1"}]},
+      "MX": {"Status": 0, "Answer": []},
+      "resolves": true, "mx_present": false, "null_mx": false
+    },
+    {
+      "name": "example-dns-failure.net",
+      "A": {"Status": 2, "Answer": [{"type": 1, "data": "203.0.113.11"}]},
+      "unavailable": true
+    },
+    {
+      "name": "example-mail-failure.net",
+      "A": {"Status": 0, "Answer": [{"type": 1, "data": "203.0.113.12"}]},
+      "MX": {"Status": 2, "Answer": []},
+      "unavailable": true
+    },
+    {
+      "name": "example-bad-mx.net",
+      "A": {"Status": 0, "Answer": [{"type": 1, "data": "203.0.113.13"}]},
+      "MX": {"Status": 0, "Answer": [{"type": 15, "data": "0 ."}, {"type": 15, "data": "10 mx.example-bad-mx.net."}]},
+      "unavailable": true
+    }
+  ]
+}

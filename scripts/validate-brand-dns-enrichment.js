@@ -26,6 +26,7 @@ const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JS
 const {
   probeCandidateDns, outcomeToPersistence, selectBrandCandidatesSql,
   enrichBrandCandidatesDns, runBrandDnsEnrichmentSweep,
+  probeWatchlistDns, readWatchlistDnsReceipts, brandWatchlistDnsObservations,
 } = await import(eng("brand-dns-enrichment.js"));
 const { buildBrandProtectionSummary, brandCandidateToApi } = await import(eng("brand-protection.js"));
 const { runTyposquatModule } = await import(eng("brand-typosquat.js"));
@@ -292,6 +293,54 @@ function rowOf(db, ws, cand) {
   const sched = fs.readFileSync(srcPath("cron", "scheduled.js"), "utf8");
   ok("cron dispatches the brand DNS enrichment sweep (break-list: removing auto trigger)",
     /tasks\.runBrandDnsEnrichmentSweep\(env\)/.test(sched));
+}
+
+// ── C-21: verified watchlist A/AAAA/MX receipts, no delivery/abuse inference ──
+{
+  const fixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/brand-watchlist-dns.json"), "utf8"));
+  const byName = new Map(fixture.candidates.map((item) => [item.name, item]));
+  const requests = [];
+  const dns = async (name, type) => {
+    requests.push({ name, type });
+    const value = byName.get(name)?.[type];
+    if (!value) throw new Error("unexpected fixture question");
+    return structuredClone(value);
+  };
+  for (const item of fixture.candidates) {
+    const result = await probeWatchlistDns(item.name, dns);
+    ok(`C21 measured ${item.name}`, item.unavailable ? result === null
+      : result?.resolves === item.resolves && result.mx_present === item.mx_present && result.null_mx === item.null_mx);
+  }
+  const db = buildDb();
+  for (const item of fixture.candidates) seedCandidate(db, "wsC21", item.name);
+  db.prepare("UPDATE domains SET domain=? WHERE id='dom_wsC21'").run(fixture.protected_domain);
+  db.prepare("UPDATE workspace_brand_assets SET domain=? WHERE workspace_id='wsC21'").run(fixture.protected_domain);
+  db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='wsC21'").run();
+  requests.length = 0;
+  const stats = await enrichBrandCandidatesDns({ cybermeters_db: makeD1(db) }, "wsC21", {
+    dnsQuery: dns, now: fixture.checked_at, fireEvents: false,
+  });
+  eq("C21 only complete DNS receipts advance the watchlist", stats.checked, 3);
+  ok("C21 failed DNS never becomes a definitive state", fixture.candidates.filter((item) => item.unavailable)
+    .every((item) => rowOf(db, "wsC21", item.name).dns_resolves === null));
+  ok("C21 requests stay within existing candidate cap and three DNS questions each",
+    stats.selected === 6 && requests.length <= 3 * stats.selected && requests.every((q) => byName.has(q.name)));
+  const rows = db.prepare("SELECT * FROM workspace_brand_assets WHERE workspace_id='wsC21' ORDER BY candidate_domain").all();
+  const receipts = readWatchlistDnsReceipts(rows);
+  const facts = brandWatchlistDnsObservations({ watchlist_dns: receipts }, {
+    domain: fixture.protected_domain, verified: true, checkedAt: fixture.checked_at,
+  });
+  ok("C21 measured DNS becomes one non-scored observation", facts.length === 1
+    && facts[0].finding_type === "observation" && facts[0].score_impact === 0 && facts[0].evidence.length === 4);
+  ok("C21 Null MX never claims mail capability", facts[0]?.evidence.filter((e) => /receive mail/.test(e.value))
+    .every((e) => e.label === "example-mail.net"));
+  const queryCounts = [];
+  seedCandidate(db, "wsC21Unverified", "unchecked.example");
+  await enrichBrandCandidatesDns({ cybermeters_db: makeD1(db) }, "wsC21Unverified", {
+    dnsQuery: async (_name, type) => { queryCounts.push(type); return { Status: 0, Answer: [{ type: 1, data: "203.0.113.20" }] }; },
+  });
+  eq("C21 unverified parent gains no new mail or IPv6 probing", queryCounts, ["A"]);
+  db.close();
 }
 
 console.log(`\nvalidate-brand-dns-enrichment: ${pass} passed, ${fail} failed`);

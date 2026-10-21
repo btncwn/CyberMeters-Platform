@@ -33,6 +33,8 @@
 //   • An open confirmed-abuse case is a finding regardless of the candidate's
 //     current DNS state: the case is the customer's confirmed record.
 
+import { readWatchlistDnsReceipts } from "./brand-dns-enrichment.js";
+
 // Classifications the customer has closed — never a finding, never probed.
 // Mirrors CLOSED_CLASSIFICATIONS in brand-dns-enrichment.js.
 export const BRAND_CLOSED_CLASSIFICATIONS = Object.freeze(["owned", "ignored", "false_positive"]);
@@ -166,6 +168,7 @@ export function deriveBrandValidation(brandModule, {
   return {
     ...brandModule,
     domains: [...merged, ...orphanCases],
+    watchlist_dns: readWatchlistDnsReceipts(assetRows),
     candidates_validated: checked > 0 || openAbuseCandidates.length > 0,
     validation: {
       schema_version: BRAND_VALIDATION_SCHEMA_VERSION,
@@ -209,7 +212,7 @@ export const BRAND_VALIDATION_ASSET_ROW_LIMIT = 500;
 export const BRAND_VALIDATION_CASE_ROW_LIMIT = 200;
 
 export function selectBrandValidationAssetsSql() {
-  return `SELECT a.candidate_domain, a.dns_resolves, a.https_available, a.classification,
+  return `SELECT a.candidate_domain, a.domain, a.evidence_json, a.dns_resolves, a.https_available, a.classification,
                  a.risk_level, a.status, a.last_checked_at
             FROM workspace_brand_assets a
            WHERE a.workspace_id = ? AND lower(a.domain) = lower(?)

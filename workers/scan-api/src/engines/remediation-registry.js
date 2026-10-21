@@ -519,6 +519,18 @@ export const REMEDIATION_REGISTRY = Object.freeze([
 
   // ─────────────────────────── BRAND PROTECTION ──────────────────────────────
   entry({
+    remediation_id: "brand.watchlist_dns.review",
+    domain_key: "brand_protection",
+    finding_types: ["brand_watchlist_dns_observation"],
+    customer_title: "Review the observed lookalike DNS records",
+    technical_explanation: "A name already on your watchlist published address or explicit mail-routing records. DNS does not establish phishing, abuse or successful mail delivery.",
+    business_impact: "A live lookalike may warrant review, but its operator and purpose have not been established by these DNS observations.",
+    recommended_action: "Compare the observed names with your legitimate domains. Review the evidence with the brand owner before deciding whether any further action is needed.",
+    effort: "low", owner_type: "customer", verification_method: "manual_attestation",
+    verification_evidence_requirements: "The domain owner reviews the observed DNS records; a review does not verify abuse or delivery.",
+    supporting_evidence_types: ["dns_lookup"], managed_workflow_compatible: false,
+  }),
+  entry({
     remediation_id: "brand.lookalike.review",
     domain_key: "brand_protection",
     finding_types: ["brand_lookalike_detected", "brand_homoglyph_detected", "brand_typosquat_detected"],

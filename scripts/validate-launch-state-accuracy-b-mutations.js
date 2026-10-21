@@ -341,6 +341,52 @@ const cases = [
     to: "",
     failure: "CM-P1-013 missing HSTS with an observed redirect deducts 10 from Website Trust",
   },
+  {
+    name: "C21 verified scan scope bypassed",
+    file: "workers/scan-api/src/engines/brand-dns-enrichment.js",
+    from: '  if (verified !== true || brandModule?.error || brandModule?.validation?.state === "unavailable"',
+    to: '  if (false || brandModule?.error || brandModule?.validation?.state === "unavailable"',
+    failure: "C21 unverified scope publishes no DNS observations",
+  },
+  {
+    name: "C21 MX resolver failure treated as absence",
+    file: "workers/scan-api/src/engines/brand-dns-enrichment.js",
+    from: '    if (![0, 3].includes(mx?.Status)) return null;', to: '',
+    failure: "C21 DNS failures stay unavailable",
+  },
+  {
+    name: "C21 Null MX treated as mail capability",
+    file: "workers/scan-api/src/engines/brand-dns-enrichment.js",
+    from: '      if (parts[1] === "0" && parts[2] === ".") { nullMx = true; continue; }',
+    to: '      if (parts[1] === "0" && parts[2] === ".") { present = true; continue; }',
+    failure: "C21 Null MX is never mail capability",
+  },
+  {
+    name: "C21 expired DNS receipts treated as current",
+    file: "workers/scan-api/src/engines/brand-dns-enrichment.js",
+    from: '|| at - observed > BRAND_DNS_RECHECK_AFTER_MS', to: '|| false',
+    failure: "C21 stale DNS receipts cannot become current facts",
+  },
+  {
+    name: "C21 foreign protected domain admitted",
+    file: "workers/scan-api/src/engines/brand-dns-enrichment.js",
+    from: 'receipt.protected_domain !== scope ||', to: '',
+    failure: "C21 foreign scope publishes no DNS observations",
+  },
+  {
+    name: "C21 observation becomes an actionable finding",
+    file: "workers/scan-api/src/engines/brand-dns-enrichment.js",
+    from: 'title: "Live lookalike DNS observations", finding_type: "observation", severity: "info", score_impact: 0,',
+    to: 'title: "Live lookalike DNS observations", finding_type: "finding", severity: "info", score_impact: 0,',
+    failure: "C21 DNS observations are qualified and non-scored",
+  },
+  {
+    name: "C21 observation output cap removed",
+    file: "workers/scan-api/src/engines/brand-dns-enrichment.js",
+    from: 'for (const receipt of brandModule.watchlist_dns.slice(0, 20))',
+    to: 'for (const receipt of brandModule.watchlist_dns)',
+    failure: "C21 report observations stay bounded",
+  },
 ];
 
 function run() {
