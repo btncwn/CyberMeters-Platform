@@ -167,6 +167,50 @@ export function exposureIncompleteReason(state,coverage,plannedChecks) {
   return null;
 }
 
+// A host whose content checks drew an origin answer over HTTPS has an
+// observed HTTPS service, whatever the status (challenge, 4xx, soft 404).
+function observedHttpsHostsFrom(results,hosts) {
+  return [...new Set((Array.isArray(results)?results:[]).filter(row=>
+    row?.comparable===true||['soft_404_or_common_response','authentication_rate_limit_or_challenge',
+      'server_or_redirect_failure'].includes(row?.reason)).map(row=>{
+    try{const url=new URL(row.url);return url.protocol==='https:'?url.hostname:null;}catch{return null;}
+  }).filter(host=>host&&hosts.includes(host)))];
+}
+
+// The largest TLS plan that still fits this job's limits beside its HTTP checks.
+function sizeTlsPlan(plan,tlsArgs,referenceAllowance=[]) {
+  let low=0,high=512,tlsPlan=buildBudgetedTlsCheckPlan({...tlsArgs,maxChecks:0});
+  while(low<high){
+    const mid=Math.ceil((low+high)/2);
+    const candidate=buildBudgetedTlsCheckPlan({...tlsArgs,maxChecks:mid});
+    if(fitsExposureJobLimits({...plan,checks:[...plan.checks,...referenceAllowance],tls:candidate})){
+      low=mid;tlsPlan=candidate;
+    }else high=mid-1;
+  }
+  return tlsPlan;
+}
+
+// First scan of a domain (21 Oct 2026): the TLS plan is built when the job is
+// created, from the PREVIOUS job's observations, so a domain with no previous
+// job deferred every host as https_service_not_observed and TLS ended partial
+// for every new customer. Once this job's own content checks have run, re-plan
+// that deferred part once from this job's results. Nothing selected earlier is
+// changed; only hosts deferred for lack of an HTTPS observation are reconsidered.
+export function replanTlsFromOwnResults(plan,results) {
+  const tls=plan?.tls;
+  if(!tls||tls.replanned_from_job||(tls.cursor||0)>0||(tls.selected||[]).length>0)return false;
+  const deferred=(tls.deferred_hosts||[]).filter(h=>h?.reason==='https_service_not_observed');
+  if(!deferred.length)return false;
+  const observed=observedHttpsHostsFrom(results,plan.hosts||[]);
+  if(!observed.some(host=>deferred.some(d=>d.hostname===host)))return false;
+  const sized=sizeTlsPlan(plan,{endpoints:tls.endpoints||[],cipherCatalog:TLS_CIPHER_CATALOG,
+    previousFindings:[],observedHttpsHosts:observed,scanId:tls.scan_id||''});
+  const kept=(tls.deferred_hosts||[]).filter(h=>h?.reason!=='https_service_not_observed');
+  plan.tls={...tls,...sized,deferred_hosts:[...sized.deferred_hosts,...kept],
+    replanned_from_job:true,cursor:0,results:[],state:'pending'};
+  return true;
+}
+
 async function createJob(env, scan, now, dispatch) {
   const db=env.cybermeters_db;
   // The asset's LATEST lifecycle observation (unique per asset+scan) carries the
@@ -231,11 +275,7 @@ async function createJob(env, scan, now, dispatch) {
   }
   if(env.TLS_ASSESSMENT_MODE==='evidence-v1'){
     const endpoints=await loadTlsEndpoints(env,scan);
-    const observedHttpsHosts=[...new Set(json(previous?.results_json,[]).filter(row=>
-      row.comparable===true||['soft_404_or_common_response','authentication_rate_limit_or_challenge',
-        'server_or_redirect_failure'].includes(row.reason)).map(row=>{
-      try{const url=new URL(row.url);return url.protocol==='https:'?url.hostname:null;}catch{return null;}
-    }).filter(host=>host&&hosts.includes(host)))];
+    const observedHttpsHosts=observedHttpsHostsFrom(json(previous?.results_json,[]),hosts);
     const tlsArgs={endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
       previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),observedHttpsHosts,scanId:scan.id};
     // Keep a bounded allowance for content references not known until the
@@ -244,14 +284,7 @@ async function createJob(env, scan, now, dispatch) {
     const reserveHost=hosts[hosts.length-1];
     const referenceAllowance=reserveHost?Array.from({length:32},(_,index)=>({
       rule_id:'env-config',url:`https://${reserveHost}/cm-reference-${index}`})):[];
-    let low=0,high=512,tlsPlan=buildBudgetedTlsCheckPlan({...tlsArgs,maxChecks:0});
-    while(low<high){
-      const mid=Math.ceil((low+high)/2);
-      const candidate=buildBudgetedTlsCheckPlan({...tlsArgs,maxChecks:mid});
-      if(fitsExposureJobLimits({...plan,checks:[...plan.checks,...referenceAllowance],tls:candidate})){
-        low=mid;tlsPlan=candidate;
-      }else high=mid-1;
-    }
+    const tlsPlan=sizeTlsPlan(plan,tlsArgs,referenceAllowance);
     plan.tls={...tlsPlan,deferred_hosts:[...tlsPlan.deferred_hosts,...(endpoints.deferred_services||[])],
       endpoints:endpoints.endpoints,gaps:endpoints.gaps,scope_generation:endpoints.scope_generation,
       omitted_services:endpoints.omitted_services,results:[],state:'pending'};
@@ -632,6 +665,7 @@ export async function processExposureMessage(body,env,deps={}) {
     return finishWithoutProbe(env,row,'budget_exhausted','completion_budget',now);
   const contentPhase=plan.content_state==='pending';
   if(!contentPhase&&row.cursor>=plan.checks.length){
+    replanTlsFromOwnResults(plan,json(row.results_json,[]));
     if(plan.tls?.selected?.length>plan.tls.cursor)return processTlsSlice(env,row,plan,now,deps);
     return finishWithoutProbe(env,row,'complete','complete',now);
   }

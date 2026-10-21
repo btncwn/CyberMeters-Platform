@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateTlsAssessmentRequest, projectTlsCollectorReceipt, validateTlsAssessmentReceipt, validateTlsEngineResult } from '../workers/network-probe/src/tls-contract.js';
 import { parseTlsDnsAnswers, buildTlsCheckPlan, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
 import { TLS_SPECIAL_CONTROLS_AVAILABLE } from '../shared/tls/catalog.js';
-import { collectTlsAssessment } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { collectTlsAssessment, replanTlsFromOwnResults } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
 import { resolveAssessmentPresentation } from '../workers/scan-api/src/engines/assessment-presentation.js';
 import { projectPhase5SnapshotForCustomer, resolvePhase5HistoricalCustomerProjection, resolvePhase5CustomerAggregate } from '../workers/scan-api/src/engines/phase5-evidence.js';
@@ -290,3 +290,34 @@ const refusalCases = classify => {
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
 await import('./p1b-single-domain-engine-fixture.js');
 await import('./mail-transport-fixture.js');
+
+// First scan of a domain (21 Oct 2026): the TLS plan is built from the previous
+// job's observations, so a domain's first job deferred its apex as
+// https_service_not_observed and TLS ended partial for every new customer.
+// Once this job's own content checks drew an HTTPS answer, the deferred part
+// is re-planned once from this job's results; nothing else changes.
+{
+  const apex={endpoint:{hostname:'shop.example.org',sni:'shop.example.org',address:'192.0.2.40',port:443,transport:'tcp',application_protocol:'https'},
+    endpoint_identity:'shop.example.org|shop.example.org|192.0.2.40|443|tcp|https',scope:{kind:'standard_https',special_consent:false}};
+  const firstJobPlan=()=>{
+    const tls=buildBudgetedTlsCheckPlan({endpoints:[apex],cipherCatalog:[],observedHttpsHosts:[],scanId:'scan_first',maxChecks:64});
+    return {checks:[],hosts:['shop.example.org'],tls:{...tls,endpoints:[apex],results:[],state:'pending'}};
+  };
+  const own=[{rule_id:'client-secret',url:'https://shop.example.org/',state:'not_found',comparable:true,reason:'explicit_absence'}];
+  const first=firstJobPlan();
+  assert.equal(first.tls.selected.length,0,'first job: nothing planned at creation');
+  assert(first.tls.deferred_hosts.some(h=>h.reason==='https_service_not_observed'),'first job: apex deferred');
+  assert.equal(replanTlsFromOwnResults(first,own),true,'own HTTPS answer re-plans the deferred apex');
+  assert(first.tls.selected.length>0,'apex TLS checks are planned');
+  assert.equal(first.tls.deferred_hosts.filter(h=>h.reason==='https_service_not_observed').length,0);
+  assert.equal(first.tls.selected.filter(r=>['heartbleed','robot','ccs'].includes(r.check.control)).length,0,'no intrusive control is planned');
+  assert.equal(replanTlsFromOwnResults(first,own),false,'re-plans at most once');
+  const noEvidence=firstJobPlan();
+  assert.equal(replanTlsFromOwnResults(noEvidence,[]),false,'without an own HTTPS observation the apex stays deferred');
+  assert.equal(noEvidence.tls.selected.length,0);
+  const httpOnly=firstJobPlan();
+  assert.equal(replanTlsFromOwnResults(httpOnly,[{...own[0],url:'http://shop.example.org/'}]),false,'a plain-HTTP answer is not an HTTPS observation');
+  const planned=firstJobPlan();
+  planned.tls.selected=[{endpoint_index:0,check:{control:'protocol',protocol:'tls1_2',cipher_id:null}}];
+  assert.equal(replanTlsFromOwnResults(planned,own),false,'a plan that already selected checks is untouched');
+}
