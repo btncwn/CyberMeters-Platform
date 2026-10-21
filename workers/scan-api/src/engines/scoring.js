@@ -1309,6 +1309,9 @@ export function resolveCanonicalScanScore(storedScore, reportScore) {
 // the score. Scores persisted under earlier stamps keep the deduction they
 // were finalised with; read-time projection never recomputes it.
 // 2026-10-16.1 — unvalidated lookalike candidates no longer deduct points.
+// 2026-10-21.1 — an admin hostname + title alone is no longer an
+// "administrative interface" (-8): it needs an observed login form; otherwise it
+// is the non-deducting info observation.
 export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-10-21.1";
 
 // The modules whose findings move computeScore(). If any of these was skipped or
