@@ -992,7 +992,7 @@ const _normTxt = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
 // a silent divergence between DNS and D1.
 export async function applyHostedDmarcChange(env, row, {
   policy, testing = false, userId = null, source = "manual",
-  passRateNow = null, fetchImpl = fetch, ...rest
+  passRateNow = null, fetchImpl = fetch, override = null, ...rest
 } = {}) {
   // RFC 9989 removed pct: a caller still asking for one is refused, not ignored.
   if (rest.pct != null) return { ok: false, reason: "invalid_target", error: "pct was removed by RFC 9989." };
@@ -1044,8 +1044,8 @@ export async function applyHostedDmarcChange(env, row, {
   await createAuditEvent(env, {
     workspace_id: row.workspace_id, user_id: userId,
     event_type: "hosted_dmarc_policy_changed", entity_type: "hosted_dns_record", entity_id: row.id,
-    description: `Hosted DMARC policy for ${row.domain} set to p=${policy}${testing && policy !== "none" ? " t=y" : ""} (${source})`,
-    metadata: { from: row.current_value, to: built.value, source },
+    description: `Hosted DMARC policy for ${row.domain} set to p=${policy}${testing && policy !== "none" ? " t=y" : ""} (${source}${override ? ", safety interlock overridden" : ""})`,
+    metadata: { from: row.current_value, to: built.value, source, ...(override ? { override } : {}) },
   });
   // PR-B3: non-alertable by founder decision. A policy change is a confirmation
   // of an action (the customer's, or autopilot's on their standing instruction),
@@ -1055,7 +1055,7 @@ export async function applyHostedDmarcChange(env, row, {
     event_type: EMAIL_EVENT_HOSTED_POLICY_CHANGED,
     actor_type: userId ? "customer" : "system", actor_id: userId,
     reason: `policy_${source}`,
-    detail: { from: row.current_value, to: built.value, policy, testing: testing === true, source },
+    detail: { from: row.current_value, to: built.value, policy, testing: testing === true, source, ...(override ? { override } : {}) },
   }).catch(() => {});
   return { ok: true, value: built.value };
 }

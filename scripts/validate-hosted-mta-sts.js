@@ -184,6 +184,53 @@ ok("row moved to pending_removal", db.prepare("SELECT verification_state v FROM 
 ok("non-member is denied another workspace (403)", (await call("POST", "/api/workspaces/ws_b/domains/acme.co.uk/hosted-mta-sts", TOKEN)).status === 403);
 ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401);
 
+// ── 7a. Hosted DMARC: a confirmed tightening past the interlock is audited ──
+// The founder's Email proof (21 Oct 2026) moved reject t=y → reject with only
+// "Move to Reject anyway?": the audit row named the actor and values but not
+// that the safety interlock was overridden, nor its state.
+{
+  db.prepare("INSERT OR IGNORE INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, created_at, updated_at) VALUES ('sub_dm','u_a','ws_a','professional','active','active',datetime('now'),datetime('now'))").run();
+  db.prepare("INSERT INTO domains (id,user_id,domain) VALUES ('d_dm','u_a','dmarc.co.uk')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id) VALUES ('ws_a','d_dm')").run();
+  db.prepare(`INSERT INTO hosted_dns_entries (id,workspace_id,domain,record_kind,customer_name,target_name,target_value,verification_state,provider_record_id,last_change_at,created_at,updated_at)
+    VALUES ('hd-dm','ws_a','dmarc.co.uk','dmarc','_dmarc.dmarc.co.uk','hd-dm.dmarc.cybermeters.com','v=DMARC1; p=reject; t=y; rua=mailto:r@reports.cybermeters.com','connected','0123456789abcdef0123456789abcdef',datetime('now','-10 days'),datetime('now','-30 days'),datetime('now','-10 days'))`).run();
+  const patched = [];
+  const prior = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.includes("/dns_records/") && init.method === "PATCH") {
+      const content = JSON.parse(init.body).content; patched.push(content);
+      return jsonResponse({ success: true, result: { id: "cf-dm", content } });
+    }
+    return prior(input, init);
+  };
+  const put = async (body) => {
+    const res = await worker.default.fetch(new Request("https://app.cybermeters.com/api/workspaces/ws_a/domains/dmarc.co.uk/hosted-dmarc", {
+      method: "PUT", headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }), env, ctx);
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+  const unconfirmed = await put({ step: "reject" });
+  ok("interlock: an unconfirmed tightening with no reporting volume is refused", unconfirmed.status === 409 && unconfirmed.body.code === "readiness_check_failed" && patched.length === 0);
+  ok("interlock: an over-long override reason is refused", (await put({ step: "reject", confirm: true, override_reason: "x".repeat(281) })).status === 400 && patched.length === 0);
+  const confirmed = await put({ step: "reject", confirm: true, override_reason: "Founder live proof" });
+  ok("interlock: a confirmed override is applied, without pct or t", confirmed.status === 200 && patched.at(-1) === "v=DMARC1; p=reject; rua=mailto:r@reports.cybermeters.com");
+  const audit = db.prepare("SELECT user_id, description, metadata_json FROM audit_events WHERE entity_id='hd-dm' AND event_type='hosted_dmarc_policy_changed' ORDER BY rowid DESC LIMIT 1").get();
+  const meta = JSON.parse(audit?.metadata_json || "{}");
+  ok("interlock: the audit names the override in its description", /safety interlock overridden/.test(audit?.description || ""));
+  ok("interlock: the audit records actor, reason and interlock state",
+    audit?.user_id === "u_a" && meta.override?.interlock === "overridden" && meta.override.actor_id === "u_a"
+    && meta.override.reason === "Founder live proof" && meta.override.readiness?.ready === false
+    && meta.override.readiness.reasons.length > 0 && meta.override.from_step === "reject_testing" && meta.override.to_step === "reject"
+    && "pass_rate" in meta.override.measured && "total_messages" in meta.override.measured);
+  const transition = db.prepare("SELECT detail_json FROM email_protection_events WHERE workspace_id='ws_a' AND event_type='hosted_policy_changed' ORDER BY rowid DESC LIMIT 1").get();
+  ok("interlock: the policy-change history carries the override too", JSON.parse(transition?.detail_json || "{}").override?.interlock === "overridden");
+  // A loosening never passes the interlock, so it records no override.
+  const looser = await put({ step: "reject_testing" });
+  const lastMeta = JSON.parse(db.prepare("SELECT metadata_json FROM audit_events WHERE entity_id='hd-dm' AND event_type='hosted_dmarc_policy_changed' ORDER BY rowid DESC LIMIT 1").get().metadata_json);
+  ok("interlock: a loosening records no override", looser.status === 200 && !("override" in lastMeta));
+  globalThis.fetch = prior;
+}
+
 // ── 7. mta-sts.cybermeters.com serves our own pinned policy, nothing else ───
 // The customer hosts the policy file (boundary above); for CyberMeters' own
 // domain this Worker is that host (routes/mta-sts-self.js).
