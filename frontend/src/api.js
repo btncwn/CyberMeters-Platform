@@ -1664,6 +1664,9 @@ export const api = {
   // ── Portfolio APIs ────────────────────────────────────────────────────────
 
   /** GET /api/portfolio/overview */
+  /** GET /api/mcp/oauth/connections → { connections, eligible, next_offset } (the caller's own) */
+  getMcpConnections: () => request('/mcp/oauth/connections'),
+
   getPortfolioOverview: () => request('/portfolio/overview'),
 
   /** GET /api/portfolio/workspaces */

@@ -185,7 +185,7 @@ describe('Layout top bar — shape', () => {
     expect(within(h).queryByRole('link', { name: 'CyberMeters home' })).not.toBeInTheDocument()
   })
 
-  it('the account button shows the initial and opens Field Guide, Account, Billing and Sign out — account things only', async () => {
+  it('the account button shows the initial and opens Field Guide, Account, AI assistant (MCP), Billing and Sign out — account things only', async () => {
     renderLayout({ features: DIRECT_FEATURES })
     const b = within(header()).getByRole('button', { name: 'Account menu' })
     expect(b).toHaveTextContent('T')
@@ -196,17 +196,20 @@ describe('Layout top bar — shape', () => {
     expect(within(menu).getByText('Taylor Owner')).toBeInTheDocument()
     expect(within(menu).getByText('Professional plan')).toBeInTheDocument()
     const items = within(menu).getAllByRole('menuitem')
-    expect(items.map(i => i.textContent)).toEqual(['Field Guide', 'Account', 'Billing', 'Sign out'])
+    // The MCP page was reachable only by typing its address (founder, 21 Oct 2026).
+    expect(within(menu).getByRole('menuitem', { name: 'AI assistant (MCP)' })).toHaveAttribute('href', '/account/mcp')
+    expect(items.map(i => i.textContent)).toEqual(['Field Guide', 'Account', 'AI assistant (MCP)', 'Billing', 'Sign out'])
     expect(items[0]).toHaveAttribute('href', '/guide')
     expect(items[1]).toHaveAttribute('href', '/account')
-    expect(items[2]).toHaveAttribute('href', '/billing')
+    expect(items[2]).toHaveAttribute('href', '/account/mcp')
+    expect(items[3]).toHaveAttribute('href', '/billing')
   })
 
   it('with a workspace selected the account menu still carries no workspace things (they live in the workspace menu)', () => {
     renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' } })
     fireEvent.click(within(header()).getByRole('button', { name: 'Account menu' }))
     const menu = screen.getByRole('menu', { name: 'Account' })
-    expect(within(menu).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['Field Guide', 'Account', 'Billing', 'Sign out'])
+    expect(within(menu).getAllByRole('menuitem').map(i => i.textContent)).toEqual(['Field Guide', 'Account', 'AI assistant (MCP)', 'Billing', 'Sign out'])
     for (const gone of ['Administration', 'Alert channels', 'Audit log', 'Usage & retention', 'Settings', 'Scorecard', 'Executive dashboard', 'Operations', 'Related changes']) {
       expect(within(menu).queryByRole('menuitem', { name: gone })).not.toBeInTheDocument()
     }

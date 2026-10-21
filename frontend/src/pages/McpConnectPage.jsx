@@ -32,7 +32,7 @@ export default function McpConnectPage() {
       if (!destination) throw new Error('invalid_destination')
       window.location.assign(destination)
     } catch {
-      setError('Connection could not continue. Your link may have expired or your workspace may not be enrolled in the MCP beta.')
+      setError('Connection could not continue. Your link may have expired, or no workspace you belong to is eligible for AI assistant access.')
       setBusy(false)
     }
   }

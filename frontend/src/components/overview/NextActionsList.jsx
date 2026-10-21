@@ -21,7 +21,7 @@ const isMtaSts = (id) => /mta_sts/i.test(String(id || ''))
 const isDmarcPolicy = (id) => /dmarc_(policy|reporting_only|partial)|weak_dmarc/i.test(String(id || ''))
 
 /** The ordered rows. Pure: tested on its own. */
-export function buildNextActions({ domains = [], request = 'ok', unclassified = null, dmarcConnected = null } = {}) {
+export function buildNextActions({ domains = [], request = 'ok', unclassified = null, dmarcConnected = null, mcp = null } = {}) {
   if (request !== 'ok' || !Array.isArray(domains)) return []
   const order = new Map(MODULES.map((m, i) => [m.domainKey, i]))
   const rows = []
@@ -54,6 +54,10 @@ export function buildNextActions({ domains = [], request = 'ok', unclassified = 
   if (dmarcConnected === false) {
     rows.push({ area: 'Email Protection', domainKey: 'email_protection', severity: 'medium', evidence: 'provisional', key: 'email-dmarc-reporting', title: 'Connect DMARC reporting', body: 'Reports show who sends email as your domain, which the next policy step depends on.', action: { label: 'Set up', to: '/ws/email-protection?tab=settings#dmarc-setup' } })
   }
+  // The API decides eligibility; an unread answer suggests nothing.
+  if (mcp?.eligible === true && mcp.active === 0) {
+    rows.push({ area: 'Account', domainKey: null, severity: null, evidence: null, key: 'mcp-connect', title: 'Connect your AI assistant', body: 'Let an AI assistant read your CyberMeters data, read-only. You approve each connection and can remove it at any time.', action: { label: 'Connect', to: '/account/mcp' } })
+  }
   rows.sort((a, b) =>
     (SEVERITY_RANK[a.severity] ?? 5) - (SEVERITY_RANK[b.severity] ?? 5)
     || (EVIDENCE_RANK[a.evidence] ?? 2) - (EVIDENCE_RANK[b.evidence] ?? 2)
@@ -66,6 +70,18 @@ export function buildNextActions({ domains = [], request = 'ok', unclassified = 
 
 export default function NextActionsList({ workspaceId, domains, request, dmarcConnected, scanDomain = null }) {
   const [unclassified, setUnclassified] = useState(null)
+  const [mcp, setMcp] = useState(null)
+  useEffect(() => {
+    setMcp(null)
+    let alive = true
+    Promise.resolve().then(() => api.getMcpConnections?.())
+      .then((res) => {
+        if (!alive || typeof res?.eligible !== 'boolean' || !Array.isArray(res.connections)) return
+        setMcp({ eligible: res.eligible, active: res.connections.filter((c) => c?.status === 'active').length })
+      })
+      .catch(() => { if (alive) setMcp(null) })
+    return () => { alive = false }
+  }, [workspaceId])
   useEffect(() => {
     setUnclassified(null)
     if (!workspaceId) return undefined
@@ -76,7 +92,7 @@ export default function NextActionsList({ workspaceId, domains, request, dmarcCo
     return () => { alive = false }
   }, [workspaceId])
 
-  const rows = buildNextActions({ domains, request, unclassified, dmarcConnected })
+  const rows = buildNextActions({ domains, request, unclassified, dmarcConnected, mcp })
   return (
     <section className="card p-5" aria-labelledby="next-actions-heading" data-testid="next-actions">
       <h2 id="next-actions-heading" className="section-title">Your next actions</h2>

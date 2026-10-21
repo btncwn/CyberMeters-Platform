@@ -8,10 +8,11 @@ vi.mock('../../context/AuthContext', () => ({ useAuth: () => auth }))
 import McpConnectionsPage from '../McpConnectionsPage'
 
 describe('MCP connection disclosure', () => {
-  it('explains read-only beta, provider retention, revocation, and fixed portfolio selection', () => {
+  it('explains read-only access, provider retention, revocation, and fixed portfolio selection', () => {
     render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
     const notice = screen.getByText(/Connected AI clients can receive approved CyberMeters workspace data/)
-    expect(notice).toHaveTextContent(/AI assistant can read your CyberMeters data \(beta, read-only\)/)
+    expect(notice).toHaveTextContent(/AI assistant can read your CyberMeters data \(read-only\)/)
+    expect(notice.textContent).not.toMatch(/beta/i)
     expect(notice).toHaveTextContent(/It does not verify or fix issues/)
     expect(notice).toHaveTextContent(/provider may retain data it receives under its own terms and settings/)
     expect(notice).toHaveTextContent(/Removing a connection stops future CyberMeters reads, but cannot delete data already sent/)
@@ -52,7 +53,7 @@ describe('MCP connection disclosure', () => {
     }) })))
     try {
       render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
-      expect(await screen.findByText(/MCP beta requires an eligible trial or paid workspace and current membership/))
+      expect(await screen.findByText(/MCP access requires an eligible trial or paid workspace and current membership/))
         .toBeInTheDocument()
       expect(screen.queryByText(/Connect an eligible AI client/)).not.toBeInTheDocument()
     } finally {
@@ -94,7 +95,7 @@ describe('MCP connections are always manageable', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove access' }))
     await waitFor(() => expect(calls).toContainEqual({ url: expect.stringMatching(/\/mcp\/oauth\/connections\/conn_9$/), method: 'DELETE' }))
-    expect(await screen.findByText('No MCP connections yet.')).toBeInTheDocument()
+    expect(await screen.findByText('No active MCP connections.')).toBeInTheDocument()
   })
 
   it('cancelling the confirmation removes nothing', async () => {
@@ -112,6 +113,41 @@ describe('MCP connections are always manageable', () => {
     serve({ eligible: false, connections: [active()] })
     render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
     expect(await screen.findByRole('button', { name: 'Remove access' })).toBeInTheDocument()
-    expect(screen.queryByText(/Connect an eligible AI client/)).not.toBeInTheDocument()
+    // The URL stays visible (21 Oct 2026), with the eligibility limit said plainly.
+    expect(screen.getByTestId('mcp-connect')).toHaveTextContent(/this account has none right now/)
+  })
+})
+
+describe('MCP connections page layout (21 Oct 2026)', () => {
+  const conn = (id, status, over = {}) => ({
+    id, client_id: 'GqD2ShqmaD1f_fga', portfolio_read: false, workspace_name: 'Example Ltd', scopes: ['mcp:read'],
+    status, created_at: '2026-10-21T09:00:00Z', last_used_at: null, revoked_at: status === 'revoked' ? '2026-10-21T12:00:00Z' : null, ...over,
+  })
+  afterEach(() => { auth.token = null; vi.unstubAllGlobals() })
+  function serve(body) {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ next_offset: null, ...body }) })))
+  }
+
+  it('active connections first; revoked ones collapsed under Previous connections; each id once', async () => {
+    auth.token = 'test-session'
+    serve({ eligible: true, connections: [conn('mcpconn_a', 'active'), conn('mcpconn_a', 'active'), conn('mcpconn_b', 'revoked'), conn('mcpconn_c', 'active', { created_at: '2026-10-20T08:00:00Z' })] })
+    render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
+    const active = await screen.findByRole('region', { name: 'Active connections (2)' })
+    expect(within(active).getAllByTestId('mcp-connection')).toHaveLength(2)
+    expect(within(active).getAllByRole('button', { name: 'Remove access' })).toHaveLength(2)
+    const previous = screen.getByTestId('mcp-previous')
+    expect(previous).not.toHaveAttribute('open')
+    expect(within(previous).getByText('Previous connections (1)')).toBeInTheDocument()
+    // Two connections from the same client are told apart by when they were made.
+    expect(within(active).getAllByText(/^Connected: /)).toHaveLength(2)
+  })
+
+  it('the server URL and setup link stay visible when connections exist, even if no longer eligible', async () => {
+    auth.token = 'test-session'
+    serve({ eligible: false, connections: [conn('mcpconn_a', 'active')] })
+    render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
+    const panel = await screen.findByTestId('mcp-connect')
+    expect(panel).toHaveTextContent('https://mcp.cybermeters.com/mcp')
+    expect(within(panel).getByRole('link', { name: 'Client setup and compatibility' })).toHaveAttribute('href', 'https://cybermeters.com/support#mcp')
   })
 })
