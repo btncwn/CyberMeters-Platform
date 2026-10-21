@@ -339,7 +339,7 @@ const GUIDE_AREA_DEFINITIONS = [
         ['Observed, unclassified', 'A service was seen and you have not yet said whether it is approved.'],
         ['Approved', 'You sanction this service. It stays monitored for change.'],
         ['Rejected', 'You do not sanction it. CyberMeters keeps observing until it is gone; it does not remove anything.'],
-        ['No longer observed', 'The service was not seen on the latest scan. This is not the same as verified removal.'],
+        ['Not seen in the latest scan', 'The service was not seen on the latest scan. This is not the same as verified removal, and it is not counted as externally observed.'],
       ],
       findings: [
         'A SaaS service or third party observed that is not in your Approved Inventory.',

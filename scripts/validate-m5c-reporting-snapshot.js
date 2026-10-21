@@ -942,7 +942,7 @@ async function main() {
   const inventorySnapshot = composeSnapshot({ ...pureArgs, shadowInventoryCount: 6 });
   const shadow = inventorySnapshot.domains.find((entry) => entry.domain_key === "shadow_it_unmanaged_technology");
   ok("snapshot Shadow IT count uses the same workspace inventory grain as the live page",
-     shadow?.evidence_count === 6 && /^6 externally observed technologies\/services in the current inventory/.test(shadow.summary));
+     shadow?.evidence_count === 6 && /^6 technologies\/services externally observed in the latest scan\./.test(shadow.summary));
 
   const b3Report = makeReport("scanB3", "domX", "pure.example", {
     findings: [

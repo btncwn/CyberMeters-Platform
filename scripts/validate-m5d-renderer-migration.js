@@ -332,9 +332,9 @@ async function main() {
      JSON.stringify(ce));
   const pdfTextLines = [...pdfRes.text.matchAll(/\((.*?)\) Tj/g)].map((match) => match[1]).join(" ");
   ok("one observed Shadow IT service is counted with the inventory comparison guidance",
-     /1 externally observed technologies\/services in the current inventory; compare against your approved inventory in Shadow IT\./.test(shadow?.state_reason || "") &&
-     /1 externally observed technologies\/services in the current inventory; compare against your approved inventory in Shadow IT\./.test(pdfTextLines),
-     `state_reason=${JSON.stringify(shadow?.state_reason)}; summary=${JSON.stringify(shadow?.summary)}; pdf=${pdfTextLines.includes("1 externally observed technologies/services")}`);
+     /1 technologies\/services externally observed in the latest scan\. Compare against your approved inventory in Shadow IT\./.test(shadow?.state_reason || "") &&
+     /1 technologies\/services externally observed in the latest scan\. Compare against your approved inventory in Shadow IT\./.test(pdfTextLines),
+     `state_reason=${JSON.stringify(shadow?.state_reason)}; summary=${JSON.stringify(shadow?.summary)}; pdf=${pdfTextLines.includes("1 technologies/services externally observed")}`);
   ok("appendix stamps the current CE question set and explains the absence of answer versions",
      technicalAppendix.includes("Cyber Essentials current question set: 2026-07-16") &&
      technicalAppendix.includes("Cyber Essentials answered question set versions: No questionnaire answers recorded") &&
@@ -719,8 +719,8 @@ async function main() {
       {
         name: "Shadow IT customer count diverges from the inventory",
         file: srcPath("engines", "shadow-it-inventory-count.js"),
-        from: "summary: `${total} externally observed technologies/services in the current inventory; compare against your approved inventory in Shadow IT.`",
-        to:   "summary: `${total - 1} externally observed technologies/services in the current inventory; compare against your approved inventory in Shadow IT.`",
+        from: "  const observed = total - notSeen;",
+        to:   "  const observed = total - notSeen - 1;",
       },
       {
         name: "completed questionnaire promotes the full CE API domain to healthy",

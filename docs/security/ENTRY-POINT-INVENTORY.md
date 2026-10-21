@@ -283,10 +283,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `/^\/api\/workspaces\/([^/` | 57 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 107 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 430 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 506 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 524 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 105 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 428 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 504 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 522 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/free-tools.js`
 
