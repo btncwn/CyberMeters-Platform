@@ -64,8 +64,9 @@ the weekly monitoring setting until a real off-site run has succeeded.
    capture/upload/download/record steps and retain the run/artifact ID. A skipped
    job, successful export without durable upload, or green unrelated CI is not
    backup success.
-5. Resume the release: deploy scan-api from clean fetched `origin/main` with the
-   standard self-smoking script. After the successful job, in **Cloudflare →
+5. The source can be deployed with the weekly switch absent; existing readiness
+   behavior remains in place. Check the PR release comment for the actual
+   deployed Version. After the successful job, in **Cloudflare →
    Compute → Workers & Pages → cybermeters-platform → Settings → Variables and
    Secrets → Add**, add a **Secret** named `WEEKLY_BACKUP_MONITORING` with value
    `on` and deploy that configuration. It is an activation switch, not a
