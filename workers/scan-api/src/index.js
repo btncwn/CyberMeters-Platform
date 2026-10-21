@@ -85,6 +85,7 @@ import {
 import { sendWeeklyDigests } from "./engines/weekly-digest.js";
 import { runBrandTakedownFollowupSweep } from "./engines/brand-cases.js";
 import { runBrandDnsEnrichmentSweep } from "./engines/brand-dns-enrichment.js";
+import { withdrawSupersededAsmClaims } from "./engines/asm-cases.js";
 import { runBrandHttpEnrichmentSweep } from "./engines/brand-http-enrichment.js";
 import { admitDomainScan, calculateNextRun, checkReportLimit, checkScanLimit, checkScheduledScanLimit, computeScheduledReportNextRunAt, countEnabledScheduledScans, countReportsThisMonth, countScansThisMonth, evaluateScheduledScanEligibility, generateWorkspaceExecutiveReport, getAccountUsage, getEntitlementUsage, getMonthResetAt, getMonthStart, getOwnedWorkspaceIds, getPlanContext, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getRetentionCutoff, getRetentionCutoffForDays, getUpgradeRecommendation, getWorkspaceBillingUserId, getWorkspaceOwnerId, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded, retentionDaysToPolicy, retentionPolicyToDays } from "./engines/plan-usage.js";
 import { TRIAL_PLAN, TRIAL_DURATION_DAYS, auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "./engines/subscription-state.js";
@@ -3117,6 +3118,7 @@ const scanApi = {
    retryFailedAlertDeliveries,
     runBrandTakedownFollowupSweep,
     runBrandDnsEnrichmentSweep,
+    withdrawSupersededAsmClaims,
     runBrandHttpEnrichmentSweep,
     triggerScheduledScan,
     processFreeToolDeferredChecks: (env) => processFreeToolDeferredChecks(env, { consumeApiRateLimit }),

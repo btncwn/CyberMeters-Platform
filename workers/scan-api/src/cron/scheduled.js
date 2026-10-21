@@ -300,6 +300,13 @@ export async function runScheduled(event, env, ctx, tasks) {
 	    // would stay unchecked forever unless a user hit manual refresh — so
 	    // "Active DNS" read 0. This runs a bounded batch each hour so candidates are
 	    // eventually deterministically validated with no user action.
+	    // ── Withdrawn claims (bounded) ───────────────────────────────────────
+	    // Open ASM cases whose originating claim the current rule no longer makes
+	    // are resolved as withdrawn, append-only (asm-cases.js).
+	    if (tasks.withdrawSupersededAsmClaims) {
+	      ctx.waitUntil(runCronTask(env, "asm_claim_withdrawal", () => tasks.withdrawSupersededAsmClaims(env)));
+	    }
+
 	    if (tasks.runBrandDnsEnrichmentSweep) {
 	      ctx.waitUntil(runCronTask(env, "brand_dns_enrichment", () => tasks.runBrandDnsEnrichmentSweep(env)));
 	    }
