@@ -166,8 +166,14 @@ function scopedJob(scanId,generation){
   const lookup=async(host,type)=>type==='A'?{Status:0,Answer:[{name:`${host}.`,type:1,data:'8.8.8.8'}]}:{Status:0,Answer:[]};
   const services=async()=>(await loadTlsEndpoints(env,scan,{lookup})).endpoints.filter(e=>e.scope.kind==='authorized_service').length;
   assert.equal(await services(),1,'an in-scope target\'s service is planned');
+  const deferred=async()=>(await loadTlsEndpoints(env,scan,{lookup})).deferred_services;
+  assert.deepEqual(await deferred(),[],'nothing deferred while in scope');
   sql.prepare("UPDATE network_targets SET scope_state='out_of_scope' WHERE id='target_scope'").run();
   assert.equal(await services(),0,'an out-of-scope target\'s service is not planned');
+  assert.deepEqual(await deferred(),[{hostname:scopeDomain,port:587,reason:'network_target_out_of_scope'}],'...and it is listed as deferred, with the reason');
+  sql.prepare("UPDATE network_targets SET scope_state=NULL WHERE id='target_scope'").run();
+  assert.equal(await services(),0,'an unchecked target\'s service is not planned');
+  assert.deepEqual(await deferred(),[{hostname:scopeDomain,port:587,reason:'network_target_scope_unchecked'}],'...and it is listed as deferred, unchecked');
   sql.prepare("UPDATE network_targets SET scope_state='in_scope' WHERE id='target_scope'").run();
 }
 const first=scopedJob('scope_dns',1);

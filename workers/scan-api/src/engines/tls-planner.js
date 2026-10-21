@@ -61,11 +61,17 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
     JOIN workspace_domains d ON d.workspace_id=a.workspace_id AND d.domain_id=a.domain_id
     JOIN workspaces w ON w.id=a.workspace_id
     WHERE a.workspace_id=? AND a.authorization_status='active' ORDER BY a.authorized_at,a.id LIMIT 64`).bind(scan.workspace_id).all();
-  const eligible = rotate((services.results||[]).filter(row => row.domain_id === scan.domain_id &&
-    row.deleted_at === null && row.verification_status === 'verified' && row.target_authorization_status === 'attested' && row.target_scope_state === 'in_scope' &&
-    safeHostname(row.hostname,scan.domain) && row.sni === row.hostname && isTlsService(row.port,row.application_protocol)),scan.id);
+  const authorised = (services.results||[]).filter(row => row.domain_id === scan.domain_id &&
+    row.deleted_at === null && row.verification_status === 'verified' && row.target_authorization_status === 'attested' &&
+    safeHostname(row.hostname,scan.domain) && row.sni === row.hostname && isTlsService(row.port,row.application_protocol));
+  // A service whose network target is not in scope (its address is not observed
+  // in the verified domain's DNS, or not checked yet) is not planned, and says
+  // so: it is listed as deferred with the reason, never dropped silently.
+  const outOfScope = authorised.filter(row => row.target_scope_state !== 'in_scope').map(row => ({hostname:row.hostname,port:row.port,
+    reason:row.target_scope_state === 'out_of_scope' ? 'network_target_out_of_scope' : 'network_target_scope_unchecked'}));
+  const eligible = rotate(authorised.filter(row => row.target_scope_state === 'in_scope'),scan.id);
   const selected = eligible.slice(0,MAX_SERVICES_PER_SCAN-1);
-  const deferredServices=eligible.slice(MAX_SERVICES_PER_SCAN-1).map(row=>({hostname:row.hostname,port:row.port,reason:'service_scope_limit'}));
+  const deferredServices=[...outOfScope,...eligible.slice(MAX_SERVICES_PER_SCAN-1).map(row=>({hostname:row.hostname,port:row.port,reason:'service_scope_limit'}))];
   const candidates = [{ hostname:scan.domain,sni:scan.domain,port:443,application_protocol:'https',kind:'standard_https',service_authorization_id:null,allowed_addresses:null },
     ...selected.map(row => ({ ...row,kind:'authorized_service',service_authorization_id:row.id,
       allowed_addresses:(() => { try { const list=JSON.parse(row.addresses_json);return Array.isArray(list)?new Set(list.map(canonicalAddress).filter(Boolean)):new Set(); } catch { return new Set(); } })() }))];
