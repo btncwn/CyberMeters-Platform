@@ -27,8 +27,13 @@ import { createId } from "../lib/util.js";
 // transient failure is retried next tick, so small batches recover cleanly), and
 // for PRODUCTION OBSERVABILITY (incremental progress is easy to watch). The manual
 // endpoint has its own invocation and passes a larger batch.
-export const BRAND_DNS_BATCH_SIZE = 10;                 // candidates per workspace per invocation
-export const BRAND_DNS_SWEEP_WORKSPACES_PER_TICK = 5;   // workspaces per hourly cron tick
+// One DNS (DoH) query and one row update per candidate. 40 x 10 = 400 checks per
+// hourly tick (4% of the Worker's 10,000-subrequest budget; about 67,000 a
+// week platform-wide), so one 50-domain MSP workspace (up to 2,200 candidates)
+// completes a full pass in about 55 hours, inside the weekly recheck window.
+// Before 21 Oct 2026 it was 10 x 5 = 50 an hour: about 220 hours for that MSP.
+export const BRAND_DNS_BATCH_SIZE = 40;                 // candidates per workspace per invocation
+export const BRAND_DNS_SWEEP_WORKSPACES_PER_TICK = 10;  // workspaces per hourly cron tick
 export const BRAND_DNS_MANUAL_BATCH_SIZE = 20;          // manual refresh: one dedicated invocation
 export const BRAND_DNS_RECHECK_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // re-probe a checked candidate weekly
 

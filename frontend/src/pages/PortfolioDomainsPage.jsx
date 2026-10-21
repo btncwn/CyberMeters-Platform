@@ -213,6 +213,13 @@ export default function PortfolioDomainsPage() {
         <p className="page-subtitle">
           Every managed domain across its external posture — what state it is in, what changed, and how current the evidence is.
         </p>
+        {/* Measured ceilings (S3-5, 21 Oct 2026; docs/MSP-SCALE-CEILINGS.md). */}
+        <p className="mt-2 text-xs text-gray-500 max-w-3xl">
+          How long checks take: each new domain's core check usually finishes within minutes. Deeper public-content
+          and TLS checks run one domain at a time per workspace, so 50 newly added domains can take about 4 to 5 hours
+          to complete fully. Lookalike-domain checks finish within about 3 days and then repeat weekly; live-website
+          checks of registered lookalikes run daily in small batches and take longer for large portfolios.
+        </p>
       </div>
 
       {/* Explanation first, number second. The coverage note leads because a count drawn
