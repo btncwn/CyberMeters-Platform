@@ -469,6 +469,21 @@ results.push(
     return !ids.has("asset_exposure_admin_interface") && observation?.severity === "info" &&
       observation?.score_impact === 0 && result.score === 100;
   }),
+  // 21 Oct 2026: SPF says who may send, MX says who receives. When they point
+  // at different providers the DKIM note names both, with their sources.
+  securityContract("dkim_note_names_spf_and_mx_providers_when_they_differ", () => {
+    const dkimNote = (mx) => scanner.computeScore({
+      dns: { resolves: true, has_mx: true, mx_records: mx },
+      email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: false, provider: "godaddy" } },
+    }, "example.com").findings.find((item) => item.id === "email_dkim_not_detected")?.description || "";
+    const differ = dkimNote([{ value: "0 example-com.mail.protection.outlook.com." }]);
+    const agree = dkimNote([{ value: "0 smtp.secureserver.net." }]);
+    const none = dkimNote([]);
+    return /SPF record points to GoDaddy as a sender, while the mail servers \(MX\) are Microsoft 365/.test(differ) &&
+      !/was inferred as the email provider/.test(differ) &&
+      /SPF record points to GoDaddy as a sender, but/.test(agree) && !/mail servers/.test(agree) &&
+      /SPF record points to GoDaddy as a sender, but/.test(none);
+  }),
   securityContract("detection_sensitive_products_are_findings", () => {
     const titles = ["Jenkins", "Grafana", "phpMyAdmin", "Kibana", "Prometheus", "Portainer", "SonarQube"];
     return titles.every((title) => {

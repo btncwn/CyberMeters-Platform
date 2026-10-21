@@ -174,7 +174,7 @@ export async function verifyClaim(domain, claim, ctx) {
         const r = await dig(`${s}._domainkey.${domain}`, "TXT");
         if (r && txtOnly(r).some((v) => /(?:^|;)\s*p\s*=\s*[A-Za-z0-9+/]/.test(v))) hits.push(s);
       }
-      const provider = claim.text.match(/^(.+?) was inferred/)?.[1];
+      const provider = claim.text.match(/^The SPF record points to (.+?) as a sender/)?.[1] ?? claim.text.match(/^(.+?) was inferred/)?.[1];
       let providerSeen = true;
       if (provider) {
         const all = [...((await dig(domain, "TXT")) || []), ...((await dig(domain, "MX")) || [])].join(" ").toLowerCase();

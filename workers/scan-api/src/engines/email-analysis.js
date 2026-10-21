@@ -82,6 +82,30 @@ export function inferEmailProvider(spfRecord) {
   return null;
 }
 
+// Which provider hosts the domain's mailboxes, from its MX host names. The SPF
+// record says who may SEND; MX says who RECEIVES. They can differ (a reseller's
+// SPF include with another provider's mail servers), so wording names each
+// source rather than calling one of them "the email provider".
+const MX_PROVIDER_SUFFIXES = [
+  [".mail.protection.outlook.com", "microsoft365"],
+  [".google.com", "google"], [".googlemail.com", "google"],
+  [".secureserver.net", "godaddy"],
+  [".zoho.com", "zoho"], [".zoho.eu", "zoho"],
+  [".protonmail.ch", "protonmail"],
+  [".messagingengine.com", "fastmail"],
+  [".mimecast.com", "mimecast"],
+  [".pphosted.com", "proofpoint"],
+];
+export function inferMxProvider(mxRecords) {
+  for (const record of Array.isArray(mxRecords) ? mxRecords : []) {
+    const host = String(record?.value ?? record ?? "").trim().split(/\s+/).pop().toLowerCase().replace(/\.$/, "");
+    for (const [suffix, provider] of MX_PROVIDER_SUFFIXES) {
+      if (host.endsWith(suffix)) return provider;
+    }
+  }
+  return null;
+}
+
 /**
  * findDkimInResults(selectors, settledResults) → string|null
  * Returns the first selector whose DNS response contains a valid DKIM public key,
@@ -359,7 +383,7 @@ export function buildDkimDetail(dkim = {}) {
     selector: null,
     provider: dkim.provider || null,
     explanation: provider
-      ? `${provider} was inferred as the email provider, but DKIM could not be verified using the common selectors checked. A custom selector may be in use.`
+      ? `The SPF record points to ${provider} as a sender, but DKIM could not be verified using the common selectors checked. A custom selector may be in use.`
       : "DKIM could not be verified using the common selectors checked. A custom selector may be in use.",
     limitation: "DKIM can only be fully verified from a signed email header or a known selector.",
   };
