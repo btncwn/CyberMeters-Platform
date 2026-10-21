@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isToleratedStatement, splitStatements } from "./lib/migration-apply-tolerated.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "local", "msp-staging");
@@ -126,12 +127,18 @@ function zoneFor(client, scan) {
   return { domain: d, records, headers: scan.headers || BASE_HEADERS };
 }
 
+// Real schema + convergent migrations; only the enumerated tolerated statements
+// (scripts/lib/migration-apply-tolerated.js) may fail, as in the validators.
 function buildDb() {
   const db = new DatabaseSync(":memory:");
-  const apply = (p) => { try { db.exec(fs.readFileSync(p, "utf8")); } catch { /* ordering/dup tolerated, as in the validators */ } };
-  apply(path.join(root, "database", "schema.sql"));
+  db.exec(fs.readFileSync(path.join(root, "database", "schema.sql"), "utf8"));
   for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((f) => f.endsWith(".sql")).sort()) {
-    apply(path.join(root, "database", "migrations", f));
+    const raw = fs.readFileSync(path.join(root, "database", "migrations", f), "utf8");
+    const fileSha = crypto.createHash("sha256").update(raw).digest("hex");
+    for (const stmt of splitStatements(raw)) {
+      try { db.exec(stmt); }
+      catch (e) { if (!isToleratedStatement(f, fileSha, stmt, e.message)) throw e; }
+    }
   }
   return db;
 }
@@ -253,7 +260,11 @@ export async function buildMspStagingFixture({ now = Date.now() } = {}) {
       db.prepare("INSERT INTO workspaces (id, owner_user_id, name, created_at) VALUES (?, ?, ?, ?)").run(ids.workspace(client), ids.user(msp), client.name, seedAt);
       try { db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").run(ids.workspace(client), ids.user(msp), seedAt); } catch { /* owner is implicit where the table differs */ }
       db.prepare("INSERT INTO domains (id, user_id, domain, verification_status, verified_at, created_at) VALUES (?, ?, ?, 'verified', ?, ?)").run(ids.domain(client), ids.user(msp), client.domain, seedAt, seedAt);
-      db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run(ids.workspace(client), ids.domain(client));
+      // Verification is read from the workspace link (portfolio-domains.js). The
+      // method stays empty and the metadata names the fixture: nothing implies a
+      // real DNS verification happened.
+      db.prepare(`INSERT INTO workspace_domains (workspace_id, domain_id, verification_status, verified_at, verification_metadata)
+                  VALUES (?, ?, 'verified', ?, '{"synthetic_fixture":true}')`).run(ids.workspace(client), ids.domain(client), seedAt);
     }
   }
 
@@ -321,6 +332,7 @@ async function verify({ worker, env, logins }) {
     const rows = r.data?.rows || r.data?.domains || r.data?.workspaces || [];
     portfolio[msp.key] = rows;
     ok(`MSP ${msp.key.toUpperCase()} portfolio lists exactly its ${msp.clients.length} clients`, r.status === 200 && rows.length === msp.clients.length, `status ${r.status}, ${rows.length} rows`);
+    ok(`MSP ${msp.key.toUpperCase()} clients read as verified`, rows.length > 0 && rows.every((row) => row.domain_verification_status === "verified"));
     ok(`MSP ${msp.key.toUpperCase()} rows carry all eight domain states`, rows.length > 0 && rows.every((row) => (row.security_domains || row.cyber_mot_domains || []).length === 8));
     const trends = await call("GET", "/api/portfolio/trends", { token: tokens[msp.key] });
     const scanned = (trends.data?.trend || []).reduce((n, day) => n + (day.scans || 0), 0);
