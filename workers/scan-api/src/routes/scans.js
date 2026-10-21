@@ -577,7 +577,7 @@ export async function scanRoutes(rctx) {
             }
             let dataUri = await loadBrandingLogoDataUri(env, branding);
             if (!dataUri && branding?.mode === "cybermeters") dataUri = CYBERMETERS_LOGO_DATA_URI;
-            if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent || "#FFFFFF");
+            if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.mode === "cybermeters" ? "#FFFFFF" : branding.accent || "#FFFFFF");
           } catch { branding = null; logoImage = null; }
 
           // Freeze the Related Changes summary (M6 B1) into the snapshot the first time

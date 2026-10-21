@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
+import { inflateSync } from 'node:zlib';
 import { splitStatements, isToleratedStatement } from './lib/migration-apply-tolerated.js';
 globalThis.fetch = async () => { throw new Error('external network disabled'); };
 const { admitDomainScan, checkScanLimit, checkReportLimit, claimReportOccurrence, getOperationAdmission,
@@ -367,12 +368,12 @@ const { CYBERMETERS_LOGO_DATA_URI } = await import('../workers/scan-api/src/engi
 const { prepareLogoXObject } = await import('../workers/scan-api/src/engines/pdf-image.js');
 const houseImage = await prepareLogoXObject(CYBERMETERS_LOGO_DATA_URI, '#FFFFFF');
 const customerJpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x2A, 0x00, 0x64, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xFF, 0xD9]);
-for (const mode of ['cybermeters', 'co_brand', 'white_label']) {
-  await test(`per-scan PDF embeds the correct frozen ${mode} logo`, async () => {
+for (const [mode, accent] of [['cybermeters', null], ['cybermeters', '#F1F5F9'], ['co_brand', '#123456'], ['white_label', '#123456']]) {
+  await test(`per-scan PDF embeds the correct frozen ${mode} logo (${accent || 'default'})`, async () => {
     const f = setup(), scanId = `logo_${mode}`;
     f.seedSnapshot(scanId);
     const branding = mode === 'cybermeters'
-      ? { mode, source: 'cybermeters', logo_r2_key: null, display_name: 'CyberMeters', accent: null, attribution: 'full' }
+      ? { mode, source: 'cybermeters', logo_r2_key: null, display_name: 'CyberMeters', accent, attribution: 'full' }
       : { mode, source: 'workspace', logo_r2_key: 'branding/wa/fixture.jpg', logo_mime: 'image/jpeg',
           logo_sha256: createHash('sha256').update(customerJpeg).digest('hex'), display_name: 'Customer brand', accent: '#123456', attribution: 'full' };
     f.objects.set('branding/wa/fixture.jpg', customerJpeg);
@@ -384,6 +385,16 @@ for (const mode of ['cybermeters', 'co_brand', 'white_label']) {
     assert(text.includes('/XObject << /Im0 '));
     if (mode === 'cybermeters') {
       assert(text.includes(`/Width ${houseImage.width} /Height ${houseImage.height}`));
+      const image = /\/Subtype \/Image \/Width (\d+) \/Height (\d+) \/ColorSpace \/DeviceRGB \/BitsPerComponent 8 \/Filter \/FlateDecode \/Length (\d+) >>\nstream\n/.exec(text);
+      assert(image, 'the actual PDF must contain the RGB house image');
+      const start = image.index + image[0].length;
+      const rgb = inflateSync(bytes.subarray(start, start + Number(image[3])));
+      const width = Number(image[1]), height = Number(image[2]);
+      assert.equal(rgb.length, width * height * 3);
+      for (const [x, y] of [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]) {
+        const offset = (y * width + x) * 3;
+        assert.deepEqual([...rgb.subarray(offset, offset + 3)], [255, 255, 255], 'embedded house-logo corner must be pure white');
+      }
       assert(bytes.includes(Buffer.from(houseImage.bytes)), 'house transparency must flatten over white');
     } else {
       assert(text.includes('/Width 100 /Height 42'));
