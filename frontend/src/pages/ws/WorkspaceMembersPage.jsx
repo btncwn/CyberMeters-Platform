@@ -16,6 +16,7 @@ import { parseServerDate, formatDay } from '../../utils/dates'
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useAppDialog } from '../../components/AppDialog'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { RefreshCw, ChevronDown } from 'lucide-react'
@@ -190,6 +191,7 @@ function RoleSelector({ currentRole, memberId, workspaceId, callerRole, onChange
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function WorkspaceMembersPage() {
+  const dialog = useAppDialog()
   const [members,      setMembers]      = useState([])
   const [invitations,  setInvitations]  = useState([])
   const [callerRole,   setCallerRole]   = useState(null)
@@ -228,26 +230,26 @@ export default function WorkspaceMembersPage() {
   useEffect(() => { load() }, [load])
 
   async function removeMember(memberId) {
-    if (!window.confirm('Remove this member from the workspace?')) return
+    if (!(await dialog.confirm({ title: 'Remove this member?', message: 'They lose access to this workspace immediately.', confirmLabel: 'Remove member', tone: 'danger' }))) return
     setRemovingId(memberId)
     try {
       await api.removeWorkspaceMember(workspaceId, memberId)
       setMembers(prev => prev.filter(m => m.id !== memberId))
     } catch (e) {
-      alert(e.message || 'Failed to remove member.')
+      await dialog.alert({ title: 'Could not remove the member', message: e.message || 'Failed to remove member.' })
     } finally {
       setRemovingId(null)
     }
   }
 
   async function cancelInvitation(invId) {
-    if (!window.confirm('Cancel this invitation?')) return
+    if (!(await dialog.confirm({ title: 'Cancel this invitation?', message: 'The invitation link stops working.', confirmLabel: 'Cancel invitation', cancelLabel: 'Keep invitation', tone: 'danger' }))) return
     setCancellingId(invId)
     try {
       await api.cancelWorkspaceInvitation(workspaceId, invId)
       setInvitations(prev => prev.filter(i => i.id !== invId))
     } catch (e) {
-      alert(e.message || 'Failed to cancel invitation.')
+      await dialog.alert({ title: 'Could not cancel the invitation', message: e.message || 'Failed to cancel invitation.' })
     } finally {
       setCancellingId(null)
     }
@@ -460,6 +462,7 @@ export default function WorkspaceMembersPage() {
           )}
         </>
       )}
+      {dialog.element}
     </div>
   )
 }

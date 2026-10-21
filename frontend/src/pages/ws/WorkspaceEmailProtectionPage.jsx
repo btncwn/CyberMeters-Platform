@@ -1,5 +1,6 @@
 import { parseServerDate, formatDate, formatNumber, formatDay } from '../../utils/dates'
 import { formatReportTime } from '../../lib/reportTime'
+import { useAppDialog } from '../../components/AppDialog'
 import { MailTransportCard } from '../../components/MailTransportCard'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
@@ -865,6 +866,7 @@ function EnforcementReadiness({ readiness }) {
 // approve (a different person than the requester) or reject with a reason,
 // before it ever touches DNS.
 function ChangeReviewQueue({ wsId }) {
+  const dialog = useAppDialog()
   const [queue, setQueue]   = useState(null) // null=loading, []=empty
   const [failed, setFailed] = useState(false)
   const [busy, setBusy]     = useState(null) // change-request id being actioned
@@ -884,8 +886,14 @@ function ChangeReviewQueue({ wsId }) {
   const act = async (id, to) => {
     let reason
     if (to === 'rejected') {
-      reason = window.prompt('Reason for rejecting this change (required):')
-      if (!reason || !reason.trim()) return
+      reason = await dialog.prompt({
+        title: 'Reject this change',
+        label: 'Reason for rejecting',
+        confirmLabel: 'Reject change',
+        tone: 'danger',
+        required: true,
+      })
+      if (!reason) return
     }
     setBusy(id); setErr(null)
     try {
@@ -951,6 +959,7 @@ function ChangeReviewQueue({ wsId }) {
       <p className="px-6 py-3 text-xs text-gray-400 border-t border-gray-100">
         Approving analyst must differ from the requester. Every decision is recorded in the audit log.
       </p>
+      {dialog.element}
     </section>
   )
 }
@@ -1523,6 +1532,7 @@ function DmarcReportHistory({ wsId, domain }) {
 }
 
 function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
+  const dialog = useAppDialog()
   const [endpoint, setEndpoint] = useState(null)
   const [rawToken, setRawToken] = useState(null) // shown once after create/rotate
   const [loading, setLoading]   = useState(true)
@@ -1542,8 +1552,8 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
 
   useEffect(() => { setRawToken(null); setShowAdvanced(false); load() }, [load])
 
-  async function run(fn, confirmMsg) {
-    if (confirmMsg && !window.confirm(confirmMsg)) return
+  async function run(fn, confirmOptions) {
+    if (confirmOptions && !(await dialog.confirm(confirmOptions))) return
     setBusy(true); setErr(null)
     try {
       const res = await fn()
@@ -1666,10 +1676,10 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                     </div>
                   )}
                   <div className="flex items-center gap-3">
-                    <button onClick={() => run(() => api.rotateDmarcIngestEndpoint(wsId, domain), 'Rotate the upload key? The current token stops working immediately.')} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">
+                    <button onClick={() => run(() => api.rotateDmarcIngestEndpoint(wsId, domain), { title: 'Rotate the upload key?', message: 'The current token stops working immediately.', confirmLabel: 'Rotate key', tone: 'danger' })} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">
                       {rawToken ? 'Rotate again' : 'Generate token'}
                     </button>
-                    <button onClick={() => run(() => api.revokeDmarcIngestEndpoint(wsId, domain), 'Revoke this endpoint? Inbound email and signed uploads will be rejected.')} disabled={busy} className="text-sm text-red-700 hover:text-red-800 font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
+                    <button onClick={() => run(() => api.revokeDmarcIngestEndpoint(wsId, domain), { title: 'Revoke this endpoint?', message: 'Inbound email and signed uploads will be rejected.', confirmLabel: 'Revoke endpoint', tone: 'danger' })} disabled={busy} className="text-sm text-red-700 hover:text-red-800 font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
                       Revoke
                     </button>
                   </div>
@@ -1684,6 +1694,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
         )}
         {err && <span className="text-sm text-red-700">{err}</span>}
       </div>
+      {dialog.element}
     </section>
   )
 }
@@ -1797,6 +1808,7 @@ function TlsRptHealthCard({ wsId, domain }) {
 }
 
 function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
+  const dialog = useAppDialog()
   const [rec, setRec]     = useState(undefined) // undefined=loading, null=none
   const [busy, setBusy]   = useState(null)      // 'create' | 'verify' | 'remove'
   const [error, setError] = useState(null)
@@ -1887,8 +1899,8 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
             )}
             {rec.status !== 'pending_removal' && (
               <button
-                onClick={() => {
-                  if (window.confirm('Stop hosting this record? You will need to publish your own TLS-RPT TXT again.')) {
+                onClick={async () => {
+                  if (await dialog.confirm({ title: 'Stop hosting TLS-RPT?', message: 'You will need to publish your own TLS-RPT TXT record again.', confirmLabel: 'Stop hosting', tone: 'danger' })) {
                     act('remove', () => api.deleteHostedTlsRpt(wsId, domain))
                   }
                 }}
@@ -1907,11 +1919,13 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
           )}
         </div>
       )}
+      {dialog.element}
     </div>
   )
 }
 
 export function ManagedMtaStsCard({ wsId, domain }) {
+  const dialog = useAppDialog()
   const [rec, setRec]     = useState(undefined) // undefined=loading, null=none
   const [busy, setBusy]   = useState(null)      // 'create' | 'verify' | 'remove'
   const [error, setError] = useState(null)
@@ -2046,8 +2060,8 @@ export function ManagedMtaStsCard({ wsId, domain }) {
             )}
             {rec.status !== 'pending_removal' && (
               <button
-                onClick={() => {
-                  if (window.confirm('Stop managing the MTA-STS DNS policy ID? Your HTTPS policy file is not changed by CyberMeters.')) {
+                onClick={async () => {
+                  if (await dialog.confirm({ title: 'Stop managing the MTA-STS policy ID?', message: 'Your HTTPS policy file is not changed by CyberMeters.', confirmLabel: 'Stop DNS management', tone: 'danger' })) {
                     act('remove', () => api.deleteHostedMtaSts(wsId, domain))
                   }
                 }}
@@ -2060,6 +2074,7 @@ export function ManagedMtaStsCard({ wsId, domain }) {
           </div>
         </div>
       )}
+      {dialog.element}
     </div>
   )
 }
@@ -2080,6 +2095,7 @@ export function complianceDetail(compliance) {
 }
 
 export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
+  const dialog = useAppDialog()
   const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
   const [ramp, setRamp]       = useState(null)      // { policyAllowed, compliance, readiness }
   const [busy, setBusy]       = useState(null)      // 'create' | 'verify' | 'remove' | 'policy' | 'step_back' | 'rollback' | 'autopilot'
@@ -2195,8 +2211,8 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
             )}
             {rec.status !== 'pending_removal' && (
               <button
-                onClick={() => {
-                  if (window.confirm('Stop managing this record? You will need to publish your own DMARC TXT again.')) {
+                onClick={async () => {
+                  if (await dialog.confirm({ title: 'Stop managing this DMARC record?', message: 'You will need to publish your own DMARC TXT record again.', confirmLabel: 'Stop managing', tone: 'danger' })) {
                     act('remove', () => api.deleteHostedDmarc(wsId, domain))
                   }
                 }}
@@ -2329,8 +2345,14 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                             return await requestStep(rec.next_step)
                           } catch (e) {
                             if (e?.code === 'readiness_check_failed' || /not ready/i.test(e?.message || '')) {
-                              const reasons = (e?.readiness?.reasons || []).join('\n• ')
-                              if (window.confirm(`Compliance is not ready yet:\n\n• ${reasons}\n\nMove to ${rec.next_step.label} anyway?`)) {
+                              const reasons = (e?.readiness?.reasons || []).map((r) => `• ${r}`).join('\n')
+                              if (await dialog.confirm({
+                                title: `Move to ${rec.next_step.label} anyway?`,
+                                message: `Compliance is not ready yet:\n${reasons}`,
+                                confirmLabel: `Move to ${rec.next_step.label} anyway`,
+                                cancelLabel: `Stay at ${rec.policy_step?.label || 'the current step'}`,
+                                tone: 'danger',
+                              })) {
                                 return await requestStep(rec.next_step, true)
                               }
                               return null
@@ -2378,8 +2400,12 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
 
                   {rec.previous_step?.key && !rec.change_pending && (
                     <button
-                      onClick={() => {
-                        if (window.confirm(`Step back one level to ${rec.previous_step.label}? Receivers will be asked for less strict handling of mail that fails DMARC.`)) {
+                      onClick={async () => {
+                        if (await dialog.confirm({
+                          title: `Step back to ${rec.previous_step.label}?`,
+                          message: 'Receivers will be asked for less strict handling of mail that fails DMARC.',
+                          confirmLabel: `Step back to ${rec.previous_step.label}`,
+                        })) {
                           act('step_back', () => requestStep(rec.previous_step), { reloadAll: true })
                         }
                       }}
@@ -2393,8 +2419,8 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
 
                   {rec.can_rollback && (
                     <button
-                      onClick={() => {
-                        if (window.confirm('Restore the previous policy value?')) {
+                      onClick={async () => {
+                        if (await dialog.confirm({ title: 'Roll back the last change?', message: 'The previous policy value is restored.', confirmLabel: 'Restore previous value' })) {
                           act('rollback', () => api.rollbackHostedDmarc(wsId, domain), { reloadAll: true })
                         }
                       }}
@@ -2412,6 +2438,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
         </div>
       )}
       {error && <p className="text-xs text-red-700 mt-2">{error}</p>}
+      {dialog.element}
     </div>
   )
 }

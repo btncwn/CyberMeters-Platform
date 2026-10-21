@@ -4,6 +4,7 @@
 // validates. The set of allowed actions comes from the server response — the
 // frontend never invents classification states or actions.
 import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
+import { useAppDialog } from '../../components/AppDialog'
 import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -129,6 +130,7 @@ const ACTION_LABEL = Object.fromEntries(
 )
 
 export default function ShadowItInventoryPage() {
+  const dialog = useAppDialog()
   // Workspace comes from the canonical context hook, not a route param — the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
@@ -176,40 +178,43 @@ export default function ShadowItInventoryPage() {
   async function act(item, action) {
     const payload = { action }
     if (action === 'reject' || action === 'retire') {
-      const reason = window.prompt(`Reason for "${action}" of ${item.display_name}:`)
+      const what = action === 'reject' ? 'Reject' : 'Retire'
+      const reason = await dialog.prompt({ title: `${what} ${item.display_name}?`, label: 'Reason', confirmLabel: what, tone: 'danger', required: true })
       if (!reason) return
       payload.reason = reason
     } else if (action === 'mark_exception') {
-      const reason = window.prompt(`Exception reason for ${item.display_name}:`)
+      const reason = await dialog.prompt({ title: `Record an exception for ${item.display_name}`, label: 'Exception reason', confirmLabel: 'Next', required: true })
       if (!reason) return
-      const until = window.prompt('Exception expiry (YYYY-MM-DD):')
+      const until = await dialog.prompt({ title: `Record an exception for ${item.display_name}`, label: 'Exception expiry date', inputType: 'date', confirmLabel: 'Record exception', required: true })
       if (!until) return
       payload.reason = reason
       payload.exception_until = new Date(until).toISOString()
     } else if (action === 'assign_business_owner' || action === 'assign_technical_owner') {
-      const owner = window.prompt(`${action === 'assign_business_owner' ? 'Business' : 'Technical'} owner for ${item.display_name}:`)
+      const roleName = action === 'assign_business_owner' ? 'Business' : 'Technical'
+      const owner = await dialog.prompt({ title: `${roleName} owner for ${item.display_name}`, label: `${roleName} owner`, confirmLabel: 'Assign owner', required: true })
       if (!owner) return
       payload.owner = owner
     } else if (action === 'set_business_purpose') {
-      const purpose = window.prompt(`Business purpose for ${item.display_name}:`)
+      const purpose = await dialog.prompt({ title: `Business purpose for ${item.display_name}`, label: 'Business purpose', confirmLabel: 'Save purpose' })
       if (purpose == null) return
       payload.business_purpose = purpose
     } else if (action === 'reopen_review') {
       // Returns the item to "Not yet classified" — the reason is optional at the
       // backend, so an empty answer is accepted but a cancel aborts.
-      const reason = window.prompt(`Reopen ${item.display_name} for review — reason (optional):`)
+      const reason = await dialog.prompt({ title: `Reopen ${item.display_name} for review?`, label: 'Reason (optional)', confirmLabel: 'Reopen for review' })
       if (reason == null) return
       payload.reason = reason
     } else if (action === 'mark_removed') {
       // Customer assertion, never a CyberMeters verification. The backend records
       // this as `customer_asserted_not_verified`; the confirmation must say the
       // same thing in the customer's own words rather than imply confirmation.
-      const confirmed = window.confirm(
-        `Record that ${item.display_name} has been removed?\n\n` +
-        'This records YOUR assertion. CyberMeters has not verified the removal — ' +
-        'if the technology is still observed externally, this item will be shown ' +
-        'as contradicting your assertion.',
-      )
+      const confirmed = await dialog.confirm({
+        title: `Record that ${item.display_name} has been removed?`,
+        message: 'This records YOUR assertion. CyberMeters has not verified the removal — ' +
+          'if the technology is still observed externally, this item will be shown ' +
+          'as contradicting your assertion.',
+        confirmLabel: 'Record as removed',
+      })
       if (!confirmed) return
     }
     setActionError(null)
@@ -436,6 +441,7 @@ export default function ShadowItInventoryPage() {
         </div>
       )}
       </ModuleContract>
+      {dialog.element}
     </div>
   )
 }

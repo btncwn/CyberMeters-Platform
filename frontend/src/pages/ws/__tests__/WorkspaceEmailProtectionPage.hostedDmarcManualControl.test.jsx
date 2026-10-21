@@ -243,21 +243,39 @@ describe('ManagedDmarcCard — RFC 9989 ladder from the API', () => {
     expect(api.setHostedDmarcPolicy).not.toHaveBeenCalled()
   })
 
-  it('steps back one level by key only after confirmation', async () => {
+  it('steps back one level by key only after confirmation in the in-app dialog', async () => {
     api.getHostedDmarc.mockResolvedValue(ladderResponse(3))
-    const confirm = vi.spyOn(window, 'confirm')
+    const nativeConfirm = vi.spyOn(window, 'confirm')
     render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
     const stepBack = await screen.findByRole('button', { name: 'Step back one level' })
 
-    confirm.mockReturnValueOnce(false)
     fireEvent.click(stepBack)
-    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('Step back one level to Quarantine?'))
+    let dialog = await screen.findByRole('dialog', { name: 'Step back to Quarantine?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(api.setHostedDmarcStep).not.toHaveBeenCalled()
 
-    confirm.mockReturnValueOnce(true)
     fireEvent.click(stepBack)
+    dialog = await screen.findByRole('dialog', { name: 'Step back to Quarantine?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Step back to Quarantine' }))
     await waitFor(() => expect(api.setHostedDmarcStep).toHaveBeenCalledWith(WS_ID, DOMAIN, 'quarantine', false))
-    confirm.mockRestore()
+    expect(nativeConfirm).not.toHaveBeenCalled()
+    nativeConfirm.mockRestore()
+  })
+
+  it('a not-ready advance asks in the in-app dialog, naming the override and the backend reasons', async () => {
+    api.getHostedDmarc.mockResolvedValue(ladderResponse(3))
+    const reason = 'Reports received by email or upload are not counted toward automation (39 arrived in the last 7 days), so neither the 50-message volume nor the 97% pass rate can be measured yet.'
+    api.setHostedDmarcStep
+      .mockRejectedValueOnce(Object.assign(new Error('Compliance is not ready for a stricter policy yet.'), { code: 'readiness_check_failed', readiness: { ready: false, reasons: [reason] } }))
+      .mockResolvedValueOnce({})
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Advance to Reject' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Move to Reject anyway?' })
+    expect(dialog).toHaveTextContent(reason)
+    expect(within(dialog).getByRole('button', { name: 'Stay at Reject (testing)' })).toHaveFocus()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move to Reject anyway' }))
+    await waitFor(() => expect(api.setHostedDmarcStep).toHaveBeenLastCalledWith(WS_ID, DOMAIN, 'reject', true))
   })
 
   it('offers no step back at the bottom of the ladder, while a change is pending, or on a free plan', async () => {

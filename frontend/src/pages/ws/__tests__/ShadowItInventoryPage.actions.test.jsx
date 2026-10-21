@@ -17,11 +17,23 @@
 // deliberately does not touch the ws=<workspace_UUID> URL-parameter observation
 // (I11C-OBS-01), which is a separate, non-gating item.
 // The page body lives on the Findings tab of the area contract (16 Oct 2026); these tests open it there.
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest'
 import ShadowItInventoryPage from '../ShadowItInventoryPage'
+
+// The in-app dialog (components/AppDialog) replaced the browser's prompt/confirm.
+async function answerDialog(value, confirmName) {
+  const dialog = await screen.findByTestId('app-dialog')
+  const input = dialog.querySelector('input')
+  if (input) fireEvent.change(input, { target: { value } })
+  await userEvent.click(within(dialog).getByRole('button', { name: confirmName }))
+}
+async function cancelDialog() {
+  const dialog = await screen.findByTestId('app-dialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+}
 import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
@@ -135,10 +147,10 @@ describe('F-47 — action-set parity', () => {
 describe('F-47 — the six previously missing actions issue correct calls', () => {
   it('assign_technical_owner sends the existing owner field', async () => {
     respond()
-    vi.spyOn(window, 'prompt').mockReturnValue('Dana Ops')
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Technical owner' }))
+    await answerDialog('Dana Ops', 'Assign owner')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
       WS_ID, ITEM_ID, { action: 'assign_technical_owner', owner: 'Dana Ops' },
     ))
@@ -156,10 +168,10 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
 
   it('reopen_review sends the optional reason', async () => {
     respond()
-    vi.spyOn(window, 'prompt').mockReturnValue('vendor contract changed')
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Reopen review' }))
+    await answerDialog('vendor contract changed', 'Reopen for review')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
       WS_ID, ITEM_ID, { action: 'reopen_review', reason: 'vendor contract changed' },
     ))
@@ -167,25 +179,25 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
 
   it('reopen_review aborts when the customer cancels the prompt', async () => {
     respond()
-    vi.spyOn(window, 'prompt').mockReturnValue(null)
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Reopen review' }))
+    await cancelDialog()
     expect(api.shadowItAction).not.toHaveBeenCalled()
   })
 
   it('mark_removed requires confirmation and sends the bare action', async () => {
     respond()
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Mark removed' }))
+    // Evidence honesty: the confirmation must say this is the CUSTOMER's
+    // assertion and must never present it as CyberMeters verification.
+    const copy = (await screen.findByTestId('app-dialog')).textContent
+    await answerDialog(null, 'Record as removed')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
       WS_ID, ITEM_ID, { action: 'mark_removed' },
     ))
-    // Evidence honesty: the confirmation must say this is the CUSTOMER's
-    // assertion and must never present it as CyberMeters verification.
-    const copy = confirm.mock.calls[0][0]
     expect(copy).toMatch(/YOUR assertion/)
     expect(copy).toMatch(/has not verified/i)
     expect(copy).not.toMatch(/\bverified removal\b|\bconfirmed removed\b/i)
@@ -193,10 +205,10 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
 
   it('mark_removed does nothing when the customer declines the confirmation', async () => {
     respond()
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Mark removed' }))
+    await cancelDialog()
     expect(api.shadowItAction).not.toHaveBeenCalled()
   })
 })
@@ -213,10 +225,10 @@ describe('F-47 — previously working actions still work', () => {
 
   it.each(['reject', 'retire'])('%s sends the required reason', async (action) => {
     respond()
-    vi.spyOn(window, 'prompt').mockReturnValue('no longer needed')
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: CONTROL_LABEL[action] }))
+    await answerDialog('no longer needed', action === 'reject' ? 'Reject' : 'Retire')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
       WS_ID, ITEM_ID, { action, reason: 'no longer needed' },
     ))
@@ -224,12 +236,11 @@ describe('F-47 — previously working actions still work', () => {
 
   it('mark_exception sends reason and an ISO expiry', async () => {
     respond()
-    vi.spyOn(window, 'prompt')
-      .mockReturnValueOnce('pending migration')
-      .mockReturnValueOnce('2027-01-31')
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Exception' }))
+    await answerDialog('pending migration', 'Next')
+    await answerDialog('2027-01-31', 'Record exception')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalled())
     const [, , payload] = api.shadowItAction.mock.calls[0]
     expect(payload.action).toBe('mark_exception')
@@ -239,10 +250,10 @@ describe('F-47 — previously working actions still work', () => {
 
   it('assign_business_owner still sends the owner field', async () => {
     respond()
-    vi.spyOn(window, 'prompt').mockReturnValue('Sam Finance')
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Business owner' }))
+    await answerDialog('Sam Finance', 'Assign owner')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
       WS_ID, ITEM_ID, { action: 'assign_business_owner', owner: 'Sam Finance' },
     ))
@@ -250,10 +261,10 @@ describe('F-47 — previously working actions still work', () => {
 
   it('set_business_purpose still accepts an empty answer', async () => {
     respond()
-    vi.spyOn(window, 'prompt').mockReturnValue('')
     mount()
     await screen.findByText('Acme CRM')
     await userEvent.click(screen.getByRole('button', { name: 'Purpose' }))
+    await answerDialog('', 'Save purpose')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
       WS_ID, ITEM_ID, { action: 'set_business_purpose', business_purpose: '' },
     ))

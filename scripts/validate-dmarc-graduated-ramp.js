@@ -219,6 +219,23 @@ ok("low-volume rollback fires once the floor is lowered via override", shouldAut
   ok("receipt: a read failure is unknown, never no reports", broken.pass_rate_unavailable_reason === "unknown" && broken.reports_received === null);
 }
 
+// ── Readiness when reports arrive but none count (21 Oct 2026) ───────────────
+{
+  const uncounted = evaluateRampReadiness({ pass_rate: null, total_messages: 0, days_since_change: 10, reports_received: 39 });
+  ok("uncounted reports: one reason, naming the 39 that arrived and why they do not count",
+    !uncounted.ready && uncounted.reasons.length === 1 &&
+    /not counted toward automation \(39 arrived in the last 7 days\)/.test(uncounted.reasons[0]));
+  ok("uncounted reports: no '0 of 50 messages' or 'no measurement' wording",
+    !uncounted.reasons.some((r) => /0 of \d+ messages|No DMARC compliance measurement/.test(r)));
+  const none = evaluateRampReadiness({ pass_rate: null, total_messages: 0, days_since_change: 10, reports_received: 0 });
+  ok("no reports at all keeps the volume and measurement reasons",
+    none.reasons.length === 2 && /Not enough reporting volume yet/.test(none.reasons[0]) && /No DMARC compliance measurement/.test(none.reasons[1]));
+  const legacy = evaluateRampReadiness({ pass_rate: null, total_messages: 0, days_since_change: 10 });
+  ok("callers without a receipt (autopilot) keep the original reasons", legacy.reasons.length === 2);
+  const counted = evaluateRampReadiness({ pass_rate: 95, total_messages: 80, days_since_change: 10, reports_received: 12 });
+  ok("counted volume is judged on its numbers, whatever arrived", counted.reasons.length === 1 && /pass rate is 95%/.test(counted.reasons[0]));
+}
+
 console.log(`\nDMARC graduated ramp: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("dmarc-graduated-ramp validation FAILED"); process.exit(1); }
 console.log("dmarc-graduated-ramp validation passed");

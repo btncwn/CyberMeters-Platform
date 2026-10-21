@@ -1,5 +1,6 @@
 import { formatDay } from '../../utils/dates'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useAppDialog } from '../../components/AppDialog'
 import { RefreshCw, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
@@ -456,6 +457,7 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
 }
 
 export default function BrandMonitoringPage() {
+  const dialog = useAppDialog()
   const { wsId, wsName, workspaces } = useWorkspace()
   const [profile, setProfile]       = useState(null)
   const [summary, setSummary]       = useState(null)
@@ -581,7 +583,12 @@ export default function BrandMonitoringPage() {
   }
 
   async function handleCaseSubmit(caseRow) {
-    const submission_reference = window.prompt('Submission reference from the registrar or provider')
+    const submission_reference = await dialog.prompt({
+      title: 'Record the takedown submission',
+      label: 'Submission reference from the registrar or provider',
+      confirmLabel: 'Record submission',
+      required: true,
+    })
     if (!submission_reference?.trim()) return
     setBusyId(caseRow.id)
     try {
@@ -742,6 +749,7 @@ export default function BrandMonitoringPage() {
 
       <Toast toast={toast} onClose={() => setToast(null)} />
       </ModuleContract>
+      {dialog.element}
     </WsPage>
   )
 }

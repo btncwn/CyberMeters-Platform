@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
+import { useAppDialog } from '../../components/AppDialog'
 import {
   readinessMeta, coverageMeta, ownershipMeta, verificationMeta, toneClass,
   daysRemainingLabel, isAwaitingVerification, certificateRelationshipMessage,
@@ -23,6 +24,7 @@ function Pill({ meta }) {
 const READINESS_FILTERS = ['', 'critical', 'high', 'preparation', 'planning', 'monitoring', 'expired']
 
 export default function CertificateLifecyclePage() {
+  const dialog = useAppDialog()
   // Workspace comes from the canonical context hook, not a route param — the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
@@ -58,34 +60,45 @@ export default function CertificateLifecyclePage() {
     const payload = { action }
     if (action === 'set_expected_hostnames') {
       const seeded = expectedHostsSourceLabel(item.expected_hostnames_source)
-      const raw = window.prompt(`Expected hostnames for ${item.primary_hostname} (comma-separated)${seeded ? `. ${seeded}.` : ':'}`,
-        (item.expected_hostnames || []).join(', ') || item.primary_hostname)
+      const raw = await dialog.prompt({
+        title: `Expected hostnames for ${item.primary_hostname}`,
+        label: 'Hostnames, separated by commas',
+        hint: seeded ? `${seeded}.` : undefined,
+        defaultValue: (item.expected_hostnames || []).join(', ') || item.primary_hostname,
+        confirmLabel: 'Save hostnames',
+        required: true,
+      })
       if (raw == null) return
       payload.expected_hostnames = raw.split(',').map((h) => h.trim()).filter(Boolean)
     } else if (action === 'assign_business_owner' || action === 'assign_technical_owner' || action === 'assign_renewal_owner') {
       const role = action.replace('assign_', '').replace('_owner', '')
-      const owner = window.prompt(`${role[0].toUpperCase() + role.slice(1)} owner for ${item.primary_hostname}:`)
+      const roleName = role[0].toUpperCase() + role.slice(1)
+      const owner = await dialog.prompt({ title: `${roleName} owner for ${item.primary_hostname}`, label: `${roleName} owner`, confirmLabel: 'Assign owner', required: true })
       if (!owner) return
       payload.owner = owner
     } else if (action === 'record_provider') {
-      const provider = window.prompt(`Certificate provider / CA for ${item.primary_hostname}:`, item.provider || '')
+      const provider = await dialog.prompt({ title: `Certificate provider for ${item.primary_hostname}`, label: 'Provider or certificate authority', defaultValue: item.provider || '', confirmLabel: 'Save provider' })
       if (provider == null) return
       payload.provider = provider
     } else if (action === 'record_replacement_expected') {
-      const when = window.prompt('Expected replacement date (YYYY-MM-DD):')
+      const when = await dialog.prompt({ title: `Expected replacement for ${item.primary_hostname}`, label: 'Expected replacement date', inputType: 'date', confirmLabel: 'Record date', required: true })
       if (!when) return
       payload.replacement_expected_at = new Date(when).toISOString()
     } else if (action === 'record_replacement_completed') {
-      if (!window.confirm('Record that you have installed the replacement certificate?\n\nThis is your assertion only — CyberMeters will NOT mark it verified until it observes a distinct new certificate on the expected hostnames with a later expiry.')) return
+      if (!(await dialog.confirm({
+        title: 'Record that you installed the replacement?',
+        message: 'This is your assertion only. CyberMeters will not mark it verified until it observes a distinct new certificate on the expected hostnames with a later expiry.',
+        confirmLabel: 'Record installation',
+      }))) return
     } else if (action === 'record_exception') {
-      const reason = window.prompt(`Exception reason for ${item.primary_hostname}:`)
+      const reason = await dialog.prompt({ title: `Record an exception for ${item.primary_hostname}`, label: 'Exception reason', confirmLabel: 'Next', required: true })
       if (!reason) return
-      const until = window.prompt('Exception expiry (YYYY-MM-DD):')
+      const until = await dialog.prompt({ title: `Record an exception for ${item.primary_hostname}`, label: 'Exception expiry date', inputType: 'date', confirmLabel: 'Record exception', required: true })
       if (!until) return
       payload.reason = reason
       payload.exception_until = new Date(until).toISOString()
     } else if (action === 'retire') {
-      const reason = window.prompt(`Reason for retiring ${item.primary_hostname}:`)
+      const reason = await dialog.prompt({ title: `Retire ${item.primary_hostname}?`, label: 'Reason for retiring', confirmLabel: 'Retire certificate', tone: 'danger', required: true })
       if (!reason) return
       payload.reason = reason
     }
@@ -241,6 +254,7 @@ export default function CertificateLifecyclePage() {
           </table>
         </div>
       )}
+      {dialog.element}
     </div>
   )
 }
