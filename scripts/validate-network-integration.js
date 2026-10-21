@@ -86,7 +86,18 @@ function message(body){return {id:`msg_${body.scan_id}`,body,attempts:1,acks:0,r
 // unrelated work. A stale network run must become failed, never complete.
 {
  const f=fixture();f.target('t');f.scan('abandoned','t');f.db.prepare("UPDATE network_scans SET created_at=datetime('now','-16 minutes') WHERE id='abandoned'").run();
- const waits=[];await worker.scheduled({cron:'0 * * * *'},f.env,{waitUntil:promise=>waits.push(promise)});await Promise.allSettled(waits);
+ // The hourly entry reads the wall clock, and at 07:00-07:59 UTC it also starts
+ // the daily free-check canary (cron/scheduled.js), which resolves a public DNS
+ // corpus. Run this block at a non-canary hour so it never depends on when CI
+ // happens to run: shift the clock one hour forward only during the 07 UTC hour
+ // (later, never earlier, so the 16-minute-old run stays stale).
+ const RealDate=globalThis.Date;const shift=new RealDate().getUTCHours()===7?3600_000:0;
+ class HourDate extends RealDate{constructor(...a){a.length?super(...a):super(RealDate.now()+shift);}static now(){return RealDate.now()+shift;}}
+ globalThis.Date=HourDate;
+ const waits=[];
+ try{await worker.scheduled({cron:'0 * * * *'},f.env,{waitUntil:promise=>waits.push(promise)});await Promise.allSettled(waits);}
+ finally{globalThis.Date=RealDate;}
+ ok('hourly entry ran outside the 07 UTC canary hour',new RealDate(RealDate.now()+shift).getUTCHours()!==7);
  eq('hourly production hook recovers abandoned network work',f.db.prepare("SELECT status,quality,reason FROM network_scans WHERE id='abandoned'").get(),{status:'failed',quality:null,reason:'network_execution_interrupted'});
  eq('recovery performs no measurement',f.probeCalls,0);eq('recovery creates no receipt',f.objects.size,0);
  ok('existing domain recovery still runs',f.queries.some(sql=>sql.includes('last_heartbeat_at')&&sql.includes('FROM scans')&&sql.includes('ORDER BY created_at ASC')));
