@@ -151,3 +151,33 @@ describe('MCP connections page layout (21 Oct 2026)', () => {
     expect(within(panel).getByRole('link', { name: 'Client setup and compatibility' })).toHaveAttribute('href', 'https://cybermeters.com/support#mcp')
   })
 })
+
+describe('MCP connection names (founder, 21 Oct 2026)', () => {
+  afterEach(() => { auth.token = null; vi.unstubAllGlobals() })
+  const serve = (connections) => vi.stubGlobal('fetch', vi.fn(async (url, init = {}) => ({
+    ok: true, json: async () => (init.method === 'DELETE' ? { revoked: true } : { eligible: true, next_offset: null, connections }),
+  })))
+  const base = { portfolio_read: false, workspace_name: 'Example Ltd', scopes: ['mcp:read'], status: 'active', created_at: '2026-10-21T19:08:00Z', last_used_at: null }
+
+  it('a raw client id is never a card title; the client\'s own name is, labelled as such', async () => {
+    auth.token = 'test-session'
+    serve([
+      { ...base, id: 'mcpconn_1', client_id: 'bhSWf6RgdRikkev-', client_name: 'ChatGPT' },
+      { ...base, id: 'mcpconn_2', client_id: 'NDZYnyivspx-mnsY' },
+    ])
+    render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
+    expect(await screen.findByText('ChatGPT')).toBeInTheDocument()
+    expect(screen.getByText('The name this app gave when it connected')).toBeInTheDocument()
+    expect(screen.getByText(/^AI assistant \(connected /)).toBeInTheDocument()
+    for (const raw of ['bhSWf6RgdRikkev-', 'NDZYnyivspx-mnsY']) expect(screen.queryByText(raw)).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Copy connection ID' }).length).toBe(2)
+  })
+
+  it('the remove dialog names the client the same way', async () => {
+    auth.token = 'test-session'
+    serve([{ ...base, id: 'mcpconn_1', client_id: 'bhSWf6RgdRikkev-', client_name: 'ChatGPT' }])
+    render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove access' }))
+    expect(await screen.findByTestId('app-dialog')).toHaveTextContent('Remove access for ChatGPT?')
+  })
+})

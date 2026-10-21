@@ -15,13 +15,22 @@ const MCP_ENDPOINT = (() => {
   return 'https://mcp.cybermeters.com/mcp'
 })()
 
-function displayClient(value) {
-  if (typeof value !== 'string') return 'Unknown client'
-  try {
-    const url = new URL(value)
-    if (url.protocol === 'https:') return url.hostname
-  } catch { /* A dynamically registered client may have an opaque ID. */ }
-  return value.length <= 80 ? value : `${value.slice(0, 77)}…`
+// A card's title is never a raw client id (design standard §4, founder 21 Oct
+// 2026: three cards read "bhSWf6RgdRikkev-", "GTUBLg6Ee9z9…", "NDZYnyivspx-mnsY").
+// In order: the name the client registered (shown as the name IT gave — not a
+// verified identity), the host of a client whose id is a web address, else a
+// plain "AI assistant" with the date it connected.
+export function displayClient(connection) {
+  const name = typeof connection?.client_name === 'string' ? connection.client_name.replace(/[\u0000-\u001f\u007f]/g, '').trim() : ''
+  if (name) return { title: name.length <= 80 ? name : `${name.slice(0, 77)}…`, givenName: true }
+  const id = connection?.client_id
+  if (typeof id === 'string') {
+    try {
+      const url = new URL(id)
+      if (url.protocol === 'https:') return { title: url.hostname, givenName: false }
+    } catch { /* A dynamically registered client has an opaque id: never shown as its name. */ }
+  }
+  return { title: connection?.created_at ? `AI assistant (connected ${formatDate(connection.created_at)})` : 'AI assistant', givenName: false }
 }
 
 // One card per connection id. The API pages with an offset over a status-ordered
@@ -36,7 +45,8 @@ function ConnectionCard({ connection, busyId, onRevoke }) {
     <li className="rounded-xl border border-gray-200 bg-white p-5 space-y-2" data-testid="mcp-connection">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-semibold text-gray-900">{displayClient(connection.client_id)}</p>
+          <p className="font-semibold text-gray-900">{displayClient(connection).title}</p>
+          {displayClient(connection).givenName && <p className="text-xs text-gray-500">The name this app gave when it connected</p>}
           <InternalIdCopyButton id={connection.id} label="connection" />
           <p className="text-sm text-gray-600">
             {connection.portfolio_read ? 'Selected portfolio access' : `Workspace: ${connection.workspace_name || 'Name unavailable'}`}
@@ -138,7 +148,7 @@ export default function McpConnectionsPage() {
   async function revoke(connection) {
     const id = connection.id
     if (busyId || !token || !BASE) return
-    const client = displayClient(connection.client_id)
+    const client = displayClient(connection).title
     const confirmed = await dialog.confirm({
       title: `Remove access for ${client}?`,
       message: `${client} will no longer be able to read your CyberMeters data. Data it has already received stays with the client under its own terms.`,
