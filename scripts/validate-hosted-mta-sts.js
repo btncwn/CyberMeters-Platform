@@ -283,6 +283,34 @@ ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401
   ok("self policy: a deleted workspace's policy is not served", (await get(FILE)).status === 404);
 }
 
+// ── 8. site-proof.cybermeters.com: the temporary Website/CE proof site ──────
+{
+  db.prepare("INSERT OR IGNORE INTO workspaces (id, name) VALUES ('ws_proof','CyberMeters site proof'), ('ws_intruder','Someone')").run();
+  db.prepare("INSERT OR IGNORE INTO domains (id, user_id, domain) VALUES ('d_proof','u_a','site-proof.cybermeters.com')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification_status, verification_token) VALUES ('ws_proof','d_proof','pending','tok_proof_12345678'), ('ws_intruder','d_proof','pending','tok_intruder_1234')").run();
+  const proofEnv = { ...env, SITE_PROOF_WORKSPACE_ID: "ws_proof" };
+  const get = async (p, { e = proofEnv, method = "GET" } = {}) => {
+    const res = await worker.default.fetch(new Request(`https://site-proof.cybermeters.com${p}`, { method }), e, ctx);
+    return { status: res.status, hsts: res.headers.get("strict-transport-security"), csp: res.headers.get("content-security-policy"), type: res.headers.get("content-type"), body: await res.text() };
+  };
+  const page = await get("/");
+  ok("site proof: / is the marked test page", page.status === 200 && /CyberMeters test page/.test(page.body) && /^text\/html/.test(page.type || ""));
+  ok("site proof: no form, no script, no input", !/<form|<script|<input/i.test(page.body));
+  ok("site proof: HSTS present by default, with the other security headers", page.hsts === "max-age=31536000" && /default-src 'none'/.test(page.csp || ""));
+  ok("site proof: HSTS absent only while SITE_PROOF_HSTS=off", (await get("/", { e: { ...proofEnv, SITE_PROOF_HSTS: "off" } })).hsts === null);
+  const file = await get("/cybermeters-verification-tok_proof_12345678.html");
+  ok("site proof: the pinned workspace's verification file is served", file.status === 200 && file.body === "tok_proof_12345678");
+  ok("site proof: another workspace's token for the same host is never served", (await get("/cybermeters-verification-tok_intruder_1234.html")).status === 404);
+  ok("site proof: an unknown token is 404", (await get("/cybermeters-verification-tok_unknown_000.html")).status === 404);
+  ok("site proof: no pinned workspace → no verification file", (await get("/cybermeters-verification-tok_proof_12345678.html", { e: env })).status === 404);
+  for (const p of ["/login", "/health", "/api/auth/me", "/.well-known/mta-sts.txt", "/?x=1"]) {
+    ok(`site proof host: ${p} is 404`, (await get(p)).status === 404);
+  }
+  ok("site proof host: only GET/HEAD", (await get("/", { method: "POST" })).status === 404);
+  db.prepare("UPDATE workspaces SET deleted_at = datetime('now') WHERE id = 'ws_proof'").run();
+  ok("site proof: a deleted proof workspace verifies nothing", (await get("/cybermeters-verification-tok_proof_12345678.html")).status === 404);
+}
+
 console.log(`\nHosted MTA-STS: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("hosted-mta-sts validation FAILED"); process.exit(1); }
 console.log("hosted-mta-sts validation passed");
