@@ -8,13 +8,13 @@ import { expect } from '@playwright/test'
 const RAW_KEY = /\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b(?:asm|web|email|cert|identity|brand|shadow|ce)\.[a-z_]+\.[a-z_.]+\b|\bmc-[a-f0-9]{6,}\b/g
 
 export async function expectOnePrimaryAction(page, scope = 'main') {
-  const count = await page.locator(`${scope} .btn-primary:visible`).count()
-  expect(count, `visible primary buttons in ${scope}`).toBeLessThanOrEqual(1)
+  const labels = await page.locator(`${scope} .btn-primary:visible`).allInnerTexts()
+  expect(labels.length, `visible primary buttons on ${new URL(page.url()).pathname}: ${labels.join(' | ')}`).toBeLessThanOrEqual(1)
 }
 
 export async function expectNoRawKeys(page, scope = 'main') {
   const text = await page.locator(scope).innerText()
-  expect(text.match(RAW_KEY) || [], 'internal identifiers in visible text').toEqual([])
+  expect(text.match(RAW_KEY) || [], `internal identifiers in visible text on ${new URL(page.url()).pathname}`).toEqual([])
 }
 
 // No two children of each row overlap (time column vs event text, etc.).

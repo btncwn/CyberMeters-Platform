@@ -33,7 +33,7 @@ describe('Website scan overview — recorded evidence, independent of finding co
     expect(screen.getByText('2 present · 1 missing')).toBeInTheDocument()
     expect(screen.getByText('2 cookies observed')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View latest scan evidence' })).toHaveAttribute('href', '/scans/scan-1?view=technical#website-evidence')
-    expect(screen.getByRole('link', { name: 'Recheck this website' })).toHaveAttribute('href', '/scans/new?domain=example.com')
+    expect(screen.queryByRole('link', { name: 'Recheck this website' })).toBeNull() // one scan control per page: the header's Scan now
   })
 
   it('keeps check categories and a first-scan action when no scan exists, without a healthy verdict', async () => {

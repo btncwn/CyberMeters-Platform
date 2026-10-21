@@ -69,7 +69,6 @@ export default function ExternalExposureChecks({ exposure, domain, scanId }) {
             <p><strong>Latest check:</strong> {finding.finding_type === 'observation' ? 'Observation only; no vulnerability is asserted.' : 'The condition was observed in this scan.'}</p>
             <p><strong>Recheck:</strong> {item.retest_requirement}</p>
             <div className="flex flex-wrap gap-3">
-              <Link className="btn-secondary" to={`/scans/new?domain=${encodeURIComponent(domain || '')}`}>Recheck this website</Link>
               {scanId && <Link className="btn-secondary" to={`/scans/${encodeURIComponent(scanId)}?view=technical#website-evidence`}>View scan evidence</Link>}
             </div>
           </div>

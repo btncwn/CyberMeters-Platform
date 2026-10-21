@@ -1,4 +1,4 @@
-import { test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { API_BASE, installAppMock, seedSession, workspace } from './fixtures/app-mock.js'
 import { expectNoOverlap, expectNoRawKeys, expectOnePrimaryAction } from './fixtures/design-guards.js'
 
@@ -35,5 +35,29 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     await expectOnePrimaryAction(page)
     await expectNoRawKeys(page)
     await expectNoOverlap(page, '[data-testid="case-history"] > li')
+  })
+}
+
+// Design standard, page groups 2–3: the eight area pages.
+const AREA_PAGES = ['/ws/email-protection', '/assets', '/ws/website-security', '/ws/identity-exposure', '/ws/shadow-it', '/ws/certificates', '/ws/brand-monitoring', '/ws/cyber-essentials']
+const SCAN_CONTROL = /^(Scan now|Run a scan|Run a fresh scan|Run scan to re-check)$/
+
+for (const [width, height] of [[1440, 900], [390, 844]]) {
+  test(`area pages meet the design standard at ${width}`, async ({ page, context }) => {
+    test.setTimeout(180_000)
+    await page.setViewportSize({ width, height })
+    await seedSession(context)
+    await installAppMock(page)
+    for (const route of AREA_PAGES) {
+      await page.goto(route, { waitUntil: 'networkidle' })
+      await page.getByTestId('module-next-title').waitFor()
+      await page.waitForTimeout(300)
+      // One control per job: never two buttons that start a scan.
+      expect(await page.getByRole('button', { name: SCAN_CONTROL }).count(), `${route}: scan controls`).toBeLessThanOrEqual(1)
+      // One word = one place: the area tab is not a second "Overview".
+      expect(await page.getByRole('tab', { name: 'Overview' }).count(), `${route}: Overview tab`).toBe(0)
+      await expectOnePrimaryAction(page)
+      await expectNoRawKeys(page)
+    }
   })
 }

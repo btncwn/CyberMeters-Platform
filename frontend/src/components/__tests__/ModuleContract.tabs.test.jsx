@@ -42,11 +42,11 @@ describe('ModuleContract — head and tabs', () => {
   it('reaches all five tabs with Tab, arrows, Home and End', async () => {
     const user = userEvent.setup()
     renderPage()
-    const overview = screen.getByRole('tab', { name: 'Overview' })
+    const overview = screen.getByRole('tab', { name: 'Summary' })
     for (let i = 0; i < 30 && document.activeElement !== overview; i++) await user.tab()
     expect(overview).toHaveFocus()
 
-    for (const name of ['Findings', 'Cases', 'Settings', 'Field Guide', 'Overview']) {
+    for (const name of ['Findings', 'Cases', 'Settings', 'Field Guide', 'Summary']) {
       await user.keyboard('{ArrowRight}')
       const target = screen.getByRole('tab', { name })
       expect(target).toHaveFocus()
@@ -101,7 +101,7 @@ describe('ModuleContract — head and tabs', () => {
     expect(screen.queryByText('DMARC policy is p=none')).not.toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['What we observed', 'Do this next', 'Field Guide', 'Scope & limits'])
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
     expect(screen.getByTestId('module-tiles')).toBeInTheDocument()
   })
 
@@ -144,13 +144,13 @@ describe('ModuleContract — head and tabs', () => {
   it('an explicit ?tab=overview with an anchor stays on Overview (a summary block can be a tile target)', () => {
     expect(tabForLocation(new URLSearchParams('tab=overview'), '#brand-summary')).toBe('overview')
     renderPage('/ws/email-protection?tab=overview#x', { overview: <div id="x">anchored summary</div> })
-    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('anchored summary')).toBeInTheDocument()
   })
 
   it('an unknown ?tab= is Overview', () => {
     renderPage('/ws/email-protection?tab=nonsense')
-    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('a deep link into the body — an anchor or another query parameter — opens Findings and scrolls to the anchor', () => {
@@ -191,7 +191,7 @@ describe('ModuleContract — head and tabs', () => {
       )
     }
     render(<MemoryRouter initialEntries={['/ws/email-protection']}><Routes><Route path="*" element={<Page />} /></Routes></MemoryRouter>)
-    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Go to setup' }))
     expect(screen.getByRole('tab', { name: 'Findings' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('setup')).toBeInTheDocument()
@@ -217,7 +217,7 @@ describe('ModuleContract — head and tabs', () => {
     render(<MemoryRouter initialEntries={['/ws/email-protection?tab=cases']}><Routes><Route path="*" element={<Page />} /></Routes></MemoryRouter>)
     expect(screen.getByRole('tab', { name: 'Cases' })).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Go to stats' }))
-    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('statistic cards')).toBeInTheDocument()
     expect(scrolled).toContain('stats')
   })
@@ -233,14 +233,14 @@ describe('ModuleContract — head and tabs', () => {
     ])
     fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
     expect(screen.getByText('No case in this area matches the filter.')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
     fireEvent.change(box, { target: { value: 'dkim' } })
     // The tile whose description names DKIM stays; the others go.
     expect(within(screen.getByTestId('module-tiles')).getAllByRole('link').map(t => t.getAttribute('href'))).toEqual(['/ws/email-protection#auth-detail'])
     fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
     expect(screen.getByText('DKIM selector rotated')).toBeInTheDocument()
     expect(screen.queryByText('DMARC policy is p=none')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
     fireEvent.change(box, { target: { value: 'zzz-nothing' } })
     expect(screen.queryByTestId('module-tiles')).not.toBeInTheDocument()
     fireEvent.change(box, { target: { value: '' } })

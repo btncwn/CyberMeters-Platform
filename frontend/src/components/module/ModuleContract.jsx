@@ -55,7 +55,9 @@ export const MODULE_CONTRACT_SECTIONS = Object.freeze([
 ])
 
 export const MODULE_TABS = Object.freeze([
-  { id: 'overview', label: 'Overview' },
+  // "Summary", not "Overview": the top navigation already has an Overview,
+  // and one word names one place (design standard §2).
+  { id: 'overview', label: 'Summary' },
   { id: 'findings', label: 'Findings' },
   { id: 'cases',    label: 'Cases' },
   { id: 'settings', label: 'Settings' },
@@ -448,7 +450,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
               {shown.map((c) => (
                 <li key={c.case_id || c.id} className="flex items-start justify-between gap-3 py-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{c.title || c.source_finding_type || c.case_type || 'Case'}</p>
+                    <Link to={`/ws/cases/${encodeURIComponent(c.case_id || c.id)}`} className="block text-sm font-semibold text-gray-900 hover:text-brand-800 wrap-break-word">{c.display_title || c.title || 'Case'}</Link>
                     {c.domain && <p className="text-xs text-gray-500 truncate">{c.domain}</p>}
                   </div>
                   <StatusChip status={caseStatus(c)} className="shrink-0" />
@@ -529,7 +531,9 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
             </div>
           </div>
           <div className="flex flex-col items-stretch lg:items-end gap-3 shrink-0">
-            {workspaceId && <ScanNowButton workspaceId={workspaceId} domain={scanDomain} />}
+            {/* One scan control per page (design standard §1): when "Do this next"
+                is the scan, the header has none; otherwise it is a quiet secondary. */}
+            {workspaceId && next.to !== '/scans/new' && <ScanNowButton workspaceId={workspaceId} domain={scanDomain} variant="secondary" />}
             <label className="cm-area-search">
               <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
               <input

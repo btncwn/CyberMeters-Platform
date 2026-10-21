@@ -31,7 +31,8 @@ describe('Public content evidence', () => {
     expect(screen.getByText(/configuration structure/)).toBeInTheDocument()
     expect(screen.getByText(/Restrict the file and replace/)).toBeInTheDocument()
     expect(screen.getByText(/cannot confirm that a previous finding was fixed/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Recheck this website' })).toHaveAttribute('href', '/scans/new?domain=example.com')
+    // One scan control per page (design standard §1): the page header's Scan now, not one per finding.
+    expect(screen.queryByRole('link', { name: 'Recheck this website' })).toBeNull()
   })
   it('renders the observed receipt distribution without dropping unfinished checks', () => {
     mount({ ...exposure, coverage: { completed: 371, blocked: 5, pending: 0, budget_exhausted: 169, uncertain: 8, recorded_total: 384, omitted_checks: 169 } })

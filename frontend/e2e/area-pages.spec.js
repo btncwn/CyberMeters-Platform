@@ -39,7 +39,7 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
         expect(await nextButtons.count()).toBeLessThanOrEqual(1)
         expect(await page.getByTestId('module-figure').count()).toBeLessThanOrEqual(4)
         await expect(page.getByTestId('module-counts').getByRole('button')).toHaveCount(3)
-        await expect(page.getByRole('tab')).toHaveText(['Overview', 'Findings', 'Cases', 'Settings', 'Field Guide'])
+        await expect(page.getByRole('tab')).toHaveText(['Summary', 'Findings', 'Cases', 'Settings', 'Field Guide'])
         await expect(page.getByTestId('module-scope')).toBeVisible()
 
         const text = await page.locator('main').innerText()

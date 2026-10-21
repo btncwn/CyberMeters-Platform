@@ -17,6 +17,18 @@ vi.mock('../../api', () => ({
 vi.mock('../../utils/preload', () => ({ preloadComponent: vi.fn() }))
 vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
+
+// Exactly one scan-starting control per page (design standard §1): "Scan now"
+// in the header, or "Do this next → Run a scan" when the scan is the next job.
+async function findScanControl() {
+  // Wait until the area read settles: while it loads the header carries the
+  // scan; once "Do this next" is the scan, the header has none.
+  await waitFor(() => expect(screen.getByTestId('module-next-title')).not.toHaveTextContent(/^Reading/))
+  const controls = screen.getAllByRole('button', { name: /^(Scan now|Run a scan)$/ })
+  expect(controls).toHaveLength(1)
+  return controls[0]
+}
+
 const verified = (domain, i = 1) => ({ domain, domain_id: `d${i}`, verification_status: 'verified', verified_at: '2026-10-01T00:00:00Z' })
 
 function show(domainKey, props = {}) {
@@ -43,7 +55,7 @@ beforeEach(() => {
 describe('Scan now on every area page', () => {
   it.each(MODULES.map((m) => m.domainKey))('%s: a labelled Scan now starts a scan for the verified domain', async (key) => {
     show(key)
-    const button = await screen.findByRole('button', { name: 'Scan now' })
+    const button = await findScanControl()
     await waitFor(() => expect(button).toBeEnabled())
     fireEvent.click(button)
     await waitFor(() => expect(api.createScan).toHaveBeenCalledWith('example.com', 'ws1'))
@@ -54,7 +66,7 @@ describe('Scan now on every area page', () => {
   it('scans the domain the page is showing when the workspace has several', async () => {
     api.getWorkspaceDomains.mockResolvedValue({ domains: [verified('a.example', 1), verified('b.example', 2)] })
     show('email_protection', { scanDomain: 'b.example' })
-    const button = await screen.findByRole('button', { name: 'Scan now' })
+    const button = await findScanControl()
     await waitFor(() => expect(button).toBeEnabled())
     fireEvent.click(button)
     await waitFor(() => expect(api.createScan).toHaveBeenCalledWith('b.example', 'ws1'))
@@ -64,7 +76,7 @@ describe('Scan now on every area page', () => {
     api.getWorkspaceDomains.mockResolvedValue({ domains: [verified('a.example', 1), verified('b.example', 2)] })
     show('website_security')
     const picker = await screen.findByRole('combobox', { name: 'Domain to scan' })
-    const button = screen.getByRole('button', { name: 'Scan now' })
+    const button = await findScanControl()
     expect(button).toBeDisabled()
     expect(button).toHaveAccessibleDescription('Choose the domain to scan.')
     fireEvent.change(picker, { target: { value: 'a.example' } })
@@ -76,7 +88,7 @@ describe('Scan now on every area page', () => {
   it('stays visible but disabled, with the reason, for a role that cannot scan', async () => {
     api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws1', name: 'Example Ltd', role: 'viewer' }] })
     show('certificates_trust')
-    const button = await screen.findByRole('button', { name: 'Scan now' })
+    const button = await findScanControl()
     await waitFor(() => expect(button).toHaveAccessibleDescription(/cannot start scans\. Ask Taylor Owner/))
     expect(button).toBeDisabled()
     expect(api.createScan).not.toHaveBeenCalled()
@@ -85,7 +97,7 @@ describe('Scan now on every area page', () => {
   it('says so when no domain is verified yet', async () => {
     api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'new.example', domain_id: 'd9', verification_status: 'pending' }] })
     show('attack_surface')
-    const button = await screen.findByRole('button', { name: 'Scan now' })
+    const button = await findScanControl()
     await waitFor(() => expect(button).toHaveAccessibleDescription(/No domain in this workspace is verified yet/))
     expect(button).toBeDisabled()
   })
@@ -93,7 +105,7 @@ describe('Scan now on every area page', () => {
   it('a plan limit is said in words and starts nothing', async () => {
     api.createScan.mockRejectedValue(Object.assign(new Error('limit'), { status: 402, code: 'plan_limit_exceeded' }))
     show('brand_protection')
-    const button = await screen.findByRole('button', { name: 'Scan now' })
+    const button = await findScanControl()
     await waitFor(() => expect(button).toBeEnabled())
     fireEvent.click(button)
     expect(await screen.findByRole('alert')).toHaveTextContent(/did not start/)
