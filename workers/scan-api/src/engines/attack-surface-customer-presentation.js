@@ -183,6 +183,23 @@ function signalMessage(key, state, presentInModel, reason) {
   }
 }
 
+// Customer wording for the counted source gaps an incomplete signal records.
+// Unrecognised codes are not printed; the generic sentence already stands.
+const LIMITATION_COPY = [
+  [/^(\d+)_dns_absent_targets_http_not_assessed$/, (n) => `${n} discovered ${n === "1" ? "hostname has" : "hostnames have"} no DNS address, so ${n === "1" ? "it was" : "they were"} not checked over HTTP.`],
+  [/^(\d+)_targets_unavailable_content_unknown$/, (n) => `${n} ${n === "1" ? "host" : "hosts"} did not return usable content (for example an error status), so ${n === "1" ? "its" : "their"} content is unknown.`],
+];
+function limitationMessage(state, limitations) {
+  if (!["incomplete", "unavailable"].includes(state)) return "";
+  return limitations.map((code) => {
+    for (const [pattern, text] of LIMITATION_COPY) {
+      const match = pattern.exec(code);
+      if (match) return text(match[1]);
+    }
+    return "";
+  }).filter(Boolean).join(" ");
+}
+
 function coverageMessage(key, coverageState, coverage) {
   if (coverageState === "not_recorded") {
     return "Coverage was not recorded for this scan. No completeness conclusion is inferred.";
@@ -242,6 +259,8 @@ function presentSignal(key, rawSignal, presentInModel) {
     raw?.reason,
   );
   const boundedMessage = coverageMessage(key, coverageState, coverage);
+  const limitations = stringArray(raw?.limitations ?? raw?.limitations_json);
+  const whyMessage = limitationMessage(state, limitations);
   const { statement, caveat } = splitObservationCaveat(baseMessage);
   return {
     signal_key: key,
@@ -249,7 +268,7 @@ function presentSignal(key, rawSignal, presentInModel) {
     status: presentInModel ? "recorded" : "not_recorded",
     state,
     state_label: SIGNAL_STATE_LABELS[state],
-    customer_message: [baseMessage, boundedMessage].filter(Boolean).join(" "),
+    customer_message: [baseMessage, whyMessage, boundedMessage].filter(Boolean).join(" "),
     statement,
     caveat,
     coverage_message: boundedMessage || null,
@@ -258,7 +277,7 @@ function presentSignal(key, rawSignal, presentInModel) {
       ? Number(raw.evidence_count)
       : 0,
     sources: stringArray(raw?.sources ?? raw?.sources_json),
-    limitations: stringArray(raw?.limitations ?? raw?.limitations_json),
+    limitations,
     coverage_state: coverageState,
     coverage,
   };

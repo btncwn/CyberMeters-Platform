@@ -58,6 +58,10 @@ function mutateSource(source) {
       'if (observationState !== "not_observed") return base;',
       'if (false) return base;',
     ],
+    "cloud-gap-unstated": [
+      "limitations: [...new Set(gating.flatMap((dependency) =>",
+      "limitations: [] || [...new Set(gating.flatMap((dependency) =>",
+    ],
     "observed-keeps-counter": [
       "qualifying_observations: [],",
       "qualifying_observations: previousRows,",
@@ -184,6 +188,33 @@ ok("a stored vulnerability-data module creates no signal",
   !("cve" in mixed.signals) && !("kev" in mixed.signals));
 eq("cloud negative with incomplete source evidence is incomplete",
   mixed.signals.cloud_storage.state, "incomplete");
+// It states which source gap held it incomplete (21 Oct 2026: the live report
+// read "Cloud storage: Incomplete" with no reason).
+ok("incomplete cloud storage records the source gaps that held it",
+  mixed.signals.cloud_storage.limitations.length > 0,
+  JSON.stringify(mixed.signals.cloud_storage.limitations));
+{
+  const { buildAttackSurfaceCustomerPresentation } = await import(pathToFileURL(path.join(
+    path.dirname(modelPath), "attack-surface-customer-presentation.js")).href);
+  const gapped = deriveAttackSurfaceSignalCompleteness({
+    subdomains: { items: ["app.example.com"], source: "dns_discovery" },
+    dns: { resolution_assessed: true, resolves_any: true, a_records: [{ value: "203.0.113.10" }], aaaa_records: [] },
+    asset_exposure: { checked: 3, reachable: 1, assets: [
+      { host: "app.example.com", reachable: true, status: 200 },
+      { host: "staging.example.com", reachable: true, status: 503, probe_status: "target_unavailable", server_error_statuses: [503, 503] },
+      { host: "old.example.com", reachable: null, reason: "authoritative_no_address" },
+    ] },
+    subdomain_takeover: { checked: 1, potential_risks: 0, risks: [], lookup_failed_hosts: [], unconfirmed: [] },
+    cloud_storage_discovery: { checked: 3, total: 0, candidates: [], findings: [] },
+  });
+  const cloud = gapped.signals.cloud_storage;
+  eq("a 503 host keeps cloud storage incomplete", cloud.state, "incomplete");
+  const message = buildAttackSurfaceCustomerPresentation({ signalCompleteness: gapped })
+    ?.signals?.cloud_storage?.customer_message || "";
+  ok("the cloud storage message says which hosts could not be checked",
+    /did not return usable content/.test(message), message);
+  ok("the message never prints a raw limitation code", !/_targets_|_not_assessed/.test(message), message);
+}
 
 const dnsAbsent = deriveAttackSurfaceSignalCompleteness({
   dns: { resolution_assessed: true, resolves_any: false, resolves: false },

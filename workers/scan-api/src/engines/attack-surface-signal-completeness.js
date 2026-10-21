@@ -522,12 +522,17 @@ function resolveCloudStorage(modules, dependencies) {
       limitations: [cloud.incomplete_reason],
     });
   }
-  if (dependencies.some((dependency) =>
+  const gating = dependencies.filter((dependency) =>
     ["unavailable", "incomplete"].includes(dependency.state) ||
     dependency.limitations.length > 0
-  )) {
+  );
+  if (gating.length) {
+    // Carry the source gaps so the signal records which hosts could not be
+    // checked, rather than reading "incomplete" with no reason.
     return signal("incomplete", "cloud_storage_source_evidence_incomplete", {
       sources: ["cloud_storage_discovery"],
+      limitations: [...new Set(gating.flatMap((dependency) =>
+        dependency.limitations.length ? dependency.limitations : [dependency.reason]))],
     });
   }
   if (!Number.isFinite(Number(cloud.checked)) ||
