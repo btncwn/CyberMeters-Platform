@@ -2700,7 +2700,7 @@ function isStagingMcpAuthMaintenanceAllowed(request, env) {
   } catch { return false; }
 }
 
-export default {
+const scanApi = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     // Build CORS headers once per request, honouring the ALLOWED_ORIGIN binding.
@@ -3154,6 +3154,21 @@ export default {
   // invokes this for every message. Both Worker entries inject the SAME
   // cycle-safe canonical limiter; missing wiring is a hard failure.
   email: (message, env, ctx) => handleInboundEmail(message, env, ctx, { consumeApiRateLimit, rateLimitScopeId }),
+};
+
+// JSON responses get this policy from buildJsonHeaders. Apply the same policy
+// at the shared boundary for preflights, downloads and immutable redirects too,
+// preserving their bodies, status codes and existing headers.
+export default {
+  ...scanApi,
+  async fetch(request, env, ctx) {
+    const response = await scanApi.fetch(request, env, ctx);
+    const robots = buildJsonHeaders()["X-Robots-Tag"];
+    if (response.headers.get("X-Robots-Tag") === robots) return response;
+    const headers = new Headers(response.headers);
+    headers.set("X-Robots-Tag", robots);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  },
 };
 
 // ── Test-only named exports ──────────────────────────────────────────────────
