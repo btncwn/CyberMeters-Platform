@@ -210,9 +210,23 @@ ok("wrangler.toml declares a custom_domain route (the thing that makes a hostnam
    customDomains.length > 0,
    "no [[routes]] with custom_domain=true — then no hostname serves the Worker and " +
    "every documented base below is fiction, exactly as it was before this suite");
+// Single-purpose hosts are not API hosts: each serves one fixed file and is cut
+// off before any API routing. Exempt only if the Worker really does that — its
+// fetch handler must test the host as the very first thing after parsing the URL.
+const NON_API_HOSTS = Object.freeze({
+  "mta-sts.cybermeters.com": "    if (isMtaStsSelfHost(url)) return handleMtaStsSelf(request, env);",
+});
+const workerIndex = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
+const fetchHead = workerIndex.slice(workerIndex.indexOf("async fetch(request, env, ctx) {")).split("\n").slice(1, 5).join("\n");
+for (const [host, guard] of Object.entries(NON_API_HOSTS)) {
+  if (!customDomains.includes(host)) continue;
+  ok(`${host} is cut off before any API route`, fetchHead.includes("const url = new URL(request.url);") && fetchHead.includes(guard),
+     `${host} is a custom domain but the fetch handler does not short-circuit it first`);
+}
+const apiHosts = customDomains.filter((host) => !(host in NON_API_HOSTS));
 ok("wrangler.toml declares exactly one canonical API host",
-   customDomains.length <= 1,
-   `multiple custom domains: ${customDomains.join(", ")} — which one do the docs mean?`);
+   apiHosts.length <= 1,
+   `multiple custom domains: ${apiHosts.join(", ")} — which one do the docs mean?`);
 
 // The workers.dev developer hostname is retired for production (10 Oct 2026): the
 // canonical custom domain is the only host, and rollback is `wrangler versions deploy`
@@ -237,8 +251,8 @@ ok("no wrangler.toml value points at the retired workers.dev hostname",
    !wranglerRefsWorkersDev || workersDevExplicitlyOn,
    "a config value (e.g. MICROSOFT_REDIRECT_URI) targets a hostname that no longer serves");
 
-if (customDomains.length === 1) {
-  const CANONICAL = customDomains[0];
+if (apiHosts.length === 1) {
+  const CANONICAL = apiHosts[0];
   const hostOf = (u) => { try { return new URL(u).host; } catch { return null; } };
 
   ok("the canonical host is a bare hostname (no scheme, no path, no trailing slash)",

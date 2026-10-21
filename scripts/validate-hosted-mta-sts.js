@@ -184,6 +184,50 @@ ok("row moved to pending_removal", db.prepare("SELECT verification_state v FROM 
 ok("non-member is denied another workspace (403)", (await call("POST", "/api/workspaces/ws_b/domains/acme.co.uk/hosted-mta-sts", TOKEN)).status === 403);
 ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401);
 
+// ── 7. mta-sts.cybermeters.com serves our own pinned policy, nothing else ───
+// The customer hosts the policy file (boundary above); for CyberMeters' own
+// domain this Worker is that host (routes/mta-sts-self.js).
+{
+  const SELF = "ws_self";
+  const POLICY = "version: STSv1\nmode: testing\nmx: route1.mx.cloudflare.net\nmx: route2.mx.cloudflare.net\nmax_age: 604800\n";
+  db.prepare("INSERT OR IGNORE INTO workspaces (id, name) VALUES ('ws_self','CyberMeters'), ('ws_other_cm','Someone else')").run();
+  const seedPolicy = (id, ws, content, state = "connected", updated = "2026-10-21 08:00:00") => db.prepare(
+    `INSERT INTO hosted_dns_entries (id, workspace_id, domain, record_kind, customer_name, target_name, target_value, verification_state, policy_content, updated_at)
+     VALUES (?, ?, 'cybermeters.com', 'mtasts', '_mta-sts.cybermeters.com', ?, 'v=STSv1; id=1', ?, ?, ?)`,
+  ).run(id, ws, `${id}.dmarc.cybermeters.com`, state, content, updated);
+  const selfEnv = { ...env, MTA_STS_SELF_WORKSPACE_ID: SELF };
+  const get = async (url, { method = "GET", e = selfEnv } = {}) => {
+    const res = await worker.default.fetch(new Request(url, { method }), e, ctx);
+    return { status: res.status, type: res.headers.get("content-type"), body: await res.text() };
+  };
+  const FILE = "https://mta-sts.cybermeters.com/.well-known/mta-sts.txt";
+
+  ok("self policy: 404 before anything is pinned", (await get(FILE)).status === 404);
+  // Another workspace's record for the same domain is never served.
+  seedPolicy("hd-other", "ws_other_cm", "version: STSv1\nmode: enforce\nmx: evil.example\nmax_age: 86400\n", "connected", "2026-10-21 09:00:00");
+  ok("self policy: another workspace's record is never served", (await get(FILE)).status === 404);
+  seedPolicy("hd-self", SELF, POLICY);
+  const served = await get(FILE);
+  ok("self policy: serves the pinned content byte for byte", served.status === 200 && served.body === POLICY);
+  ok("self policy: as text/plain (RFC 8461 section 3.2)", /^text\/plain/.test(served.type || ""));
+  ok("self policy: no workspace pinned → 404", (await get(FILE, { e: env })).status === 404);
+  ok("self policy: only GET", (await get(FILE, { method: "POST" })).status === 404 && (await get(FILE, { method: "PUT" })).status === 404);
+  ok("self policy: any other path is 404", (await get("https://mta-sts.cybermeters.com/")).status === 404
+     && (await get("https://mta-sts.cybermeters.com/.well-known/mta-sts.txt/")).status === 404
+     && (await get(`${FILE}?x=1`)).status === 404);
+  // The host is checked before routing: no API route answers on it.
+  for (const p of ["/health", "/ready", "/api/auth/me", "/authorize", "/.well-known/oauth-authorization-server", "/api/workspaces/ws_a/domains/acme.co.uk/hosted-mta-sts"]) {
+    const r = await get(`https://mta-sts.cybermeters.com${p}`);
+    ok(`self policy host: ${p} reaches no API route`, r.status === 404 && r.body === "Not found\n");
+  }
+  ok("self policy: the API host still does not serve the file", (await get(`https://api.cybermeters.com/.well-known/mta-sts.txt`)).body !== POLICY);
+  db.prepare("UPDATE hosted_dns_entries SET verification_state='pending_removal' WHERE id='hd-self'").run();
+  ok("self policy: a record being removed is not served", (await get(FILE)).status === 404);
+  db.prepare("UPDATE hosted_dns_entries SET verification_state='connected' WHERE id='hd-self'").run();
+  db.prepare("UPDATE workspaces SET deleted_at = datetime('now') WHERE id = 'ws_self'").run();
+  ok("self policy: a deleted workspace's policy is not served", (await get(FILE)).status === 404);
+}
+
 console.log(`\nHosted MTA-STS: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("hosted-mta-sts validation FAILED"); process.exit(1); }
 console.log("hosted-mta-sts validation passed");
