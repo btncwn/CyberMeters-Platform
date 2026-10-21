@@ -46,10 +46,12 @@ export const CE_EVENT_BASELINE           = "baseline_established";
 export const CE_EVENT_RECOVERED          = "control_recovered";
 export const CE_EVENT_UNKNOWN            = "control_evidence_unknown";
 export const CE_EVENT_CASE_LINKED        = "case_linked";
+// A gap cleared on a control that is still not ready: history, never an alert.
+export const CE_EVENT_IMPROVED           = "control_evidence_improved";
 
 export const CE_NON_ALERTABLE_EVENT_TYPES = Object.freeze([
   CE_EVENT_WORKSPACE_BASELINE, CE_EVENT_BASELINE, CE_EVENT_RECOVERED,
-  CE_EVENT_UNKNOWN, CE_EVENT_CASE_LINKED,
+  CE_EVENT_UNKNOWN, CE_EVENT_CASE_LINKED, CE_EVENT_IMPROVED,
 ]);
 
 // The two actionable readiness transitions. Deliberately few: CE re-frames evidence
@@ -222,7 +224,7 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
     const byKey = new Map(existing.map((r) => [r.control_key, r]));
 
     const seeding = !(await workspaceIsBaselined(env, workspaceId));
-    let created = 0, transitions = 0, alerts = 0, recovered = 0, unknown = 0;
+    let created = 0, transitions = 0, alerts = 0, recovered = 0, unknown = 0, improved = 0;
 
     for (const category of (readiness.categories || [])) {
       const g = gradeCeControl(category);
@@ -359,7 +361,26 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
       if (nextMonitoring === "baseline") continue;
 
       // not_ready: newly not-ready, or a NEW gap on an already-not-ready control.
-      const worsened = rec.readiness_state === "not_ready" && rec.recurrence_band && band !== rec.recurrence_band;
+      // Direction comes from the evidence SETS, not from "the band moved": a gap
+      // that cleared while others remain is an improvement, and calling it
+      // "worsened" told the customer the opposite of what was observed (P1, found
+      // live on 21 Oct 2026: HSTS fixed → a "has worsened" email). An improvement
+      // is recorded, the case stays open for the gaps that remain, nothing alerts.
+      const previousRefs = new Set(String(rec.recurrence_band ?? "").split("|").filter(Boolean));
+      const gainedGap = String(band ?? "").split("|").filter(Boolean).some((id) => !previousRefs.has(id));
+      if (rec.readiness_state === "not_ready" && previousRefs.size > 0 && !gainedGap) {
+        await appendEvent(env, {
+          workspace_id: workspaceId, record_id: rec.id, event_type: CE_EVENT_IMPROVED,
+          detail: {
+            reason: "external_evidence_improved", control_key: g.control_key, control_label: g.label,
+            from_evidence_fingerprint: rec.evidence_fingerprint, to_evidence_fingerprint: g.fingerprint,
+            scan_id: scanId,
+          },
+        }).catch(() => {});
+        improved++;
+        continue;
+      }
+      const worsened = rec.readiness_state === "not_ready" && previousRefs.size > 0 && gainedGap;
       const rec2 = worsened ? CE_RECURRENCE_WORSENED : CE_RECURRENCE_NOT_READY;
       await appendEvent(env, {
         workspace_id: workspaceId, record_id: rec.id, event_type: MONITORING_CHANGED,
@@ -394,7 +415,7 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
       }).catch(() => {});
     }
 
-    return { evaluated: (readiness.categories || []).length, created, transitions, alerts, recovered, unknown, seeding };
+    return { evaluated: (readiness.categories || []).length, created, transitions, alerts, recovered, unknown, improved, seeding };
   } catch (err) {
     console.error("[ce-lifecycle] evaluation failed", JSON.stringify({ workspace_id: workspaceId, reason: err?.message }));
     return { skipped: "evaluator_error" };
