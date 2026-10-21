@@ -31,7 +31,7 @@ describe('Email Protection DNS connection integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Connect Cloudflare' }))
     expect(await screen.findByText(/Connected zone:/)).toHaveTextContent('example.com')
     expect(api.connectDns).toHaveBeenCalledWith('workspace-a', 'example.com', expect.objectContaining({ token: 'synthetic-token' }), expect.any(Object))
-    expect(screen.getByRole('link', { name: 'Run a scan' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run a scan' })).toBeInTheDocument()
     // Selection also scopes the existing guided page's read paths to this domain.
     expect(api.getDmarcSummary).toHaveBeenLastCalledWith('workspace-a', 'example.com')
     expect(api.getEmailSenders).toHaveBeenLastCalledWith('workspace-a', 'example.com')

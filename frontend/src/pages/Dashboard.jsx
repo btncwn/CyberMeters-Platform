@@ -9,6 +9,7 @@ import { NextActionCard } from '../components/overview/SecurityOverview'
 import SetupCard from '../components/SetupCard'
 import { useWorkspaceRole } from '../hooks/useWorkspaceRole'
 import ScanNowButton from '../components/ScanNowButton'
+import NextActionsList from '../components/overview/NextActionsList'
 import { formatDate } from '../utils/dates'
 import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
@@ -486,7 +487,11 @@ export default function Dashboard() {
 
       {/* The next thing to do, from real signals only — the same ladder the
           workspace overview uses (one component, one place). */}
-      <NextActionCard signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0, dmarcConnected }} />
+      {/* One ordered list across all eight areas (founder, 21 Oct 2026). Before a
+          first scan or without a workspace, the single-step ladder still guides. */}
+      {activeWorkspaceId && hasCompletedScan
+        ? <NextActionsList workspaceId={activeWorkspaceId} domains={motDomains} request={motRequest} dmarcConnected={dmarcConnected} scanDomain={latestScan?.domain || null} />
+        : <NextActionCard signals={{ domainCount, hasCompletedScan, scorecard, critical: ins.criticalCount ?? 0, high: ins.highCount ?? 0, dmarcConnected }} />}
 
       {/* Recent Scans (compact) */}
       {scans.length > 0 && (

@@ -1980,7 +1980,7 @@ export function ManagedMtaStsCard({ wsId, domain }) {
     : null
 
   return (
-    <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5">
+    <div id="mta-sts-setup" className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5 scroll-mt-24">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">
@@ -2262,7 +2262,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
           {/* Manual governed changes remain available while external/RUA-driven
               automation is suspended. Self-Driving DMARC is gated separately. */}
           {rec.status === 'connected' && rec.policy_step && (
-            <div className="pt-5 mt-4 border-t border-brand-100 space-y-5">
+            <div id="dmarc-enforcement" className="pt-5 mt-4 border-t border-brand-100 space-y-5 scroll-mt-24">
               <div className="flex items-end justify-between gap-3 flex-wrap">
                 <div>
                   <h4 className="text-base font-bold text-gray-900">Enforcement journey</h4>

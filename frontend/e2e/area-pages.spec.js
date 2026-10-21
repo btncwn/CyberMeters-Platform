@@ -62,7 +62,8 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     test('Identity Exposure has a real empty state with one button', async ({ page }) => {
       await page.goto('/ws/identity-exposure')
       await expect(page.getByTestId('identity-empty')).toContainText('This page fills after a scan')
-      await expect(page.getByTestId('module-next-action')).toHaveText('Run a scan')
+      // "Run a scan" starts the scan in place rather than linking away (21 Oct 2026).
+      await expect(page.getByTestId('module-next-action-scan').getByRole('button', { name: 'Run a scan' })).toBeVisible()
     })
 
     test('Cyber Essentials: "Start questionnaire" is the next action until complete', async ({ page }) => {
