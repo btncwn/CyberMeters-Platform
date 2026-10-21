@@ -469,12 +469,22 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   if (attackScore  < 70) weakAreas.push("attack surface exposure");
   if (brandScore   < 70) weakAreas.push("brand protection");
 
+  // One object, one verdict (21 Oct 2026): the sentence is written from the
+  // SAME band and the SAME top-risk list the header shows. It used the legacy
+  // grade_label scale (80/60/40/20) and printed "No major gaps detected"
+  // whenever no category was below 70, so BRI 89 read "Moderate" in the
+  // header and "low risk, no major gaps" beneath it while naming two risks.
+  const verdict = band.replace(/ Business Risk$/, "").toLowerCase();
+  const namedRisks = topRisks.map((risk) => risk.title).filter(Boolean).slice(0, 2);
   let summary;
-  if (weakAreas.length === 0) {
-    summary = `Business risk posture is ${grade_label.toLowerCase()}. No major gaps detected across email security, website trust, operational continuity, attack surface, or brand protection.`;
+  if (namedRisks.length > 0) {
+    summary = `Business risk is ${verdict}. The top risks are: ${namedRisks.join(" and ")}. Addressing these will have the greatest impact on reducing commercial and reputational exposure.`;
+  } else if (weakAreas.length > 0) {
+    summary = `Business risk is ${verdict}. Primary concerns are in ${weakAreas.slice(0, 2).join(" and ")}. Addressing these areas will have the greatest impact on reducing commercial and reputational exposure.`;
+  } else if (band === "Low Business Risk") {
+    summary = "Business risk is low. No major gaps detected across email security, website trust, operational continuity, attack surface, or brand protection.";
   } else {
-    const focus = weakAreas.slice(0, 2).join(" and ");
-    summary = `Business risk posture is ${grade_label.toLowerCase()}. Primary concerns are in ${focus}. Addressing these areas will have the greatest impact on reducing commercial and reputational exposure.`;
+    summary = `Business risk is ${verdict}. No single major gap stands out; several smaller issues together set this level.`;
   }
 
   const categories = {
