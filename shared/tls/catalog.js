@@ -19,8 +19,15 @@ export const TLS_APPLICATIONS = Object.freeze({
   pop3s:Object.freeze([995]),
 });
 export const TLS_SPECIAL_CONTROLS = Object.freeze(['heartbleed','robot','ccs']);
-// Customer consent and live scope rechecks still gate every special slice.
-export const TLS_SPECIAL_CONTROLS_AVAILABLE = true;
+// Containment (21 Oct 2026): OFF. The only consent model is workspace-wide and
+// does not exclude shared provider infrastructure, so Heartbleed/ROBOT/CCS were
+// sent to a CDN's shared edge (a cybermeters.com scan at 17:35 UTC probed
+// 104.21.84.8). The founder's design requires per-domain consent AND customer-
+// owned addresses only (S3-CONSENT). With this off the planner records these
+// controls as unexecutable, the probe contract refuses them and the consent
+// route will not enable them. Re-enable only with the per-domain, owned-address
+// gate in place.
+export const TLS_SPECIAL_CONTROLS_AVAILABLE = false;
 export const TLS_CONTROLS = Object.freeze([
   'protocol','cipher','key_exchange','certificate','ocsp','compression',
   'secure_renegotiation','fallback_scsv','extended_master_secret',

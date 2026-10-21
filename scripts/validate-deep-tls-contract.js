@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateTlsAssessmentRequest, projectTlsCollectorReceipt, validateTlsAssessmentReceipt, validateTlsEngineResult } from '../workers/network-probe/src/tls-contract.js';
 import { parseTlsDnsAnswers, buildTlsCheckPlan, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
+import { TLS_SPECIAL_CONTROLS_AVAILABLE } from '../shared/tls/catalog.js';
 import { collectTlsAssessment } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { buildScanQuality } from '../workers/scan-api/src/engines/scan-engine.js';
 import { resolveAssessmentPresentation } from '../workers/scan-api/src/engines/assessment-presentation.js';
@@ -87,9 +88,11 @@ const secret=structuredClone(receipt);secret.results[0].evidence.raw_server_text
 assert.equal(validateTlsAssessmentReceipt(request,secret,{now:now+100}).ok,false,'receipt must reject extra server text');
 const authorizedSpecial={...request,checks:[{control:'heartbleed',protocol:'tls1_2',cipher_id:null}],max_connections:1,
   scope:{...request.scope,special_consent:true,consent_version:'tls-special-2026-10-13'}};
-assert.equal(validateTlsAssessmentRequest(authorizedSpecial,now).ok,true);
-assert.equal(validateTlsAssessmentRequest({...authorizedSpecial,max_connections:2},now).reason,'invalid_budget');
-assert.equal(validateTlsAssessmentRequest({...authorizedSpecial,checks:[...authorizedSpecial.checks,request.checks[0]]},now).reason,'special_slice_required');
+// Containment (21 Oct 2026): special controls are unavailable until the
+// per-domain, owned-address consent gate exists. Even a consented request is
+// refused by the probe contract.
+assert.equal(TLS_SPECIAL_CONTROLS_AVAILABLE,false,'intrusive TLS controls stay contained');
+assert.equal(validateTlsAssessmentRequest(authorizedSpecial,now).reason,'control_unavailable');
 assert.deepEqual(parseTlsDnsAnswers([
   ['A',{Status:0,Answer:[{type:5,name:'mail.acme.org.',data:'edge.provider.net.'},{type:1,name:'edge.provider.net.',data:'8.8.8.8'},
     {type:1,name:'evilmail.acme.org.',data:'1.1.1.1'},{type:1,name:'mail.acme.org.',data:'127.0.0.1'}]}],
@@ -128,11 +131,16 @@ try{
 const tiny=buildBudgetedTlsCheckPlan({endpoints:thirteen,cipherCatalog:[],observedHttpsHosts:thirteen.map(entry=>entry.endpoint.hostname),maxChecks:20});
 assert(tiny.deferred_hosts.some(row=>row.reason==='tls_plan_budget'),'over-cap hosts are deferred with a reason');
 assert(plan.selected.some(row=>row.check.control==='cipher'&&row.check.protocol==='tls1_2'));
-assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='not_authorized'));
+// Contained: availability is checked before consent, so an unconsented endpoint
+// also records the special controls as unexecutable (never run, never passed).
+assert(plan.static_results.some(row=>row.check.control==='heartbleed'&&row.state==='unexecutable'));
 const consentedPlan=buildTlsCheckPlan({endpoints:[{...endpoint,scope:{...endpoint.scope,special_consent:true,
   consent_version:'tls-special-2026-10-13'}}],maxChecks:512});
-assert(consentedPlan.selected.some(row=>['heartbleed','robot','ccs'].includes(row.check.control)));
-assert.equal(consentedPlan.selected.filter(row=>['heartbleed','robot','ccs'].includes(row.check.control)).length,10);
+// Contained: even with workspace consent, no special control is selected; each
+// is recorded unexecutable, never as a passed check.
+assert.equal(consentedPlan.selected.filter(row=>['heartbleed','robot','ccs'].includes(row.check.control)).length,0);
+assert(consentedPlan.static_results.filter(row=>['heartbleed','robot','ccs'].includes(row.check.control)).every(row=>['unexecutable','not_applicable'].includes(row.state)));
+assert(consentedPlan.static_results.some(row=>row.check.control==='heartbleed'));
 assert(plan.static_results.some(row=>row.check.control==='early_data'&&row.check.protocol==='tls1_2'&&row.state==='not_applicable'));
 assert(plan.static_results.some(row=>row.check.control==='cipher'&&row.check.protocol==='ssl2'&&row.state==='unexecutable'));
 const tlsPartial={source:'tls_assessment',quality:'partial',coverage:{omitted_checks:1176,uncertain:395,
