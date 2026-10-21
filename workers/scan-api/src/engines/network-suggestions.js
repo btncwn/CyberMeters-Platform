@@ -153,6 +153,24 @@ export async function resolveHostAddresses(hosts = [], { dnsQueryImpl = dnsQuery
 // registeredAddresses: every address already covered by a network target.
 // resolved: Map(host -> addresses) from resolveHostAddresses.
 export function buildNetworkSuggestions({ assets = [], registeredAddresses = [], resolved = new Map() } = {}) {
+  const all = groupObservedAddresses({ assets, registeredAddresses, resolved });
+  const ownServers = all.filter((row) => row.recommendation !== "provider_infrastructure");
+  return {
+    version: NETWORK_SUGGESTION_VERSION,
+    suggestions: all.slice(0, NETWORK_SUGGESTION_LIMITS.suggestions),
+    truncated: all.length > NETWORK_SUGGESTION_LIMITS.suggestions,
+    coverage: {
+      likely_own_servers: ownServers.length,
+      covered: ownServers.filter((row) => row.recommendation === "covered").length,
+      shared_infrastructure: all.length - ownServers.length,
+    },
+  };
+}
+
+// Pure, untruncated: every public address observed for the given assets,
+// grouped, with the shared-infrastructure verdict. buildNetworkSuggestions
+// presents it; engines/network-ownership.js decides scan scope from it.
+export function groupObservedAddresses({ assets = [], registeredAddresses = [], resolved = new Map() } = {}) {
   const registered = new Set(registeredAddresses.map(canonicalAddress).filter(Boolean));
   const groups = new Map();
 
@@ -199,16 +217,5 @@ export function buildNetworkSuggestions({ assets = [], registeredAddresses = [],
     || (a.priority === b.priority ? 0 : a.priority === "high" ? -1 : 1)
     || b.hostname_count - a.hostname_count
     || a.address.localeCompare(b.address));
-
-  const ownServers = all.filter((row) => row.recommendation !== "provider_infrastructure");
-  return {
-    version: NETWORK_SUGGESTION_VERSION,
-    suggestions: all.slice(0, NETWORK_SUGGESTION_LIMITS.suggestions),
-    truncated: all.length > NETWORK_SUGGESTION_LIMITS.suggestions,
-    coverage: {
-      likely_own_servers: ownServers.length,
-      covered: ownServers.filter((row) => row.recommendation === "covered").length,
-      shared_infrastructure: all.length - ownServers.length,
-    },
-  };
+  return all;
 }

@@ -6,13 +6,14 @@ import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointI
 import { projectTlsCollectorReceipt } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
+import { loadTlsEndpoints } from '../workers/scan-api/src/engines/tls-planner.js';
 import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 
 const sql=new DatabaseSync(':memory:');
 sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
   CREATE TABLE scans(id TEXT PRIMARY KEY,workspace_id TEXT,domain_id TEXT,domain TEXT,status TEXT);
   CREATE TABLE workspace_domains(workspace_id TEXT,domain_id TEXT,verification_status TEXT);
-  CREATE TABLE network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT);`);
+  CREATE TABLE network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope');`);
 sql.exec(readFileSync(new URL('../database/migrations/119-external-exposure-jobs.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
 const prepare=(query,args=[])=>({bind:(...values)=>prepare(query,values),first:async()=>sql.prepare(query).get(...args)||null,
@@ -139,7 +140,7 @@ env.TLS_ASSESSMENT_MODE='evidence-v1';
 const scopeWorkspace='w_scope',scopeDomain='mail.example.org',scopeDomainId='d_scope';
 sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(scopeWorkspace);
 sql.prepare("INSERT INTO workspace_domains VALUES(?,?,'verified')").run(scopeWorkspace,scopeDomainId);
-sql.prepare("INSERT INTO network_targets VALUES(? ,?,'attested',?)").run('target_scope',scopeWorkspace,'["8.8.8.8"]');
+sql.prepare("INSERT INTO network_targets(id,workspace_id,authorization_status,addresses_json) VALUES(? ,?,'attested',?)").run('target_scope',scopeWorkspace,'["8.8.8.8"]');
 sql.prepare('INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,updated_at) VALUES(?,?,?,?)')
   .run(scopeWorkspace,0,1,new Date().toISOString());
 sql.prepare(`INSERT INTO workspace_tls_service_authorizations
@@ -156,6 +157,18 @@ function scopedJob(scanId,generation){
   sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(scanId,scopeWorkspace,scopeDomainId,scopeDomain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
   return {message:{kind:'external_exposure',v:1,scan_id:scanId,workspace_id:scopeWorkspace},now};
+}
+// The planner offers an authorised service only while its network target is
+// in scope: its address is observed in the workspace's verified DNS
+// (network-ownership.js). Out of scope, the service is not planned at all.
+{
+  const scan={id:'scope_plan',workspace_id:scopeWorkspace,domain_id:scopeDomainId,domain:scopeDomain};
+  const lookup=async(host,type)=>type==='A'?{Status:0,Answer:[{name:`${host}.`,type:1,data:'8.8.8.8'}]}:{Status:0,Answer:[]};
+  const services=async()=>(await loadTlsEndpoints(env,scan,{lookup})).endpoints.filter(e=>e.scope.kind==='authorized_service').length;
+  assert.equal(await services(),1,'an in-scope target\'s service is planned');
+  sql.prepare("UPDATE network_targets SET scope_state='out_of_scope' WHERE id='target_scope'").run();
+  assert.equal(await services(),0,'an out-of-scope target\'s service is not planned');
+  sql.prepare("UPDATE network_targets SET scope_state='in_scope' WHERE id='target_scope'").run();
 }
 const first=scopedJob('scope_dns',1);
 const revokeDuringDns=async(host,type)=>{
@@ -181,6 +194,22 @@ assert.equal(fenced.tls.results.length,0);
 assert.equal((await processExposureMessage(second.message,env,{lookupTlsDns,collectTlsAssessment,now:()=>second.now+31000})).outcome,'scope_changed');
 fenced=JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_receipt').plan_json);
 assert.equal(fenced.tls.results[0].state,'not_authorized');
+// The same atomic fence holds for network-target scope: a target that leaves
+// verified DNS after collection cannot have its evidence written.
+{
+  const generation=sql.prepare('SELECT generation FROM workspace_tls_authorizations WHERE workspace_id=?').get(scopeWorkspace).generation;
+  // The earlier jobs' leases are released so this tenant is not busy.
+  sql.prepare("UPDATE external_exposure_jobs SET lease_until=0 WHERE workspace_id=?").run(scopeWorkspace);
+  const third=scopedJob('scope_target',generation);
+  const leaveScopeBeforeReceipt=async(...args)=>{
+    const receipt=await collectTlsAssessment(...args);
+    sql.prepare("UPDATE network_targets SET scope_state='out_of_scope' WHERE id='target_scope'").run();
+    return receipt;
+  };
+  assert.equal((await processExposureMessage(third.message,env,{lookupTlsDns,collectTlsAssessment:leaveScopeBeforeReceipt})).outcome,'tls_fence_lost');
+  assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_target').plan_json).tls.results.length,0);
+  sql.prepare("UPDATE network_targets SET scope_state='in_scope' WHERE id='target_scope'").run();
+}
 // A normal check and each active check get separate reservations. In
 // particular ROBOT's 21 connections cannot spill into the next control.
 {

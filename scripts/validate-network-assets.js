@@ -48,6 +48,14 @@ async function call(resource,{user='owner',workspace='wa',method='GET',body,toke
  return {status:response.status,body:await response.json()};
 }
 const snapshot=()=>JSON.stringify(['network_targets','network_scans','network_assets','audit_events'].map(t=>db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()));
+// The declared address is observed in this workspace's verified-domain DNS
+// (network-ownership.js): an attestation alone no longer authorises it.
+{
+  const seen=new Date().toISOString();
+  db.prepare("INSERT INTO domains(id,user_id,domain) VALUES('d_seed','owner','seed.example')").run();
+  db.prepare("INSERT INTO workspace_domains(workspace_id,domain_id,verification_status) VALUES('wa','d_seed','verified')").run();
+  db.prepare("INSERT INTO workspace_assets(id,workspace_id,domain_id,hostname,first_seen,last_seen,created_at,updated_at,ip_addresses,wildcard_dns,lifecycle_state,status) VALUES('seed1','wa','d_seed','mail.seed.example',?,?,?,?,'[\"8.8.8.8\"]',0,'observed','active')").run(seen,seen,seen,seen);
+}
 const declaration={target:'8.8.8.8',authorization_confirmed:true};
 const priorEmpty=snapshot();
 for(const [name,args,status] of [
@@ -117,7 +125,7 @@ const faultEnv={...env,cybermeters_db:{prepare:sql=>sql.includes('FROM network_s
 await rejects('network quota fault not silently zero',()=>countScansThisMonth('owner',faultEnv));
 eq('domain scan quota fails closed on missing measurement',(await checkScanLimit({id:'owner'},'wa',faultEnv)).status,503);
 const list=await call('network-assets');eq('inventory list actual count',list.body.total,2);eq('inventory no implicit extra page',list.body.next_cursor,null);
-eq('normal domain scans untouched',db.prepare('SELECT COUNT(*) n FROM scans').get().n,0);eq('normal domain inventory untouched',db.prepare('SELECT COUNT(*) n FROM domains').get().n,0);
+eq('normal domain scans untouched',db.prepare('SELECT COUNT(*) n FROM scans').get().n,0);eq('normal domain inventory untouched',db.prepare("SELECT COUNT(*) n FROM domains WHERE id<>'d_seed'").get().n,0);
 
 // A concurrent workspace deletion must roll back the whole completion transaction.
 retest=await call(`network-scans/${scanId}/retest`,{method:'POST'});
@@ -196,6 +204,67 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   const routeSrc=fs.readFileSync(path.join(root,'workers/scan-api/src/routes/network-assets.js'),'utf8');
   const slice=routeSrc.slice(routeSrc.indexOf("resource==='network-suggestions'"),routeSrc.indexOf("if(request.method==='POST'&&resource==='network-targets'&&!id)"));
   ok('suggestion route never writes',slice.length>200&&!/\b(INSERT|UPDATE|DELETE)\b/.test(slice)&&!/SCAN_QUEUE|NETWORK_PROBE/.test(slice));
+}
+
+// ── Ownership: only addresses observed in this workspace's verified DNS ──────
+{
+  // The quota test above exhausted the starter plan; restore headroom.
+  db.prepare("UPDATE subscriptions SET plan='professional' WHERE id='sub_wa'").run();
+  db.prepare("DELETE FROM network_scans WHERE id LIKE 'quota_%'").run();
+  const declare=(target,args={})=>call('network-targets',{method:'POST',user:'admin',body:{target,authorization_confirmed:true},...args});
+  // An address no verified domain of this workspace points at: attestation alone is refused.
+  const unverified=await declare('9.9.9.9');
+  eq('unobserved address refused despite the attestation',[unverified.status,unverified.body.error,unverified.body.scope?.reason],[422,'network_target_not_observed','address_not_observed_in_verified_dns']);
+  ok('the refusal says what to do',/verified/.test(unverified.body.scope?.message||'')&&unverified.body.scope.unobserved.includes('9.9.9.9'));
+  // Another workspace's verified domain points at 93.184.216.99; it authorises nothing here.
+  eq('a foreign workspace\'s verified domain does not authorise an address',(await declare('93.184.216.99')).status,422);
+  // An unverified domain of this workspace points at 93.184.216.90.
+  eq('this workspace\'s unverified domain does not authorise an address',(await declare('93.184.216.90')).status,422);
+  // ...even when another workspace has verified that same domain.
+  db.prepare("INSERT INTO workspace_domains(workspace_id,domain_id,verification_status) VALUES('wb','d_unv','verified')").run();
+  eq('another workspace verifying the same domain authorises nothing here',(await declare('93.184.216.90')).status,422);
+  // A CDN edge address is observed but belongs to the provider.
+  const edge=await declare('104.18.1.1');
+  eq('shared provider infrastructure refused',[edge.status,edge.body.scope?.reason],[422,'address_is_shared_provider_infrastructure']);
+  // A host discovered under the verified domain: allowed.
+  const own=await declare('93.184.216.40');
+  eq('an address of a host under a verified domain is accepted',[own.status,own.body.target?.scope?.state],[201,'in_scope']);
+  ok('the stored evidence names the observing hosts',JSON.parse(db.prepare("SELECT scope_evidence_json j FROM network_targets WHERE id=?").get(own.body.target.id).j).evidence['93.184.216.40'].includes('admin.example.com'));
+  // A range is in scope only if every address in it is observed.
+  eq('a range with unobserved addresses refused',(await declare('93.184.216.40/31')).status,422);
+
+  // DNS moved: the scan request checks again and stops; history is kept.
+  const ownId=own.body.target.id;
+  db.prepare("UPDATE workspace_assets SET status='inactive' WHERE id IN ('a1','a2')").run();
+  const scansBefore=db.prepare('SELECT COUNT(*) n FROM network_scans').get().n,queuedBefore=queued.length;
+  const moved=await call(`network-targets/${ownId}/scans`,{user:'analyst',method:'POST',body:{ports:[443]}});
+  eq('a target whose address left verified DNS is not scanned',[moved.status,moved.body.error],[409,'network_target_out_of_scope']);
+  eq('...nothing is queued or admitted',[db.prepare('SELECT COUNT(*) n FROM network_scans').get().n,queued.length],[scansBefore,queuedBefore]);
+  ok('...the target and its history stay',!!db.prepare('SELECT 1 FROM network_targets WHERE id=?').get(ownId));
+  const listed=(await call('network-targets')).body.targets.find(t=>t.id===ownId);
+  eq('...and the customer sees why',[listed.scope.state,listed.scope.reason],['out_of_scope','address_not_observed_in_verified_dns']);
+  ok('...in plain words',/Not scanned/.test(listed.scope.message||''));
+  // A retest of an earlier scan of that target is refused the same way.
+  const earlier=db.prepare("SELECT id FROM network_scans WHERE target_id=? LIMIT 1").get(targetId);
+  db.prepare("UPDATE workspace_assets SET status='inactive' WHERE id='seed1'").run();db.prepare("UPDATE workspace_assets SET ip_addresses='[]' WHERE id='a5'").run();
+  if(earlier)eq('a retest after DNS moved is refused',(await call(`network-scans/${earlier.id}/retest`,{method:'POST'})).status,409);
+  db.prepare("UPDATE workspace_assets SET status='active' WHERE id IN ('a1','a2','seed1')").run();db.prepare("UPDATE workspace_assets SET ip_addresses='[\"8.8.8.8\"]' WHERE id='a5'").run();
+  // A target from before this rule (never checked) is checked when listed.
+  db.prepare("UPDATE network_targets SET scope_state=NULL,scope_reason=NULL,scope_checked_at=NULL WHERE id=?").run(targetId);
+  eq('an unchecked older target is checked when listed',(await call('network-targets')).body.targets.find(t=>t.id===targetId).scope.state,'in_scope');
+
+  // The queue consumer refuses a scan whose stored decision is out of scope or stale.
+  const {processNetworkScanMessage}=await import('../workers/scan-api/src/engines/network-scan-dispatch.js');
+  db.prepare("UPDATE network_scans SET status='completed' WHERE status IN ('queued','running')").run();
+  const fresh=await call(`network-targets/${ownId}/scans`,{user:'analyst',method:'POST',body:{ports:[443]}});
+  eq('back in verified DNS, the target scans again',[fresh.status,fresh.body.error],[202,undefined]);
+  db.prepare("UPDATE network_targets SET scope_state='out_of_scope' WHERE id=?").run(ownId);
+  const probesBefore=probeCalls;
+  const refused=await processNetworkScanMessage(queued.at(-1),env,{adapter:{collectNetworkProbe:async()=>{probeCalls++;throw new Error('must not probe');},validateNetworkProbeReceipt:()=>({ok:true})}});
+  eq('dispatch refuses an out-of-scope target without probing',[refused.outcome,probeCalls-probesBefore,db.prepare('SELECT status,reason FROM network_scans WHERE id=?').get(fresh.body.scan.id)],['out_of_scope',0,{status:'failed',reason:'network_target_out_of_scope'}]);
+  db.prepare("UPDATE network_targets SET scope_state='in_scope',scope_checked_at='2026-01-01T00:00:00.000Z' WHERE id=?").run(ownId);
+  db.prepare("UPDATE network_scans SET status='queued',reason=NULL,completed_at=NULL WHERE id=?").run(fresh.body.scan.id);
+  eq('dispatch refuses a stale decision',(await processNetworkScanMessage(queued.at(-1),env,{adapter:{collectNetworkProbe:async()=>{probeCalls++;throw new Error('must not probe');},validateNetworkProbeReceipt:()=>({ok:true})}})).outcome,'out_of_scope');
 }
 
 console.log(`\nNetwork assets: ${passed} passed, ${failed} failed`);if(failed)process.exit(1);
