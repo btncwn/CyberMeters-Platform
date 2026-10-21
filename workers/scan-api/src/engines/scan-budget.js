@@ -576,6 +576,10 @@ export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
   "asset_exposure",
   "cloud_storage_discovery",
   "email_security_intelligence",
+  // Every outbound call is recorded before it is issued (its MX A/AAAA lookups
+  // through dnsQuery, and one private-probe fetch per tested host), and the
+  // engine awaits it before the RFC 9990 launch gate, then settles it.
+  "mail_transport",
 ]));
 
 export function createOutboundAccounting() {
