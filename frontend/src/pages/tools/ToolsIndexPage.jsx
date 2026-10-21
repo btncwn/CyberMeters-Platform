@@ -33,6 +33,12 @@ const TOOLS = [
     summary: 'Which close variants of your domain are registered, point at a server or can receive email.',
     checks: ['Typos, look-alike letters and letters from other alphabets', 'Your name with words such as login, and on other endings', 'Registered, points at a server, receives email: what DNS shows, nothing more'],
   },
+  {
+    to: '/cyber-essentials-readiness',
+    name: 'Cyber Essentials self-check',
+    summary: 'Twenty questions across the five Cyber Essentials control areas, showing where your business may need work before you apply.',
+    checks: ['Firewalls, secure configuration, user access, malware protection and security updates', 'The gaps to review first, area by area', 'Readiness guidance only: it is not a certificate, and your answers are not saved'],
+  },
 ]
 
 export default function ToolsIndexPage() {

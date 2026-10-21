@@ -307,6 +307,8 @@ describe('free tools', () => {
     expect(screen.getByRole('link', { name: 'SSL/TLS certificate checker' })).toHaveAttribute('href', '/tools/ssl-checker')
     expect(screen.getByRole('link', { name: 'DMARC checker' })).toHaveAttribute('href', '/tools/dmarc-checker')
     expect(screen.getByRole('link', { name: 'SPF checker' })).toHaveAttribute('href', '/tools/spf-checker')
+    // Launch item F6: the Cyber Essentials self-check is one of the free tools.
+    expect(screen.getByRole('link', { name: 'Cyber Essentials self-check' })).toHaveAttribute('href', '/cyber-essentials-readiness')
     expect(fetch).not.toHaveBeenCalled()
   })
 })
