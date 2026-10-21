@@ -121,6 +121,12 @@ const edge522     = () => new Response("edge", { status: 522,
   eq("P11_G1_403_IS_NOT_SERVICEABLE", c("origin_response", 403).serviceable, false);
   eq("P11_G1_401_IS_NOT_SERVICEABLE", c("origin_response", 401).serviceable, false);
   eq("P11_G1_429_IS_NOT_SERVICEABLE", c("origin_response", 429).serviceable, false);
+  // 451: the resource exists but is withheld — access-restricted, never "not found".
+  eq("P11_G1_451_IS_NOT_SERVICEABLE", c("origin_response", 451).serviceable, false);
+  eq("P11_G1_451_REASON_IS_ACCESS_RESTRICTED", c("origin_response", 451).reason, "origin_access_restricted");
+  ok("P11_G1_451_MAY_NOT_GROUND_ABSENCE_HEALTHY_OR_DEFECT",
+     !S.mayGroundAbsence(c("origin_response", 451)) && !S.maySupportHealthyConclusion(c("origin_response", 451))
+       && !S.maySupportDefectConclusion(c("origin_response", 451)));
   eq("P11_G1_1XX_IS_NOT_SERVICEABLE", c("origin_response", 100).serviceable, false);
 
   // ── FAIL-CLOSED. `null` is UNKNOWN and must never become a defect verdict. ──
@@ -226,6 +232,25 @@ const GENUINE_NO_REDIRECT = async (url) =>
 const GENUINE_RECOVERY = async (url) =>
   (new URL(String(url)).protocol === "http:" ? redirect301(url) : originOK());
 
+// ── GATE 2b — all-451 (withheld): never healthy, never a redirect verdict ────
+{
+  const r = await observe(async () => res(451, { server: "nginx", "content-type": "text/html" }, "<html>Unavailable for legal reasons</html>"));
+  ok("P11_G2B_ALL451_NEVER_ASSESSED_HEALTHY", r.website?.state !== "assessed_healthy", r.website?.state);
+  ok("P11_G2B_ALL451_NO_REDIRECT_FINDING", !r.material.includes("ssl_no_http_redirect"), JSON.stringify(r.material));
+  ok("P11_G2B_ALL451_REDIRECT_NOT_VALIDATED", r.ssl?.http_redirect_chain?.http_redirect_validated !== true);
+  ok("P11_G2B_ALL451_SCAN_NOT_COMPLETE", r.scan_quality.status !== "complete");
+}
+{
+  // Technology module: a 451 is access-restricted, still incomplete.
+  globalThis.fetch = async () => res(451, { server: "nginx", "content-type": "text/html" }, "<html>withheld</html>");
+  try {
+    const tech = await runTechModule(DOMAIN);
+    ok("P11_G2B_TECH_451_IS_ACCESS_RESTRICTED_INCOMPLETE",
+       tech.incomplete === true && tech.incomplete_reason === "origin_access_restricted" && tech.technologies.length === 0,
+       JSON.stringify({ i: tech.incomplete, r: tech.incomplete_reason }));
+  } finally { globalThis.fetch = realFetch; }
+}
+
 // ── GATE 2 — all-503, FIRST evaluation ──────────────────────────────────────
 {
   const r = await observe(ALL_503);
@@ -295,6 +320,12 @@ const GENUINE_RECOVERY = async (url) =>
   ok("P11_G6_PROVIDER_503_REASON_IS_SERVICEABILITY",
      /origin_error_no_serviceable_response/.test(unconf), unconf);
   eq("P11_G6_PROVIDER_503_RAISES_NO_TAKEOVER_RISK", (out503?.risks || []).length, 0);
+  // A provider 451 (withheld) is not the provider claiming the name either.
+  const out451 = await run(async () => res(451, {}, "<html>withheld</html>"));
+  const unconf451 = JSON.stringify(out451?.unconfirmed || []);
+  ok("P11_G6_PROVIDER_451_IS_UNCONFIRMED_ACCESS_RESTRICTED",
+     (out451?.unconfirmed || []).length === 1 && /origin_access_restricted/.test(unconf451), unconf451);
+  eq("P11_G6_PROVIDER_451_RAISES_NO_TAKEOVER_RISK", (out451?.risks || []).length, 0);
 
   // POSITIVE CONTROL: a genuine dangling surface still confirms.
   const outFP = await run(async () => res(404, {}, `<html>${GH_FP}</html>`));

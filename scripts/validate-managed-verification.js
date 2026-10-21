@@ -574,6 +574,9 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   eq("csp: missing policy reason is exact", (await run()).reason, "csp_not_observed");
   eq("csp: malformed policy defers, never fixes", (await run({ policy: "@@@" })).decision, "deferred");
   eq("csp: non-serviceable response defers", (await run({ policy: "script-src *", status: 503 })).decision, "deferred");
+  // A 451 (withheld) carrying a policy that LOOKS fixed is not a verified fix.
+  eq("csp: a withheld 451 response defers, never fixes",
+    (await run({ policy: "default-src 'self'; script-src 'self'", status: 451 })).decision, "deferred");
   eq("csp: unreachable response defers", (await run({ throws: true })).decision, "deferred");
   eq("csp: managed verification ownership is Website Security",
     managedVerificationDomainKey("csp_weak_policy"), "website_security");

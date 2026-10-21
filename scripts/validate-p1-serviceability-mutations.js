@@ -67,6 +67,12 @@ const MUTANTS = [
     "  if (ACCESS_RESTRICTED_STATUSES.includes(status)) {",
     "  if (false && ACCESS_RESTRICTED_STATUSES.includes(status)) {",
     "P11_G1_403_IS_NOT_SERVICEABLE"],
+  // 451 must never be read as a definitive "not found": dropping it from the
+  // access-restricted set sends it to the 4xx negative-answer branch.
+  ["P11-M10-451-mapped-to-not-found", SERVICEABILITY,
+    "export const ACCESS_RESTRICTED_STATUSES = Object.freeze([401, 403, 429, 451]);",
+    "export const ACCESS_RESTRICTED_STATUSES = Object.freeze([401, 403, 429]);",
+    "P11_G1_451_IS_NOT_SERVICEABLE"],
   ["P11-M7-404-swept-into-the-5xx-rule", SERVICEABILITY,
     "  if (status >= 400) {\n    return decided(true, CONCLUSION_CLASSES.CONCLUSIVE,\n      SERVICEABILITY_REASONS.ORIGIN_NEGATIVE_ANSWER, status);\n  }",
     "  if (status >= 400) {\n    return decided(false, CONCLUSION_CLASSES.EVIDENCE_INSUFFICIENT,\n      SERVICEABILITY_REASONS.ORIGIN_ERROR, status);\n  }",
