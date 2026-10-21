@@ -231,7 +231,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     customer_title: "Authorise the external DMARC report destination",
     technical_explanation: "A complete CyberMeters external-authorisation lookup found no valid RFC 9990 authorisation for an aggregate-report destination outside the policy domain.",
     business_impact: "Receivers may omit aggregate reports to an external destination that has not published the required authorisation.",
-    recommended_action: "Ask the destination operator and your DNS administrator to publish or correct the required external-report authorisation record, or remove the destination if it is not intended. CyberMeters will not apply either DNS change.",
+    recommended_action: "Ask the destination operator and your DNS administrator to publish or correct the required external-report authorisation record, or remove the destination if it is not intended. CyberMeters changes a DNS record only after you explicitly confirm the change, and it cannot change the destination operator's DNS.",
     effort: "low",
     owner_type: "customer_it",
     verification_method: "dns_recheck",

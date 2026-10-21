@@ -43,7 +43,7 @@ describe('claims the code does not back', () => {
   it('no copy says CyberMeters never changes DNS', () => {
     for (const file of ['frontend/src/pages/ws/WorkspaceEmailProtectionPage.jsx', 'frontend/src/components/landing/ProductTour.jsx', 'workers/scan-api/src/engines/remediation-registry.js']) {
       const text = read(file)
-      expect(text).not.toMatch(/never edits your DNS|will not apply the DNS change|we never touch it/)
+      expect(text).not.toMatch(/never edits your DNS|will not apply|we never touch it/)
     }
   })
 })
