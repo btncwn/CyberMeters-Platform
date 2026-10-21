@@ -11,7 +11,7 @@ import { createId } from "../lib/util.js";
 import { hashToken } from "../lib/auth-crypto.js";
 import { redactedJson } from "../lib/redact.js";
 import { processAlertsForWorkspace } from "./alerts.js";
-import { createManagedAsmCasesForScan, verifyManagedAsmCasesForScan } from "./asm-cases.js";
+import { createManagedAsmCasesForScan, verifyManagedAsmCasesForScan, withdrawSupersededAsmClaims } from "./asm-cases.js";
 import { sendAssetChangeAlert } from "./asset-alert-delivery.js";
 import { annotateExposureInfrastructure, deduplicateExposureAssets, runAdminSurfaceModule, runExposureModule, runRemediationModule, runRiskModule, unavailableRemovalObservations } from "./asset-intel.js";
 import { buildDseFindings } from "./dse-findings.js";
@@ -2898,6 +2898,9 @@ function buildCanonicalUrlProfile(modules) {
     // resolved cases when the same finding returns. Reuses scan evidence only.
     try {
       await createManagedAsmCasesForScan(scanId, domainId, domain, managedAsmFindings, recommendations, phaseEnv);
+      // Cases opened from a claim the current rule no longer makes are resolved
+      // as withdrawn, judged on their own originating evidence.
+      await withdrawSupersededAsmClaims(phaseEnv, { domainId });
       await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, {
         modules,
         scanQuality,

@@ -324,12 +324,14 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        {/* In the page flow above the app, so it reserves its own space and
+            never covers content (design standard §5). */}
+        <NewVersionBanner />
         <ChunkErrorBoundary>
           <AppRoutes />
         </ChunkErrorBoundary>
         <MaintenanceOverlay />
         <MailtoAssist />
-        <NewVersionBanner />
         <PublicPageMeta />
       </AuthProvider>
     </BrowserRouter>

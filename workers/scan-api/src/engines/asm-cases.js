@@ -342,6 +342,68 @@ export async function transitionManagedCase(env, caseRow, to, ctx = {}) {
   return updateCaseStatus(env, caseRow, to, ctx);
 }
 
+// ── Claim withdrawal (21 Oct 2026) ──────────────────────────────────────────
+// A case opened from a claim that the CURRENT claim rule no longer makes is a
+// live false claim while it stays open. Score methodology 2026-10-21.1 made
+// asset_exposure_admin_interface require an observed login form; a case opened
+// before that from hostname + title alone is resolved by the system as a false
+// positive with the reason below, through the universal validator, append-only
+// (the case row and its events are kept). The decision is made on the case's
+// OWN originating evidence (its source scan's stored asset record), never on
+// the asset's later disappearance, which is not remediation.
+export const ADMIN_CLAIM_WITHDRAWAL_REASON =
+  "Claim withdrawn — methodology 2026-10-21.1: the page matched an admin-style hostname and title only; no login form was observed, so it was never an administrative interface.";
+const WITHDRAWABLE_FROM = { open: ["triage", "false_positive"], triage: ["false_positive"],
+  owner_assigned: ["false_positive"], remediation_in_progress: ["false_positive"] };
+
+async function originatingAdminAsset(env, caseRow) {
+  const scanId = typeof caseRow?.source_scan_id === "string" ? caseRow.source_scan_id : null;
+  if (!scanId || !/^scan_[A-Za-z0-9-]{1,80}$/.test(scanId)) return null;
+  let report;
+  try {
+    const object = await env.cybermeters_reports?.get?.(`reports/${scanId}.json`);
+    report = object ? await object.json() : null;
+  } catch { return null; }
+  // The source report must be this case's own: same domain.
+  if (!report || String(report.domain || "").toLowerCase() !== String(caseRow.domain || "").toLowerCase()) return null;
+  const host = String(caseRow.asset_ref || "").toLowerCase();
+  const assets = Array.isArray(report?.modules?.asset_exposure?.assets) ? report.modules.asset_exposure.assets : [];
+  return assets.find((asset) => String(asset?.host || "").toLowerCase() === host) || null;
+}
+
+export async function withdrawSupersededAsmClaims(env, { workspaceId = null, domainId = null, limit = 20, now } = {}) {
+  const db = env?.cybermeters_db;
+  if (!db) return { checked: 0, withdrawn: 0 };
+  const where = ["case_type = ?", "source_finding_type = 'asset_exposure_admin_interface'",
+    `status IN (${Object.keys(WITHDRAWABLE_FROM).map(() => "?").join(",")})`];
+  const binds = [ASM_CASE_TYPE, ...Object.keys(WITHDRAWABLE_FROM)];
+  if (workspaceId) { where.push("workspace_id = ?"); binds.push(workspaceId); }
+  if (domainId) { where.push("json_extract(evidence_json, '$.domain_id') = ?"); binds.push(domainId); }
+  let rows;
+  try {
+    rows = (await db.prepare(`SELECT * FROM managed_cases WHERE ${where.join(" AND ")}
+      ORDER BY created_at ASC LIMIT ?`).bind(...binds, Math.max(1, limit)).all())?.results || [];
+  } catch { return { checked: 0, withdrawn: 0 }; }
+  let withdrawn = 0;
+  for (const row of rows) {
+    const asset = await originatingAdminAsset(env, row);
+    // Fail closed: no readable originating evidence -> leave the case alone.
+    if (!asset || asset.authentication_observation?.password_form_observed === true) continue;
+    let current = row;
+    for (const to of WITHDRAWABLE_FROM[row.status] || []) {
+      const result = await transitionManagedCase(env, current, to, {
+        actor_type: "system", reason: ADMIN_CLAIM_WITHDRAWAL_REASON, action: "claim_withdrawn",
+        detail: { reason: ADMIN_CLAIM_WITHDRAWAL_REASON, methodology: "2026-10-21.1", source_scan_id: row.source_scan_id },
+        dedupe_key: `claim_withdrawn:${row.id}:${to}`, now,
+      });
+      if (!result.ok) break;
+      current = result.case;
+    }
+    if (current.status === "false_positive") withdrawn += 1;
+  }
+  return { checked: rows.length, withdrawn };
+}
+
 export async function listManagedCases(env, workspaceId, { status = null, case_type = ASM_CASE_TYPE, limit = 50 } = {}) {
   await reassessExpiredRiskAcceptedCases(env, workspaceId);
   const where = ["workspace_id = ?", "case_type = ?"];

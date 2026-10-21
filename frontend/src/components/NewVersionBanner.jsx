@@ -8,10 +8,16 @@ import { hasUnsavedInput, installUnsavedInputTracker } from '../lib/unsavedInput
 // on the company form). On navigation and when the tab regains focus, compare
 // this bundle's build id with /version.json and offer a refresh.
 //
-// The page never reloads itself. If the person has typed something they have
-// not submitted, the banner says so and the button becomes "Refresh anyway".
+// The page never reloads itself mid-task. If the person has typed something
+// they have not submitted, the banner says so and the button becomes "Refresh
+// anyway". During onboarding a first-time user is never interrupted: no banner,
+// and the new version loads on their next navigation when nothing is unsaved.
+//
+// The banner is a bar in the page flow, above the app, so it reserves its own
+// space and can never cover a card (founder, 21 Oct 2026: it covered step 5).
 
 const MIN_CHECK_INTERVAL_MS = 60_000
+const isOnboarding = (pathname) => pathname === '/onboarding' || pathname.startsWith('/onboarding/')
 
 export default function NewVersionBanner({
   runningBuildId = RUNNING_BUILD_ID,
@@ -59,7 +65,15 @@ export default function NewVersionBanner({
   // A warning about one page's input does not carry to the next page.
   useEffect(() => { setUnsavedWarning(false) }, [pathname])
 
-  if (!available || dismissedOn === pathname) return null
+  // Onboarding: apply a waiting version quietly on the next navigation.
+  const silentFrom = useRef(null)
+  useEffect(() => {
+    if (!available) return
+    if (silentFrom.current && silentFrom.current !== pathname && !hasUnsavedInput()) { reload(); return }
+    if (isOnboarding(pathname)) silentFrom.current = pathname
+  }, [available, pathname, reload])
+
+  if (!available || dismissedOn === pathname || isOnboarding(pathname)) return null
 
   const onRefresh = () => {
     if (!unsavedWarning && hasUnsavedInput()) {
@@ -70,15 +84,15 @@ export default function NewVersionBanner({
   }
 
   return (
-    <div className="fixed inset-x-4 bottom-4 z-90 flex justify-center sm:inset-x-auto sm:right-6 sm:bottom-6" data-testid="new-version-banner">
-      <div role="status" aria-live="polite" className="w-full max-w-md rounded-2xl border border-brand-200 bg-white px-4 py-3 shadow-lg">
-        <p className="text-sm font-semibold text-gray-900">A new version is available</p>
-        <p className="mt-0.5 text-sm text-gray-600">
+    <div className="border-b border-brand-200 bg-white" data-testid="new-version-banner">
+      <div role="status" aria-live="polite" className="mx-auto flex max-w-(--breakpoint-xl) flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-6">
+        <p className="text-sm text-gray-700">
+          <span className="font-semibold text-gray-900">A new version is available.</span>{' '}
           {unsavedWarning
             ? 'You have unsaved changes on this page. Save them first, then refresh.'
             : 'Refresh to load the latest CyberMeters.'}
         </p>
-        <div className="mt-3 flex items-center justify-end gap-2">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setDismissedOn(pathname)}

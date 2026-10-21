@@ -638,8 +638,13 @@ const parity = states.map(parityOutputs);
 // confirmed exposure findings. This certificate-only fixture has none, so only
 // the stamped BRI version moves. With ONLY BUSINESS_RISK_METHODOLOGY_VERSION
 // reverted to 2026-10-20.1 the previous hashes (0b744ecb… / 8772c1dc…) reproduce.
-const GOLDEN_F13 = "1d63ba5d3f0d757916cabac284fab67cd219a319090b75d55a75a2f01533b7d4";
-const GOLDEN_F14 = "46d84fdc2866fd67db1a03290c2c5b04ebbe0f32913faa05d035a21353714f80";
+// BRI methodology 2026-10-21.2 (21 Oct 2026): reachable hosts and missing vendor
+// data no longer deduct from Attack Surface. The F14 inputs differ from
+// origin/main in exactly four fields: Attack Surface 90 -> 100 (the "+10 no
+// vendor visibility" every scan paid is gone), overall BRI 98 -> 100, and the
+// stamped BRI version in the basis text and the methodology block.
+const GOLDEN_F13 = "fd7d57de623989d712bd8ae550559921e5b464dc6a71139c8b3ab6d17be09957";
+const GOLDEN_F14 = "5bcd968331e63896c2b693906fad97bdeb1bb4fc4f7516131d2dca1abd56103b";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
