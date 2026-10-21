@@ -129,3 +129,22 @@ describe('nextShadowItActions', () => {
     expect(nextShadowItActions(null)).toEqual([])
   })
 })
+
+describe('Shadow IT: externally observed means seen in the latest scan', () => {
+  it('items the latest scan did not see come last, under their own heading, labelled so', async () => {
+    api.getShadowItInventory.mockResolvedValue({
+      items: [
+        item('sii_gone', 'Miro', { classification: 'rejected', monitoring_status: 'no_longer_observed' }),
+        item('sii_here', 'Stripe', { monitoring_status: 'observed' }),
+      ],
+      counts: COUNTS, actions: ACTIONS, can_manage: true,
+    })
+    mount('/ws/shadow-it?tab=findings')
+    const heading = await screen.findByTestId('shadow-it-not-seen-heading')
+    expect(heading).toHaveTextContent('Not seen in the latest scan (1)')
+    const rows = [...document.querySelectorAll('tbody tr')]
+    expect(rows.findIndex((r) => r.textContent.includes('Stripe'))).toBeLessThan(rows.indexOf(heading))
+    expect(rows.findIndex((r) => r.textContent.includes('Miro'))).toBeGreaterThan(rows.indexOf(heading))
+    expect(within(rows.find((r) => r.textContent.includes('Miro'))).getByText('Not seen in the latest scan')).toBeInTheDocument()
+  })
+})

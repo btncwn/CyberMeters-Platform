@@ -189,9 +189,14 @@ const EXPECTED = Object.freeze({
     // (origin/main vs this head): all 541 entries are identical once the renames and byte
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
     // BRI 2026-10-21.1: the confirmed-exposure deductions move business-risk.js SQL sites +8 lines; keyed two-tree diff (origin/main vs this head) shows 0 entries added or removed.
-    fingerprint: "8696e890c867d5f8df66e9bc476ad637dc5a46a07494b54c01b65ce8030e765c",
+    // Shadow IT latest-scan counts (21 Oct 2026): the inventory count query moves into
+    // shadow-it-inventory-count.js, shifting report-snapshot.js / executive-dashboard.js
+    // sites; keyed two-tree --dump-current diff (origin/main vs this head): sql_sites,
+    // sql_static_sites, sql_query_sink_sites and sql_projection_sites 0 added / 0 removed,
+    // one runtime comparison differs only in byte offsets. Counts unchanged.
+    fingerprint: "c8c9f07981bffc0c5196968424605d5af8cbe52eed1c6c8c5a34be0dfdaad244",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "62b2663b661a98a3a5a7f74b7f293e509fbae57ad22819d84258f137c14179d0",
+    resolved_query_sink_fingerprint: "2baf43d21a654f78e20e70f57816dae5ebe4fff6214bc6a34a2e19564c8fc920",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1

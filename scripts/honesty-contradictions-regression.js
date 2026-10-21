@@ -39,9 +39,15 @@ test('Shadow IT evidence count uses the current inventory grain', () => {
     summary: '5 externally observed technologies/services' }, { domain_key: 'website_security', evidence_count: 3 }]
   const projected = withShadowItInventoryCount(domains, 6, true)
   assert.equal(projected[0].evidence_count, 6)
-  assert.match(projected[0].summary, /^6 externally observed technologies\/services in the current inventory/)
+  assert.match(projected[0].summary, /^6 technologies\/services externally observed in the latest scan\. Compare/)
   assert.deepEqual(projected[1], domains[1])
   assert.deepEqual(withShadowItInventoryCount(domains, 6, false), domains)
+  // Items the latest scan did not see are counted apart, never as observed.
+  const split = withShadowItInventoryCount(domains, { total: 8, not_seen: 1 }, true)
+  assert.equal(split[0].evidence_count, 7)
+  assert.equal(split[0].not_seen_count, 1)
+  assert.match(split[0].summary, /^7 technologies\/services externally observed in the latest scan\. 1 not seen in the latest scan\./)
+  assert.throws(() => withShadowItInventoryCount(domains, { total: 1, not_seen: 2 }, true))
 })
 
 test('DMARC evidence reports separate automatically ingested and uploaded traffic', () => {

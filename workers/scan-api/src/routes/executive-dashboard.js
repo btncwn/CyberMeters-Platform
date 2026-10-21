@@ -4,7 +4,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
-import { withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
+import { readShadowItInventoryCounts, withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
 export { withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
 import { resolveSecurityCheckDomainStates } from "../engines/security-check-domains.js";
 import { resolveRemediation } from "../engines/remediation-registry.js";
@@ -80,12 +80,10 @@ export async function executiveDashboardRoutes(rctx) {
         // and the current Shadow IT count. Scan-module occurrences are a
         // different grain and must not appear beside that inventory as another
         // count of "technologies".
-        const inventoryCount = await env.cybermeters_db
-          .prepare("SELECT COUNT(*) AS n FROM shadow_it_inventory WHERE workspace_id = ?")
-          .bind(wsId).first();
+        const inventoryCount = await readShadowItInventoryCounts(env.cybermeters_db, wsId);
         const domains = withShadowItInventoryCount(
           withEvidenceFreshness(resolveSecurityCheckDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap })),
-          inventoryCount?.n, Boolean(sourceScanId),
+          inventoryCount, Boolean(sourceScanId),
         );
         return json({
           workspace_id:   wsId,

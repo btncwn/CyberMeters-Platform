@@ -183,8 +183,8 @@ async function runEngineLedger(mode, {
         : [],
     }),
     first: async () => {
-      if (/SELECT COUNT\(\*\) AS n FROM shadow_it_inventory WHERE workspace_id = \?/.test(sql)) {
-        return { n: 0 }; // This ledger fixture has no workspace inventory rows.
+      if (/SELECT COUNT\(\*\) AS n, .*FROM shadow_it_inventory WHERE workspace_id = \?/.test(sql)) {
+        return { n: 0, not_seen: 0 }; // This ledger fixture has no workspace inventory rows.
       }
       if (
         /SELECT id FROM workspaces WHERE id = \? AND deleted_at IS NULL/.test(sql)

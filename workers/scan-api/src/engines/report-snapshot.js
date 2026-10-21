@@ -28,7 +28,7 @@
 // exposed as completed.
 
 import { resolveSecurityCheckDomainStates, SECURITY_CHECK_RESOLVER_VERSION } from "./security-check-domains.js";
-import { withShadowItInventoryCount } from "./shadow-it-inventory-count.js";
+import { readShadowItInventoryCounts, withShadowItInventoryCount } from "./shadow-it-inventory-count.js";
 import {
   hasUnvalidatedBrandFinding,
   projectUnvalidatedBrandReportForCustomer,
@@ -1305,10 +1305,8 @@ export async function buildScanReportSnapshot(env, opts = {}) {
     const dmarcPolicyEvidence = await sealDmarcPolicyEvidence(
       report?.modules?.dmarc_core ?? null,
     );
-    const shadowInventoryCount = reconstruction ? null : (await env.cybermeters_db
-      .prepare("SELECT COUNT(*) AS n FROM shadow_it_inventory WHERE workspace_id = ?")
-      .bind(workspaceId).first())?.n;
-    if (!reconstruction && !Number.isSafeInteger(shadowInventoryCount)) throw new Error("Shadow IT inventory count unavailable");
+    const shadowInventoryCount = reconstruction ? null : await readShadowItInventoryCounts(env.cybermeters_db, workspaceId);
+    if (!reconstruction && !shadowInventoryCount) throw new Error("Shadow IT inventory count unavailable");
     const snapshot = composeSnapshot({
       snapshotId, workspaceId, domainId, scanId, domain,
       report,

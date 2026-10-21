@@ -352,8 +352,17 @@ export default function ShadowItInventoryPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((it) => (
+              {/* Seen in the latest scan first; items the latest scan did not see
+                  follow under their own heading and are never counted as observed. */}
+              {[...items.filter((it) => it.monitoring_status !== 'no_longer_observed'), ...items.filter((it) => it.monitoring_status === 'no_longer_observed')].map((it, index, ordered) => (
                 <Fragment key={it.inventory_item_id}>
+                {it.monitoring_status === 'no_longer_observed' && ordered[index - 1]?.monitoring_status !== 'no_longer_observed' && (
+                  <tr data-testid="shadow-it-not-seen-heading">
+                    <th colSpan={7} scope="rowgroup" className="bg-slate-50 px-3 py-2 text-left text-xs font-semibold text-slate-600">
+                      Not seen in the latest scan ({ordered.filter((x) => x.monitoring_status === 'no_longer_observed').length}) — kept for your record, not counted as externally observed
+                    </th>
+                  </tr>
+                )}
                 <tr
                   ref={it.inventory_item_id === focusItemId ? focusRef : null}
                   className={`border-b border-slate-50 align-top ${it.inventory_item_id === focusItemId ? 'bg-transparent ring-1 ring-inset ring-brand-200' : ''}`}

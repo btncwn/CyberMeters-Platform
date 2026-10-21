@@ -32,7 +32,8 @@ export const OWNERSHIP_META = {
 // Monitoring status labels (must match backend monitoring_status values).
 export const MONITORING_META = {
   observed:            { label: 'Observed',            tone: 'blue'  },
-  no_longer_observed:  { label: 'No longer observed',  tone: 'slate' },
+  // Not seen by the latest scan that could decide it — never "removed".
+  no_longer_observed:  { label: 'Not seen in the latest scan', tone: 'slate' },
   reappeared:          { label: 'Reappeared',          tone: 'red'   },
 }
 
