@@ -705,7 +705,8 @@ export function computeScore(modules, domain) {
       });
       recommendations.push(canonicalRec("email_missing_dmarc", {
         priority: 1, module: "email_security",
-        detail: `Example starting record for _dmarc.${domain}: v=DMARC1; p=none; rua=mailto:dmarc-reports@${domain}`,
+        // The example mailbox may not exist (21 Oct 2026): say to replace it.
+        detail: `Example starting record for _dmarc.${domain}: v=DMARC1; p=none; rua=mailto:dmarc-reports@${domain} (replace dmarc-reports@${domain} with a mailbox you monitor, or with your CyberMeters hosted report address from Email Protection → DMARC reports).`,
         title: "Implement DMARC",
         description: `Create a TXT record at _dmarc.${domain}: v=DMARC1; p=none; rua=mailto:dmarc-reports@${domain}`,
       }));

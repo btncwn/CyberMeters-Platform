@@ -570,7 +570,7 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
         "No DMARC record was found.",
         "Receiving systems do not have a domain-owner policy for handling messages that fail DMARC alignment.",
         "Publish a monitoring record, identify legitimate senders from aggregate reports, then move gradually towards enforcement.",
-        { suggested_dns_record: value, caution: "Do not move directly to enforcement until legitimate sending services are confirmed." }));
+        { suggested_dns_record: value, caution: `Replace ${reportAddress} with a mailbox you monitor, or with your CyberMeters hosted report address (Email Protection → DMARC reports), before publishing. Do not move directly to enforcement until legitimate sending services are confirmed.` }));
     } else if (dmarc.record_count > 1) {
       actions.push(remediationAction("dmarc_multiple_records", "DMARC", "high", "Consolidate multiple DMARC records",
         `${dmarc.record_count} DMARC records were detected.`,

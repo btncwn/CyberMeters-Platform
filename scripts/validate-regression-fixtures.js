@@ -484,6 +484,17 @@ results.push(
       /SPF record points to GoDaddy as a sender, but/.test(agree) && !/mail servers/.test(agree) &&
       /SPF record points to GoDaddy as a sender, but/.test(none);
   }),
+  // 21 Oct 2026: the example report mailbox may not exist; the guidance says
+  // to replace it (or use the hosted address), never presents it as ready.
+  securityContract("dmarc_example_report_mailbox_is_marked_for_replacement", () => {
+    const result = scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      email_security: { spf: { present: true }, dmarc: { present: false }, dkim: { present: true } },
+    }, "example.com");
+    const rec = (result.recommendations || []).find((item) => /dmarc-reports@example\.com/.test(item.description || ""));
+    return Boolean(rec) && /replace dmarc-reports@example\.com with a mailbox you monitor/.test(rec.description) &&
+      /hosted report address/.test(rec.description);
+  }),
   securityContract("detection_sensitive_products_are_findings", () => {
     const titles = ["Jenkins", "Grafana", "phpMyAdmin", "Kibana", "Prometheus", "Portainer", "SonarQube"];
     return titles.every((title) => {
