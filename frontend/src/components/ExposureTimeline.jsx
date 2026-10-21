@@ -170,6 +170,7 @@ export default function ExposureTimeline({ workspaceId }) {
         </h2>
         <div className="flex items-center gap-2">
           <select
+            aria-label="Filter by severity"
             value={severity}
             onChange={e => setSeverity(e.target.value)}
             className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500"

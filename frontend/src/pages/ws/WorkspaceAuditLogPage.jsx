@@ -155,7 +155,7 @@ export default function WorkspaceAuditLogPage() {
       <div className="space-y-5">
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               Audit Log
@@ -164,7 +164,7 @@ export default function WorkspaceAuditLogPage() {
               Review security and administrative activity for this workspace.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => doExport('csv')}
               disabled={!!exporting}
@@ -197,8 +197,9 @@ export default function WorkspaceAuditLogPage() {
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Event type</label>
+              <label htmlFor="audit-filter-event" className="block text-xs text-gray-500 mb-1">Event type</label>
               <select
+                id="audit-filter-event"
                 value={eventType}
                 onChange={e => setEventType(e.target.value)}
                 className="input text-sm"
@@ -209,8 +210,9 @@ export default function WorkspaceAuditLogPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Entity type</label>
+              <label htmlFor="audit-filter-entity" className="block text-xs text-gray-500 mb-1">Entity type</label>
               <select
+                id="audit-filter-entity"
                 value={entityType}
                 onChange={e => setEntityType(e.target.value)}
                 className="input text-sm"
@@ -221,10 +223,11 @@ export default function WorkspaceAuditLogPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">
+              <label htmlFor="audit-filter-from" className="block text-xs text-gray-500 mb-1">
                 From
               </label>
               <input
+                id="audit-filter-from"
                 type="date"
                 value={dateFrom}
                 onChange={e => setDateFrom(e.target.value)}
@@ -232,10 +235,11 @@ export default function WorkspaceAuditLogPage() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">
+              <label htmlFor="audit-filter-to" className="block text-xs text-gray-500 mb-1">
                 To
               </label>
               <input
+                id="audit-filter-to"
                 type="date"
                 value={dateTo}
                 onChange={e => setDateTo(e.target.value)}
@@ -248,6 +252,7 @@ export default function WorkspaceAuditLogPage() {
               <input
                 type="text"
                 className="input text-sm"
+                aria-label="Search the audit log"
                 placeholder="Search event type, entity, description…"
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
@@ -283,7 +288,8 @@ export default function WorkspaceAuditLogPage() {
             )}
           </div>
 
-          <div className="overflow-x-auto">
+          {/* A keyboard user can scroll the wide table too (axe scrollable-region-focusable). */}
+          <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Audit events">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">

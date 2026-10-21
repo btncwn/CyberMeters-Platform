@@ -1299,7 +1299,7 @@ export default function IntelligencePage() {
         <>
           {/* Scan context strip */}
           {storedScanObj && (
-            <div className="flex items-center gap-3 text-sm bg-white border border-gray-100 rounded-xl px-4 py-2.5 shadow-xs">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm bg-white border border-gray-100 rounded-xl px-4 py-2.5 shadow-xs">
               <span className="font-semibold text-gray-800">{contextDomain}</span>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${assessmentPresentation.band.pill}`}>
                 {assessmentPresentation.band.label}

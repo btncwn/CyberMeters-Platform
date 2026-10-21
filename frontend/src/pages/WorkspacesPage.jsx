@@ -150,21 +150,22 @@ export default function WorkspacesPage() {
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Workspaces</h1>
           <p className="text-sm text-gray-400 mt-0.5">
             {workspaces.length} workspace{workspaces.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
             onClick={() => load(true)}
             disabled={refreshing}
             className="btn-secondary"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Reload results
           </button>
           <button onClick={() => setShowCreate(true)} className="btn-primary">
             New Workspace
