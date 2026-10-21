@@ -526,8 +526,8 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     technical_explanation: "A name already on your watchlist published address or explicit mail-routing records. DNS does not establish phishing, abuse or successful mail delivery.",
     business_impact: "A live lookalike may warrant review, but its operator and purpose have not been established by these DNS observations.",
     recommended_action: "Compare the observed names with your legitimate domains. Review the evidence with the brand owner before deciding whether any further action is needed.",
-    effort: "low", owner_type: "customer", verification_method: "manual_attestation",
-    verification_evidence_requirements: "The domain owner reviews the observed DNS records; a review does not verify abuse or delivery.",
+    effort: "low", owner_type: "customer", verification_method: "dns_recheck",
+    verification_evidence_requirements: "A subsequent eligible enrichment pass re-observes the address or explicit MX records. This verifies only the DNS observation, not abuse, mail delivery or completion of the owner’s review.",
     supporting_evidence_types: ["dns_lookup"], managed_workflow_compatible: false,
   }),
   entry({

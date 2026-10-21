@@ -740,6 +740,7 @@ for (const [name, partial] of [
   check("C21 proven DNS facts survive the unvalidated-candidate projection", projected.findings[0]?.title === facts[0]?.title);
   check("C21 canonical Brand Protection guidance is frozen without a forced action", frozen?.domain_keys?.join() === "brand_protection"
     && frozen.remediation_id === "brand.watchlist_dns.review" && frozen.score_impact === 0
+    && resolveRemediation({ finding_type: "brand_watchlist_dns_observation", domain_key: "brand_protection" })?.verification_method === "dns_recheck"
     && snapshot(report).remediation_actions.every((action) => !action.finding_ids?.includes("brand_watchlist_dns_observation")));
 }
 

@@ -149,7 +149,7 @@ ok("registry has exactly 111 entries including watchlist DNS guidance", REMEDIAT
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including watchlist DNS guidance is exact", remediationRegistryFingerprint() === "r111-5205ce96", remediationRegistryFingerprint());
+ok("registry fingerprint including watchlist DNS guidance is exact", remediationRegistryFingerprint() === "r111-368754e2", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
