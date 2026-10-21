@@ -8,7 +8,7 @@ import { assetFingerprintSignals } from "./asset-intel.js";
 import { resolveDnsResolution } from "./attack-surface-signal-completeness.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
-import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, isEmailProbeUnobserved } from "./email-analysis.js";
+import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
 import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
@@ -715,8 +715,14 @@ export function computeScore(modules, domain) {
         module:       "email_security",
         severity:     "medium",
         confidence:   "high",
-        title:        "DMARC Policy is Monitor-Only (p=none)",
-        description:  `DMARC is configured at _dmarc.${domain} with p=none. Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.`,
+        title:        dmarcTestingMode(modules.email_security?.dmarc_detail) && modules.email_security?.dmarc_detail?.policy === "quarantine"
+          ? "DMARC Policy is Monitor-Only (p=quarantine in testing mode)"
+          : "DMARC Policy is Monitor-Only (p=none)",
+        // A declared p=quarantine with t=y is monitor-only in effect (RFC 9989
+        // section 4.7); say what the record declares rather than claim p=none.
+        description:  dmarcTestingMode(modules.email_security?.dmarc_detail) && modules.email_security?.dmarc_detail?.policy === "quarantine"
+          ? `DMARC is configured at _dmarc.${domain} with p=quarantine in testing mode (t=y), so receivers are asked to take no action. Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.`
+          : `DMARC is configured at _dmarc.${domain} with p=none. Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.`,
         score_impact: -5,
         evidence: {
           evidence_type:               "dns_txt_lookup",

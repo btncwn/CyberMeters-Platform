@@ -309,6 +309,77 @@ for (const m of MUTATIONS) {
   ok(`mutation ${m.name}`, anchored && mutated !== m.canon, `canon=${m.canon} mutated=${mutated}`);
 }
 
+// ── 6. Testing mode (t=y), RFC 9989 section 4.7 ──────────────────────────────
+// p=reject; t=y asks receivers to quarantine and p=quarantine; t=y asks for no
+// action. Every consumer grades and words the effective policy, never the bare
+// p= (21 Oct 2026: a live report showed "Reject" for p=reject; t=y).
+{
+  const { buildDmarcPolicyJourney } = await import(pathToFileURL(p("email-analysis.js")).href);
+  const { buildFreeScanObserved } = await import(pathToFileURL(p("free-scan-observed.js")).href);
+  const T = {
+    reject_testing:     stateFor({ record: "v=DMARC1; p=reject; t=y; rua=mailto:d@example.com" }),
+    quarantine_testing: stateFor({ record: "v=DMARC1; p=quarantine; t=y; rua=mailto:d@example.com" }),
+    reject_t_n:         stateFor({ record: "v=DMARC1; p=reject; t=n; rua=mailto:d@example.com" }),
+  };
+  ok("t=y: p=reject grades quarantine_enforced, never reject_enforced",
+    T.reject_testing.state.enforcement_level === "quarantine_enforced", T.reject_testing.state.enforcement_level);
+  ok("t=y: p=quarantine grades monitoring", T.quarantine_testing.state.enforcement_level === "monitoring",
+    T.quarantine_testing.state.enforcement_level);
+  ok("t=n leaves p=reject at reject_enforced", T.reject_t_n.state.enforcement_level === "reject_enforced",
+    T.reject_t_n.state.enforcement_level);
+  ok("t=y: p=reject email-intel status is not FULLY_PROTECTED",
+    DMARC_INTEL_STATUS[T.reject_testing.state.enforcement_level] !== "FULLY_PROTECTED");
+  ok("t=y: p=reject security-check email state equals plain p=quarantine",
+    motFor(T.reject_testing) === motFor(S.quarantine_enforced), `${motFor(T.reject_testing)} vs ${motFor(S.quarantine_enforced)}`);
+  const rj = buildDmarcPolicyJourney(T.reject_testing.detail);
+  ok("t=y: p=reject journey is partial_enforcement (Quarantine requested), not full_enforcement",
+    rj.stage === "partial_enforcement" && /t=y/.test(rj.label), JSON.stringify(rj));
+  const qj = buildDmarcPolicyJourney(T.quarantine_testing.detail);
+  ok("t=y: p=quarantine journey is monitoring", qj.stage === "monitoring" && /t=y/.test(qj.label), JSON.stringify(qj));
+  ok("plain p=reject journey is still full_enforcement", buildDmarcPolicyJourney(S.reject_enforced.detail).stage === "full_enforcement");
+  const q = scoreRun(T.quarantine_testing);
+  const none = q.findings.find((f) => f.id === "email_dmarc_policy_none");
+  ok("t=y: p=quarantine raises the monitor-only finding", Boolean(none), q.ids.join(","));
+  ok("t=y: the monitor-only finding states the declared p=quarantine and t=y, never p=none",
+    Boolean(none) && /p=quarantine in testing mode \(t=y\)/.test(none.description) && !/\(p=none\)/.test(none.title),
+    `${none?.title} | ${none?.description}`);
+  ok("t=y: p=reject scores exactly like plain p=quarantine",
+    scoreRun(T.reject_testing).score === scoreRun(S.quarantine_enforced).score);
+  const observed = (scn) => {
+    const modules = buildModules(scn);
+    return buildFreeScanObserved(modules, new Map([["email_security", "completed"]]))
+      .email_protection.find((o) => o.id === "dmarc_enforcing_policy")?.text;
+  };
+  ok("t=y: observed line states the declared p=reject and the effective quarantine",
+    observed(T.reject_testing) === "DMARC policy p=reject observed in testing mode (t=y), so receivers are asked to quarantine",
+    observed(T.reject_testing));
+  ok("t=y: p=quarantine prints no enforcing-policy line", observed(T.quarantine_testing) === undefined, observed(T.quarantine_testing));
+  ok("plain p=reject observed line is unchanged", observed(S.reject_enforced) === "DMARC policy p=reject observed", observed(S.reject_enforced));
+
+  // Mutants: each puts back the "bare p=" reading and must be caught.
+  const absolutise = (source, file) => source.replace(/from "(\.\.?\/[^"]+)"/g,
+    (_, rel) => `from ${JSON.stringify(pathToFileURL(path.resolve(path.dirname(file), rel)).href)}`);
+  async function mutantModule(file, before, after) {
+    const source = fs.readFileSync(file, "utf8");
+    if (source.split(before).length !== 2) return null;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dmarc-t-"));
+    try {
+      const out = path.join(dir, path.basename(file).replace(/\.js$/, ".mjs"));
+      fs.writeFileSync(out, absolutise(source.replace(before, after), file));
+      return await import(pathToFileURL(out).href);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  const stateMutant = await mutantModule(p("dmarc-state.js"),
+    'const testing = String(parsed?.tags?.t ?? "").trim().toLowerCase() === "y";', "const testing = false;");
+  ok("mutation dmarc-state ignores t=y is CAUGHT (would grade reject_enforced)",
+    stateMutant != null && stateMutant.deriveDmarcState({ dmarc: T.reject_testing.detail, policy_source: "observed_dns",
+      evidence_status: "observed", last_observed: OBS }).enforcement_level !== "quarantine_enforced");
+  const journeyMutant = await mutantModule(p("email-analysis.js"),
+    'return String(detail?.tags?.t ?? "").trim().toLowerCase() === "y";', "return false;");
+  ok("mutation journey ignores t=y is CAUGHT (would read full_enforcement)",
+    journeyMutant != null && journeyMutant.buildDmarcPolicyJourney(T.reject_testing.detail).stage === "full_enforcement");
+}
+
 console.log(`\nDMARC consumer switch: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("dmarc-consumer-switch validation FAILED"); process.exit(1); }
 console.log("dmarc-consumer-switch validation passed");

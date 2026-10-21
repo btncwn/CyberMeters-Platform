@@ -277,6 +277,17 @@ export function parseSpfRecord(record, recordCount = record ? 1 : 0) {
   };
 }
 
+// RFC 9989 section 4.7: with t=y the receiver is asked to apply one level less
+// than the declared policy (reject -> quarantine, quarantine -> none).
+export function dmarcTestingMode(detail) {
+  return String(detail?.tags?.t ?? "").trim().toLowerCase() === "y";
+}
+export function dmarcEffectivePolicy(detail) {
+  const declared = detail?.policy ?? null;
+  if (!dmarcTestingMode(detail)) return declared;
+  return { reject: "quarantine", quarantine: "none" }[declared] ?? declared;
+}
+
 export function buildDmarcPolicyJourney(detail) {
   if (!detail?.raw || !detail.valid) {
     return {
@@ -287,6 +298,24 @@ export function buildDmarcPolicyJourney(detail) {
         : "Publish a monitoring policy with aggregate reporting, then validate legitimate senders before enforcement.",
       business_risk: "Receiving systems do not have a reliable DMARC enforcement instruction for this domain.",
     };
+  }
+  const effective = dmarcEffectivePolicy(detail);
+  if (effective !== detail.policy) {
+    // Declared and effective policy differ only in testing mode; the stage is
+    // the effective one, and the label says why.
+    return effective === "quarantine"
+      ? {
+        stage: "partial_enforcement",
+        label: "Reject in testing (t=y): quarantine requested",
+        next_step: "When aggregate reports show legitimate mail is aligned, remove t=y so receivers are asked to reject.",
+        business_risk: "While t=y is set, receivers are asked to quarantine rather than reject messages that fail DMARC.",
+      }
+      : {
+        stage: "monitoring",
+        label: "Quarantine in testing (t=y): no action requested",
+        next_step: "When aggregate reports show legitimate mail is aligned, remove t=y so receivers are asked to quarantine.",
+        business_risk: "While t=y is set, receivers are not asked to quarantine or reject messages that fail DMARC alignment.",
+      };
   }
   if (detail.policy === "none") {
     return {
