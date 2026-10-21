@@ -197,6 +197,85 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
   ok("ops observability: counters, intake, founder daily email and retention tests", run.status === 0);
 }
 
+// C-8 weekly off-site success/freshness and safe operator-email proof.
+{
+  const { randomBytes } = await import('node:crypto');
+  const { encodeBackup, verifyBackup, weeklyApi, digest } = await import('./ops/weekly-backup.mjs');
+  const { weeklyBackupHealth, WEEKLY_BACKUP_MAX_AGE_MINUTES } = await import('../workers/scan-api/src/lib/weekly-backup-health.js');
+  const key = randomBytes(32);
+  const sql = 'CREATE TABLE recovery_fixture(id INTEGER PRIMARY KEY); INSERT INTO recovery_fixture VALUES (1);';
+  const data = { schema: 1, database: 'fd6792cb-441a-44a7-8ca2-9a0b411ec706', bucket: 'cybermeters-reports', run: '123-1', captured_at: '2026-10-21T12:00:00Z', sql, objects: [{ key: 'private-fixture', size: 4, etag: 'fixture' }] };
+  const bytes = encodeBackup(data, key);
+  const receipt = { run: data.run, bytes: bytes.length, sha256: digest(bytes) };
+  ok('weekly encrypted package decrypts and exercises SQL integrity', verifyBackup(bytes, key, receipt).objects === 1);
+  ok('weekly ciphertext contains neither SQL nor object names', !bytes.includes(Buffer.from('recovery_fixture')) && !bytes.includes(Buffer.from('private-fixture')));
+  const throws = fn => { try { fn(); return false; } catch { return true; } };
+  ok('weekly wrong key rejected', throws(() => verifyBackup(bytes, randomBytes(32), receipt)));
+  ok('weekly readback corruption rejected', throws(() => verifyBackup(Buffer.concat([bytes, Buffer.from('x')]), key, receipt)));
+  ok('weekly foreign run receipt rejected', throws(() => verifyBackup(bytes, key, { ...receipt, run: '999-1' })));
+  ok('weekly foreign database rejected before encrypt', throws(() => encodeBackup({ ...data, database: 'foreign' }, key)));
+  const broken = encodeBackup({ ...data, sql: 'not valid sql' }, key);
+  ok('weekly invalid SQL never verifies', throws(() => verifyBackup(broken, key, { ...receipt, bytes: broken.length, sha256: digest(broken) })));
+  const calls = [];
+  let drift = false, lists = 0;
+  const fakeFetch = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    calls.push({ path, options });
+    if (path === '/export.sql') {
+      ok('weekly signed export receives no account token', !options.headers?.Authorization);
+      return new Response(sql);
+    }
+    let result;
+    if (path.endsWith('/objects')) { lists++; result = drift && lists % 2 === 0 ? [] : data.objects; }
+    else if (path.endsWith('/export')) result = { status: 'complete', result: { signed_url: 'https://fixture.r2.cloudflarestorage.com/export.sql' } };
+    else if (path.endsWith('/query')) {
+      const request = JSON.parse(options.body);
+      result = request.sql.startsWith('SELECT') ? [{ results: [{ created_at: '2026-10-21 12:00:00' }] }] : [];
+    } else throw Error('Unexpected fixture path');
+    return Response.json({ success: true, result });
+  };
+  const client = weeklyApi('fixture-token', fakeFetch);
+  const captured = await client.capture('123-1', key);
+  ok('weekly capture cannot record freshness before off-site upload', !calls.some(call => call.path.endsWith('/query')));
+  const priorCalls = calls.length;
+  try { await client.record(captured.receipt, Buffer.from('corrupt'), key); } catch { /* expected */ }
+  ok('weekly failed off-site readback makes no event API call', calls.length === priorCalls);
+  const recorded = await client.record(captured.receipt, captured.bytes, key);
+  ok('weekly success records and reads back a real event timestamp', recorded.last_success_at === '2026-10-21 12:00:00' && calls.filter(call => call.path.endsWith('/query')).length === 2);
+  drift = true; lists = 0;
+  let driftFailed = false;
+  try { await client.capture('124-1', key); } catch { driftFailed = true; }
+  ok('weekly source inventory drift rejects capture', driftFailed);
+  const row = { event_type: 'weekly_backup_completed', correlation_id: 'github-weekly:123-1', status: 'ok', created_at: '2026-10-21 12:00:00' };
+  const fixtureEnv = value => ({ cybermeters_db: { prepare: () => ({ bind: () => ({ first: async () => value }) }) } });
+  const nowMs = Date.parse('2026-10-21T12:00:00Z');
+  ok('weekly freshness uses last actual success', (await weeklyBackupHealth(fixtureEnv(row), { nowMs })).last_success_at === '2026-10-21T12:00:00.000Z');
+  ok('weekly eight-day boundary remains fresh', (await weeklyBackupHealth(fixtureEnv(row), { nowMs: nowMs + WEEKLY_BACKUP_MAX_AGE_MINUTES * 60000 })).fresh);
+  ok('weekly older than eight days is stale', !(await weeklyBackupHealth(fixtureEnv(row), { nowMs: nowMs + (WEEKLY_BACKUP_MAX_AGE_MINUTES + 1) * 60000 })).fresh);
+  for (const [label, value] of [['absent', null], ['manual', { ...row, correlation_id: 'cloudflare:manual' }], ['failed', { ...row, status: 'failed' }], ['bad-date', { ...row, created_at: 'bad' }], ['future', { ...row, created_at: '2026-10-22T12:00:00Z' }]]) {
+    ok(`weekly ${label} evidence fails closed`, !(await weeklyBackupHealth(fixtureEnv(value), { nowMs })).fresh);
+  }
+  const weeklyEnv = { cybermeters_db: realD1, WEEKLY_BACKUP_MONITORING: 'on', INDEPENDENT_BACKUP_MONITORING: 'off' };
+  const missing = await computeOpsHealth(weeklyEnv);
+  const mail = formatOpsHealthEmail(missing);
+  ok('weekly missing proof creates an operator-email alert', !missing.healthy && mail?.text.includes('Weekly off-site backup missing'));
+  const { computeOperationalHealth } = await import('../workers/scan-api/src/lib/ops-health.js');
+  const missingReady = await computeOperationalHealth(weeklyEnv, { nowMs });
+  ok('weekly readiness cannot inherit manual exemption', missingReady.backup_fresh === false && missingReady.backup_required === true && missingReady.backup_last_success_at === null);
+  const weeklyDown = await computeOpsHealth({ ...mockEnv({}, { throwAll: true }), WEEKLY_BACKUP_MONITORING: 'on' });
+  ok('weekly missing proof preserves database-unreachable reporting', weeklyDown.dbReachable === false && !weeklyDown.healthy);
+  db.prepare("INSERT INTO operational_events(id,event_type,correlation_id,status,attempts,created_at) VALUES ('weekly-fixture','weekly_backup_completed','github-weekly:123-1','ok',1,?)").run(new Date().toISOString());
+  const healthy = await computeOpsHealth(weeklyEnv);
+  ok('weekly fresh proof does not generate a backup email', healthy.signals.find(s => s.key === 'weekly_backup_stale')?.breached === false && !(formatOpsHealthEmail(healthy)?.text || '').includes('Weekly off-site backup missing'));
+  const ready = await computeOperationalHealth(weeklyEnv);
+  ok('weekly readiness carries real success time and cadence', ready.backup_fresh === true && ready.backup_cadence === 'weekly' && typeof ready.backup_last_success_at === 'string');
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/weekly-backup.yml'), 'utf8');
+  const order = ['Capture and encrypt', 'Store encrypted copy', 'Download the durable', 'Verify off-site readback'].map(name => workflow.indexOf(name));
+  ok('weekly workflow records only after upload and download', order.every((index, n) => index >= 0 && (n === 0 || index > order[n-1])));
+  ok('weekly workflow has bounded free allocation and explicit founder enable', workflow.includes('retention-days: 21') && workflow.includes('timeout-minutes: 10') && workflow.includes("vars.WEEKLY_BACKUP_ENABLED == 'true'"));
+  ok('weekly workflow uploads only encrypted bytes', workflow.includes('/captured/weekly-backup.bin') && !workflow.includes('path: ${{ runner.temp }}/captured\n'));
+}
+
 console.log(`\nOps health: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("ops-health validation FAILED"); process.exit(1); }
 console.log("ops-health validation passed");

@@ -15,6 +15,7 @@
 // verdict below reuse the operational_events ledger. The existing daily heartbeat
 // (computeOpsHealth / formatOpsHealthEmail) is UNCHANGED.
 import { latestOperationalEvent, readRecentOperationalEventCount, OPS_EVENT_TYPES } from "./operational-events.js";
+import { weeklyBackupHealth } from "./weekly-backup-health.js";
 
 // Thresholds — a small number of transient failures is normal; a standing
 // backlog is the signal. Tuned conservatively to avoid noise; adjust here.
@@ -110,8 +111,16 @@ export async function computeOpsHealth(env) {
     });
   }
 
-  // D1 reachability: if every signal was skipped, the database is likely down.
+  // Preserve reachability from the actual query outcomes, before adding the
+  // derived backup signal (a missing proof does not prove the DB is reachable).
   const dbReachable = signals.some((s) => !s.skipped);
+  // Missing or stale off-site proof is an operator alert, independent of tenant mail.
+  if (env.WEEKLY_BACKUP_MONITORING === "on") {
+    const weekly = await weeklyBackupHealth(env);
+    signals.push({ key: "weekly_backup_stale", label: "Weekly off-site backup missing or older than eight days",
+      count: weekly.fresh ? 0 : 1, threshold: 1, skipped: false, breached: !weekly.fresh });
+  }
+
   const criticalSignalsReadable = [
     "lifecycle_emails_outcome_unknown",
     "scheduled_scan_query",
@@ -192,6 +201,7 @@ export async function computeOperationalHealth(env, { nowMs = null } = {}) {
   const backupRow = await latestOperationalEvent(env, "backup_completed").catch(() => null);
   const cronAge   = cronRow ? ageMinutes(cronRow.created_at, now) : null;
   const backupAge = backupRow ? ageMinutes(backupRow.created_at, now) : null;
+  const weekly = env.WEEKLY_BACKUP_MONITORING === "on" ? await weeklyBackupHealth(env, { nowMs: now }) : null;
 
   // Recent-DLQ read: a read FAILURE must be DISTINGUISHABLE from a proven zero
   // (R1-02). readRecentOperationalEventCount reports readability, so an unreadable
@@ -219,9 +229,10 @@ export async function computeOperationalHealth(env, { nowMs = null } = {}) {
   return {
     cron_fresh:        cronAge !== null && cronAge <= CRON_STALE_AFTER_MIN,
     cron_age_minutes:  cronAge === null ? null : Math.round(cronAge),
-    backup_fresh:      backupAge !== null && backupAge <= BACKUP_STALE_AFTER_MIN,
-    backup_age_minutes: backupAge === null ? null : Math.round(backupAge),
-    backup_required:   env.INDEPENDENT_BACKUP_MONITORING !== "off",
+    backup_fresh:      weekly ? weekly.fresh : backupAge !== null && backupAge <= BACKUP_STALE_AFTER_MIN,
+    backup_age_minutes: weekly ? weekly.age_minutes : backupAge === null ? null : Math.round(backupAge),
+    ...(weekly ? { backup_last_success_at: weekly.last_success_at, backup_cadence: "weekly" } : {}),
+    backup_required:   weekly ? true : env.INDEPENDENT_BACKUP_MONITORING !== "off",
     // A read failure is NOT a proven zero: events null + readable false carry that
     // distinctly, and recent_dlq_readable is the fail-closed signal the deadman reads.
     recent_dlq_events: recentDlqRead.readable ? recentDlqRead.count : null,
