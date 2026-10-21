@@ -6,7 +6,8 @@ The C-2 manual recovery copy additionally proved a remote scratch restore of
 not a recurring backup.
 
 `weekly-backup.yml` adds a Sunday 03:43 UTC export. It captures D1 SQL and a
-stable R2 inventory (object keys, sizes and ETags), compresses and encrypts the
+stable R2 inventory (object keys, sizes, ETags, metadata returned by listing and
+the observed object-response headers), compresses and encrypts the
 package with AES-256-GCM, and uploads only ciphertext to this private repository's
 workflow artifacts. This is outside the Cloudflare account and provider. The
 same job downloads the artifact, checks the local ciphertext digest, decrypts it,
@@ -19,6 +20,10 @@ R2 bucket or a separate full recovery copy such as C-2. D1/R2 capture is sequent
 not one atomic snapshot. The weekly export has a seven-day recovery-point target;
 Time Travel covers the intervening D1 points while available. A disappearing
 Cloudflare account can lose more recent R2 objects despite an intact inventory.
+Observed HTTP/custom metadata is retained inside the encrypted manifest now;
+mapping those fields back onto restored R2 objects is a follow-up. Metadata not
+exposed by the API cannot be claimed captured. Object-response bodies are
+cancelled after the headers are captured, rather than stored in this export.
 
 The weekly signal becomes stale after eight days (one day of schedule grace).
 With `WEEKLY_BACKUP_MONITORING=on`, `/ready` measures this specific off-site event,

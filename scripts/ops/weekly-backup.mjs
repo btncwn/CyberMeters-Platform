@@ -60,7 +60,8 @@ export function weeklyApi(token, fetchImpl = fetch) {
       cursor = page.result_info?.is_truncated ? page.result_info.cursor : '';
       if (page.result_info?.is_truncated && !cursor) throw Error('Missing inventory cursor');
     } while (cursor);
-    return rows.map(({ key, etag, size }) => ({ key, etag, size }));
+    // Retain metadata fields supplied by the object-list API inside encryption.
+    return rows.map(row => ({ ...row }));
   }
   return {
     async capture(run, key) {
@@ -88,6 +89,18 @@ export function weeklyApi(token, fetchImpl = fetch) {
         }
       } finally { reader.releaseLock(); }
       const sql = Buffer.concat(chunks).toString('utf8');
+      for (const object of objects) {
+        // The existing REST object GET is known to work. Cancel its body after
+        // retaining headers; no report bytes are written or logged. Keep the raw
+        // HTTP/custom metadata for a later metadata-aware restore implementation.
+        const metadata = await fetchImpl(base + `r2/buckets/${BUCKET}/objects/${encodeURIComponent(object.key)}`, {
+          headers: { Authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(60000),
+        });
+        object.response_headers = Object.fromEntries(metadata.headers);
+        object.metadata_observed_at = new Date().toISOString();
+        await metadata.body?.cancel();
+        if (!metadata.ok) throw Error('R2 metadata observation failed');
+      }
       if (inventory(objects) !== inventory(await list())) throw Error('R2 inventory changed during capture');
       const captured_at = new Date().toISOString();
       const bytes = encodeBackup({ schema: 1, database: DATABASE, bucket: BUCKET, run, captured_at, sql, objects }, key);

@@ -201,6 +201,8 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
 {
   const { randomBytes } = await import('node:crypto');
   const { encodeBackup, verifyBackup, weeklyApi, digest } = await import('./ops/weekly-backup.mjs');
+  const { open } = await import('./ops/cloudflare-recovery.mjs');
+  const { gunzipSync } = await import('node:zlib');
   const { weeklyBackupHealth, WEEKLY_BACKUP_MAX_AGE_MINUTES } = await import('../workers/scan-api/src/lib/weekly-backup-health.js');
   const key = randomBytes(32);
   const sql = 'CREATE TABLE recovery_fixture(id INTEGER PRIMARY KEY); INSERT INTO recovery_fixture VALUES (1);';
@@ -225,6 +227,9 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
       ok('weekly signed export receives no account token', !options.headers?.Authorization);
       return new Response(sql);
     }
+    if (path.endsWith('/objects/private-fixture')) {
+      return new Response('fixture bytes', { headers: { 'x-amz-meta-fixture': 'retained', 'cache-control': 'private, max-age=60' } });
+    }
     let result;
     if (path.endsWith('/objects')) { lists++; result = drift && lists % 2 === 0 ? [] : data.objects; }
     else if (path.endsWith('/export')) result = { status: 'complete', result: { signed_url: 'https://fixture.r2.cloudflarestorage.com/export.sql' } };
@@ -236,6 +241,10 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
   };
   const client = weeklyApi('fixture-token', fakeFetch);
   const captured = await client.capture('123-1', key);
+  const capturedManifest = JSON.parse(gunzipSync(open(captured.bytes, key)));
+  ok('weekly encrypted manifest retains observed HTTP and custom metadata',
+    capturedManifest.objects[0].response_headers['x-amz-meta-fixture'] === 'retained' &&
+    capturedManifest.objects[0].response_headers['cache-control'] === 'private, max-age=60');
   ok('weekly capture cannot record freshness before off-site upload', !calls.some(call => call.path.endsWith('/query')));
   const priorCalls = calls.length;
   try { await client.record(captured.receipt, Buffer.from('corrupt'), key); } catch { /* expected */ }
