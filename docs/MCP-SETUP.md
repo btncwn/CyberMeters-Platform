@@ -1,7 +1,7 @@
 # Connect an AI assistant to CyberMeters
 
 Checked 21 October 2026 against production discovery and the customer tool catalogue.
-The remote, read-only beta endpoint is **https://mcp.cybermeters.com/mcp**.
+The remote, read-only endpoint is **https://mcp.cybermeters.com/mcp**.
 An eligible trial or paid workspace and current membership are required. Client
 account, region and administrator restrictions still apply. See the
 [client compatibility record](MCP-CLIENT-COMPATIBILITY.md) for measured client acceptance.
