@@ -6,6 +6,7 @@
 // a hard, visible line between what is OBSERVED EXTERNALLY, what the CUSTOMER
 // classified, and what CyberMeters has VERIFIED.
 import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
+import { useAppDialog } from '../../components/AppDialog'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -64,6 +65,7 @@ function IdentitySurfaceDetail({ workspaceId, recordId }) {
 }
 
 export default function IdentityExposurePage() {
+  const dialog = useAppDialog()
   // Workspace comes from the canonical context hook, not a route param — the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
@@ -97,27 +99,40 @@ export default function IdentityExposurePage() {
     const id = item.identity_exposure_id
     const payload = { action }
     if (action === 'classify_unexpected' || action === 'classify_investigate' || action === 'retire') {
-      const reason = window.prompt(`Reason for "${action.replace(/_/g, ' ')}" of ${item.primary_hostname || item.provider_name || 'this surface'}:`)
+      const what = action === 'retire' ? 'Retire' : action === 'classify_unexpected' ? 'Mark as unexpected' : 'Mark for investigation'
+      const reason = await dialog.prompt({
+        title: `${what}: ${item.primary_hostname || item.provider_name || 'this surface'}`,
+        label: 'Reason',
+        confirmLabel: what,
+        tone: action === 'retire' ? 'danger' : undefined,
+        required: true,
+      })
       if (!reason) return
       payload.reason = reason
     } else if (action === 'record_exception') {
-      const reason = window.prompt(`Exception reason for ${item.primary_hostname || 'this surface'}:`)
+      const subject = item.primary_hostname || 'this surface'
+      const reason = await dialog.prompt({ title: `Record an exception for ${subject}`, label: 'Exception reason', confirmLabel: 'Next', required: true })
       if (!reason) return
-      const until = window.prompt('Exception expiry (YYYY-MM-DD):')
+      const until = await dialog.prompt({ title: `Record an exception for ${subject}`, label: 'Exception expiry date', inputType: 'date', confirmLabel: 'Record exception', required: true })
       if (!until) return
       payload.reason = reason
       payload.exception_until = new Date(until).toISOString()
     } else if (action === 'assign_business_owner' || action === 'assign_technical_owner' || action === 'assign_identity_owner') {
       const role = action.replace('assign_', '').replace('_owner', '')
-      const owner = window.prompt(`${role[0].toUpperCase() + role.slice(1)} owner for ${item.primary_hostname || 'this surface'}:`)
+      const roleName = role[0].toUpperCase() + role.slice(1)
+      const owner = await dialog.prompt({ title: `${roleName} owner for ${item.primary_hostname || 'this surface'}`, label: `${roleName} owner`, confirmLabel: 'Assign owner', required: true })
       if (!owner) return
       payload.owner = owner
     } else if (action === 'set_business_purpose') {
-      const purpose = window.prompt('Business purpose for this surface:')
+      const purpose = await dialog.prompt({ title: `Business purpose for ${item.primary_hostname || 'this surface'}`, label: 'Business purpose', confirmLabel: 'Save purpose' })
       if (purpose == null) return
       payload.business_purpose = purpose
     } else if (action === 'record_surface_removed' || action === 'record_configuration_changed') {
-      if (!window.confirm('Record this as done?\n\nThis is your assertion only — CyberMeters will NOT mark it verified until it re-observes the expected change externally.')) return
+      if (!(await dialog.confirm({
+        title: 'Record this as done?',
+        message: 'This is your assertion only. CyberMeters will not mark it verified until it re-observes the expected change externally.',
+        confirmLabel: 'Record as done',
+      }))) return
     }
     setBusy(id)
     try {
@@ -281,6 +296,7 @@ export default function IdentityExposurePage() {
         </div>
       )}
       </ModuleContract>
+      {dialog.element}
     </div>
   )
 }

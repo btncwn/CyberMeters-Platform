@@ -382,6 +382,7 @@ export async function emailProtectionRoutes(rctx) {
             pass_rate: rate.pass_rate,
             total_messages: rate.total,
             days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
+            reports_received: receipt.reports_received,
           }, resolveRampThresholds(env));
           const impactState = await buildHostedDmarcImpactState(env, workspaceId, domain, existing);
           return json({
@@ -437,11 +438,13 @@ export async function emailProtectionRoutes(rctx) {
             let rate, readiness;
             try {
               rate = await getHostedDmarcPassRate(env, workspaceId, domain);
+              const receipt = await getHostedDmarcReportReceipt(env, workspaceId, domain, { passRate: rate.pass_rate });
               const changeMs = parseServerMsHosted(existing.last_change_at);
               readiness = evaluateRampReadiness({
                 pass_rate: rate.pass_rate,
                 total_messages: rate.total,
                 days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
+                reports_received: receipt.reports_received,
               }, resolveRampThresholds(env));
             } catch {
               readiness = null;

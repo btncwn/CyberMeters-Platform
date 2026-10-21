@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useAppDialog } from '../../components/AppDialog'
 import { Trash2, X, Copy, Check, RefreshCw } from 'lucide-react'
 import { useDialog } from '../../lib/useDialog'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -81,6 +82,7 @@ function SecretModal({ secret, onClose }) {
 }
 
 export default function WorkspaceAlertsPage() {
+  const dialog = useAppDialog()
   const { wsId, wsName } = useWorkspace()
   const [channels, setChannels] = useState(null)
   const [error, setError]       = useState(null)
@@ -130,7 +132,7 @@ export default function WorkspaceAlertsPage() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm('Remove this alert channel? Deliveries stop immediately.')) return
+    if (!(await dialog.confirm({ title: 'Remove this alert channel?', message: 'Deliveries stop immediately.', confirmLabel: 'Remove channel', tone: 'danger' }))) return
     setBusy((b) => ({ ...b, [id]: 'deleting' }))
     try { await api.deleteAlertChannel(wsId, id); await load() }
     catch (e) { setError(e?.message || 'Could not remove the channel.') }
@@ -268,6 +270,7 @@ export default function WorkspaceAlertsPage() {
           </form>
         )}
       </section>
+      {dialog.element}
     </WsPage>
   )
 }

@@ -822,15 +822,22 @@ export function buildDmarcPolicyValue(raw, { policy, testing = false, ...rest } 
   return { ok: true, value };
 }
 
-export function evaluateRampReadiness({ pass_rate, total_messages, days_since_change }, overrides = {}) {
+export function evaluateRampReadiness({ pass_rate, total_messages, days_since_change, reports_received = null }, overrides = {}) {
   const minMsgs = overrides.minMessages ?? RAMP_MIN_MESSAGES;
   const minRate = overrides.minPassRate ?? RAMP_MIN_PASS_RATE;
   const minDays = overrides.minDaysSinceChange ?? RAMP_MIN_DAYS_SINCE_CHANGE;
   const reasons = [];
-  if (total_messages == null || total_messages < minMsgs) {
+  // Reports arrived but none count toward automation (getHostedDmarcReportReceipt):
+  // say so once, rather than "0 messages" and "no measurement", which read as
+  // if no reports exist.
+  const uncounted = Number(reports_received) > 0 && !(Number(total_messages) > 0) && pass_rate == null;
+  if (uncounted) {
+    reasons.push(`Reports received by email or upload are not counted toward automation (${reports_received} arrived in the last 7 days), so neither the ${minMsgs}-message volume nor the ${minRate}% pass rate can be measured yet.`);
+  }
+  if (!uncounted && (total_messages == null || total_messages < minMsgs)) {
     reasons.push(`Not enough reporting volume yet (${total_messages ?? 0} of ${minMsgs} messages over 7 days).`);
   }
-  if (pass_rate == null || pass_rate < minRate) {
+  if (!uncounted && (pass_rate == null || pass_rate < minRate)) {
     reasons.push(pass_rate == null
       ? "No DMARC compliance measurement is available yet."
       : `DMARC pass rate is ${pass_rate}% — ${minRate}% or higher is required before tightening.`);
