@@ -8,7 +8,7 @@ import { assetFingerprintSignals } from "./asset-intel.js";
 import { resolveDnsResolution } from "./attack-surface-signal-completeness.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
-import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, isEmailProbeUnobserved } from "./email-analysis.js";
+import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, inferMxProvider, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
 import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
@@ -802,8 +802,12 @@ export function computeScore(modules, domain) {
       const dkimTitle = "DKIM Could Not Be Verified Using Common Selectors";
 
       // Description: include provider signal when available
+      // Name each source (21 Oct 2026): the SPF record and the mail servers can
+      // point at different providers, so never call the SPF one "the provider".
+      const mxProvider = inferMxProvider(modules.dns?.mx_records);
+      const mxLabel = mxProvider && mxProvider !== dkimProvider ? (DKIM_PROVIDER_LABELS[mxProvider] ?? mxProvider) : null;
       const dkimDescription = providerLabel
-        ? `${providerLabel} was inferred as the email provider, but DKIM could not be verified for ${domain} using the selectors checked. The domain may use a custom selector. This is an informational observation, not confirmation that DKIM is absent.`
+        ? `The SPF record points to ${providerLabel} as a sender${mxLabel ? `, while the mail servers (MX) are ${mxLabel}` : ""}, but DKIM could not be verified for ${domain} using the selectors checked. The domain may use a custom selector. This is an informational observation, not confirmation that DKIM is absent.`
         : `DKIM could not be verified for ${domain} using common selectors. The domain may use a custom selector. This is an informational observation, not confirmation that DKIM is absent.`;
 
       // Confidence model:
