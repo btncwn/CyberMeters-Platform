@@ -101,6 +101,12 @@ https://:version.:project.pages.dev/*
   ! Expires
   Cache-Control: public, max-age=86400
 
+/og-image-v3.png
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Cache-Control: public, max-age=86400
+
 # ── RFC 9116 vulnerability disclosure ─────────────────────────────────────
 # Explicit text/plain content-type so scanners accept it; short cache.
 /.well-known/security.txt
