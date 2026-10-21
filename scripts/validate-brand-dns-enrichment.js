@@ -343,5 +343,49 @@ function rowOf(db, ws, cand) {
   db.close();
 }
 
+// Corrective: concurrent DNS/HTTP enrichments must retain each other's evidence.
+{
+  const { enrichBrandCandidatesHttp } = await import(eng("brand-http-enrichment.js"));
+  const { writeBrandEvidence } = await import(eng("brand-evidence-persistence.js"));
+  for (const order of ["dns_after_http", "http_after_dns"]) {
+    const db = buildDb();
+    seedCandidate(db, "wsRace", "race.example", { dns: 1, lastChecked: "2000-01-01T00:00:00.000Z" });
+    db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='wsRace'").run();
+    const env = { cybermeters_db: makeD1(db) };
+    let injected = false, concurrent;
+    const now = new Date().toISOString();
+    const dns = async (_name, type) => {
+      if (!injected && order === "dns_after_http") {
+        injected = true;
+        concurrent = await enrichBrandCandidatesHttp(env, "wsRace", { now, probeFetch });
+      }
+      return type === "MX" ? { Status: 0, Answer: [{ type: 15, data: "10 mx.race.example." }] }
+        : { Status: 0, Answer: [{ type: 1, data: "203.0.113.50" }] };
+    };
+    const probeFetch = async () => {
+      if (!injected && order === "http_after_dns") {
+        injected = true;
+        concurrent = await enrichBrandCandidatesDns(env, "wsRace", { now, dnsQuery: dns, fireEvents: false });
+      }
+      return new Response('<html><input type="password"></html>', { status: 200 });
+    };
+    const primary = order === "dns_after_http"
+      ? await enrichBrandCandidatesDns(env, "wsRace", { now, dnsQuery: dns, fireEvents: false })
+      : await enrichBrandCandidatesHttp(env, "wsRace", { now, probeFetch });
+    const evidence = JSON.parse(db.prepare("SELECT evidence_json FROM workspace_brand_assets WHERE workspace_id='wsRace'").get().evidence_json);
+    ok(`C21 ${order} both writers complete after a conflict`, primary.checked === 1 && concurrent?.checked === 1);
+    ok(`C21 ${order} retains both independent measurements`, evidence.some((e) => e.signal === "looks_like_login" && e.value === true)
+      && evidence.some((e) => e.signal === "watchlist_dns_observation" && e.value.mx_present === true));
+    db.close();
+  }
+  let writes = 0, reads = 0;
+  const exhausted = await writeBrandEvidence({ cybermeters_db: { prepare: () => ({ bind: () => ({
+    first: async () => ({ evidence_json: String(++reads) }),
+  }) }) } }, "ws", { id: "race", evidence_json: null }, async () => {
+    writes++; return { meta: { changes: 0 } };
+  });
+  ok("C21 evidence retries stop after three conflicting writes", writes === 3 && reads === 2 && exhausted.meta.changes === 0);
+}
+
 console.log(`\nvalidate-brand-dns-enrichment: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

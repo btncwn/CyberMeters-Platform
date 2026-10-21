@@ -19,6 +19,7 @@
 
 import { dnsQuery as defaultDnsQuery } from "./dns.js";
 import { createId } from "../lib/util.js";
+import { writeBrandEvidence } from "./brand-evidence-persistence.js";
 
 // Bounded work — NOT a plan subrequest limit (CyberMeters runs on the Workers
 // Paid plan). The batch is deliberately small for CONTROLLED FAN-OUT (the hourly
@@ -274,21 +275,22 @@ export async function enrichBrandCandidatesDns(env, workspaceId, opts = {}) {
     const persist = outcomeToPersistence(probe);
     if (!persist) continue; // transient — untouched, retried next batch
     const wasResolving = row.dns_resolves === 1;
-    let extraFields = "";
-    const extraBinds = [];
-    if (measured) {
-      let prior = [];
-      try { const parsed = JSON.parse(row.evidence_json || "[]"); if (Array.isArray(parsed)) prior = parsed; } catch { /* no prior evidence */ }
-      const receipt = { schema_version: "brand-watchlist-dns.v1", verified_scope: true,
-        protected_domain: row.domain, candidate_domain: row.candidate_domain,
-        checked_at: now, resolves: measured.resolves, mx_present: measured.mx_present, null_mx: measured.null_mx };
-      const evidence = [...prior.filter((item) => item?.signal !== "watchlist_dns_observation"),
-        { signal: "watchlist_dns_observation", value: receipt }];
-      extraFields = ", mx_present = ?, evidence_json = ?";
-      extraBinds.push(measured.mx_present ? 1 : 0, JSON.stringify(evidence));
-    }
     try {
-      const result = await env.cybermeters_db.prepare(
+      const write = async (expected) => {
+        let extraFields = "";
+        const extraBinds = [];
+        if (measured) {
+          let prior = [];
+          try { const parsed = JSON.parse(expected || "[]"); if (Array.isArray(parsed)) prior = parsed; } catch { /* no prior evidence */ }
+          const receipt = { schema_version: "brand-watchlist-dns.v1", verified_scope: true,
+            protected_domain: row.domain, candidate_domain: row.candidate_domain,
+            checked_at: now, resolves: measured.resolves, mx_present: measured.mx_present, null_mx: measured.null_mx };
+          const evidence = [...prior.filter((item) => item?.signal !== "watchlist_dns_observation"),
+            { signal: "watchlist_dns_observation", value: receipt }];
+          extraFields = ", mx_present = ?, evidence_json = ?";
+          extraBinds.push(measured.mx_present ? 1 : 0, JSON.stringify(evidence));
+        }
+        return env.cybermeters_db.prepare(
         `UPDATE workspace_brand_assets
             SET dns_resolves = ?, status = ?, ip_address = ?, last_checked_at = ?, updated_at = ?${extraFields}
           WHERE id = ? AND workspace_id = ?
@@ -300,8 +302,11 @@ export async function enrichBrandCandidatesDns(env, workspaceId, opts = {}) {
                    WHERE w.id = workspace_brand_assets.workspace_id
                      AND w.deleted_at IS NULL
                      AND lower(d.domain) = lower(workspace_brand_assets.domain)
-                )`
-      ).bind(persist.dns_resolves, persist.status, persist.ip_address, now, now, ...extraBinds, row.id, workspaceId).run();
+                )${measured ? " AND evidence_json IS ?" : ""}`
+        ).bind(persist.dns_resolves, persist.status, persist.ip_address, now, now, ...extraBinds,
+          row.id, workspaceId, ...(measured ? [expected] : [])).run();
+      };
+      const result = measured ? await writeBrandEvidence(env, workspaceId, row, write) : await write(row.evidence_json ?? null);
       if (runChanges(result) !== 1) continue;
       stats.checked++;
       if (fireEvents && persist.dns_resolves === 1 && !wasResolving) {
