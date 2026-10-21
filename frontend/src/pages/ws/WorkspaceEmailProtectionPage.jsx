@@ -1909,7 +1909,7 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
   )
 }
 
-function ManagedMtaStsCard({ wsId, domain }) {
+export function ManagedMtaStsCard({ wsId, domain }) {
   const [rec, setRec]     = useState(undefined) // undefined=loading, null=none
   const [busy, setBusy]   = useState(null)      // 'create' | 'verify' | 'remove'
   const [error, setError] = useState(null)
@@ -1933,6 +1933,15 @@ function ManagedMtaStsCard({ wsId, domain }) {
   const policyVerified = rec?.https_policy?.state === 'reachable_valid' && rec?.https_policy?.matches_pinned_policy
   const dnsConnected = rec?.dns_txt?.state === 'connected' || rec?.status === 'connected'
   const complete = Boolean(rec?.complete)
+  // DNS connected but the HTTPS policy file not verified is incomplete, never
+  // "Connected". The reason follows the API's policy-file state.
+  const policyState = rec?.https_policy?.state
+  const policyPath = rec?.https_policy?.path || rec?.policy_path || null
+  const incompleteReason = rec && !complete && !rec.review_required && dnsConnected
+    ? (!policyState || policyState === 'not_checked' ? 'policy file not checked yet'
+      : policyState === 'not_published' ? 'policy file not published'
+      : 'policy file does not match')
+    : null
 
   return (
     <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5">
@@ -1951,10 +1960,16 @@ function ManagedMtaStsCard({ wsId, domain }) {
             complete ? 'bg-brand-50 text-brand-700 border-brand-200'
             : rec.review_required ? 'bg-transparent text-brand-700 border-[1.5px] border-brand-700'
             : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
-            {complete ? 'MTA-STS active in testing mode' : rec.review_required ? 'Review needed' : meta?.label || 'Not checked'}
+            {complete ? 'MTA-STS active in testing mode' : rec.review_required ? 'Review needed'
+              : incompleteReason ? `Incomplete — ${incompleteReason}` : meta?.label || 'Not checked'}
           </span>
         )}
       </div>
+      {incompleteReason && policyPath && (
+        <p className="mt-2 text-xs text-gray-600 leading-relaxed" data-testid="mta-sts-incomplete-line">
+          MTA-STS stays incomplete until <span className="font-mono break-all">{policyPath}</span> serves this exact file.
+        </p>
+      )}
 
       {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
 
