@@ -101,8 +101,11 @@ ok("every variable in .env.example is actually read by the frontend",
 // ── 4. Public variable shapes — the API URL's path matters ───────────────────
 ok("VITE_API_BASE_URL is documented", declared.has("VITE_API_BASE_URL"));
 const base = declared.get("VITE_API_BASE_URL") || "";
-ok("MCP beta example is disabled by default",
-   declared.get("VITE_MCP_BETA_ENABLED") === "false");
+// The MCP connections page has no build-time gate (21 Oct 2026): a customer who
+// can connect a client must always be able to see and remove it.
+ok("the MCP connections page is not gated by a build-time flag",
+   !/VITE_MCP_BETA_ENABLED/.test(fs.readFileSync(path.join(srcRoot, "pages", "McpConnectionsPage.jsx"), "utf8")) &&
+   !declared.has("VITE_MCP_BETA_ENABLED"));
 ok("the VITE_API_BASE_URL example ends in /api (the API serves /api/*; requests append a bare path)",
    /\/api$/.test(base), `example value was: ${JSON.stringify(base)}`);
 ok("the VITE_API_BASE_URL example is an https URL", /^https:\/\//.test(base), base);

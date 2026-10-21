@@ -4,13 +4,14 @@ import { BASE } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { formatDate } from '../utils/dates'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
+import { useAppDialog } from '../components/AppDialog'
 
 const MCP_ENDPOINT = (() => {
   try {
     if (new URL(BASE).origin === 'https://api-staging.cybermeters.com') {
       return 'https://mcp-staging.cybermeters.com/mcp'
     }
-  } catch { /* The page remains hidden until the API base is configured. */ }
+  } catch { /* An unparseable API base falls back to the production endpoint. */ }
   return 'https://mcp.cybermeters.com/mcp'
 })()
 
@@ -25,6 +26,7 @@ function displayClient(value) {
 
 export default function McpConnectionsPage() {
   const { token } = useAuth()
+  const dialog = useAppDialog()
   const [connections, setConnections] = useState([])
   const [eligible, setEligible] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -33,9 +35,11 @@ export default function McpConnectionsPage() {
   const [moreLoading, setMoreLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const enabled = import.meta.env.VITE_MCP_BETA_ENABLED === 'true'
+  // No build-time gate (21 Oct 2026): anyone who can connect a client must be
+  // able to see and remove it. The API decides eligibility and returns only the
+  // caller's own connections.
   const load = useCallback(async () => {
-    if (!enabled || !token || !BASE) { setLoading(false); return }
+    if (!token || !BASE) { setLoading(false); return }
     setLoading(true)
     setError('')
     try {
@@ -60,7 +64,7 @@ export default function McpConnectionsPage() {
       setNextOffset(null)
       setError('MCP connections are unavailable right now. Please try again later.')
     } finally { setLoading(false) }
-  }, [enabled, token])
+  }, [token])
 
   useEffect(() => { load() }, [load])
 
@@ -87,8 +91,17 @@ export default function McpConnectionsPage() {
     } finally { setMoreLoading(false) }
   }
 
-  async function revoke(id) {
+  async function revoke(connection) {
+    const id = connection.id
     if (busyId || !token || !BASE) return
+    const client = displayClient(connection.client_id)
+    const confirmed = await dialog.confirm({
+      title: `Remove access for ${client}?`,
+      message: `${client} will no longer be able to read your CyberMeters data. Data it has already received stays with the client under its own terms.`,
+      confirmLabel: 'Remove access',
+      tone: 'danger',
+    })
+    if (!confirmed) return
     setBusyId(id)
     setError('')
     try {
@@ -119,7 +132,6 @@ export default function McpConnectionsPage() {
           that connection is removed and you can reconnect to one eligible workspace.
         </p>
       </div>
-      {!enabled ? <p className="text-sm text-gray-600">MCP connections are not available for this account yet.</p> : <>
       {eligible ? <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-2 text-sm">
         <p className="font-semibold text-gray-900">Connect an eligible AI client</p>
         <p className="text-gray-600">In a compatible AI client, add a remote MCP server with this URL:</p>
@@ -156,7 +168,7 @@ export default function McpConnectionsPage() {
                     </p>
                   </div>
                   {connection.status === 'active' &&
-                    <button type="button" onClick={() => revoke(connection.id)}
+                    <button type="button" onClick={() => revoke(connection)}
                       disabled={busyId === connection.id}
                       className="text-sm text-red-700 hover:underline disabled:opacity-50">
                       {busyId === connection.id ? 'Removing…' : 'Remove access'}
@@ -170,7 +182,7 @@ export default function McpConnectionsPage() {
           className="text-sm text-brand-700 hover:underline disabled:opacity-50">
           {moreLoading ? 'Loading more…' : 'Load more connections'}
         </button>}
-      </>}
+      {dialog.element}
     </div>
   )
 }
