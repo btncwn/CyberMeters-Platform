@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "hosted-dmarc.js")).href);
-const { getHostedDmarcPassRate, evaluateRampReadiness, shouldAutoRollback } = eng;
+const { getHostedDmarcPassRate, evaluateRampReadiness, shouldAutoRollback, runHostedDnsVerificationSweep } = eng;
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -97,6 +97,85 @@ ok("missing measurement → no rollback", shouldAutoRollback({ baseline_pass_rat
 const e2eReady = evaluateRampReadiness({ pass_rate: pr.pass_rate, total_messages: pr.total, days_since_change: 7 });
 ok("suspended aggregate evidence cannot advance hosted-DMARC",
    e2eReady.ready === false && Array.isArray(e2eReady.reasons) && e2eReady.reasons.length > 0);
+
+// ── The real sweep: autopilot and auto-rollback write customer DNS ─────────
+// Autopilot changes a customer's live DMARC record, so its wiring inside
+// runHostedDnsVerificationSweep is proven end to end here: the sweep reads the
+// row, verifies DNS, reads the pass rate, decides, and PATCHes Cloudflare. The
+// PATCH bodies are what would be published. RFC 9989: none may carry pct.
+{
+  const RUA = "rua=mailto:cmrua_x@reports.cybermeters.com";
+  const zone = "e".repeat(32);
+  const sweepEnv = { ...env, CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: zone };
+  const served = new Map();   // hosted name → TXT value Cloudflare serves
+  const patches = [];
+  const fetchImpl = async (url, opts = {}) => {
+    if ((opts.method || "GET") === "PATCH") {
+      const body = JSON.parse(opts.body);
+      patches.push(body.content);
+      served.set(body.name, body.content);
+      return new Response(JSON.stringify({ success: true, result: { id: "cf", content: body.content } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ success: true, result: [] }), { status: 200 });
+  };
+  // The customer's _dmarc CNAMEs to the hosted name, which serves its TXT.
+  const dnsQueryImpl = async (name, type) => {
+    const hosted = String(name).startsWith("_dmarc.") ? `hd-${String(name).slice(7).split(".")[0]}.dmarc.cybermeters.com` : name;
+    const value = served.get(hosted);
+    if (!value) return { Status: 3, Answer: [] };
+    if (type === "CNAME") return { Status: 0, Answer: [{ type: 5, data: `${hosted}.` }] };
+    const chain = hosted === name ? [] : [{ type: 5, data: `${hosted}.` }];
+    return { Status: 0, Answer: [...chain, { type: 16, data: `"${value}"` }] };
+  };
+  const seed = (label, value, extra = {}) => {
+    const id = `hd-${label}`, hosted = `hd-${label}.dmarc.cybermeters.com`;
+    served.set(hosted, value);
+    db.prepare(`INSERT INTO hosted_dns_entries (id, workspace_id, domain, record_kind, customer_name, target_name, target_value,
+      previous_value, verification_state, provider_record_id, autopilot, pass_rate_at_change, last_change_at, created_at, updated_at)
+      VALUES (?, 'ws_sweep', ?, 'dmarc', ?, ?, ?, ?, 'connected', ?, ?, ?, datetime('now','-10 days'), datetime('now','-30 days'), datetime('now','-10 days'))`)
+      .run(id, `${label}.example`, `_dmarc.${label}.example`, hosted, value, extra.previous ?? null,
+        "a".repeat(32), extra.autopilot ?? 1, extra.baseline ?? null);
+    return id;
+  };
+  const value = (id) => db.prepare("SELECT target_value FROM hosted_dns_entries WHERE id = ?").get(id).target_value;
+  const clear = () => db.prepare("DELETE FROM hosted_dns_entries WHERE workspace_id = 'ws_sweep'").run();
+  const healthy = async () => ({ total: 500, pass_rate: 99.5 });
+  const dropped = async () => ({ total: 500, pass_rate: 70 });
+
+  // 1. Production pass rate (suspended): autopilot never writes DNS.
+  const fresh = seed("fresh", `v=DMARC1; p=none; ${RUA}`);
+  await runHostedDnsVerificationSweep(sweepEnv, { dnsQueryImpl, fetchImpl });
+  ok("sweep: with the suspended production pass rate, autopilot writes nothing", patches.length === 0 && value(fresh) === `v=DMARC1; p=none; ${RUA}`);
+  clear();
+
+  // 2. A ready pass rate: autopilot takes the testing step first, no pct.
+  const ramp = seed("ramp", `v=DMARC1; p=none; ${RUA}`);
+  await runHostedDnsVerificationSweep(sweepEnv, { dnsQueryImpl, fetchImpl, passRateImpl: healthy });
+  ok("sweep: autopilot publishes quarantine with t=y as its first step",
+     JSON.stringify(patches) === JSON.stringify([`v=DMARC1; p=quarantine; t=y; ${RUA}`]) && value(ramp) === patches[0]);
+  clear(); patches.length = 0;
+
+  // 3. A record still carrying a legacy pct: autopilot's step removes it.
+  const legacy = seed("legacy", `v=DMARC1; p=reject; pct=50; ${RUA}`);
+  await runHostedDnsVerificationSweep(sweepEnv, { dnsQueryImpl, fetchImpl, passRateImpl: healthy });
+  ok("sweep: autopilot's step from reject pct=50 publishes reject without pct",
+     JSON.stringify(patches) === JSON.stringify([`v=DMARC1; p=reject; ${RUA}`]) && value(legacy) === patches[0]);
+  clear(); patches.length = 0;
+
+  // 4. Autopilot off: nothing is written even when ready.
+  seed("manual", `v=DMARC1; p=none; ${RUA}`, { autopilot: 0 });
+  await runHostedDnsVerificationSweep(sweepEnv, { dnsQueryImpl, fetchImpl, passRateImpl: healthy });
+  ok("sweep: with autopilot off, nothing is written", patches.length === 0);
+  clear();
+
+  // 5. Auto-rollback after a drop restores the previous value without pct.
+  const back = seed("back", `v=DMARC1; p=quarantine; ${RUA}`, { previous: `v=DMARC1; p=reject; pct=50; ${RUA}`, baseline: 99, autopilot: 0 });
+  await runHostedDnsVerificationSweep(sweepEnv, { dnsQueryImpl, fetchImpl, passRateImpl: dropped });
+  ok("sweep: auto-rollback restores reject with t=y, never the stored pct",
+     JSON.stringify(patches) === JSON.stringify([`v=DMARC1; p=reject; t=y; ${RUA}`]) && value(back) === patches[0]);
+  ok("sweep: no PATCH ever carried pct", patches.every((content) => !/pct\s*=/i.test(content)));
+  clear(); patches.length = 0;
+}
 
 console.log(`\nHosted DMARC lifecycle: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("hosted-dmarc-lifecycle validation FAILED"); process.exit(1); }

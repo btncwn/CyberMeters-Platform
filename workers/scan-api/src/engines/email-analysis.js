@@ -147,7 +147,7 @@ export function parseDmarcRecord(record, recordCount = record ? 1 : 0) {
   if (raw && tags.v?.toUpperCase() !== "DMARC1") warnings.push("The DMARC version tag must be v=DMARC1.");
   if (raw && !["none", "quarantine", "reject"].includes(policy)) warnings.push("The DMARC policy tag must be none, quarantine, or reject.");
   if (!pctValid) warnings.push("The DMARC pct value must be an integer from 0 to 100.");
-  if (pctValid && percentage < 100) warnings.push(`DMARC enforcement applies to ${percentage}% of messages.`);
+  if (pctValid && percentage < 100) warnings.push(`The DMARC record carries pct=${percentage}, which RFC 9989 removed; receivers that follow RFC 9989 ignore it.`);
   if (raw && rua.length === 0) warnings.push("No aggregate reporting address (rua) is configured.");
   if (raw && !subdomainPolicy) warnings.push("No explicit subdomain policy (sp) is configured; subdomains inherit the main policy.");
 
@@ -547,10 +547,10 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
         { suggested_dns_record: `rua=mailto:${reportAddress}`, caution: "Use a mailbox or service capable of handling DMARC XML reports." }));
     }
     if (dmarc.valid && dmarc.percentage < 100) {
-      actions.push(remediationAction("dmarc_partial_percentage", "DMARC", "medium", "Increase DMARC policy coverage",
-        `The DMARC pct tag applies policy to ${dmarc.percentage}% of messages.`,
-        "Messages outside the rollout percentage may not receive the requested enforcement treatment.",
-        "After validating legitimate senders, increase pct gradually towards 100."));
+      actions.push(remediationAction("dmarc_partial_percentage", "DMARC", "medium", "Remove the legacy DMARC pct tag",
+        `The DMARC record carries pct=${dmarc.percentage}. RFC 9989 removed pct: receivers that follow it ignore the value and apply the policy as written.`,
+        "Receivers that still read pct may treat the policy differently, so the record does not ask every receiver for the same handling.",
+        "Remove pct from the record. To test a policy before enforcing it, publish it with t=y (RFC 9989 section 4.7)."));
     }
   }
 

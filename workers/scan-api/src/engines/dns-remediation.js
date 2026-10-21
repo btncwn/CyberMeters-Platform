@@ -1,6 +1,6 @@
 import { canonicalDomain, inZone, createCloudflareDns, DnsActionError, stableJson, boundedDnsJson } from './cloudflare-dns.js';
 import { encryptProviderToken, decryptProviderToken, providerKeyAvailable } from '../lib/provider-secrets.js';
-import { buildDmarcDnsRecommendedValue, buildTlsRptValue } from './hosted-dmarc.js';
+import { buildDmarcDnsRecommendedValue, buildTlsRptValue, legacyPctNotice } from './hosted-dmarc.js';
 import { parseDmarcRecord, normalizeDnsTxtValue } from './email-analysis.js';
 import { RUA_INBOUND_DOMAIN_DEFAULT, normalizeInboundRecipientDomain } from '../lib/dmarc-ingest.js';
 
@@ -37,6 +37,8 @@ export function changeView(row, capabilities = {}) {
     can_verify: capabilities.can_manage === true && [...ACTIVE, ...APPLIED].includes(row.status),
     can_rollback: capabilities.can_manage === true && APPLIED.includes(row.status) && !!row.postimage_json,
     verification,
+    // The customer's record is kept verbatim, an obsolete pct included (RFC 9989).
+    legacy_pct: row.action_id === 'dmarc_reporting' ? legacyPctNotice(parse(row.desired_json)?.content, { managedBy: 'customer' }) : null,
   };
 }
 export async function loadDnsChange(c, id) {

@@ -37,7 +37,7 @@ function emailStatements(email) {
     const sp = String(dmarc.subdomain_policy || "").toLowerCase();
     const parts = [`DMARC policy p=${policy} observed`];
     if (sp === "reject" || sp === "quarantine") parts.push(`with sp=${sp} for subdomains`);
-    if (Number.isFinite(pct) && pct < 100) parts.push(`applied to ${pct}% of mail`);
+    if (Number.isFinite(pct) && pct < 100) parts.push(`with a legacy pct=${pct} tag (removed by RFC 9989)`);
     out.push(statement("dmarc_enforcing_policy", parts.join(", "), "email_security"));
     if (dmarc.has_reporting === true) {
       out.push(statement("dmarc_aggregate_reporting", "DMARC aggregate reports requested (rua)", "email_security"));

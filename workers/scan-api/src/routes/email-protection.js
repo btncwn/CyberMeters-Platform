@@ -18,7 +18,7 @@ import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
 import { getEffectivePlan } from "../engines/entitlements.js";
 import { CUSTOMER_SENDER_DISPOSITIONS, isCustomerDisposition } from "../engines/sender-classification.js";
-import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
+import { DMARC_RAMP_LADDER, dmarcRampStepByKey, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
@@ -105,6 +105,26 @@ function mtaStsRecordToApi(row, { dnsChecks = null, httpsPolicy = null, mxDrift 
   };
 }
 
+const RAMP_POLICY_RANK = Object.freeze({ none: 0, quarantine: 1, reject: 2 });
+
+/**
+ * The ladder index a policy-change request names, or -1. Preferred: { step }
+ * (a DMARC_RAMP_LADDER key). Also { policy, testing }. A bare { policy } (the
+ * pre-RFC 9989 client) means: the same policy as now → that policy as written;
+ * a stricter policy → its testing step first; a looser one → as written.
+ */
+export function resolveRequestedRampStep(body = {}, currentIdx = -1) {
+  if (typeof body.step === "string") return dmarcRampStepByKey(body.step.trim().toLowerCase());
+  const policy = String(body.policy || "").trim().toLowerCase();
+  if (!(policy in RAMP_POLICY_RANK)) return -1;
+  if (policy === "none") return dmarcRampStepByKey("none");
+  if (typeof body.testing === "boolean") return dmarcRampStepByKey(body.testing ? `${policy}_testing` : policy);
+  if (body.testing != null) return -1;
+  const current = DMARC_RAMP_LADDER[currentIdx];
+  const tightening = !current || RAMP_POLICY_RANK[policy] > RAMP_POLICY_RANK[current.policy];
+  return dmarcRampStepByKey(tightening ? `${policy}_testing` : policy);
+}
+
 async function buildHostedDmarcImpactState(env, workspaceId, domain, row) {
   const record = hostedDnsRecordToApi(row);
   if (!record) return { record: null, projected_impact: null, impact_assessment: null };
@@ -113,7 +133,7 @@ async function buildHostedDmarcImpactState(env, workspaceId, domain, row) {
     try {
       projectedImpact = await forecastPolicyImpact(env, workspaceId, domain, {
         targetPolicy: record.next_step.policy,
-        targetPct: record.next_step.pct,
+        testing: record.next_step.testing,
       });
     } catch { projectedImpact = null; }
   }
@@ -389,14 +409,16 @@ export async function emailProtectionRoutes(rctx) {
           }, 403);
           let body;
           try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
-          const policy = String(body.policy || "").trim().toLowerCase();
-          const pct = body.pct == null ? 100 : Number(body.pct);
-          const targetIdx = DMARC_RAMP_LADDER.findIndex((s) => s.policy === policy
-            && (policy === "none" || s.pct === pct));
-          if (targetIdx < 0) {
-            return json({ error: "Choose a ladder step: none, quarantine (pct 5/25/50/100), or reject (pct 10/25/50/100)." }, 400);
+          // RFC 9989 removed pct; a step is named by its key (DMARC_RAMP_LADDER).
+          if (body.pct != null) {
+            return json({ error: "pct was removed by RFC 9989. Choose a ladder step instead.", code: "pct_removed" }, 400);
           }
           const currentIdx = dmarcRampStepIndex(existing.current_value);
+          const targetIdx = resolveRequestedRampStep(body, currentIdx);
+          if (targetIdx < 0) {
+            return json({ error: "Choose a ladder step: none, quarantine_testing, quarantine, reject_testing or reject.", code: "invalid_step" }, 400);
+          }
+          const { policy, testing } = DMARC_RAMP_LADDER[targetIdx];
           const tightening = targetIdx > currentIdx;
           if (tightening && body.confirm !== true) {
             const rate = await getHostedDmarcPassRate(env, workspaceId, domain);
@@ -408,7 +430,7 @@ export async function emailProtectionRoutes(rctx) {
             }, resolveRampThresholds(env));
             const projectedImpact = await forecastPolicyImpact(env, workspaceId, domain, {
               targetPolicy: policy,
-              targetPct: pct,
+              testing,
             }).catch(() => null);
             if (!readiness.ready) {
               return json({
@@ -421,7 +443,7 @@ export async function emailProtectionRoutes(rctx) {
           }
           const rateNow = await getHostedDmarcPassRate(env, workspaceId, domain);
           const applied = await applyHostedDmarcChange(env, existing, {
-            policy, pct, userId: user.id, source: "manual", passRateNow: rateNow.pass_rate,
+            policy, testing, userId: user.id, source: "manual", passRateNow: rateNow.pass_rate,
           });
           if (!applied.ok) {
             const msg = applied.reason === "change_budget_exceeded"
