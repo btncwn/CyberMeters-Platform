@@ -230,6 +230,24 @@ eq("resolver unavailability launches zero modules", resolverDown.moduleCalls, 0)
 eq("resolver unavailability returns an explicit verification code",
   resolverDown.body.code, "target_verification_unavailable");
 
+// An authoritative negative is definitive and worded as such (21 Oct 2026): it
+// was answered with the transient "Public DNS verification could not complete.
+// Please try again shortly." 503.
+{
+  const negative = (status) => async (name, type) => ({ Status: status, TC: false,
+    Question: [{ name: `${name}.`, type: type === "AAAA" ? 28 : 1 }],
+    Authority: [{ name: "example.com.", type: 6, TTL: 60, data: "ns.example.com. hostmaster.example.com. 1 3600 600 86400 60" }] });
+  const nx = await runDirectPreview({ dnsQueryImpl: negative(3) });
+  eq("NXDOMAIN target is refused definitively (422), not as a transient 503", nx.status, 422);
+  eq("NXDOMAIN target says the domain does not exist", nx.body.code, "domain_not_found");
+  ok("NXDOMAIN wording names DNS, not a retry", /does not exist in public DNS/.test(nx.body.error) && !/try again shortly/i.test(nx.body.error), nx.body.error);
+  eq("NXDOMAIN target launches zero modules", nx.moduleCalls, 0);
+  const nodata = await runDirectPreview({ dnsQueryImpl: negative(0) });
+  eq("an address-less name is refused definitively (422)", nodata.status, 422);
+  eq("an address-less name says it has no website address", nodata.body.code, "domain_no_website_address");
+  eq("an address-less name launches zero modules", nodata.moduleCalls, 0);
+}
+
 // One bounded retry: a transient first answer is asked once more; a definitive
 // one (private, no address, budget control error) is never asked twice.
 const countingDns = (behaviour) => {
