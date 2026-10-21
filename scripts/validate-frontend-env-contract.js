@@ -215,9 +215,10 @@ ok("wrangler.toml declares a custom_domain route (the thing that makes a hostnam
 // fetch handler must test the host as the very first thing after parsing the URL.
 const NON_API_HOSTS = Object.freeze({
   "mta-sts.cybermeters.com": "    if (isMtaStsSelfHost(url)) return handleMtaStsSelf(request, env);",
+  "admin.cybermeters.com": "    if (isTestSurfaceHost(url)) return handleTestSurface(request);",
 });
 const workerIndex = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
-const fetchHead = workerIndex.slice(workerIndex.indexOf("async fetch(request, env, ctx) {")).split("\n").slice(1, 5).join("\n");
+const fetchHead = workerIndex.slice(workerIndex.indexOf("async fetch(request, env, ctx) {")).split("\n").slice(1, 8).join("\n");
 for (const [host, guard] of Object.entries(NON_API_HOSTS)) {
   if (!customDomains.includes(host)) continue;
   ok(`${host} is cut off before any API route`, fetchHead.includes("const url = new URL(request.url);") && fetchHead.includes(guard),
