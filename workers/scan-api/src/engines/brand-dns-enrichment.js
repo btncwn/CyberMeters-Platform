@@ -224,22 +224,34 @@ export async function enrichBrandCandidatesDns(env, workspaceId, opts = {}) {
  */
 export async function runBrandDnsEnrichmentSweep(env, opts = {}) {
   const { workspacesPerTick = BRAND_DNS_SWEEP_WORKSPACES_PER_TICK, ...rest } = opts;
+  const recheckAfterMs = rest.recheckAfterMs ?? BRAND_DNS_RECHECK_AFTER_MS;
+  const staleBefore = new Date(Date.now() - recheckAfterMs).toISOString();
   let rows;
   try {
+    // A workspace is due when any candidate is unchecked OR stale past the
+    // weekly recheck window: the same predicate selectBrandCandidatesSql()
+    // applies inside the workspace. Selecting on unchecked alone meant a fully
+    // checked workspace was never visited again, so a lookalike registered
+    // after its first check was never re-detected (21 Oct 2026: every
+    // production candidate was last checked in July). Workspaces with
+    // unchecked candidates go first, then the longest-waiting, so one large
+    // backlog cannot starve the rest.
     rows = await env.cybermeters_db.prepare(
-      `SELECT a.workspace_id, COUNT(*) AS pending
+      `SELECT a.workspace_id,
+              SUM(a.dns_resolves IS NULL) AS unchecked,
+              MIN(COALESCE(a.last_checked_at, '')) AS oldest_check
          FROM workspace_brand_assets a
          JOIN workspaces w
            ON w.id = a.workspace_id AND w.deleted_at IS NULL
          JOIN workspace_domains wd ON wd.workspace_id = w.id
          JOIN domains d
            ON d.id = wd.domain_id AND lower(d.domain) = lower(a.domain)
-        WHERE a.dns_resolves IS NULL
+        WHERE (a.dns_resolves IS NULL OR a.last_checked_at IS NULL OR a.last_checked_at < ?)
           AND (classification IS NULL OR classification NOT IN ${CLOSED_CLASSIFICATIONS})
         GROUP BY a.workspace_id
-        ORDER BY pending DESC, a.workspace_id ASC
+        ORDER BY (unchecked > 0) DESC, oldest_check ASC, a.workspace_id ASC
         LIMIT ?`
-    ).bind(Math.max(1, workspacesPerTick)).all();
+    ).bind(staleBefore, Math.max(1, workspacesPerTick)).all();
   } catch {
     return { workspaces: 0, checked: 0 };
   }
