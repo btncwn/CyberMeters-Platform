@@ -18,12 +18,13 @@ afterEach(() => {
   resetUnsavedInputTracker()
 })
 
-function setup({ deployed = 'build-new', running = 'build-old', interval = 60_000 } = {}) {
+function setup({ deployed = 'build-new', running = 'build-old', interval = 60_000, start = '/account' } = {}) {
   const fetchBuildId = vi.fn().mockResolvedValue(deployed)
   const reload = vi.fn()
   render(
-    <MemoryRouter initialEntries={['/account']}>
+    <MemoryRouter initialEntries={[start]}>
       <Link to="/dashboard">Dashboard</Link>
+      <Link to="/onboarding/step-2">Next step</Link>
       <Link to="/account">Account</Link>
       <form onSubmit={(e) => e.preventDefault()}>
         <input aria-label="Company name" />
@@ -124,6 +125,35 @@ describe('new version banner', () => {
     expect(screen.queryByTestId('new-version-banner')).toBeNull()
     await navigate('Dashboard')
     expect(screen.getByTestId('new-version-banner')).toBeInTheDocument()
+  })
+})
+
+describe('new version banner never interrupts or covers content', () => {
+  it('is a bar in the page flow, never a floating overlay', async () => {
+    setup()
+    now += 60_000
+    await focusTab()
+    const bar = await screen.findByTestId('new-version-banner')
+    expect(bar.className).not.toMatch(/\bfixed\b|\babsolute\b/)
+  })
+
+  it('during onboarding: no banner, and the new version loads on the next navigation', async () => {
+    const { reload } = setup({ start: '/onboarding' })
+    now += 60_000
+    await focusTab()
+    expect(screen.queryByTestId('new-version-banner')).toBeNull()
+    expect(reload).not.toHaveBeenCalled()
+    await navigate('Next step')
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('during onboarding, unsaved input is never lost to the quiet update', async () => {
+    const { reload } = setup({ start: '/onboarding' })
+    fireEvent.input(screen.getByLabelText('Company name'), { target: { value: 'Acme' } })
+    now += 60_000
+    await focusTab()
+    await navigate('Next step')
+    expect(reload).not.toHaveBeenCalled()
   })
 })
 
