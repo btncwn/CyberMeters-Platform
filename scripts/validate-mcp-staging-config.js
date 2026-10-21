@@ -37,6 +37,7 @@ check("fixed staging hosts and distinct Worker names", () => {
   assert.equal(mcp.workers_dev, false);
   assert.equal(api.preview_urls, false);
   assert.equal(mcp.preview_urls, false);
+  assert.deepEqual(mcp.assets, { directory: "../../public" });
 });
 check("dedicated staging data and no production database", () => {
   assert.deepEqual(api.d1_databases, [{ binding: "cybermeters_db",

@@ -46,7 +46,7 @@ client's browser callback; no manual token header is needed.
 
 ## ChatGPT
 
-In ChatGPT web, open **Plugins → + → Add custom MCP server**, enter the remote
+In ChatGPT web, open **Plugins → Add → Add custom MCP server**, enter the remote
 URL, choose **OAuth**, and use automatic registration/DCR if offered. Review the
 connection permission and follow CyberMeters sign-in/consent. Install or enable
 the resulting private plugin before asking it to read a workspace. Some account
@@ -59,11 +59,12 @@ advertises that support and returns `iss` on authorization responses. A differen
 callback shown by the client's management page needs its own exact review and
 allowlist entry. Callback-ID patterns and wildcard hosts are not accepted.
 
-ChatGPT web still needs a recorded production read/revoke/reconnect acceptance.
-Callback admission and local OAuth tests alone do not establish that result. If
-connection is refused, contact support with the client name and time; never send
-tokens or passwords. A successful Codex CLI connection does not establish
-ChatGPT web compatibility.
+The founder live-accepted ChatGPT web on 21 October 2026 (about 21:55–22:00
+UTC): automatic OAuth discovery, a real read of one workspace and all eight
+security areas matching the app, **Remove access** at `/account/mcp`, the client
+reporting that the connection had expired, and reconnect followed by a fresh
+successful read. If connection is refused, contact support with the client name
+and time; never send tokens or passwords.
 
 ## Gemini CLI
 
@@ -85,6 +86,20 @@ the registered port is refused; no hosted callback wildcard is involved.
 This is a documented configuration path; a complete production Gemini CLI
 read/revoke/reconnect has not yet been recorded. It does not establish Gemini
 web, mobile or API compatibility.
+
+## CyberMeters icon
+
+For a client that asks you to upload a custom icon, download the official
+[256×256 PNG](https://mcp.cybermeters.com/cybermeters-icon-256.png).
+Its path is `/cybermeters-icon-256.png` on the MCP server's own host. It reuses
+the current CyberMeters brand mark, with a white background.
+
+The server advertises this image through the MCP implementation `icons` field:
+`serverInfo.icons` for `initialize`, and
+`_meta["io.modelcontextprotocol/serverInfo"].icons` for `server/discover`.
+Clients that render MCP server icons can use it; other clients may require the
+manual upload above. Icon display has not yet been visually confirmed in any
+client. A working connection is separate from that visual check.
 
 ## Current read tools
 
@@ -129,6 +144,7 @@ never treat a cached answer as proof that a revoked connection still works.
 - Production route and callback configuration: `workers/{mcp-server,scan-api}/wrangler.toml`.
   Customer tool catalogue: `workers/mcp-server/src/customer-mcp.js`.
 
-No sign-in, consent, revocation or customer data read was performed as part of
-this documentation check. Protocol support and named-client acceptance remain
+The ChatGPT acceptance record above comes from the founder's production test;
+this documentation update did not initiate another login or revoke a connection.
+Protocol support, named-client acceptance and visual icon confirmation remain
 separate claims.

@@ -547,7 +547,10 @@ async function callBackend(backend, method, args, timeoutMs) {
 function protocolHandler({ bearer, boundWorkspaceId, backend, resource,
   allowedOrigins, onEvent, backendTimeoutMs }) {
   return createMcpHandler(() => {
-    const server = new McpServer({ name: 'cybermeters-mcp', version: '0.1.0' });
+    const server = new McpServer({ name: 'cybermeters-mcp', version: '0.1.0',
+      icons: [{ src: new URL('/cybermeters-icon-256.png', resource).href,
+        mimeType: 'image/png', sizes: ['256x256'] }],
+    });
     for (const [name, method, inputSchema, description] of tools) {
       server.registerTool(name, {
         description, inputSchema,
