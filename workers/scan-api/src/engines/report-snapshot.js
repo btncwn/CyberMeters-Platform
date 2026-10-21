@@ -387,7 +387,7 @@ function domainEvidenceGrade(entry, report) {
   // declared monitoring dependencies, or an intrinsically insufficient state.
   if (intrinsicallyInsufficientState || ownRequiredEvidenceIncomplete || monitoringIncomplete) {
     grade = "L0";
-    limits.push("Decisive evidence was missing, degraded, provider-unavailable or not fully assessed in this snapshot.");
+    limits.push(insufficientEvidenceLimit(entry, report, ownRequiredEvidenceIncomplete || monitoringIncomplete));
   }
 
   return evidenceGrade({
@@ -396,6 +396,36 @@ function domainEvidenceGrade(entry, report) {
     basis,
     limits,
   });
+}
+
+// The L0 limit states the actual reason (21 Oct 2026): the one generic sentence
+// ("missing, degraded, provider-unavailable or not fully assessed") read as if
+// the scan broke when the real reason was "questionnaire not completed" or "no
+// identity provider observed". The generic sentence remains only for genuine
+// module or monitoring gaps, where it is accurate.
+function insufficientEvidenceLimit(entry, report, evidenceGap) {
+  const generic = "Decisive evidence was missing, degraded, provider-unavailable or not fully assessed in this snapshot.";
+  if (evidenceGap) return generic;
+  const identity = report?.modules?.identity_discovery;
+  switch (entry?.state) {
+    case "customer_input_required":
+      return entry?.domain_key === "cyber_essentials_readiness"
+        ? "The Cyber Essentials questionnaire has not been completed, so readiness is not assessed yet."
+        : "This area needs your input before it can be assessed.";
+    case "not_configured":
+      return "This area is not configured for this domain yet.";
+    case "not_yet_assessed":
+      return "This area has not been assessed yet.";
+    case "evidence_insufficient":
+      if (entry?.domain_key === "identity_exposure" && identity && !identity.error &&
+          Number(identity.provider_relationship_count ?? 0) === 0 &&
+          Number(identity.surface_candidate_count ?? 0) === 0) {
+        return "No identity provider or identity-facing hostname was observed for this domain, so there is nothing to assess from outside yet.";
+      }
+      return generic;
+    default:
+      return generic;
+  }
 }
 
 function assessmentEvidenceGrade({ assessment, domainEntries, methodologyVersion, label }) {

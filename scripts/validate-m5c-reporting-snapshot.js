@@ -341,6 +341,31 @@ async function main() {
   ok("CE full-domain conclusion is L0 and can never render assessed_healthy",
      ceDomain?.state !== "assessed_healthy" &&
      ceDomain?.evidence_grade?.grade === "L0");
+  // 21 Oct 2026: an L0 limit states the actual reason, never the generic
+  // "missing, degraded, provider-unavailable" sentence when no evidence failed.
+  const GENERIC_L0 = "Decisive evidence was missing, degraded, provider-unavailable or not fully assessed in this snapshot.";
+  ok("CE awaiting the questionnaire says so in its L0 limit, not a generic failure",
+     ceDomain?.state !== "customer_input_required" || (
+       ceDomain?.evidence_grade?.limits?.includes("The Cyber Essentials questionnaire has not been completed, so readiness is not assessed yet.") &&
+       !ceDomain?.evidence_grade?.limits?.includes(GENERIC_L0)),
+     JSON.stringify({ state: ceDomain?.state, limits: ceDomain?.evidence_grade?.limits }));
+  const identityDomain = snap1?.domains?.find((d) => d.domain_key === "identity_exposure");
+  ok("Identity with no provider or identity-facing host observed says so, not a generic failure",
+     identityDomain?.evidence_grade?.limits?.includes("No identity provider or identity-facing hostname was observed for this domain, so there is nothing to assess from outside yet.") &&
+     !identityDomain?.evidence_grade?.limits?.includes(GENERIC_L0),
+     JSON.stringify(identityDomain?.evidence_grade?.limits));
+  const unansweredCe = composeSnapshot({
+    snapshotId: "snap-ce-unanswered", workspaceId: "ws1", domainId: "dom1", scanId: "scan-ce-unanswered",
+    domain: "shared.example", report: report1,
+    cyberEssentials: { has_answers: false, complete: false, status: null, top_gaps: [] },
+    ceReadiness: null,
+  });
+  const unansweredCeDomain = unansweredCe?.domains?.find((d) => d.domain_key === "cyber_essentials_readiness");
+  ok("an unanswered CE questionnaire is customer_input_required with the questionnaire reason",
+     unansweredCeDomain?.state === "customer_input_required" &&
+     unansweredCeDomain?.evidence_grade?.limits?.includes("The Cyber Essentials questionnaire has not been completed, so readiness is not assessed yet.") &&
+     !unansweredCeDomain?.evidence_grade?.limits?.includes(GENERIC_L0),
+     JSON.stringify({ state: unansweredCeDomain?.state, limits: unansweredCeDomain?.evidence_grade?.limits }));
   ok("CE named external indicator is separate L1 product_policy over exactly 2 of 5",
      ceDomain?.cyber_essentials?.evidence_grade?.grade === "L1" &&
      ceDomain?.cyber_essentials?.evidence_grade?.source_type === "product_policy" &&
