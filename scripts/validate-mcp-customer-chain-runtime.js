@@ -87,6 +87,7 @@ export default { async fetch(request, env, ctx) {
       compatibility_date: '2026-06-18',
       compatibility_flags: ['nodejs_compat', 'global_fetch_strictly_public'],
       workers_dev: false,
+      assets: { directory: join(gatewayDir, 'public') },
       services: [
         { binding: 'MCP_OAUTH_HTTP', service: 'cybermeters-mcp-chain-backend', remote: false },
         { binding: 'MCP_AUTH', service: 'cybermeters-mcp-chain-backend',
@@ -185,6 +186,18 @@ export default { async fetch(request, env, ctx) {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
     }
     if (!ready) throw new Error(`Workerd startup timed out: ${log}`);
+    const icon = await fetch(`${origin}/cybermeters-icon-256.png`);
+    assert.equal(icon.status, 200);
+    assert.match(icon.headers.get('content-type'), /^image\/png/);
+    const image = Buffer.from(await icon.arrayBuffer());
+    assert.deepEqual(image, await readFile(join(gatewayDir, 'public/cybermeters-icon-256.png')));
+    assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+    assert.equal(image.readUInt32BE(16), 256);
+    assert.equal(image.readUInt32BE(20), 256);
+    assert.ok(image.length < 32_768, 'the icon must stay small');
+    const iconHead = await fetch(`${origin}/cybermeters-icon-256.png`, { method: 'HEAD' });
+    assert.equal(iconHead.status, 200);
+    assert.equal((await iconHead.arrayBuffer()).byteLength, 0);
     const authorizationMetadata = await fetch(`${origin}/.well-known/oauth-authorization-server`);
     assert.equal(authorizationMetadata.status, 200);
     const authorizationDocument = await authorizationMetadata.json();
@@ -274,6 +287,15 @@ export default { async fetch(request, env, ctx) {
     }
     const a = await connect('w1', sessionA, 'A');
     const b = await connect('w2', sessionB, 'B');
+    const implementation = await call(a, 'initialize', {
+      protocolVersion: '2025-11-25', capabilities: {},
+      clientInfo: { name: 'local-icon-proof', version: '1.0.0' },
+    });
+    assert.equal(implementation.status, 200, JSON.stringify(implementation.body));
+    assert.deepEqual(implementation.body.result.serverInfo.icons, [{
+      src: 'https://mcp-staging.cybermeters.com/cybermeters-icon-256.png',
+      mimeType: 'image/png', sizes: ['256x256'],
+    }]);
     const toolCall = (token, name, args = {}) => call(token, 'tools/call', { name, arguments: args });
     assert.deepEqual(result(await toolCall(a, 'cybermeters_list_workspaces'))
       .workspaces.map((row) => row.workspace_id), ['w1']);

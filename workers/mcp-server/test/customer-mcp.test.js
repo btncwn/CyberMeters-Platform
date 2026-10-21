@@ -251,12 +251,32 @@ test('standard initialize handshake and omitted workspace on bound token work', 
   assert.equal(initialize.status, 200);
   const hello = await protocolJson(initialize);
   assert.equal(hello.result.serverInfo.name, 'cybermeters-mcp');
+  assert.deepEqual(hello.result.serverInfo.icons, [{
+    src: 'http://localhost:8787/cybermeters-icon-256.png',
+    mimeType: 'image/png', sizes: ['256x256'],
+  }]);
   const response = await app.fetch(request(RESOURCE, { body: rpc('tools/call', {
     name: 'cybermeters_get_workspace_summary', arguments: {},
   }) }), ctx);
   const called = await protocolJson(response);
   assert.equal(called.result.isError, undefined);
   assert.deepEqual(calls, [{ bearer: TOKEN }]);
+});
+
+test('modern discovery advertises the same-origin server icon without a data read', async () => {
+  let calls = 0;
+  const { app } = harness({ backend: backendFixture({ listWorkspaces() { calls++; } }) });
+  const response = await app.fetch(request(RESOURCE, { body: rpc('server/discover', {
+    _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientCapabilities': {} },
+  }), headers: { 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'server/discover' } }), ctx);
+  assert.equal(response.status, 200, await response.clone().text());
+  const discovered = await protocolJson(response);
+  assert.deepEqual(discovered.result._meta['io.modelcontextprotocol/serverInfo'].icons, [{
+    src: 'http://localhost:8787/cybermeters-icon-256.png',
+    mimeType: 'image/png', sizes: ['256x256'],
+  }]);
+  assert.equal(calls, 0);
 });
 
 test('portfolio finding read requires portfolio scope before backend RPC', async () => {

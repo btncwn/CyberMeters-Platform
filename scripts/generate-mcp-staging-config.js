@@ -117,6 +117,7 @@ export function buildMcpStagingConfigs(input, { allowFixture = false } = {}) {
     compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
     workers_dev: false,
     preview_urls: false,
+    assets: { directory: "../../public" },
     routes: [{ pattern: staging.mcpHost, custom_domain: true }],
     observability: { enabled: true, traces: { enabled: true } },
     vars: {

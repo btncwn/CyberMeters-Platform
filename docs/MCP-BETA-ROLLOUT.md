@@ -1,6 +1,6 @@
 # CyberMeters MCP rollout
 
-**State (21 October 2026):** customer MCP is **live in production** and open to trial and paid customers since #720. The gateway `cybermeters-mcp-server` serves `https://mcp.cybermeters.com/mcp` (`MCP_CUSTOMER_ENABLED = "true"`); the API `cybermeters-platform` is the OAuth issuer at `https://api.cybermeters.com` with `MCP_CUSTOMER_OAUTH_ENABLED`, `MCP_CUSTOMER_READ_ENABLED`, `MCP_OAUTH_DCR_ENABLED` and `MCP_OAUTH_DCR_LOOPBACK_ENABLED` all `"true"`, CIMD off, and `MCP_CUSTOMER_ACCESS = "customers"`. All of these live in the two checked-in `wrangler.toml` files, so a plain deploy keeps the live state. Proven clients: Claude.ai hosted connector, Claude Code and Codex CLI ([compatibility](MCP-CLIENT-COMPATIBILITY.md)). ChatGPT web and Gemini CLI still need production read/revoke/reconnect proof; protocol checks alone do not establish client acceptance. Customer connections are read-only and use OAuth; revoke them at [Account → MCP connections](https://app.cybermeters.com/account/mcp) with **Remove access**.
+**State (21 October 2026):** customer MCP is **live in production** and open to trial and paid customers since #720. The gateway `cybermeters-mcp-server` serves `https://mcp.cybermeters.com/mcp` (`MCP_CUSTOMER_ENABLED = "true"`); the API `cybermeters-platform` is the OAuth issuer at `https://api.cybermeters.com` with `MCP_CUSTOMER_OAUTH_ENABLED`, `MCP_CUSTOMER_READ_ENABLED`, `MCP_OAUTH_DCR_ENABLED` and `MCP_OAUTH_DCR_LOOPBACK_ENABLED` all `"true"`, CIMD off, and `MCP_CUSTOMER_ACCESS = "customers"`. All of these live in the two checked-in `wrangler.toml` files, so a plain deploy keeps the live state. Proven clients: Claude.ai hosted connector, Claude Code, Codex CLI and ChatGPT web ([compatibility](MCP-CLIENT-COMPATIBILITY.md)). Gemini CLI still needs production read/revoke/reconnect proof; protocol checks alone do not establish client acceptance. Customer connections are read-only and use OAuth; revoke them at [Account → MCP connections](https://app.cybermeters.com/account/mcp) with **Remove access**.
 
 ## Who may connect, checked on every read
 
@@ -18,6 +18,7 @@
 - **19 Oct 2026:** #701 put the live MCP flags in config so a plain deploy keeps them.
 - **20 Oct 2026:** #715 applied RFC 7591 defaults and a PII-free `mcp_dcr_rejected` log line per refusal. Its first production line showed the Claude hosted connector registering with `client_secret_post`; #718 allowed that method for allow-listed hosted callbacks only. **02:17:** the Claude hosted connector connected and returned real data.
 - **20 Oct 2026:** the founder fence was lifted by #720 (`MCP_CUSTOMER_ACCESS = "customers"`).
+- **21 Oct 2026, about 21:55–22:00 UTC:** the founder live-accepted ChatGPT web via **Plugins → Add → Add custom MCP server** and automatic OAuth discovery: real read of one workspace and eight security areas matching the app, Remove access at `/account/mcp`, client “connection has expired, reconnect”, then reconnect and a fresh successful read. #794 supplies the exact hosted callback; no wildcard is accepted. Logo display remains unconfirmed.
 
 ## Immediate rollback
 
@@ -29,7 +30,6 @@
 ## Still open
 
 - **Revoking from the app:** done (21 Oct 2026). `/account/mcp` no longer reads `VITE_MCP_BETA_ENABLED`; it always lists the caller's connections from `GET /mcp/oauth/connections` and offers Remove access, with the Connect guidance shown only when the API reports the account eligible. `version.json`'s `mcp_beta_enabled` still records the Pages variable for the canary rollback receipt and gates nothing.
-- **ChatGPT web:** #794 added the exact official `https://chatgpt.com/connector_platform_oauth_redirect` callback. Production DCR returned 201 for that URI and 400 for a trailing-slash variant on 21 Oct, without a grant or consent. The founder must still prove a real client read, revoke via `/account/mcp`, fresh-call refusal, and reconnect/read. Do not advertise live client acceptance yet.
 - **Gemini CLI:** production client read/revoke/reconnect is pending; see the compatibility page for account and region limits.
 - **Customer notice:** keep the third-party AI data-handling text in the Privacy Policy/DPA aligned with the live state.
 - **Operations:** a bounded load check and an observed D1 `rows_read`/`rows_written` profile under customer traffic before raising any limit.
