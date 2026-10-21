@@ -172,11 +172,20 @@ ok("low-volume rollback fires once the floor is lowered via override", shouldAut
 // yet": the API now reports receipt and why the pass rate is absent.
 {
   const fs = await import("node:fs");
+  const crypto = await import("node:crypto");
   const { DatabaseSync } = await import("node:sqlite");
+  const { splitStatements, isToleratedStatement } = await import(pathToFileURL(path.join(root, "scripts", "lib", "migration-apply-tolerated.js")).href);
+  // Real schema + convergent migrations; only the enumerated tolerated statements may fail.
   const db = new DatabaseSync(":memory:");
-  const apply = (p) => { try { db.exec(fs.readFileSync(p, "utf8")); } catch { /* ordering tolerated */ } };
-  apply(path.join(root, "database", "schema.sql"));
-  for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((n) => n.endsWith(".sql")).sort()) apply(path.join(root, "database", "migrations", f));
+  db.exec(fs.readFileSync(path.join(root, "database", "schema.sql"), "utf8"));
+  for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((n) => n.endsWith(".sql")).sort()) {
+    const raw = fs.readFileSync(path.join(root, "database", "migrations", f), "utf8");
+    const fileSha = crypto.createHash("sha256").update(raw).digest("hex");
+    for (const stmt of splitStatements(raw)) {
+      try { db.exec(stmt); }
+      catch (e) { if (!isToleratedStatement(f, fileSha, stmt, e.message)) throw e; }
+    }
+  }
   const wrap = (sql, args) => ({ first: async () => db.prepare(sql).get(...args) ?? null, all: async () => ({ results: db.prepare(sql).all(...args) }), run: async () => db.prepare(sql).run(...args) });
   const env = { cybermeters_db: { prepare: (sql) => { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; } } };
   const report = (id, ws, domain, createdAt) => db.prepare(`INSERT INTO dmarc_aggregate_reports (id, workspace_id, domain, org_name, external_report_id, message_count, record_count, source, created_at)
