@@ -301,6 +301,12 @@ const registry = Object.freeze([
       anchor: 'record?.lookup_status === 0 && typeof record?.value === "string"',
       replacement: 'typeof record?.value === "string"' }],
   },
+  {
+    id: "SIT_M42", defect: "shared tenant-verification token names a particular product", expected: ["F50"],
+    changes: [{ target: VS,
+      anchor: ' && check.registrationSpecific !== false',
+      replacement: '' }],
+  },
 ]);
 
 function sha(buffer) { return crypto.createHash("sha256").update(buffer).digest("hex"); }

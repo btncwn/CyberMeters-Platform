@@ -858,6 +858,7 @@ verdict("F50", noRegistrations([validRegistrationRecord], { verified: false })
   && noRegistrations([{ ...validRegistrationRecord, value: "docusign=" }])
   && noRegistrations([{ ...validRegistrationRecord, value: "unknown-service=fixture" }])
   && noRegistrations([{ ...validRegistrationRecord, value: "google-site-verification=fixture" }])
+  && noRegistrations([{ ...validRegistrationRecord, value: "MS=ms12345678" }])
   && noRegistrations([{ value: validRegistrationRecord.value }]), "unverified, foreign, untyped, empty and ambiguous records must not establish a registration");
 const limits = vendorSignatures.DNS_REGISTRATION_LIMITS;
 verdict("F51", noRegistrations([...Array.from({ length: limits.records }, () => ({ ...validRegistrationRecord, value: "unknown=fixture" })), validRegistrationRecord])

@@ -26,7 +26,9 @@
 //   category   - infrastructure | cloud | email_identity | hosting | saas |
 //                support | collaboration | ecommerce
 //   risk_level - low | medium | high
-//   signals[]  - array of { source, test(value):bool, corroboratesOnly? }
+//   signals[]  - array of { source, test(value):bool, corroboratesOnly?, registrationSpecific? }
+//                registrationSpecific:false excludes a shared namespace from
+//                registration claims while preserving existing correlation.
 //                Multiple sources give higher confidence. A corroboratesOnly
 //                signal is shared with other products, so it can raise the
 //                confidence of a vendor another signal established but can
@@ -96,7 +98,7 @@ export const VENDOR_SIGNATURES = [
       { source: "spf",    test: (v) => /spf\.protection\.outlook\.com/.test(v) },
       { source: "mx",     test: (v) => /\.protection\.outlook\.com/.test(v) },
       { source: "dkim",   test: (v) => /^selector[12]$/.test(v) },
-      { source: "txt",    test: (v) => /^ms=ms\d+/.test(v) },
+      { source: "txt",    test: (v) => /^ms=ms\d+/.test(v), registrationSpecific: false },
       { source: "csp",    test: (v) => /outlook\.com|office365\.com|microsoft\.com/.test(v) },
     ],
   },
@@ -561,7 +563,7 @@ export function dnsServiceRegistrationObservations(modules, { domain, checkedAt 
   const services = new Set();
   for (const signature of VENDOR_SIGNATURES) {
     // A shared verification namespace cannot establish a particular product.
-    const checks = signature.signals.filter((check) => check.source === "txt" && check.corroboratesOnly !== true);
+    const checks = signature.signals.filter((check) => check.source === "txt" && check.corroboratesOnly !== true && check.registrationSpecific !== false);
     if (checks.some((check) => records.some((value) => check.test(value)))) services.add(signature.name);
     if (services.size >= DNS_REGISTRATION_LIMITS.services) break;
   }
