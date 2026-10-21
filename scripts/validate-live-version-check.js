@@ -115,5 +115,56 @@ const fakeFetch = (bodies, seen = []) => async (url) => {
   eq("e2e: default stamp check accepts the commit's own stamp", [r.components[1].status, r.ok], ["live_at_main", true]);
 }
 
+// ── Post-deploy smoke test (scripts/post-deploy-smoke.mjs) ──────────────────
+{
+  const { runSmoke, smokeOnce, formatSmoke } = await import(pathToFileURL(path.join(root, "scripts", "post-deploy-smoke.mjs")).href);
+  const API = "https://api.example.test";
+  const respond = (status, body) => ({ status, json: async () => body });
+  const live = (over = {}) => {
+    const routes = { health: respond(200, { status: "ok", commit: A }), ready: respond(200, { status: "ready" }), gated: respond(401, { error: "Unauthorized" }), ...over };
+    const seen = [];
+    const fetchImpl = async (url) => {
+      seen.push(url);
+      if (url.startsWith(`${API}/health?`)) return routes.health;
+      if (url.startsWith(`${API}/ready?`)) return routes.ready;
+      if (url.startsWith(`${API}/api/workspaces?`)) return routes.gated;
+      throw new Error(`unexpected ${url}`);
+    };
+    return { fetchImpl, seen };
+  };
+  const noSleep = async () => {};
+  {
+    const { fetchImpl, seen } = live();
+    const r = await runSmoke({ fetchImpl, api: API, expectCommit: A, sleep: noSleep });
+    eq("smoke: healthy deploy passes on the first attempt", [r.ok, r.attempt], [true, 1]);
+    ok("smoke: every request carries a cache-buster", seen.every((u) => /[?&]smoke=\d+/.test(u)));
+    ok("smoke: success output names no rollback", !/rollback/i.test(formatSmoke(r)));
+  }
+  {
+    const r = await runSmoke({ fetchImpl: live({ health: respond(200, { status: "ok", commit: B }) }).fetchImpl, api: API, expectCommit: A, attempts: 3, sleep: noSleep });
+    eq("smoke: the old version still answering is a failure after retries", [r.ok, r.attempt], [false, 3]);
+    ok("smoke: failure output carries the rollback command", /npx wrangler rollback/.test(formatSmoke(r)) && /FAILED/.test(formatSmoke(r)));
+  }
+  {
+    let calls = 0;
+    const base = live();
+    const fetchImpl = async (url) => (url.startsWith(`${API}/health?`) && ++calls < 3) ? respond(200, { status: "ok", commit: B }) : base.fetchImpl(url);
+    const r = await runSmoke({ fetchImpl, api: API, expectCommit: A, sleep: noSleep });
+    eq("smoke: passes once the new version has propagated", [r.ok, r.attempt], [true, 3]);
+  }
+  eq("smoke: degraded /ready fails", (await smokeOnce({ fetchImpl: live({ ready: respond(503, { status: "degraded" }) }).fetchImpl, api: API, expectCommit: A })).ok, false);
+  eq("smoke: an open auth gate (200) fails", (await smokeOnce({ fetchImpl: live({ gated: respond(200, { workspaces: [] }) }).fetchImpl, api: API, expectCommit: A })).ok, false);
+  eq("smoke: a 5xx behind the auth gate fails", (await smokeOnce({ fetchImpl: live({ gated: respond(500, {}) }).fetchImpl, api: API, expectCommit: A })).ok, false);
+  eq("smoke: an unreachable API fails, never throws", (await smokeOnce({ fetchImpl: async () => { throw new Error("ENOTFOUND"); }, api: API, expectCommit: A })).ok, false);
+  let threw = false; try { await runSmoke({ fetchImpl: live().fetchImpl, api: API, expectCommit: "main", sleep: noSleep }); } catch { threw = true; }
+  ok("smoke: refuses a non-SHA expected commit", threw);
+  const deployScript = fs.readFileSync(path.join(root, "scripts", "deploy-scan-api.sh"), "utf8");
+  ok("deploy script runs the smoke test after a real deploy, with the deployed commit",
+    /^node scripts\/post-deploy-smoke\.mjs --expect-commit "\$commit"$/m.test(deployScript) &&
+    deployScript.indexOf("node scripts/post-deploy-smoke.mjs") > deployScript.indexOf("npx wrangler deploy --var"));
+  ok("deploy script skips the smoke test on --dry-run", /--dry-run\|--dry-run=\*\) exit 0/.test(deployScript));
+  ok("deploy script no longer exec-replaces itself before the smoke test", !/^exec npx wrangler deploy/m.test(deployScript));
+}
+
 console.log(`validate-live-version-check: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
