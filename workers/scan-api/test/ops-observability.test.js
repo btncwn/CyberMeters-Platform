@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { cleanupExpiredObservability } from "../src/cron/scheduled.js";
+import { cleanupExpiredObservability, runScheduled } from "../src/cron/scheduled.js";
 import { collectFounderDigest, formatFounderDigest } from "../src/lib/founder-digest.js";
 import { CANARY_DOMAINS, canaryFingerprint, runFreeCheckCanary } from "../src/engines/free-check-canary.js";
 import { bumpDailyCounter, observeApiResponse, routeFamily, utcDay } from "../src/lib/ops-counters.js";
@@ -242,4 +242,20 @@ test("the canary stops at its subrequest budget and lists what it did not run", 
     runners: canaryRunners({ target: async (_d, _q, { accounting }) => { spend(accounting); return { state: "public" }; } }),
   });
   assert.deepEqual([out.checked, out.not_run], [2, ["c.example.com"]]);
+});
+
+test("the canary runs from the cron only where FREE_CHECK_CANARY is on (it makes real DNS lookups)", async () => {
+  const { env } = fixture();
+  const runs = async (flag) => {
+    let calls = 0;
+    const waits = [];
+    await runScheduled({ cron: "0 * * * *" }, { ...env, ...(flag ? { FREE_CHECK_CANARY: flag } : {}) },
+      { waitUntil: (promise) => waits.push(promise) }, { runFreeCheckCanary: async () => { calls += 1; } });
+    await Promise.allSettled(waits);
+    return calls;
+  };
+  const sevenUtc = new Date().getUTCHours() === 7;
+  assert.equal(await runs(null), 0, "no flag: never, whatever the hour");
+  assert.equal(await runs("off"), 0, "flag off: never");
+  assert.equal(await runs("on"), sevenUtc ? 1 : 0, "flag on: once, at 07:00 UTC only");
 });
