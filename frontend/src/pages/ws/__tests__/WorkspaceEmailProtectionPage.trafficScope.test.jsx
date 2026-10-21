@@ -22,7 +22,7 @@ describe('Email overview message evidence scope', () => {
     expect(screen.getByText('Automatically ingested RUA · DMARC compliance')).toBeInTheDocument()
     expect(screen.getByText('100%')).toBeInTheDocument()
     expect(screen.getByText(/of 46 messages passed/)).toBeInTheDocument()
-    expect(await screen.findByText('Customer-uploaded pass rate: Not measured')).toBeInTheDocument()
+    expect(await screen.findByText('Pass rate in reports you uploaded: not measured')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByText(/24\/100/)).toHaveLength(1))
   })
   it('labels the 46-message traffic block from the auto-received RUA source', () => {
