@@ -1012,6 +1012,45 @@ export function computeScore(modules, domain) {
     }));
   }
 
+  // An unconfirmed takeover candidate (21 Oct 2026): the CNAME points at a
+  // takeover-prone provider, but the provider withheld the page that would
+  // confirm whether it is claimed (origin_access_restricted). Reported as a
+  // hedged observation with stated confidence; it never deducts score.
+  const withheldCandidates = (takeoverMod && !takeoverMod.error && !(takeoverMod.risks?.length > 0))
+    ? (takeoverMod.unconfirmed || []).filter((row) => row?.reason === "origin_access_restricted" && row.host && row.cname)
+    : [];
+  if (withheldCandidates.length > 0) {
+    // Pushed directly (like asset_exposure_interface_observed): finding()
+    // normalises finding_type to "finding", which would make this hedged
+    // observation actionable and open a case.
+    findings.push({
+      id:           "subdomain_takeover_unconfirmed",
+      module:       "subdomain_takeover",
+      severity:     "low",
+      confidence:   50,
+      validation_quality: "weak",
+      finding_type: "observation",
+      affected_hosts: withheldCandidates.map((row) => row.host),
+      title:        "DNS Record Points at an External Service We Could Not Confirm",
+      description:  `${withheldCandidates.map((row) => `${row.host} points (CNAME) at ${row.cname}${row.provider ? ` (${row.provider})` : ""}`).join("; ")}. An unclaimed account at that service could be taken over by someone else. The service withheld the page that would show whether it is claimed, so CyberMeters could not confirm either way. If you no longer use it, remove or repoint the record.`,
+      score_impact: 0,
+      evidence: {
+        evidence_type:  "dns_cname_observation",
+        probe_target:   withheldCandidates.map((row) => row.host).join(", "),
+        observed_value: withheldCandidates.map((row) => `${row.host} -> ${row.cname}`).join(", "),
+        expected_value: "The service confirms the account is claimed, or the record is removed",
+        source:         "subdomain_cname_fingerprint",
+        checked_at:     evidenceTime,
+      },
+    });
+    recommendations.push(canonicalRec("subdomain_takeover_unconfirmed", {
+      priority: 2, module: "subdomain_takeover",
+      detail: `Records: ${withheldCandidates.map((row) => `${row.host} → ${row.cname}`).join("; ")}.`,
+      title: "Confirm or remove DNS records that point at external services",
+      description: "Check whether you still use the external service each record points at; if not, remove or repoint the record.",
+    }));
+  }
+
   // ── Asset Exposure ─────────────────────────────────────────────────────
   const exposureMod = modules.asset_exposure;
   if (exposureMod && !exposureMod.error && exposureMod.assets?.length > 0) {

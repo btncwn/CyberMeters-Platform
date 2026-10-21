@@ -495,6 +495,23 @@ results.push(
     return Boolean(rec) && /replace dmarc-reports@example\.com with a mailbox you monitor/.test(rec.description) &&
       /hosted report address/.test(rec.description);
   }),
+  // 21 Oct 2026: a takeover candidate whose provider withheld the confirming
+  // page is a hedged observation (stated confidence, no score), never silence
+  // and never a confirmed takeover. Other unconfirmed reasons stay unreported.
+  securityContract("takeover_candidate_withheld_by_provider_is_hedged_observation", () => {
+    const run = (reason) => scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      subdomain_takeover: { checked: 1, potential_risks: 1, risks: [], error: null,
+        unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", provider: "Provider", reason }] },
+    }, "example.com");
+    const withheld = run("origin_access_restricted");
+    const candidate = withheld.findings.find((item) => item.id === "subdomain_takeover_unconfirmed");
+    const failed = run("fetch_failed");
+    return candidate?.finding_type === "observation" && candidate.score_impact === 0 && candidate.confidence === 50 &&
+      /could not confirm either way/.test(candidate.description) &&
+      !withheld.findings.some((item) => item.id === "subdomain_takeover") &&
+      !failed.findings.some((item) => item.id === "subdomain_takeover_unconfirmed");
+  }),
   securityContract("detection_sensitive_products_are_findings", () => {
     const titles = ["Jenkins", "Grafana", "phpMyAdmin", "Kibana", "Prometheus", "Portainer", "SonarQube"];
     return titles.every((title) => {
