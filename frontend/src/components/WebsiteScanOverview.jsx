@@ -120,8 +120,8 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
           </div>)}
         </div>
         {scan && <div className="mt-5 flex flex-wrap gap-3">
+          {/* The page's one scan control is "Scan now" at the top (design standard §1). */}
           <Link className="btn-secondary" to={evidenceUrl}>View latest scan evidence</Link>
-          <Link className="btn-primary" to={`/scans/new?domain=${encodeURIComponent(scan.domain)}`}>Recheck this website</Link>
         </div>}
         <div id="exposure-checks" className="scroll-mt-28">
           {report
