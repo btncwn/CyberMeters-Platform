@@ -425,19 +425,38 @@ export async function emailProtectionRoutes(rctx) {
           }
           const { policy, testing } = DMARC_RAMP_LADDER[targetIdx];
           const tightening = targetIdx > currentIdx;
-          if (tightening && body.confirm !== true) {
-            const rate = await getHostedDmarcPassRate(env, workspaceId, domain);
-            const changeMs = parseServerMsHosted(existing.last_change_at);
-            const readiness = evaluateRampReadiness({
-              pass_rate: rate.pass_rate,
-              total_messages: rate.total,
-              days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
-            }, resolveRampThresholds(env));
+          if (body.override_reason != null && (typeof body.override_reason !== "string" || body.override_reason.length > 280)) {
+            return json({ error: "override_reason must be text of at most 280 characters.", code: "invalid_override_reason" }, 400);
+          }
+          // A confirmed tightening past an unready interlock is an override: it
+          // is allowed, and the audit records who, why and the interlock state.
+          let override = null;
+          if (tightening) {
+            // Fail closed: an interlock that cannot be evaluated never lets a
+            // stricter policy through, confirmed or not.
+            let rate, readiness;
+            try {
+              rate = await getHostedDmarcPassRate(env, workspaceId, domain);
+              const changeMs = parseServerMsHosted(existing.last_change_at);
+              readiness = evaluateRampReadiness({
+                pass_rate: rate.pass_rate,
+                total_messages: rate.total,
+                days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
+              }, resolveRampThresholds(env));
+            } catch {
+              readiness = null;
+            }
+            if (!rate || typeof readiness?.ready !== "boolean" || !Array.isArray(readiness.reasons)) {
+              return json({
+                error: "The safety interlock could not be evaluated, so no stricter policy was published. Try again shortly.",
+                code: "readiness_unavailable",
+              }, 503);
+            }
             const projectedImpact = await forecastPolicyImpact(env, workspaceId, domain, {
               targetPolicy: policy,
               testing,
             }).catch(() => null);
-            if (!readiness.ready) {
+            if (!readiness.ready && body.confirm !== true) {
               return json({
                 error: "Compliance is not ready for a stricter policy yet.",
                 code: "readiness_check_failed",
@@ -445,10 +464,21 @@ export async function emailProtectionRoutes(rctx) {
                 projected_impact: projectedImpact,
               }, 409);
             }
+            if (!readiness.ready) {
+              override = {
+                interlock: "overridden",
+                actor_id: user.id,
+                reason: typeof body.override_reason === "string" && body.override_reason.trim() ? body.override_reason.trim() : null,
+                readiness: { ready: false, reasons: readiness.reasons },
+                measured: { pass_rate: rate.pass_rate, total_messages: rate.total, evidence_scope: rate.evidence_scope || null },
+                from_step: DMARC_RAMP_LADDER[currentIdx]?.key || null,
+                to_step: DMARC_RAMP_LADDER[targetIdx].key,
+              };
+            }
           }
           const rateNow = await getHostedDmarcPassRate(env, workspaceId, domain);
           const applied = await applyHostedDmarcChange(env, existing, {
-            policy, testing, userId: user.id, source: "manual", passRateNow: rateNow.pass_rate,
+            policy, testing, userId: user.id, source: "manual", passRateNow: rateNow.pass_rate, override,
           });
           if (!applied.ok) {
             const msg = applied.reason === "change_budget_exceeded"
