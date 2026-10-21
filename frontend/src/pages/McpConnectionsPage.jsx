@@ -115,7 +115,7 @@ export default function McpConnectionsPage() {
           CyberMeters reads, but cannot delete data already sent to the client. Portfolio connections can
           read only the workspaces you selected during consent while your membership remains active;
           newly added workspaces are never included automatically.
-          Access is by workspace invitation. If your plan no longer includes portfolio access,
+          Access requires an eligible trial or paid workspace and current membership. If your plan no longer includes portfolio access,
           that connection is removed and you can reconnect to one eligible workspace.
         </p>
       </div>
@@ -124,9 +124,10 @@ export default function McpConnectionsPage() {
         <p className="font-semibold text-gray-900">Connect an eligible AI client</p>
         <p className="text-gray-600">In a compatible AI client, add a remote MCP server with this URL:</p>
         <code className="block break-all rounded bg-gray-50 p-3">{MCP_ENDPOINT}</code>
+        <a className="text-brand-700 underline" href="https://cybermeters.com/support#mcp">Client setup and compatibility</a>
         <p className="text-xs text-gray-500">Client availability depends on your account and region. Your client must support remote MCP and OAuth. CyberMeters will ask you to review its read permission before access begins.</p>
       </div> : !loading && !error &&
-        <p className="text-sm text-gray-600">MCP beta is available by invitation for selected workspaces. No eligible workspace is available for this account yet.</p>}
+        <p className="text-sm text-gray-600">MCP beta requires an eligible trial or paid workspace and current membership. No eligible workspace is available for this account yet.</p>}
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       {loading ? <p className="text-sm text-gray-500">Loading connections…</p> :
         connections.length === 0 ? <p className="text-sm text-gray-500">No MCP connections yet.</p> :

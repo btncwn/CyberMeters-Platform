@@ -483,17 +483,17 @@ export default function PublicLandingPage() {
         </div>
       </section>
 
-      {/* A planned read-only connection, separate from the product available today */}
+      {/* Read-only connection; client-specific setup and limits are on Support. */}
       <section id="mcp" aria-labelledby="mcp-title" className="scroll-mt-24 bg-[#193A83] py-20 lg:py-24 text-white">
         <div className={`${CONTAINER} grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-12 lg:gap-20 items-center`}>
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-[.16em] text-[#BFE6FF]">In development · Read-only MCP beta</p>
+            <p className="text-[13px] font-semibold uppercase tracking-[.16em] text-[#BFE6FF]">Read-only MCP beta</p>
             <h2 id="mcp-title" className="font-cm font-normal text-[38px] sm:text-[46px] lg:text-[54px] leading-[1.08] mt-5 text-balance">Bring your security questions to your AI assistant.</h2>
             <p className="mt-6 max-w-[58ch] text-[18px] leading-[1.65] text-white/85">
-              We&apos;re preparing a connection for compatible AI assistants to read CyberMeters evidence from workspaces you&apos;re allowed to access. The first beta will help explain findings and next steps; it will not make changes on your behalf. AI explanations do not independently verify or fix issues.
+              Compatible AI assistants can read CyberMeters evidence from workspaces you approve. The read-only beta helps explain findings and next steps; it does not make changes on your behalf. Client setup and availability vary. AI explanations do not independently verify or fix issues.
             </p>
-            <a href={CONTACT} className="mt-8 h-[50px] px-6 rounded-[8px] bg-white text-[#193A83] text-[16px] font-semibold inline-flex items-center hover:bg-[#EAF4FF] transition-colors">
-              Ask about the MCP beta
+            <a href="/support#mcp" className="mt-8 h-[50px] px-6 rounded-[8px] bg-white text-[#193A83] text-[16px] font-semibold inline-flex items-center hover:bg-[#EAF4FF] transition-colors">
+              Connect an AI assistant
             </a>
           </div>
           <div className="rounded-[16px] border border-white/20 bg-white/10 p-7 sm:p-9">
@@ -502,7 +502,7 @@ export default function PublicLandingPage() {
               <li className="rounded-[10px] border border-white/15 bg-white/10 px-5 py-4">“Which of my certificates expire in the next 30 days?”</li>
               <li className="rounded-[10px] border border-white/15 bg-white/10 px-5 py-4">“Which critical findings need attention, and why?”</li>
             </ul>
-            <p className="mt-5 text-[14px] leading-[1.5] text-white/70">Examples of the planned beta, not live results.</p>
+            <p className="mt-5 text-[14px] leading-[1.5] text-white/70">Example questions; answers depend on the evidence in your approved workspace.</p>
           </div>
         </div>
       </section>
