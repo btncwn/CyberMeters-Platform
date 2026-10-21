@@ -2050,7 +2050,7 @@ function ManagedMtaStsCard({ wsId, domain }) {
 export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
   const [ramp, setRamp]       = useState(null)      // { policyAllowed, compliance, readiness }
-  const [busy, setBusy]       = useState(null)      // 'create' | 'verify' | 'remove' | 'policy' | 'rollback' | 'autopilot'
+  const [busy, setBusy]       = useState(null)      // 'create' | 'verify' | 'remove' | 'policy' | 'step_back' | 'rollback' | 'autopilot'
   const [error, setError]     = useState(null)
 
   const load = useCallback(async () => {
@@ -2081,6 +2081,10 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   if (rec === undefined) return null
   const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
   const automationSuspended = ramp?.interpretation?.automation_status === 'suspended'
+  // A ladder step by its key; a step from an older API (no key) by policy and pct.
+  const requestStep = (step, confirm = false) => (step.key
+    ? api.setHostedDmarcStep(wsId, domain, step.key, confirm)
+    : api.setHostedDmarcPolicy(wsId, domain, step.policy, step.pct, confirm))
 
   return (
     <div className="mx-6 mt-5 rounded-xl border border-brand-200 bg-brand-50/40 p-5">
@@ -2212,22 +2216,33 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                 )}
               </div>
 
-              {/* Ladder track — generous, legible steps */}
-              <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
-                {['No action', 'Quarantine 5%', 'Quarantine 25%', 'Quarantine 50%', 'Quarantine', 'Reject 10%', 'Reject 25%', 'Reject 50%', 'Reject'].map((label, i) => {
-                  const state = i === rec.policy_step.index ? 'current' : i < rec.policy_step.index ? 'done' : 'future'
+              {rec.legacy_pct?.message && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3" data-testid="legacy-pct-notice">
+                  <p className="text-sm font-semibold text-gray-800">Older DMARC tag on this record</p>
+                  <p className="mt-1 text-sm leading-relaxed text-gray-600">{rec.legacy_pct.message}</p>
+                </div>
+              )}
+
+              {/* Ladder track: the steps come from the API (rec.ladder). Without
+                  a ladder, only the current step the API names is shown. */}
+              <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1" data-testid="dmarc-ladder">
+                {(Array.isArray(rec.ladder) && rec.ladder.length ? rec.ladder : [rec.policy_step]).map((step) => {
+                  const state = step.index === rec.policy_step.index ? 'current' : step.index < rec.policy_step.index ? 'done' : 'future'
                   return (
-                    <div key={label} className={`flex-1 min-w-[92px] rounded-xl border px-3 py-2.5 text-center ${
+                    <div key={step.key || step.index} aria-current={state === 'current' ? 'step' : undefined} className={`flex-1 min-w-[120px] rounded-xl border px-3 py-2.5 text-center ${
                       state === 'current' ? 'bg-brand-200 border-brand-200 text-brand-900 shadow-xs ring-2 ring-brand-200'
                       : state === 'done' ? 'bg-brand-50 border-brand-200 text-brand-700'
                       : 'bg-white border-gray-200 text-gray-400'}`}>
-                      <p className="text-[14px] font-bold leading-tight">{label}</p>
-                      {state === 'current' && <p className="text-xs font-semibold text-brand-100 mt-0.5">You are here</p>}
+                      <p className="text-[14px] font-bold leading-tight">{step.label}</p>
+                      {state === 'current' && <p className="text-xs font-semibold text-brand-900 mt-0.5">You are here</p>}
                       {state === 'done' && <p className="text-xs text-brand-700 mt-0.5">✓ passed</p>}
                     </div>
                   )
                 })}
               </div>
+              {rec.policy_step.description && (
+                <p className="text-sm text-gray-600 leading-relaxed">{rec.policy_step.description}</p>
+              )}
 
               {rec.change_pending && (
                 <p className="text-sm text-brand-700 font-medium bg-transparent border border-[1.5px] border-brand-700 rounded-lg px-3.5 py-2.5">
@@ -2252,7 +2267,7 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                           <p className="text-sm text-gray-700 mt-1 leading-relaxed">
                             Advancing to {rec.next_step.label} would affect about{' '}
                             <span className="font-bold tabular-nums">{formatNumber(rec.projected_impact.affected_messages || 0)}</span>
-                            {' '}message{rec.projected_impact.affected_messages === 1 ? '' : 's'} ({rec.projected_impact.affected_percentage || 0}%),
+                            {' '}message{rec.projected_impact.affected_messages === 1 ? '' : 's'},
                             including{' '}
                             <span className="font-bold tabular-nums">{formatNumber(rec.projected_impact.legitimate_affected_messages || 0)}</span>
                             {' '}from legitimate senders.
@@ -2280,12 +2295,12 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                       <button
                         onClick={() => act('policy', async () => {
                           try {
-                            return await api.setHostedDmarcPolicy(wsId, domain, rec.next_step.policy, rec.next_step.pct)
+                            return await requestStep(rec.next_step)
                           } catch (e) {
                             if (e?.code === 'readiness_check_failed' || /not ready/i.test(e?.message || '')) {
                               const reasons = (e?.readiness?.reasons || []).join('\n• ')
                               if (window.confirm(`Compliance is not ready yet:\n\n• ${reasons}\n\nMove to ${rec.next_step.label} anyway?`)) {
-                                return await api.setHostedDmarcPolicy(wsId, domain, rec.next_step.policy, rec.next_step.pct, true)
+                                return await requestStep(rec.next_step, true)
                               }
                               return null
                             }
@@ -2328,6 +2343,21 @@ export function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                         <span className="block text-sm text-gray-500 mt-0.5">Advance automatically while compliance stays healthy, and roll back on regressions.</span>
                       </span>
                     </label>
+                  )}
+
+                  {rec.previous_step?.key && !rec.change_pending && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Step back one level to ${rec.previous_step.label}? Receivers will be asked for less strict handling of mail that fails DMARC.`)) {
+                          act('step_back', () => requestStep(rec.previous_step), { reloadAll: true })
+                        }
+                      }}
+                      disabled={Boolean(busy)}
+                      className="btn-secondary text-sm disabled:opacity-50"
+                    >
+                      {busy === 'step_back' && <RefreshCw className="w-4 h-4 animate-spin" />}
+                      {busy === 'step_back' ? 'Stepping back…' : 'Step back one level'}
+                    </button>
                   )}
 
                   {rec.can_rollback && (

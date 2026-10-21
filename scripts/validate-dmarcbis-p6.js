@@ -405,8 +405,9 @@ const managedDmarcSource = managedDmarcStart >= 0 && managedDmarcEnd > managedDm
 const manualGateStart = managedDmarcSource.indexOf(
   "rec.status === 'connected' && rec.policy_step && (",
 );
+// The governed manual advance names its ladder step (requestStep → PUT { step }).
 const manualActionStart = managedDmarcSource.indexOf(
-  "api.setHostedDmarcPolicy",
+  "requestStep(rec.next_step",
   manualGateStart,
 );
 const autopilotGuardStart = managedDmarcSource.indexOf(
