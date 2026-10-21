@@ -255,6 +255,21 @@ ok(`mutation table length is pinned at ${EXPECTED_MUTANTS}`, MUTATIONS.length ==
 const strays = fs.readdirSync(path.join(root, "workers/scan-api/src/engines")).filter((f) => f.includes(".mutant."));
 ok("no mutant file left behind", strays.length === 0, strays.join(", "));
 
+// Stated access limit (21 Oct 2026, Executive): technology detection that the
+// site withheld (challenge / closed store) is listed, not a partial scan.
+{
+  const tech = (reason) => ({ incomplete: true, incomplete_reason: reason });
+  const withheld = buildScanQuality({ technology_detection: tech("origin_access_restricted") });
+  ok("technology withheld by the site alone: scan is complete with a stated limit",
+    withheld.status === "complete" && withheld.modules_incomplete.length === 0 &&
+    withheld.stated_limits?.[0]?.module === "technology_detection" && withheld.stated_limits[0].reason === "origin_access_restricted",
+    JSON.stringify(withheld));
+  ok("technology that timed out is still a partial scan",
+    buildScanQuality({ technology_detection: tech("origin_timeout") }).status === "partial");
+  ok("a withheld technology page never hides another module's gap",
+    buildScanQuality({ technology_detection: tech("origin_access_restricted"), ssl: tech("https_origin_not_observed") }).status === "partial");
+}
+
 console.log(`\nhttps-observation deadline+lifecycle: ${passed}/${passed + failed} passed; ${killed}/${EXPECTED_MUTANTS} mutants killed`);
 if (failed) { console.error("https-observation-deadline-lifecycle validation FAILED"); process.exit(1); }
 console.log("https-observation-deadline-lifecycle validation passed");

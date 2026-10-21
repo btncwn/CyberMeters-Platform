@@ -216,8 +216,20 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
 
   // A module may execute and still return incomplete evidence. Keep that separate
   // from a module that did not run; either condition makes the scan partial.
+  // A stated limit (21 Oct 2026, Executive): technology detection that the site
+  // itself withheld (a challenge or closed-store page: origin_access_restricted)
+  // is not a gap in OUR assessment. The module record stays incomplete with its
+  // reason; the scan lists it as a stated limit instead of turning partial.
+  // Technology is not score-bearing; every other reason or module still counts.
+  const isStatedAccessLimit = (name, value) =>
+    name === "technology_detection" && value?.incomplete === true &&
+    value?.incomplete_reason === "origin_access_restricted";
+  const statedLimits = Object.entries(modules)
+    .filter(([name, value]) => isStatedAccessLimit(name, value))
+    .map(([name, value]) => ({ module: name, reason: value.incomplete_reason }));
   const incompleteModules = Object.entries(modules)
     .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
+    .filter(([name, value]) => !isStatedAccessLimit(name, value))
     .map(([name]) => name);
   // The evidence proposition, kept SEPARATE from the execution proposition.
   //
@@ -296,6 +308,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
     // Both arrays are explicit so readers can distinguish an unrun module from
     // attempted checks that returned insufficient evidence.
     modules_incomplete: modulesIncomplete,
+    stated_limits: statedLimits,
     subrequest_budget: {
       estimated,
       // Effective per-scan limit (resolveScanCapacity); null when no scan
