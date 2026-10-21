@@ -408,10 +408,11 @@ function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onS
         <div className="space-y-5">
           {/* Retention days selector */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+            <label htmlFor="retention-period" className="block text-xs font-semibold text-gray-500 mb-1.5">
               Retention period
             </label>
             <select
+              id="retention-period"
               value={days}
               onChange={e => handleChange(Number(e.target.value), cleanup)}
               className="input w-full sm:w-64"

@@ -1,23 +1,13 @@
 import { expect, test } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { installAppMock, seedSession, scan, domain } from './fixtures/app-mock.js'
+import { installAppMock, seedSession } from './fixtures/app-mock.js'
+import { APP_ROUTES } from './fixtures/app-routes.js'
 
 // Readable text everywhere: the axe-core colour-contrast rule (WCAG 2 AA,
 // 4.5:1 for text, 3:1 for large text) over every customer route of the
 // signed-in app and the auth screens, at 1440 and 390, against the local API
 // mock. A violation names the element and the colours, so the fix is exact.
 
-const APP_ROUTES = [
-  '/dashboard', '/onboarding', '/portfolio', '/portfolio/risk', '/portfolio/domains', '/workspaces',
-  `/workspaces/${'ws_e2e'}`, '/intelligence', '/scans', '/scans/new', `/scans/${scan.id}`, `/domain/${domain.domain}/history`,
-  '/assets', '/exposure', '/reports', '/schedules', '/accuracy', '/account', '/account/company', '/account/mcp', '/account/security', '/account/notifications', '/account/billing',
-  '/account/privacy', '/billing', '/ws/domains', '/ws/scorecard', '/ws/third-parties', '/ws/saas-exposure',
-  '/ws/shadow-it', '/ws/cloud-assets', '/ws/admin-surfaces', '/ws/certificates', '/ws/certificates/lifecycle',
-  '/ws/website-security', '/ws/identity-exposure', '/ws/brand-monitoring', '/ws/identity-assets', '/ws/email-protection',
-  '/ws/reports', '/ws/executive-dashboard', '/ws/business-risk', '/ws/cyber-essentials', '/ws/audit-log',
-  '/ws/members', '/ws/cases', '/ws/cases/case_1', '/ws/related-changes', '/ws/alerts', '/ws/retention', '/guide', '/academy',
-  '/notifications',
-]
 const AUTH_ROUTES = ['/login', '/signup', '/forgot-password', '/invitations/token_e2e']
 
 const VIEWPORTS = [
