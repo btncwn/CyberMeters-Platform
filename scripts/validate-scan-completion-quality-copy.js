@@ -56,7 +56,7 @@ function assertNonCompleteCopy(label, copy, expectedLead) {
   ok(`${label}: disclosure says results may be incomplete`, copy.disclosure?.includes("results may be incomplete"), copy.disclosure);
   ok(`${label}: score is explicitly provisional`, copy.message?.includes("Score: 95 (provisional)"), copy.message);
   ok(`${label}: description is explicitly provisional`, copy.description?.includes("score 95 (provisional)"), copy.description);
-  ok(`${label}: unqualified risk band is suppressed`, !/excellent risk|risk excellent/i.test(`${copy.message} ${copy.description}`));
+  ok(`${label}: unqualified risk band is suppressed`, !/excellent risk|risk excellent|· Excellent/i.test(`${copy.message} ${copy.description}`));
 }
 
 function captureScanCompletionAudit(scanQuality) {
@@ -95,7 +95,7 @@ function captureScanCompletionAudit(scanQuality) {
     "Scan completed for example.com — score 95, risk excellent");
   eq("complete notification message is byte-unchanged",
     complete.message,
-    "Score: 95 · excellent risk");
+    "Score: 95 · Excellent");
   eq("complete quality has no caveat", complete.disclosure, null);
 
   assertNonCompleteCopy("partial", buildScanCompletionPresentation({
@@ -155,7 +155,7 @@ async function captureScanNotification(scanQuality) {
   eq("complete in-app notification title is unchanged", complete?.title, "Scan completed for example.com");
   eq("complete in-app notification message is byte-unchanged",
     complete?.message,
-    "Score: 95 · excellent risk · 1 critical finding · 1 high finding");
+    "Score: 95 · Excellent · 1 critical finding · 1 high finding");
 
   const partial = await captureScanNotification("partial");
   ok("partial in-app notification discloses incomplete coverage", partial?.message.includes("Partial scan"));

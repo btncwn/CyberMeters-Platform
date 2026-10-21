@@ -97,6 +97,43 @@ function detectBotProtection(statusCode, responseUrl, headerMap) {
  *   Referrer-Policy:      valid if strict value; weak if unsafe-url or no-referrer-when-downgrade
  *   Permissions-Policy:   valid if present (content-agnostic); unknown if cannot validate
  */
+// CSP applies the first occurrence of a directive. Mirroring that rule avoids
+// admitting a weakness from a duplicate directive the browser ignores.
+function parseCspDirectives(raw) {
+  const directives = new Map();
+  for (const segment of raw.split(";")) {
+    const parts = segment.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) continue;
+    const [name, ...tokens] = parts;
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) return { directives, malformedName: name };
+    if (!directives.has(name)) directives.set(name, tokens);
+  }
+  return { directives, malformedName: null };
+}
+
+const CSP_DANGEROUS_TOKENS = new Set(["'unsafe-inline'", "'unsafe-eval'", "*"]);
+
+// The exact weak tokens observed, per directive, for customer wording such as
+// "'unsafe-inline' in script-src" — never a generic "unsafe-inline, unsafe-eval or
+// a wildcard". Only the named directives are read.
+export function cspObservedWeakTokens(value, directivesToRead = ["script-src", "default-src", "style-src"]) {
+  const { directives, malformedName } = parseCspDirectives(String(value || "").trim());
+  if (malformedName) return [];
+  return directivesToRead
+    .map((directive) => ({
+      directive,
+      tokens: [...new Set((directives.get(directive) || []).filter((token) => CSP_DANGEROUS_TOKENS.has(token)))],
+    }))
+    .filter((entry) => entry.tokens.length > 0);
+}
+
+/** "'unsafe-inline' and * in script-src, and 'unsafe-eval' in default-src" */
+export function describeCspWeakTokens(entries) {
+  const join = (items) => items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  const parts = entries.map((entry) => `${join(entry.tokens.map((t) => (t === "*" ? "a * wildcard" : t)))} in ${entry.directive}`);
+  return parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+}
+
 export function classifyCspPolicy(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -111,25 +148,17 @@ export function classifyCspPolicy(value) {
     };
   }
 
-  const directives = new Map();
-  for (const segment of raw.split(";")) {
-    const parts = segment.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) continue;
-    const [name, ...tokens] = parts;
-    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-      return {
-        status: "malformed",
-        classification: "unparseable",
-        parsed: false,
-        actionable_weakness: false,
-        style_only_weakness: false,
-        dangerous_directives: [],
-        details: `CSP directive "${name}" is malformed`,
-      };
-    }
-    // CSP applies the first occurrence of a directive. Mirroring that rule avoids
-    // admitting a weakness from a duplicate directive the browser ignores.
-    if (!directives.has(name)) directives.set(name, tokens);
+  const { directives, malformedName: name } = parseCspDirectives(raw);
+  if (name) {
+    return {
+      status: "malformed",
+      classification: "unparseable",
+      parsed: false,
+      actionable_weakness: false,
+      style_only_weakness: false,
+      dangerous_directives: [],
+      details: `CSP directive "${name}" is malformed`,
+    };
   }
   if (directives.size === 0) {
     return {
@@ -143,7 +172,7 @@ export function classifyCspPolicy(value) {
     };
   }
 
-  const dangerous = new Set(["'unsafe-inline'", "'unsafe-eval'", "*"]);
+  const dangerous = CSP_DANGEROUS_TOKENS;
   const dangerousTokens = (directive) =>
     (directives.get(directive) || []).filter((token) => dangerous.has(token));
   const scriptDanger = ["script-src", "default-src"]

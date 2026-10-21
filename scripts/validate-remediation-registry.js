@@ -257,5 +257,12 @@ for (const ft of ["email_missing_spf", "ssl_certificate_expired", "asset_exposur
 eq("findingRemediation returns null for an observation (no invented advice)",
   findingRemediation({ id: "asset_provider_infrastructure_observed", finding_type: "observation" }), null);
 
+// S1-7: the HSTS preload observation's suggested improvement names the preload
+// directive, and no customer text carries a literal "<domain>" placeholder.
+ok("S1-7 HSTS preload observation's action names the preload directive",
+  /preload directive/.test(resolveRemediation({ finding_type: "dse_hsts_not_preload_eligible" }).recommended_action || ""));
+ok("S1-7 no registry customer text carries a literal <domain> placeholder",
+  !JSON.stringify(REMEDIATION_REGISTRY).includes("<domain>"));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

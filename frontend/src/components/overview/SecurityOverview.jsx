@@ -12,7 +12,7 @@ import { api } from '../../api'
 import { resolveDisplayDomains } from '../../lib/securityCheckDisplay'
 import { customerEvidenceText } from '../../lib/evidenceStrengthDisplay'
 import { MODULES, guidePathForDomainKey, casesPathForDomainKey, moduleTheme } from '../../lib/moduleRegistry'
-import { domainStatus, summariseCases } from '../../lib/statusVocabulary'
+import { domainStatus, openCasesText, summariseCases } from '../../lib/statusVocabulary'
 import StatusChip from '../StatusChip'
 
 // A request helper for callers whose API surface may not carry the function
@@ -101,7 +101,6 @@ function ModuleCard({ module, entry, request, caseSummary, casesRequest, observa
   const theme = moduleTheme(module.domainKey)
   const status = domainStatus(entry, request)
   const summary = request === 'ok' && entry ? customerEvidenceText(entry.summary || entry.description) : null
-  const openCases = caseSummary?.open ?? 0
   const guide = guidePathForDomainKey(module.domainKey)
   return (
     <article
@@ -140,7 +139,7 @@ function ModuleCard({ module, entry, request, caseSummary, casesRequest, observa
           : 'Findings not read'}
         {' · '}
         {casesRequest === 'ok'
-          ? <Link to={casesPathForDomainKey(module.domainKey)} className="font-semibold text-gray-700 hover:text-brand-800">{openCases} open case{openCases === 1 ? '' : 's'}</Link>
+          ? <Link to={casesPathForDomainKey(module.domainKey)} className="font-semibold text-gray-700 hover:text-brand-800">{openCasesText(caseSummary)}</Link>
           : casesRequest === 'loading' ? 'cases loading' : 'cases not read'}
       </p>
       <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">

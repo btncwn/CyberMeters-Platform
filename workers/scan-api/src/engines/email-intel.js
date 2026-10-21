@@ -465,8 +465,15 @@ export function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
  * These findings live in modules.email_security_intelligence.findings only,
  * NOT in the main findings array, to avoid double-counting.
  */
-export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
+export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt, domain = null) {
   const findings = [];
+  // Customer text names the real DNS names ("_dmarc.example.com"), never a literal
+  // "<domain>" placeholder. Without a usable hostname it says so in words instead.
+  const host = typeof domain === "string" && /^[a-z0-9.-]+$/i.test(domain.trim()) ? domain.trim().toLowerCase() : null;
+  const dnsName = (label) => (host ? `${label}.${host}` : `the ${label} name under your domain`);
+  const mtaStsPolicyUrl = host
+    ? `https://mta-sts.${host}/.well-known/mta-sts.txt`
+    : "the /.well-known/mta-sts.txt address on your domain's mta-sts host";
 
   // A not_observed / not_yet_assessed DMARC surfaces status MISSING for display,
   // but is NOT a missing-record finding — it never reaches the domain-state resolver as an email
@@ -477,7 +484,7 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
       module:         "email_security_intelligence",
       severity:       "high",
       title:          "DMARC record is missing",
-      description:    "No DMARC record was found at _dmarc.<domain>. Receivers therefore have no domain-owner policy for handling messages that fail DMARC alignment.",
+      description:    `No DMARC record was found at ${dnsName("_dmarc")}. Receivers therefore have no domain-owner policy for handling messages that fail DMARC alignment.`,
       recommendation: "Publish a DMARC TXT record. Start with p=none to collect aggregate reports (rua=), then graduate to p=quarantine and p=reject.",
       score_impact:   0,
     });
@@ -537,8 +544,8 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
       module:         "email_security_intelligence",
       severity:       "low",
       title:          "MTA-STS policy not published",
-      description:    "No MTA-STS policy was found at https://mta-sts.<domain>/.well-known/mta-sts.txt. MTA-STS instructs sending servers to require TLS for delivery to this domain.",
-      recommendation: "Publish an MTA-STS policy file and a supporting _mta-sts.<domain> DNS TXT record once SPF, DKIM, and DMARC are fully deployed.",
+      description:    `No MTA-STS policy was found at ${mtaStsPolicyUrl}. MTA-STS instructs sending servers to require TLS for delivery to this domain.`,
+      recommendation: `Publish an MTA-STS policy file and a supporting ${dnsName("_mta-sts")} DNS TXT record once SPF, DKIM, and DMARC are fully deployed.`,
       score_impact:   0,
     });
   }
@@ -549,8 +556,8 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
       module:         "email_security_intelligence",
       severity:       "low",
       title:          "TLS-RPT reporting not configured",
-      description:    "No TLS-RPT record was found at _smtp._tls.<domain>. Without TLS-RPT you will not receive automated reports about email TLS delivery failures.",
-      recommendation: "Add a TLS-RPT TXT record at _smtp._tls.<domain>: v=TLSRPTv1; rua=mailto:<address>",
+      description:    `No TLS-RPT record was found at ${dnsName("_smtp._tls")}. Without TLS-RPT you will not receive automated reports about email TLS delivery failures.`,
+      recommendation: `Add a TLS-RPT TXT record at ${dnsName("_smtp._tls")}: v=TLSRPTv1; rua=mailto:<address>`,
       score_impact:   0,
     });
   }
@@ -631,7 +638,7 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
   else                  { rating = "Critical";  businessRisk = "Critical"; }
 
   // Step 8: Module-scoped findings (score_impact: 0 — not added to main findings array)
-  const findings = buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt);
+  const findings = buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt, domain);
 
   return {
     domain,

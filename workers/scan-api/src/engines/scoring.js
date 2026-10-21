@@ -10,7 +10,7 @@ import { runTyposquatModule } from "./brand-typosquat.js";
 import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
-import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
+import { classifyCspPolicy, classifyHeaderStrength, cspObservedWeakTokens, describeCspWeakTokens } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 import { HSTS_MISSING_SEVERITY_POLICY, resolveRemediation } from "./remediation-registry.js";
@@ -598,8 +598,8 @@ export function computeScore(modules, domain) {
             description:  csp.classification === "no_script_restriction"
               ? `The Content-Security-Policy header on ${domain} has no script-src or default-src, so it does not restrict which scripts the page may load.`
               : actionable
-              ? `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in ${csp.dangerous_directives.join(" and ")}, so it does little to stop injected scripts.`
-              : `The Content-Security-Policy header on ${domain} allows 'unsafe-inline', 'unsafe-eval' or a wildcard in style-src only. Scripts are still restricted, so this is a low-risk observation.`,
+              ? `The Content-Security-Policy header on ${domain} allows ${describeCspWeakTokens(cspObservedWeakTokens(rawValue, csp.dangerous_directives)) || `an unsafe source in ${csp.dangerous_directives.join(" and ")}`}, so it does little to stop injected scripts.`
+              : `The Content-Security-Policy header on ${domain} allows ${describeCspWeakTokens(cspObservedWeakTokens(rawValue, ["style-src"])) || "an unsafe source in style-src"} only. Scripts are still restricted, so this is a low-risk observation.`,
             score_impact: 0,
             evidence: {
               evidence_type:               "http_header_probe",

@@ -272,7 +272,7 @@ const allComplete = derive();
     "Scan completed for example.com — score 95, risk excellent");
   eq("all-healthy complete notification copy stays byte-identical",
     complete.message,
-    "Score: 95 · excellent risk");
+    "Score: 95 · Excellent");
   eq("all-healthy complete copy has no disclosure", complete.disclosure, null);
 
   const degraded = buildScanCompletionPresentation({
@@ -289,7 +289,7 @@ const allComplete = derive();
   ok("degraded monitoring coverage-caps score/rating semantics",
     degraded.quality === "degraded" &&
       degraded.message.startsWith("Score: 95 (provisional)") &&
-      !degraded.message.includes("excellent risk"));
+      !/excellent risk|· Excellent/i.test(degraded.message));
   ok("degraded monitoring never presents as an unqualified healthy completion",
     degraded.disclosure != null && !/monitoring healthy/i.test(degraded.message));
 
@@ -318,7 +318,7 @@ const allComplete = derive();
   // Registration data is optional: a registry that did not answer is stated on
   // its own signal and never caveats the scan's required checks.
   eq("an unanswered registry leaves a complete scan's completion copy unqualified",
-    unavailable.message, "Score: 95 · excellent risk");
+    unavailable.message, "Score: 95 · Excellent");
   ok("an unanswered registry adds no completion disclosure and keeps the scan complete",
     unavailable.disclosure == null && unavailable.complete === true);
   ok("the registration signal still states its own unavailability",

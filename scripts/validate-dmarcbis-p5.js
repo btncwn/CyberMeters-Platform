@@ -461,6 +461,8 @@ const lifecycle = await recordDmarcPolicyLifecycle(env, {
 const weakDescriptor = lifecycle.actionable_events.find((item) =>
   item.recurrence_type === "enforcement_weakened");
 ok("real immutable pair produces weak-condition descriptor", !!weakDescriptor);
+eq("S1-7 a p=reject → p=none weakening is not attributed to testing mode",
+  weakDescriptor?.testing_mode_added, false);
 eq("P4 write alone still opens no case",
   db.prepare(
     `SELECT COUNT(*) AS n FROM managed_cases

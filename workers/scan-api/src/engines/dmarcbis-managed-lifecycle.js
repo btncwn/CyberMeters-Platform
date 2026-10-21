@@ -281,6 +281,32 @@ async function currentConditionForRecord({
   return null;
 }
 
+// Whether CyberMeters serves this domain's DMARC record (a connected hosted
+// CNAME), so a weakened-policy alert points to the Enforcement journey rather than
+// to a DNS administrator. One bounded, workspace-scoped read per domain; a failed
+// read answers "not hosted", the advice that is safe either way.
+async function hostedDmarcConnected(env, workspaceId, domain, cache) {
+  const key = canonicalName(domain);
+  if (!key) return false;
+  if (cache.has(key)) return cache.get(key);
+  let hosted = false;
+  try {
+    const row = await env.cybermeters_db
+      .prepare(
+        `SELECT 1 AS hosted FROM hosted_dns_entries
+          WHERE workspace_id = ? AND domain = ? AND record_kind = 'dmarc'
+            AND verification_state = 'connected' LIMIT 1`,
+      )
+      .bind(workspaceId, key)
+      .first();
+    hosted = row?.hosted === 1;
+  } catch {
+    hosted = false;
+  }
+  cache.set(key, hosted);
+  return hosted;
+}
+
 // P4 already wrote and deduplicated these occurrences. The canonical consumer
 // re-reads each row through alert-occurrence.js before publishing, so a write
 // result is never treated as occurrence proof.
@@ -292,6 +318,7 @@ export async function emitDmarcPolicyAlerts(env, {
     return { attempted: 0, emitted: 0, results: [] };
   }
   const results = [];
+  const hostedByDomain = new Map();
   for (const event of lifecycle_result.actionable_events) {
     const recurrence = String(event?.recurrence_type || "");
     if (!isDmarcAlertDescriptorEligible(event)) continue;
@@ -307,10 +334,16 @@ export async function emitDmarcPolicyAlerts(env, {
       recurrence,
       finding_type: findingType,
       case_id: null,
+      recurrence_context: recurrence === "enforcement_weakened"
+        ? {
+            testing_mode_added: event.testing_mode_added === true,
+            hosted_by_cybermeters: await hostedDmarcConnected(env, workspace_id, event.author_domain, hostedByDomain),
+          }
+        : null,
       evidence_source: {
-        label: "Complete DMARC DNS observations",
+        label: "CyberMeters DMARC DNS checks",
         detail:
-          "Derived from immutable previous and current CyberMeters snapshots.",
+          "the latest complete check compared with the previous one",
         last_seen_at: null,
       },
     });

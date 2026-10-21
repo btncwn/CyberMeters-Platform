@@ -444,6 +444,21 @@ async function mutantOf(file, from, to) {
   ok("mutation M7 (shadow IT CTA removed) is CAUGHT", m.anchor && !String(link).includes("/ws/shadow-it"));
 }
 
+// ── S1-7: the DMARC weakened alert says what to do for THIS change ──────────
+{
+  const act = (ctx) => recommendationForRecurrence("email_protection", "enforcement_weakened", "example.com", "registry text", ctx);
+  ok("S1-7 t=y added on a self-managed record → remove testing mode", /remove the t=y tag/.test(act({ testing_mode_added: true })) && !/Enforcement journey/.test(act({ testing_mode_added: true })));
+  ok("S1-7 t=y added on a hosted record → Enforcement journey, not a DNS administrator", /remove it in the Enforcement journey/.test(act({ testing_mode_added: true, hosted_by_cybermeters: true })) && !/DNS administrator/.test(act({ testing_mode_added: true, hosted_by_cybermeters: true })));
+  ok("S1-7 hosted policy weakened → Enforcement journey", /Enforcement journey/.test(act({ hosted_by_cybermeters: true })) && !/administrator/.test(act({ hosted_by_cybermeters: true })));
+  ok("S1-7 self-managed policy weakened → restore, never 'move towards quarantine'", /restore the previous policy/.test(act({})) && !/towards quarantine/.test(act({})));
+  ok("S1-7 legacy callers without context still get a string", typeof recommendationForRecurrence("email_protection", "enforcement_weakened", "example.com", null) === "string");
+  ok("S1-7 what changed names testing mode when t=y was added", /Testing mode \(t=y\) was added/.test(describeRecurrenceEvent("email_protection", "enforcement_weakened", "example.com", { testing_mode_added: true })));
+  eq("S1-7 what changed is unchanged for a plain weakening", describeRecurrenceEvent("email_protection", "enforcement_weakened", "example.com"), "The requested DMARC policy became less restrictive.");
+  eq("S1-7 evidence sentence never ends in a double full stop",
+    boundedEvidenceSentence({ label: "CyberMeters DMARC DNS checks", detail: "the latest complete check compared with the previous one." }),
+    "Observed via CyberMeters DMARC DNS checks: the latest complete check compared with the previous one.");
+}
+
 globalThis.fetch = realFetch;
 console.log(`\nalert-truth-mapping: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("alert-truth-mapping validation FAILED"); process.exit(1); }

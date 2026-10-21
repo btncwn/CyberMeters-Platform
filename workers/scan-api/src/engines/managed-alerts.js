@@ -430,7 +430,8 @@ const DOMAIN_MODULE_NAMES = Object.freeze(Object.fromEntries(
 export function boundedEvidenceSentence(evidence) {
   if (!evidence || typeof evidence !== "object") return null;
   const label = String(evidence.label || "").trim().slice(0, 120);
-  const detail = String(evidence.detail || "").trim().slice(0, 200);
+  // A detail written as its own sentence must not end in a second full stop.
+  const detail = String(evidence.detail || "").trim().slice(0, 200).replace(/[.\s]+$/, "");
   if (!label && !detail) return null;
   const seen = String(evidence.last_seen_at || "").trim().slice(0, 10); // date part only
   let s = label ? `Observed via ${label}` : "Observed";

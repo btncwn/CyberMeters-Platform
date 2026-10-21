@@ -384,8 +384,21 @@ const RECURRENCE_COPY = Object.freeze({
         "Multiple DMARC policy records are now present at the same DNS name.",
     }),
     enforcement_weakened: Object.freeze({
-      what_changed: () =>
-        "The requested DMARC policy became less restrictive.",
+      what_changed: (_entity, ctx) => ctx.testing_mode_added
+        ? "Testing mode (t=y) was added to the DMARC record, so receivers are now asked to apply a less restrictive policy than the one it names."
+        : "The requested DMARC policy became less restrictive.",
+      // The action matches the change, and a record CyberMeters hosts is changed
+      // in CyberMeters, not by a DNS administrator.
+      action: (entity, ctx) => {
+        if (ctx.hosted_by_cybermeters) {
+          return ctx.testing_mode_added
+            ? `CyberMeters hosts the DMARC record for ${entity}. If testing mode was not intended, remove it in the Enforcement journey on the Email Protection settings page.`
+            : `CyberMeters hosts the DMARC record for ${entity}. Review the change in the Enforcement journey on the Email Protection settings page, and request the previous policy again there if it was not intended.`;
+        }
+        return ctx.testing_mode_added
+          ? `If testing mode was not intended, remove the t=y tag from the DMARC record for ${entity}, or ask your DNS administrator to.`
+          : `Confirm whether the less restrictive DMARC policy for ${entity} was intended. If not, restore the previous policy, or ask your DNS or email administrator to.`;
+      },
     }),
     external_rua_unauthorised: Object.freeze({
       what_changed: () =>
@@ -466,19 +479,19 @@ export function humanizeRecurrence(recurrence) {
 
 // The generic event description: names the entity and the observed transition,
 // asserts nothing beyond them. Deliberately NOT the recommendation.
-export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay) {
+export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay, context = null) {
   const subject = String(entityDisplay || "").trim() || "A monitored item";
   const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
-  if (copy?.what_changed) return copy.what_changed(subject);
+  if (copy?.what_changed) return copy.what_changed(subject, context || {});
   return `${subject}: condition "${humanizeRecurrence(recurrence)}" was observed.`;
 }
 
 // The recommendation: recurrence-specific override first (a transition can make
 // the finding-level action wrong — see owner_missing), then the canonical
 // registry action, then the bounded fallback.
-export function recommendationForRecurrence(domain_key, recurrence, entityDisplay, registryAction) {
+export function recommendationForRecurrence(domain_key, recurrence, entityDisplay, registryAction, context = null) {
   const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
-  if (copy?.action) return copy.action(String(entityDisplay || "").trim() || "this item");
+  if (copy?.action) return copy.action(String(entityDisplay || "").trim() || "this item", context || {});
   return registryAction || "Review this item in CyberMeters.";
 }
 
@@ -586,6 +599,9 @@ export async function emitLifecycleAlert(env, {
   // summary of HOW it was observed. Callers that pass none of these keep the
   // legacy behaviour exactly.
   entity_type = null, entity_display = null, monitored_domain = null, evidence_source = null,
+  // Typed facts about THIS change that the copy needs to say the right thing
+  // (e.g. DMARC weakened by an added t=y, on a record CyberMeters hosts).
+  recurrence_context = null,
 } = {}) {
   try {
     if (!workspace_id || !domain_key || !record_id || !recurrence) return { skipped: "incomplete_condition" };
@@ -644,9 +660,9 @@ export async function emitLifecycleAlert(env, {
     // They are built by separate functions so they can never collapse back into
     // the same registry string (the defect this episode fixes).
     const displayName = String(entity_display || "").trim() || entity || record_id;
-    const canonicalWhatChanged = describeRecurrenceEvent(domain_key, recurrence, displayName);
+    const canonicalWhatChanged = describeRecurrenceEvent(domain_key, recurrence, displayName, recurrence_context);
     const canonicalRecommendation = recommendationForRecurrence(
-      domain_key, recurrence, displayName, resolved?.recommended_action || null,
+      domain_key, recurrence, displayName, resolved?.recommended_action || null, recurrence_context,
     );
     const presentation = resolveCustomerAlertPresentation({
       domain_key,

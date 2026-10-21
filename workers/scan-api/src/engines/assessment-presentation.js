@@ -99,6 +99,21 @@ export function signalMonitoringDisclosure(monitoringStates, { otherChecksComple
     : disclosure;
 }
 
+// The customer word for a score band in a notification: "Score: 100 · Excellent",
+// never "excellent risk". The upper bands describe the score; the lower ones keep
+// "risk" so "High" can never read as a high score.
+const SCORE_BAND_WORDS = Object.freeze({
+  excellent: "Excellent",
+  good: "Good",
+  moderate: "Moderate risk",
+  high: "High risk",
+  critical: "Critical risk",
+});
+export function scoreBandWord(riskLevel) {
+  const key = String(riskLevel || "").toLowerCase();
+  return SCORE_BAND_WORDS[key] || (key ? `${key.charAt(0).toUpperCase()}${key.slice(1)} risk` : "");
+}
+
 export function buildScanCompletionPresentation({
   domain,
   score,
@@ -134,7 +149,7 @@ export function buildScanCompletionPresentation({
           ? `Scan completed for ${domain} — score ${score}, risk ${riskLevel}. ${signalDisclosure}`
           : `Scan completed for ${domain}. ${signalDisclosure}`,
         message: hasScore
-          ? `Score: ${score} · ${riskLevel} risk · ${signalDisclosure}`
+          ? `Score: ${score} · ${scoreBandWord(riskLevel)} · ${signalDisclosure}`
           : signalDisclosure,
       };
     }
@@ -143,7 +158,7 @@ export function buildScanCompletionPresentation({
       description: hasScore
         ? `Scan completed for ${domain} — score ${score}, risk ${riskLevel}`
         : `Scan completed for ${domain}`,
-      message: hasScore ? `Score: ${score} · ${riskLevel} risk` : "Scan completed.",
+      message: hasScore ? `Score: ${score} · ${scoreBandWord(riskLevel)}` : "Scan completed.",
     };
   }
   const disclosure = signalDisclosure || quality.disclosure;

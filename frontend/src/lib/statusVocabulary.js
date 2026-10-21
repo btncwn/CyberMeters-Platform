@@ -130,6 +130,24 @@ export function caseStatus(caseRecord) {
 
 export const OPEN_CASE_WORDS = new Set(['action_required', 'in_progress', 'ready_to_verify', 'recurring'])
 
+// What the open cases are waiting on, in words: "1 case awaiting verification"
+// says more next to "no material issue observed" than a bare "1 open case".
+const OPEN_CASE_PHRASES = Object.freeze([
+  ['action_required', 'needing action'],
+  ['recurring', 'recurring'],
+  ['in_progress', 'in progress'],
+  ['ready_to_verify', 'awaiting verification'],
+])
+
+/** "1 case awaiting verification", "2 cases needing action · 1 case in progress", or "0 open cases". */
+export function openCasesText(summary) {
+  const byWord = summary?.byWord || {}
+  const parts = OPEN_CASE_PHRASES
+    .filter(([word]) => byWord[word] > 0)
+    .map(([word, phrase]) => `${byWord[word]} case${byWord[word] === 1 ? '' : 's'} ${phrase}`)
+  return parts.length ? parts.join(' · ') : '0 open cases'
+}
+
 /** Counts per vocabulary word plus the verification-support split, for one list of cases. */
 export function summariseCases(cases) {
   const list = Array.isArray(cases) ? cases : []

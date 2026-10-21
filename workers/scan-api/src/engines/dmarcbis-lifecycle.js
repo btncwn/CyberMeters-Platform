@@ -954,6 +954,10 @@ function actionableEventDescriptors(candidates) {
         candidate.detail.after_evidence_fingerprint,
       transition_completeness:
         candidate.detail.transition_completeness,
+      // The alert's action must match the change: a policy weakened only by an
+      // added t=y asks for testing mode to be removed, not a policy rewrite.
+      testing_mode_added:
+        candidate.detail.before?.t !== "y" && candidate.detail.after?.t === "y",
     }));
 }
 

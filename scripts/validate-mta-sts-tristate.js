@@ -177,6 +177,17 @@ ok("orchestrator mta_sts outcome is unavailable, not absence",
   orchestratorResult.mta_sts.observation_state === "unavailable" &&
   orchestratorResult.email_score_breakdown.mta_sts === 0);
 
+// S1-7: customer finding text names the real domain, never a literal "<domain>".
+{
+  const named = buildEmailIntelFindings(stubs.spf, { status: "MISSING" }, stubs.dkim, genuineAbsent, { enabled: false }, "Acme.co.uk");
+  const text = named.map((f) => `${f.description} ${f.recommendation}`).join(" ");
+  ok("S1-7 MTA-STS finding renders https://mta-sts.acme.co.uk/.well-known/mta-sts.txt", text.includes("https://mta-sts.acme.co.uk/.well-known/mta-sts.txt"));
+  ok("S1-7 DMARC/TLS-RPT findings render _dmarc.acme.co.uk and _smtp._tls.acme.co.uk", text.includes("_dmarc.acme.co.uk") && text.includes("_smtp._tls.acme.co.uk"));
+  ok("S1-7 no literal <domain> placeholder in finding text", !text.includes("<domain>"));
+  const unnamed = buildEmailIntelFindings(stubs.spf, { status: "MISSING" }, stubs.dkim, genuineAbsent, { enabled: false });
+  ok("S1-7 without a domain the text says so in words, still no placeholder", !unnamed.map((f) => `${f.description} ${f.recommendation}`).join(" ").includes("<domain>"));
+}
+
 if (failures.length > 0) {
   console.error(`mta-sts-tristate: ${failures.length} assertions FAILED, ${passed} passed`);
   process.exit(1);

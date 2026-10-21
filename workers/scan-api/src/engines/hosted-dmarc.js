@@ -1282,7 +1282,7 @@ const mtaStsRemediation = {
     return {
       records: [{ type: "TXT", name: `_mta-sts.${ctx.domain}`, value: buildMtaStsTxtValue(id) }],
       files: [{ path: `https://mta-sts.${ctx.domain}/.well-known/mta-sts.txt`, content: policyFile }],
-      note: "MTA-STS needs BOTH the TXT record and the policy file served over HTTPS on mta-sts.<domain>. Start in mode: testing, then move to enforce once reports are clean.",
+      note: `MTA-STS needs BOTH the TXT record and the policy file served over HTTPS on mta-sts.${ctx.domain}. Start in mode: testing, then move to enforce once reports are clean.`,
     };
   },
   async verify(ctx) { return (await this.detect(ctx)).ok; },

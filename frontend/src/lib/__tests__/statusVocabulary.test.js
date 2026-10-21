@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  STATUS_VOCABULARY, STATUS_KEYS, domainStatus, caseStatus, summariseCases, statusMeta,
+  STATUS_VOCABULARY, STATUS_KEYS, domainStatus, caseStatus, summariseCases, statusMeta, openCasesText,
 } from '../statusVocabulary'
 import { ATTESTED_LABEL } from '../caseDisplay'
 
@@ -131,5 +131,16 @@ describe('summariseCases', () => {
   it('tolerates garbage', () => {
     expect(summariseCases(null)).toEqual({ total: 0, open: 0, byWord: {}, support: { automated: 0, manual: 0, external: 0, unsupported: 0 } })
     expect(summariseCases([null, 'x']).total).toBe(2)
+  })
+})
+
+describe('openCasesText', () => {
+  it('says what the open cases are waiting on, never a bare "open managed case"', () => {
+    expect(openCasesText(summariseCases([{ status: 'awaiting_verification' }]))).toBe('1 case awaiting verification')
+    expect(openCasesText(summariseCases([{ status: 'detected' }, { status: 'assigned' }, { status: 'action_in_progress' }])))
+      .toBe('2 cases needing action · 1 case in progress')
+    expect(openCasesText(summariseCases([{ status: 'reopened' }]))).toBe('1 case recurring')
+    expect(openCasesText(summariseCases([{ status: 'verified', verification_support: 'automated' }]))).toBe('0 open cases')
+    expect(openCasesText(undefined)).toBe('0 open cases')
   })
 })

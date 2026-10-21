@@ -282,6 +282,15 @@ eq("CSP script weakness producer severity is medium", cspFinding("default-src 's
 eq("CSP font/img wildcard is not header-wide promoted", cspFinding("default-src 'self'; script-src 'self'; img-src *"), undefined);
 eq("CSP uncertain response admits no weak-policy result", cspFinding("script-src 'unsafe-inline'", { uncertain: true }), undefined);
 eq("CSP non-200 response admits no weak-policy result", cspFinding("script-src 'unsafe-inline'", { status: 503 }), undefined);
+// S1-7: the description names the directive and token actually observed.
+ok("CSP script weakness names the observed token and directive",
+  /allows 'unsafe-eval' in script-src, so/.test(cspFinding("default-src 'self'; script-src 'self' 'unsafe-eval'")?.description || ""));
+ok("CSP wildcard is named as a wildcard in default-src",
+  /allows a \* wildcard in default-src, so/.test(cspFinding("default-src *")?.description || ""));
+ok("CSP style-only weakness names 'unsafe-inline' in style-src",
+  /allows 'unsafe-inline' in style-src only\./.test(cspFinding("default-src 'self'; script-src 'self'; style-src 'unsafe-inline'")?.description || ""));
+ok("CSP description never lists tokens that were not observed",
+  !/'unsafe-eval' or a wildcard/.test(cspFinding("default-src 'self'; script-src 'unsafe-inline'")?.description || "x"));
 eq("shared CSP classifier identifies style-only weakness",
   headersContract.classifyCspPolicy("script-src 'self'; style-src 'unsafe-inline'")?.classification, "weak_style_only");
 

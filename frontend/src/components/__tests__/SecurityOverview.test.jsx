@@ -72,13 +72,17 @@ describe('SecurityOverview — one overview for every persona', () => {
       { case_id: 'c2', domain_key: 'email_protection', canonical_phase: 'verified', verification_support: 'manual' },
       { case_id: 'c3', domain_key: 'brand_protection', canonical_phase: 'reopened', verification_support: 'manual' },
       { case_id: 'c4', domain_key: 'brand_protection', canonical_phase: 'rejected' },
+      { case_id: 'c5', domain_key: 'certificates_trust', canonical_phase: 'awaiting_verification', verification_support: 'automated' },
     ]
     show({ cases })
     const email = cards()[0]
     const brand = cards()[6]
-    expect(within(email).getByRole('link', { name: '1 open case' })).toHaveAttribute('href', '/ws/cases?domain_key=email_protection')
-    expect(within(brand).getByRole('link', { name: '1 open case' })).toHaveAttribute('href', '/ws/cases?domain_key=brand_protection')
+    expect(within(email).getByRole('link', { name: '1 case needing action' })).toHaveAttribute('href', '/ws/cases?domain_key=email_protection')
+    expect(within(brand).getByRole('link', { name: '1 case recurring' })).toHaveAttribute('href', '/ws/cases?domain_key=brand_protection')
     expect(within(cards()[2]).getByRole('link', { name: '0 open cases' })).toBeInTheDocument()
+    // S1-7: a case awaiting verification says so, never a bare "1 open managed case".
+    const certificates = cards().find((card) => card.getAttribute('data-domain-key') === 'certificates_trust')
+    expect(within(certificates).getByRole('link', { name: '1 case awaiting verification' })).toBeInTheDocument()
   })
 
   it('while the eight-domain read is pending every area shows Loading', () => {
