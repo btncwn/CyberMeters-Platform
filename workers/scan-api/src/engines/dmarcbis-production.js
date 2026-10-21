@@ -14,6 +14,10 @@ import {
 export const DMARCBIS_CORE_BUDGET_MS = 1200;
 export const DMARCBIS_PRIMARY_BUDGET_MS = 500;
 export const DMARCBIS_CORROBORATION_DEADLINE_MS = 1100;
+// One bounded retry of the primary resolver before the independent fallback.
+export const DMARCBIS_PRIMARY_RETRY_MIN_MS = 150;
+export const DMARCBIS_PRIMARY_RETRY_MAX_MS = 300;
+export const DMARCBIS_FALLBACK_RESERVE_MS = 150;
 export const DMARCBIS_EXTERNAL_RUA_BUDGET_MS = 600;
 export const DMARCBIS_EXTERNAL_HOST_RESERVATION = 11;
 export const DMARCBIS_EXTERNAL_PRIMARY_DEADLINE_MS = 300;
@@ -158,6 +162,29 @@ export function createProductionDmarcbisDnsClient({
     if (phase !== "core" || secondary || signal?.aborted ||
         normalizeDmarcbisDnsObservation(first, question).definitive ||
         ["cancelled_deadline", "not_issued_budget"].includes(first.outcome)) return first;
+    // A transient primary failure (one slow or failed answer) is asked once
+    // more on the primary before falling back: the independent resolver is
+    // single-provider evidence, and any fallback marks DMARC monitoring
+    // degraded. The retry stays inside the corroboration window and always
+    // leaves DMARCBIS_FALLBACK_RESERVE_MS for the independent resolver.
+    const retryWindow = DMARCBIS_CORROBORATION_DEADLINE_MS - Math.max(0, now() - startedAt)
+      - DMARCBIS_FALLBACK_RESERVE_MS;
+    if (retryWindow >= DMARCBIS_PRIMARY_RETRY_MIN_MS && !signal?.aborted) {
+      const retry = await boundedProviderQuery({
+        provider,
+        question,
+        cache: null,
+        accounting,
+        parentSignal: signal,
+        remainingMs: Math.min(retryWindow, DMARCBIS_PRIMARY_RETRY_MAX_MS),
+        setTimer,
+        clearTimer,
+        now,
+      });
+      if (normalizeDmarcbisDnsObservation(retry, question).definitive) {
+        return { ...retry, primary_retried: true, primary_outcome: normalizeDmarcbisDnsObservation(first, question).outcome };
+      }
+    }
     const remaining = DMARCBIS_CORROBORATION_DEADLINE_MS - Math.max(0, now() - startedAt);
     if (remaining <= 0) return first;
     const fallbackQuestion = { ...question, resolver: "secondary" };

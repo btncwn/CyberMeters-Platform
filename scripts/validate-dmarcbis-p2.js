@@ -240,6 +240,41 @@ ok("serialized network envelope fits executable budget",
     ["reject", "unavailable", true, "L1", "degraded"]);
   eq("one-resolver evidence cannot automatically establish a policy lifecycle condition",
     deriveDmarcPolicyConditions(oneResolver), []);
+  // Live finding (21 Oct 2026, scan_7d6d00e2): one slow primary answer on the
+  // tree walk made the scan fall back and read DMARC degraded. The primary is
+  // now asked once more first; a recovered answer is not a fallback.
+  {
+    const asked = [];
+    let failedOnce = false;
+    const flaky = async (name, type) => {
+      asked.push(name);
+      if (name === "_dmarc.example.test" && !failedOnce) { failedOnce = true; return { outcome: "timeout" }; }
+      return provider(name, type);
+    };
+    let secondaryCalls = 0;
+    const retried = await runDmarcbisCore("example.test", {
+      primaryProvider: flaky,
+      secondaryProvider: async (...args) => { secondaryCalls += 1; return provider(...args); },
+    });
+    eq("a transient primary failure is retried on the primary, not the fallback",
+      [retried.core_completeness, retried.resolver_fallback_used, retried.outcome, retried.monitoring_state],
+      ["complete", false, "available", "monitoring_healthy"]);
+    eq("...the retried question is asked on the primary exactly twice",
+      asked.filter((name) => name === "_dmarc.example.test").length >= 2, true);
+    ok("...and the retry is recorded on the lookup path",
+      retried.lookup_path.some((entry) => entry.raw?.primary_retried === true && entry.raw?.primary_outcome === "timeout"));
+    eq("...and the policy still comes from two independent resolvers", retried.corroboration_state, "corroborated");
+  }
+  // A primary that never answers: the retry is bounded and leaves the
+  // independent resolver its reserved time, so the core still completes.
+  {
+    const hang = (name) => name === "_dmarc.example.test" ? new Promise(() => {}) : provider(name, "TXT");
+    const started = Date.now();
+    const hung = await runDmarcbisCore("example.test", { primaryProvider: hang, secondaryProvider: provider });
+    eq("a silent primary still falls back in time (retry never starves the fallback)",
+      [hung.core_completeness, hung.resolver_fallback_used, hung.effective_requested_policy], ["complete", true, "reject"]);
+    ok("...inside the corroboration deadline", Date.now() - started < 1600, `${Date.now() - started} ms`);
+  }
   const neitherResolver = await runDmarcbisCore("example.test", {
     primaryProvider: async () => ({ outcome: "timeout" }),
     secondaryProvider: async () => ({ outcome: "timeout" }),
