@@ -647,9 +647,9 @@ ok('B3 C3 finding-free assessed partial Website evidence is exactly provisional/
 
 ok('B3 C4 resolver and score methodology stamps remain independent',
   hstsComplete.snapshot.methodology?.cyber_mot_resolver_version === '2026-10-18.2' &&
-  hstsComplete.snapshot.methodology?.cyber_metrics_score_methodology_version === '2026-10-16.1' &&
+  hstsComplete.snapshot.methodology?.cyber_metrics_score_methodology_version === '2026-10-21.1' &&
   hstsComplete.executive.methodology?.cyber_mot_resolver_version === '2026-10-18.2' &&
-  hstsComplete.executive.methodology?.cyber_metrics_score_methodology_version === '2026-10-16.1')
+  hstsComplete.executive.methodology?.cyber_metrics_score_methodology_version === '2026-10-21.1')
 
 const historicalSnapshot = structuredClone(cleanComplete.snapshot)
 historicalSnapshot.methodology.cyber_mot_resolver_version = '2026-08-30.1'

@@ -590,7 +590,7 @@ describe('ExecutiveReportV2 report-first corrective', () => {
     const current = b3ReportFixture('version-stamps', { findings: [hstsFinding] })
     expect(current.report.methodology).toMatchObject({
       cyber_mot_resolver_version: '2026-10-18.2',
-      cyber_metrics_score_methodology_version: '2026-10-16.1',
+      cyber_metrics_score_methodology_version: '2026-10-21.1',
     })
 
     const historicalSnapshot = structuredClone(current.snapshot)

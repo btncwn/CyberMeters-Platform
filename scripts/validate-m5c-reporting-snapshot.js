@@ -258,8 +258,8 @@ async function main() {
   // 2026-10-13.1: outside vulnerability data left the check pack, so no
   // exploited-vulnerability match can move the score (scoring.js).
   ok("the Cyber Metrics score methodology stamp is independently pinned",
-     CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-10-16.1" &&
-     snap1?.methodology?.cyber_metrics_score_methodology_version === "2026-10-16.1");
+     CYBER_METRICS_SCORE_METHODOLOGY_VERSION === "2026-10-21.1" &&
+     snap1?.methodology?.cyber_metrics_score_methodology_version === "2026-10-21.1");
   ok("the snapshot records the check-pack version its scan recorded (none for older reports)",
      snap1?.methodology?.check_pack_version === (report1?.check_pack?.version ?? null));
   ok("snapshot schema version stamped", snap1?.snapshot?.snapshot_schema_version === SNAPSHOT_SCHEMA_VERSION);
@@ -973,7 +973,7 @@ async function main() {
      !b3Website?.finding_ids?.includes("csp_weak_policy"));
   ok("new B3 snapshot stamps resolver and score methodologies independently",
      b3Snapshot.methodology?.cyber_mot_resolver_version === "2026-10-18.2" &&
-     b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-10-16.1");
+     b3Snapshot.methodology?.cyber_metrics_score_methodology_version === "2026-10-21.1");
 
   // ── Report ──────────────────────────────────────────────────────────────────
   console.log(`\nM5.c reporting snapshot: ${pass}/${pass + fail} passed`);
