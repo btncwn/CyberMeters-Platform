@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Trash2, X, Copy, Check, RefreshCw } from 'lucide-react'
+import { useDialog } from '../../lib/useDialog'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -49,13 +50,14 @@ function DeliveryStatus({ channel }) {
 }
 
 function SecretModal({ secret, onClose }) {
+  const dialogRef = useDialog(onClose)
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try { await navigator.clipboard.writeText(secret); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* ignore */ }
   }
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Your signing secret" tabIndex={-1} className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-gray-900">Your signing secret</h3>

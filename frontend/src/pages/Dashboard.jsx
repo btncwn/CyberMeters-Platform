@@ -502,7 +502,7 @@ export default function Dashboard() {
                 onClick={() => navigate(`/scans/${scan.id}`)}
                 className="flex items-center gap-4 px-6 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors group"
               >
-                <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
+                <Link to={`/scans/${scan.id}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold text-gray-900 flex-1 truncate hover:underline">{scan.domain}</Link>
                 {/* A partial assessment has no customer-facing numeric score. */}
                 <span className="flex items-center gap-1.5 text-xs text-gray-500">
                   <span>{scan.status === 'completed' && !scanAssessment.authoritative

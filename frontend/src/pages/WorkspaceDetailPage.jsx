@@ -2,6 +2,7 @@ import { formatDate } from '../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { RefreshCw, Globe, ScanLine, BarChart2, X, Trash2, Clock } from 'lucide-react'
+import { useDialog } from '../lib/useDialog'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -40,6 +41,7 @@ function StatCard({ icon: Icon, label, value, sub, iconColor = 'text-brand-700',
 // ── Add Domain Modal ──────────────────────────────────────────────────────────
 
 function AddDomainModal({ workspaceId, onAdded, onClose }) {
+  const dialogRef = useDialog(onClose)
   const [domain, setDomain]   = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState(null)
@@ -63,7 +65,7 @@ function AddDomainModal({ workspaceId, onAdded, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-xs" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add domain" tabIndex={-1} className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-gray-900">Add Domain</h2>
           <button
@@ -150,10 +152,12 @@ function DeleteWorkspaceModal({ workspaceId, workspaceName, onClose, onDeleted }
     }
   }
 
+  const dialogRef = useDialog(loading ? undefined : onClose)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-xs" onClick={loading ? undefined : onClose} />
-      <div role="dialog" aria-modal="true" aria-label="Delete workspace" className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Delete workspace" tabIndex={-1} className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-red-700">Delete workspace</h2>
           <button

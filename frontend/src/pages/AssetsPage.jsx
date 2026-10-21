@@ -3,6 +3,7 @@ import CasesQueue from '../components/CasesQueue'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Cloud, X } from 'lucide-react'
+import { useDialog } from '../lib/useDialog'
 import { api } from '../api'
 import ModuleContract from '../components/module/ModuleContract'
 import Spinner from '../components/Spinner'
@@ -309,6 +310,7 @@ function HostingSummary({ summary }) {
 }
 
 function AssetDetailPanel({ workspaceId, assetId, onClose }) {
+  const dialogRef = useDialog(onClose)
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
@@ -332,7 +334,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative bg-white shadow-2xl w-full max-w-lg flex flex-col overflow-y-auto">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Asset detail" tabIndex={-1} className="relative bg-white shadow-2xl w-full max-w-lg flex flex-col overflow-y-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
@@ -765,7 +767,7 @@ export default function AssetsPage() {
                         onClick={() => setSelectedId(asset.id)}
                       >
                         <td>
-                          <span className="mono text-xs font-medium text-gray-800">{asset.hostname}</span>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(asset.id) }} className="mono text-xs font-medium text-gray-800 text-left hover:underline">{asset.hostname}</button>
                           {asset.wildcard_dns === 1 && (
                             <span className="ml-2 text-xs text-brand-700 font-semibold">WILDCARD</span>
                           )}

@@ -126,9 +126,9 @@ export default function DomainHistory() {
                     </div>
                     <p className="mt-1.5"><InternalIdCopyButton id={scan.id} label="scan" /></p>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <Link to={`/scans/${scan.id}`} onClick={(e) => e.stopPropagation()} className="text-xs text-gray-500 flex items-center gap-1 hover:underline" aria-label={`Open the scan from ${formatDate(scan.created_at)}`}>
                         {formatDate(scan.created_at)}
-                      </span>
+                      </Link>
                     </div>
                   </div>
                 </li>
