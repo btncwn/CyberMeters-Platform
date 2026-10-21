@@ -19,6 +19,7 @@ const mutations = [
   "ct-advances-removal",
   "unavailable-advances",
   "observed-keeps-counter",
+  "cloud-gap-unstated",
 ];
 
 let pass = 0;
