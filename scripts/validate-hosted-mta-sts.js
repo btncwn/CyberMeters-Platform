@@ -283,6 +283,26 @@ ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401
   ok("self policy: a deleted workspace's policy is not served", (await get(FILE)).status === 404);
 }
 
+// ── 8. sheshire.co.uk apex: the temporary Website/CE proof site ──────────────
+{
+  const site = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "site-proof.js")).href);
+  const get = async (host, p, { e = env, method = "GET" } = {}) => {
+    const res = await worker.default.fetch(new Request(`https://${host}${p}`, { method }), e, ctx);
+    return { status: res.status, hsts: res.headers.get("strict-transport-security"), csp: res.headers.get("content-security-policy"), type: res.headers.get("content-type"), body: await res.text() };
+  };
+  const page = await get("sheshire.co.uk", "/");
+  ok("proof site: the apex is the marked test page", page.status === 200 && /CyberMeters test page/.test(page.body) && /^text\/html/.test(page.type || ""));
+  ok("proof site: no form, no script, no input", !/<form|<script|<input/i.test(page.body));
+  ok("proof site: HSTS present by default, with the other security headers", page.hsts === "max-age=31536000" && /default-src 'none'/.test(page.csp || ""));
+  ok("proof site: HSTS absent only while SITE_PROOF_HSTS=off", (await get("sheshire.co.uk", "/", { e: { ...env, SITE_PROOF_HSTS: "off" } })).hsts === null);
+  for (const p of ["/login", "/health", "/api/auth/me", "/.well-known/mta-sts.txt", "/?x=1", "/cybermeters-verification-abc12345.html"]) {
+    ok(`proof site host: ${p} is 404`, (await get("sheshire.co.uk", p)).status === 404);
+  }
+  ok("proof site host: only GET/HEAD", (await get("sheshire.co.uk", "/", { method: "POST" })).status === 404);
+  ok("proof site: only the apex — www.sheshire.co.uk is not this host", site.isSiteProofHost(new URL("https://www.sheshire.co.uk/")) === false
+    && site.isSiteProofHost(new URL("https://account.sheshire.co.uk/")) === false && site.isSiteProofHost(new URL("https://sheshire.co.uk/")) === true);
+}
+
 console.log(`\nHosted MTA-STS: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("hosted-mta-sts validation FAILED"); process.exit(1); }
 console.log("hosted-mta-sts validation passed");

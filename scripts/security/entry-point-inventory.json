@@ -46,6 +46,7 @@
     "workers/scan-api/src/routes/related-changes.js",
     "workers/scan-api/src/routes/scans.js",
     "workers/scan-api/src/routes/shadow-it.js",
+    "workers/scan-api/src/routes/site-proof.js",
     "workers/scan-api/src/routes/tls-authorization.js",
     "workers/scan-api/src/routes/website-security.js",
     "workers/scan-api/src/routes/website-sign-in.js",

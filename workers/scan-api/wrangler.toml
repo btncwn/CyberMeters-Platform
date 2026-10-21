@@ -43,6 +43,13 @@ custom_domain = true
 pattern = "mta-sts.cybermeters.com"
 custom_domain = true
 
+# TEMPORARY (S2-5 Website/CE live proof, founder-authorised 21 Oct 2026): the
+# sheshire.co.uk apex serves one static, clearly marked CyberMeters test page
+# (routes/site-proof.js). Apex only. Remove after the proof.
+[[routes]]
+pattern = "sheshire.co.uk"
+custom_domain = true
+
 [[d1_databases]]
 binding = "cybermeters_db"
 database_name = "cybermeters-db"
