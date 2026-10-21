@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BecExposure, DmarcIngestionStatus, ManagedDmarcCard } from '../WorkspaceEmailProtectionPage'
+import { BecExposure, DmarcIngestionStatus, ManagedDmarcCard, complianceDetail } from '../WorkspaceEmailProtectionPage'
 import { api } from '../../../api'
 
 vi.mock('../../../api', () => ({
@@ -296,5 +296,33 @@ describe('ManagedDmarcCard — RFC 9989 ladder from the API', () => {
     expect(track.children).toHaveLength(1)
     expect(track).toHaveTextContent('You are here')
     expect(screen.queryByRole('button', { name: 'Step back one level' })).not.toBeInTheDocument()
+  })
+})
+
+// 21 Oct 2026: reports kept arriving by email while the card said "no reports
+// yet" (the 7-day pass rate counts only reports automation may use). The API
+// now says why the pass rate is absent; the card words it.
+describe('7-day compliance line', () => {
+  it('names arriving reports and why there is no pass rate, from the API', () => {
+    const text = complianceDetail({ pass_rate: null, total_messages: 0, reports_received: 39, last_report_received_at: '2026-10-20 10:14:00', pass_rate_unavailable_reason: 'reports_not_used_for_pass_rate' })
+    expect(text).toMatch(/^Reports are arriving \(last: .*10:14 UTC\)\. The pass rate is not calculated from these reports\.$/)
+    expect(text).not.toMatch(/no reports/i)
+  })
+
+  it('says no reports only when the API says none arrived in the window', () => {
+    expect(complianceDetail({ pass_rate: null, pass_rate_unavailable_reason: 'no_reports' })).toBe('No reports in the last 7 days')
+    expect(complianceDetail({ pass_rate: null, pass_rate_unavailable_reason: 'unknown' })).toBe('Pass rate not calculated')
+    expect(complianceDetail({ pass_rate: null })).toBe('Pass rate not calculated')
+    expect(complianceDetail({ pass_rate: 98.5, total_messages: 1200 })).toBe('1,200 messages')
+  })
+
+  it('the card shows the API wording under the 7-day figure', async () => {
+    const response = hostedDmarcResponse()
+    response.compliance = { pass_rate: null, total_messages: 0, window_days: 7, reports_received: 39, last_report_received_at: '2026-10-20 10:14:00', pass_rate_unavailable_reason: 'reports_not_used_for_pass_rate' }
+    api.getHostedDmarc.mockResolvedValue(response)
+    render(<ManagedDmarcCard wsId={WS_ID} domain={DOMAIN} endpointReady />)
+    const line = await screen.findByTestId('compliance-detail')
+    expect(line).toHaveTextContent(/Reports are arriving \(last: .*10:14 UTC\)/)
+    expect(screen.queryByText(/no reports yet/i)).not.toBeInTheDocument()
   })
 })

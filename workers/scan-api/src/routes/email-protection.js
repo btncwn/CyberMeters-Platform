@@ -18,7 +18,7 @@ import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
 import { getEffectivePlan } from "../engines/entitlements.js";
 import { CUSTOMER_SENDER_DISPOSITIONS, isCustomerDisposition } from "../engines/sender-classification.js";
-import { DMARC_RAMP_LADDER, dmarcRampStepByKey, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
+import { DMARC_RAMP_LADDER, dmarcRampStepByKey, getHostedDmarcReportReceipt, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
@@ -376,6 +376,7 @@ export async function emailProtectionRoutes(rctx) {
             });
           }
           const rate = await getHostedDmarcPassRate(env, workspaceId, domain);
+          const receipt = await getHostedDmarcReportReceipt(env, workspaceId, domain, { passRate: rate.pass_rate });
           const changeMs = parseServerMsHosted(existing.last_change_at);
           const readiness = evaluateRampReadiness({
             pass_rate: rate.pass_rate,
@@ -392,6 +393,10 @@ export async function emailProtectionRoutes(rctx) {
               window_days: 7,
               evidence_scope: rate.evidence_scope,
               inbound_automation_suspended: rate.inbound_automation_suspended === true,
+              // Reports can arrive while the pass rate stays null (see getHostedDmarcReportReceipt).
+              reports_received: receipt.reports_received,
+              last_report_received_at: receipt.last_report_received_at,
+              pass_rate_unavailable_reason: receipt.pass_rate_unavailable_reason,
             },
             readiness,
             projected_impact: impactState.projected_impact,

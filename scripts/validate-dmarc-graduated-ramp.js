@@ -166,6 +166,50 @@ const lowVol = { baseline_pass_rate: 99, current_pass_rate: 80, total_messages: 
 ok("low volume suppresses rollback under the default 20-message floor", shouldAutoRollback(lowVol) === false);
 ok("low-volume rollback fires once the floor is lowered via override", shouldAutoRollback(lowVol, resolveRampThresholds({ HOSTED_DMARC_ROLLBACK_MIN_MESSAGES: "5" })) === true);
 
+// ── Report receipt beside a null pass rate (21 Oct 2026) ─────────────────────
+// The 7-day pass rate counts only reports external automation may use, so it is
+// null while reports keep arriving by email. The card must not say "no reports
+// yet": the API now reports receipt and why the pass rate is absent.
+{
+  const fs = await import("node:fs");
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(":memory:");
+  const apply = (p) => { try { db.exec(fs.readFileSync(p, "utf8")); } catch { /* ordering tolerated */ } };
+  apply(path.join(root, "database", "schema.sql"));
+  for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((n) => n.endsWith(".sql")).sort()) apply(path.join(root, "database", "migrations", f));
+  const wrap = (sql, args) => ({ first: async () => db.prepare(sql).get(...args) ?? null, all: async () => ({ results: db.prepare(sql).all(...args) }), run: async () => db.prepare(sql).run(...args) });
+  const env = { cybermeters_db: { prepare: (sql) => { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; } } };
+  const report = (id, ws, domain, createdAt) => db.prepare(`INSERT INTO dmarc_aggregate_reports (id, workspace_id, domain, org_name, external_report_id, message_count, record_count, source, created_at)
+    VALUES (?, ?, ?, 'receiver.example', ?, 10, 1, 'inbound_email', ?)`).run(id, ws, domain, `ext-${id}`, createdAt);
+  db.prepare("INSERT INTO users (id, email, password_hash, name, plan, status) VALUES ('u1', 'owner@example.test', 'x', 'Owner', 'free', 'active')").run();
+  for (const ws of ["ws1", "ws2"]) db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES (?, 'u1', ?)").run(ws, ws);
+  report("r1", "ws1", "a.example", "2026-01-01 00:00:00");
+  db.prepare("UPDATE dmarc_aggregate_reports SET created_at = datetime('now', '-2 days') WHERE id = 'r1'").run();
+  report("r2", "ws1", "a.example", "2026-01-01 00:00:00");
+  db.prepare("UPDATE dmarc_aggregate_reports SET created_at = datetime('now', '-1 days') WHERE id = 'r2'").run();
+  report("r3", "ws2", "b.example", "2026-01-01 00:00:00");
+  db.prepare("UPDATE dmarc_aggregate_reports SET created_at = datetime('now', '-30 days') WHERE id = 'r3'").run();
+  const latest = db.prepare("SELECT created_at FROM dmarc_aggregate_reports WHERE id = 'r2'").get().created_at;
+
+  const rate = await eng.getHostedDmarcPassRate(env, "ws1", "a.example");
+  ok("email-received reports leave the 7-day pass rate null", rate.pass_rate === null);
+  const arriving = await eng.getHostedDmarcReportReceipt(env, "ws1", "a.example", { passRate: rate.pass_rate });
+  ok("receipt: reports arriving are counted and their last receipt time returned",
+    arriving.reports_received === 2 && arriving.last_report_received_at === latest);
+  ok("receipt: the reason is that the reports are not used for the pass rate",
+    arriving.pass_rate_unavailable_reason === "reports_not_used_for_pass_rate");
+  const quiet = await eng.getHostedDmarcReportReceipt(env, "ws2", "b.example", { passRate: null });
+  ok("receipt: none in the window reads no_reports, while the last receipt is still named",
+    quiet.reports_received === 0 && quiet.pass_rate_unavailable_reason === "no_reports" && quiet.last_report_received_at != null);
+  const other = await eng.getHostedDmarcReportReceipt(env, "ws2", "a.example", { passRate: null });
+  ok("receipt is workspace-scoped: another workspace's reports for the same domain are not counted",
+    other.reports_received === 0 && other.last_report_received_at === null);
+  ok("receipt: a calculated pass rate carries no unavailable reason",
+    (await eng.getHostedDmarcReportReceipt(env, "ws1", "a.example", { passRate: 98.5 })).pass_rate_unavailable_reason === null);
+  const broken = await eng.getHostedDmarcReportReceipt({ cybermeters_db: { prepare: () => { throw new Error("d1 down"); } } }, "ws1", "a.example");
+  ok("receipt: a read failure is unknown, never no reports", broken.pass_rate_unavailable_reason === "unknown" && broken.reports_received === null);
+}
+
 console.log(`\nDMARC graduated ramp: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("dmarc-graduated-ramp validation FAILED"); process.exit(1); }
 console.log("dmarc-graduated-ramp validation passed");
