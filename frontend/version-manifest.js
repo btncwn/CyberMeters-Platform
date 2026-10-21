@@ -18,7 +18,9 @@ export function buildVersionManifest(env = process.env, gitHead = () => execSync
     branch: env.CF_PAGES_BRANCH || null,
     built_at: new Date().toISOString(),
     build_id: buildId,
-    // The rollback receipt must identify the flag compiled into this bundle.
+    // Records the Pages build variable for the founder-canary rollback receipt
+    // (scripts/rollback-mcp-founder-canary.mjs). It gates no page: the MCP
+    // connections page is always available (21 Oct 2026).
     mcp_beta_enabled: env.VITE_MCP_BETA_ENABLED === 'true',
   }
 }

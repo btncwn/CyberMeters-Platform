@@ -28,7 +28,7 @@
 
 ## Still open
 
-- **Revoking from the app:** the production frontend is built with `VITE_MCP_BETA_ENABLED=false` (`app.cybermeters.com/version.json` shows `mcp_beta_enabled: false`), so customers cannot see or revoke their MCP connections in Account. Consent (`/mcp/connect`) works without it. Set the Pages production variable to `true` (or remove the gate) so customers can manage what they connected.
+- **Revoking from the app:** done (21 Oct 2026). `/account/mcp` no longer reads `VITE_MCP_BETA_ENABLED`; it always lists the caller's connections from `GET /mcp/oauth/connections` and offers Remove access, with the Connect guidance shown only when the API reports the account eligible. `version.json`'s `mcp_beta_enabled` still records the Pages variable for the canary rollback receipt and gates nothing.
 - **ChatGPT:** allow-list its callback only from an observed refusal log line.
 - **Gemini:** untested; see the compatibility page for account and region limits.
 - **Customer notice:** keep the third-party AI data-handling text in the Privacy Policy/DPA aligned with the live state.
