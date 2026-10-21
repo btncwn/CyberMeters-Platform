@@ -1471,12 +1471,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Launch alongside later phases. The private collector rechecks current
     // MX DNS and uses one TCP/25 connection per verified host.
     const mailTransportController = workspaceId && env.NETWORK_PROBE?.fetch ? createChildSignal() : null;
+    const mailTransportOutbound = mailTransportController
+      ? outboundContext("mail_transport", mailTransportController.signal) : null;
     const mailTransportTimeout = mailTransportController
       ? setTimeout(() => mailTransportController.abort("mail_transport_deadline"), 33_000) : null;
     const mailTransportPromise = mailTransportController
       ? runMailTransportModule(env, { id: scanId, domain_id: domainId, workspace_id: workspaceId, domain }, dnsResult, {
           signal: mailTransportController.signal,
-          accounting: outboundContext("mail_transport", mailTransportController.signal),
+          accounting: mailTransportOutbound,
         }).catch(() => ({ source: "mail_transport", state: "not_tested", reason: "probe_unavailable", hosts: [],
           coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() }))
         .finally(() => clearTimeout(mailTransportTimeout))
@@ -1796,6 +1798,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     modules.mail_transport = mailTransportPromise ? await mailTransportPromise
       : { source: "mail_transport", state: "not_tested", reason: "verified_workspace_required", hosts: [],
           coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() };
+    // Every call it made has now returned or been aborted after being counted,
+    // so its outbound count is final whatever the security outcome. Without
+    // this the RFC 9990 launch gate read it as an unsettled leaf on every scan.
+    mailTransportOutbound?.markSettled();
     // One module never stands in as the completion guard for the other:
     //   • the intelligence module proves its OWN completion — deferred, errored
     //     or skipped intel evidence is non-publishable and must not fabricate

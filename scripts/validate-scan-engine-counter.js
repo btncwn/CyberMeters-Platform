@@ -142,6 +142,7 @@ async function runEngineLedger(mode, {
   subrequestLimit = null,
   variableFanout = false,
   takeoverAnswerMultiplicity = 1,
+  mailTransport = false,
 } = {}) {
   const counter = { total: 0, byCategory: {}, dnsQuestions: [] };
   globalThis.fetch = async (url) => {
@@ -219,6 +220,9 @@ async function runEngineLedger(mode, {
       delete: async () => ({}),
     },
     SCAN_CAPACITY_MODE: mode,
+    // A private network-probe binding makes the engine launch mail_transport
+    // alongside later phases, as in production.
+    ...(mailTransport ? { NETWORK_PROBE: { fetch: async () => new Response("{}", { status: 503 }) } } : {}),
     ...(subrequestLimit == null ? {} : {
       SCAN_SUBREQUEST_LIMIT: String(subrequestLimit),
     }),
@@ -332,6 +336,27 @@ async function runEngineLedger(mode, {
     completeExternal.counter.dnsQuestions.filter((question) =>
       String(question.name).includes("._report._dmarc.")).length,
     2);
+
+  // Live finding (21 Oct 2026): with the private probe present, mail_transport
+  // runs alongside later phases. It is awaited before the RFC 9990 launch gate,
+  // so its outbound count is final; it used to read as an uninstrumented,
+  // unsettled leaf, so the gate refused on every production scan and every
+  // third-party RUA destination stayed unassessed (DMARC degraded every scan).
+  const withMailTransport = await runEngineLedger("legacy", {
+    dmarcRua: true,
+    authorizeExternal: true,
+    subrequestLimit: 200,
+    mailTransport: true,
+  });
+  eq("with mail_transport launched, the trace completes", withMailTransport.threw, null);
+  ok("with mail_transport launched, the engine did launch it",
+    withMailTransport.report?.modules?.mail_transport?.source === "mail_transport");
+  eq("with mail_transport launched, the RFC 9990 gate is not cut off by it",
+    withMailTransport.report?.modules?.dmarc_core?.external_rua_authorisation?.launch_gate?.accounting_cutoff ?? null, null);
+  eq("with mail_transport launched, external authorization is still assessed and complete",
+    withMailTransport.report?.modules?.dmarc_core?.rua_authorisation_completeness, "complete");
+  eq("with mail_transport launched, DMARC monitoring stays healthy",
+    withMailTransport.report?.modules?.dmarc_core?.monitoring_state, "monitoring_healthy");
   if (completeExternal.report?.modules?.dmarc_core
       ?.rua_authorisation_completeness !== "complete") {
     console.log("external gate diagnostic: " + JSON.stringify({
