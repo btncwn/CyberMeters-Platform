@@ -264,7 +264,8 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
   ok('weekly source inventory drift rejects capture', driftFailed);
   const row = { event_type: 'weekly_backup_completed', correlation_id: 'github-weekly:123-1', status: 'ok', created_at: '2026-10-21 12:00:00' };
   const fixtureEnv = value => ({ cybermeters_db: { prepare: () => ({ bind: () => ({ first: async () => value }) }) } });
-  const nowMs = Date.parse('2026-10-21T12:00:00Z');
+  const NOW = '2026-10-21T12:00:00Z';
+  const nowMs = Date.parse(NOW);
   ok('weekly freshness uses last actual success', (await weeklyBackupHealth(fixtureEnv(row), { nowMs })).last_success_at === '2026-10-21T12:00:00.000Z');
   ok('weekly eight-day boundary remains fresh', (await weeklyBackupHealth(fixtureEnv(row), { nowMs: nowMs + WEEKLY_BACKUP_MAX_AGE_MINUTES * 60000 })).fresh);
   ok('weekly older than eight days is stale', !(await weeklyBackupHealth(fixtureEnv(row), { nowMs: nowMs + (WEEKLY_BACKUP_MAX_AGE_MINUTES + 1) * 60000 })).fresh);
