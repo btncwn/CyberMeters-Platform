@@ -36,6 +36,7 @@ const {
   CE_DOMAIN_KEY, CE_RECURRENCE_NOT_READY, CE_RECURRENCE_WORSENED,
   CE_RECURRENCE_FINDING_TYPE, CE_NON_ALERTABLE_EVENT_TYPES,
   CE_EVENT_WORKSPACE_BASELINE, CE_EVENT_BASELINE, CE_EVENT_RECOVERED, CE_EVENT_UNKNOWN,
+  CE_EVENT_IMPROVED,
 } = await import(eng("ce-lifecycle.js"));
 const { findConditionOccurrence, LIFECYCLE_EVENT_SOURCES, MONITORING_CHANGED } = await import(eng("alert-occurrence.js"));
 const { severityForRecurrence } = await import(eng("alert-consumers.js"));
@@ -137,7 +138,32 @@ const HEADERS_DEAD = () => ({ modules: {
   email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
 } });
 
+// HSTS fixed, CSP still absent: secure_configuration stays not ready with one gap fewer.
+const CSP_ONLY = () => ({ modules: {
+  headers: { accessible: true, headers_assessed: true, values: { "strict-transport-security": "max-age=63072000" }, present: [], missing: ["content-security-policy"] },
+  ssl: { https_available: true, https_probe_executed: true, http_redirects_to_https: true },
+  email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+} });
+
 const run = (ws, scanId = "scan_1") => evaluateCyberEssentialsLifecycle(env, ws, { scanId });
+
+// healthy → both headers missing → HSTS fixed → HSTS lost again (a gap the CSP-only
+// set does not hold), through `evaluate`.
+// Returns what the customer was told at each step for secure_configuration.
+async function improvementScenario(evaluate, ws) {
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES (?,'u1',?)").run(ws, ws);
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?,?, 'u1','owner')").run(`m_${ws}`, ws);
+  activate(ws, "2026-06-01T00:00:00Z");
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, 'd1')").run(ws);
+  const sc = () => notifs(ws).filter((x) => /secure_configuration/.test(x.metadata_json || ""));
+  setScan(ws, `${ws}_s1`); REPORT = HEALTHY();    await evaluate(env, ws, { scanId: `${ws}_s1` });
+  setScan(ws, `${ws}_s2`); REPORT = NO_HEADERS(); await evaluate(env, ws, { scanId: `${ws}_s2` });
+  const afterDeterioration = sc().length;
+  setScan(ws, `${ws}_s3`); REPORT = CSP_ONLY();   const improvedRun = await evaluate(env, ws, { scanId: `${ws}_s3` });
+  const afterImprovement = sc();
+  setScan(ws, `${ws}_s4`); REPORT = NO_HEADERS(); await evaluate(env, ws, { scanId: `${ws}_s4` });
+  return { afterDeterioration, afterImprovement, improvedRun, afterNewGap: sc(), record: recFor(ws, "secure_configuration") };
+}
 
 // ── 1. Registration ────────────────────────────────────────────────────────
 {
@@ -320,6 +346,26 @@ const run = (ws, scanId = "scan_1") => evaluateCyberEssentialsLifecycle(env, ws,
   eq("...and sends nothing", notifs("ws2").length, steady);
 }
 
+// ── 6b. A gap clearing is an improvement — never "worsened" (P1, 21 Oct 2026) ──
+// Live: HSTS was fixed on a control that still had another gap, and the customer was
+// emailed "has worsened". Direction must come from the evidence sets.
+{
+  const s = await improvementScenario(evaluateCyberEssentialsLifecycle, "ws_imp");
+  eq("the deterioration alerted once for secure_configuration", s.afterDeterioration, 1);
+  eq("HSTS fixed while CSP is still missing sends NOTHING", s.afterImprovement.length, 1);
+  ok("...never a 'worsened' alert", !s.afterImprovement.some((x) => x.type.endsWith(CE_RECURRENCE_WORSENED)),
+     JSON.stringify(s.afterImprovement.map((x) => x.type)));
+  eq("...the pass counts it as an improvement", s.improvedRun.improved >= 1, true);
+  const ev = db.prepare("SELECT * FROM cyber_essentials_events WHERE record_id=? AND event_type=?").all(s.record.id, CE_EVENT_IMPROVED);
+  eq("...recorded as history: one control_evidence_improved event", ev.length, 1);
+  eq("...naming both evidence sets", [JSON.parse(ev[0].detail_json).from_evidence_fingerprint, JSON.parse(ev[0].detail_json).to_evidence_fingerprint],
+     ["web.header.csp|web.header.hsts", "web.header.csp"]);
+  ok("the improvement event can never alert", CE_NON_ALERTABLE_EVENT_TYPES.includes(CE_EVENT_IMPROVED));
+  eq("a genuinely NEW gap afterwards still alerts", s.afterNewGap.length, 2);
+  eq("...and that one IS 'worsened'", s.afterNewGap.at(-1).type, `cyber_essentials_readiness.${CE_RECURRENCE_WORSENED}`);
+  eq("...the control is still not ready", s.record.readiness_state, "not_ready");
+}
+
 // ── 7. RULE 3 — a score moving is not an event ────────────────────────────
 // Same failing evidence SET, different counts/score. The fingerprint is the refs, so
 // nothing transitions.
@@ -423,8 +469,32 @@ const run = (ws, scanId = "scan_1") => evaluateCyberEssentialsLifecycle(env, ws,
   );
   ok("MUTATION (b) applied — the direct call is where this suite thinks it is", viaSnapshot !== original);
 
+  // (c) Direction from "the band moved" again (the live P1).
+  const anyChange = original.replace(
+    "      if (rec.readiness_state === \"not_ready\" && previousRefs.size > 0 && !gainedGap) {",
+    "      if (false) {",
+  ).replace(
+    "      const worsened = rec.readiness_state === \"not_ready\" && previousRefs.size > 0 && gainedGap;",
+    "      const worsened = rec.readiness_state === \"not_ready\" && rec.recurrence_band && band !== rec.recurrence_band;",
+  );
+  ok("MUTATION (c) applied — the direction check is where this suite thinks it is", anyChange !== original && !anyChange.includes("&& !gainedGap)"));
+  // (d) The comparison inverted: a cleared gap is "gained", a new one is not.
+  const inverted = original.replace(
+    ".some((id) => !previousRefs.has(id));",
+    ".every((id) => previousRefs.has(id));",
+  );
+  ok("MUTATION (d) applied — the set comparison is where this suite thinks it is", inverted !== original);
+
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cm-ce-lc-"));
   try {
+    for (const [tag, code, ws] of [["c", anyChange, "ws_mut_c"], ["d", inverted, "ws_mut_d"]]) {
+      const tmpM = srcPath("engines", `.ce-lifecycle.mutant.${tag}.${path.basename(dir)}.js`);
+      fs.writeFileSync(tmpM, code);
+      const m = await import(pathToFileURL(tmpM).href);
+      const s = await improvementScenario(m.evaluateCyberEssentialsLifecycle, ws);
+      ok(`MUTANT (${tag}): a cleared gap now reaches the customer as 'worsened' — the live P1, reproduced`,
+         s.afterImprovement.some((x) => x.type.endsWith(CE_RECURRENCE_WORSENED)), JSON.stringify(s.afterImprovement.map((x) => x.type)));
+    }
     const tmp = srcPath("engines", `.ce-lifecycle.mutant.a.${path.basename(dir)}.js`);
     fs.writeFileSync(tmp, openCoverage);
     const mA = await import(pathToFileURL(tmp).href);
