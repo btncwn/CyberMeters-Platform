@@ -113,7 +113,7 @@ export default function CustomerDomainMatrix({ rows, request = 'ok', portfolioSt
   const state = request === 'ok' && !Array.isArray(rows) ? 'error' : request
   const nothingMonitored = portfolioState === 'no_workspaces' || portfolioState === 'no_domains'
   return (
-    <section className="mb-8" aria-labelledby="customer-areas-heading" data-testid="customer-domain-matrix">
+    <section id="customer-matrix" className="mb-8 scroll-mt-24" aria-labelledby="customer-areas-heading" data-testid="customer-domain-matrix">
       <div className="section-head">
         <div>
           <h2 id="customer-areas-heading" className="section-title">Customers across their external posture</h2>

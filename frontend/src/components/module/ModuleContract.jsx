@@ -1,5 +1,6 @@
 import { formatDay } from '../../utils/dates'
 import ScanNowButton from '../ScanNowButton'
+import { buildNextActions } from '../overview/NextActionsList'
 // ModuleContract — the ONE template every /ws/<area> page renders (founder,
 // 18 Oct 2026), in this order:
 //
@@ -84,13 +85,35 @@ export function defaultFigures(entry) {
  * first finding the canonical remediation registry maps (its title and its
  * recommended action), then honest fallbacks. Always exactly one button.
  */
-export function resolveNextAction({ nextAction = null, entry = null, request = 'loading', guide = '/guide' } = {}) {
+// How a case waiting for verification is verified, in words the customer can
+// act on — never "verify it yourself" for something CyberMeters re-observes.
+const VERIFY_BODY = {
+  automated: 'CyberMeters re-checks this fix from its own observation. Open the case to see the evidence and request the re-check.',
+  manual: 'This fix cannot be observed externally. Open the case to record your attestation; it is shown as attested by you, not verified.',
+  external: 'An independent party certifies this. Open the case to record their evidence.',
+}
+
+export function resolveNextAction({ nextAction = null, entry = null, request = 'loading', guide = '/guide', cases = [] } = {}) {
   if (nextAction) return nextAction
   if (request === 'loading') return { title: 'Reading the latest assessment…', body: null, label: null }
   if (request !== 'ok' || !entry) return { title: 'The latest assessment could not be read', body: 'Nothing is assumed in the meantime. A new scan reads this area again.', label: 'Run a scan', to: '/scans/new' }
+  // The same rows the Overview's "Your next actions" shows, so both screens agree:
+  // a step done in a specific place (Set up MTA-STS, the DMARC policy steps) opens it.
+  const specific = buildNextActions({ domains: [entry] }).find((r) => r.action?.to && !r.action.to.endsWith('?tab=findings'))
+  if (specific) return { title: specific.title, body: specific.body, label: specific.action.label, to: specific.action.to, source: 'registry' }
   const mapped = (entry.finding_details || []).find((d) => d?.status === 'resolved' && d.recommended_action)
   if (mapped) return { title: mapped.customer_title, body: mapped.recommended_action, label: 'Review this finding', tab: 'findings', source: 'registry' }
   if ((entry.finding_count ?? 0) > 0) return { title: 'Review the findings in the latest assessment', body: 'No registered remediation is mapped for these findings yet, so none is invented here.', label: 'Review findings', tab: 'findings' }
+  // Only this area's own cases; a case from another area never becomes this page's job.
+  const ready = (Array.isArray(cases) ? cases : []).find((c) => caseStatus(c) === 'ready_to_verify' && (c.case_id || c.id) && (!c.domain_key || c.domain_key === entry.domain_key))
+  if (ready) {
+    return {
+      title: `A fix is waiting for verification: ${ready.title || 'managed case'}`,
+      body: VERIFY_BODY[ready.verification_support] || 'Open the case to see how this fix is verified.',
+      label: 'Open the case to verify',
+      to: `/ws/cases/${encodeURIComponent(ready.case_id || ready.id)}`,
+    }
+  }
   if (STILL_TO_ASSESS.has(String(entry.state || '').toLowerCase())) return { title: 'Run a scan to assess this area', body: 'The latest assessment could not establish this area yet.', label: 'Run a scan', to: '/scans/new' }
   // No finding is only an all-clear when the scan could check the whole area.
   if (String(entry.coverage || '').toLowerCase() !== 'complete') return { title: 'No issue found in what could be checked', body: 'Coverage was not complete, so this is not an all-clear. A new scan checks the rest.', label: 'Run a scan', to: '/scans/new' }
@@ -328,7 +351,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       )}
     </section>
   )
-  const next = resolveNextAction({ nextAction, entry, request: domainsRequest === 'ok' && !entry ? 'error' : domainsRequest, guide: guide || '/guide' })
+  const next = resolveNextAction({ nextAction, entry, request: domainsRequest === 'ok' && !entry ? 'error' : domainsRequest, guide: guide || '/guide', cases: casesRequest === 'ok' ? cases : [] })
   const nextSection = (
     <section id="module-next" aria-labelledby="module-next-heading" className="card p-5 border-l-4" style={theme ? { borderLeftColor: theme.icon } : undefined} data-testid="module-next">
       <h2 id="module-next-heading" className="text-xs font-semibold text-gray-600">Do this next</h2>

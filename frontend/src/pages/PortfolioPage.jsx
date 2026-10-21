@@ -481,7 +481,7 @@ export default function PortfolioPage() {
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8">
 
       {/* Page header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             Portfolio command centre
@@ -491,21 +491,25 @@ export default function PortfolioPage() {
             {generatedAt && ` · as of ${fmtDateTime(generatedAt)}`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {highestRisk && (
-            <div className="card px-4 py-2.5 text-sm flex items-center gap-2">
-              <span className="text-gray-500">Highest risk:</span>
-              <span className="font-semibold text-gray-900">{highestRisk.name}</span>
-              <span className="badge-critical">{highestRisk.critical_findings} critical</span>
-            </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {/* The MSP's primary job, as one labelled action (founder, 21 Oct 2026):
+              open the customer with the most critical findings, or the matrix. */}
+          {highestRisk?.id && Number(highestRisk.critical_findings) > 0 ? (
+            <button type="button" className="btn-primary" data-testid="portfolio-primary-action"
+              onClick={() => selectWorkspace(navigate, highestRisk.id, highestRisk.name)}>
+              Open {highestRisk.name} · {highestRisk.critical_findings} critical
+            </button>
+          ) : (
+            <a href="#customer-matrix" className="btn-primary" data-testid="portfolio-primary-action">Review customers</a>
           )}
           <button
+            type="button"
             onClick={() => loadAll(true)}
             disabled={refreshing}
             className="btn-secondary"
           >
-            {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
-            {refreshing ? 'Refreshing…' : 'Refresh'}
+            {refreshing && <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />}
+            {refreshing ? 'Reloading…' : 'Reload results'}
           </button>
         </div>
       </div>
