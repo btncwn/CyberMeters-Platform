@@ -194,6 +194,19 @@ export async function billingRoutes(rctx) {
         if (targetResolution.state === STRICT_DNS_STATES.BLOCKED) {
           return json({ error: "That domain cannot be scanned" }, 400);
         }
+        // An authoritative negative answer is definitive, never "try again
+        // shortly": say whether the name does not exist or has no address.
+        if (targetResolution.state === STRICT_DNS_STATES.NO_ADDRESS) {
+          return targetResolution.dns_evidence?.outcome === "nxdomain"
+            ? json({
+              error: "This domain does not exist in public DNS. Check the spelling and try again.",
+              code: "domain_not_found",
+            }, 422)
+            : json({
+              error: "This domain exists in public DNS but has no website address (no A or AAAA record), so there is no site to check.",
+              code: "domain_no_website_address",
+            }, 422);
+        }
         return json({
           error: "Public DNS verification could not complete. Please try again shortly.",
           code: "target_verification_unavailable",
