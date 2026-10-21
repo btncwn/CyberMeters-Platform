@@ -1127,6 +1127,61 @@ function intermediateValidityAssessment(chain, observedAt) {
   return null;
 }
 
+const epochIso = (seconds) =>
+  Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
+
+// The sandboxed TLS assessment (modules.tls_assessment) records the chain each
+// endpoint offered, with key and signature metadata. It completes the chain,
+// intermediate-validity and algorithm signals only for the SAME certificate the
+// live collector captured (offered leaf SHA-256 equals the live leaf identity)
+// and only when that endpoint's path validation succeeded, which is what makes
+// the presented chain complete. Anything less leaves the signals incomplete.
+function tlsAssessmentChainFor(modules, leaf) {
+  const identity = cleanString(leaf?.certificate_identity).replace(/^sha256:/i, "").toLowerCase();
+  if (!identity) return null;
+  for (const endpoint of Array.isArray(modules?.tls_assessment?.endpoints) ? modules.tls_assessment.endpoints : []) {
+    for (const check of Array.isArray(endpoint?.checks) ? endpoint.checks : []) {
+      const certificates = check?.control === "certificate" && check?.state === "accepted"
+        ? check?.evidence?.certificates
+        : null;
+      const offered = Array.isArray(certificates?.offered_chain) ? certificates.offered_chain : [];
+      if (!offered.length || cleanString(offered[0]?.sha256).toLowerCase() !== identity) continue;
+      if (certificates.trust !== "valid") continue;
+      const intermediates = offered.slice(1).filter((certificate) => certificate?.ca === true);
+      if (intermediates.some((c) => !epochIso(c?.not_after))) continue;
+      const leafCertificate = offered[0];
+      const ocsp = endpoint.checks.find((c) => c?.control === "ocsp" && c?.state === "accepted")?.evidence?.ocsp;
+      return {
+        stapledOcspAbsent: ocsp?.state === "absent",
+        chain: {
+          collection_performed: true,
+          collection_complete: true,
+          presentation_state: "presented_complete",
+          source: "tls_assessment",
+          method: "offered_chain_capture",
+          observed_at: cleanString(check?.observed_at) || null,
+          endpoint: { hostname: cleanString(endpoint?.hostname) || null, address: cleanString(endpoint?.address) || null, port: endpoint?.port ?? null },
+          certificate_count: offered.length,
+          intermediates: intermediates.map((c) => ({
+            certificate_identity: `sha256:${cleanString(c.sha256).toLowerCase()}`,
+            not_before: epochIso(c.not_before),
+            not_after: epochIso(c.not_after),
+            key_type: cleanString(c.key_type) || null,
+            key_bits: Number.isFinite(c.key_bits) ? c.key_bits : null,
+            signature_algorithm: cleanString(c.signature_algorithm) || null,
+          })),
+        },
+        leafAlgorithm: {
+          public_key_algorithm: cleanString(leafCertificate.key_type).toLowerCase() || null,
+          public_key_size_bits: Number.isFinite(leafCertificate.key_bits) ? leafCertificate.key_bits : null,
+          signature_algorithm: cleanString(leafCertificate.signature_algorithm) || null,
+        },
+      };
+    }
+  }
+  return null;
+}
+
 function liveTrustEvidence({
   ssl,
   modules,
@@ -1134,7 +1189,7 @@ function liveTrustEvidence({
 }) {
   const liveTls = ssl?.certificate_evidence?.live_tls || {};
   const leaf = liveTls.leaf_certificate || liveTls.leaf || null;
-  const chain = liveTls.presented_chain || liveTls.chain || null;
+  const liveChain = liveTls.presented_chain || liveTls.chain || null;
   const hostnameMatch = liveTls.hostname_match || null;
   const trustValidation = liveTls.trust_store_validation || null;
   const revocation = liveTls.revocation_assurance || liveTls.revocation || null;
@@ -1144,6 +1199,18 @@ function liveTrustEvidence({
     leaf.collection_complete === true &&
     cleanString(leaf.certificate_identity)
   );
+  const observedChain = (candidate) => Boolean(
+    candidate &&
+    candidate.collection_performed === true &&
+    candidate.collection_complete === true &&
+    ["presented_complete", "presented_incomplete"].includes(
+      cleanString(candidate.presentation_state)
+    )
+  );
+  const assessed = leafCollected && !observedChain(liveChain)
+    ? tlsAssessmentChainFor(modules, leaf)
+    : null;
+  const chain = assessed ? assessed.chain : liveChain;
   const chainObserved = Boolean(
     chain &&
     chain.collection_performed === true &&
@@ -1157,7 +1224,20 @@ function liveTrustEvidence({
     hostnameMatch.assessment_performed === true &&
     ["matched", "mismatched"].includes(cleanString(hostnameMatch.result))
   );
-  const algorithm = certificateAlgorithmAssessment(leaf);
+  // The live collector's leaf metadata wins; the bound assessment fills only
+  // fields the collector did not record.
+  const algorithmLeaf = assessed
+    ? {
+      ...leaf,
+      public_key_algorithm: leaf?.public_key_algorithm ?? leaf?.key_algorithm ?? assessed.leafAlgorithm.public_key_algorithm,
+      public_key_size_bits: leaf?.public_key_size_bits ?? leaf?.key_size_bits ?? assessed.leafAlgorithm.public_key_size_bits,
+      signature_algorithm: leaf?.signature_algorithm ?? assessed.leafAlgorithm.signature_algorithm,
+    }
+    : leaf;
+  const algorithm = certificateAlgorithmAssessment(algorithmLeaf);
+  const algorithmSource = assessed && !cleanString(leaf?.signature_algorithm)
+    ? "tls_assessment"
+    : cleanString(leaf?.source) || null;
   const intermediateValidity = intermediateValidityAssessment(chain, observedAt);
   const trustStoreObserved = Boolean(
     trustValidation &&
@@ -1191,6 +1271,8 @@ function liveTrustEvidence({
     trustValidation,
     revocation,
     algorithm,
+    algorithmSource,
+    stapledOcspAbsent: assessed?.stapledOcspAbsent === true,
     intermediateValidity,
     leafCollected,
     chainObserved,
@@ -1318,7 +1400,7 @@ export function deriveCertificateSignalCompletenessFromModules({
       source: "not_collected",
       method: "simultaneous_endpoint_certificate_set_not_implemented",
       reasons: [
-        "Current modules do not contain simultaneous endpoint/context observations for multiple non-identical certificates.",
+        "CyberMeters does not yet compare the certificates served at the same time by this site's different addresses or endpoints.",
       ],
       limitations: [
         "Historical observations cannot complete this signal.",
@@ -1455,14 +1537,16 @@ export function deriveCertificateSignalCompletenessFromModules({
         : "L0",
       source_type: "configuration_baseline",
       source: trust.algorithm
-        ? cleanString(trust.leaf?.source) || "declared_live_tls_collector"
+        ? trust.algorithmSource || "declared_live_tls_collector"
         : "not_collected",
       method: trust.algorithm
         ? "tls_br_2_2_8_observed_algorithm_predicates"
         : "certificate_algorithm_not_available",
       reasons: trust.algorithm?.status === "weak"
         ? ["One or more declared weak certificate algorithm predicates were observed."]
-        : [],
+        : trust.algorithm
+          ? []
+          : ["The certificate's key algorithm, key size and signature algorithm were not all captured."],
     }),
     trust_store_validation: evidence({
       completeness_state: trust.trustStoreObserved
@@ -1504,7 +1588,9 @@ export function deriveCertificateSignalCompletenessFromModules({
         : "ocsp_revocation_not_available",
       reasons: trust.revocationObserved
         ? []
-        : ["No validated OCSP or revocation result was available; only revocation assurance is incomplete."],
+        : [trust.stapledOcspAbsent
+          ? "The server did not staple an OCSP response, and CyberMeters does not query the certificate authority's revocation services; only revocation assurance is incomplete."
+          : "No validated OCSP or revocation result was available; only revocation assurance is incomplete."],
     }),
   };
 
