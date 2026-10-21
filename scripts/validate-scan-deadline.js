@@ -1498,5 +1498,41 @@ await withEngineFetchFixture(async (fetchCount) => {
     env._audits.length !== 1);
 }
 
+// ── Durable asset-exposure race cap (21 Oct 2026) ──────────────────────────────
+// A queue scan of a 9-host domain went partial: asset exposure was raced at the
+// legacy 2.5s cap with ~100s of the 115s budget unused, so one slow host left it
+// unfinished. The durable race cap is the module's structural worst case.
+{
+  const { SCAN_DURABLE_SURFACE_MODULE_BUDGETS } = await eng("scan-budget.js");
+  const { EXPOSURE_PROBE_TIMING: t } = await eng("asset-intel.js");
+  const oneProbe = t.protocols * t.probeTimeoutMs + t.bodyTimeoutMs;
+  const worstHost = oneProbe * 2 + t.serverErrorRetryDelayMs;
+  eq("asset exposure structural worst case is one host's (2 x 8s + 2s) x 2 + 2s", worstHost, 38_000);
+  ok("durable asset-exposure cap covers the structural worst case",
+    SCAN_DURABLE_SURFACE_MODULE_BUDGETS.asset_exposure >= worstHost, String(SCAN_DURABLE_SURFACE_MODULE_BUDGETS.asset_exposure));
+  ok("durable asset-exposure cap stays below the 115s executable envelope",
+    SCAN_DURABLE_SURFACE_MODULE_BUDGETS.asset_exposure < SCAN_DURABLE_INVOCATION_DEADLINE_DEFAULTS.budgetMs);
+  eq("the legacy launch estimate is unchanged", SCAN_MODULE_BUDGETS.asset_exposure, 2_500);
+
+  // The race cap actually applied is min(hard cap, remaining deadline).
+  const capturedDelay = async (hardMs, remainingAtStart = 105_000) => {
+    let delay = null;
+    const dl = createScanDeadline({ SCAN_DEADLINE_MS: String(remainingAtStart) }, () => 0, { executionContext: "queue" });
+    await raceModuleDeadline(dl, async () => ({ checked: 9 }), () => markDeadlineDeferred({}),
+      { hardMs, setTimer: (_fn, ms) => { delay = ms; return {}; }, clearTimer: () => {} });
+    return delay;
+  };
+  eq("a durable scan races asset exposure at its 40s cap, not 2.5s",
+    await capturedDelay(SCAN_DURABLE_SURFACE_MODULE_BUDGETS.asset_exposure), 40_000);
+  eq("the cap is still bounded by the remaining deadline",
+    await capturedDelay(SCAN_DURABLE_SURFACE_MODULE_BUDGETS.asset_exposure, 12_000), 12_000);
+
+  const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js"), "utf8");
+  ok("scan-engine applies the durable asset-exposure race cap only on durable invocations",
+    /runCappedModule\("asset_exposure", \{[\s\S]{0,400}\.\.\.\(durableInvocation \? \{ hardMs: SCAN_DURABLE_SURFACE_MODULE_BUDGETS\.asset_exposure \} : \{\}\)/.test(src));
+  ok("asset-intel probe timings come from EXPOSURE_PROBE_TIMING",
+    /timeoutMs: EXPOSURE_PROBE_TIMING\.probeTimeoutMs/.test(fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "asset-intel.js"), "utf8")));
+}
+
 console.log(`\nscan-deadline: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
