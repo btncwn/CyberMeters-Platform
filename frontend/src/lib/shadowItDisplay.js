@@ -185,3 +185,25 @@ export function removalMeta(status, verified) {
 // Honest reminders shown in the UI.
 export const SHADOW_IT_SCOPE_NOTE =
   'Externally observed technology only — no internal-network, endpoint, CASB or EDR visibility. Classification is your decision: approved is not a security guarantee, and rejected is not removal.'
+
+// The next sensible step for an item, shown first in its row; every other
+// server-advertised action stays one click away under "More" (founder, 21 Oct
+// 2026: a row offered thirteen buttons at once). Ordering only — the page still
+// renders nothing the server did not advertise, and this never decides state.
+export function nextShadowItActions(item) {
+  const c = item?.classification
+  if (c === 'unreviewed') return ['approve', 'reject', 'mark_exception']
+  if (c === 'rejected') {
+    if (!item.removal_status) return ['begin_removal']
+    if (item.removal_status === 'in_progress') return ['mark_removed']
+    return ['reopen_review']
+  }
+  if (c === 'approved') {
+    if (item.ownership_status !== 'known') return ['assign_business_owner']
+    if (!item.onboarding_status) return ['begin_onboarding']
+    if (item.onboarding_status === 'in_progress') return ['mark_onboarded']
+    return []
+  }
+  if (c === 'exception' || c === 'retired') return ['reopen_review']
+  return []
+}

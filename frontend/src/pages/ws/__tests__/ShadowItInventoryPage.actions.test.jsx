@@ -34,6 +34,12 @@ async function cancelDialog() {
   const dialog = await screen.findByTestId('app-dialog')
   await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
 }
+// The row shows its next sensible action first; every other advertised action
+// is one click away under "More" (21 Oct 2026). Reachability is unchanged.
+async function openMore() {
+  const more = screen.queryByRole('button', { name: /^More actions for / })
+  if (more && more.getAttribute('aria-expanded') !== 'true') await userEvent.click(more)
+}
 import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
@@ -128,6 +134,7 @@ describe('F-47 — action-set parity', () => {
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     for (const action of BACKEND_ACTIONS) {
       expect(
         screen.getByRole('button', { name: CONTROL_LABEL[action] }),
@@ -149,6 +156,7 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Technical owner' }))
     await answerDialog('Dana Ops', 'Assign owner')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
@@ -161,6 +169,8 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
       respond()
       mount()
       await screen.findByText('Acme CRM')
+      await openMore()
+    await openMore()
       await userEvent.click(screen.getByRole('button', { name: CONTROL_LABEL[action] }))
       await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(WS_ID, ITEM_ID, { action }))
     },
@@ -170,6 +180,7 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Reopen review' }))
     await answerDialog('vendor contract changed', 'Reopen for review')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
@@ -181,6 +192,7 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Reopen review' }))
     await cancelDialog()
     expect(api.shadowItAction).not.toHaveBeenCalled()
@@ -190,6 +202,7 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Mark removed' }))
     // Evidence honesty: the confirmation must say this is the CUSTOMER's
     // assertion and must never present it as CyberMeters verification.
@@ -207,6 +220,7 @@ describe('F-47 — the six previously missing actions issue correct calls', () =
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Mark removed' }))
     await cancelDialog()
     expect(api.shadowItAction).not.toHaveBeenCalled()
@@ -219,6 +233,7 @@ describe('F-47 — previously working actions still work', () => {
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Approve' }))
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(WS_ID, ITEM_ID, { action: 'approve' }))
   })
@@ -227,6 +242,7 @@ describe('F-47 — previously working actions still work', () => {
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: CONTROL_LABEL[action] }))
     await answerDialog('no longer needed', action === 'reject' ? 'Reject' : 'Retire')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
@@ -238,6 +254,7 @@ describe('F-47 — previously working actions still work', () => {
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Exception' }))
     await answerDialog('pending migration', 'Next')
     await answerDialog('2027-01-31', 'Record exception')
@@ -252,6 +269,7 @@ describe('F-47 — previously working actions still work', () => {
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Business owner' }))
     await answerDialog('Sam Finance', 'Assign owner')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
@@ -263,6 +281,7 @@ describe('F-47 — previously working actions still work', () => {
     respond()
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Purpose' }))
     await answerDialog('', 'Save purpose')
     await waitFor(() => expect(api.shadowItAction).toHaveBeenCalledWith(
@@ -277,6 +296,7 @@ describe('F-47 — server-driven suppression', () => {
     respond({ actions: [], can_manage: false })
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     for (const action of BACKEND_ACTIONS) {
       expect(screen.queryByRole('button', { name: CONTROL_LABEL[action] })).toBeNull()
     }
@@ -291,6 +311,7 @@ describe('F-47 — server-driven suppression', () => {
     respond({ actions: advertised })
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     for (const action of BACKEND_ACTIONS) {
       const control = screen.queryByRole('button', { name: CONTROL_LABEL[action] })
       if (advertised.includes(action)) expect(control).toBeInTheDocument()
@@ -299,9 +320,11 @@ describe('F-47 — server-driven suppression', () => {
   })
 
   it('drops a group entirely when none of its actions is advertised', async () => {
-    respond({ actions: ['approve'] })
+    // retire, not approve: approve is the row's first action, so More would be empty.
+    respond({ actions: ['retire'] })
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     expect(screen.getByRole('group', { name: /Classification actions/ })).toBeInTheDocument()
     for (const label of ['Onboarding', 'Removal', 'Ownership']) {
       expect(screen.queryByRole('group', { name: new RegExp(`${label} actions`) })).toBeNull()
@@ -318,6 +341,7 @@ describe('F-47 — busy and failure behaviour', () => {
     api.shadowItAction.mockReturnValue(new Promise((r) => { release = r }))
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     const approve = screen.getByRole('button', { name: 'Approve' })
     await userEvent.click(approve)
     await waitFor(() => expect(approve).toBeDisabled())
@@ -336,6 +360,7 @@ describe('F-47 — busy and failure behaviour', () => {
     api.shadowItAction.mockRejectedValue(new Error('network'))
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Approve' }))
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/did not complete/i)
@@ -352,6 +377,7 @@ describe('F-47 — busy and failure behaviour', () => {
     api.shadowItAction.mockRejectedValueOnce(new Error('network'))
     mount()
     await screen.findByText('Acme CRM')
+    await openMore()
     await userEvent.click(screen.getByRole('button', { name: 'Approve' }))
     await screen.findByRole('alert')
     api.shadowItAction.mockResolvedValue({ item: item() })
@@ -367,6 +393,7 @@ describe('F-47 — loading, empty and load-error states', () => {
     mount()
     expect(screen.getByText('Loading…')).toBeInTheDocument()
     await screen.findByText('Acme CRM')
+    await openMore()
     expect(screen.queryByText('Loading…')).toBeNull()
   })
 
