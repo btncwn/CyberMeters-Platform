@@ -119,7 +119,7 @@ describe('Account page', () => {
     await screen.findByText('API Tokens')
     const expires = screen.getAllByRole('combobox').find((el) => within(el).queryByRole('option', { name: 'Never' }))
     expect(expires).toHaveValue('90')
-    fireEvent.change(screen.getByPlaceholderText('GitHub Actions'), { target: { value: 'CI' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. CI pipeline'), { target: { value: 'CI' } })
     const before = Date.now()
     fireEvent.click(screen.getByRole('button', { name: 'Generate token' }))
     await waitFor(() => expect(api.createApiToken).toHaveBeenCalledTimes(1))

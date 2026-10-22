@@ -43,7 +43,7 @@ const ACTIONABLE = [
   "bimi_dmarc_enforcement_required", "mta_sts_policy_missing",
   // web / attack surface — scoring.js + scan-engine.js DSE + admin surface
   "dns_no_resolution", "ssl_not_available", "ssl_no_http_redirect", "no_https_redirect",
-  "header_missing_strict_transport_security", "csp_weak_policy", "subdomain_takeover", "subdomain_sensitive",
+  "header_missing_strict_transport_security", "csp_weak_policy", "subdomain_takeover", "subdomain_takeover_unconfirmed", "subdomain_sensitive",
   "asset_exposure_sensitive_tool", "asset_exposure_admin_interface", "asset_exposure_dev_env",
   "cloud_storage_takeover_risk", "cloud_storage_public_listing", "cloud_storage_exposure_observed",
   "kev_active_exploitation",
@@ -104,6 +104,7 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   // guidance is available without admitting a scored remediation action.
   "shadow_it_dns_registration",
   "brand_watchlist_dns_observation",
+  "identity_oidc_observation",
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
@@ -142,14 +143,15 @@ ok("all other remediation identities remain version 1",
 // sign-in page conditions add three (web.signin.form_offsite / form_http / cookie_secure);
 // the home-page availability observations add two (web.homepage.not_served / unavailable),
 // and the qualified DNS registration observation adds one review entry.
-ok("registry has exactly 111 entries including watchlist DNS guidance", REMEDIATION_REGISTRY.length === 111);
+// + asm.subdomain.takeover_unconfirmed (21 Oct 2026, hedged unconfirmed takeover candidate).
+ok("registry has exactly 113 entries including public identity metadata guidance", REMEDIATION_REGISTRY.length === 113);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including watchlist DNS guidance is exact", remediationRegistryFingerprint() === "r111-368754e2", remediationRegistryFingerprint());
+ok("registry fingerprint including public identity metadata guidance is exact", remediationRegistryFingerprint() === "r113-1a7ce169", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
@@ -173,7 +175,7 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
-  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js", "tls-findings.js", "vendor-signatures.js", "brand-dns-enrichment.js",
+  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js", "tls-findings.js", "vendor-signatures.js", "brand-dns-enrichment.js", "identity-oidc-observation.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).

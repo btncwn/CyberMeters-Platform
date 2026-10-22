@@ -20,7 +20,7 @@ export default function DpaPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Data Processing Addendum</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 10 October 2026 — Version 1.4</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 22 October 2026 — Version 1.5</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             This Data Processing Addendum ("<strong>DPA</strong>") supplements and forms part of the CyberMeters Terms of Service between Turhan Acar, a sole trader trading as CyberMeters ("<strong>Processor</strong>") and the customer ("<strong>Controller</strong>"). It governs the processing of personal data by CyberMeters on behalf of the Controller in connection with the provision of the Services.
           </p>
@@ -78,7 +78,7 @@ export default function DpaPage() {
                 <tbody className="divide-y divide-gray-100">
                   <tr>
                     <td className="px-4 py-2.5 font-medium text-gray-800">Cloudflare, Inc.</td>
-                    <td className="px-4 py-2.5 text-gray-600">Compute (Workers), database (D1), storage (R2), CDN delivery (Pages)</td>
+                    <td className="px-4 py-2.5 text-gray-600">Hosting, data storage and content delivery</td>
                     <td className="px-4 py-2.5 text-gray-500">US / Global edge</td>
                   </tr>
                   <tr>
@@ -103,7 +103,7 @@ export default function DpaPage() {
             <p><strong className="text-gray-800">Access control.</strong> Role-based access control (RBAC) restricts user access to workspace data on a need-to-know basis. Tenant data isolation is enforced at the database query level. API tokens are scoped and time-limited.</p>
             <p><strong className="text-gray-800">Authentication.</strong> Passwords are hashed using PBKDF2-SHA256 with 100,000 iterations. Multi-factor authentication (TOTP) is available and recommended. All authentication events are logged.</p>
             <p><strong className="text-gray-800">Data in transit.</strong> All data transmitted between clients and the Services is encrypted using TLS 1.2 or higher.</p>
-            <p><strong className="text-gray-800">Data at rest.</strong> Data stored in Cloudflare D1 and R2 is encrypted at rest by Cloudflare's infrastructure in accordance with their security commitments.</p>
+            <p><strong className="text-gray-800">Data at rest.</strong> Data stored with Cloudflare is encrypted at rest by Cloudflare's infrastructure in accordance with their security commitments.</p>
             <p><strong className="text-gray-800">Audit logging.</strong> All account and workspace actions are recorded in an immutable audit log retained for 12 months.</p>
             <p><strong className="text-gray-800">Incident response.</strong> Security incidents are assessed and documented. The Controller will be notified of a personal data breach without undue delay and in any event within 72 hours of becoming aware of it, where feasible.</p>
           </Section>

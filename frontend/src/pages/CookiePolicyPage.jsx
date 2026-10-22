@@ -20,7 +20,7 @@ export default function CookiePolicyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Cookie Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 20 October 2026 — Version 1.4</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 22 October 2026 — Version 1.5</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             This Cookie Policy explains how CyberMeters ("<strong>we</strong>", "<strong>us</strong>") uses cookies and browser storage on <strong>cybermeters.com</strong> and <strong>app.cybermeters.com</strong>, including the free scan and the free tools.
           </p>
@@ -108,7 +108,7 @@ export default function CookiePolicyPage() {
 
           <Section title="3. Third Parties">
             <p data-testid="cookieless-analytics"><strong className="text-gray-800">Visit counting (Cloudflare Web Analytics).</strong> Our hosting provider counts page visits on cybermeters.com and app.cybermeters.com with cookieless analytics. It sets no cookies, stores nothing in your browser and does not track you across sites.</p>
-            <p><strong className="text-gray-800">Cloudflare.</strong> The site is hosted on Cloudflare Pages and served through the Cloudflare network. Cloudflare may set technical cookies for security and bot protection. See <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" className="text-brand-700 hover:underline">Cloudflare's privacy policy</a>.</p>
+            <p><strong className="text-gray-800">Cloudflare.</strong> The site is hosted on and served through Cloudflare&rsquo;s network. Cloudflare may set technical cookies for security and bot protection. See <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" className="text-brand-700 hover:underline">Cloudflare's privacy policy</a>.</p>
             <p><strong className="text-gray-800">Robot check on the free tools (Cloudflare Turnstile).</strong> Before a free tool runs, a short check in your browser tells people apart from automated abuse. It is loaded only on the free tool pages.</p>
             <p><strong className="text-gray-800">Stripe.</strong> Checkout uses Stripe for payment. Stripe may set cookies on the checkout pages to prevent fraud. See <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="text-brand-700 hover:underline">Stripe's privacy policy</a>.</p>
           </Section>

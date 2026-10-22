@@ -744,5 +744,89 @@ for (const [name, partial] of [
     && snapshot(report).remediation_actions.every((action) => !action.finding_ids?.includes("brand_watchlist_dns_observation")));
 }
 
+// C-22: public discovery metadata is a fact about published configuration.
+{
+  const { observeOidcMetadata, oidcMetadataFindings, oidcReceipt, OIDC_LIMITS } = await import(engine("identity-oidc-observation.js"));
+  const fixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/identity-oidc-observation.json"), "utf8"));
+  const modules = { subdomains: { items: fixture.identity_hosts } };
+  const calls = [];
+  const json = (value, headers = {}) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json", ...headers } });
+  const options = { verified: true, observedAt: fixture.observed_at, fetcher: async (url) => {
+    calls.push(url);
+    return url === "https://example.com/.well-known/openid-configuration" ? json(fixture.document) : new Response(null, { status: 404 });
+  } };
+  const result = await observeOidcMetadata(fixture.domain, modules, options);
+  const scope = { domain: fixture.domain, verified: true };
+  const facts = oidcMetadataFindings(result, scope);
+  check("C22 published issuer and sign-in metadata are qualified non-scored facts", facts.length === 1
+    && facts[0].finding_type === "observation" && facts[0].score_impact === 0 && facts[0].evidence.length === 3
+    && result.observations[0]?.issuer === fixture.document.issuer && /were not tested/.test(facts[0].description));
+  check("C22 requests stay on two own hosts and never visit advertised endpoints", calls.join() === [
+    "https://example.com/.well-known/openid-configuration", "https://login.example.com/.well-known/openid-configuration",
+  ].join());
+  check("C22 endpoint query values are never retained", result.observations[0]?.authorization_endpoint === "https://signin.example.com/authorize"
+    && !JSON.stringify(facts).includes("omit-this-value"));
+  let attempted = 0;
+  const unverified = await observeOidcMetadata(fixture.domain, modules, { ...options, verified: false, fetcher: async () => { attempted++; return json(fixture.document); } });
+  check("C22 unverified scope issues no requests", attempted === 0 && unverified.state === "not_assessed" && oidcMetadataFindings(result, { ...scope, verified: false }).length === 0);
+  check("C22 foreign-scope receipts cannot publish", oidcMetadataFindings(result, { ...scope, domain: "foreign.example" }).length === 0
+    && oidcMetadataFindings({ ...result, observations: [{ ...result.observations[0], source_url: "https://foreign.example/.well-known/openid-configuration", issuer: "https://foreign.example" }] }, scope).length === 0);
+  check("C22 issuer identity must match the requested root issuer", oidcReceipt({ ...fixture.document, issuer: "https://example.com/" }, fixture.domain)?.issuer === "https://example.com/"
+    && ["https://foreign.example", "https://example.com/realm", "https://example.com?x=1"].every(
+    (issuer) => oidcReceipt({ ...fixture.document, issuer }, fixture.domain) === null));
+  check("C22 unsafe or fragment-bearing endpoints cannot become configuration facts", ["http://signin.example.com/authorize", "https://127.0.0.1/authorize",
+    "https://user:password@signin.example.com/authorize", "https://signin.example.com/authorize#secret"].every(
+    (authorization_endpoint) => oidcReceipt({ ...fixture.document, authorization_endpoint }, fixture.domain) === null));
+  const probe = (fetcher) => observeOidcMetadata(fixture.domain, {}, { ...options, fetcher });
+  const absent = await probe(async () => new Response(null, { status: 404 }));
+  check("C22 unpublished discovery creates no identity absence or risk verdict", absent.state === "observed" && absent.checked === 1 && oidcMetadataFindings(absent, scope).length === 0);
+  const failures = await Promise.all([
+    probe(async () => { throw new Error("timeout"); }),
+    probe(async () => new Response(null, { status: 302, headers: { location: "https://foreign.example/metadata" } })),
+    probe(async () => new Response(JSON.stringify(fixture.document), { headers: { "content-type": "text/html" } })),
+    probe(async () => new Response("{bad json", { headers: { "content-type": "application/json" } })),
+  ]);
+  check("C22 timeout redirects HTML and malformed JSON stay inconclusive", failures.every((value) => value.state === "partial" && oidcMetadataFindings(value, scope).length === 0));
+  const oversized = await probe(async () => json({ ...fixture.document, padding: "x".repeat(OIDC_LIMITS.bytes) }));
+  check("C22 oversized metadata is rejected before publication", oversized.state === "partial" && oversized.observations.length === 0);
+  const cut = await probe(async () => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(new TextEncoder().encode(JSON.stringify(fixture.document)));
+    queueMicrotask(() => controller.error(new Error("truncated")));
+  } }), { headers: { "content-type": "application/json" } }));
+  check("C22 a valid JSON prefix with failed body completion is not a document", cut.state === "partial" && cut.observations.length === 0);
+  let cancelled = false;
+  const stalled = await probe(async () => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(new TextEncoder().encode(JSON.stringify(fixture.document)));
+  }, cancel() { cancelled = true; } }), { headers: { "content-type": "application/json" } }));
+  check("C22 stalled body is bounded cancelled and never published", cancelled && stalled.state === "partial" && stalled.observations.length === 0);
+  const savedFetch = globalThis.fetch;
+  let externalGets = 0, ownGets = 0, privateDns = false, physicalFetches = 0;
+  try {
+    globalThis.fetch = async (input) => {
+      physicalFetches++;
+      const url = new URL(String(input));
+      if (["cloudflare-dns.com", "dns.google"].includes(url.hostname)) return json({ Status: 0,
+        Answer: url.searchParams.get("type") === "A" ? [{ type: 1, data: privateDns ? "10.0.0.1" : "93.184.216.34" }] : [] });
+      if (url.hostname === fixture.domain) { ownGets++; return new Response(null, { status: 302, headers: { location: "https://foreign.example/discovery" } }); }
+      externalGets++; return json(fixture.document);
+    };
+    const redirected = await observeOidcMetadata(fixture.domain, {}, { verified: true, observedAt: fixture.observed_at });
+    check("C22 canonical safe fetch never follows an off-domain redirect", ownGets === 1 && externalGets === 0 && redirected.observations.length === 0);
+    privateDns = true; ownGets = 0;
+    const blocked = await observeOidcMetadata(fixture.domain, {}, { verified: true, observedAt: fixture.observed_at });
+    check("C22 canonical DNS preflight rejects private targets before HTTP", ownGets === 0 && blocked.observations.length === 0);
+    const { PhysicalSubrequestCounter } = await import(engine("scan-budget.js"));
+    const counter = new PhysicalSubrequestCounter({ limit: 1, safetyMargin: 0 });
+    counter.recordAttempt("fixture"); physicalFetches = 0;
+    const denied = await observeOidcMetadata(fixture.domain, {}, { verified: true, accounting: counter.contextFor("identity_discovery") });
+    check("C22 exhausted shared physical budget prevents even the DNS request", physicalFetches === 0 && denied.observations.length === 0);
+  } finally { globalThis.fetch = savedFetch; }
+  const report = reportWith({ identity_discovery: { detected: false, providers: [], portals: [], openid_connect: result } }, facts);
+  const frozen = snapshot(report).observations.find((row) => row.finding_id === "identity_oidc_observation");
+  check("C22 canonical Identity Exposure guidance is frozen without an action", frozen?.domain_keys?.join() === "identity_exposure"
+    && frozen.remediation_id === "identity.oidc.review" && frozen.score_impact === 0
+    && snapshot(report).remediation_actions.every((action) => !action.finding_ids?.includes("identity_oidc_observation")));
+}
+
 console.log(`Launch state accuracy fixtures: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

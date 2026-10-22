@@ -565,6 +565,7 @@ function isAbortError(err) {
 }
 
 export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
+  "identity_discovery",
   "dns",
   "ssl",
   "headers",

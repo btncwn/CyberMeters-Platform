@@ -1,0 +1,10 @@
+{
+  "domain": "example.com",
+  "observed_at": "2026-07-28T09:00:00.000Z",
+  "document": {
+    "issuer": "https://example.com",
+    "authorization_endpoint": "https://signin.example.com/authorize?customer=omit-this-value",
+    "token_endpoint": "https://signin.example.com/token"
+  },
+  "identity_hosts": ["login.example.com", "auth.foreign.example", "sso.example.com"]
+}
