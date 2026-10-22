@@ -141,7 +141,7 @@ describe('F-2 SSO MFA — LoginPage', () => {
     )
 
     // MFA UI shown; the password form is not.
-    expect(screen.getByText(/Two-factor authentication/i)).toBeInTheDocument()
+    expect(screen.getByText(/Two-step sign-in/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/Password/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } })
@@ -161,7 +161,7 @@ describe('F-2 SSO MFA — LoginPage', () => {
     fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '654321' } })
     fireEvent.click(screen.getByRole('button', { name: /Verify/i }))
     expect(await screen.findByText(/please sign in again/i)).toBeInTheDocument()
-    expect(screen.queryByText(/Two-factor authentication/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Two-step sign-in/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Sign in$/i })).toBeInTheDocument()
     expect(loginSpy).not.toHaveBeenCalled()
   })
@@ -230,7 +230,7 @@ describe('F-2 SSO MFA — LoginPage', () => {
         <LoginPage />
       </MemoryRouter>
     )
-    expect(screen.queryByText(/Two-factor authentication/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Two-step sign-in/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Sign in/i })).toBeInTheDocument()
   })
 })
