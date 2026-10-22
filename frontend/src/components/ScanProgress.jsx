@@ -2,10 +2,11 @@
 // page (no banner above it, no second card below it). Queued and running are
 // distinct states with distinct words. It shows a live count-up ("Queued for
 // 40 s" / "Running for 1 min 20 s"), an honest expectation from the workspace's
-// own completed scans ("Usually takes about 2 min, based on your last 7 scans
-// of this domain"), "First scan of <domain>; usually a few minutes" when there
-// is no history, and "Taking longer than usual; it is still running" past twice
-// the median. Never a countdown.
+// own COMPLETE scans only ("Usually takes about 8 min, based on your last 7
+// complete scans of this domain"), "A full check usually takes 5–15 minutes."
+// without them, what the scan is doing now from the API's progress.stage, a
+// plain line past 15 and 30 minutes, and the "gone quiet" line when the API
+// says the scan stopped reporting. Never a countdown.
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import Spinner from './Spinner'
@@ -26,7 +27,8 @@ async function collectSamples({ workspaceId, domain, excludeScanId, signal }) {
   let listed = []
   try {
     const res = await Promise.resolve().then(() => api.getWorkspaceScans(workspaceId))
-    listed = (res?.scans || []).filter((s) => s?.status === 'completed' && s.id !== excludeScanId)
+    // Only complete scans estimate a full check; partial runs end early.
+    listed = (res?.scans || []).filter((s) => s?.status === 'completed' && s?.scan_quality === 'complete' && s.id !== excludeScanId)
   } catch { return remembered }
   if (signal?.aborted) return remembered
   listed.sort((a, b) => (startMs(b.created_at) ?? 0) - (startMs(a.created_at) ?? 0))
@@ -39,14 +41,14 @@ async function collectSamples({ workspaceId, domain, excludeScanId, signal }) {
     if (known.has(row.id)) continue
     try {
       const report = await api.getScanReport(row.id)
-      const sample = rememberSample({ workspaceId, scanId: row.id, domain: row.domain, startedAt: report?.started_at, completedAt: report?.completed_at })
+      const sample = rememberSample({ workspaceId, scanId: row.id, domain: row.domain, startedAt: report?.started_at, completedAt: report?.completed_at, quality: row.scan_quality })
       if (sample) samples.push(sample)
     } catch { /* a report that cannot be read contributes no sample */ }
   }
   return samples
 }
 
-export default function ScanProgress({ scan, workspaceId, pollSeconds }) {
+export default function ScanProgress({ scan, workspaceId, pollSeconds, progress = null }) {
   const status = String(scan?.status || '').toLowerCase()
   const [now, setNow] = useState(() => Date.now())
   const [estimate, setEstimate] = useState({ loading: true, value: null })
@@ -74,7 +76,7 @@ export default function ScanProgress({ scan, workspaceId, pollSeconds }) {
 
   const base = (status !== 'queued' && runningSinceRef.current) || startMs(scan?.created_at) || now
   const elapsedMs = Math.max(0, now - base)
-  const copy = scanProgressCopy({ status, elapsedMs, estimate: estimate.value, domain: scan?.domain })
+  const copy = scanProgressCopy({ status, elapsedMs, estimate: estimate.value, domain: scan?.domain, progress })
 
   return (
     <section className="card px-6 py-6" role="status" aria-live="polite" data-testid="scan-progress" data-status={status}>
@@ -83,11 +85,13 @@ export default function ScanProgress({ scan, workspaceId, pollSeconds }) {
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">{copy.heading}</p>
           <p className="text-sm text-gray-700 mt-1 leading-relaxed">{copy.detail}</p>
+          {copy.stage && <p className="text-sm font-medium text-gray-900 mt-2" data-testid="scan-progress-stage">{copy.stage}</p>}
           <p className="text-sm font-semibold text-gray-900 mt-3 tabular-nums" data-testid="scan-progress-timer">{copy.timer}</p>
           <p className="text-sm text-gray-600 mt-1 leading-relaxed" data-testid="scan-progress-expectation">
             {estimate.loading ? 'Working out how long this usually takes…' : copy.expectation}
           </p>
           {copy.longRunning && <p className="text-sm font-medium text-brand-700 mt-1" data-testid="scan-progress-long">{copy.longRunningText}</p>}
+          {copy.stale && <p className="text-sm font-medium text-gray-900 mt-1" data-testid="scan-progress-stale">{copy.stale}</p>}
           {pollSeconds ? <p className="text-xs text-gray-500 mt-3">This page refreshes every {pollSeconds} s.</p> : null}
         </div>
       </div>
