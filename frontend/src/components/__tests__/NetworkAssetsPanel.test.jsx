@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import NetworkAssetsPanel from '../NetworkAssetsPanel'
+import NetworkAssetsPanel, { reasonText, basisText, scanCountText } from '../NetworkAssetsPanel'
 import { api } from '../../api'
 import { TOKEN_KEY } from '../../context/authKeys'
 
@@ -226,7 +226,7 @@ describe('Network assets customer workflow', () => {
     ] })
     await ready()
     fireEvent.click(screen.getByRole('tab', { name: 'Recent scans' }))
-    expect(screen.getByText(/Showing 1 of 101 network scans/)).toHaveTextContent('latest 100 runs')
+    expect(screen.getByText(/Latest 1 of 101 scans\./)).toHaveTextContent('Older runs remain accessible')
     expect(screen.getByText(/Older runs remain accessible/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Services' }))
     expect(screen.getByText('First observed service')).toBeInTheDocument()
@@ -317,4 +317,70 @@ describe('Suggested network targets', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Suggestions unavailable')
     expect(screen.queryByTestId('network-suggestion')).toBeNull()
   })
+})
+
+// Founder, 22 Oct 2026: the port limit is shown as it is reached and an
+// over-limit selection can never be made.
+describe('ports to check — the limit', () => {
+  it('counts "N of max selected" and locks the unticked boxes at the limit', async () => {
+    api.getNetworkTargets.mockResolvedValue({ targets: [target], capabilities: { ...capabilities, allowed_ports: [22, 80, 443, 8080], limits: { ...capabilities.limits, max_ports: 3 } } })
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    const count = await screen.findByTestId('network-ports-count')
+    expect(count).toHaveTextContent('2 of 3 selected')
+    fireEvent.click(screen.getByRole('checkbox', { name: '22' }))
+    expect(count).toHaveTextContent('3 of 3 selected — the limit for one scan')
+    expect(screen.getByRole('checkbox', { name: '8080' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '22' })).toBeEnabled()
+    expect(screen.queryByText(/within the available limit/)).toBeNull()
+    fireEvent.click(screen.getByRole('checkbox', { name: '443' }))
+    expect(count).toHaveTextContent('2 of 3 selected')
+    expect(screen.getByRole('checkbox', { name: '8080' })).toBeEnabled()
+  })
+  it('with nothing ticked it asks for one port', async () => {
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    await screen.findByTestId('network-ports-count')
+    fireEvent.click(screen.getByRole('checkbox', { name: '80' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '443' }))
+    expect(screen.getByText('Select at least one port to check.')).toBeInTheDocument()
+  })
+})
+
+// Founder, 22 Oct 2026 (17:50): no probe key on screen, no stale "queued"
+// notice after the run finished, and a plain scan count.
+describe('network panel wording', () => {
+  it('probe keys read as sentences; an unknown key never shows; a backend sentence passes through', () => {
+    expect(reasonText('connect_timeout')).toBe('No answer from the port before the time limit.')
+    expect(basisText('unsolicited_tcp_banner')).toBe('Service banner received')
+    expect(reasonText('some_new_reason')).toBe('The check did not record why.')
+    expect(basisText('some_new_basis')).toBe('How the service was identified was not recorded.')
+    expect(reasonText('The provider refused the request.')).toBe('The provider refused the request.')
+  })
+  it('counts scans plainly', () => {
+    expect(scanCountText(1, 1)).toBe('1 scan.')
+    expect(scanCountText(3, null)).toBe('3 scans.')
+    expect(scanCountText(100, 240)).toBe('Latest 100 of 240 scans.')
+  })
+  it('the evidence table shows no raw key', async () => {
+    api.getNetworkAssets.mockResolvedValue({ assets: [
+      { address: '93.184.216.34', port: 22, transport: 'tcp', state: 'open', service: { name: 'ssh', basis: 'unsolicited_tcp_banner', banner_sample: 'SSH-2.0' }, last_seen_at: '2026-10-22T10:00:00Z', last_checked_at: '2026-10-22T10:00:00Z' },
+      { address: '93.184.216.34', port: 8080, transport: 'tcp', state: 'timeout', reason: 'connect_timeout', last_checked_at: '2026-10-22T10:00:00Z' },
+    ], changes: [], total: 2 })
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Services' }))
+    expect(await screen.findByText('Service banner received')).toBeInTheDocument()
+    expect(screen.getByText('No answer from the port before the time limit.')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/unsolicited_tcp_banner|connect_timeout/)
+  })
+  it('the "queued" notice goes once no run is pending', async () => {
+    let scans = []
+    api.getNetworkScans.mockImplementation(() => Promise.resolve({ scans }))
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    const runButton = await screen.findByRole('button', { name: 'Run scan' })
+    scans = [{ ...run, status: 'queued', quality: null }]
+    fireEvent.click(runButton)
+    expect(await screen.findByText(/Network scan queued/)).toBeInTheDocument()
+    scans = [{ ...run, status: 'completed', quality: 'complete' }]
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5200)) })
+    await waitFor(() => expect(screen.queryByText(/Network scan queued/)).toBeNull())
+  }, 15000)
 })

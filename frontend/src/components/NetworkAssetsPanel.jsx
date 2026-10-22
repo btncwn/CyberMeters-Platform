@@ -7,6 +7,43 @@ import InternalIdCopyButton from './InternalIdCopyButton'
 
 const OBSERVATION_LABELS = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
 const RUN_LABELS = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed' }
+// Customer sentences for the probe's reason and basis keys (design standard §4,
+// founder 22 Oct 2026): a key never reaches the screen; an unknown key reads a
+// neutral sentence, a backend sentence passes through.
+const REASON_LABELS = {
+  connect_timeout: 'No answer from the port before the time limit.',
+  connection_refused: 'The address refused the connection.',
+  connection_failed: 'The connection could not be made.',
+  connection_ended: 'The connection closed before it was established.',
+  tls_timeout: 'The TLS handshake did not finish in time.',
+  tls_connection_failed: 'The TLS connection could not be made.',
+  tls_handshake_failed: 'The TLS handshake failed.',
+  peer_certificate_unavailable: 'The service did not present a certificate.',
+  certificate_parse_failed: 'The certificate could not be read.',
+  certificate_too_large: 'The certificate was larger than the check reads.',
+  handshake_too_large: 'The handshake was larger than the check reads.',
+  deadline_exhausted: 'The scan ran out of time before this check.',
+  dns_no_address: 'The name has no public address.',
+  dns_unavailable: 'DNS could not be read.',
+  dns_non_public_answer: 'The name points to a private address, which is not checked.',
+  dns_address_limit: 'The name has more addresses than one scan checks.',
+}
+const BASIS_LABELS = {
+  unsolicited_tcp_banner: 'Service banner received',
+  tls_handshake: 'Identified from the TLS handshake',
+}
+const isKey = value => typeof value === 'string' && /^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(value)
+export const reasonText = value => (!value ? null : REASON_LABELS[value] || (isKey(value) ? 'The check did not record why.' : value))
+export const basisText = value => (!value ? null : BASIS_LABELS[value] || (isKey(value) ? 'How the service was identified was not recorded.' : value))
+const serviceName = name => (!name || name === 'unidentified' ? 'Not identified' : name)
+const SCAN_QUEUED_TEXT = 'Network scan queued. Results will appear when the selected checks finish.'
+const RETEST_QUEUED_TEXT = 'Retest queued for the same target and ports.'
+
+// "1 scan" / "3 scans"; only a list that holds fewer than exist says so.
+export const scanCountText = (shown, total) => (total !== null && total > shown
+  ? `Latest ${shown} of ${total} scans.`
+  : `${shown} ${shown === 1 ? 'scan' : 'scans'}.`)
+
 const CHANGE_LABELS = { opened: 'Port became open', closed: 'Port became closed', changed: 'Observed service details changed', discovered: 'First observed service' }
 const count = value => Number.isInteger(value) && value >= 0 ? value : null
 const pending = scan => ['queued', 'running'].includes(scan?.status)
@@ -39,9 +76,9 @@ function ObservationTable({ rows = [], persisted = false, onViewScan }) {
       <td>{count(row.port) ?? 'Not recorded'} / {row.transport || 'Not recorded'}</td>
       <td><Observation state={row.state} />
         {persisted && row.last_observed_state && row.state && row.last_observed_state !== row.state && <p className="text-xs text-gray-500 mt-1">Last observed: {OBSERVATION_LABELS[row.last_observed_state]?.toLowerCase() || 'not assessed'}</p>}
-        {row.reason && <p className="text-xs text-gray-500 mt-1">{row.reason}</p>}
+        {row.reason && <p className="text-xs text-gray-500 mt-1">{reasonText(row.reason)}</p>}
       </td>
-      <td>{persisted && !['open', 'closed'].includes(row.state) && (row.service || row.tls) && <span className="block text-xs text-gray-500">Retained from the last observation</span>}{row.service?.name && row.service?.basis ? <><span>{row.service.name}</span><span className="block text-xs text-gray-500">{row.service.basis}</span></> : 'Not identified'}
+      <td>{persisted && !['open', 'closed'].includes(row.state) && (row.service || row.tls) && <span className="block text-xs text-gray-500">Retained from the last observation</span>}{row.service?.name && row.service?.basis ? <><span>{serviceName(row.service.name)}</span><span className="block text-xs text-gray-500">{basisText(row.service.basis)}</span></> : 'Not identified'}
         {row.tls && <div className="mt-2 min-w-[220px] max-w-lg"><LiveTlsEvidence evidence={row.tls} /></div>}
         {row.service?.banner_sample && <details className="text-xs mt-1"><summary>Observed response</summary><pre className="whitespace-pre-wrap break-all max-w-md">{row.service.banner_sample}</pre></details>}
       </td>
@@ -160,6 +197,11 @@ export default function NetworkAssetsPanel({ workspaceId }) {
     return () => controller.abort()
   }, [tab, workspaceId, current?.targets?.length])
   const hasPendingRun = current?.scans.some(pending) === true
+  // A "queued" notice describes a run in flight; once no run is pending it is
+  // no longer true, so it goes (founder, 22 Oct 2026).
+  useEffect(() => {
+    if (!hasPendingRun && current) setMessage(previous => ([SCAN_QUEUED_TEXT, RETEST_QUEUED_TEXT].includes(previous) ? null : previous))
+  }, [hasPendingRun, current])
   useEffect(() => {
     if (!hasPendingRun) return
     const controller = new AbortController()
@@ -174,6 +216,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   const maxPairs = count(capabilities.limits?.max_pairs)
   const canScan = capabilities.can_scan === true && capabilities.collector_available === true
   const validPorts = selectedPorts.length > 0 && maxPorts !== null && selectedPorts.length <= maxPorts
+  const atPortLimit = maxPorts !== null && selectedPorts.length >= maxPorts
   const withinPairs = row => count(row.address_count) !== null && maxPairs !== null && row.address_count * selectedPorts.length <= maxPairs
 
   async function act(operation, success) {
@@ -264,13 +307,16 @@ export default function NetworkAssetsPanel({ workspaceId }) {
           <p className="text-xs text-gray-500">This records your authorization declaration; it is not independent ownership verification.{count(capabilities.limits?.max_addresses) !== null ? ` Up to ${capabilities.limits.max_addresses} public addresses per target.` : ''}</p>
           <button className="btn-primary text-sm" type="submit" disabled={busy || !authorized || !target.trim()}>Add network target</button>
         </form>}
-        {capabilities.can_scan === true && <fieldset className="space-y-2"><legend className="font-medium text-sm">Ports to check</legend><div className="flex flex-wrap gap-x-4 gap-y-2">{allowedPorts.map(port => <label className="flex items-center gap-1 text-sm" key={port}><input type="checkbox" checked={selectedPorts.includes(port)} onChange={event => setPorts(previous => event.target.checked ? [...new Set([...previous, port])] : previous.filter(value => value !== port))} disabled={busy} />{port}</label>)}</div>
-          <p className="text-xs text-gray-500">Only selected TCP ports are checked.{maxPorts !== null && ` Up to ${maxPorts} ports per scan.`}{maxPairs !== null && ` Up to ${maxPairs} address/port checks per scan.`}</p>
-          {!validPorts && <p className="text-sm text-brand-700">Select one or more ports within the available limit.</p>}
+        {capabilities.can_scan === true && <fieldset className="space-y-2"><legend className="font-medium text-sm">Ports to check</legend><div className="flex flex-wrap gap-x-4 gap-y-2">{allowedPorts.map(port => <label className="flex items-center gap-1 text-sm" key={port}><input type="checkbox" checked={selectedPorts.includes(port)} onChange={event => setPorts(previous => event.target.checked ? (atPortLimit ? previous : [...new Set([...previous, port])]) : previous.filter(value => value !== port))} disabled={busy || (atPortLimit && !selectedPorts.includes(port))} aria-describedby="network-ports-count" />{port}</label>)}</div>
+          {/* The limit is shown as it is reached, and the remaining boxes lock, so
+              an over-limit selection can never be made (founder, 22 Oct 2026). */}
+          {maxPorts !== null && <p id="network-ports-count" className="text-sm font-medium text-gray-700" aria-live="polite" data-testid="network-ports-count">{selectedPorts.length} of {maxPorts} selected{atPortLimit ? ' — the limit for one scan. Untick a port to choose another.' : ''}</p>}
+          <p className="text-xs text-gray-500">Only selected TCP ports are checked.{maxPairs !== null && ` Up to ${maxPairs} address/port checks per scan.`}</p>
+          {selectedPorts.length === 0 && <p className="text-sm text-brand-700">Select at least one port to check.</p>}
         </fieldset>}
         {!current.targets.length ? <p className="text-sm text-gray-500">No network targets recorded yet.</p> : <div className="relative overflow-x-auto"><table className="data-table w-full min-w-[800px]"><thead><tr><th>Target</th><th>Scope</th><th>Authorization</th><th><span className="sr-only">Scan</span></th></tr></thead><tbody>{current.targets.map(row => <tr key={row.id}>
           <td className="font-mono text-xs">{row.target}{row.label && <span className="block font-sans text-gray-500">{row.label}</span>}</td><td>{count(row.address_count) === null ? 'Address count not recorded' : `${row.address_count} address${row.address_count === 1 ? '' : 'es'}`}</td><td className="text-xs">{row.authorization_status === 'attested' ? 'Authorization declared' : 'Authorization not established'}<span className="block text-gray-500">{date(row.authorized_at)}</span></td>
-          <td>{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), 'Network scan queued. Results will appear when the selected checks finish.')}>{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-brand-700 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}</td>
+          <td>{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), SCAN_QUEUED_TEXT)}>{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-brand-700 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}</td>
         </tr>)}</tbody></table></div>}
       </div>}
 
@@ -283,11 +329,11 @@ export default function NetworkAssetsPanel({ workspaceId }) {
         <h3 className="font-semibold text-sm">Recent changes</h3><p className="text-xs text-gray-500">From the latest 25 completed scans. Open a scan to see its full change record.</p><ChangeList changes={current.changes} />
       </div>}
 
-      {tab === 'scans' && <div role="tabpanel" aria-label="Recent scans" className="space-y-3"><p className="text-xs text-gray-500">Showing {current.scans.length}{current.scanTotal !== null ? ` of ${current.scanTotal}` : ''} network scans. This view includes the latest 100 runs.{current.scansTruncated && ' Older runs remain accessible from their scan reference.'}</p>{!current.scans.length ? <p className="text-sm text-gray-500">No network scans recorded yet.</p> : current.scans.map(scan => <div key={scan.id} className="border border-gray-200 rounded-sm p-3 space-y-2">
+      {tab === 'scans' && <div role="tabpanel" aria-label="Recent scans" className="space-y-3"><p className="text-xs text-gray-500">{scanCountText(current.scans.length, current.scanTotal)}{current.scansTruncated && ' Older runs remain accessible from their scan reference.'}</p>{!current.scans.length ? <p className="text-sm text-gray-500">No network scans recorded yet.</p> : current.scans.map(scan => <div key={scan.id} className="border border-gray-200 rounded-sm p-3 space-y-2">
         <div className="flex flex-wrap justify-between gap-2"><span className="font-medium text-sm">{scan.target || current.targets.find(row => row.id === scan.target_id)?.target || 'Target not recorded'}</span><span className="text-sm">{RUN_LABELS[scan.status] || 'Unknown status'}</span></div>
         <p className="text-xs text-gray-500">Started {date(scan.created_at)}{scan.completed_at ? ` · Finished ${date(scan.completed_at)}` : ''}</p>
-        {!pending(scan) && <Coverage coverage={scan.coverage} quality={scan.quality} />}{scan.reason && <p className="text-sm text-gray-600">{scan.reason}</p>}
-        <div className="flex flex-wrap gap-2"><button className="btn-secondary text-sm" onClick={() => viewScan(scan.id)}>View evidence</button>{canScan && !pending(scan) && <button className="btn-secondary text-sm" disabled={busy || hasPendingRun} onClick={() => act(() => api.retestNetworkScan(workspaceId, scan.id), 'Retest queued for the same target and ports.')}>Retest same scope</button>}</div>
+        {!pending(scan) && <Coverage coverage={scan.coverage} quality={scan.quality} />}{scan.reason && <p className="text-sm text-gray-600">{reasonText(scan.reason)}</p>}
+        <div className="flex flex-wrap gap-2"><button className="btn-secondary text-sm" onClick={() => viewScan(scan.id)}>View evidence</button>{canScan && !pending(scan) && <button className="btn-secondary text-sm" disabled={busy || hasPendingRun} onClick={() => act(() => api.retestNetworkScan(workspaceId, scan.id), RETEST_QUEUED_TEXT)}>Retest same scope</button>}</div>
       </div>)}</div>}
     </>}
 
