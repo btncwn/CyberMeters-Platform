@@ -1054,6 +1054,63 @@ export function computeScore(modules, domain) {
     }));
   }
 
+  // ── DANE / TLSA (S3-C, 22 Oct 2026) ───────────────────────────────────
+  // dane.js: a TLSA record only works when its answer validates under DNSSEC,
+  // and for mail only DANE-TA/DANE-EE usages count. Published-but-ineffective
+  // is a finding; every other state is stated as an observation. Matching the
+  // TLSA to the presented certificate is not claimed. No score deduction.
+  const dane = modules.dane;
+  if (dane && !dane.error && Array.isArray(dane.mail)) {
+    const label = { active: "DANE active (TLSA published and DNSSEC-validated)", not_published: "no TLSA record published (DNSSEC is validated, so DANE could be added)",
+      not_assessable: "not assessable: the answer is not DNSSEC-validated, and DANE needs DNSSEC", not_validated: "TLSA published but not DNSSEC-validated, so it is ignored",
+      unusable: "TLSA published, but only with usages mail servers ignore (PKIX-TA/PKIX-EE)", unavailable: "the TLSA lookup failed" };
+    const ineffectiveMail = dane.mail.filter((row) => row.state === "not_validated" || row.state === "unusable");
+    if (ineffectiveMail.length > 0) {
+      finding({
+        id:           "email_dane_tlsa_ineffective",
+        module:       "dane",
+        severity:     "medium",
+        affected_hosts: ineffectiveMail.map((row) => row.host).filter((host) => host === domain || host.endsWith(`.${domain}`)),
+        title:        "DANE Records for Mail Servers Have No Effect",
+        description:  `${ineffectiveMail.map((row) => `${row.host}: ${label[row.state]}`).join("; ")}. Sending servers only enforce encrypted delivery through DANE when the TLSA answer is DNSSEC-validated and uses DANE-TA or DANE-EE.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type: "dns_tlsa_observation", probe_target: ineffectiveMail.map((row) => `_25._tcp.${row.host}`).join(", "),
+          observed_value: ineffectiveMail.map((row) => `${row.host}: ${row.state}`).join(", "),
+          expected_value: "DNSSEC-validated TLSA with usage 2 or 3", source: "dane", checked_at: dane.observed_at || evidenceTime,
+        },
+      });
+      recommendations.push(canonicalRec("email_dane_tlsa_ineffective", { priority: 2, module: "dane",
+        detail: `Affected: ${ineffectiveMail.map((row) => row.host).join(", ")}.` }));
+    }
+    if (dane.web?.state === "not_validated") {
+      finding({
+        id:           "web_dane_tlsa_not_validated",
+        module:       "dane",
+        severity:     "low",
+        affected_hosts: [dane.web.host],
+        title:        "Website TLSA Record Is Not DNSSEC-Validated",
+        description:  `_443._tcp.${dane.web.host} publishes a TLSA record, but the answer is not DNSSEC-validated, so clients that support DANE ignore it.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type: "dns_tlsa_observation", probe_target: `_443._tcp.${dane.web.host}`, observed_value: "TLSA present, AD flag not set",
+          expected_value: "DNSSEC-validated TLSA", source: "dane", checked_at: dane.observed_at || evidenceTime,
+        },
+      });
+      recommendations.push(canonicalRec("web_dane_tlsa_not_validated", { priority: 3, module: "dane" }));
+    }
+    const stated = [...dane.mail, ...(dane.web ? [dane.web] : [])].filter((row) => row.state !== "not_validated" && row.state !== "unusable");
+    if (stated.length > 0) {
+      // Pushed directly: an observation, never actionable.
+      findings.push({
+        id: "dane_status_observed", module: "dane", severity: "info", confidence: 100, finding_type: "observation",
+        title: "DANE (TLSA) Status",
+        description: `${stated.map((row) => `${row.service === "smtp" ? "Mail server" : "Website"} ${row.host}: ${label[row.state]}`).join("; ")}. CyberMeters checks publication and DNSSEC validation; it does not yet check that the TLSA matches the certificate the server presents.`,
+        score_impact: 0,
+      });
+    }
+  }
+
   // ── Remote-administration exposure (S3-0, 22 Oct 2026) ────────────────
   // Ports answering from the internet on addresses this domain's own DNS
   // points at (remote-admin-exposure.js). "Reachable" is what was observed;

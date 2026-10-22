@@ -659,8 +659,11 @@ const parity = states.map(parityOutputs);
 // S3-0 remote-admin entries (22 Oct 2026) add two more and move only the
 // fingerprint (r113-1a7ce169 -> r115-64a2e4fd); with ONLY the registry reverted to its
 // predecessor both prior hashes (9c021774… / 7eb2b55a…) reproduce.
-const GOLDEN_F13 = "1d68563a238a69fc5ee2850424089d55a8fc5505337ab31461fa110f01ee2bc5";
-const GOLDEN_F14 = "a2596c0ded3ab9307c9c469b16e6663aefabc0ef8bc81e1a410045efcc03cee2";
+// S3-C DANE entries (22 Oct 2026) add two more and move only the fingerprint
+// (r115-64a2e4fd -> r117-c175ea1a); with ONLY the registry reverted to its predecessor both
+// prior hashes (1d68563a… / a2596c0d…) reproduce.
+const GOLDEN_F13 = "43a52874b5046125107bb757fcb03830bd671ba7a80b9384cfe0954b6880145c";
+const GOLDEN_F14 = "c4250ddcbb27b473cbb2fb9187bceddbcdae228b2a0a5c5fbca2bc5a46b98f48";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

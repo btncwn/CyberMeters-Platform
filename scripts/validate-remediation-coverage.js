@@ -43,7 +43,7 @@ const ACTIONABLE = [
   "bimi_dmarc_enforcement_required", "mta_sts_policy_missing",
   // web / attack surface — scoring.js + scan-engine.js DSE + admin surface
   "dns_no_resolution", "ssl_not_available", "ssl_no_http_redirect", "no_https_redirect",
-  "header_missing_strict_transport_security", "csp_weak_policy", "subdomain_takeover", "subdomain_takeover_unconfirmed", "remote_admin_service_reachable", "ftp_service_reachable", "subdomain_sensitive",
+  "header_missing_strict_transport_security", "csp_weak_policy", "subdomain_takeover", "subdomain_takeover_unconfirmed", "remote_admin_service_reachable", "ftp_service_reachable", "email_dane_tlsa_ineffective", "web_dane_tlsa_not_validated", "subdomain_sensitive",
   "asset_exposure_sensitive_tool", "asset_exposure_admin_interface", "asset_exposure_dev_env",
   "cloud_storage_takeover_risk", "cloud_storage_public_listing", "cloud_storage_exposure_observed",
   "kev_active_exploitation",
@@ -78,7 +78,7 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   "email_not_applicable", "email_dkim_not_detected", "email_intel_dkim_not_found",
   "dkim_verification_uncertain", "bimi_not_configured", "bimi_certificate_not_listed",
   "tls_rpt_missing", "subdomains_large_attack_surface", "asset_provider_infrastructure_observed",
-  "asset_exposure_interface_observed", "ssh_service_observed", "whois_new_domain", "whois_registrar_info",
+  "asset_exposure_interface_observed", "ssh_service_observed", "dane_status_observed", "whois_new_domain", "whois_registrar_info",
   "ct_source_incomplete", "coverage_gap", "parallel_certificate", "unknown",
   // header info variants (non-HSTS): observed-elsewhere / low-quality / malformed non-scored
   "header_weak_hsts",
@@ -145,14 +145,15 @@ ok("all other remediation identities remain version 1",
 // and the qualified DNS registration observation adds one review entry.
 // + asm.subdomain.takeover_unconfirmed (21 Oct 2026, hedged unconfirmed takeover candidate).
 // S3-0 (22 Oct 2026): + asm.network.remote_admin_reachable and asm.network.ftp_reachable.
-ok("registry has exactly 115 entries including public identity metadata guidance", REMEDIATION_REGISTRY.length === 115);
+// S3-C (22 Oct 2026): + email.dane.tlsa_ineffective and cert.dane.web_tlsa_not_validated.
+ok("registry has exactly 117 entries including public identity metadata guidance", REMEDIATION_REGISTRY.length === 117);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including public identity metadata guidance is exact", remediationRegistryFingerprint() === "r115-64a2e4fd", remediationRegistryFingerprint());
+ok("registry fingerprint including public identity metadata guidance is exact", remediationRegistryFingerprint() === "r117-c175ea1a", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",

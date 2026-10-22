@@ -290,6 +290,7 @@ const refusalCases = classify => {
 console.log('Deep TLS contract: endpoint scope, consent, physical proof and redaction passed');
 await import('./p1b-single-domain-engine-fixture.js');
 await import('./mail-transport-fixture.js');
+await import('./dane-fixture.js');
 
 // First scan of a domain (21 Oct 2026): the TLS plan is built from the previous
 // job's observations, so a domain's first job deferred its apex as

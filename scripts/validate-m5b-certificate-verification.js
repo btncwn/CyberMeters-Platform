@@ -69,6 +69,8 @@ const caseFor = (remediation_id) => ({
     "cert.coverage_gap":        { method: "rescan",              support: "automated" },
     "cert.intelligence.review": { method: "rescan",              support: "automated" },
     "cert.caa.configure":       { method: "dns_recheck",         support: "automated" },
+    // S3-C (22 Oct 2026): website TLSA not DNSSEC-validated, re-checked by DNS.
+    "cert.dane.web_tlsa_not_validated": { method: "dns_recheck", support: "automated" },
     "cert.ca_concentration":    { method: "manual_attestation",  support: "manual" },
     "cert.anomaly.review":      { method: "manual_attestation",  support: "manual" },
     "tls.endpoint.legacy_protocol": { method: "certificate_recheck", support: "automated" },
@@ -114,7 +116,8 @@ const caseFor = (remediation_id) => ({
 {
   for (const id of ["cert.expiry.expired", "cert.expiry.expiring", "cert.tls.install",
                     "cert.hostname.match", "cert.trust.validate", "cert.self_signed",
-                    "cert.coverage_gap", "cert.intelligence.review", "cert.caa.configure"]) {
+                    "cert.coverage_gap", "cert.intelligence.review", "cert.caa.configure",
+                    "cert.dane.web_tlsa_not_validated"]) {
     const d = model.canTransitionCase({
       case: caseFor(id), target_status: "verified",
       actor: { actor_type: "customer", actor_id: "u1" },
