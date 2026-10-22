@@ -52,20 +52,28 @@ function buildDb() {
   return db;
 }
 
+// Fault injection: a statement matching this pattern throws, as a D1 error would.
+let failSql = null;
+const maybeFail = (sql) => {
+  if (failSql && failSql.test(sql)) throw new Error("D1_ERROR: injected trace fault");
+};
+
 function makeD1(db) {
   const statement = (sql, args = []) => ({
     __sql: sql,
     bind: (...bound) => statement(sql, bound),
     first: async (column) => {
+      maybeFail(sql);
       const row = db.prepare(sql).get(...args) ?? null;
       return column && row ? row[column] : row;
     },
     all: async () => ({
-      results: db.prepare(sql).all(...args),
+      results: (maybeFail(sql), db.prepare(sql).all(...args)),
       success: true,
       meta: {},
     }),
     run: async () => {
+      maybeFail(sql);
       const result = db.prepare(sql).run(...args);
       return {
         success: true,
@@ -250,7 +258,7 @@ globalThis.fetch = async (input) => {
 };
 Math.random = () => 0.23456789;
 
-async function run(scanId, when, mode) {
+async function run(scanId, when, mode, { expectLifecycle = true } = {}) {
   phase = mode;
   db.prepare(`
     INSERT INTO scans
@@ -275,6 +283,12 @@ async function run(scanId, when, mode) {
   const report = JSON.parse(reports.get(`reports/${scanId}.json`) || "{}");
   eq(`${scanId} terminal R2 report is durable before case processing`,
     report.scan_id, scanId);
+  // A completed scan always leaves its own lifecycle record (22 Oct 2026: a
+  // swallowed finalize failure once left a completed scan with none).
+  if (expectLifecycle) {
+    ok(`${scanId} completed scan wrote lifecycle observations`,
+      db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE workspace_id='ws' AND scan_id=?").get(scanId).n > 0);
+  }
   eq(`${scanId} report retains all seven independent signals`,
     Object.keys(report.modules?.attack_surface_signal_completeness?.signals || {}).length,
     7);
@@ -377,6 +391,29 @@ try {
   ok("real trace discovers and rechecks hosts from its own observation only",
     contactedHosts.has("gone.example.com") && [...contactedHosts].every(ownObservationHost),
     JSON.stringify([...contactedHosts].sort()));
+
+  // The lifecycle write fails (D1 error): the scan still completes, the
+  // inventory is still updated, and the failure is no longer silent: one line
+  // with the scan id, the stage and the error type only (never the message).
+  {
+    const warned = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warned.push(args.join(" ")); };
+    failSql = /INSERT OR IGNORE INTO asset_lifecycle_observations/;
+    try {
+      await run("scan-lifecycle-fault", "2026-08-03T00:00:00.000Z", "observed", { expectLifecycle: false });
+    } finally {
+      failSql = null;
+      console.warn = originalWarn;
+    }
+    const line = warned.find((entry) => entry.includes("[scan-finalize]")) || "";
+    ok("a failed lifecycle write is logged with scan id and stage",
+      line.includes("scan-lifecycle-fault") && line.includes("attack_surface_lifecycle"), line);
+    eq("...and the inventory update still ran for that scan",
+      db.prepare("SELECT last_seen FROM workspace_assets WHERE id='asset-gone'").get().last_seen,
+      "2026-08-03T00:00:00.000Z");
+    ok("...with the error type only, never the error message", !line.includes("injected trace fault"), line);
+  }
 
   eq("legacy waitUntil executable envelope remains 19,000 ms",
     SCAN_DEADLINE_DEFAULTS.budgetMs, 19_000);

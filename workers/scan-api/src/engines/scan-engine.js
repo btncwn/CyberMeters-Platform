@@ -782,6 +782,16 @@ export async function loadTlsAssessmentModuleForScan(env, { workspaceId, scanId,
   }
 }
 
+// A non-fatal finalize stage that failed must still be visible to operators:
+// one sanitized line with the scan id, the stage and the error TYPE — never the
+// error message (it could carry a D1/query fragment), evidence or customer data.
+function logSwallowedFinalizeFailure(scanId, stage, err) {
+  try {
+    console.warn("[scan-finalize] stage failed (non-fatal): " +
+      redactedJson({ scan_id: scanId, stage, error: err?.name || "Error" }));
+  } catch { /* logging must never break finalize */ }
+}
+
 export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   // Injectable clock (tests drive it deterministically); production uses Date.now.
   const now = typeof opts.now === "function" ? opts.now : Date.now;
@@ -2973,6 +2983,14 @@ function buildCanonicalUrlProfile(modules) {
         hints: assetHints,
         assetEvidence,
       });
+    } catch (err) {
+      // Non-fatal (inventory catches up on the next scan), but never silent and
+      // never able to skip the lifecycle write below (22 Oct 2026: one shared
+      // catch swallowed a failure and left a completed scan with no lifecycle
+      // record). One sanitized line: scan id, stage and error TYPE only.
+      logSwallowedFinalizeFailure(scanId, "asset_inventory", err);
+    }
+    try {
       await persistAttackSurfaceLifecycle({
         env,
         scanId,
@@ -2984,7 +3002,9 @@ function buildCanonicalUrlProfile(modules) {
         assetEvidence,
         observedAt: completedAt,
       });
-    } catch { /* non-fatal — inventory update will catch up on next scan */ }
+    } catch (err) {
+      logSwallowedFinalizeFailure(scanId, "attack_surface_lifecycle", err);
+    }
 
     // Phase 8a.-1: alert monitoring start. Before any phase below can alert, the
     // first scan of each workspace on this domain writes its eight alert
