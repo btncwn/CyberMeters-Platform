@@ -238,3 +238,68 @@ test('Network assets: no probe key on screen; the port limit cannot be passed', 
   await expect(page.getByText('Service banner received')).toBeVisible()
   await expectNoRawKeys(page, '#network-assets')
 })
+
+// S1-A declared-range consent (Executive 22 Oct 2026, backend #906): the three
+// states a customer can meet on Network assets → Targets.
+test.describe('Network assets: declared-range consent', () => {
+  const AUTHORITY = { version: 'network-range-2026-10-22', text: 'I confirm that I am authorised by the organisation that owns or operates these addresses to permit CyberMeters to connect to the listed ports on them.', declaration: 'Authorisation declared by the customer; not independently verified by CyberMeters.' }
+  const caps = { can_manage: true, can_scan: true, collector_available: true, allowed_ports: [22, 80, 443, 8443], limits: { max_addresses: 32, max_ports: 16, max_pairs: 256, max_targets: 32 }, range_authority: AUTHORITY }
+  async function open(page, context, { targets = [], onAdd }) {
+    await seedSession(context)
+    await installAppMock(page)
+    const ws = `${API_BASE}/workspaces/${workspace.id}`
+    await page.route(`${ws}/network-targets*`, (route) => route.request().method() === 'POST' ? onAdd(route) : route.fulfill(json({ targets, capabilities: caps })))
+    await page.route(`${ws}/network-assets*`, (route) => route.fulfill(json({ assets: [], changes: [], total: 0 })))
+    await page.route(`${ws}/network-scans*`, (route) => route.fulfill(json({ scans: [] })))
+    await page.goto('/assets')
+    await page.getByRole('tab', { name: 'Findings' }).click()
+  }
+  async function add(page) {
+    await page.getByLabel(/IP address or CIDR/).fill('198.51.100.7')
+    await page.getByRole('checkbox', { name: /I own this address range/ }).check()
+    await page.getByRole('button', { name: 'Add network target' }).click()
+  }
+  const refusal = (kind) => (route) => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'network_target_not_observed', range_consent: kind }) })
+
+  test('required: the grant form, verbatim statement, one Grant button that unlocks only when complete', async ({ page, context }) => {
+    let body = null
+    await open(page, context, { onAdd: (route) => { const sent = route.request().postDataJSON(); if (!sent.range_consent) return refusal('required')(route); body = sent; return route.fulfill(json({ target: { id: 't2', target: sent.target } }, 201)) } })
+    await add(page)
+    const form = page.getByRole('form', { name: 'Grant authorisation' })
+    await expect(form.getByTestId('range-authority-text')).toHaveText(AUTHORITY.text)
+    await expect(form.getByText(`Statement version ${AUTHORITY.version}`)).toBeVisible()
+    const grant = form.getByRole('button', { name: 'Grant authorisation' })
+    await expect(grant).toBeDisabled()
+    await form.getByRole('checkbox', { name: '443', exact: true }).check()
+    await form.getByLabel('Your name').fill('Taylor Owner')
+    await form.getByLabel('Your title').fill('Director')
+    await form.getByRole('checkbox', { name: 'I confirm the statement above' }).check()
+    await grant.click()
+    await expect(page.getByText('Authorisation recorded and target saved. No check was started.')).toBeVisible()
+    expect(body.range_consent).toEqual({ ports: [443], signer_name: 'Taylor Owner', signer_title: 'Director', authority_confirmed: true, authority_version: AUTHORITY.version })
+    await expectNoRawKeys(page, '#network-assets')
+  })
+
+  test('not_grantable_shared: the refusal sentence and no form', async ({ page, context }) => {
+    await open(page, context, { onAdd: refusal('not_grantable_shared') })
+    await add(page)
+    await expect(page.getByTestId('range-consent-refused')).toContainText('shared provider infrastructure')
+    await expect(page.getByRole('form', { name: 'Grant authorisation' })).toHaveCount(0)
+    await expectNoRawKeys(page, '#network-assets')
+  })
+
+  test('a target under a grant: declared, not verified; Revoke is secondary and asks for an optional reason', async ({ page, context }) => {
+    const granted = { id: 't1', target: '198.51.100.7', target_type: 'ip', address_count: 1, authorization_status: 'attested', authorized_at: '2026-10-22T20:00:00Z', range_consent: { id: 'nrc_1', status: 'active', ports: [443], granted_at: '2026-10-22T20:00:00Z', signer: { name: 'Taylor Owner', title: 'Director' } } }
+    let revoked = null
+    await open(page, context, { targets: [granted], onAdd: (route) => route.fulfill(json({})) })
+    await page.route(`${API_BASE}/workspaces/${workspace.id}/network-range-consents/nrc_1/revoke`, (route) => { revoked = route.request().postDataJSON(); return route.fulfill(json({})) })
+    const cell = page.getByTestId('range-consent-active')
+    await expect(cell).toContainText('Authorised by declared range consent — not independently verified by CyberMeters')
+    await expect(cell.getByRole('button', { name: 'Revoke' })).toHaveClass(/btn-secondary/)
+    await cell.getByRole('button', { name: 'Revoke' }).click()
+    const dialog = page.getByRole('alertdialog')
+    await dialog.getByRole('textbox').fill('Contract ended')
+    await dialog.getByRole('button', { name: 'Revoke' }).click()
+    await expect.poll(() => revoked).toEqual({ reason: 'Contract ended' })
+  })
+})

@@ -6,7 +6,7 @@ import { TOKEN_KEY } from '../../context/authKeys'
 
 vi.mock('../../api', () => ({ api: {
   getNetworkTargets: vi.fn(), getNetworkAssets: vi.fn(), getNetworkScans: vi.fn(),
-  addNetworkTarget: vi.fn(), startNetworkScan: vi.fn(), getNetworkScan: vi.fn(), retestNetworkScan: vi.fn(),
+  addNetworkTarget: vi.fn(), revokeNetworkRangeConsent: vi.fn(), startNetworkScan: vi.fn(), getNetworkScan: vi.fn(), retestNetworkScan: vi.fn(),
   getNetworkSuggestions: vi.fn(),
 } }))
 
@@ -397,4 +397,70 @@ describe('network panel wording', () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 5200)) })
     await waitFor(() => expect(screen.queryByText(/Network scan queued/)).toBeNull())
   }, 15000)
+})
+
+// S1-A declared-range consent (Executive 22 Oct 2026; backend #906).
+describe('declared-range consent', () => {
+  const AUTHORITY = { version: 'network-range-2026-10-22', text: 'I confirm that I am authorised by the organisation that owns or operates these addresses.', declaration: 'Authorisation declared by the customer; not independently verified by CyberMeters.' }
+  const caps = { ...capabilities, range_authority: AUTHORITY }
+  const refused = kind => Object.assign(new Error('network_target_not_observed'), { status: 422, range_consent: kind })
+  async function addRefusedTarget() {
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    fireEvent.change(await screen.findByLabelText(/IP address or CIDR/), { target: { value: '198.51.100.7' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /I own this address range/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add network target' }))
+  }
+  beforeEach(() => { api.getNetworkTargets.mockResolvedValue({ targets: [target], capabilities: caps }) })
+
+  it('a "required" refusal offers the grant form with the verbatim statement; granting resends exactly the API fields', async () => {
+    api.addNetworkTarget.mockRejectedValueOnce(refused('required')).mockResolvedValueOnce({ target })
+    await addRefusedTarget()
+    const form = await screen.findByRole('form', { name: 'Grant authorisation' })
+    expect(within(form).getByTestId('range-authority-text')).toHaveTextContent(AUTHORITY.text)
+    expect(within(form).getByText(`Statement version ${AUTHORITY.version}`)).toBeInTheDocument()
+    const grant = within(form).getByRole('button', { name: 'Grant authorisation' })
+    expect(grant).toBeDisabled()
+    fireEvent.click(within(form).getByRole('checkbox', { name: '443' }))
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Your name' }), { target: { value: ' Taylor Owner ' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Your title' }), { target: { value: 'Director' } })
+    expect(grant).toBeDisabled()
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'I confirm the statement above' }))
+    expect(grant).toBeEnabled()
+    fireEvent.click(grant)
+    await waitFor(() => expect(api.addNetworkTarget).toHaveBeenLastCalledWith('ws1', {
+      target: '198.51.100.7', authorization_confirmed: true,
+      range_consent: { ports: [443], signer_name: 'Taylor Owner', signer_title: 'Director', authority_confirmed: true, authority_version: AUTHORITY.version },
+    }))
+    expect(await screen.findByText('Authorisation recorded and target saved. No check was started.')).toBeInTheDocument()
+    expect(screen.queryByRole('form', { name: 'Grant authorisation' })).toBeNull()
+  })
+
+  it('"not_grantable_shared" states the refusal and offers no form', async () => {
+    api.addNetworkTarget.mockRejectedValueOnce(refused('not_grantable_shared'))
+    await addRefusedTarget()
+    expect(await screen.findByTestId('range-consent-refused')).toHaveTextContent(/shared provider infrastructure/)
+    expect(screen.queryByRole('form', { name: 'Grant authorisation' })).toBeNull()
+  })
+
+  it('a target under a live grant says it is declared, not verified; Revoke asks for an optional reason', async () => {
+    api.getNetworkTargets.mockResolvedValue({ targets: [{ ...target, range_consent: { id: 'nrc_1', status: 'active', ports: [22, 443], granted_at: '2026-10-22T20:00:00Z', signer: { name: 'Taylor Owner', title: 'Director' } } }], capabilities: caps })
+    api.revokeNetworkRangeConsent.mockResolvedValue({})
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    const cell = await screen.findByTestId('range-consent-active')
+    expect(cell).toHaveTextContent('Authorised by declared range consent — not independently verified by CyberMeters')
+    expect(cell).toHaveTextContent('ports 22, 443')
+    fireEvent.click(within(cell).getByRole('button', { name: 'Revoke' }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Contract ended' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Revoke' }))
+    await waitFor(() => expect(api.revokeNetworkRangeConsent).toHaveBeenCalledWith('ws1', 'nrc_1', 'Contract ended'))
+  })
+
+  it('without the statement from the API there is no form to sign', async () => {
+    api.getNetworkTargets.mockResolvedValue({ targets: [target], capabilities })
+    api.addNetworkTarget.mockRejectedValueOnce(refused('required'))
+    await addRefusedTarget()
+    expect(await screen.findByText(/statement could not be loaded/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Grant authorisation' })).toBeNull()
+  })
 })

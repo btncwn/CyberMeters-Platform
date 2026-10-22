@@ -280,6 +280,9 @@ async function requestOnce(path, options = {}) {
     if (typeof err.outcome === 'string') httpError.outcome = err.outcome
     if (err.readiness) httpError.readiness = err.readiness
     if (err.report_availability) httpError.report_availability = err.report_availability
+    // Network target refused for scope: whether a declared-range grant may be
+    // offered ('required') or never ('not_grantable_shared').
+    if (typeof err.range_consent === 'string') httpError.range_consent = err.range_consent
     // Domain-ownership gate: carry the EXACT record the server gated on, so the
     // caller can start verification for that record rather than guessing between
     // duplicate workspace/domain links. Machine-readable context only — the
@@ -376,6 +379,9 @@ async function requestBlob(path, options = {}) {
     const httpError = friendlyHttpError(res, err)
     if (err.code) httpError.code = err.code
     if (err.report_availability) httpError.report_availability = err.report_availability
+    // Network target refused for scope: whether a declared-range grant may be
+    // offered ('required') or never ('not_grantable_shared').
+    if (typeof err.range_consent === 'string') httpError.range_consent = err.range_consent
     throw httpError
   }
   return res.blob()
@@ -1747,6 +1753,7 @@ export const api = {
   authorizeTlsService: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services`, { method: 'POST', body: JSON.stringify(body) }),
   revokeTlsService: (wsId, serviceId) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services/${encodeURIComponent(serviceId)}/revoke`, { method: 'POST', body: '{}' }),
   addNetworkTarget: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, { method: 'POST', body: JSON.stringify(body) }),
+  revokeNetworkRangeConsent: (wsId, consentId, reason = '') => request(`/workspaces/${encodeURIComponent(wsId)}/network-range-consents/${encodeURIComponent(consentId)}/revoke`, { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) }),
   startNetworkScan: (wsId, targetId, ports) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets/${encodeURIComponent(targetId)}/scans`, { method: 'POST', body: JSON.stringify({ ports }) }),
   getNetworkScans: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans`, options),
   getNetworkScan: (wsId, scanId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans/${encodeURIComponent(scanId)}`, options),
