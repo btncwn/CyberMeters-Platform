@@ -870,11 +870,11 @@ for (const [name, partial] of [
   const inspect = (html) => observeWebsiteScripts(html, fixture.page_url, fixture.domain);
   const fake = inspect(`<!-- <script src='https://fake.example/one.js'></script> --><template><script src='https://fake.example/two.js'></script></template><script>const text = "<script src='https://fake.example/three.js'>";</script>`);
   check("C23 comments inert markup and inline strings do not invent script references", fake.scripts.length === 0);
-  const quoted = inspect(`<script data-note=" src='https://fake.example/fake.js' integrity='fake'" src='/real.js'></script><script src='https://first.example/one.js' src='https://second.example/two.js' integrity='present'></script>`);
+  const quoted = inspect(fixture.quoted_attributes_html);
   check("C23 actual first attributes win and ambiguous quoted tags are omitted", quoted.scripts.length === 2
     && quoted.scripts[0].host === "example.com" && quoted.scripts[0].integrity_declared === false
     && quoted.scripts[1].host === "first.example" && quoted.scripts[1].integrity_declared === true
-    && inspect(`<script data-note='>' src='/real.js' integrity='present'></script>`).scripts.length === 1);
+    && inspect(fixture.quoted_gt_html).scripts.length === 1);
   const ambiguousWindows = [
     `<div data-note="> <script src='https://fake.example/jquery-3.4.1.js'></script>">text</div>`,
     `<div data-note="${"x".repeat(SCRIPT_LIMITS.tag_chars + 1)}> <script src='https://fake.example/jquery-3.4.1.js'></script>">text</div>`,
