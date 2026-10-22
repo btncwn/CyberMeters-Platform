@@ -89,12 +89,20 @@ describe('Home screen', () => {
 
   it('the scan input starts the scan flow with the typed domain; empty input still opens the scan page', async () => {
     renderHome()
-    const input = await screen.findByRole('textbox', { name: 'Domain to scan' })
+    // Deterministic (flaked under CI load, Seat 2 on #847): wait for the settled
+    // form — the verified domain prefilled — so the domain list has loaded and
+    // no later render replaces the field. Typing into a field that is then
+    // replaced is lost: the prefill wins and the submit starts a scan instead
+    // of opening the new-scan page.
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Domain to scan' })).toHaveValue('example.co.uk'))
+    const input = screen.getByRole('textbox', { name: 'Domain to scan' })
     expect(input).toHaveAttribute('placeholder', 'Enter a domain to scan, e.g. example.co.uk')
     fireEvent.change(input, { target: { value: '  Shop.Example.co.uk ' } })
+    expect(screen.getByRole('textbox', { name: 'Domain to scan' })).toHaveValue('  Shop.Example.co.uk ')
     fireEvent.submit(screen.getByRole('form', { name: 'Start a scan' }))
     // A domain this workspace has not verified keeps the new-scan path, normalised.
-    expect(await screen.findByTestId('new-scan-probe')).toHaveTextContent('?domain=shop.example.co.uk')
+    expect(await screen.findByTestId('new-scan-probe', {}, { timeout: 5000 })).toHaveTextContent('?domain=shop.example.co.uk')
+    expect(api.createScan).not.toHaveBeenCalled()
   })
 
   it('without any scan it says so instead of inventing a last assessment', async () => {
