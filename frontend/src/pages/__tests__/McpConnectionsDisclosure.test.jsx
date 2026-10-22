@@ -168,7 +168,7 @@ describe('MCP connection names (founder, 21 Oct 2026)', () => {
     render(<MemoryRouter><McpConnectionsPage /></MemoryRouter>)
     expect(await screen.findByText('ChatGPT')).toBeInTheDocument()
     expect(screen.getByText('The name this app gave when it connected')).toBeInTheDocument()
-    expect(screen.getByText(/^AI assistant \(connected /)).toBeInTheDocument()
+    expect(screen.getByText(/^Unnamed client \(connected /)).toBeInTheDocument()
     for (const raw of ['bhSWf6RgdRikkev-', 'NDZYnyivspx-mnsY']) expect(screen.queryByText(raw)).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Copy connection ID' }).length).toBe(2)
   })

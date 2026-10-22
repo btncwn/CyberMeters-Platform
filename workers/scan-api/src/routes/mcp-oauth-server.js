@@ -272,13 +272,13 @@ function consentPage(details, handle, intent, workspaces, portfolioAvailable, re
 <p>The app receives a 15-minute access token and can renew read access for up to 7 days from this authorization. After 7 days, you must reconnect. You can revoke access in CyberMeters at any time.</p>
 <h2>What it receives</h2>
 <p>The connected app can receive workspace names, domains, security findings and evidence, scan and case status, and report summaries within your approved access. The app or its provider may retain data it receives under its own terms and settings.</p>
-<p>Revoking this connection stops future CyberMeters reads, but cannot delete data already sent to the app. Review the app before allowing access.</p>
+<p>Revoking this connection stops future CyberMeters reads, but cannot delete data already sent to the app. Review the app before approving access.</p>
 <form method="post" action="/authorize?intent=${encodeURIComponent(intent)}">
 <input type="hidden" name="handle" value="${escapeHtml(handle)}">
 <label class="field" for="context">CyberMeters access</label><select id="context" name="context" required>${placeholder}${workspaceOptions}${portfolioOption}</select>
 ${portfolioChoices}
 <p class="muted scopes">Requested scopes: ${escapeHtml(requestedScope.join(", "))}. Granted scopes: mcp:read${portfolioOption ? "; portfolio:read only when you choose a portfolio set" : ""}${requestedScope.includes("offline_access") ? "; offline_access for refresh" : ""}.</p>
-<div class="actions"><button class="primary" type="submit" name="decision" value="approve">Allow</button>
+<div class="actions"><button class="primary" type="submit" name="decision" value="approve">Approve</button>
 <button class="secondary" type="submit" name="decision" value="deny" formnovalidate>Deny</button></div></form></div></main></body></html>`;
 }
 
