@@ -40,7 +40,13 @@ async function loadStateModule() {
       )
       : source.replace("    unavailable > 0 ||\n", "");
   if (mutated === source) throw new Error(`state mutation target missing: ${mutation}`);
-  return import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#${mutation}`);
+  // data: modules cannot resolve relative specifiers: the shared stated-limit
+  // import is rewritten to its absolute file URL (must-fail anchor).
+  const statedImport = 'import { isStatedAccessLimit } from "./scan-stated-limits.js";';
+  const relinked = mutated.replace(statedImport,
+    `import { isStatedAccessLimit } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
+  if (relinked === mutated) throw new Error("state stated-limit import anchor missing");
+  return import(`data:text/javascript;base64,${Buffer.from(relinked).toString("base64")}#${mutation}`);
 }
 
 async function loadPresentationModule() {
@@ -436,6 +442,37 @@ if (!mutation) {
       run.status !== 0 && run.stdout.includes(expectedFailure),
       `status=${run.status} stdout=${JSON.stringify(run.stdout.slice(0, 300))}`);
   }
+}
+
+// 22 Oct 2026 (sheshire.co.uk scan_3c55f1eb): scan_quality was complete with
+// the provider-withheld takeover probe as a STATED limit, but this module read
+// the same subdomain_takeover.incomplete as an evidence gap, so the assessment
+// was degraded and the score withheld. One shared rule (scan-stated-limits.js).
+if (mutation === null) {
+  const batch4 = {
+    dns: {}, ssl: {}, headers: {}, email_security: {}, dmarc_core: {}, email_security_intelligence: {},
+    technology_detection: {}, whois_intelligence: {},
+    dns_bruteforce: {}, asset_exposure: {}, cloud_storage_discovery: {},
+    subdomain_takeover: { incomplete: true, incomplete_reason: "host_probe_unconfirmed", incomplete_reasons: ["host_probe_unconfirmed"], error: null,
+      unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", provider: "Provider", reason: "origin_access_restricted" }] },
+  };
+  const withheld = deriveSignalMonitoringStates({ modules: batch4, scanQuality: { status: "complete", modules_skipped: [] } });
+  eq("stated limit: provider-withheld takeover keeps attack surface healthy", withheld.signals.attack_surface.state, "monitoring_healthy");
+  const shown = resolveAssessmentPresentation({ score: 80, scanQuality: "complete", status: "completed", monitoringStates: withheld, requireMonitoring: true });
+  // authoritative is true only for a complete (not degraded) assessment.
+  ok("stated limit: a complete scan keeps its score and is not degraded", shown.authoritative === true && shown.display_score === 80 && shown.state === "established", JSON.stringify({ authoritative: shown.authoritative, display_score: shown.display_score, state: shown.state }));
+  const failed = deriveSignalMonitoringStates({ modules: { ...batch4, subdomain_takeover: { ...batch4.subdomain_takeover,
+    unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", reason: "fetch_failed" }] } }, scanQuality: { status: "complete", modules_skipped: [] } });
+  eq("a takeover probe that failed is still an evidence gap", failed.signals.attack_surface.state, "evidence_incomplete");
+  // Mutant: the stated-limit branch removed -> the false degrade returns.
+  const source = fs.readFileSync(statePath, "utf8");
+  const anchor = "  if (value != null && !skipped.has(moduleName) && isStatedAccessLimit(moduleName, value)) {";
+  ok("stated-limit mutant anchor present once", source.split(anchor).length === 2);
+  const mutated = source.replace(anchor, "  if (false) {").replace('import { isStatedAccessLimit } from "./scan-stated-limits.js";',
+    `import { isStatedAccessLimit } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
+  const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#stated-limit-ignored`);
+  eq("mutant (stated limit ignored) is caught: attack surface reads incomplete again",
+    mutant.deriveSignalMonitoringStates({ modules: batch4, scanQuality: { status: "complete", modules_skipped: [] } }).signals.attack_surface.state, "evidence_incomplete");
 }
 
 console.log(`\nsignal-monitoring-state: ${pass} passed, ${fail} failed`);

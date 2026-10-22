@@ -1,3 +1,4 @@
+import { isStatedAccessLimit } from "./scan-stated-limits.js";
 // ── Canonical within-scan signal monitoring state ────────────────────────────
 //
 // This is the ONE backend-owned resolver for customer-facing monitoring health.
@@ -253,6 +254,11 @@ function moduleEvidenceState(modules, moduleName, skipped) {
     return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
   }
   const value = modules[moduleName];
+  // A stated limit (scan-stated-limits.js) is disclosed, not a gap in our own
+  // evidence collection: the same rule buildScanQuality applies.
+  if (value != null && !skipped.has(moduleName) && isStatedAccessLimit(moduleName, value)) {
+    return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
+  }
   if (
     value == null ||
     skipped.has(moduleName) ||
