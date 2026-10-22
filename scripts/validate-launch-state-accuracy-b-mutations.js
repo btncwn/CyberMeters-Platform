@@ -416,6 +416,42 @@ const cases = [
     from: 'finding_type: "observation", score_impact: 0, confidence: 90,', to: 'finding_type: "finding", score_impact: 0, confidence: 90,',
     failure: "C22 published issuer and sign-in metadata are qualified non-scored facts",
   },
+  {
+    name: "C23 unverified script publication admitted", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'if (verified !== true || tech?.error', to: 'if (tech?.error', failure: "C23 unverified foreign or incomplete observations never publish",
+  },
+  {
+    name: "C23 owned child host declared external", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'outside_domain: !ownHost(url.hostname, root)', to: 'outside_domain: true', failure: "C23 same-domain child hosts are not asserted external",
+  },
+  {
+    name: "C23 integrity declarations ignored", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'integrity_declared: Boolean(attrs.get("integrity")?.trim())', to: 'integrity_declared: false', failure: "C23 actual first attributes win and ambiguous quoted tags are omitted",
+  },
+  {
+    name: "C23 advisory fixed release included", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'compare(versionParts(library.version), versionParts(row.fixed)) < 0', to: 'compare(versionParts(library.version), versionParts(row.fixed)) <= 0', failure: "C23 advisory fixed boundaries are excluded",
+  },
+  {
+    name: "C23 advisory lower boundary removed", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'compare(versionParts(library.version), versionParts(row.introduced)) >= 0', to: 'true', failure: "C23 advisory lower boundaries are respected",
+  },
+  {
+    name: "C23 script output cap removed", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'return scripts.length < SCRIPT_LIMITS.scripts;', to: 'return true;', failure: "C23 script output is capped",
+  },
+  {
+    name: "C23 HTML analysis cap removed", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: '.slice(0, SCRIPT_LIMITS.html_chars)', to: '', failure: "C23 HTML analysis window is capped",
+  },
+  {
+    name: "C23 duplicate final attribute replaces browser first attribute", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'if (!out.has(key)) out.set(key, value);', to: 'out.set(key, value);', failure: "C23 actual first attributes win and ambiguous quoted tags are omitted",
+  },
+  {
+    name: "C23 script observations become actionable findings", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: 'finding_type: "observation", score_impact: 0, confidence: 75,', to: 'finding_type: "finding", score_impact: 0, confidence: 75,', failure: "C23 script hosts integrity and advisory labels produce three zero-impact observations",
+  },
 ];
 
 function run() {

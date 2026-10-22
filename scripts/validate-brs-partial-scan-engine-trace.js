@@ -17,8 +17,10 @@ const PARTIAL_NOW = new Date(Date.parse(NOW) + 60 * 60 * 1000).toISOString();
 const registrationFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/dns-service-registrations.json"), "utf8"));
 const watchlistFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/brand-watchlist-dns.json"), "utf8"));
 const oidcFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/identity-oidc-observation.json"), "utf8"));
+const scriptFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/website-script-observations.json"), "utf8"));
 let oidcRequests = 0;
-const EXPECTED_ASSERTIONS = 30;
+let externalScriptRequests = 0;
+const EXPECTED_ASSERTIONS = 32;
 let passed = 0;
 let failed = 0;
 const check = (name, condition, detail = "") => {
@@ -103,6 +105,7 @@ let providerMode = "complete";
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
+  if (url.hostname.endsWith(".external.example")) { externalScriptRequests++; throw new Error("external script fetch is forbidden"); }
   if (url.hostname === oidcFixture.domain && url.pathname === "/.well-known/openid-configuration") {
     oidcRequests++;
     return jsonResponse(oidcFixture.document);
@@ -138,7 +141,7 @@ globalThis.fetch = async (input) => {
     }
     return jsonResponse({ Status: 0, Answer: [] });
   }
-  return new Response("<html><head><title>Example</title></head><body>ok</body></html>", {
+  return new Response(scriptFixture.pipeline_html, {
     status: 200,
     headers: { "content-type": "text/html", server: "brs-engine-trace" },
   });
@@ -254,11 +257,18 @@ try {
     oidcRequests === 1 && oidcFact?.evidence?.length === 3 && oidcFact.finding_type === "observation" && oidcFact.score_impact === 0
     && registrationReport.modules.identity_discovery.openid_connect.observations[0]?.issuer === oidcFixture.document.issuer
     && oidcProjection?.domain_keys?.join() === "identity_exposure" && oidcProjection.remediation_id === "identity.oidc.review");
+  const scriptFacts = registrationReport?.findings?.filter((row) => row.id.startsWith("tech_script_"));
+  check("C23 real existing HTML -> script facts -> report -> Website Security snapshot without extra requests",
+    externalScriptRequests === 0 && scriptFacts?.length === 3 && scriptFacts.every((fact) => fact.finding_type === "observation" && fact.score_impact === 0
+      && registrationSnapshot?.observations?.some((row) => row.finding_id === fact.id && row.domain_keys?.join() === "website_security" && row.remediation_id === "web.script_metadata.review")));
   db.prepare("UPDATE workspace_domains SET verification_status='pending' WHERE workspace_id='ws' AND domain_id='dom'").run();
 
   providerMode = "partial";
   const partialError = await run("scan-partial", PARTIAL_NOW, Date.parse(PARTIAL_NOW));
   const partialWatchlistReport = storedFor("scan-partial").find((value) => value.scan_id === "scan-partial" && value.modules);
+  check("C23 real unverified scan retains no script metadata or report facts",
+    !!partialWatchlistReport && partialWatchlistReport.modules.technology_detection.script_observations === null
+    && !partialWatchlistReport.findings?.some((row) => row.id.startsWith("tech_script_")) && externalScriptRequests === 0);
   check("C22 real unverified scan performs no metadata request and publishes no identity fact",
     !!partialWatchlistReport && oidcRequests === 1 && !partialWatchlistReport.findings?.some((row) => row.id === "identity_oidc_observation"));
   check("C21 real unverified scan cannot publish retained watchlist DNS receipts",

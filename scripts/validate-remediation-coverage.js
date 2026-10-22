@@ -105,6 +105,7 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   "shadow_it_dns_registration",
   "brand_watchlist_dns_observation",
   "identity_oidc_observation",
+  "tech_script_host_observation", "tech_script_integrity_observation", "tech_script_advisory_observation",
 ]);
 
 // Dynamic / suffixed emitters normalise to a stable prefix the resolver handles.
@@ -146,14 +147,14 @@ ok("all other remediation identities remain version 1",
 // + asm.subdomain.takeover_unconfirmed (21 Oct 2026, hedged unconfirmed takeover candidate).
 // S3-0 (22 Oct 2026): + asm.network.remote_admin_reachable and asm.network.ftp_reachable.
 // S3-C (22 Oct 2026): + email.dane.tlsa_ineffective and cert.dane.web_tlsa_not_validated.
-ok("registry has exactly 117 entries including public identity metadata guidance", REMEDIATION_REGISTRY.length === 117);
+ok("registry has exactly 118 entries including script metadata guidance", REMEDIATION_REGISTRY.length === 118);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including public identity metadata guidance is exact", remediationRegistryFingerprint() === "r117-c175ea1a", remediationRegistryFingerprint());
+ok("registry fingerprint including script metadata guidance is exact", remediationRegistryFingerprint() === "r118-25b6147b", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
@@ -177,7 +178,7 @@ ok("cookie remediation names SameSite and preserves zero-cookie inconclusive sem
 const EMITTER_FILES = [
   "scoring.js", "email-intel.js", "email-analysis.js", "cloud-storage-scan.js",
   "asset-intel.js", "tech-scan.js", "whois-scan.js", "cert-trust-l2.js", "scan-engine.js",
-  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js", "tls-findings.js", "vendor-signatures.js", "brand-dns-enrichment.js", "identity-oidc-observation.js",
+  "network-probe.js", "signin-page-findings.js", "website-availability.js", "exposure-findings.js", "tls-findings.js", "vendor-signatures.js", "brand-dns-enrichment.js", "identity-oidc-observation.js", "website-script-observations.js",
 ];
 // Literals that appear as id:/type: but are NOT finding types (evidence types,
 // module names, classifications, hosted-service ids, workflow states…).

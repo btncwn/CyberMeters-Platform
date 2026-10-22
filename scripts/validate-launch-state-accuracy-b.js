@@ -842,5 +842,64 @@ for (const [name, partial] of [
     && snapshot(report).remediation_actions.every((action) => !action.finding_ids?.includes("identity_oidc_observation")));
 }
 
+// C-23: references in already-fetched HTML, never verified library bytes.
+{
+  const { observeWebsiteScripts, websiteScriptFindings, declaredLibrary, SCRIPT_LIMITS } = await import(engine("website-script-observations.js"));
+  const { JAVASCRIPT_ADVISORY_DATA } = await import(engine("javascript-advisory-data.js"));
+  const fixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/website-script-observations.json"), "utf8"));
+  const observed = observeWebsiteScripts(fixture.html, fixture.page_url, fixture.domain);
+  const tech = { script_observations: observed };
+  const scope = { domain: fixture.domain, verified: true };
+  const facts = websiteScriptFindings(tech, scope);
+  check("C23 script hosts integrity and advisory labels produce three zero-impact observations", observed.scripts.length === fixture.expected_scripts
+    && facts.length === 3 && facts.every((row) => row.finding_type === "observation" && row.score_impact === 0)
+    && facts[0].evidence.length === fixture.expected_external_hosts && facts[1].evidence.length === fixture.expected_without_integrity);
+  check("C23 same-domain child hosts are not asserted external", observed.scripts.find((row) => row.host === "static.example.com")?.outside_domain === false);
+  check("C23 script query values and source paths are not retained", !JSON.stringify(observed).includes("omit-this-value") && !JSON.stringify(observed).includes("/vendor/"));
+  check("C23 bounded advisory data is stamped and publicly sourced", observed.advisory_data_version === "2026.10.22.1"
+    && observed.advisory_data_reviewed_at === "2026-10-22" && JAVASCRIPT_ADVISORY_DATA.advisories.length === 2
+    && fixture.expected_advisories.every((id) => facts[2].evidence.some((row) => row.value.includes(id)))
+    && /not a confirmed vulnerability/.test(facts[2].description));
+  check("C23 advisory fixed boundaries are excluded", declaredLibrary("/jquery-3.5.0.min.js")?.advisories.length === 0
+    && declaredLibrary("/lodash-4.17.19.min.js")?.advisories.length === 0);
+  check("C23 advisory lower boundaries are respected", declaredLibrary("/jquery-1.1.9.js")?.advisories.length === 0
+    && declaredLibrary("/jquery-1.2.0.js")?.advisories.length === 1 && declaredLibrary("/lodash-3.6.9.js")?.advisories.length === 0
+    && declaredLibrary("/lodash-3.7.0.js")?.advisories.length === 1);
+  check("C23 only exact full distribution version labels are matched", ["/jquery.min.js", "/jquery-3.4.js", "/jquery-3.4.1-beta.js", "/jquery-migrate-3.4.1.js", "/lodash-es-4.17.18.js", "/app.js?jquery-3.4.1.js"].every((path) => declaredLibrary(path) === null)
+    && declaredLibrary("/jquery@3.4.1/dist/jquery.min.js")?.version === "3.4.1");
+  const inspect = (html) => observeWebsiteScripts(html, fixture.page_url, fixture.domain);
+  const fake = inspect(`<!-- <script src='https://fake.example/one.js'></script> --><template><script src='https://fake.example/two.js'></script></template><script>const text = "<script src='https://fake.example/three.js'>";</script>`);
+  check("C23 comments inert markup and inline strings do not invent script references", fake.scripts.length === 0);
+  const quoted = inspect(`<script data-note=" src='https://fake.example/fake.js' integrity='fake'" src='/real.js'></script><script data-note='>' src='/hidden.js' integrity='present'></script><script src='https://first.example/one.js' src='https://second.example/two.js' integrity='present'></script>`);
+  check("C23 actual first attributes win and ambiguous quoted tags are omitted", quoted.scripts.length === 2
+    && quoted.scripts[0].host === "example.com" && quoted.scripts[0].integrity_declared === false
+    && quoted.scripts[1].host === "first.example" && quoted.scripts[1].integrity_declared === true);
+  check("C23 non-JavaScript unsafe and truncated references are omitted", inspect(`<script type='application/ld+json' src='https://data.example/a.js'></script><script src='javascript:alert(1)'></script><script src='https://user:secret@bad.example/a.js'></script><script src='https://truncated.example/a.js'`).scripts.length === 0);
+  check("C23 relative references with a base element remain unassessed", inspect(`<base href='https://other.example/'><script src='/relative.js'></script><script src='https://explicit.example/absolute.js'></script>`).scripts.length === 1);
+  check("C23 script output is capped", inspect(Array.from({ length: 60 }, (_, i) => `<script src='https://cdn${i}.external.example/file.js'></script>`).join("")).scripts.length === SCRIPT_LIMITS.scripts);
+  check("C23 HTML analysis window is capped", inspect(" ".repeat(SCRIPT_LIMITS.html_chars) + "<script src='https://late.example/file.js'></script>").scripts.length === 0);
+  check("C23 unverified foreign or incomplete observations never publish", websiteScriptFindings(tech, { ...scope, verified: false }).length === 0
+    && websiteScriptFindings(tech, { ...scope, domain: "foreign.example" }).length === 0
+    && websiteScriptFindings({ ...tech, incomplete: true }, scope).length === 0
+    && observeWebsiteScripts(fixture.html, "https://foreign.example/", fixture.domain) === null);
+  const frozen = snapshot(reportWith({ technology_detection: tech }, facts));
+  check("C23 Website Security canonical guidance is frozen without forced actions", facts.every((fact) => frozen.observations.some((row) => row.finding_id === fact.id
+    && row.domain_keys?.join() === "website_security" && row.remediation_id === "web.script_metadata.review"))
+    && frozen.remediation_actions.every((action) => !action.finding_ids?.some((id) => id.startsWith("tech_script_"))));
+  const { runTechModule } = await import(engine("tech-scan.js"));
+  const savedFetch = globalThis.fetch;
+  let requests = 0;
+  try {
+    globalThis.fetch = async () => { requests++; return new Response(fixture.html, { headers: { "content-type": "text/html" } }); };
+    const measured = await runTechModule(fixture.domain);
+    check("C23 real technology producer adds no request and carries the already-read HTML facts", requests === 1
+      && measured.script_observations?.scripts.length === fixture.expected_scripts && websiteScriptFindings(measured, scope).length === 3);
+    globalThis.fetch = async () => new Response(fixture.html, { status: 503, headers: { "content-type": "text/html" } });
+    check("C23 origin error pages cannot supply script facts", websiteScriptFindings(await runTechModule(fixture.domain), scope).length === 0);
+    globalThis.fetch = async () => new Response(fixture.html, { headers: { "content-type": "application/json" } });
+    check("C23 non-HTML responses cannot supply script facts", websiteScriptFindings(await runTechModule(fixture.domain), scope).length === 0);
+  } finally { globalThis.fetch = savedFetch; }
+}
+
 console.log(`Launch state accuracy fixtures: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);
