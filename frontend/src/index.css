@@ -1,6 +1,26 @@
 @import 'tailwindcss';
 
 @theme {
+  /* Type scale (DESIGN-STANDARD §7, founder 22 Oct 2026): the rounded average of
+     three benchmark dashboards per level, recorded in the PR that set it. Strictly
+     descending: page title > section > sub-section > control ≥ body > fine print.
+     Fine print is the floor; nothing customer-readable is smaller. */
+  --text-page-title: 25px;
+  --text-page-title--line-height: 35px;
+  --text-page-title--font-weight: 600;
+  --text-section: 20px;
+  --text-section--line-height: 28px;
+  --text-section--font-weight: 600;
+  --text-subsection: 16px;
+  --text-subsection--line-height: 24px;
+  --text-subsection--font-weight: 600;
+  --text-control: 14px;
+  --text-control--line-height: 20px;
+  --text-control--font-weight: 500;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-fine: 12px;
+  --text-fine--line-height: 16px;
   --color-gray-50: #f9fafb;
   --color-gray-100: #f3f4f6;
   --color-gray-200: #e5e7eb;
@@ -147,7 +167,7 @@
 }
 
 @utility page-title {
-  @apply text-[28px] font-bold text-gray-900 tracking-tight leading-tight;
+  @apply text-page-title text-gray-900 tracking-tight;
 }
 
 @utility page-subtitle {
@@ -155,7 +175,7 @@
 }
 
 @utility section-title {
-  @apply text-lg font-bold text-gray-900 tracking-tight;
+  @apply text-section text-gray-900 tracking-tight;
 }
 
 @utility stat-tile {
@@ -496,15 +516,9 @@
      every other text — including h3/h4 — is the product sans. */
   h1, h2 { font-family: 'Computer Modern Serif', Georgia, Cambria, serif; }
   ::selection { background-color: rgba(31,204,173,.25); }
-  /* Product type floor (founder, 14 Oct): inside the app a page title is at
-     least 24px, a section title at least 18px, and no heading is ever smaller
-     than the body text. The public website sets its own sizes. */
-  .cm-app :where(h1) { font-size: 1.5rem; line-height: 1.2; font-weight: 700; }
-  .cm-app :where(h2) { font-size: 1.125rem; line-height: 1.3; font-weight: 700; }
-  .cm-app :where(h3, h4) { font-size: 1.0625rem; line-height: 1.35; font-weight: 600; }
+  /* Inside the app every heading takes its level from the type-scale tokens
+     (below, unlayered). The public website sets its own sizes. */
   .cm-app :where(h1, h2, h3, h4) { color: #000; }
-  /* The lift for headings that carry a small size utility lives outside the
-     cascade layers (below), so it still wins over the utilities layer. */
   * { -webkit-font-smoothing: antialiased; }
   * {
     scrollbar-width: thin;
@@ -530,16 +544,15 @@
   }
 }
 
-/* Product type floor, part 2 (founder, 14 Oct): a heading carrying a small
-   size utility is lifted to the floor; larger utilities (text-2xl, text-3xl…)
-   still apply because they are not listed. Deliberately unlayered: with
-   Tailwind v4 the base and utilities layers are real cascade layers and a
-   later layer wins regardless of specificity, so inside @layer base these
-   rules lost to text-sm / text-xl and the floor silently dropped
-   (h1 24→21px, h2 18→16px, h3 17→16px). Unlayered rules beat every layer. */
-.cm-app h1:where(.text-xs, .text-sm, .text-base, .text-lg, .text-xl, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.5rem; }
-.cm-app h2:where(.text-xs, .text-sm, .text-base, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) { font-size: 1.125rem; }
-.cm-app :is(h3, h4):where(.text-xs, .text-sm, .text-\[13px\], .text-\[14px\], .text-\[15px\]) { font-size: 1.0625rem; }
+/* Type scale in the app (DESIGN-STANDARD §7): each heading level IS its token,
+   whatever size utility a page put on it, so no page can break the descending
+   order. Deliberately unlayered: with Tailwind v4 the base and utilities layers
+   are real cascade layers and a later layer wins regardless of specificity, so
+   only an unlayered rule beats text-sm / text-2xl on the element. The Overview's
+   hero question (.cm-hero-title) is the one display heading above the scale. */
+.cm-app h1:not(.cm-hero-title) { font-size: var(--text-page-title); line-height: var(--text-page-title--line-height); font-weight: var(--text-page-title--font-weight); }
+.cm-app h2 { font-size: var(--text-section); line-height: var(--text-section--line-height); font-weight: var(--text-section--font-weight); }
+.cm-app :is(h3, h4) { font-size: var(--text-subsection); line-height: var(--text-subsection--line-height); font-weight: var(--text-subsection--font-weight); }
 
 /* ── App shell v2 (founder prototype, 17 Oct 2026) ───────────────────────── */
 .cm-shell {
@@ -612,7 +625,7 @@
 .cm-wsbtn:hover, .cm-wsbtn:focus-visible { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(11, 87, 208, 0.32); color: #fff; background: linear-gradient(145deg, #173a78 0%, #1d67db 100%); }
 .cm-wsbtn:focus-visible, .cm-wsmini:focus-visible { outline: 3px solid #a9f2e5; outline-offset: 2px; box-shadow: 0 0 0 2px #081f1c, 0 14px 30px rgba(11, 87, 208, 0.32); }
 .cm-wsbtn-initial { font-family: 'Computer Modern Serif', Georgia, Cambria, serif; font-size: 42px; line-height: 1; }
-.cm-wsbtn-label { position: absolute; left: 0; right: 0; bottom: 9px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; text-align: center; }
+.cm-wsbtn-label { position: absolute; left: 0; right: 0; bottom: 9px; font-size: var(--text-fine); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; text-align: center; }
 .cm-tip {
   position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
   padding: 6px 10px; border-radius: 8px; white-space: nowrap;
@@ -634,7 +647,7 @@
 /* Unread label: small aqua pill at the globe's top-right; hidden when zero. */
 .cm-earth-count {
   position: absolute; right: -6px; top: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
-  background: #a9f2e5; color: #081f1c; font-size: 11px; font-weight: 600; line-height: 1; display: grid; place-items: center;
+  background: #a9f2e5; color: #081f1c; font-size: var(--text-fine); font-weight: 600; line-height: 1; display: grid; place-items: center;
   box-shadow: 0 0 0 2px #fff; pointer-events: none;
 }
 /* The notification panel opens beneath the globe, right-aligned to it, and is
@@ -705,7 +718,7 @@
 .cm-area-search:has(input:focus-visible) { outline: 2px solid #117362; outline-offset: 2px; }
 .cm-tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(16, 24, 40, 0.1); overflow-x: auto; }
 .cm-tab {
-  padding: 10px 14px; margin-bottom: -1px; font-size: 15px; font-weight: 600; color: #4b5563; white-space: nowrap;
+  padding: 10px 14px; margin-bottom: -1px; font-size: var(--text-control); line-height: var(--text-control--line-height); font-weight: var(--text-control--font-weight); color: #4b5563; white-space: nowrap;
   border-bottom: 2px solid transparent;
 }
 .cm-tab:hover { color: #111827; }
@@ -716,7 +729,7 @@
   .cm-sheet-grid { grid-template-columns: 1fr; }
   /* On a phone the panel takes the width under the bar. */
   .cm-notif { position: fixed; left: 16px; right: 16px; top: 76px; width: auto; max-height: calc(100dvh - 92px); transform-origin: calc(100% - 40px) -10px; }
-  .cm-tab { padding: 10px 9px; font-size: 14px; }
+  .cm-tab { padding: 10px 9px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
