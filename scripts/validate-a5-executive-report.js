@@ -424,5 +424,35 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("type: section headings use the section size", scanPdf.includes(PDF_TYPE.section));
 }
 
+// ── Signed-in scanning in the report (founder, 22 Oct 2026; snapshot #868) ──
+// The executive report passes the snapshot's section through verbatim; the PDF
+// prints it under Website Security; null anonymous-access reads "not observed";
+// a snapshot from before the section existed prints nothing.
+{
+  const { buildExecutiveReportV2 } = await eng("executive-report.js");
+  const { signedInPdfLines } = await eng("pdf.js");
+  const LIMIT = "Signed-in checks use the test account you gave CyberMeters: they cover the pages that account can reach within a small read-only crawl, and say nothing about other accounts, roles or pages it cannot reach.";
+  const section = { status: "recorded", configured: true, signed_in: true, sign_in_outcome: "signed_in", pages_checked: 2,
+    anonymous_access_refused: null, last_successful_sign_in_at: "2026-10-22T11:16:01.793Z", coverage: "complete",
+    customer_message: "Signed in with the test account and checked 2 pages behind the sign-in.", limitation: LIMIT };
+  // The fixture's areas use placeholder keys; Website Security gets its real one.
+  const realKeys = (snap) => ({ ...snap, domains: snap.domains.map((d) => (d.display_name === "Website Security" ? { ...d, domain_key: "website_security" } : d)) });
+  const withSi = { ...realKeys(mkSnap({ complete: true })), website_signed_in: section };
+  const exec = buildExecutiveReportV2({ scan: { id: "scan1", domain: "cybermeters.com" }, read: readOf(withSi) });
+  ok("signed-in: the executive report carries the snapshot section verbatim", JSON.stringify(exec.website_signed_in) === JSON.stringify(section));
+  ok("signed-in: a snapshot without the section reports none (never 'not configured')",
+     buildExecutiveReportV2({ scan: { id: "scan1" }, read: readOf(mkSnap({ complete: true })) }).website_signed_in === null);
+  const lines = signedInPdfLines(section);
+  ok("signed-in: PDF fact line says 'not observed' for null, never 'no'",
+     lines[0] === "Signed-in pages: 2 checked; anonymous access refused: not observed; last signed in 2026-10-22 11:16 UTC");
+  ok("signed-in: PDF lines are ASCII (the renderer strips anything else)", lines.every((l) => !/[^\x00-\x7F]/.test(l)));
+  const text = pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(withSi))).map(norm).join(" ");
+  ok("signed-in: the customer PDF prints the section's sentences", text.includes("checked 2 pages behind the sign-in") && text.includes("say nothing about other accounts"));
+  const before = pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(realKeys(mkSnap({ complete: true }))))).map(norm).join(" ");
+  ok("signed-in: an older snapshot's PDF says nothing about signed-in scanning", !/Signed-in pages|signed-in scanning/i.test(before));
+  ok("signed-in: not set up prints only its own sentence", JSON.stringify(signedInPdfLines({ status: "not_configured", customer_message: "Signed-in scanning is not set up for this domain, so only public pages were checked.", limitation: LIMIT }))
+     === JSON.stringify(["Signed-in scanning is not set up for this domain, so only public pages were checked.", LIMIT]));
+}
+
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
