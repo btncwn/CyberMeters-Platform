@@ -505,7 +505,9 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
     },
     {
       id: "website-lifecycle-completeness-gate",
-      from: "} else if (gate.canVerify(spec.module)) {",
+      // 22 Oct 2026: the absent branch is canVerify || canVerifyModule (per-module
+      // verification); the mutant still removes the whole completeness gate.
+      from: "} else if (gate.canVerify(spec.module) || gate.canVerifyModule(spec.module)) {",
       to: "} else if (true) {",
     },
     {

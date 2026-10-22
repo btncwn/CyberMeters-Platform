@@ -903,7 +903,18 @@ for (const inherited of [{ status: "complete" }, { status: "partial" }]) {
     p.stage === "phase5_intelligence" && p.completed_modules === 12 && p.last_heartbeat_at === iso(11 * 60_000) && p.stale === true, JSON.stringify(p));
   ok("S8 a fresh heartbeat is not stale", scanProgress({ status: "running", current_stage: "finalizing", last_heartbeat_at: iso(60_000) }, NOW).stale === false);
   ok("S9 an unknown internal stage never leaves the API", scanProgress({ status: "running", current_stage: "debug_internal_x" }, NOW).stage === null);
-  ok("S10 a terminal scan has no progress", scanProgress({ status: "completed", current_stage: "finalizing" }, NOW) === null);
+  ok("S10 a completed scan has no progress", scanProgress({ status: "completed", current_stage: "finalizing" }, NOW) === null);
+  const interrupted = scanProgress({ status: "failed", current_stage: "phase5_intelligence", completed_modules: 12, last_heartbeat_at: iso(20 * 60_000) }, NOW);
+  ok("S11 an interrupted scan keeps its last progress, marked terminal, and says no module names were recorded",
+    interrupted.terminal === true && interrupted.stage === "phase5_intelligence" && interrupted.completed_modules === 12
+    && interrupted.stale === false && interrupted.completed_module_names === null && interrupted.module_names_recorded === false, JSON.stringify(interrupted));
+  const finalisedFail = scanProgress({ status: "failed", current_stage: "finalizing", completed_modules: 3 }, NOW,
+    { completedModuleNames: ["ssl", "dns", "dns", "Bad Name!", "headers"] });
+  ok("S12 a failed scan that reached finalisation lists its completed modules (sorted, unique, safe names only)",
+    JSON.stringify(finalisedFail.completed_module_names) === JSON.stringify(["dns", "headers", "ssl"]) && finalisedFail.module_names_recorded === true, JSON.stringify(finalisedFail));
+  ok("S13 a live scan is terminal: false and carries no module-name fields",
+    scanProgress({ status: "running", current_stage: "finalizing", last_heartbeat_at: iso(60_000) }, NOW).terminal === false
+    && !("completed_module_names" in scanProgress({ status: "running" }, NOW)));
 }
 
 console.log(`\ninterrupted-scan-recovery: ${passed} passed, ${failed} failed`);

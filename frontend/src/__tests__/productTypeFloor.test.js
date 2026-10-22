@@ -51,7 +51,7 @@ describe('product type floor', () => {
   // later layer wins regardless of specificity. The heading lift (a heading
   // carrying text-sm / text-xl is raised to the floor) therefore has to live
   // outside every @layer block, or text-sm silently wins and the floor drops.
-  it('keeps the heading lift rules outside the cascade layers', () => {
+  it('keeps the heading level rules outside the cascade layers', () => {
     const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
     let unlayered = ''
     let i = 0
@@ -69,7 +69,8 @@ describe('product type floor', () => {
       }
       i = j + 1
     }
-    for (const rule of ['.cm-app h1:where(.text-xs, .text-sm', '.cm-app h2:where(.text-xs, .text-sm', '.cm-app :is(h3, h4):where(.text-xs, .text-sm']) {
+    // Type scale (DESIGN-STANDARD §7): each heading level IS its token, unlayered.
+    for (const rule of ['.cm-app h1:not(#home-question) { font-size: var(--text-page-title)', '.cm-app h2 { font-size: var(--text-section)', '.cm-app :is(h3, h4) { font-size: var(--text-subsection)']) {
       expect(unlayered, `${rule} must be declared outside @layer`).toContain(rule)
     }
   })
