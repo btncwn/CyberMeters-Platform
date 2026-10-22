@@ -761,8 +761,24 @@ export function moduleCompletionGate(modules, scanQuality) {
           !(perHostDnsAbsence === true && completeApartFromDnsAbsence(relevantModule))) return false;
       return Object.prototype.hasOwnProperty.call(modules || {}, relevantModule); // must have run
     },
+    // Per-module verification (22 Oct 2026, Detection Depth Law: one incomplete
+    // module never kills a reliable signal). A scan that is partial ONLY because
+    // of a supplementary module (e.g. deep TLS) may still verify a condition whose
+    // own detecting module ran complete. Same single quality snapshot; "degraded",
+    // "unknown" or an absent status never verify; every core module (dns, ssl,
+    // headers) must be clean, and the detecting module must have run complete.
+    canVerifyModule(relevantModule) {
+      if (!haveEvidence || !relevantModule) return false;
+      if (observedQualityStatus !== "complete" && observedQualityStatus !== "partial") return false;
+      for (const core of PER_MODULE_CORE_PREREQUISITES) {
+        if (incomplete.has(core) || !Object.prototype.hasOwnProperty.call(modules || {}, core)) return false;
+      }
+      if (incomplete.has(relevantModule)) return false;
+      return Object.prototype.hasOwnProperty.call(modules || {}, relevantModule);
+    },
   };
 }
+const PER_MODULE_CORE_PREREQUISITES = Object.freeze(["dns", "ssl", "headers"]);
 
 function relevantModuleForCase(caseRow) {
   if (isCookieFindingType(caseRow?.source_finding_type || caseRow?.finding_id)) {

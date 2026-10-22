@@ -357,8 +357,9 @@ export async function evaluateWebsiteSecurityForScan(env, {
         status = "unknown";
         unknown_reason = "evidence_uncertain";
         reason = "condition_present_but_grade_not_material";
-      } else if (gate.canVerify(spec.module)) {
-        // Absent AND the detecting module provably ran to completion => a real fix.
+      } else if (gate.canVerify(spec.module) || gate.canVerifyModule(spec.module)) {
+        // Absent AND the detecting module provably ran to completion => a real fix,
+        // also on a scan that is partial only because of a supplementary module.
         status = "no_longer_observed";
         reason = "absent_and_module_assessed";
       } else {

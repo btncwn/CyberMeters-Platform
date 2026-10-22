@@ -671,6 +671,64 @@ await import("./remote-admin-exposure-fixture.js");
   ok("case titles: the universal list projection uses the canonical display title", /display_title: display\?\.display_title \?\? caseDisplayTitleFor\(row\)/.test(route));
 }
 
+// ── Per-module verification (22 Oct 2026, Executive 11:50 (b)) ──────────────
+// sheshire.co.uk batch 2: HSTS was present and the Website module complete, but
+// the scan was partial only because deep TLS was inconclusive, and the global
+// gate kept the HSTS condition (and its case) from moving on. One incomplete
+// module must never kill a reliable signal.
+{
+  const engineUrl = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
+  const { moduleCompletionGate } = asm;
+  const core = { dns: { resolves: true }, ssl: { https_available: true }, headers: { final_https: true, status_code: 200 } };
+  const tlsGap = { tls_assessment: { incomplete: true, incomplete_reason: "tls_checks_inconclusive" } };
+  const partial = { status: "partial", modules_skipped: [] };
+  ok("per-module gate: partial only because of deep TLS verifies a complete headers module",
+    moduleCompletionGate({ ...core, ...tlsGap }, partial).canVerifyModule("headers") === true);
+  ok("per-module gate: the global gate alone still refuses that scan",
+    moduleCompletionGate({ ...core, ...tlsGap }, partial).canVerify("headers") === false);
+  ok("per-module gate: a degraded scan never verifies",
+    moduleCompletionGate({ ...core }, { status: "degraded", modules_skipped: [] }).canVerifyModule("headers") === false);
+  ok("per-module gate: an incomplete core module (ssl) never verifies",
+    moduleCompletionGate({ ...core, ssl: { incomplete: true, incomplete_reason: "https_probe_not_executed" } }, partial).canVerifyModule("headers") === false);
+  ok("per-module gate: an incomplete detecting module never verifies",
+    moduleCompletionGate({ ...core, page_discovery: { incomplete: true } }, partial).canVerifyModule("page_discovery") === false);
+  ok("per-module gate: an absent status never verifies",
+    moduleCompletionGate({ ...core }, { modules_skipped: [] }).canVerifyModule("headers") === false);
+
+  const runLifecycle = async (lifecycle, ws, domainId, domain) => {
+    const hsts = { id: "header_missing_strict_transport_security", module: "headers", severity: "high", title: "HSTS not configured", finding_type: "finding", score_impact: -10 };
+    await lifecycle.evaluateWebsiteSecurityForScan(env, { workspace_id: ws, domain_id: domainId, domain, scan_id: `${ws}_1`,
+      findings: [hsts], modules: core, scanQuality: { status: "complete", modules_skipped: [] } });
+    await lifecycle.evaluateWebsiteSecurityForScan(env, { workspace_id: ws, domain_id: domainId, domain, scan_id: `${ws}_2`,
+      findings: [], modules: { ...core, ...tlsGap }, scanQuality: partial });
+    return db.prepare("SELECT monitoring_status, unknown_reason FROM website_security_conditions WHERE workspace_id=? AND condition_key='header_missing_strict_transport_security'").get(ws);
+  };
+  const lifecycle = await import(engineUrl("website-security-lifecycle.js"));
+  seedWorkspace("ws_hsts", "dom_hsts", "hsts-example.com");
+  db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='ws_hsts'").run();
+  const fixed = await runLifecycle(lifecycle, "ws_hsts", "dom_hsts", "hsts-example.com");
+  ok("per-module: HSTS present on a TLS-only-partial scan -> the condition is no longer observed", fixed?.monitoring_status === "no_longer_observed");
+
+  // Mutant: the website lifecycle back on the global gate only.
+  const source = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "website-security-lifecycle.js"), "utf8");
+  const anchor = "} else if (gate.canVerify(spec.module) || gate.canVerifyModule(spec.module)) {";
+  ok("per-module mutant anchor present once", source.split(anchor).length === 2);
+  const base = pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "website-security-lifecycle.js"));
+  const relinked = source.replace(anchor, "} else if (gate.canVerify(spec.module)) {")
+    .replace(/from (["'])(\.{1,2}\/[^"']+)\1/g, (_m, q, spec) => `from ${q}${new URL(spec, base)}${q}`);
+  const dir = fs.mkdtempSync(path.join((await import("node:os")).tmpdir(), "cm-per-module-"));
+  try {
+    const target = path.join(dir, "website-security-lifecycle-mutant.mjs");
+    fs.writeFileSync(target, relinked);
+    const mutant = await import(pathToFileURL(target).href);
+    seedWorkspace("ws_hsts_m", "dom_hsts_m", "hsts-mutant-example.com");
+    db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='ws_hsts_m'").run();
+    const blocked = await runLifecycle(mutant, "ws_hsts_m", "dom_hsts_m", "hsts-mutant-example.com");
+    ok("per-module mutant (global gate only) is caught: the condition stays unknown / scan_partial",
+      blocked?.monitoring_status === "unknown" && blocked?.unknown_reason === "scan_partial");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
