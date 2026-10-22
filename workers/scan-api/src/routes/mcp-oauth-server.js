@@ -2,6 +2,7 @@ import {
   AuthorizationError, CimdFetchError, OAuthAuthorizationServer, OAuthError,
 } from "@cloudflare/workers-oauth-provider";
 import { hashToken } from "../lib/auth-crypto.js";
+import { CONSENT_CSS, CONSENT_CSS_SHA256, CONSENT_LOGO_SVG } from "./mcp-consent-style.js";
 import { withMcpClientNames } from "./mcp-oauth-client-names.js";
 import { createAuditEvent } from "../lib/events.js";
 import {
@@ -251,31 +252,42 @@ function consentPage(details, handle, intent, workspaces, portfolioAvailable, re
   const portfolioChoices = portfolioOption
     ? `<fieldset><legend>For portfolio access, choose up to ${MAX_PORTFOLIO_SELECTION} customer workspaces. None are selected by default.</legend>${workspaces.map((row) =>
       `<label><input type="checkbox" name="selected_workspace_id" value="${escapeHtml(row.id)}"> ${escapeHtml(row.name)} (${escapeHtml(row.role)})</label><br>`).join("")}</fieldset>` : "";
+  // Presentation only (founder, 21 Oct 2026): the same fields, names, intent,
+  // form action and honesty sentences, grouped under short headings and styled
+  // by the one hash-pinned style block (mcp-consent-style.js).
   const clientIdentity = details.clientDomain
     ? `Published by ${escapeHtml(details.clientDomain)}.`
     : "This app registered itself; its name has not been verified.";
   const localWarning = details.redirectIsLoopback
-    ? `<p><strong>Access will be delivered to an app on this computer. Continue only if you started the connection.</strong></p>` : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Connect CyberMeters</title></head>
-<body><main><h1>Connect ${escapeHtml(details.clientName)} to CyberMeters?</h1>
-<p>${clientIdentity}</p><p>Access will be delivered to ${escapeHtml(details.redirectHost)}.</p>${localWarning}
+    ? `<p class="warn"><strong>Access will be delivered to an app on this computer. Continue only if you started the connection.</strong></p>` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect CyberMeters</title><style>${CONSENT_CSS}</style></head>
+<body><main><div class="card">
+<div class="brand">${CONSENT_LOGO_SVG}<span>CyberMeters</span></div>
+<h1>Connect ${escapeHtml(details.clientName)} to CyberMeters?</h1>
+<p class="lead">${clientIdentity}</p>
+<h2>Where access goes</h2>
+<p>Access will be delivered to ${escapeHtml(details.redirectHost)}.</p>${localWarning}
+<h2>What it can do</h2>
 <p>This connection is read-only. It cannot change DNS, start scans, create cases, or manage users.</p>
 <p>The app receives a 15-minute access token and can renew read access for up to 7 days from this authorization. After 7 days, you must reconnect. You can revoke access in CyberMeters at any time.</p>
+<h2>What it receives</h2>
 <p>The connected app can receive workspace names, domains, security findings and evidence, scan and case status, and report summaries within your approved access. The app or its provider may retain data it receives under its own terms and settings.</p>
 <p>Revoking this connection stops future CyberMeters reads, but cannot delete data already sent to the app. Review the app before allowing access.</p>
 <form method="post" action="/authorize?intent=${encodeURIComponent(intent)}">
 <input type="hidden" name="handle" value="${escapeHtml(handle)}">
-<label for="context">CyberMeters access</label><select id="context" name="context" required>${placeholder}${workspaceOptions}${portfolioOption}</select>
+<label class="field" for="context">CyberMeters access</label><select id="context" name="context" required>${placeholder}${workspaceOptions}${portfolioOption}</select>
 ${portfolioChoices}
-<p>Requested scopes: ${escapeHtml(requestedScope.join(", "))}. Granted scopes: mcp:read${portfolioOption ? "; portfolio:read only when you choose a portfolio set" : ""}${requestedScope.includes("offline_access") ? "; offline_access for refresh" : ""}.</p>
-<p><button type="submit" name="decision" value="approve">Allow</button>
-<button type="submit" name="decision" value="deny" formnovalidate>Deny</button></p></form></main></body></html>`;
+<p class="muted scopes">Requested scopes: ${escapeHtml(requestedScope.join(", "))}. Granted scopes: mcp:read${portfolioOption ? "; portfolio:read only when you choose a portfolio set" : ""}${requestedScope.includes("offline_access") ? "; offline_access for refresh" : ""}.</p>
+<div class="actions"><button class="primary" type="submit" name="decision" value="approve">Allow</button>
+<button class="secondary" type="submit" name="decision" value="deny" formnovalidate>Deny</button></div></form></div></main></body></html>`;
 }
 
 function consentHeaders(headers, redirectUri) {
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
-  headers.set("Content-Security-Policy", `default-src 'none'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`);
+  // style-src admits exactly the consent page's one style block by hash: no
+  // origin, no 'unsafe-inline'. Everything else in the policy is unchanged.
+  headers.set("Content-Security-Policy", `default-src 'none'; style-src 'sha256-${CONSENT_CSS_SHA256}'; form-action 'self' ${new URL(redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`);
   headers.set("X-Frame-Options", "DENY");
   headers.set("X-Content-Type-Options", "nosniff");
   // Keep the intent URL off cross-origin requests while preserving Origin on the same-origin consent POST.
