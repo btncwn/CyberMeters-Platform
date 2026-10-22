@@ -10,11 +10,13 @@ import {
   evidenceLimits,
   evidenceStrengthLabel,
 } from '../lib/evidenceStrengthDisplay'
+import { customerCodeLabel } from '../lib/customerReasonText'
 
 // Backend vocabulary rendered one-to-one, without a machine identifier's
 // underscores: "monitoring_degraded" reads "monitoring degraded".
 function readableCode(value) {
-  return MODULE_TEXT[value] || String(value ?? '').replace(/_/g, ' ').trim()
+  // Module codes read as the check a customer recognises (one shared table).
+  return customerCodeLabel(value) || String(value ?? '').replace(/_/g, ' ').trim()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -334,21 +336,6 @@ function NotFullyAssessed({ entries, domains }) {
   )
 }
 
-// Scanner module identifiers read as the check a customer recognises; any other
-// backend code keeps its own words without underscores.
-const MODULE_TEXT = Object.freeze({
-  technology_detection: 'technology detection',
-  cve_intelligence: 'vulnerability (CVE) checks',
-  known_exploited_vulnerabilities: 'known exploited vulnerability (KEV) checks',
-  risk_intelligence: 'risk summary',
-  remediation_plan: 'remediation plan',
-  subdomain_takeover: 'subdomain takeover checks',
-  email_security_intelligence: 'email security detail',
-  dns_bruteforce: 'subdomain name checks',
-  cloud_storage_discovery: 'cloud storage checks',
-  certificate_intelligence: 'certificate checks',
-  admin_surface_detection: 'admin page checks',
-})
 
 function SectionCard({ title, count, children }) {
   return (

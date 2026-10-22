@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API_BASE, installAppMock, seedSession, workspace } from './fixtures/app-mock.js'
+import { API_BASE, installAppMock, report, scan, seedSession, workspace } from './fixtures/app-mock.js'
 import { expectNoOverlap, expectNoRawKeys, expectOnePrimaryAction } from './fixtures/design-guards.js'
 
 // Design standard, page group 1: the case page (founder, 21 Oct 2026).
@@ -78,5 +78,39 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     await expect(page.getByRole('textbox', { name: 'Domain to scan' })).toHaveValue('blackbullbarbers.co.uk')
     await expect(page.getByRole('button', { name: /Reload results/ })).toHaveCount(0)
     await expectNoRawKeys(page)
+  })
+}
+
+// Scan report (Executive 21 Oct, sheshire.co.uk first scan): a degraded scan
+// reads in sentences, the duration is not shifted by an hour, and an absent
+// header behind a protection layer says "Validation uncertain", not "Missing".
+const degradedScan = { ...scan, created_at: '2026-10-21 19:30:00', scan_quality: 'degraded' }
+const degradedReport = {
+  ...report, completed_at: '2026-10-21T19:31:22.000Z',
+  scan_quality: {
+    status: 'degraded', warnings: ['Module incomplete: tls_assessment'], modules_skipped: [],
+    modules_incomplete: [{ module: 'subdomain_takeover', incomplete_reason: 'host_probe_unconfirmed' }, { module: 'technology_detection' }],
+  },
+  modules: { ...(report.modules || {}), ssl: { https_available: true }, headers: { accessible: true, validation_uncertain: true, present: ['x-content-type-options'], values: { 'x-content-type-options': 'nosniff' } } },
+}
+for (const [width, height] of [[1440, 900], [390, 844]]) {
+  test(`a degraded scan report reads in plain words at ${width}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height })
+    await seedSession(context)
+    await installAppMock(page)
+    await page.route(`${API_BASE}/**`, (route) => {
+      const p = new URL(route.request().url()).pathname.replace(/^\/api/, '')
+      if (p === `/scans/${scan.id}/report`) return route.fulfill(json(degradedReport))
+      if (p === `/scans/${scan.id}`) return route.fulfill(json({ scan: degradedScan, report_availability: { status: 'report_ready' } }))
+      return route.fallback()
+    })
+    await page.goto(`/scans/${scan.id}`, { waitUntil: 'networkidle' })
+    await expect(page.getByText('Scan coverage incomplete')).toBeVisible()
+    await expectNoRawKeys(page)
+    await expect(page.locator('main')).not.toContainText('61m')
+    await expect(page.locator('main')).toContainText('1m 22s')
+    const headersCard = page.locator('.card').filter({ hasText: 'Security Headers' })
+    await expect(headersCard.getByTestId('headers-validation-uncertain')).toBeVisible()
+    await expect(headersCard.getByText('Missing', { exact: true })).toHaveCount(0)
   })
 }
