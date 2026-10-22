@@ -793,6 +793,12 @@ export async function processExposureMessage(body,env,deps={}) {
     if(!contentPhase)plan.discovered_hosts=[...new Set([...(plan.discovered_hosts||[]),...(receipt.discoveries?.hosts||[])])].filter(h=>safeHost(h,row.domain)).slice(0,128);
     growExposureJobBudget(plan);
     const cursor=contentPhase?0:row.cursor+(receipt.host_outcome?0:checks.length);
+    // A first scan defers every host (no earlier job observed HTTPS), so its TLS
+    // plan is empty and the last content slice would end the job before the
+    // replan in processExposureMessage could run (22 Oct 2026, blackbullbarbers.co.uk:
+    // HTTPS observed by this job's own checks, 0 TLS checks). Replan here, from
+    // this job's results, before deciding whether the job is complete.
+    if(cursor>=plan.checks.length)replanTlsFromOwnResults(plan,results);
     const state=cursor>=plan.checks.length && (!plan.tls || plan.tls.cursor>=plan.tls.selected.length)?'complete':'pending';
     // Receipt + progress + refund are one atomic, fenced commit. A late result
     // from a replaced process cannot refund its already-charged reservation.
