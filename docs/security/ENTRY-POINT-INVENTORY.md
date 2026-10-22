@@ -374,14 +374,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 77 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `(none)` | 98 | unknown | **GAP** | — |
-| POST | `(none)` | 107 | unknown | ✓ | requireWorkspaceRole |
-| POST | `(none)` | 145 | unknown | ✓ | requireWorkspaceRole |
-| GET | `(none)` | 165 | unknown | ✓ | requireWorkspaceRole |
-| GET | `(none)` | 197 | unknown | **GAP** | — |
-| GET | `(none)` | 216 | unknown | **GAP** | — |
-| POST | `(none)` | 226 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 84 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 105 | unknown | **GAP** | — |
+| POST | `(none)` | 114 | unknown | ✓ | requireWorkspaceRole |
+| POST | `(none)` | 154 | unknown | ✓ | requireWorkspaceRole |
+| GET | `(none)` | 176 | unknown | ✓ | requireWorkspaceRole |
+| GET | `(none)` | 209 | unknown | **GAP** | — |
+| GET | `(none)` | 228 | unknown | **GAP** | — |
+| POST | `(none)` | 238 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/portfolio.js`
 

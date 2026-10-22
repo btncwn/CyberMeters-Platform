@@ -466,6 +466,21 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   const deleted=await call(`network-targets/${t.id}/range-consents`,{user:'admin',method:'POST',body:consentBody});
   ok('range: a soft-deleted workspace takes no new grant',deleted.status>=400&&grants().length===count);
   db.prepare("UPDATE workspaces SET deleted_at=NULL WHERE id='wa'").run();
+  // The recorded role is the signer's real one, never a default (Executive 21:40).
+  const lastGrant=()=>db.prepare("SELECT actor_workspace_role r FROM network_range_consents WHERE kind='grant' ORDER BY rowid DESC LIMIT 1").get().r;
+  eq('range: an owner grant records owner',[(await call(`network-targets/${t.id}/range-consents`,{user:'owner',method:'POST',body:consentBody})).status,lastGrant()],[201,'owner']);
+  db.prepare("DELETE FROM workspace_members WHERE workspace_id='wa' AND user_id='owner'").run();
+  eq('range: the workspace owner with no membership row records owner',[(await call(`network-targets/${t.id}/range-consents`,{user:'owner',method:'POST',body:consentBody})).status,lastGrant()],[201,'owner']);
+  db.prepare("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES('wa','owner','owner')").run();
+  // A caller the role check lets through but who holds no membership and is not
+  // the owner: refused, nothing written (never recorded as 'admin').
+  {
+    const url=new URL(`https://unit.test/api/workspaces/wa/network-targets/${t.id}/range-consents`);
+    const request=new Request(url,{method:'POST',body:JSON.stringify(consentBody),headers:{'Content-Type':'application/json'}});
+    const before=grants().length;
+    const response=await networkAssetRoutes({request,url,env,requireAuth:async()=>({id:'other'}),requireWorkspaceRole:async()=>true,consumeApiRateLimit:async()=>null,json:(b,s=200)=>Response.json(b,{status:s}),serverError:()=>Response.json({error:'server_error'},{status:500})});
+    eq('range: no membership and not the owner is refused, nothing written',[response.status,grants().length],[403,before]);
+  }
   ok('range: the workspace purge erases the consent table',/"network_range_consents",\s*\n?\s*"network_assets"/.test(fs.readFileSync(path.join(root,'workers/scan-api/src/index.js'),'utf8').replace(/\/\/[^\n]*\n/g,'')));
 }
 

@@ -41,10 +41,17 @@ function parseRangeConsent(input,addressCount) {
   if(!signer_name||!signer_title)throw new Error('invalid_range_consent_signer');
   return {ports:normalizeNetworkPorts(input.ports,addressCount),signer_name,signer_title};
 }
+// The recorded role is the signer's real one, never a default: the membership
+// row, or 'owner' for the workspace owner without one. Anyone else gets null and
+// the caller refuses (403) rather than writing a role nobody holds.
 async function rangeActor(db,request,user,workspaceId) {
   const member=await db.prepare('SELECT role FROM workspace_members WHERE workspace_id=? AND user_id=? LIMIT 1').bind(workspaceId,user.id).first();
-  return {user_id:user.id,email:user.email||null,role:member?.role||'admin',ip:request.headers.get('CF-Connecting-IP')||null,ua:(request.headers.get('User-Agent')||'').slice(0,300)||null};
+  let role=member?.role||null;
+  if(!role&&await db.prepare('SELECT 1 FROM workspaces WHERE id=? AND owner_user_id=? LIMIT 1').bind(workspaceId,user.id).first())role='owner';
+  if(!role)return null;
+  return {user_id:user.id,email:user.email||null,role,ip:request.headers.get('CF-Connecting-IP')||null,ua:(request.headers.get('User-Agent')||'').slice(0,300)||null};
 }
+const ROLE_UNRECORDED={error:'Forbidden — your workspace role could not be recorded'};
 // The grant row and its audit, in one batch with whatever precedes them. The
 // insert names the target's exact address list, so a target that changed since
 // it was read is never covered.
@@ -128,7 +135,9 @@ export async function networkAssetRoutes(rctx) {
       const audit=db.prepare(`INSERT INTO audit_events (id,workspace_id,user_id,actor_type,event_type,entity_type,entity_id,description,metadata_json,created_at) SELECT ?,?,?,'customer','network_target_authorized','network_target',?,'Network scope authorization declared',?,? WHERE EXISTS(SELECT 1 FROM network_targets WHERE id=? AND workspace_id=?)`)
         .bind(createId('audit'),workspaceId,user.id,targetId,JSON.stringify({target:normalized.target,authorization_status:'attested',independently_verified:false,range_consent:!!consent,scope:{state:decision.state,reason:decision.reason,evidence:decision.evidence}}),now,targetId,workspaceId);
       const grantId=consent?createId('nrc'):null;
-      const statements=[insert,audit,...(consent?rangeGrantStatements(db,{id:grantId,workspaceId,targetId,target:normalized.target,addressesJson,consent,actor:await rangeActor(db,request,user,workspaceId),now}):[])];
+      const actor=consent?await rangeActor(db,request,user,workspaceId):null;
+      if(consent&&!actor)return json(ROLE_UNRECORDED,403);
+      const statements=[insert,audit,...(consent?rangeGrantStatements(db,{id:grantId,workspaceId,targetId,target:normalized.target,addressesJson,consent,actor,now}):[])];
       let result;try{result=await db.batch(statements);}catch(e){if(/unique/i.test(String(e?.message)))return json({error:'network_target_exists'},409);throw e;}
       if(result[0]?.meta?.changes!==1)return json({error:'network_target_limit'},409);
       const row=await db.prepare('SELECT * FROM network_targets WHERE id=? AND workspace_id=?').bind(targetId,workspaceId).first();
@@ -152,7 +161,9 @@ export async function networkAssetRoutes(rctx) {
       const decision=(await checkNetworkTargetScope(env,workspaceId,[target])).get(target.id);
       if(!decision||decision.shared.length)return json({error:'network_range_not_grantable',scope:scopeRefusal(decision||{state:'out_of_scope',reason:null,unobserved:[],shared:[]}),range_consent:'not_grantable_shared'},422);
       const grantId=createId('nrc'),now=new Date().toISOString();
-      await db.batch(rangeGrantStatements(db,{id:grantId,workspaceId,targetId:target.id,target:target.target,addressesJson:target.addresses_json,consent,actor:await rangeActor(db,request,user,workspaceId),now}));
+      const actor=await rangeActor(db,request,user,workspaceId);
+      if(!actor)return json(ROLE_UNRECORDED,403);
+      await db.batch(rangeGrantStatements(db,{id:grantId,workspaceId,targetId:target.id,target:target.target,addressesJson:target.addresses_json,consent,actor,now}));
       const grant=await db.prepare("SELECT * FROM network_range_consents WHERE id=? AND workspace_id=? AND kind='grant'").bind(grantId,workspaceId).first();
       if(!grant) {
         const live=await db.prepare('SELECT id FROM workspaces WHERE id=? AND deleted_at IS NULL').bind(workspaceId).first();
@@ -185,6 +196,7 @@ export async function networkAssetRoutes(rctx) {
         if(reason&&reason.length>REVOCATION_REASON_MAX)throw new Error('invalid_revocation_reason');
       }
       const actor=await rangeActor(db,request,user,workspaceId),revocationId=createId('nrc'),now=new Date().toISOString();
+      if(!actor)return json(ROLE_UNRECORDED,403);
       const [inserted]=await db.batch([
         db.prepare(`INSERT INTO network_range_consents (id,workspace_id,kind,grant_id,actor_user_id,actor_email,actor_workspace_role,ip_address,user_agent,revocation_reason,created_at) SELECT ?,?,'revocation',?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM network_range_consents WHERE grant_id=? AND kind='revocation')`)
           .bind(revocationId,workspaceId,grant.id,actor.user_id,actor.email,actor.role,actor.ip,actor.ua,reason,now,grant.id),
