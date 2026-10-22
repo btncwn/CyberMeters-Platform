@@ -65,7 +65,7 @@ function LoginHistory() {
           className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
         >
           {loading && <RefreshCw className="w-3 h-3 animate-spin" />}
-          Refresh
+          Reload history
         </button>
       </div>
 
@@ -166,7 +166,7 @@ function ActiveSessions() {
           className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
         >
           {loading && <RefreshCw className="w-3 h-3 animate-spin" />}
-          Refresh
+          Reload sessions
         </button>
       </div>
 

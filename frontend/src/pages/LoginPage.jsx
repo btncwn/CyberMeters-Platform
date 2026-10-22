@@ -316,7 +316,7 @@ export default function LoginPage() {
           <>
             <div className="flex items-center gap-2 mb-4">
               <div>
-                <h1 className="text-base font-bold text-gray-900 leading-tight">Two-factor authentication</h1>
+                <h1 className="text-base font-bold text-gray-900 leading-tight">Two-step sign-in</h1>
                 <p className="text-xs text-gray-400">Enter the 6-digit code from your authenticator app.</p>
               </div>
             </div>

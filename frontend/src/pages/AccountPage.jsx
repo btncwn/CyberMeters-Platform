@@ -57,9 +57,11 @@ function StatusDot({ status }) {
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
+// `card` carries no padding of its own; without p-* every Account section's
+// content touched its border (design standard §5).
 function Section({ title, children }) {
   return (
-    <div className="card mb-6">
+    <div className="card p-5 sm:p-6 mb-6">
       <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-gray-100">
         <h2 className="font-semibold text-gray-900">{title}</h2>
       </div>
@@ -134,7 +136,7 @@ function PlanLimitsCard({ planLimits }) {
   const unlimited = (n) => n >= 999999
 
   return (
-    <div className="card mb-6">
+    <div className="card p-5 sm:p-6 mb-6">
       <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-gray-100">
         <div className="flex items-center gap-2 flex-1">
           <h2 className="font-semibold text-gray-900">Plan Usage</h2>
@@ -444,7 +446,7 @@ export default function AccountPage() {
       setMfaStatus({ mfa_enabled: false, mfa_enabled_at: null })
       setMfaStep('idle')
       setMfaDisableInput('')
-      setMfaSuccess('MFA has been disabled.')
+      setMfaSuccess('Two-step sign-in is off.')
     } catch (e) { setMfaError(e.message) }
     finally { setMfaBusy(false) }
   }
@@ -630,8 +632,8 @@ export default function AccountPage() {
 
           {tab === 'security' && (
             <>
-{/* ── Two-Factor Authentication ─────────────────────────── */}
-              <Section title="Two-Factor Authentication">
+{/* ── Two-step sign-in (one customer word: heading, row, buttons) ── */}
+              <Section title="Two-step sign-in">
                 {mfaSuccess && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-brand-200 border border-brand-200 mb-4">
                     <p className="text-xs text-brand-700">{mfaSuccess}</p>
@@ -648,7 +650,8 @@ export default function AccountPage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-gray-50/50">
                       <div>
-                        <p className="text-sm font-semibold text-gray-800">Authenticator app (TOTP)</p>
+                        <p className="text-sm font-semibold text-gray-800">Authenticator app <span className="text-xs font-normal text-gray-500">(TOTP)</span></p>
+                        <p className="text-xs text-gray-500 mt-0.5">Works with any authenticator app.</p>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {mfaStatus?.mfa_enabled
                             ? `Enabled ${mfaStatus.mfa_enabled_at ? 'on ' + formatDay(mfaStatus.mfa_enabled_at) : ''}`
@@ -667,7 +670,7 @@ export default function AccountPage() {
                         disabled={mfaBusy}
                         className="btn-primary w-full justify-center disabled:opacity-50"
                       >
-                        {mfaBusy ? 'Setting up…' : 'Enable MFA'}
+                        {mfaBusy ? 'Setting up…' : 'Turn on two-step sign-in'}
                       </button>
                     ) : (
                       <button
@@ -676,7 +679,7 @@ export default function AccountPage() {
                         disabled={mfaBusy}
                         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 text-red-700 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
                       >
-                        Disable MFA
+                        Turn off two-step sign-in
                       </button>
                     )}
                   </div>
@@ -687,7 +690,7 @@ export default function AccountPage() {
                   <div className="space-y-4">
                     <div className="p-3 rounded-xl bg-brand-50 border border-brand-100">
                       <p className="text-xs font-semibold text-brand-800 mb-1">1. Open your authenticator app</p>
-                      <p className="text-xs text-brand-700">Add a new account manually and enter the key below. Compatible with Google Authenticator, Authy, 1Password, Bitwarden, and any RFC 6238 TOTP app.</p>
+                      <p className="text-xs text-brand-700">Add a new account manually and enter the key below. Works with any authenticator app that supports standard time-based codes (RFC 6238).</p>
                     </div>
 
                     <div>
@@ -765,11 +768,11 @@ export default function AccountPage() {
                 {mfaStep === 'disable' && (
                   <div className="space-y-4">
                     <div className="p-3 rounded-xl bg-red-50 border border-red-100">
-                      <p className="text-xs font-semibold text-red-800 mb-1">Disable two-factor authentication</p>
-                      <p className="text-xs text-red-700">Enter your current 6-digit TOTP code or account password to confirm.</p>
+                      <p className="text-xs font-semibold text-red-800 mb-1">Turn off two-step sign-in</p>
+                      <p className="text-xs text-red-700">Enter the current 6-digit code from your authenticator app, or your account password, to confirm.</p>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">TOTP code or password</label>
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Authenticator code or password</label>
                       <input
                         type="text"
                         className="input font-mono"
@@ -788,7 +791,7 @@ export default function AccountPage() {
                         disabled={mfaBusy || !mfaDisableInput}
                         className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                       >
-                        {mfaBusy ? 'Disabling…' : 'Disable MFA'}
+                        {mfaBusy ? 'Turning off…' : 'Turn off two-step sign-in'}
                       </button>
                     </div>
                   </div>
@@ -806,7 +809,7 @@ export default function AccountPage() {
                         type="text"
                         value={tokenName}
                         onChange={(e) => { setTokenName(e.target.value); setTokenError(null) }}
-                        placeholder="GitHub Actions"
+                        placeholder="e.g. CI pipeline"
                         className="input"
                         maxLength={120}
                       />

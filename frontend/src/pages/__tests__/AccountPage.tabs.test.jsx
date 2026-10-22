@@ -90,7 +90,11 @@ describe('AccountPage tabs', () => {
   it('Security: MFA, API tokens and the embedded sessions/login history', async () => {
     renderAt('/account/security')
     await screen.findByTestId('account-panel-security')
-    expect(screen.getByText('Two-Factor Authentication')).toBeInTheDocument()
+    expect(screen.getByText('Two-step sign-in')).toBeInTheDocument()
+    expect(screen.getByText('Works with any authenticator app.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Turn on two-step sign-in' })).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/Two-Factor|\bMFA\b|Google Authenticator|Authy|1Password|Bitwarden/)
+    expect(screen.getByPlaceholderText('e.g. CI pipeline')).toBeInTheDocument()
     expect(screen.getByText('API Tokens')).toBeInTheDocument()
     expect(screen.getByTestId('security-embedded')).toHaveTextContent('true')
   })
