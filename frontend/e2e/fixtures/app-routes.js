@@ -5,7 +5,7 @@ import { scan, domain } from './app-mock.js'
 export const APP_ROUTES = [
   '/dashboard', '/onboarding', '/portfolio', '/portfolio/risk', '/portfolio/domains', '/workspaces',
   `/workspaces/${'ws_e2e'}`, '/intelligence', '/scans', '/scans/new', `/scans/${scan.id}`, `/domain/${domain.domain}/history`,
-  '/assets', '/exposure', '/reports', '/schedules', '/accuracy', '/account', '/account/company', '/account/mcp', '/account/security', '/account/notifications', '/account/billing',
+  '/assets', '/exposure', '/reports', '/schedules', '/accuracy', '/account', '/account/company', '/account/mcp', '/account/security', '/account/notifications', '/account/billing', '/ws/active-checks/permission',
   '/account/privacy', '/billing', '/ws/domains', '/ws/scorecard', '/ws/third-parties', '/ws/saas-exposure',
   '/ws/shadow-it', '/ws/cloud-assets', '/ws/admin-surfaces', '/ws/certificates', '/ws/certificates/lifecycle',
   '/ws/website-security', '/ws/identity-exposure', '/ws/brand-monitoring', '/ws/identity-assets', '/ws/email-protection',
