@@ -165,8 +165,12 @@ const EXPECTED = Object.freeze({
     // readers before pagination. A main/head inventory diff confirms the same
     // 40 quality predicates, 29 sites and 22 sinks with identical quality
     // operator/status classifications; only those SQL snippets change.
-    predicate_occurrences: 40,
-    unique_query_sites: 29,
+    // CM-4 (22 Oct 2026): the weekly digest gates "all quiet" per monitored domain;
+    // one added weekly-digest.js query with one scan_quality = 'complete' predicate.
+    // Keyed two-tree --dump-current diff (origin/main vs this head): sql_sites,
+    // sql_static_sites and sql_query_sink_sites +1 each (that query), 0 removed.
+    predicate_occurrences: 41,
+    unique_query_sites: 30,
     source_file_count: 18,
     // The QA-benchmark admin gate shifts workspace-insights.js source lines;
     // all 35 predicate snippets and 26 query sites remain unchanged.
@@ -210,9 +214,9 @@ const EXPECTED = Object.freeze({
     // one runtime comparison differs only in byte offsets. Counts unchanged.
     // BRI 2026-10-21.2: removing the inventory and no-vendor deductions moves business-risk.js SQL sites; keyed two-tree diff (origin/main vs this head) shows 0 entries added or removed.
     // BRI summary from the band (21 Oct 2026): business-risk.js SQL sites move; keyed two-tree diff shows 0 added / 0 removed.
-    fingerprint: "6fd2f4afe3092586ba5611233d46c5cc153b8b14fc13ba9dd8c2ad3b651bf6a5",
-    resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "63df2a23ba6ed05bbf0aacb97bd749e56b5257a3f680833d8e901c7ace243d76",
+    fingerprint: "c76fd7537ebaa376b379b351e9ae80bd6089ada9d9a0d97df650af3e15d1b3b5",
+    resolved_query_sink_count: 23,
+    resolved_query_sink_fingerprint: "1d68cc3739f0a4551625f13bd2a9871c72d81354d4497af77ef2b08794d6050c",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
