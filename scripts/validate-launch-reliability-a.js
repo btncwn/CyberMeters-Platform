@@ -10,6 +10,7 @@ import { splitStatements, isToleratedStatement } from "./lib/migration-apply-tol
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = (...parts) => pathToFileURL(path.join(root, "workers/scan-api/src", ...parts)).href;
+const { accountRoutes } = await import(source("routes/account.js"));
 const { workspacesCoreRoutes } = await import(source("routes/workspaces-core.js"));
 const { runScheduled, HOURLY_CRON } = await import(source("cron/scheduled.js"));
 const { computeOpsHealth } = await import(source("lib/ops-health.js"));
@@ -65,6 +66,60 @@ const seedUser = (db, id) => db.prepare("INSERT INTO users(id,email,name,plan,st
   .run(id, `${id}@example.test`, id, "free", "active");
 const seedWorkspace = (db, id, userId, deletedAt = null) => db.prepare("INSERT INTO workspaces(id,name,owner_user_id,deleted_at) VALUES (?,?,?,?)")
   .run(id, id, userId, deletedAt);
+
+// CM-1: the cross-account subscription list is session/admin only. Denied
+// identities must never reach customer data, even for an allowlisted owner.
+{
+  const admin = { id: "admin", email: "admin@cybermeters.test", session_id: "session_admin" };
+  const member = { id: "member", email: "member@customer.test", session_id: "session_member" };
+  const allowed = async (user) => user.email === admin.email;
+  const cases = [
+    ["anonymous", null, allowed, 401],
+    ["ordinary session", member, allowed, 403],
+    ["missing helper", admin, undefined, 403],
+    ["throwing helper", admin, async () => { throw new Error("unavailable"); }, 403],
+    ["truthy helper", member, async () => "yes", 403],
+    ["admin session", admin, allowed, 200],
+    ["empty allowlist", admin, async () => false, 403],
+  ];
+  for (const scope of ["read", "write", "admin"]) {
+    for (const workspace of [null, "workspace_a", "workspace_b"]) {
+      cases.push([`admin token ${scope}/${workspace}`, {
+        id: admin.id, email: admin.email, api_token_id: "token_admin",
+        token_scope: scope, token_workspace_id: workspace,
+      }, allowed, 403]);
+    }
+  }
+  for (const [label, user, isPlatformAdmin, expected] of cases) {
+    let reads = 0;
+    const request = new Request("https://api.example/api/admin/subscriptions");
+    const customer = { user_id: "customer", user_email: "customer@example.test", user_name: "Customer",
+      company_name: "Customer workspace", contact_email: "contact@example.test",
+      plan: "free", status: "active", created_at: "2026-10-01", expires_at: null };
+    let response;
+    try {
+      response = await accountRoutes({
+        request, url: new URL(request.url),
+        env: { cybermeters_db: { prepare() { reads++; return { async all() { return { results: [customer] }; } }; } } },
+        requireAuth: async () => user, isPlatformAdmin,
+        json: (body, status = 200) => Response.json(body, { status }),
+        serverError: () => Response.json({ error: "server" }, { status: 500 }),
+      });
+    } catch { response = Response.json({ error: "uncaught" }, { status: 500 }); }
+    const body = await response.json();
+    ok(`CM-1 ${label} status`, response.status === expected);
+    ok(`CM-1 ${label} customer-data boundary`, reads === (expected === 200 ? 1 : 0));
+    if (expected === 200) {
+      ok("CM-1 admin session preserves response contract", JSON.stringify(body) === JSON.stringify({ subscriptions: [{
+        customer: { user_id: customer.user_id, email: customer.user_email, name: customer.user_name,
+          company_name: customer.company_name, contact_email: customer.contact_email },
+        plan: "free", status: "active", created_at: customer.created_at, expires_at: null,
+      }] }));
+    } else {
+      ok(`CM-1 ${label} safe denial body`, JSON.stringify(body) === JSON.stringify({ error: expected === 401 ? "Unauthorized" : "Forbidden" }));
+    }
+  }
+}
 
 // CM-P1-002: a D1 insert failure must roll back the already prepared soft
 // delete, schedule disable and asset archive, and the customer can retry.
@@ -122,11 +177,12 @@ const seedWorkspace = (db, id, userId, deletedAt = null) => db.prepare("INSERT I
 // CM-P1-001: classify only the absent scheduled_scans table as missing;
 // other failures must reach cron telemetry and durable ops health.
 for (const [kind, message, expectedStatus, expectCronError] of [
+  ["empty", null, "ok", false],
   ["query", "D1 query unavailable", "error", true],
   ["missing", "no such table: scheduled_scans", "table_missing", false],
 ]) {
   const db = dbFixture();
-  const env = { cybermeters_db: d1(db, (sql) => /ROW_NUMBER\(\) OVER/.test(sql) ? new Error(message) : null) };
+  const env = { cybermeters_db: d1(db, (sql) => message && /ROW_NUMBER\(\) OVER/.test(sql) ? new Error(message) : null) };
   const errors = [], originalError = console.error;
   console.error = (...args) => errors.push(args.join(" "));
   const pending = [];
@@ -139,7 +195,7 @@ for (const [kind, message, expectedStatus, expectCronError] of [
   const event = db.prepare("SELECT status FROM operational_events WHERE event_type='scheduled_scan_query' ORDER BY created_at DESC LIMIT 1").get();
   const health = await computeOpsHealth(env);
   ok(`CM-P1-001 ${kind} has distinct durable outcome`, event?.status === expectedStatus);
-  ok(`CM-P1-001 ${kind} reaches ops health`, health.signals.find((s) => s.key === "scheduled_scan_query")?.breached === true && health.healthy === false);
+  ok(`CM-P1-001 ${kind} reaches ops health`, health.signals.find((s) => s.key === "scheduled_scan_query")?.breached === (kind !== "empty") && (kind === "empty" || health.healthy === false));
   ok(`CM-P1-001 ${kind} cron error classification`, errors.some((line) => line.includes('"task":"scheduled_scan_dispatch"')) === expectCronError);
   ok(`CM-P1-001 ${kind} does not stop other jobs`, otherTasks > 0);
 }

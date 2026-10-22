@@ -605,7 +605,14 @@ export async function accountRoutes(rctx) {
     if (request.method === "GET" && url.pathname === "/api/admin/subscriptions") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-      if (!(await isPlatformAdmin(user, env))) return json({ error: "Forbidden" }, 403);
+      // Match the session-only, fail-closed platform-admin diagnostic guard.
+      let adminSession = false;
+      try {
+        adminSession = !user.api_token_id
+          && typeof isPlatformAdmin === "function"
+          && (await isPlatformAdmin(user, env)) === true;
+      } catch { adminSession = false; }
+      if (!adminSession) return json({ error: "Forbidden" }, 403);
 
       try {
         const rows = await env.cybermeters_db
