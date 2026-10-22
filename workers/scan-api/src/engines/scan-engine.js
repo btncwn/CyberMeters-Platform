@@ -63,6 +63,7 @@ import { isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { applyScanComparability, reconcileLateFindings, runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
+import { observeOidcMetadata, oidcMetadataFindings, OIDC_LIMITS } from "./identity-oidc-observation.js";
 import { recordPostureEvents } from "./posture-events.js";
 import { loadUnauthorisedSendingSourceAlerts, recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
@@ -2057,6 +2058,28 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       modules.dmarc_core,
     );
 
+    // Optional public identity metadata; shares verified scope, strict fetch,
+    // hard invocation counter and deadline. No advertised endpoint is followed.
+    const registrationScopeVerified = await isWorkspaceDomainVerified(env, workspaceId, domainId);
+    let oidcMetadata = { state: "not_assessed", reason: "verified_workspace_required", observations: [] };
+    if (registrationScopeVerified && !(reservedMode && reservedBudget?.wouldExceed(OIDC_LIMITS.physical_attempts))) {
+      if (reservedMode && reservedBudget) reservedBudget.spend("identity_discovery", OIDC_LIMITS.physical_attempts);
+      const oidcRun = await runCappedModule("identity_discovery", {
+        estimateMs: OIDC_LIMITS.module_ms, hardMs: OIDC_LIMITS.module_ms,
+        fallback: () => markDeadlineDeferred({ state: "not_assessed", observations: [] }),
+        run: ({ accounting, signal }) => observeOidcMetadata(domain, modules, {
+          verified: registrationScopeVerified, observedAt: startedAt, cache: dnsCache, accounting, signal,
+        }),
+      });
+      oidcMetadata = oidcRun.thrown ? { state: "unavailable", observations: [] } : oidcRun.value;
+      const outbound = oidcRun.timedOut ? abandonOutbound(oidcRun.ctx, "identity_discovery", oidcRun.timeoutSource)
+        : settleOutboundValue(oidcRun.ctx, "identity_discovery", oidcMetadata);
+      telemetry.record("identity_discovery", { outcome: telemetry.outcomeOf(oidcMetadata),
+        duration_ms: oidcRun.durationMs, allocated_ms: oidcRun.allocatedMs, timeout_source: oidcRun.timeoutSource,
+        timeout: oidcRun.timedOut, outbound,
+        outbound_calls: outbound?.outbound_measurement_complete ? outbound.outbound_attempts_observed : null });
+    } else if (registrationScopeVerified) oidcMetadata.reason = "subrequest_budget_exhausted";
+
     // Phase 6: Risk intelligence + Remediation plan (pure computation — no I/O)
     // Risk module enriches all findings with business-impact language and risk categories.
     // Remediation module converts findings + takeover risks into a P1/P2/P3 roadmap.
@@ -2525,7 +2548,6 @@ function buildCanonicalUrlProfile(modules) {
     // Detects third-party vendors from signals already captured in modules:
     // SPF, MX, NS, DKIM, CSP, Server header, CNAME targets, tech detection.
     modules.vendor_risk = detectVendorsFromModules(modules);
-    const registrationScopeVerified = await isWorkspaceDomainVerified(env, workspaceId, domainId);
     findings.push(...dnsServiceRegistrationObservations(modules, {
       domain, checkedAt: startedAt, verified: registrationScopeVerified,
     }));
@@ -2601,6 +2623,8 @@ function buildCanonicalUrlProfile(modules) {
       domain,
       { observedAt: identityObservedAt },
     );
+    modules.identity_discovery.openid_connect = oidcMetadata;
+    findings.push(...oidcMetadataFindings(oidcMetadata, { domain, verified: registrationScopeVerified }));
 
     // Phase 7k: Vendor Relationship Discovery — pure computation, zero network I/O.
     // Parses CSP directives (script-src, connect-src, frame-src, img-src) to identify
