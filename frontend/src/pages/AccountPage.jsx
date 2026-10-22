@@ -73,13 +73,15 @@ function Section({ title, children }) {
 
 // ── Form field ────────────────────────────────────────────────────────────────
 
+// The label wraps its control, so every input, select and textarea passed in
+// is named by it (axe select-name / label), whatever wrapper it sits in.
 function Field({ label, children, hint }) {
   return (
     <div className="mb-4">
-      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
-        {label}
+      <label className="block">
+        <span className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">{label}</span>
+        {children}
       </label>
-      {children}
       {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
     </div>
   )
@@ -266,7 +268,8 @@ export default function AccountPage() {
           const u = profileRes.value?.user
           setForm(prev => ({ ...prev, name: u?.name || '' }))
         } else {
-          setLoadError(profileRes.reason?.message || 'Failed to load profile')
+          // Never the server's own message on screen (design standard §4).
+          setLoadError('Your profile could not be loaded. Reload the page to try again.')
         }
 
         if (subRes.status === 'fulfilled') {
@@ -515,9 +518,11 @@ export default function AccountPage() {
         <div className="card p-16 text-center">
           <p className="text-sm text-gray-400">Loading…</p>
         </div>
-      ) : needsAccountLoad && loadError ? (
+      ) : tab === 'profile' && loadError ? (
+        // Only the tab whose read failed says so; Company, Security and Billing
+        // have their own reads and still render (design standard §3, 22 Oct 2026).
         <div className="card p-8 text-center">
-          <p className="text-sm text-red-700">{loadError}</p>
+          <p role="alert" className="text-sm text-red-700">{loadError}</p>
         </div>
       ) : (
         <div className="max-w-3xl" role="tabpanel" data-testid={`account-panel-${tab}`}>
@@ -799,14 +804,15 @@ export default function AccountPage() {
                 )}
               </Section>
 
-<Section title="API Tokens">
+<Section title="API tokens">
                 <div className="space-y-4">
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                      <label htmlFor="token-name" className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                         Token name
                       </label>
                       <input
+                        id="token-name"
                         type="text"
                         value={tokenName}
                         onChange={(e) => { setTokenName(e.target.value); setTokenError(null) }}
@@ -817,10 +823,11 @@ export default function AccountPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                        <label htmlFor="token-scope" className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                           Scope
                         </label>
                         <select
+                          id="token-scope"
                           value={tokenScope}
                           onChange={(e) => setTokenScope(e.target.value)}
                           className="input"
@@ -831,10 +838,11 @@ export default function AccountPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                        <label htmlFor="token-expiry" className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                           Expires
                         </label>
                         <select
+                          id="token-expiry"
                           value={tokenExpiry}
                           onChange={(e) => setTokenExpiry(e.target.value)}
                           className="input"

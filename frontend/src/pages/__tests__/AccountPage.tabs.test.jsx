@@ -95,7 +95,7 @@ describe('AccountPage tabs', () => {
     expect(screen.getByRole('button', { name: 'Turn on two-step sign-in' })).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/Two-Factor|\bMFA\b|Google Authenticator|Authy|1Password|Bitwarden/)
     expect(screen.getByPlaceholderText('e.g. CI pipeline')).toBeInTheDocument()
-    expect(screen.getByText('API Tokens')).toBeInTheDocument()
+    expect(screen.getByText('API tokens')).toBeInTheDocument()
     expect(screen.getByTestId('security-embedded')).toHaveTextContent('true')
   })
 
@@ -148,7 +148,20 @@ describe('AccountPage tabs', () => {
     const first = renderAt('/account/notifications')
     await screen.findByTestId('account-panel-notifications')
     first.unmount()
-    renderAt('/account')
-    expect(await screen.findByText('profile unavailable')).toBeInTheDocument()
+    const second = renderAt('/account')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your profile could not be loaded. Reload the page to try again.')
+    expect(screen.queryByText('profile unavailable')).toBeNull()
+    second.unmount()
+  })
+
+  // Design standard §3 (22 Oct 2026): a failed profile read blocks only Profile.
+  it('a failed profile read does not hide Security, Company or Billing', async () => {
+    api.getAccountProfile.mockRejectedValue(new Error('profile unavailable'))
+    for (const [route, panel] of [['/account/security', 'security'], ['/account/company', 'company'], ['/account/billing', 'billing']]) {
+      const view = renderAt(route)
+      expect(await screen.findByTestId(`account-panel-${panel}`)).toBeInTheDocument()
+      expect(screen.queryByText(/profile could not be loaded/)).toBeNull()
+      view.unmount()
+    }
   })
 })
