@@ -7,8 +7,7 @@
 // no domain, email or IP appears in the email; feedback text is quoted as typed.
 import { readDailyCounters, utcDay } from "./ops-counters.js";
 import { readCanarySince } from "../engines/free-check-canary.js";
-import { FREE_SCAN_STATE_LABELS, FREE_SCAN_PREVIEW_BADGES } from "../../../../frontend/src/lib/freeScanPresentation.js";
-import { CUSTOMER_CODE_COPY } from "../../../../frontend/src/lib/customerReasonText.js";
+import { FREE_SCAN_STATE_LABELS, FREE_SCAN_PREVIEW_BADGES, CUSTOMER_CODE_COPY } from "../../../../shared/customer-labels.js";
 
 const DAY_MS = 86_400_000;
 // An anomaly needs both: at least this many events, and this many times the
