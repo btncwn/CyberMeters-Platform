@@ -22,6 +22,8 @@ import { TLS_AUTHORISATION_REQUIRED_REASON } from '../../../../shared/tls/catalo
 export const TLS_CAPABILITY_UNEXECUTABLE_REASONS = Object.freeze([
   'heartbeat_unavailable', 'cipher_unavailable', 'protocol_unavailable',
   'group_unavailable', 'control_unavailable', 'requires_credentials',
+  // Authorised by the customer, engine not released (S3-B follow-up): stated.
+  'authorised_engine_not_released',
 ]);
 export function blockingTlsUnexecutable(checks) {
   return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'unexecutable'

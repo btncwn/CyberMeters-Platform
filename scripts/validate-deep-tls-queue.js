@@ -276,15 +276,21 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
 }
 // The planner asks Active Checks consent per intrusive control and per address and
-// records only the granted ones. With the controls unavailable it does not ask.
+// records only the granted ones. With the controls unavailable it still asks
+// (22 Oct 2026, Executive: a grant must read "Authorised — not yet available"),
+// records the grant as granted_checks only, and never makes it runnable: no
+// special_checks, no special_consent, nothing new reaches the probe.
 {
   const scan={id:'tls_plan_consent',workspace_id:'w_special',domain_id:'d_special',domain:'special.example.org'};
   const asked=[];
   const authorise=async(_env,q)=>{asked.push([q.check,q.host,q.address,q.domain,q.workspaceId]);
     return q.check==='tls_intrusive_robot'?{authorised:true,consent_id:'acc_plan'}:{authorised:false,reason:'check_not_in_grant',consent_id:null};};
   const off=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:false});
-  assert.equal(asked.length,0,'no consent lookup while the intrusive controls cannot run');
+  assert.equal(asked.length,3,'one consent lookup per intrusive control while the engine is withheld');
   assert.equal(off.endpoints[0].scope.special_consent,false);
+  assert.deepEqual(off.endpoints[0].scope.special_checks,{},'a grant is never runnable while the engine is withheld');
+  assert.deepEqual(off.endpoints[0].scope.granted_checks,{robot:'acc_plan'});
+  asked.length=0;
   const on=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:true});
   assert.deepEqual(asked,['tls_intrusive_heartbleed','tls_intrusive_robot','tls_intrusive_ccs'].map(c=>[c,'special.example.org','8.8.8.8','special.example.org','w_special']));
   assert.deepEqual(on.endpoints[0].scope.special_checks,{robot:'acc_plan'});
