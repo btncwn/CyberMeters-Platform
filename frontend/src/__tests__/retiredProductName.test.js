@@ -31,10 +31,9 @@ const SPACED_ALLOWED = {
   'database/migrations/091-cyber-mot-domain-states.sql': 1,
   'database/migrations/093-scan-report-snapshots.sql': 3,
 }
-// The former API path and article address, kept as aliases.
+// The backend compatibility path and article redirects, kept for old clients/links.
 const HYPHEN_ALLOWED = {
   'frontend/public/_redirects': 2,
-  'frontend/src/api.js': 1,
   'workers/scan-api/src/routes/executive-dashboard.js': 1,
 }
 // A persisted case-event value ({ source: 'cyber_mot' }) written by this file.
@@ -52,6 +51,13 @@ const count = (s, re) => (s.match(re) || []).length
 
 describe('retired product name', () => {
   const sources = files.map((file) => [file, text(file)])
+
+  it('covers the CI workflow and worker sources as well as frontend files', () => {
+    expect(files).toContain('.github/workflows/ci.yml')
+    expect(files).toContain('workers/scan-api/src/index.js')
+    expect(files).toContain('workers/scan-api/src/routes/executive-dashboard.js')
+    expect(files).toContain('workers/scan-api/src/engines/security-check-domains.js')
+  })
 
   it('the spaced name appears only in applied migrations and the CI workflow', () => {
     const hits = sources

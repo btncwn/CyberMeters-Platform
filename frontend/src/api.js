@@ -750,12 +750,7 @@ export const api = {
 
   // Canonical eight-domain security check coverage states (always returns eight, even
   // with no scan). Server-resolved; the frontend never derives domain states.
-  // The former path stays served as an alias; it is tried only while a Worker
-  // without /security-domains is still live (one deploy window).
-  getSecurityCheckDomains: (id) => request(`/workspaces/${id}/security-domains`).catch((e) => {
-    if (e?.code === 'not_found' || e?.status === 404) return request(`/workspaces/${id}/cyber-mot-domains`)
-    throw e
-  }),
+  getSecurityCheckDomains: (id) => request(`/workspaces/${id}/security-domains`),
 
   /** GET /api/workspaces/:id/maturity — per-workspace eight-domain maturity ledger (M5.f) */
   getWorkspaceMaturity: (id) => request(`/workspaces/${id}/maturity`),
