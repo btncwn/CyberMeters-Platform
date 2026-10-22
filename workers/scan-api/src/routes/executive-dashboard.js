@@ -53,9 +53,9 @@ export async function executiveDashboardRoutes(rctx) {
     // renders all eight even before any scan, and the frontend never invents states.
     // Core coverage: workspace:read only, NO feature gate. Never fails to fewer than
     // eight (any error returns the canonical no-scan set).
-    const motMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/(?:security-domains|cyber-mot-domains)$/);
-    if (motMatch && request.method === "GET") {
-      const wsId = motMatch[1];
+    const domainMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/(?:security-domains|cyber-mot-domains)$/);
+    if (domainMatch && request.method === "GET") {
+      const wsId = domainMatch[1];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
