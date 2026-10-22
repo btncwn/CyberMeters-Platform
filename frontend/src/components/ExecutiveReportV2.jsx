@@ -2,6 +2,7 @@ import { formatReportTime } from '../lib/reportTime'
 import SecurityCheckDomains from './SecurityCheckDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
+import SignedInScanningSummary from './SignedInScanningSummary'
 import { bandMeta } from '../lib/score-presentation'
 import { scoreHeadline, SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
 import {
@@ -440,6 +441,8 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
         presentation={report.certificate_assurance}
         showEvidence
       />
+
+      <SignedInScanningSummary section={report.website_signed_in} />
 
       {report.dmarc_policy_presentation && (
         <DmarcPolicyEvidenceCard

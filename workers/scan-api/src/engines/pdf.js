@@ -736,6 +736,22 @@ function highestSev(items) {
   for (const f of items) { const r = SEV_RANK[String(f.severity || "").toLowerCase()] ?? -1; if (r > rank) { rank = r; best = f.severity; } }
   return best;
 }
+// Website Security: what signed-in scanning did in this scan (#868). The
+// snapshot's own sentences, plus one fact line; null reads "not observed",
+// never "no". ASCII only: this renderer strips other characters.
+export function signedInPdfLines(si) {
+  if (!si || typeof si !== "object") return [];
+  const lines = [];
+  if (si.status === "recorded" && si.signed_in === true) {
+    const refused = si.anonymous_access_refused === true ? "yes" : si.anonymous_access_refused === false ? "no" : "not observed";
+    const when = si.last_successful_sign_in_at ? String(si.last_successful_sign_in_at).replace("T", " ").replace(/:\d\d(\.\d+)?Z$/, " UTC") : null;
+    lines.push(`Signed-in pages: ${si.pages_checked ?? 0} checked; anonymous access refused: ${refused}${when ? `; last signed in ${when}` : ""}`);
+  }
+  if (si.customer_message) lines.push(si.customer_message);
+  if (si.limitation) lines.push(si.limitation);
+  return lines;
+}
+
 function sectionDomains(w, snap, { detail = "full" } = {}) {
   w.heading("External security posture");
   for (const d of reportDomains(snap.domains)) {
@@ -766,6 +782,9 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
       if (otherOpen) posture.push(`${otherOpen} open managed case${otherOpen === 1 ? "" : "s"}`);
       if (awaiting) posture.push(`${awaiting} case${awaiting === 1 ? "" : "s"} awaiting verification`);
       if (posture.length) w.text(posture.join(" · "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+      if (d.domain_key === "website_security") {
+        for (const line of signedInPdfLines(snap.website_signed_in)) w.prose(customerBodyText(line), { size: 8, indent: 10, color: "0.25 0.28 0.33" });
+      }
 
       if (detail === "full") {
         // Per-domain findings with severity, explanation, verification support and
