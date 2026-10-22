@@ -1016,8 +1016,11 @@ export function computeScore(modules, domain) {
   // takeover-prone provider, but the provider withheld the page that would
   // confirm whether it is claimed (origin_access_restricted). Reported as a
   // hedged observation with stated confidence; it never deducts score.
-  const withheldCandidates = (takeoverMod && !takeoverMod.error && !(takeoverMod.risks?.length > 0))
-    ? (takeoverMod.unconfirmed || []).filter((row) => row?.reason === "origin_access_restricted" && row.host && row.cname)
+  // A host already confirmed as a takeover risk is reported by that finding.
+  const confirmedTakeoverHosts = new Set((takeoverMod?.risks || []).map((risk) => risk?.host).filter(Boolean));
+  const withheldCandidates = (takeoverMod && !takeoverMod.error)
+    ? (takeoverMod.unconfirmed || []).filter((row) => row?.reason === "origin_access_restricted" && row.host && row.cname &&
+      !confirmedTakeoverHosts.has(row.host))
     : [];
   if (withheldCandidates.length > 0) {
     // Pushed directly (like asset_exposure_interface_observed): finding()

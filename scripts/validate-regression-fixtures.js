@@ -507,6 +507,14 @@ results.push(
     const withheld = run("origin_access_restricted");
     const candidate = withheld.findings.find((item) => item.id === "subdomain_takeover_unconfirmed");
     const failed = run("fetch_failed");
+    const mixed = scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      subdomain_takeover: { checked: 2, potential_risks: 2, error: null,
+        risks: [{ host: "old.example.com", cname: "gone.provider.example", provider: "Provider" }],
+        unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", provider: "Provider", reason: "origin_access_restricted" }] },
+    }, "example.com");
+    const mixedCandidate = mixed.findings.find((item) => item.id === "subdomain_takeover_unconfirmed");
+    if (!(mixedCandidate?.affected_hosts?.join() === "www.example.com" && mixed.findings.some((item) => item.id === "subdomain_takeover"))) return false;
     return candidate?.finding_type === "observation" && candidate.score_impact === 0 && candidate.confidence === 50 &&
       /could not confirm either way/.test(candidate.description) &&
       !withheld.findings.some((item) => item.id === "subdomain_takeover") &&
