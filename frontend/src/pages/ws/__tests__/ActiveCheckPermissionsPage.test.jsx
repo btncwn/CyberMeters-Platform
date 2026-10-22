@@ -7,13 +7,13 @@ import ActiveCheckPermissionsPage from '../ActiveCheckPermissionsPage'
 // S1-A (founder decision 22 Oct 2026): the Active Checks consent form on the
 // S2-A API. Every field is the API's; the page invents none.
 
-const confirm = vi.fn()
+const prompt = vi.fn()
 vi.mock('../../../api', () => ({
   api: { getActiveCheckConsents: vi.fn(), grantActiveCheckConsent: vi.fn(), revokeActiveCheckConsent: vi.fn(), getWorkspaceDomains: vi.fn() },
 }))
 vi.mock('../../../hooks/useWorkspace', () => ({ useWorkspace: () => ({ wsId: 'ws1', wsName: 'Black Bull Barbers', loading: false }) }))
 vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ user: { email: 'owner@example.co.uk' } }) }))
-vi.mock('../../../components/AppDialog', () => ({ useAppDialog: () => ({ confirm }) }))
+vi.mock('../../../components/AppDialog', () => ({ useAppDialog: () => ({ prompt }) }))
 
 const AUTHORITY = { version: 'active-checks-2026-10-22', text: 'I confirm that I am authorised by the organisation that owns this domain to permit CyberMeters to run the active checks listed here.' }
 const CATALOGUE = [
@@ -98,7 +98,7 @@ describe('Active Checks permission (S1-A)', () => {
 
   it('a receipt shows the stored record; revoking asks first, then appends a revocation', async () => {
     api.getActiveCheckConsents.mockResolvedValue(payload({ consents: [grant()] }))
-    confirm.mockResolvedValue(true)
+    prompt.mockResolvedValue('')
     renderPage()
     const receipt = within(await screen.findByTestId('consent-receipt'))
     expect(receipt.getByText('mail.blackbullbarbers.co.uk')).toBeInTheDocument()
@@ -107,16 +107,16 @@ describe('Active Checks permission (S1-A)', () => {
     expect(receipt.getByText(/22 Oct 2026, 08:00 UTC/)).toBeInTheDocument()
     expect(receipt.getByText(new RegExp(AUTHORITY.text.slice(0, 40)))).toBeInTheDocument()
     fireEvent.click(receipt.getByRole('button', { name: 'Revoke permission' }))
-    await waitFor(() => expect(api.revokeActiveCheckConsent).toHaveBeenCalledWith('ws1', 'acc_1'))
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'Revoke permission', tone: 'danger' }))
+    await waitFor(() => expect(api.revokeActiveCheckConsent).toHaveBeenCalledWith('ws1', 'acc_1', ''))
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'Revoke permission', tone: 'danger', label: 'Reason (optional)' }))
   })
 
   it('declining the confirmation revokes nothing', async () => {
     api.getActiveCheckConsents.mockResolvedValue(payload({ consents: [grant()] }))
-    confirm.mockResolvedValue(false)
+    prompt.mockResolvedValue(null)
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke permission' }))
-    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    await waitFor(() => expect(prompt).toHaveBeenCalled())
     expect(api.revokeActiveCheckConsent).not.toHaveBeenCalled()
   })
 
@@ -151,5 +151,29 @@ describe('Active Checks permission (S1-A)', () => {
     const receipt = within(await screen.findByTestId('consent-receipt'))
     expect(receipt.getByText('A check no longer offered')).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/retired_check_id|tls_intrusive|mail_open_relay/)
+  })
+
+  it('a reason typed in the revoke dialog is sent with the revocation', async () => {
+    api.getActiveCheckConsents.mockResolvedValue(payload({ consents: [grant()] }))
+    prompt.mockResolvedValue('The mail server moved to a new provider.')
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Revoke permission' }))
+    await waitFor(() => expect(api.revokeActiveCheckConsent).toHaveBeenCalledWith('ws1', 'acc_1', 'The mail server moved to a new provider.'))
+  })
+
+  it('a receipt shows its own stored statement, the admin-only IP, and why it was revoked', async () => {
+    const older = 'An earlier statement, exactly as it was agreed.'
+    api.getActiveCheckConsents.mockResolvedValue(payload({ consents: [
+      grant({ id: 'acc_old', authority_version: 'active-checks-2026-01-01', authority_text: older, signer: { ...grant().signer, ip_address: '203.0.113.7' },
+        status: 'revoked', revoked_at: '2026-10-22T09:00:00.000Z', revocation_reason: 'Moved provider.' }),
+      grant({ id: 'acc_new', status: 'revoked', revoked_at: '2026-10-22T09:30:00.000Z', revocation_reason: null }),
+    ] }))
+    renderPage()
+    const [oldReceipt, newReceipt] = (await screen.findAllByTestId('consent-receipt')).map((el) => within(el))
+    expect(oldReceipt.getByText(`“${older}”`)).toBeInTheDocument()
+    expect(oldReceipt.getByText('203.0.113.7')).toBeInTheDocument()
+    expect(oldReceipt.getByText('Moved provider.')).toBeInTheDocument()
+    expect(newReceipt.getByText('No reason given')).toBeInTheDocument()
+    expect(newReceipt.queryByText('IP address')).toBeNull()
   })
 })
