@@ -22,7 +22,7 @@ import {
   caseDisplayTitle,
 } from '../../lib/caseDisplay'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
-import { formatDate } from '../../utils/dates'
+import { formatDate, formatDay } from '../../utils/dates'
 
 // domain_key → { service-colour key, the area page that handles a case the
 // universal page cannot move (Brand Protection) }.
@@ -316,6 +316,17 @@ function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRou
   )
 }
 
+// The condition is already gone but the case has not been moved on (Executive
+// 16:20 product decision: no auto-close — the customer moves the case, then
+// CyberMeters verifies). The case API's condition_state / last_observed_absent_at
+// (Seat 3) say so; until those fields are present nothing is shown, never guessed.
+const BEFORE_READY = new Set(['detected', 'triaged', 'assigned', 'approved', 'action_in_progress', 'reopened'])
+export function noLongerObservedText(c) {
+  if (c?.condition_state !== 'no_longer_observed' || !BEFORE_READY.has(c?.canonical_phase)) return null
+  const when = c.last_observed_absent_at ? formatDay(c.last_observed_absent_at, '') : ''
+  return `CyberMeters no longer observes this issue${when ? ` (last check ${when})` : ''}. Mark the case ready to verify and the next scan will confirm it.`
+}
+
 export default function WorkspaceCaseDetailPage() {
   const { caseId } = useParams()
   const navigate = useNavigate()
@@ -399,6 +410,9 @@ export default function WorkspaceCaseDetailPage() {
           </div>
 
           {/* ── 3 · What to do (backend guidance) + the one action ─────────── */}
+          {noLongerObservedText(c) && (
+            <p className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-base text-brand-900" data-testid="case-no-longer-observed">{noLongerObservedText(c)}</p>
+          )}
           <CaseGuidance guidance={c.guidance} />
           {data?.can_manage && (
             <NextActionSection
