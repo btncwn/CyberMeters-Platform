@@ -295,6 +295,15 @@ ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401
   ok("proof site: no form, no script, no input", !/<form|<script|<input/i.test(page.body));
   ok("proof site: HSTS present by default, with the other security headers", page.hsts === "max-age=31536000" && /default-src 'none'/.test(page.csp || ""));
   ok("proof site: HSTS absent only while SITE_PROOF_HSTS=off", (await get("sheshire.co.uk", "/", { e: { ...env, SITE_PROOF_HSTS: "off" } })).hsts === null);
+  {
+    const plain = async (p, e = env, method = "GET") => worker.default.fetch(new Request(`http://sheshire.co.uk${p}`, { method }), e, ctx);
+    const r = await plain("/account");
+    ok("proof site: plain http is redirected to https on the same path", r.status === 301 && r.headers.get("location") === "https://sheshire.co.uk/account");
+    ok("proof site: the redirect never carries the query", (await plain("/?next=//evil.example")).headers.get("location") === "https://sheshire.co.uk/");
+    const off = await plain("/", { ...env, SITE_PROOF_HTTP_REDIRECT: "off" });
+    ok("proof site: no redirect only while SITE_PROOF_HTTP_REDIRECT=off", off.status === 200 && /CyberMeters test page/.test(await off.text()));
+    ok("proof site: https is served, never redirected", (await get("sheshire.co.uk", "/")).status === 200);
+  }
   for (const p of ["/health", "/api/auth/me", "/.well-known/mta-sts.txt", "/?x=1", "/login?next=/", "/account/other", "/cybermeters-verification-abc12345.html"]) {
     ok(`proof site host: ${p} is 404`, (await get("sheshire.co.uk", p)).status === 404);
   }
