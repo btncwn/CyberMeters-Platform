@@ -113,4 +113,12 @@ describe('case page re-check fixes (founder, 21 Oct 21:35)', () => {
     expect(screen.queryByRole('button', { name: 'Assign' })).toBeNull()
     expect(screen.queryByRole('combobox', { name: 'Assign owner' })).toBeNull()
   })
+
+  it('dates read as dates, never raw timestamps', async () => {
+    api.getCase.mockResolvedValue({ case: asmCase, events: [{ id: 'e1', action: 'case_created', actor_type: 'system', created_at: '2026-10-21T15:23:00Z' }], can_manage: false, available_transitions: [] })
+    renderCase()
+    await screen.findByRole('heading', { level: 1 })
+    expect(screen.getByTestId('case-detail').textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+    expect(screen.getByText(/^Opened:/)).toHaveTextContent(/21 Oct 2026/)
+  })
 })

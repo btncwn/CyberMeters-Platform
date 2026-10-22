@@ -22,6 +22,7 @@ import {
   caseDisplayTitle,
 } from '../../lib/caseDisplay'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
+import { formatDate } from '../../utils/dates'
 
 // domain_key → { service-colour key, the area page that handles a case the
 // universal page cannot move (Brand Protection) }.
@@ -53,9 +54,9 @@ const SUPPORT_TONE = {
   slate: 'bg-slate-50 text-slate-700 border-slate-200',
 }
 
+// Human dates, one formatter for the product (utils/dates: server timestamps are UTC).
 function fmt(ts) {
-  if (!ts) return '—'
-  return String(ts).replace('T', ' ').replace('Z', '').slice(0, 16)
+  return formatDate(ts, '—')
 }
 
 // Present one append-only history event honestly (assignment, creation, transitions).
