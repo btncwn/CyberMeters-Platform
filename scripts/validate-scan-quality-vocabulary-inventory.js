@@ -91,7 +91,10 @@ const EXPECTED = Object.freeze({
     // `s?.scan_quality === 'complete'` on the workspace scan list (the backend's
     // recorded quality, presentation only). Two-tree semantic diff against
     // origin/main: that single addition; none removed or reclassified.
-    comparison_occurrences: 69,
+    // Per-module verification (22 Oct 2026): canVerifyModule in asm-cases.js adds
+    // two snapshot comparisons (!== "complete", !== "partial"); keyed two-tree diff
+    // shows exactly those two added on top of the line above. 69 -> 71, files unchanged.
+    comparison_occurrences: 71,
     source_file_count: 29,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -140,7 +143,7 @@ const EXPECTED = Object.freeze({
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
     // C-11: one additive ScanDetail partial/degraded membership comparison
     // selects recorded backend area messages; the two-tree diff removes none.
-    fingerprint: "b4e90d0a46c7576f7fc0791510ec4e0e5277023a569204569467fcd40f7d9529",
+    fingerprint: "51a1d2b0cb1f2578b38571c919792c7477c6300c85308dedb0a8589dd502f8de",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
