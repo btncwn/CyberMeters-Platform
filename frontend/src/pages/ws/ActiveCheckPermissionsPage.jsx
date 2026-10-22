@@ -25,7 +25,10 @@ const ERROR_TEXT = {
   invalid_active_checks: 'Choose at least one check.',
   invalid_active_check_hosts: `Each host must be the domain itself or a name under it, up to ${MAX_HOSTS} hosts.`,
   consent_already_revoked: 'This permission was already revoked.',
+  invalid_revocation_reason: 'The reason can be up to 240 characters.',
 }
+
+const REASON_MAX = 240
 
 const utcNow = () => formatDate(new Date().toISOString(), '—', { timeZone: 'UTC' }) + ' UTC'
 
@@ -57,12 +60,24 @@ function Receipt({ consent, labels, authority, canManage, busy, onRevoke }) {
         <dd className="text-gray-800">{consent.signer?.name}, {consent.signer?.title}{consent.signer?.workspace_role ? ` (workspace ${consent.signer.workspace_role})` : ''}</dd>
         <dt className="text-gray-500">Authorised at</dt>
         <dd className="text-gray-800">{formatDate(consent.granted_at, '—', { timeZone: 'UTC' })} UTC</dd>
+        {/* The signer's IP is returned to workspace admins only (S2-A2). */}
+        {consent.signer?.ip_address && <>
+          <dt className="text-gray-500">IP address</dt>
+          <dd className="text-gray-800 break-all">{consent.signer.ip_address}</dd>
+        </>}
         <dt className="text-gray-500">Statement</dt>
         <dd className="text-gray-800">
-          {authority && consent.authority_version === authority.version
-            ? <span className="italic">“{authority.text}”</span>
-            : 'An earlier version of the authority statement, kept with this record.'}
+          {/* The receipt's own stored words; an older record never borrows today's. */}
+          {consent.authority_text
+            ? <span className="italic">“{consent.authority_text}”</span>
+            : authority && consent.authority_version === authority.version
+              ? <span className="italic">“{authority.text}”</span>
+              : 'An earlier version of the authority statement, kept with this record.'}
         </dd>
+        {revoked && <>
+          <dt className="text-gray-500">Reason for revoking</dt>
+          <dd className="text-gray-800 break-words">{consent.revocation_reason || 'No reason given'}</dd>
+        </>}
       </dl>
       {canManage && !revoked && (
         <button type="button" className="btn-secondary text-sm" disabled={busy} onClick={() => onRevoke(consent)}>
@@ -160,17 +175,21 @@ export default function ActiveCheckPermissionsPage() {
   }
 
   async function revoke(consent) {
-    const confirmed = await dialog.confirm({
+    const reason = await dialog.prompt({
       title: `Revoke permission for ${consent.domain}?`,
       message: 'CyberMeters will not start any of these checks again under this permission. The permission and its revocation stay on record; results already recorded are kept.',
+      label: 'Reason (optional)',
+      hint: `Kept with the revocation. Up to ${REASON_MAX} characters.`,
+      pattern: new RegExp(`^[\\s\\S]{0,${REASON_MAX}}$`),
+      patternMessage: `The reason can be up to ${REASON_MAX} characters.`,
       confirmLabel: 'Revoke permission',
       tone: 'danger',
     })
-    if (!confirmed) return
+    if (reason === null) return
     const requested = wsId
     setBusy(true); setError(null); setNotice(null)
     try {
-      await api.revokeActiveCheckConsent(requested, consent.id)
+      await api.revokeActiveCheckConsent(requested, consent.id, reason)
       if (scope.current !== requested) return
       setNotice('Permission revoked.')
       await load()
