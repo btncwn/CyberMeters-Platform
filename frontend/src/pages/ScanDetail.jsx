@@ -1,4 +1,6 @@
 import { formatReportDay as formatDay, formatReportTime as formatDate, REPORT_TIME_NOTE, ReportTimeLabelled } from '../lib/reportTime'
+import { parseServerDate } from '../utils/dates'
+import { customerCodeLabel } from '../lib/customerReasonText'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
@@ -32,9 +34,12 @@ const POLL_MS = 4000
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function durationSeconds(start, end) {
+// Both ends go through the shared server-date parser: the scan's created_at is
+// D1's zone-less "YYYY-MM-DD HH:MM:SS" (UTC). Parsed natively it read as local
+// time and added an hour in UK summer time ("61m 22s" for a 1m 22s scan).
+export function durationSeconds(start, end) {
   if (!start || !end) return null
-  const ms = new Date(end) - new Date(start)
+  const ms = parseServerDate(end) - parseServerDate(start)
   if (ms < 0) return null
   const s = ms / 1000
   if (s >= 60) {
@@ -542,7 +547,7 @@ function ChecksCompletion({ quality, assessment, scanQuality }) {
     ? scanQuality.warnings.filter(message => typeof message === 'string' && message.trim()) : []
   const messages = ['degraded', 'partial'].includes(effectiveQuality)
     ? [...new Set(areaMessages.length ? areaMessages : warnings)] : []
-  return <span className={`text-xs font-semibold ${meta.cls}`}>{messages.length ? messages.join(' ') : meta.label}</span>
+  return <span className={`text-xs font-semibold ${meta.cls}`}>{messages.length ? messages.map(customerEvidenceText).join(' ') : meta.label}</span>
 }
 
 function FindingsPanel({ findings, isObservation = false, onWaive = null, checksComplete = false }) {
@@ -723,7 +728,7 @@ const HEADER_LABELS = {
   'permissions-policy':        'Permissions-Policy',
 }
 
-function HeadersPanel({ headers, httpsAvailable }) {
+export function HeadersPanel({ headers, httpsAvailable }) {
   if (!headers || headers.error || !headers.accessible) {
     return (
       <div className="px-6 py-4 text-sm text-gray-500">
@@ -735,8 +740,17 @@ function HeadersPanel({ headers, httpsAvailable }) {
   }
 
   const allHeaders = Object.keys(HEADER_LABELS)
+  // When a bot-protection or caching layer answered, an absent header is not
+  // evidence the website lacks it: the finding says "Validation Uncertain", so
+  // this table uses the same words instead of "Missing" (one object, one word).
+  const uncertain = headers.validation_uncertain === true
   return (
     <div className="divide-y divide-gray-50">
+      {uncertain && (
+        <p className="px-6 py-3 text-xs text-gray-600" data-testid="headers-validation-uncertain">
+          {customerCodeLabel('validation_uncertain').replace(/^./, (c) => c.toUpperCase())}. Headers not seen in this response are marked “Validation uncertain”, not missing.
+        </p>
+      )}
       {allHeaders.map(h => {
         const present = headers.present?.includes(h)
         const val     = headers.values?.[h]
@@ -746,7 +760,9 @@ function HeadersPanel({ headers, httpsAvailable }) {
               <span className="text-sm text-gray-700 font-medium">{HEADER_LABELS[h]}</span>
               {present
                 ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">Present</span>
-                : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">Missing</span>
+                : uncertain
+                  ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-700 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">Validation uncertain</span>
+                  : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">Missing</span>
               }
             </div>
             {val && <p className="text-xs text-gray-400 mono mt-1 break-all">{val}</p>}
@@ -955,7 +971,7 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
         <div>
           <p className="font-semibold text-gray-700">Not comparable</p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-            {nonComparableReason(assessment, scanQuality)}
+            {customerEvidenceText(nonComparableReason(assessment, scanQuality))}
           </p>
         </div>
       </div>
@@ -1217,7 +1233,7 @@ function ReportView({ report, queuedAt = null, waivers = {}, onWaive = null, onU
       {showQualityWarning && (
         <div className="rounded-xl border border-[1.5px] border-brand-700 bg-transparent px-4 py-3 flex items-start gap-3 text-sm text-brand-700">
           <div>
-            <p className="font-semibold">Scan coverage {scan_quality.status}</p>
+            <p className="font-semibold">Scan coverage incomplete</p>
             {Number.isInteger(modules?.external_exposure?.coverage?.hosts_total) &&
               modules.external_exposure.coverage.hosts_checked < modules.external_exposure.coverage.hosts_total && (
                 <p className="text-xs mt-0.5">{modules.external_exposure.coverage.hosts_checked} of {modules.external_exposure.coverage.hosts_total} hosts checked this scan; the rest rotate on the next scans. Unchecked hosts have no current security verdict.</p>

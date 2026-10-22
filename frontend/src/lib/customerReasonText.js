@@ -31,7 +31,51 @@ export const CUSTOMER_CODE_COPY = Object.freeze({
   free_scan_deadline_exhausted: "the preview's time limit was reached before this check finished",
   check_failed: 'the check stopped unexpectedly',
   check_not_completed: 'this check did not finish',
+  // Scan modules, as the check a customer recognises (also used by the executive report).
+  technology_detection: 'technology detection',
+  cve_intelligence: 'vulnerability (CVE) checks',
+  known_exploited_vulnerabilities: 'known exploited vulnerability (KEV) checks',
+  risk_intelligence: 'risk summary',
+  remediation_plan: 'remediation plan',
+  subdomain_takeover: 'subdomain takeover checks',
+  email_security_intelligence: 'email security detail',
+  dns_bruteforce: 'subdomain name checks',
+  cloud_storage_discovery: 'cloud storage checks',
+  admin_surface_detection: 'admin page checks',
+  // Scan-coverage reasons (scan_quality.modules_incomplete[].incomplete_reason and
+  // the TLS coverage reason). The backend owns the code; this table owns the words.
+  host_probe_unconfirmed: 'some hosts gave an answer that could not be confirmed',
+  host_lookup_failure: 'some host names could not be looked up',
+  host_cap_truncation: 'more hosts were found than one scan checks; the rest rotate into later scans',
+  candidate_cap_truncation: 'more candidates were found than one scan checks',
+  some_hosts_unassessed: 'some hosts were not assessed',
+  takeover_probe_failed: 'the takeover check could not complete',
+  cloud_storage_probe_failed: 'the cloud storage check could not complete',
+  exposure_probe_failed: 'the public content check could not complete',
+  dns_not_executed: 'the DNS lookups did not run',
+  dns_resolution_unavailable: 'the DNS lookups returned no answer',
+  certificate_not_observed: 'no certificate was observed',
+  active_tls_evidence_unavailable: 'live TLS evidence was unavailable',
+  live_tls_not_fully_observed: 'live TLS was not fully observed',
+  optional_probe_budget_exhausted: 'the budget for optional checks was reached',
+  scan_deadline_exhausted: "the scan's time limit was reached",
+  tls_endpoints_unobserved: 'no TLS endpoint answered the deep TLS checks',
+  tls_coverage_unavailable: 'TLS coverage could not be measured',
+  tls_checks_outside_scan_budget: "some TLS checks were outside this scan's budget",
+  tls_checks_inconclusive: 'some TLS checks did not support a conclusion',
+  tls_services_outside_scan_budget: "some TLS services were outside this scan's budget",
+  tls_endpoint_coverage_incomplete: 'some TLS endpoints were not fully checked',
+  tls_result_unavailable: 'the TLS result is unavailable',
 })
+
+// Backend scan warnings carry a module code in a fixed sentence shape. Read them
+// as sentences before the code table runs.
+const WARNING_SHAPES = Object.freeze([
+  [/^Module incomplete: ([a-z0-9_]+)$/i, (code) => `${capitalise(CUSTOMER_CODE_COPY[code] || words(code))} did not finish.`],
+  [/^Module skipped \(subrequest budget\): ([a-z0-9_]+)$/i, (code) => `${capitalise(CUSTOMER_CODE_COPY[code] || words(code))} did not run because the scan request budget was reached.`],
+])
+const words = (code) => String(code).replace(/_/g, ' ')
+const capitalise = (text) => text.charAt(0).toUpperCase() + text.slice(1)
 
 const entries = Object.entries(CUSTOMER_CODE_COPY).sort((a, b) => b[0].length - a[0].length)
 const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -48,6 +92,10 @@ export function customerCodeLabel(code) {
 
 export function customerReasonText(value) {
   let text = String(value || '')
+  for (const [shape, sentence] of WARNING_SHAPES) {
+    const match = text.trim().match(shape)
+    if (match) return sentence(match[1])
+  }
   for (const [code, label] of entries) {
     const pattern = new RegExp(`(^|[^a-z0-9_])(${escape(code)})(?=$|[^a-z0-9_])`, 'gi')
     text = text.replace(pattern, (_match, prefix) => prefix + label)
