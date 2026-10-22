@@ -1,3 +1,4 @@
+import { TLS_AUTHORISATION_REQUIRED_REASON } from '../../../../shared/tls/catalog.js';
 // The deep TLS profile includes static states for controls the engine cannot
 // execute (notably the unreleased special checks). Those states remain visible
 // in the TLS receipt, but do not make every supported-profile scan incomplete.
@@ -25,6 +26,14 @@ export const TLS_CAPABILITY_UNEXECUTABLE_REASONS = Object.freeze([
 export function blockingTlsUnexecutable(checks) {
   return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'unexecutable'
     && !TLS_CAPABILITY_UNEXECUTABLE_REASONS.includes(row.reason)).length;
+}
+
+// An intrusive control the customer has not authorised (S3-B) is stated, not
+// missing: it never keeps the assessment partial. Losing an authority that did
+// exist (scope changed mid-run) still does.
+export function blockingTlsNotAuthorized(checks) {
+  return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'not_authorized'
+    && row.reason !== TLS_AUTHORISATION_REQUIRED_REASON).length;
 }
 
 export const TLS_REFUSAL_REASONS = Object.freeze(['transport_eof', 'handshake_failed', 'peer_alert']);

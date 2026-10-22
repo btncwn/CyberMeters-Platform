@@ -33,6 +33,17 @@ export const TLS_CONTROLS = Object.freeze([
   'secure_renegotiation','fallback_scsv','extended_master_secret',
   'session_resumption','early_data','sni_alpn',...TLS_SPECIAL_CONTROLS,
 ]);
+// S3-B (22 Oct 2026): the two classes of TLS control. SAFE-ACTIVE controls are
+// ordinary handshakes a client would make (protocol, cipher, forward secrecy,
+// fallback, compression, renegotiation, ...) and run in normal scans under the
+// owned-endpoint rules. INTRUSIVE controls send deliberately malformed or
+// out-of-sequence messages and run only with an Active Checks grant for that
+// exact address (engines/active-check-consent.js) once the engine is released.
+export const TLS_INTRUSIVE_CONTROLS = TLS_SPECIAL_CONTROLS;
+export const TLS_SAFE_ACTIVE_CONTROLS = Object.freeze(TLS_CONTROLS.filter(control => !TLS_SPECIAL_CONTROLS.includes(control)));
+// The reason an intrusive control was not run because the customer has not
+// authorised it: stated, never a gap in CyberMeters' own assessment.
+export const TLS_AUTHORISATION_REQUIRED_REASON = 'requires_customer_authorisation';
 export const TLS_SLICE_LIMITS = Object.freeze({
   checks:8, connections:16, bytes:1048576, overreadBytes:65536,
   durationMs:25000, requestBytes:16384, responseBytes:524288,

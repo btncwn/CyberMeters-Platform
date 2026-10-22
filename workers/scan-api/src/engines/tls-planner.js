@@ -1,7 +1,7 @@
 import { dnsQuery } from './dns.js';
 import { isAuthorised, ACTIVE_CHECK_AUTHORITY_VERSION } from './active-check-consent.js';
 import { isPublicProbeAddress, isProbeHostname } from '../../../network-probe/src/contract.js';
-import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
+import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_AUTHORISATION_REQUIRED_REASON, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
 
 const MAX_SERVICES_PER_SCAN = 4;
 const MAX_ENDPOINTS_PER_SCAN = 8;
@@ -256,7 +256,14 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
         if(candidate)add('cipher',protocol,candidate.name);
       }
     }
-    for(const control of TLS_SPECIAL_CONTROLS)if(entry.scope?.special_checks?.[control])add(control,'tls1_2');
+    // Intrusive controls (S3-B): planned only with this address's own grant and
+    // a released engine; otherwise stated as "not tested — requires your
+    // authorisation", which never counts against the assessment's completeness.
+    for(const control of TLS_SPECIAL_CONTROLS){
+      if(TLS_SPECIAL_CONTROLS_AVAILABLE&&entry.scope?.special_checks?.[control])add(control,'tls1_2');
+      else if(applicableTlsControl(control,'tls1_2'))staticResults.push({endpoint_index:index,check:{control,protocol:'tls1_2',cipher_id:null},
+        state:'not_authorized',reason:TLS_AUTHORISATION_REQUIRED_REASON});
+    }
     const unique=[...new Map(rows.map(row=>[`${row.check.control}|${row.check.protocol}|${row.check.cipher_id||''}`,row])).values()];
     if(selected.length+unique.length>Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN))){
       deferredHosts.push({hostname:entry.endpoint.hostname,port:entry.endpoint.port,reason:'tls_plan_budget'});
