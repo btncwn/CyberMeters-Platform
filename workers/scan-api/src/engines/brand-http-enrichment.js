@@ -23,6 +23,7 @@
 
 import { createId } from "../lib/util.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
+import { writeBrandEvidence } from "./brand-evidence-persistence.js";
 
 export const BRAND_HTTP_BATCH_SIZE = 8;                 // candidates per workspace per invocation
 export const BRAND_HTTP_WORKSPACES_PER_TICK = 3;        // workspaces per daily run
@@ -176,12 +177,11 @@ export async function enrichBrandCandidatesHttp(env, workspaceId, opts = {}) {
     const persist = httpOutcomeToPersistence(probe);
     if (!persist) continue; // transient — untouched, retried next batch
     if (persist.looks_like_login) stats.login_surfaces++;
-    const evidence = mergeHttpEvidence(row.evidence_json, persist);
     try {
-      const result = await env.cybermeters_db.prepare(
+      const result = await writeBrandEvidence(env, workspaceId, row, (expected) => env.cybermeters_db.prepare(
         `UPDATE workspace_brand_assets
             SET https_available = ?, evidence_json = ?, last_checked_at = ?, updated_at = ?
-          WHERE id = ? AND workspace_id = ?
+          WHERE id = ? AND workspace_id = ? AND evidence_json IS ?
             AND EXISTS (
                   SELECT 1
                     FROM workspaces w
@@ -191,7 +191,8 @@ export async function enrichBrandCandidatesHttp(env, workspaceId, opts = {}) {
                      AND w.deleted_at IS NULL
                      AND lower(d.domain) = lower(workspace_brand_assets.domain)
                 )`
-      ).bind(persist.https_available, JSON.stringify(evidence), now, now, row.id, workspaceId).run();
+      ).bind(persist.https_available, JSON.stringify(mergeHttpEvidence(expected, persist)),
+        now, now, row.id, workspaceId, expected).run());
       if (runChanges(result) !== 1) continue;
       stats.checked++;
     } catch { /* isolated — the batch continues */ }

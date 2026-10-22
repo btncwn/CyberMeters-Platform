@@ -5,6 +5,7 @@ const CANDIDATE_EXPLANATION =
   "This name is a candidate only. Registration, activity, and abuse have not been confirmed.";
 
 function unvalidatedBrandFinding(finding) {
+  if (finding?.id === "brand_watchlist_dns_observation" && finding.finding_type === "observation") return false;
   return /^brand_/.test(finding?.id || "") || finding?.module === "brand_monitoring";
 }
 

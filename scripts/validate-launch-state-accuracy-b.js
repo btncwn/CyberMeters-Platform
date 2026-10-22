@@ -700,5 +700,49 @@ for (const [name, partial] of [
     engineSource.includes("hstsMissingSeverity:   hstsMissingSeverity(findings.filter(isActionableFinding)),"));
 }
 
+// C-21: persisted watchlist DNS facts are observations, never an abuse verdict.
+{
+  const { probeWatchlistDns, brandWatchlistDnsObservations } = await import(engine("brand-dns-enrichment.js"));
+  const fixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/brand-watchlist-dns.json"), "utf8"));
+  const probe = (item) => probeWatchlistDns(item.name, async (_name, type) => structuredClone(item[type]));
+  const receipts = [];
+  for (const item of fixture.candidates.filter((item) => !item.unavailable)) {
+    const measured = await probe(item);
+    receipts.push({ schema_version: "brand-watchlist-dns.v1", verified_scope: true,
+      candidate_domain: item.name, protected_domain: fixture.protected_domain,
+      checked_at: fixture.checked_at, ...measured });
+  }
+  const module = { candidates_validated: false, watchlist_dns: receipts };
+  const scope = { domain: fixture.protected_domain, verified: true, checkedAt: fixture.checked_at };
+  const facts = brandWatchlistDnsObservations(module, scope);
+  check("C21 DNS observations are qualified and non-scored", facts.length === 1
+    && facts[0].finding_type === "observation" && facts[0].score_impact === 0
+    && facts[0].evidence.length === 4 && /not evidence of phishing/.test(facts[0].description));
+  const nullMx = await probe(fixture.candidates.find((item) => item.null_mx));
+  check("C21 Null MX is never mail capability", nullMx?.mx_present === false && nullMx.null_mx === true);
+  const unavailable = await Promise.all(fixture.candidates.filter((item) => item.unavailable).map(probe));
+  check("C21 DNS failures stay unavailable", unavailable.every((item) => item === null));
+  check("C21 unverified scope publishes no DNS observations", brandWatchlistDnsObservations(module, { ...scope, verified: false }).length === 0);
+  check("C21 foreign scope publishes no DNS observations", brandWatchlistDnsObservations(module, { ...scope, domain: "foreign.example" }).length === 0);
+  check("C21 stale DNS receipts cannot become current facts", brandWatchlistDnsObservations(module, {
+    ...scope, checkedAt: new Date(Date.parse(fixture.checked_at) + 8 * 86400000).toISOString(),
+  }).length === 0);
+  check("C21 unavailable enrichment cannot publish retained facts", brandWatchlistDnsObservations({
+    ...module, validation: { state: "unavailable" },
+  }, scope).length === 0);
+  const bounded = brandWatchlistDnsObservations({ watchlist_dns: Array.from({ length: 30 }, (_, i) => ({
+    ...receipts[0], candidate_domain: `watched-${i}.example`,
+  })) }, scope);
+  check("C21 report observations stay bounded", bounded[0]?.evidence.length === 40);
+  const report = reportWith({ brand_monitoring: module }, facts);
+  const projected = projectUnvalidatedBrandReportForCustomer(report);
+  const frozen = snapshot(report).observations.find((item) => item.finding_id === "brand_watchlist_dns_observation");
+  check("C21 proven DNS facts survive the unvalidated-candidate projection", projected.findings[0]?.title === facts[0]?.title);
+  check("C21 canonical Brand Protection guidance is frozen without a forced action", frozen?.domain_keys?.join() === "brand_protection"
+    && frozen.remediation_id === "brand.watchlist_dns.review" && frozen.score_impact === 0
+    && resolveRemediation({ finding_type: "brand_watchlist_dns_observation", domain_key: "brand_protection" })?.verification_method === "dns_recheck"
+    && snapshot(report).remediation_actions.every((action) => !action.finding_ids?.includes("brand_watchlist_dns_observation")));
+}
+
 console.log(`Launch state accuracy fixtures: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

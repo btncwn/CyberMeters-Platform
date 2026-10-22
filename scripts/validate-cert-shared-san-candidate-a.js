@@ -647,8 +647,11 @@ const parity = states.map(parityOutputs);
 // methodology fingerprint (r109-de4d1155 -> r110-f8e28c62) in this fixture.
 // Substituting only the predecessor registry reproduces both prior hashes
 // exactly; certificate evidence remains ebd729ca… and all five SAN states agree.
-const GOLDEN_F13 = "c65a1a8b89f4ffd27ffb5898f5a7060c7fe3fca6c69b3ccc080952fca435a829";
-const GOLDEN_F14 = "43cef30617668f424e5efdd7b54851b57e9e4fdb8c09e0a095b258396aa42b63";
+// Watchlist DNS guidance adds only the frozen registry stamp in this fixture
+// (r110-f8e28c62 -> r111-368754e2). Substituting just the predecessor registry
+// reproduces both prior hashes exactly; certificate evidence remains unchanged.
+const GOLDEN_F13 = "bacf7b72b15e6857ba6f5e45baed2a16dad42158558309536b33ee8a235e3cfe";
+const GOLDEN_F14 = "aa476eff8a0c5fe41e5654d2292a947cf2a5c5068fc45d712b1923161bdbaf42";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
