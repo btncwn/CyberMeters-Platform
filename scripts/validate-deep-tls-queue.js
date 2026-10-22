@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointIdentity } from '../shared/tls/catalog.js';
-import { projectTlsCollectorReceipt } from '../workers/network-probe/src/tls-contract.js';
+import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
 import { loadTlsEndpoints } from '../workers/scan-api/src/engines/tls-planner.js';
@@ -26,6 +26,9 @@ const lookupTlsDns=async(_host,type)=>type==='A'?{Status:0,Answer:[{type:1,name:
 let collectorCalls=0;
 const collectTlsAssessment=async(_env,input)=>{
   collectorCalls++;
+  // Every request must pass the probe's own contract, as in production
+  // (22 Oct 2026: an extra plan-only scope key made every request invalid_scope).
+  { const verdict=validateTlsAssessmentRequest(input); if(!verdict.ok)console.error("PROBE_CONTRACT", verdict.reason, JSON.stringify(input.scope), input.checks?.map(c=>c.control).join(",")); assert.equal(verdict.ok,true); }
   const timestamp=new Date().toISOString();
   const engine={schema:'tls-engine-result-v1',engine:{family:'modern',version:'3.5.9',build_id:'a'.repeat(64),sandboxed:true},
     control:'handshake',protocol:'tls1_2',state:'accepted',reason:'handshake_completed',authenticated_finished:true,vulnerability:null,
@@ -47,7 +50,7 @@ for(let i=0;i<1000;i++){
     dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
   const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
     endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
-      generation:0,special_consent:false,consent_version:null}}],selected:[{endpoint_index:0,check}],static_results:[],results:[],
+      generation:0,special_consent:false,special_checks:{},consent_version:null}}],selected:[{endpoint_index:0,check}],static_results:[],results:[],
     cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
   sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
@@ -69,7 +72,7 @@ assert.equal(collectorCalls,1000);
 // A collector interruption consumes its reserved network budget. A later Queue
 // delivery resumes the same cursor and can charge only the remaining allowance.
 function interruptedJob(scanId) {
-  const workspace='w_interrupt',domain=`${scanId}.example.org`,domainId=`d_${scanId}`,now=Date.now();
+  const workspace='w_interrupt',domain=`${scanId.replaceAll('_','-')}.example.org`,domainId=`d_${scanId}`,now=Date.now();
   sql.prepare('INSERT OR IGNORE INTO workspaces VALUES(?,NULL)').run(workspace);
   sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
   sql.prepare("INSERT INTO workspace_domains VALUES(?,?,'verified')").run(workspace,domainId);
