@@ -15,6 +15,37 @@ import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { reconcileMcpOAuthPortfolioSubscription } from "./mcp-oauth-admission.js";
 
+// A subscription that is now ACTIVE and paid: clear the stale trial_end left by
+// a converted trial (no later reader may trust it; the value is kept in the
+// append-only subscription event), and tell the owner once per (subscription,
+// plan) that the plan is active. Never fails the webhook.
+async function onPaidPlanActive(env, rowId, obj, plan) {
+  if (!rowId || normalizeStripeSubscriptionStatus(obj?.status) !== "active") return;
+  try {
+    const row = await env.cybermeters_db
+      .prepare("SELECT owner_user_id, workspace_id, trial_end FROM subscriptions WHERE id = ? LIMIT 1")
+      .bind(rowId).first();
+    if (row?.trial_end) {
+      const cleared = await env.cybermeters_db
+        .prepare("UPDATE subscriptions SET trial_end = NULL, updated_at = datetime('now') WHERE id = ? AND trial_end IS NOT NULL AND subscription_status = 'active'")
+        .bind(rowId).run();
+      if ((cleared?.meta?.changes ?? 0) > 0) {
+        await writeSubscriptionEvent(env, rowId, "trial_converted", { previous_trial_end: row.trial_end, plan });
+      }
+    }
+    if (row?.owner_user_id && !obj?.cancel_at_period_end) {
+      await sendLifecycleEmail(env, {
+        type: "lifecycle_plan_active",
+        user_id: row.owner_user_id,
+        workspace_id: row.workspace_id ?? null,
+        ref: `${obj?.id || rowId}:${plan}`,
+        plan,
+        next_invoice_at: stripeUnixToIso(obj?.current_period_end),
+      }).catch(() => {});
+    }
+  } catch { /* post-processing only: entitlements are already written */ }
+}
+
 export async function globalBillingRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, consumeApiRateLimit, validateFrontendRedirectUrl } = rctx;
@@ -337,6 +368,7 @@ export async function globalBillingRoutes(rctx) {
               current_period_start: stripeUnixToIso(obj?.current_period_start),
               current_period_end: stripeUnixToIso(obj?.current_period_end),
             });
+            await onPaidPlanActive(env, rowId, obj, getPlanFromStripePriceId(env, price?.id || null, metadata.plan));
             break;
           }
 
@@ -394,6 +426,10 @@ export async function globalBillingRoutes(rctx) {
               current_period_start: stripeUnixToIso(obj?.current_period_start),
               current_period_end: stripeUnixToIso(obj?.current_period_end),
             });
+            // A plan change, or a trial becoming paid, is a new active plan.
+            if ((previousPlan && previousPlan !== newPlan) || previousSubscription?.subscription_status === "trialing") {
+              await onPaidPlanActive(env, rowId, obj, newPlan);
+            }
             break;
           }
 

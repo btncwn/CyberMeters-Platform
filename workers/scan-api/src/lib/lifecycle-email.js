@@ -184,6 +184,7 @@ const LIFECYCLE_TYPES = new Set([
   "lifecycle_first_scan_completed",
   "lifecycle_email_protection_next_step",
   "lifecycle_payment_failed",
+  "lifecycle_plan_active",
 ]);
 
 // Pure, testable: a stable dedupe key per (type + scope).
@@ -198,6 +199,9 @@ function lifecycleDedupeKey({ type, user_id = null, workspace_id = null, domain 
     // One notification per failed invoice (`ref`), not per retry attempt —
     // Stripe fires invoice.payment_failed on every collection retry.
     case "lifecycle_payment_failed":              return `lifecycle_payment_failed:${ref || workspace_id || "unknown"}`;
+    // One per (Stripe subscription, plan): a new paid plan or a plan change, never
+    // a renewal or a retried webhook.
+    case "lifecycle_plan_active":                 return `lifecycle_plan_active:${ref || workspace_id || "unknown"}`;
     default:                                       return `${type}:${user_id || ""}:${workspace_id || ""}:${d}`;
   }
 }
@@ -311,7 +315,15 @@ function _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl }) {
 // Pure, testable: build subject + html + text for a lifecycle type. `origin`
 // must be an https FRONTEND_URL origin (or null → links omitted). Never embeds
 // secrets; user-supplied values (domain, workspace name) are HTML-escaped.
-function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null, scanQuality = null } = {}) {
+const PLAN_DISPLAY = Object.freeze({ starter: "Starter", professional: "Professional", business: "Business", enterprise: "Enterprise" });
+// "22 Nov 2026" in UTC (the product's one time convention), or null.
+function utcDay(value) {
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null, scanQuality = null, plan = null, nextInvoiceAt = null } = {}) {
   const link = (path) => (origin ? `${origin}${path}` : null);
   const ws = wsName ? escapeEmailHtml(wsName) : "your workspace";
   const dom = domain ? escapeEmailHtml(domain) : "your domain";
@@ -382,6 +394,20 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       ];
       ctaLabel = "Update payment method"; ctaPath = "/billing";
       break;
+    case "lifecycle_plan_active": {
+      // Plan and date only: no amounts, no card details (Stripe sends the receipt).
+      const planName = PLAN_DISPLAY[String(plan || "").toLowerCase()] || "paid";
+      const due = utcDay(nextInvoiceAt);
+      subject = `Your CyberMeters ${planName} plan is active`;
+      heading = `Your ${planName} plan is active`;
+      paras = [
+        `The ${planName} plan is now active for ${ws}.`,
+        ...(due ? [`Your next invoice is due on ${due} (UTC).`] : []),
+        "You can change or cancel your plan, update your payment method and download invoices from Billing.",
+      ];
+      ctaLabel = "Manage billing"; ctaPath = "/billing";
+      break;
+    }
     case "lifecycle_email_protection_next_step":
       subject = "Finish connecting DMARC reporting";
       heading = "Finish connecting DMARC reporting";
@@ -420,6 +446,8 @@ async function sendLifecycleEmail(env, {
   wsName = null,
   ref = null,
   scan_quality = null,
+  plan = null,
+  next_invoice_at = null,
   _recovery_id = null,
 } = {}) {
   let admitted = false;
@@ -486,7 +514,7 @@ async function sendLifecycleEmail(env, {
     }
 
     const origin = getEmailFrontendOrigin(env);
-    const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain, scanQuality: scan_quality });
+    const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain, scanQuality: scan_quality, plan, nextInvoiceAt: next_invoice_at });
     const prepared = prepareEmailDelivery(subject, text, html, env, "HELLO_EMAIL_FROM", [email]);
     if (!prepared.ok) {
       await recordLifecyclePreflightFailure(env, { rowId, dedupeKey, workspaceId: workspace_id, reason: prepared.reason });
@@ -551,7 +579,9 @@ async function sendLifecycleEmail(env, {
  *
  * Excludes lifecycle_payment_failed: its dedupe key includes the Stripe invoice
  * id (`ref`), which is not stored on the row, so it cannot be safely rebuilt
- * here — and it is sent from the light webhook context anyway. Bounded to a
+ * here — and it is sent from the light webhook context anyway. The same holds
+ * for lifecycle_plan_active (its key carries the Stripe subscription + plan, and
+ * the plan and invoice date are not stored), so it is excluded too. Bounded to a
  * 3-day window and 10 rows per run. Never throws.
  */
 async function retryFailedLifecycleEmails(env) {
@@ -569,6 +599,7 @@ async function retryFailedLifecycleEmails(env) {
                        ) ELSE NULL END AS scan_quality
                 FROM lifecycle_email_events le
                 WHERE le.type != 'lifecycle_payment_failed'
+                  AND le.type != 'lifecycle_plan_active'
                   AND le.type != 'lifecycle_weekly_digest'
                   AND le.created_at > datetime('now', '-3 days')
                   AND (
