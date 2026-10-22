@@ -1195,6 +1195,20 @@ export const REMEDIATION_REGISTRY = Object.freeze([
 
   // ─────────────────────────── IDENTITY EXPOSURE ─────────────────────────────
   entry({
+    remediation_id: "identity.oidc.review",
+    domain_key: "identity_exposure",
+    finding_types: ["identity_oidc_observation"],
+    customer_title: "Review the published identity configuration",
+    technical_explanation: "A public discovery document advertised an identity issuer and sign-in endpoint. Configuration metadata is not proof that the endpoint is reachable or that an account can sign in.",
+    business_impact: "These published addresses help the identity owner confirm the intended public sign-in configuration; publication alone is not a weakness.",
+    recommended_action: "Confirm with the identity owner that the advertised issuer and sign-in address are expected. Review authentication controls in the identity system; this observation does not assess them.",
+    effort: "low", owner_type: "customer", verification_method: "manual_attestation",
+    verification_evidence_requirements: "The identity owner reviews the published configuration. Customer confirmation is not product verification of endpoint access or authentication controls.",
+    supporting_evidence_types: ["http_probe", "identity_discovery"], managed_workflow_compatible: false,
+    limitations: ["Only root-issuer discovery on the verified domain and at most one already-discovered identity hostname is checked; realm-specific issuers are not guessed. Advertised endpoints are not requested.",
+      "Published metadata contains no leaked-credential or breached-password evidence."],
+  }),
+  entry({
     remediation_id: "identity.m365.harden",
     domain_key: "identity_exposure",
     finding_types: ["identity_microsoft_365_detected"],

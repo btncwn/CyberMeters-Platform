@@ -387,6 +387,35 @@ const cases = [
     to: 'for (const receipt of brandModule.watchlist_dns)',
     failure: "C21 report observations stay bounded",
   },
+  {
+    name: "C22 unverified workspace metadata request admitted", file: "workers/scan-api/src/engines/identity-oidc-observation.js",
+    from: 'if (!root || opts.verified !== true)', to: 'if (!root)', failure: "C22 unverified scope issues no requests",
+  },
+  {
+    name: "C22 mismatched issuer accepted", file: "workers/scan-api/src/engines/identity-oidc-observation.js",
+    from: '![`https://${host}`, `https://${host}/`].includes(document.issuer)', to: 'false', failure: "C22 issuer identity must match the requested root issuer",
+  },
+  {
+    name: "C22 own-host request cap removed", file: "workers/scan-api/src/engines/identity-oidc-observation.js",
+    from: '.slice(0, OIDC_LIMITS.hosts);', to: ';', failure: "C22 requests stay on two own hosts and never visit advertised endpoints",
+  },
+  {
+    name: "C22 endpoint query values retained", file: "workers/scan-api/src/engines/identity-oidc-observation.js",
+    from: '  authorization.search = "";', to: '', failure: "C22 endpoint query values are never retained",
+  },
+  {
+    name: "C22 metadata body limit removed", file: "workers/scan-api/src/engines/identity-oidc-observation.js",
+    from: 'if (bytes > OIDC_LIMITS.bytes) return null;', to: '', failure: "C22 oversized metadata is rejected before publication",
+  },
+  {
+    name: "C22 redirects followed off-domain", file: "workers/scan-api/src/engines/identity-oidc-observation.js",
+    from: 'maxHops: 0, timeoutMs: 1000', to: 'maxHops: 3, timeoutMs: 1000', failure: "C22 canonical safe fetch never follows an off-domain redirect",
+  },
+  {
+    name: "C22 observed metadata becomes actionable finding", file: "workers/scan-api/src/engines/identity-oidc-observation.js",
+    from: 'finding_type: "observation", score_impact: 0, confidence: 90,', to: 'finding_type: "finding", score_impact: 0, confidence: 90,',
+    failure: "C22 published issuer and sign-in metadata are qualified non-scored facts",
+  },
 ];
 
 function run() {

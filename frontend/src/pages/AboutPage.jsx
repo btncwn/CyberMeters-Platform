@@ -20,7 +20,7 @@ export default function AboutPage() {
         <section className="space-y-3" aria-labelledby="approach-heading">
           <h2 id="approach-heading" className="text-xl font-bold">Clear evidence, practical next steps</h2>
           <p className="text-sm text-gray-600 leading-relaxed">You need to know what was observed, why it matters and what to do next. CyberMeters keeps missing evidence visible, separates an attempted fix from a verified outcome and lets agencies manage clients in separate workspaces.</p>
-          <p className="text-sm text-gray-600 leading-relaxed">We use CyberMeters on our own domain. The dated result and its limitations are published on our Trust &amp; Security page, including the checks that could not be completed.</p>
+          <p className="text-sm text-gray-600 leading-relaxed">We use CyberMeters on our own domain. The latest complete, dated result and its limitations are published on our Trust &amp; Security page.</p>
           <Link to="/trust" className="inline-flex items-center gap-2 text-brand-700 font-semibold text-sm">See our own-domain check</Link>
         </section>
         <section className="space-y-3" aria-labelledby="contact-heading">

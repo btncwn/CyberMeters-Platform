@@ -650,8 +650,11 @@ const parity = states.map(parityOutputs);
 // Watchlist DNS guidance adds only the frozen registry stamp in this fixture
 // (r110-f8e28c62 -> r111-368754e2). Substituting just the predecessor registry
 // reproduces both prior hashes exactly; certificate evidence remains unchanged.
-const GOLDEN_F13 = "bacf7b72b15e6857ba6f5e45baed2a16dad42158558309536b33ee8a235e3cfe";
-const GOLDEN_F14 = "aa476eff8a0c5fe41e5654d2292a947cf2a5c5068fc45d712b1923161bdbaf42";
+// Public identity metadata guidance adds only the frozen registry stamp here
+// (r111-368754e2 -> r112-286dce37). Predecessor-registry substitution reproduces
+// both prior report hashes; the certificate evidence hash stays unchanged.
+const GOLDEN_F13 = "89e9e4efc0351893af231b1220903131cc8eb433b72f91c4669a69d1f31dd92d";
+const GOLDEN_F14 = "b1b96ef306129c799631c0fd308f80bde5040e103059d0722959aa8b88a45052";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

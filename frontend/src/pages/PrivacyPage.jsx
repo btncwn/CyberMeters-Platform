@@ -20,7 +20,7 @@ export default function PrivacyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-xs p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Privacy Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: 20 October 2026 — Version 1.9</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: 22 October 2026 — Version 1.10</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             Turhan Acar, a sole trader trading as CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>") is committed to protecting the personal data of our customers and the individuals associated with them. This Privacy Policy explains what data we collect, how we use it, and your rights in relation to it.
           </p>
@@ -95,7 +95,7 @@ export default function PrivacyPage() {
               <li>Passwords are hashed using PBKDF2-SHA256 with 100,000 iterations. Passwords are never stored in plaintext.</li>
               <li>TOTP-based multi-factor authentication (MFA) is available and recommended for all accounts.</li>
               <li>All API communication is encrypted in transit using TLS.</li>
-              <li>Data is stored on Cloudflare D1 (SQLite) and Cloudflare R2 (object storage), both of which provide encryption at rest.</li>
+              <li>Data is stored with Cloudflare and encrypted at rest.</li>
               <li>Access to workspaces and audit logs is controlled by role-based access control (RBAC). Workspace data is tenant-isolated by design.</li>
               <li>API tokens are scoped and expire according to customer configuration.</li>
               <li>Security-relevant actions are recorded in audit logs. Identity-response actions also have a dedicated record of their requester, target, outcome and verification observations.</li>
@@ -116,7 +116,7 @@ export default function PrivacyPage() {
                 <tbody className="divide-y divide-gray-100">
                   <tr>
                     <td className="px-4 py-2.5 font-medium text-gray-800">Cloudflare, Inc.</td>
-                    <td className="px-4 py-2.5 text-gray-600">Hosting, compute (Workers), database (D1), object storage (R2), CDN</td>
+                    <td className="px-4 py-2.5 text-gray-600">Hosting, data storage and content delivery</td>
                     <td className="px-4 py-2.5 text-gray-500">US / Global edge network</td>
                   </tr>
                   <tr>

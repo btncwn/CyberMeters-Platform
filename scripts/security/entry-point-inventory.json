@@ -34,6 +34,7 @@
     "workers/scan-api/src/routes/mcp-founder-canary.js",
     "workers/scan-api/src/routes/mcp-oauth-admission.js",
     "workers/scan-api/src/routes/mcp-oauth-browser.js",
+    "workers/scan-api/src/routes/mcp-oauth-client-names.js",
     "workers/scan-api/src/routes/mcp-oauth-dcr.js",
     "workers/scan-api/src/routes/mcp-oauth-entrypoint.js",
     "workers/scan-api/src/routes/mcp-oauth-purge.js",

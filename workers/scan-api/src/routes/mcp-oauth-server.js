@@ -3,6 +3,7 @@ import {
 } from "@cloudflare/workers-oauth-provider";
 import { hashToken } from "../lib/auth-crypto.js";
 import { CONSENT_CSS, CONSENT_CSS_SHA256, CONSENT_LOGO_SVG } from "./mcp-consent-style.js";
+import { withMcpClientNames } from "./mcp-oauth-client-names.js";
 import { createAuditEvent } from "../lib/events.js";
 import {
   admitMcpOAuthToken, canGrantMcpPortfolio, isMcpOAuthClientAllowed, mcpCimdEnabled,
@@ -462,7 +463,7 @@ async function processAuthorize(request, env, server, options) {
   }
 }
 
-async function processConnections(request, env, options) {
+async function processConnections(request, env, options, server = null) {
   const cors = mcpOAuthCorsHeaders(request, options);
   if (request.method === "OPTIONS") return cors
     ? new Response(null, { status: 204, headers: { ...NO_STORE, ...cors } })
@@ -477,7 +478,10 @@ async function processConnections(request, env, options) {
         !/^(0|[1-9][0-9]{0,5})$/.test(rawOffset)) {
       return mcpOAuthJson(request, { error: "invalid_request" }, 400, options);
     }
-    const page = await listMcpOAuthConnections(env, session.user_id, Number(rawOffset));
+    const listed = await listMcpOAuthConnections(env, session.user_id, Number(rawOffset));
+    const page = listed && server
+      ? { ...listed, connections: await withMcpClientNames(listed.connections, (id) => server.getOAuthApi(env).lookupClient(id)) }
+      : listed;
     const eligibleWorkspaces = await listMcpOAuthConsentWorkspaces(env, session.user_id);
     return page ? mcpOAuthJson(request, {
       ...page, eligible: Array.isArray(eligibleWorkspaces) && eligibleWorkspaces.length > 0,
@@ -545,7 +549,7 @@ export async function handleMcpOAuthRequest(request, env, ctx, options = {}) {
     const server = createMcpOAuthAuthorizationServer(env, effective);
     if (path === "/authorize") return await processAuthorize(request, env, server, effective);
     if (path === "/api/mcp/oauth/connections" || path.startsWith("/api/mcp/oauth/connections/")) {
-      return await processConnections(request, env, effective);
+      return await processConnections(request, env, effective, server);
     }
     if (path === "/oauth/register") {
       if (env.MCP_OAUTH_DCR_ENABLED !== "true") return plain("Not found", 404);
