@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { within, act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import WorkspaceReportsPage from '../WorkspaceReportsPage'
@@ -45,7 +45,10 @@ it('keeps the archive as historical evidence with a dated period, ID copy and do
   api.getWorkspaceReports.mockResolvedValue(result('rpt_abc123'))
   render(page())
   expect(await screen.findByTitle('rpt_abc123')).toHaveAccessibleName('Copy report ID')
-  expect(screen.getByText(/Manual · 10 Oct 2026/)).toBeInTheDocument()
+  // Type and period each said once per row; never a title-cased backend key.
+  const row = screen.getByRole('row', { name: /Current posture/ })
+  expect(within(row).getByText('10 Oct 2026')).toBeInTheDocument()
+  expect(row.textContent).not.toMatch(/Manual|manual/)
   expect(screen.getByRole('button', { name: 'Download PDF' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Delete report/i })).toBeNull()
   expect(screen.queryByRole('columnheader', { name: 'Created At' })).toBeNull()
@@ -189,7 +192,7 @@ it('lets a slow automatic refresh finish instead of superseding it every five se
 
 const completedScan = (id, domain = 'example.com') => ({ id, domain, status: 'completed', created_at: '2026-10-10T10:00:00Z' })
 async function chooseReport(label) {
-  fireEvent.click(screen.getByRole('button', { name: /Snapshot ▾|Executive ▾/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Report: / }))
   fireEvent.click(screen.getByRole('button', { name: label, exact: true }))
   await act(async () => {})
 }
@@ -200,7 +203,7 @@ it('requires an explicit completed scan and generates its executive snapshot', a
   api.generateWorkspaceReport.mockResolvedValue({ report: report('selected-pdf') })
   render(page())
   await act(async () => {})
-  await chooseReport('Scan Snapshot')
+  await chooseReport('Single scan')
   expect(api.getWorkspaceScans).toHaveBeenCalledWith('workspace-a')
   expect(screen.getByRole('button', { name: 'Generate report', exact: true })).toBeDisabled()
   expect(screen.getAllByRole('option').map(option => option.value)).not.toContain('running-scan')
@@ -213,8 +216,8 @@ it('requires an explicit completed scan and generates its executive snapshot', a
 })
 
 it.each([
-  ['Manual Snapshot', 'manual'], ['Weekly Executive', 'weekly_executive'],
-  ['Monthly Executive', 'monthly_executive'], ['Quarterly Executive', 'quarterly_executive'],
+  ['Current posture', 'manual'], ['Weekly executive summary', 'weekly_executive'],
+  ['Monthly executive summary', 'monthly_executive'], ['Quarterly executive summary', 'quarterly_executive'],
 ])('generates %s without an unrelated scan selection and exposes a deduplicated PDF', async (label, type) => {
   api.getWorkspaceReports.mockResolvedValue({ reports: [] })
   api.generateWorkspaceReport.mockResolvedValue({ report: { ...report('existing-period-pdf'), claimed: false } })
@@ -235,7 +238,7 @@ it('lets the customer retry a failed scan list without enabling generation prema
   api.getWorkspaceScans.mockRejectedValueOnce(new Error('Scan list unavailable')).mockResolvedValue({ scans: [completedScan('ready-scan')] })
   render(page())
   await act(async () => {})
-  await chooseReport('Scan Snapshot')
+  await chooseReport('Single scan')
   expect(screen.getByRole('alert')).toHaveTextContent('Scan list unavailable')
   expect(screen.getByRole('button', { name: 'Generate report', exact: true })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Retry scan list' }))
@@ -251,11 +254,11 @@ it('cannot reuse scans from a workspace left while the scan list was loading', a
   api.getWorkspaceScans.mockReturnValueOnce(oldScans.promise).mockResolvedValue({ scans: [completedScan('new-scan')] })
   const view = render(page())
   await act(async () => {})
-  await chooseReport('Scan Snapshot')
+  await chooseReport('Single scan')
   workspace.wsId = 'workspace-b'; workspace.wsName = 'Workspace B'
   view.rerender(page())
   await act(async () => {})
-  await chooseReport('Scan Snapshot')
+  await chooseReport('Single scan')
   await act(async () => oldScans.resolve({ scans: [completedScan('old-scan')] }))
   expect(screen.getAllByRole('option').map(option => option.value)).not.toContain('old-scan')
   expect(screen.getAllByRole('option').map(option => option.value)).toContain('new-scan')

@@ -1,5 +1,5 @@
 import { formatDate, formatDay } from '../../utils/dates'
-import { reportPeriodLabel, reportFileName } from '../../lib/reportDisplay'
+import { reportPeriodCell, reportFileName, reportTypeLabel } from '../../lib/reportDisplay'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
@@ -16,10 +16,6 @@ function fmtDateTime(str) {
   return formatDate(str)
 }
 
-function fmtType(type) {
-  if (!type) return '—'
-  return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-}
 
 // Customer words for a report's state; the backend key never reaches the screen.
 const REPORT_STATUS_LABELS = { completed: 'Ready', failed: 'Failed', skipped: 'Skipped', pending: 'Queued', running: 'Generating' }
@@ -45,19 +41,15 @@ function StatusBadge({ status }) {
 
 // ── Report type selector ──────────────────────────────────────────────────────
 
-const REPORT_TYPES = [
-  { value: 'manual',               label: 'Manual Snapshot'     },
-  { value: 'scan_snapshot',        label: 'Scan Snapshot'       },
-  { value: 'weekly_executive',     label: 'Weekly Executive'    },
-  { value: 'monthly_executive',    label: 'Monthly Executive'   },
-  { value: 'quarterly_executive',  label: 'Quarterly Executive' },
-]
+// Names come from the one table in lib/reportDisplay (one word = one thing).
+const REPORT_TYPES = ['manual', 'scan_snapshot', 'weekly_executive', 'monthly_executive', 'quarterly_executive']
+  .map(value => ({ value, label: reportTypeLabel(value) }))
 
 const SCHEDULE_TYPES = [
-  { value: 'weekly_executive',    label: 'Weekly Executive',    freq: 'weekly'    },
-  { value: 'monthly_executive',   label: 'Monthly Executive',   freq: 'monthly'   },
-  { value: 'quarterly_executive', label: 'Quarterly Executive', freq: 'quarterly' },
-]
+  { value: 'weekly_executive',    freq: 'weekly'    },
+  { value: 'monthly_executive',   freq: 'monthly'   },
+  { value: 'quarterly_executive', freq: 'quarterly' },
+].map(t => ({ ...t, label: reportTypeLabel(t.value) }))
 
 const FREQ_LABELS = { weekly: 'Weekly', monthly: 'Monthly', quarterly: 'Quarterly' }
 
@@ -196,7 +188,7 @@ function ScheduledReportsCard({ wsId }) {
             <div key={sr.id} className="flex items-center justify-between py-3 gap-3">
               <div className="flex-1 min-w-0">
                 <p className={`text-sm font-medium ${sr.enabled ? 'text-gray-800' : 'text-gray-400'}`}>
-                  {fmtType(sr.report_type)}
+                  {reportTypeLabel(sr.report_type)}
                   <span className="ml-2 text-xs font-normal text-gray-400">{FREQ_LABELS[sr.frequency] ?? sr.frequency}</span>
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -403,7 +395,7 @@ function WorkspaceReports({ wsId, wsName }) {
               disabled={generating}
               className="btn-secondary text-xs py-2 px-3"
             >
-              {REPORT_TYPES.find(t => t.value === reportType)?.label ?? 'Manual Snapshot'}
+              <span className="text-gray-500">Report:</span> {reportTypeLabel(reportType)}
               <span className="ml-1 text-gray-400">▾</span>
             </button>
             {showTypeMenu && (
@@ -524,12 +516,12 @@ function WorkspaceReports({ wsId, wsName }) {
                   <tr key={report.id} className="hover:bg-gray-50/60 transition-colors">
                     <td>
                       <span className="font-medium text-gray-800 text-sm">
-                        {fmtType(report.report_type)}
+                        {reportTypeLabel(report.report_type)}
                       </span>
                     </td>
                     <td>
                       <span className="block max-w-72 break-words text-sm text-gray-600">
-                        {reportPeriodLabel(report)}
+                        {reportPeriodCell(report)}
                       </span>
                       <InternalIdCopyButton id={report.id} label="report" />
                     </td>
