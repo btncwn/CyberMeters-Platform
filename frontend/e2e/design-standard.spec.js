@@ -58,6 +58,12 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
       expect(await page.getByRole('tab', { name: 'Overview' }).count(), `${route}: Overview tab`).toBe(0)
       await expectOnePrimaryAction(page)
       await expectNoRawKeys(page)
+      // Header = title, purpose, one action (no page tools in the header).
+      const head = page.locator('header.cm-module-head')
+      await expect(head.getByRole('searchbox')).toHaveCount(0)
+      expect(await head.getByRole('button').count()).toBeLessThanOrEqual(1)
+      // Findings is counted once on the first screen.
+      await expect(page.getByTestId('module-count-findings')).toHaveCount(0)
     }
   })
 }

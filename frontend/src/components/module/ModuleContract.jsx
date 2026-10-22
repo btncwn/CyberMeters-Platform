@@ -12,7 +12,7 @@ import { buildNextActions } from '../overview/NextActionsList'
 //   3. "Do this next" — ONE recommended action card with ONE button: the page's
 //      `nextAction`, or the first mapped finding's canonical remediation
 //      (title + recommended action from the registry). No repeated CTAs.
-//   4. Findings · Open cases · Verification — three clickable counts that open
+//   4. Open cases · Verification — two clickable counts that open
 //      the Findings and Cases tabs.
 //   5. Tabs: Overview · Findings · Cases · Settings · Field Guide. Settings holds
 //      anything configurable (the page's `settings` prop).
@@ -374,10 +374,11 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   )
   const awaitingVerification = (caseSummary.byWord?.ready_to_verify || 0)
   const countsSection = (
-    <section id="module-counts" aria-label="Findings, open cases and verification" data-testid="module-counts">
-      <ul className="grid grid-cols-3 gap-3">
+    // Findings is counted once, in "What we observed" (design standard §1: no
+    // duplicate on one screen); this row adds what that section cannot: cases.
+    <section id="module-counts" aria-label="Open cases and verification" data-testid="module-counts">
+      <ul className="grid grid-cols-2 gap-3">
         {[
-          { key: 'findings', label: 'Findings', value: read && typeof entry.finding_count === 'number' ? entry.finding_count : '—', tab: 'findings', hint: 'Open the Findings tab' },
           { key: 'cases', label: 'Open cases', value: casesRequest === 'ok' ? caseSummary.open : '—', tab: 'cases', hint: 'Open the Cases tab' },
           { key: 'verification', label: 'Verification', value: casesRequest === 'ok' ? awaitingVerification : '—', tab: 'cases', hint: 'Cases ready to verify — open the Cases tab' },
         ].map((c) => (
@@ -534,17 +535,6 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
             {/* One scan control per page (design standard §1): when "Do this next"
                 is the scan, the header has none; otherwise it is a quiet secondary. */}
             {workspaceId && next.to !== '/scans/new' && <ScanNowButton workspaceId={workspaceId} domain={scanDomain} variant="secondary" />}
-            <label className="cm-area-search">
-              <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                aria-label="Filter pages and cases in this area"
-                placeholder="Filter pages and cases in this area"
-              />
-            </label>
-            {actions && <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div>}
           </div>
         </div>
         {aside}
@@ -558,6 +548,21 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       </div>
 
       <div>
+        {/* Page tools sit with the content they act on, not in the header
+            (design standard §1: header = title, purpose, one action). */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3" data-testid="module-toolbar">
+          <label className="cm-area-search">
+            <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Filter pages and cases in this area"
+              placeholder="Filter pages and cases"
+            />
+          </label>
+          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        </div>
         <div role="tablist" aria-label="Area sections" className="cm-tabs">
           {MODULE_TABS.map((t) => (
             <button
