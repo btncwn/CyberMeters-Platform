@@ -150,3 +150,35 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     await expect(headersCard.getByText('Missing', { exact: true })).toHaveCount(0)
   })
 }
+
+// S1-A Active Checks permission: one primary action ("Authorise"), no raw
+// check ids, the receipt's rows never overlap.
+const consentPayload = {
+  consents: [{ id: 'acc_1', domain: 'blackbullbarbers.co.uk', hosts: ['mail.blackbullbarbers.co.uk'], checks: ['mail_open_relay', 'tls_intrusive_heartbleed'],
+    granted_at: '2026-10-22T08:00:00.000Z', signer: { name: 'Taylor Owner', title: 'Director', workspace_role: 'owner', user_id: 'usr_e2e' },
+    authority_version: 'active-checks-2026-10-22', status: 'active', revoked_at: null, revoked_by: null }],
+  catalogue: [
+    { id: 'tls_intrusive_heartbleed', label: 'TLS Heartbleed test' }, { id: 'tls_intrusive_robot', label: 'TLS ROBOT test' },
+    { id: 'tls_intrusive_ccs', label: 'TLS CCS injection test' }, { id: 'takeover_active_confirm', label: 'Subdomain takeover confirmation (no claim is made)' },
+    { id: 'dns_open_resolver', label: 'Open DNS resolver' }, { id: 'mail_open_relay', label: 'Open mail relay (no message is delivered)' },
+    { id: 'mail_starttls_strip', label: 'Mail accepted without STARTTLS' }, { id: 'mail_spoof_resistance', label: 'Spoofed message to your designated seed mailbox' },
+  ],
+  authority: { version: 'active-checks-2026-10-22', text: 'I confirm that I am authorised by the organisation that owns this domain to permit CyberMeters to run the active checks listed here against the listed hosts, on demand, until I or another authorised person revokes this permission. I understand that these checks connect to these systems and may be recorded in their logs.' },
+  capabilities: { can_manage: true },
+}
+for (const [width, height] of [[1440, 900], [390, 844]]) {
+  test(`Active Checks permission meets the design standard at ${width}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height })
+    await seedSession(context)
+    await installAppMock(page)
+    await page.route(`${API_BASE}/workspaces/${workspace.id}/active-check-consents`, (route) => route.fulfill(json(consentPayload)))
+    await page.route(`${API_BASE}/workspaces/${workspace.id}/domains`, (route) => route.fulfill(json({ domains: [{ domain_id: 'dom_e2e', domain: 'blackbullbarbers.co.uk', verification_status: 'verified', verified_at: '2026-07-08T09:06:00Z' }] })))
+    await page.goto('/ws/active-checks/permission', { waitUntil: 'networkidle' })
+    await page.getByTestId('consent-receipt').waitFor()
+    await expectOnePrimaryAction(page)
+    await expectNoRawKeys(page)
+    await expectNoOverlap(page, '[data-testid="consent-receipt"] dl')
+    await expect(page.getByRole('button', { name: 'Authorise' })).toBeDisabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  })
+}

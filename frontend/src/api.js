@@ -1743,6 +1743,10 @@ export const api = {
     outcomeCall('DELETE', `/workspaces/${encodeURIComponent(workspaceId)}/attack-surface/hostname-lists/${encodeURIComponent(domain)}`),
   getNetworkTargets: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, options),
   getTlsAuthorization: (wsId) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization`),
+  // Active Checks permission (S2-A, migration 135): append-only grants and revocations.
+  getActiveCheckConsents: (wsId) => request(`/workspaces/${encodeURIComponent(wsId)}/active-check-consents`),
+  grantActiveCheckConsent: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/active-check-consents`, { method: 'POST', body: JSON.stringify(body) }),
+  revokeActiveCheckConsent: (wsId, consentId) => request(`/workspaces/${encodeURIComponent(wsId)}/active-check-consents/${encodeURIComponent(consentId)}/revoke`, { method: 'POST', body: '{}' }),
   saveTlsAuthorization: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization`, { method: 'PUT', body: JSON.stringify(body) }),
   authorizeTlsService: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services`, { method: 'POST', body: JSON.stringify(body) }),
   revokeTlsService: (wsId, serviceId) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services/${encodeURIComponent(serviceId)}/revoke`, { method: 'POST', body: '{}' }),
