@@ -34,6 +34,18 @@ import {
   constructExternalRuaAuthorizationName,
 } from "./dmarcbis-idna.js";
 
+// Monitoring (22 Oct 2026, blackbullbarbers.co.uk first scan): when the primary
+// resolver timed out and the fallback resolver returned a DEFINITIVE answer
+// (an NXDOMAIN or a record set, never a failure) for every question it took
+// over, the lookup was completed, not degraded. resolver_fallback_used stays
+// true, so the evidence grade and every lifecycle/verification consumer that
+// reads it keep their caution; only monitoring_state / outcome stop reading
+// degraded. Any non-definitive fallback answer still degrades.
+export function fallbackAnswersDefinitive(path) {
+  const fallback = (Array.isArray(path) ? path : []).filter((entry) => entry?.raw?.fallback_from === "primary");
+  return fallback.length > 0 && fallback.every((entry) => entry?.definitive === true);
+}
+
 export const DMARCBIS_METHODOLOGY_VERSION = "rfc9989-treewalk-v1";
 export const DMARCBIS_MAX_TREE_QUESTIONS = 8;
 
@@ -580,6 +592,7 @@ export async function resolveDmarcbisPolicy({
     sourceResolver: source.entry?.resolved_by,
   });
   const resolverFallbackUsed = walk.path.some(entry => entry.raw?.fallback_from === "primary");
+  const fallbackDefinitive = fallbackAnswersDefinitive(walk.path);
 
   const exactPath = walk.path.find((entry) => entry.question?.ordinal === 1) || null;
   const exactState = exactObservationState(exactPath);
@@ -658,7 +671,7 @@ export async function resolveDmarcbisPolicy({
     corroboration_state: corroboration.state,
     resolver_fallback_used: resolverFallbackUsed,
     monitoring_state: policyCompleteness === "complete" &&
-      corroboration.state !== "unavailable" && !resolverFallbackUsed
+      corroboration.state !== "unavailable" && (!resolverFallbackUsed || fallbackDefinitive)
       ? "monitoring_healthy"
       : "monitoring_degraded",
     provider_state: walk.walk_complete

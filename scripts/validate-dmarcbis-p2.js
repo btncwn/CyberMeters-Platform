@@ -265,6 +265,24 @@ ok("serialized network envelope fits executable budget",
       retried.lookup_path.some((entry) => entry.raw?.primary_retried === true && entry.raw?.primary_outcome === "timeout"));
     eq("...and the policy still comes from two independent resolvers", retried.corroboration_state, "corroborated");
   }
+  // 22 Oct 2026 (blackbullbarbers.co.uk first scan): no DMARC record; the exact
+  // question is answered by the primary, the tree-walk questions time out on the
+  // primary and the fallback answers them DEFINITIVELY. The lookup completed:
+  // monitoring is healthy and the outcome available, while
+  // resolver_fallback_used stays true for every cautious consumer. A
+  // non-definitive fallback answer still degrades.
+  {
+    const NX = Object.freeze({ Status: 3, Answer: [] });
+    const exactOnly = async (name) => name === "_dmarc.example.test" ? NX : { outcome: "timeout" };
+    const definitive = await runDmarcbisCore("example.test", { primaryProvider: exactOnly, secondaryProvider: async () => NX });
+    eq("definitive fallback answers: core complete, monitoring healthy, outcome available, fallback still recorded",
+      [definitive.core_completeness, definitive.monitoring_state, definitive.outcome, definitive.resolver_fallback_used],
+      ["complete", "monitoring_healthy", "available", true]);
+    const servfail = await runDmarcbisCore("example.test", { primaryProvider: exactOnly, secondaryProvider: async () => ({ Status: 2, Answer: [] }) });
+    ok("a non-definitive fallback answer never reads healthy",
+      servfail.monitoring_state === "monitoring_degraded" || servfail.core_completeness !== "complete",
+      JSON.stringify([servfail.core_completeness, servfail.monitoring_state, servfail.outcome]));
+  }
   // A primary that never answers: the retry is bounded and leaves the
   // independent resolver its reserved time, so the core still completes.
   {
