@@ -85,3 +85,28 @@ describe('HostnameListPanel', () => {
     ])
   })
 })
+
+// Founder, 22 Oct 2026: one hostname can be added without retyping the list,
+// and Replace opens with the saved names, so nothing is silently dropped.
+describe('adding to and replacing a saved list', () => {
+  it('Add hostnames saves the saved names plus the new ones', async () => {
+    api.getHostnameLists.mockResolvedValue(listing({ domains: [{ domain: 'acme.test', list }] }))
+    api.saveHostnameList.mockResolvedValue({ ok: true, status: 200, body: { list, result: { accepted: 3, out_of_scope: 0, rejected: 0, truncated: false } } })
+    render(<HostnameListPanel workspaceId="ws1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add hostnames' }))
+    expect(screen.getByText(/Added to the 2 names already listed/)).toBeInTheDocument()
+    const box = screen.getByLabelText('Hostnames to add under acme.test, one per line')
+    expect(box).toHaveValue('')
+    expect(box).toHaveAttribute('placeholder', 'mail.acme.test')
+    fireEvent.change(box, { target: { value: 'mail.acme.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add hostnames' }))
+    await waitFor(() => expect(api.saveHostnameList).toHaveBeenCalledWith('ws1', 'acme.test', { format: 'list', text: 'portal.acme.test\nvpn.acme.test\nmail.acme.test' }))
+  })
+  it('Replace list opens with the saved names in the box', async () => {
+    api.getHostnameLists.mockResolvedValue(listing({ domains: [{ domain: 'acme.test', list }] }))
+    render(<HostnameListPanel workspaceId="ws1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Replace list' }))
+    expect(screen.getByLabelText('Hostnames under acme.test')).toHaveValue('portal.acme.test\nvpn.acme.test')
+    expect(screen.getByText('A file replaces the whole list.')).toBeInTheDocument()
+  })
+})

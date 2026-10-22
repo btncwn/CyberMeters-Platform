@@ -318,3 +318,29 @@ describe('Suggested network targets', () => {
     expect(screen.queryByTestId('network-suggestion')).toBeNull()
   })
 })
+
+// Founder, 22 Oct 2026: the port limit is shown as it is reached and an
+// over-limit selection can never be made.
+describe('ports to check — the limit', () => {
+  it('counts "N of max selected" and locks the unticked boxes at the limit', async () => {
+    api.getNetworkTargets.mockResolvedValue({ targets: [target], capabilities: { ...capabilities, allowed_ports: [22, 80, 443, 8080], limits: { ...capabilities.limits, max_ports: 3 } } })
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    const count = await screen.findByTestId('network-ports-count')
+    expect(count).toHaveTextContent('2 of 3 selected')
+    fireEvent.click(screen.getByRole('checkbox', { name: '22' }))
+    expect(count).toHaveTextContent('3 of 3 selected — the limit for one scan')
+    expect(screen.getByRole('checkbox', { name: '8080' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: '22' })).toBeEnabled()
+    expect(screen.queryByText(/within the available limit/)).toBeNull()
+    fireEvent.click(screen.getByRole('checkbox', { name: '443' }))
+    expect(count).toHaveTextContent('2 of 3 selected')
+    expect(screen.getByRole('checkbox', { name: '8080' })).toBeEnabled()
+  })
+  it('with nothing ticked it asks for one port', async () => {
+    render(<NetworkAssetsPanel workspaceId="ws1" />)
+    await screen.findByTestId('network-ports-count')
+    fireEvent.click(screen.getByRole('checkbox', { name: '80' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '443' }))
+    expect(screen.getByText('Select at least one port to check.')).toBeInTheDocument()
+  })
+})

@@ -44,10 +44,15 @@ function errorText(res) {
   return ERROR_TEXT[res?.body?.code] || ERROR_TEXT[res?.body?.error] || 'That did not work. Try again.'
 }
 
-function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel }) {
+// mode 'add' appends names to the saved list (the whole list is saved, so the
+// backend still owns parsing, scope and the limit); 'replace' opens with the
+// saved names already in the box, so replacing never silently drops one
+// (founder, 22 Oct 2026).
+function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel, mode = 'replace', existing = [] }) {
   const uid = useId()
+  const adding = mode === 'add'
   const [format, setFormat] = useState('list')
-  const [text, setText] = useState('')
+  const [text, setText] = useState(adding ? '' : existing.join('\n'))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [summary, setSummary] = useState([])
@@ -68,7 +73,8 @@ function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel }) {
     setError(null)
     setSummary([])
     try {
-      const res = await api.saveHostnameList(workspaceId, domain, { format, text })
+      const body = adding ? { format: 'list', text: [...existing, text].join('\n') } : { format, text }
+      const res = await api.saveHostnameList(workspaceId, domain, body)
       if (res.ok) onSaved?.(res.body.list, importSummaryLines(res.body.result, domain))
       else { setError(errorText(res)); setSummary(importSummaryLines(res.body?.result, domain)) }
     } catch {
@@ -80,27 +86,31 @@ function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel }) {
 
   return (
     <form onSubmit={submit} className="mt-3 space-y-3 rounded-sm border border-gray-200 p-3">
-      <div className="flex flex-col gap-1">
+      {!adding && <div className="flex flex-col gap-1">
         <label htmlFor={`${uid}-format`} className="text-sm font-medium text-gray-800">Format</label>
         <select id={`${uid}-format`} className="input max-w-xs" value={format} onChange={(e) => setFormat(e.target.value)}>
           {FORMAT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
-      </div>
+      </div>}
       <div className="flex flex-col gap-1">
-        <label htmlFor={`${uid}-text`} className="text-sm font-medium text-gray-800">Hostnames under {domain}</label>
+        <label htmlFor={`${uid}-text`} className="text-sm font-medium text-gray-800">{adding ? `Hostnames to add under ${domain}, one per line` : `Hostnames under ${domain}`}</label>
         <textarea id={`${uid}-text`} className="input font-mono text-xs min-h-32" value={text} spellCheck={false}
-          placeholder={format === 'csv' ? 'hostname\nportal.' + domain : format === 'zone' ? `$ORIGIN ${domain}.\nportal  IN  A  192.0.2.10` : `portal.${domain}\nvpn.${domain}`}
+          placeholder={adding ? `mail.${domain}` : format === 'csv' ? 'hostname\nportal.' + domain : format === 'zone' ? `$ORIGIN ${domain}.\nportal  IN  A  192.0.2.10` : `portal.${domain}\nvpn.${domain}`}
           onChange={(e) => setText(e.target.value)} />
-        <p className="text-xs text-gray-500">Up to 200 hostnames. Names outside {domain} are ignored.</p>
+        <p className="text-xs text-gray-500">
+          {adding ? `Added to the ${plural(existing.length, 'name')} already listed. ` : existing.length > 0 ? 'The saved names are already in the box; edit them or add more. ' : ''}
+          Up to 200 hostnames in all. Names outside {domain} are ignored.
+        </p>
       </div>
-      <div className="flex flex-col gap-1">
+      {!adding && <div className="flex flex-col gap-1">
         <label htmlFor={`${uid}-file`} className="text-sm font-medium text-gray-800">Or upload a file</label>
         <input id={`${uid}-file`} type="file" accept=".txt,.csv,.zone,.db,text/plain,text/csv" onChange={readFile} className="text-sm" />
-      </div>
+        {existing.length > 0 && <p className="text-xs text-gray-500">A file replaces the whole list.</p>}
+      </div>}
       {error && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-sm p-2">{error}</p>}
       {summary.length > 0 && <ul className="text-xs text-gray-600 list-disc pl-4">{summary.map((line) => <li key={line}>{line}</li>)}</ul>}
       <div className="flex gap-2">
-        <button type="submit" className="btn-primary" disabled={busy || !text.trim()}>{busy ? 'Saving…' : 'Save list'}</button>
+        <button type="submit" className="btn-primary" disabled={busy || !text.trim()}>{busy ? 'Saving…' : adding ? 'Add hostnames' : 'Save list'}</button>
         <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
     </form>
@@ -108,7 +118,7 @@ function ListEditor({ workspaceId, domain, maxBytes, onSaved, onCancel }) {
 }
 
 function DomainRow({ workspaceId, entry, canManage, maxBytes, onChanged }) {
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(null) // null | 'add' | 'replace'
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState([])
@@ -140,7 +150,8 @@ function DomainRow({ workspaceId, entry, canManage, maxBytes, onChanged }) {
         </div>
         {canManage && !editing && (
           <div className="flex gap-2">
-            <button type="button" className="btn-secondary" onClick={() => { setEditing(true); setNotice([]) }}>{list ? 'Replace list' : 'Add list'}</button>
+            {list && <button type="button" className="btn-secondary" onClick={() => { setEditing('add'); setNotice([]) }}>Add hostnames</button>}
+            <button type="button" className="btn-secondary" onClick={() => { setEditing('replace'); setNotice([]) }}>{list ? 'Replace list' : 'Add list'}</button>
             {list && !confirming && <button type="button" className="btn-secondary" onClick={() => setConfirming(true)}>Remove list</button>}
             {list && confirming && <button type="button" className="btn-secondary text-red-700" onClick={clear} disabled={busy}>{busy ? 'Removing…' : 'Confirm remove'}</button>}
           </div>
@@ -157,9 +168,10 @@ function DomainRow({ workspaceId, entry, canManage, maxBytes, onChanged }) {
         </details>
       )}
       {editing && (
-        <ListEditor workspaceId={workspaceId} domain={entry.domain} maxBytes={maxBytes}
-          onCancel={() => setEditing(false)}
-          onSaved={(_, lines) => { setEditing(false); setNotice([...lines, 'The next scan asks DNS about each name.']); onChanged?.() }} />
+        <ListEditor key={editing} workspaceId={workspaceId} domain={entry.domain} maxBytes={maxBytes}
+          mode={editing} existing={list?.hostnames || []}
+          onCancel={() => setEditing(null)}
+          onSaved={(_, lines) => { setEditing(null); setNotice([...lines, 'The next scan asks DNS about each name.']); onChanged?.() }} />
       )}
     </li>
   )

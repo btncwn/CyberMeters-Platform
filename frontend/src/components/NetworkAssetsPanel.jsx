@@ -174,6 +174,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   const maxPairs = count(capabilities.limits?.max_pairs)
   const canScan = capabilities.can_scan === true && capabilities.collector_available === true
   const validPorts = selectedPorts.length > 0 && maxPorts !== null && selectedPorts.length <= maxPorts
+  const atPortLimit = maxPorts !== null && selectedPorts.length >= maxPorts
   const withinPairs = row => count(row.address_count) !== null && maxPairs !== null && row.address_count * selectedPorts.length <= maxPairs
 
   async function act(operation, success) {
@@ -264,9 +265,12 @@ export default function NetworkAssetsPanel({ workspaceId }) {
           <p className="text-xs text-gray-500">This records your authorization declaration; it is not independent ownership verification.{count(capabilities.limits?.max_addresses) !== null ? ` Up to ${capabilities.limits.max_addresses} public addresses per target.` : ''}</p>
           <button className="btn-primary text-sm" type="submit" disabled={busy || !authorized || !target.trim()}>Add network target</button>
         </form>}
-        {capabilities.can_scan === true && <fieldset className="space-y-2"><legend className="font-medium text-sm">Ports to check</legend><div className="flex flex-wrap gap-x-4 gap-y-2">{allowedPorts.map(port => <label className="flex items-center gap-1 text-sm" key={port}><input type="checkbox" checked={selectedPorts.includes(port)} onChange={event => setPorts(previous => event.target.checked ? [...new Set([...previous, port])] : previous.filter(value => value !== port))} disabled={busy} />{port}</label>)}</div>
-          <p className="text-xs text-gray-500">Only selected TCP ports are checked.{maxPorts !== null && ` Up to ${maxPorts} ports per scan.`}{maxPairs !== null && ` Up to ${maxPairs} address/port checks per scan.`}</p>
-          {!validPorts && <p className="text-sm text-brand-700">Select one or more ports within the available limit.</p>}
+        {capabilities.can_scan === true && <fieldset className="space-y-2"><legend className="font-medium text-sm">Ports to check</legend><div className="flex flex-wrap gap-x-4 gap-y-2">{allowedPorts.map(port => <label className="flex items-center gap-1 text-sm" key={port}><input type="checkbox" checked={selectedPorts.includes(port)} onChange={event => setPorts(previous => event.target.checked ? (atPortLimit ? previous : [...new Set([...previous, port])]) : previous.filter(value => value !== port))} disabled={busy || (atPortLimit && !selectedPorts.includes(port))} aria-describedby="network-ports-count" />{port}</label>)}</div>
+          {/* The limit is shown as it is reached, and the remaining boxes lock, so
+              an over-limit selection can never be made (founder, 22 Oct 2026). */}
+          {maxPorts !== null && <p id="network-ports-count" className="text-sm font-medium text-gray-700" aria-live="polite" data-testid="network-ports-count">{selectedPorts.length} of {maxPorts} selected{atPortLimit ? ' — the limit for one scan. Untick a port to choose another.' : ''}</p>}
+          <p className="text-xs text-gray-500">Only selected TCP ports are checked.{maxPairs !== null && ` Up to ${maxPairs} address/port checks per scan.`}</p>
+          {selectedPorts.length === 0 && <p className="text-sm text-brand-700">Select at least one port to check.</p>}
         </fieldset>}
         {!current.targets.length ? <p className="text-sm text-gray-500">No network targets recorded yet.</p> : <div className="relative overflow-x-auto"><table className="data-table w-full min-w-[800px]"><thead><tr><th>Target</th><th>Scope</th><th>Authorization</th><th><span className="sr-only">Scan</span></th></tr></thead><tbody>{current.targets.map(row => <tr key={row.id}>
           <td className="font-mono text-xs">{row.target}{row.label && <span className="block font-sans text-gray-500">{row.label}</span>}</td><td>{count(row.address_count) === null ? 'Address count not recorded' : `${row.address_count} address${row.address_count === 1 ? '' : 'es'}`}</td><td className="text-xs">{row.authorization_status === 'attested' ? 'Authorization declared' : 'Authorization not established'}<span className="block text-gray-500">{date(row.authorized_at)}</span></td>
