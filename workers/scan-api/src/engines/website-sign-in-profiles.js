@@ -279,3 +279,28 @@ export async function loadSignedInScanProfile(env, { workspaceId, domainId }) {
   if (!secret) return { profile, blocked: "vault_unavailable" };
   return { profile, secret };
 }
+
+/**
+ * Signed-in scanning facts for one scan's report snapshot (S2-SIGNED-IN-REPORT):
+ * whether a profile is configured for the domain, this scan's own attempt, and
+ * the profile's last successful sign-in. Codes, counts and times only: never a
+ * credential, username, cookie or session value. Throws on a read error; the
+ * snapshot records that as unavailable.
+ */
+export async function loadSignedInScanningForSnapshot(db, workspaceId, domainId, scanId) {
+  const profile = await db.prepare(
+    `SELECT status, last_signed_in_at FROM website_sign_in_profiles WHERE workspace_id = ? AND domain_id = ? LIMIT 1`,
+  ).bind(workspaceId, domainId).first();
+  const attempt = scanId ? await db.prepare(
+    `SELECT outcome, coverage, summary_json, created_at FROM website_sign_in_attempts
+      WHERE workspace_id = ? AND scan_id = ? AND source = 'scan' LIMIT 1`,
+  ).bind(workspaceId, scanId).first() : null;
+  let summary = null;
+  try { summary = attempt?.summary_json ? JSON.parse(attempt.summary_json) : null; } catch { summary = null; }
+  return {
+    configured: Boolean(profile),
+    profile_status: profile?.status ?? null,
+    last_signed_in_at: profile?.last_signed_in_at ?? null,
+    attempt: attempt ? { outcome: attempt.outcome, coverage: attempt.coverage ?? null, attempted_at: attempt.created_at, summary } : null,
+  };
+}

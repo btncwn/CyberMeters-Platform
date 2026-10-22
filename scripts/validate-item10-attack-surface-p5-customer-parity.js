@@ -651,7 +651,7 @@ const snapshot = composeSnapshot({
 eq("new snapshot freezes one ASM projection",
   snapshot.attack_surface_assurance.schema, fixture.schema);
 eq("snapshot builder version stamps the additive ASM shape",
-  snapshot.methodology.snapshot_builder_version, "2026-10-17.1");
+  snapshot.methodology.snapshot_builder_version, "2026-10-22.1");
 
 const apiProjection = attackSurfaceAssuranceApiProjection(snapshot);
 const read = {

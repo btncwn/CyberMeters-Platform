@@ -27,6 +27,7 @@
 // with the reason in metadata_json — visible and retryable, never silent, never
 // exposed as completed.
 
+import { loadSignedInScanningForSnapshot } from "./website-sign-in-profiles.js";
 import { resolveSecurityCheckDomainStates, SECURITY_CHECK_RESOLVER_VERSION } from "./security-check-domains.js";
 import { readShadowItInventoryCounts, withShadowItInventoryCount } from "./shadow-it-inventory-count.js";
 import {
@@ -71,7 +72,9 @@ import {
 export const SNAPSHOT_SCHEMA_VERSION = "1";
 // 2026-10-17.1 separates attempted incomplete modules from genuinely skipped modules in
 // the frozen customer evidence-completeness record.
-export const SNAPSHOT_BUILDER_VERSION = "2026-10-17.1";
+// 2026-10-22.1 adds the website_signed_in section (signed-in scanning facts for this
+// scan; counts, codes and times only). Additive: older snapshots keep their bytes.
+export const SNAPSHOT_BUILDER_VERSION = "2026-10-22.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -607,6 +610,59 @@ function highestSeverity(findings) {
   return best;
 }
 
+// ── Website Security: signed-in scanning, as this report states it ────────────
+// The report is the workspace's own, so it says whether pages behind the sign-in
+// were checked (S2-SIGNED-IN-REPORT, founder decision 22 Oct 2026). Counts,
+// codes and times only: never a credential, username, cookie or session value.
+const SIGNED_IN_LIMITATION =
+  "Signed-in checks use the test account you gave CyberMeters: they cover the pages that account can reach " +
+  "within a small read-only crawl, and say nothing about other accounts, roles or pages it cannot reach.";
+export function buildSignedInScanningSection(input, { reconstruction = false } = {}) {
+  if (reconstruction || !input) {
+    return {
+      status: "unavailable", configured: null, signed_in: null, pages_checked: null,
+      anonymous_access_refused: null, last_successful_sign_in_at: null, coverage: null,
+      customer_message: reconstruction
+        ? "Signed-in scanning state at scan time cannot be reconstructed and is not inferred."
+        : "Signed-in scanning details were unavailable when this report was built. This is not interpreted as not configured.",
+      limitation: SIGNED_IN_LIMITATION,
+    };
+  }
+  const iso = (v) => { const t = Date.parse(v); return Number.isFinite(t) ? new Date(t).toISOString() : null; };
+  if (!input.configured) {
+    return {
+      status: "not_configured", configured: false, signed_in: null, pages_checked: null,
+      anonymous_access_refused: null, last_successful_sign_in_at: null, coverage: null,
+      customer_message: "Signed-in scanning is not set up for this domain, so only public pages were checked.",
+      limitation: SIGNED_IN_LIMITATION,
+    };
+  }
+  const attempt = input.attempt;
+  const pages = Array.isArray(attempt?.summary?.pages) ? attempt.summary.pages.filter((p) => p?.outcome === "observed") : [];
+  const counted = Number.isInteger(attempt?.summary?.counts?.pages_observed) ? attempt.summary.counts.pages_observed : pages.length;
+  const answers = pages.map((p) => p.anonymous_access).filter((a) => a === "refused" || a === "served");
+  // yes: every page checked without the session was refused; no: at least one
+  // was still served; null: no anonymous contrast was observed in this scan.
+  const anonymousRefused = answers.includes("served") ? false : answers.length ? true : null;
+  const signedIn = attempt ? attempt.outcome === "signed_in" : null;
+  return {
+    status: attempt ? "recorded" : "not_attempted",
+    configured: true,
+    signed_in: signedIn,
+    sign_in_outcome: attempt?.outcome ?? null,
+    pages_checked: signedIn ? counted : (attempt ? 0 : null),
+    anonymous_access_refused: signedIn ? anonymousRefused : null,
+    last_successful_sign_in_at: iso(input.last_signed_in_at),
+    coverage: attempt?.coverage ?? null,
+    customer_message: !attempt
+      ? "Signed-in scanning is set up, but this scan did not attempt a sign-in."
+      : signedIn
+        ? `Signed in with the test account and checked ${counted} page${counted === 1 ? "" : "s"} behind the sign-in.`
+        : "Signed-in scanning is set up, but the sign-in did not succeed in this scan, so no signed-in page was checked.",
+    limitation: SIGNED_IN_LIMITATION,
+  };
+}
+
 // ── composeSnapshot — PURE ────────────────────────────────────────────────────
 // Builds the canonical snapshot object from already-gathered inputs. Pure and
 // deterministic so the contract is directly testable: same inputs → same
@@ -630,6 +686,7 @@ export function composeSnapshot({
   builtAt,
   reconstruction = false, // strict historical reconstruction (founder policy)
   shadowInventoryCount = null,
+  signedInScanning = null, // null = unavailable; see loadSignedInScanningForSnapshot
 }) {
   const reportForCustomer = projectUnvalidatedBrandReportForCustomer(projectDmarcReportForCustomer(
     projectTlsReportForCustomer(report ?? {}),
@@ -1159,6 +1216,7 @@ export function composeSnapshot({
     monitoring_states: monitoringStates,
     certificate_assurance: certificateAssurance,
     attack_surface_assurance: attackSurfaceAssurance,
+    website_signed_in: buildSignedInScanningSection(signedInScanning, { reconstruction }),
     domains: domainEntries,
     observed_findings: observedFindings,
     observations,
@@ -1335,6 +1393,14 @@ export async function buildScanReportSnapshot(env, opts = {}) {
     const dmarcPolicyEvidence = await sealDmarcPolicyEvidence(
       report?.modules?.dmarc_core ?? null,
     );
+    let signedInScanning = null;
+    if (!reconstruction) {
+      try {
+        signedInScanning = await loadSignedInScanningForSnapshot(env.cybermeters_db, workspaceId, domainId, scanId);
+      } catch {
+        signedInScanning = null; // recorded as unavailable, never as "not configured"
+      }
+    }
     const shadowInventoryCount = reconstruction ? null : await readShadowItInventoryCounts(env.cybermeters_db, workspaceId);
     if (!reconstruction && !shadowInventoryCount) throw new Error("Shadow IT inventory count unavailable");
     const snapshot = composeSnapshot({
@@ -1350,6 +1416,7 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       builtAt: new Date().toISOString(),
       reconstruction,
       shadowInventoryCount,
+      signedInScanning,
     });
 
     const body = JSON.stringify(snapshot, null, 2);

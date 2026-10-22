@@ -1002,6 +1002,68 @@ async function main() {
 
   // ── Report ──────────────────────────────────────────────────────────────────
   console.log(`\nM5.c reporting snapshot: ${pass}/${pass + fail} passed`);
+  // ── S2-SIGNED-IN-REPORT: the report says what signed-in scanning did ─────────
+  {
+    const { buildSignedInScanningSection, SNAPSHOT_BUILDER_VERSION } = snapEngine;
+    const page = (path, anon) => ({ path, depth: 0, outcome: "observed", status_code: 200, anonymous_access: anon });
+    const scanAttempt = (pages, outcome = "signed_in") => ({ configured: true, profile_status: "active", last_signed_in_at: "2026-10-22T11:16:01.793Z",
+      attempt: { outcome, coverage: "complete", attempted_at: "2026-10-22T11:16:01.793Z",
+        summary: { counts: { pages_observed: pages.length }, pages, cookie_names: ["cm_proof_session"], username_hint: "proof-xyz" } } });
+    const refused = buildSignedInScanningSection(scanAttempt([page("/account", "refused"), page("/account/details", "refused")]));
+    ok("signed-in report: configured, signed in, 2 pages, anonymous access refused, last sign-in UTC",
+      refused.status === "recorded" && refused.configured === true && refused.signed_in === true && refused.pages_checked === 2
+      && refused.anonymous_access_refused === true && refused.last_successful_sign_in_at === "2026-10-22T11:16:01.793Z", JSON.stringify(refused));
+    ok("signed-in report: the honest limit sentence travels", /test account/.test(refused.limitation) && /say nothing about other accounts/.test(refused.limitation));
+    ok("signed-in report: never a credential, username, cookie or session value",
+      !/cm_proof_session|proof-xyz|password|cookie_names|username/i.test(JSON.stringify(refused)), JSON.stringify(refused));
+    ok("signed-in report: one page still served anonymously → not refused",
+      buildSignedInScanningSection(scanAttempt([page("/account", "refused"), page("/account/details", "served")])).anonymous_access_refused === false);
+    ok("signed-in report: no anonymous contrast observed → null (not observed), never yes",
+      buildSignedInScanningSection(scanAttempt([page("/account", null)])).anonymous_access_refused === null);
+    const failedSignIn = buildSignedInScanningSection(scanAttempt([], "credentials_rejected"));
+    ok("signed-in report: a failed sign-in checked 0 pages and claims nothing about anonymous access",
+      failedSignIn.signed_in === false && failedSignIn.pages_checked === 0 && failedSignIn.anonymous_access_refused === null && failedSignIn.sign_in_outcome === "credentials_rejected");
+    const notAttempted = buildSignedInScanningSection({ configured: true, profile_status: "paused", last_signed_in_at: null, attempt: null });
+    ok("signed-in report: set up but not attempted in this scan", notAttempted.status === "not_attempted" && notAttempted.pages_checked === null && notAttempted.signed_in === null);
+    ok("signed-in report: not set up says only public pages were checked",
+      buildSignedInScanningSection({ configured: false, attempt: null }).status === "not_configured");
+    ok("signed-in report: unreadable state is unavailable, never 'not configured'",
+      buildSignedInScanningSection(null).status === "unavailable" && buildSignedInScanningSection(null).configured === null);
+    ok("signed-in report: reconstruction never infers it", buildSignedInScanningSection(scanAttempt([page("/a", "refused")]), { reconstruction: true }).status === "unavailable");
+    const composed = composeSnapshot({
+      snapshotId: "snap-si", workspaceId: "ws1", domainId: "dom1", scanId: "scan1", domain: "shared.example", report: baselineCertReport,
+      cyberEssentials: null, ceReadiness: null, caseRows: [], questionSetVersions: [], certificateLifecycleRecords: [],
+      attackSurfaceLifecycleRecords: [], supersedesSnapshotId: null, builtAt: "2026-10-22T12:00:00.000Z",
+      signedInScanning: scanAttempt([page("/account", "refused")]),
+    });
+    ok("signed-in report: the snapshot carries website_signed_in", composed.website_signed_in?.pages_checked === 1 && composed.website_signed_in?.anonymous_access_refused === true);
+    ok("signed-in report: the builder version moved with the new section", SNAPSHOT_BUILDER_VERSION === "2026-10-22.1" && composed.methodology.snapshot_builder_version === "2026-10-22.1");
+
+    // The loader reads codes, counts and times from the real schema; tenant-scoped.
+    const { loadSignedInScanningForSnapshot } = await import(pathToFileURL(srcPath("engines", "website-sign-in-profiles.js")).href);
+    const sdb = new DatabaseSync(":memory:");
+    sdb.exec(fs.readFileSync(path.join(root, "database", "migrations", "116-website-sign-in-profiles.sql"), "utf8"));
+    sdb.prepare(`INSERT INTO website_sign_in_profiles (id, workspace_id, domain_id, method, credential_hint, secret_ciphertext, credential_revision,
+        status, authorization_attested_by, authorization_attested_at, created_by, last_signed_in_at, created_at, updated_at)
+      SELECT 'wsip_1','ws1','dom1','form','p•••','{"v":1}','rev1','active','u1','2026-10-22','u1','2026-10-22T11:16:01.793Z','2026-10-22','2026-10-22'`).run();
+    sdb.prepare(`INSERT INTO website_sign_in_attempts (id, workspace_id, domain_id, profile_id, source, scan_id, outcome, coverage, summary_json, created_at)
+      VALUES ('wsia_1','ws1','dom1','wsip_1','scan','scan1','signed_in','complete',?, '2026-10-22T11:16:01.793Z')`).run(JSON.stringify({ counts: { pages_observed: 2 }, pages: [page("/account", "refused"), page("/account/details", "refused")] }));
+    const sd1 = { prepare: (q) => ({ bind: (...a) => ({ first: async () => sdb.prepare(q).get(...a) ?? null }) }) };
+    const loaded = await loadSignedInScanningForSnapshot(sd1, "ws1", "dom1", "scan1");
+    const fromDb = buildSignedInScanningSection(loaded);
+    ok("signed-in report: from the stored attempt, 2 pages behind the sign-in, anonymous refused",
+      fromDb.pages_checked === 2 && fromDb.anonymous_access_refused === true && fromDb.configured === true, JSON.stringify(fromDb));
+    ok("signed-in report: another workspace's scan id reads nothing of this one",
+      buildSignedInScanningSection(await loadSignedInScanningForSnapshot(sd1, "ws2", "dom1", "scan1")).status === "not_configured");
+    // Even with its own profile on the same domain, ws2 never sees ws1's attempt for that scan id.
+    sdb.prepare(`INSERT INTO website_sign_in_profiles (id, workspace_id, domain_id, method, credential_hint, secret_ciphertext, credential_revision,
+        status, authorization_attested_by, authorization_attested_at, created_by, created_at, updated_at)
+      SELECT 'wsip_2','ws2','dom1','form','q•••','{"v":1}','rev1','active','u2','2026-10-22','u2','2026-10-22','2026-10-22'`).run();
+    ok("signed-in report: a configured second workspace sees no attempt it did not make",
+      buildSignedInScanningSection(await loadSignedInScanningForSnapshot(sd1, "ws2", "dom1", "scan1")).status === "not_attempted");
+    ok("signed-in report: the loader never returns the ciphertext or hint", !/secret|ciphertext|p•••/.test(JSON.stringify(loaded)));
+  }
+
   if (fail) { console.error("m5c-reporting-snapshot validation FAILED"); process.exit(1); }
 
   // ═══ Mutation stage — each guard must CATCH its reintroduced defect ═════════
