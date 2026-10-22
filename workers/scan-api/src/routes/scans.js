@@ -125,18 +125,29 @@ export function projectHistoricalChangesForCustomer(historicalChanges, {
 
 // Live progress for a scan still in flight, so the scan page can say honestly
 // what it is doing ("Now checking: …") or that it has gone quiet. Only known
-// stage keys leave the API; anything else is null. null once terminal.
+// stage keys leave the API; anything else is null. A FAILED scan keeps its last
+// progress with terminal: true, so the failed-scan page can say how far it got;
+// the completed module names exist only when the scan reached finalisation (an
+// interrupted scan has none recorded, and says so). null for a completed scan.
 const SCAN_PROGRESS_STAGES = new Set(["discovery_complete", "phase5_intelligence", "finalizing"]);
 const SCAN_PROGRESS_STALE_MS = 10 * 60 * 1000;
-export function scanProgress(scan, now = Date.now()) {
-  if (!scan || (scan.status !== "running" && scan.status !== "queued")) return null;
+const MODULE_NAME = /^[a-z0-9_]{1,48}$/;
+export function scanProgress(scan, now = Date.now(), { completedModuleNames = null } = {}) {
+  const live = scan && (scan.status === "running" || scan.status === "queued");
+  if (!scan || (!live && scan.status !== "failed")) return null;
   const beat = scan.last_heartbeat_at ? Date.parse(scan.last_heartbeat_at) : NaN;
-  return {
+  const base = {
+    terminal: !live,
     stage: SCAN_PROGRESS_STAGES.has(scan.current_stage) ? scan.current_stage : null,
     completed_modules: Number.isInteger(scan.completed_modules) ? scan.completed_modules : null,
     last_heartbeat_at: Number.isFinite(beat) ? new Date(beat).toISOString() : null,
     stale: scan.status === "running" && Number.isFinite(beat) && now - beat >= SCAN_PROGRESS_STALE_MS,
   };
+  if (live) return base;
+  const names = Array.isArray(completedModuleNames)
+    ? [...new Set(completedModuleNames.filter((n) => typeof n === "string" && MODULE_NAME.test(n)))].sort()
+    : [];
+  return { ...base, completed_module_names: names.length ? names : null, module_names_recorded: names.length > 0 };
 }
 
 export async function scanRoutes(rctx) {
@@ -1025,9 +1036,18 @@ export async function scanRoutes(rctx) {
         // attempt; authorization and soft-delete gates have already passed.
         retryFailed: customerRequestedReportRetry,
       });
+      // A failed scan's completed modules, when it reached finalisation (bounded).
+      let completedModuleNames = null;
+      if (scan.status === "failed") {
+        try {
+          completedModuleNames = ((await env.cybermeters_db
+            .prepare(`SELECT module FROM scan_module_telemetry WHERE scan_id = ? AND outcome = 'ok' ORDER BY module LIMIT 64`)
+            .bind(scan.id).all())?.results || []).map((r) => r.module);
+        } catch { completedModuleNames = null; }
+      }
       return json({
         scan: customerScan,
-        progress: scanProgress(scan),
+        progress: scanProgress(scan, Date.now(), { completedModuleNames }),
         report_key: `reports/${scan.id}.json`,
         report_availability: resolved.availability,
         phase5_evidence_coverage:

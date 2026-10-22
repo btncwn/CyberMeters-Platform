@@ -320,9 +320,13 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   // check". Applying ONLY those wording changes to origin/main reproduces both new
   // goldens exactly (8e004ddc… / 670babe7…), so the renames and the API alias
   // move neither.
+  // PDF type scale (22 Oct 2026): text is never set below the 8 pt floor (7 pt
+  // lines become 8 pt) and section headings use the 14 pt section size. With
+  // ONLY pdf.js reverted to origin/main the previous goldens (8e004ddc… /
+  // 670babe7…) reproduce and the new floor assertion fails on a 7 pt line.
   const executiveGolden = {
-    false: "8e004ddca4b25ccb3db4c15c9c97d2a8d848f0efa60c10f47b0c99e9b1c0dd2a",
-    true: "670babe7eb6f554d224d4be7245523fb74fde3562f87ff66fb1f787309f960f3",
+    false: "85d54c0e52fc6c1d1cde5a1829bb159380488a92043826b49d95f73c4aa3a65a",
+    true: "f3beee42614ba28bb090add681b4721de37888a808556a771c46b79caf34a8f2",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));
@@ -403,6 +407,51 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   verbose.domains[7].summary = "Recorded evidence. ".repeat(180) + "IMPORTANT_FINAL_LIMIT";
   const verboseText = latin1(render(verbose));
   ok("brief exceptional long evidence continues without silent clipping", verboseText.includes("IMPORTANT_FINAL_LIMIT") && (verboseText.match(/\/Type \/Page \/Parent/g) || []).length > 2);
+}
+
+// ── PDF type scale (DESIGN-STANDARD §7; Executive decision 22 Oct 2026) ──
+// Both customer PDFs: no text below the floor, and the scale descends.
+{
+  const { PDF_TYPE } = await eng("pdf.js");
+  ok("type: the PDF scale descends and keeps a floor",
+     PDF_TYPE.pageTitle > PDF_TYPE.section && PDF_TYPE.section > PDF_TYPE.subsection && PDF_TYPE.subsection > PDF_TYPE.body
+       && PDF_TYPE.body > PDF_TYPE.fine && PDF_TYPE.fine >= PDF_TYPE.floor && PDF_TYPE.floor === 8);
+  const sizes = (bytes) => [...latin1(bytes).matchAll(/\/F[12] ([0-9.]+) Tf/g)].map((m) => Number(m[1]));
+  const exec = sizes(render(mkSnap({ complete: false, pad: 3 })));
+  const scanPdf = sizes(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(mkSnap({ complete: false, pad: 3 }))));
+  ok("type: no executive PDF text is set below the floor", exec.length > 0 && Math.min(...exec) >= PDF_TYPE.floor, String(Math.min(...exec)));
+  ok("type: no assessment PDF text is set below the floor", scanPdf.length > 0 && Math.min(...scanPdf) >= PDF_TYPE.floor, String(Math.min(...scanPdf)));
+  ok("type: section headings use the section size", scanPdf.includes(PDF_TYPE.section));
+}
+
+// ── Signed-in scanning in the report (founder, 22 Oct 2026; snapshot #868) ──
+// The executive report passes the snapshot's section through verbatim; the PDF
+// prints it under Website Security; null anonymous-access reads "not observed";
+// a snapshot from before the section existed prints nothing.
+{
+  const { buildExecutiveReportV2 } = await eng("executive-report.js");
+  const { signedInPdfLines } = await eng("pdf.js");
+  const LIMIT = "Signed-in checks use the test account you gave CyberMeters: they cover the pages that account can reach within a small read-only crawl, and say nothing about other accounts, roles or pages it cannot reach.";
+  const section = { status: "recorded", configured: true, signed_in: true, sign_in_outcome: "signed_in", pages_checked: 2,
+    anonymous_access_refused: null, last_successful_sign_in_at: "2026-10-22T11:16:01.793Z", coverage: "complete",
+    customer_message: "Signed in with the test account and checked 2 pages behind the sign-in.", limitation: LIMIT };
+  // The fixture's areas use placeholder keys; Website Security gets its real one.
+  const realKeys = (snap) => ({ ...snap, domains: snap.domains.map((d) => (d.display_name === "Website Security" ? { ...d, domain_key: "website_security" } : d)) });
+  const withSi = { ...realKeys(mkSnap({ complete: true })), website_signed_in: section };
+  const exec = buildExecutiveReportV2({ scan: { id: "scan1", domain: "cybermeters.com" }, read: readOf(withSi) });
+  ok("signed-in: the executive report carries the snapshot section verbatim", JSON.stringify(exec.website_signed_in) === JSON.stringify(section));
+  ok("signed-in: a snapshot without the section reports none (never 'not configured')",
+     buildExecutiveReportV2({ scan: { id: "scan1" }, read: readOf(mkSnap({ complete: true })) }).website_signed_in === null);
+  const lines = signedInPdfLines(section);
+  ok("signed-in: PDF fact line says 'not observed' for null, never 'no'",
+     lines[0] === "Signed-in pages: 2 checked; anonymous access refused: not observed; last signed in 2026-10-22 11:16 UTC");
+  ok("signed-in: PDF lines are ASCII (the renderer strips anything else)", lines.every((l) => !/[^\x00-\x7F]/.test(l)));
+  const text = pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(withSi))).map(norm).join(" ");
+  ok("signed-in: the customer PDF prints the section's sentences", text.includes("checked 2 pages behind the sign-in") && text.includes("say nothing about other accounts"));
+  const before = pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(realKeys(mkSnap({ complete: true }))))).map(norm).join(" ");
+  ok("signed-in: an older snapshot's PDF says nothing about signed-in scanning", !/Signed-in pages|signed-in scanning/i.test(before));
+  ok("signed-in: not set up prints only its own sentence", JSON.stringify(signedInPdfLines({ status: "not_configured", customer_message: "Signed-in scanning is not set up for this domain, so only public pages were checked.", limitation: LIMIT }))
+     === JSON.stringify(["Signed-in scanning is not set up for this domain, so only public pages were checked.", LIMIT]));
 }
 
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);

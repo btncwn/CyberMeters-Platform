@@ -284,6 +284,12 @@
       "step_name": "Install frontend dependencies (governed lifecycle scripts)",
       "root": "frontend",
       "command": "node scripts/install-governed-dependencies.js --root frontend"
+    },
+    {
+      "file": ".github/workflows/network-probe-image.yml",
+      "step_name": "Install the probe's pinned Wrangler (governed installer)",
+      "root": "workers/network-probe",
+      "command": "node scripts/install-governed-dependencies.js --root workers/network-probe"
     }
   ],
   "installer": {

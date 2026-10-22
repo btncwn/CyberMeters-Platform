@@ -1,6 +1,7 @@
 import { formatReportDay as formatDay, formatReportTime as formatDate, REPORT_TIME_NOTE, ReportTimeLabelled } from '../lib/reportTime'
 import { parseServerDate } from '../utils/dates'
 import { customerCodeLabel } from '../lib/customerReasonText'
+import SignedInScanningSummary from '../components/SignedInScanningSummary'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
@@ -1163,7 +1164,7 @@ function BusinessRiskCard({ businessRisk }) {
 
 // ── Report View ──────────────────────────────────────────────────────────────
 
-function ReportView({ report, queuedAt = null, waivers = {}, onWaive = null, onUnwaive = null }) {
+function ReportView({ report, signedIn = null, queuedAt = null, waivers = {}, onWaive = null, onUnwaive = null }) {
   const { cyber_metrics_score: score, risk_level, assessment, findings, recommendations, modules, scan_quality, cyber_mot_domains } = report
 
   // Sprint 10A: split findings into actionable vs informational.
@@ -1322,6 +1323,7 @@ function ReportView({ report, queuedAt = null, waivers = {}, onWaive = null, onU
         <HeadersPanel headers={modules?.headers} httpsAvailable={modules?.ssl?.https_available === true} />
         <WebsiteResponseEvidence headers={modules?.headers} />
       </div>
+      <SignedInScanningSummary section={signedIn} />
 
       {/* Email Security */}
       <div className="card overflow-hidden">
@@ -1782,10 +1784,10 @@ export default function ScanDetail() {
                     {(reportV2 && report)
                       ? (reportTab === 'executive'
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                       : (reportV2
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                     }
                   </div>
                 ) : null

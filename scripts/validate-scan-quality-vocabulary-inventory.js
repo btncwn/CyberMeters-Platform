@@ -91,7 +91,10 @@ const EXPECTED = Object.freeze({
     // `s?.scan_quality === 'complete'` on the workspace scan list (the backend's
     // recorded quality, presentation only). Two-tree semantic diff against
     // origin/main: that single addition; none removed or reclassified.
-    comparison_occurrences: 69,
+    // Per-module verification (22 Oct 2026): canVerifyModule in asm-cases.js adds
+    // two snapshot comparisons (!== "complete", !== "partial"); keyed two-tree diff
+    // shows exactly those two added on top of the line above. 69 -> 71, files unchanged.
+    comparison_occurrences: 71,
     source_file_count: 29,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -140,7 +143,7 @@ const EXPECTED = Object.freeze({
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
     // C-11: one additive ScanDetail partial/degraded membership comparison
     // selects recorded backend area messages; the two-tree diff removes none.
-    fingerprint: "b4e90d0a46c7576f7fc0791510ec4e0e5277023a569204569467fcd40f7d9529",
+    fingerprint: "51a1d2b0cb1f2578b38571c919792c7477c6300c85308dedb0a8589dd502f8de",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -238,7 +241,9 @@ const EXPECTED = Object.freeze({
     // 451 access-restricted (21 Oct 2026): validate-p1-serviceability-contract.js GATE 2b adds one governed comparison (r.scan_quality.status !== "complete"); 84 -> 85, files unchanged; keyed two-tree diff shows no other change.
     // Stated access limit (21 Oct 2026): validate-https-observation-deadline-lifecycle.js asserts withheld.status === "complete" (one governed comparison); 85 -> 86, files unchanged; keyed two-tree diff shows no other change.
     // Takeover stated limit (22 Oct 2026): the same validator asserts a second withheld.status === "complete"; keyed two-tree diff shows exactly that one added, 86 -> 87.
-    comparison_occurrences: 87,
+    // Supplementary-module deadline (22 Oct 2026): validate-https-observation-deadline-lifecycle.js adds one
+    // governed assertion (quality.status === "complete"); keyed two-tree diff shows exactly that one. 87 -> 88.
+    comparison_occurrences: 88,
     source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -258,7 +263,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "4b28f484a298430da82185e864a9c9675a85f4e120edb62e50c5bc936c2aa068",
+    fingerprint: "6252c9ede646cc313732ae725388af734fb0c1a37614a4d27c7cd79ea301286a",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -437,7 +442,11 @@ const EXPECTED = Object.freeze({
   // current_stage, last_heartbeat_at and completed_modules for `progress`. The
   // two-tree --dump-current diff changes exactly that one snippet; it reads
   // scan_quality exactly as before, and the same 24 projections remain.
-  sql_reads: { projection_occurrences: 24, fingerprint: "8d04f7b870d20ab3815984cc91a7827df8bbec6d34d8e3b6b211c3f6b140f44a" },
+  // Failed-scan progress (22 Oct 2026): scanProgress grows by eleven lines, so the
+  // two scans.js projections shift 440/970 -> 451/981. The two-tree
+  // --dump-current diff shows the same 24 projections with unchanged file, kind
+  // and snippet.
+  sql_reads: { projection_occurrences: 24, fingerprint: "ff64b18a14389fc8fb9228da3415462f06348d6cde2be09b9c90a44075fb8bb7" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -496,8 +505,9 @@ const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
 const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
   // 248 -> 249: the shared date import follows the score-honesty import from main.
   // 249 -> 251: the shared customer-code import and a comment line above it.
+  // 251 -> 252: the SignedInScanningSummary import above it (22 Oct 2026).
   // The unchanged blank-coverage check still makes no security verdict.
-  ["frontend/src/components/ExecutiveReportV2.jsx:251:value !== ''",
+  ["frontend/src/components/ExecutiveReportV2.jsx:252:value !== ''",
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;
@@ -507,7 +517,9 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   // TLS assessment quality is a recorded fixture field, not scan_quality.
   "scripts/validate-cert-trust-l2.js:232:routeCert?.tls_assessment?.quality === \"partial\"",
   // The terminal-host queue fixture asserts exposure receipt quality, not scan_quality.
-  "scripts/validate-exposure-queue.js:174:report.quality==='partial'",
+  // C-27 guards move this exact assertion 174 -> 179; keyed two-tree diff
+  // against origin/main 16a4ae0b shows no other unresolved-site change.
+  "scripts/validate-exposure-queue.js:179:report.quality==='partial'",
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",
