@@ -9,6 +9,7 @@ import { performance } from 'node:perf_hooks';
 import { validateExposureReceipt } from '../workers/network-probe/src/exposure-contract.js';
 import { EXPOSURE_RULES } from '../shared/exposure/catalog.js';
 import { exposureIdentity } from '../shared/exposure/redaction.js';
+import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { WEBSITE_CONTENT_LIMITS, sanitizeWebsitePageDiscovery, validateWebsiteContentReceipt } from '../workers/network-probe/src/website-content-contract.js';
 import { ensureExposureReady,processExposureMessage,readExposureForScan,orderExposureAssets,unresolvedExposureChecks,mergeWebsiteContentPlan,EXPOSURE_JOB_LIMITS } from '../workers/scan-api/src/engines/exposure-jobs.js';
 
@@ -200,6 +201,45 @@ for(const outcome of [
  for(let i=0;i<3;i++)await processExposureMessage(body,h.env,{collect:async(_env,input)=>{assertProbeRequest(input);throw Error('SENSITIVE_VALUE_NOT_FOR_LOGS');}});
  check(h.sql.prepare('SELECT charged_requests FROM external_exposure_jobs').get().charged_requests===36);
  const result=await processExposureMessage(body,h.env,{collect:h.collect});check(result.outcome==='completion_budget');check(h.calls===0);
+}
+{
+ // 22 Oct 2026 (blackbullbarbers.co.uk, first scan): no earlier job had observed
+ // HTTPS, so every TLS host was deferred and nothing selected; the last content
+ // slice ended the job 'complete' before the replan could run, although this
+ // job's own content checks had observed HTTPS. The replan now runs before the
+ // job's state is decided, so its TLS checks are planned.
+ const firstScan=async(processMessage)=>{
+   const h=harness(),{body,scan}=h.seed(`first_tls_${Math.random().toString(36).slice(2,8)}`,{count:3});
+   const row=h.sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scan.id),plan=JSON.parse(row.plan_json);
+   const endpoint={hostname:scan.domain,sni:scan.domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+     dns_addresses:['8.8.8.8'],dns_observed_at:new Date().toISOString()};
+   plan.hosts=[scan.domain];
+   plan.tls={profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,scan_id:scan.id,
+     endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,generation:0,special_consent:false,special_checks:{},consent_version:null}}],
+     selected:[],static_results:[],results:[],cursor:0,gaps:[],omitted_checks:0,omitted_services:0,
+     deferred_hosts:[{hostname:scan.domain,port:443,reason:'https_service_not_observed'}],deferred_endpoints:[],state:'pending'};
+   h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(plan),scan.id);
+   const outcome=await processMessage(body,h.env,{collect:h.collect});
+   const after=h.sql.prepare('SELECT state,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scan.id);
+   return {outcome:outcome.outcome,state:after.state,tls:JSON.parse(after.plan_json).tls};
+ };
+ const real=await firstScan(processExposureMessage);
+ check(real.state==='pending'&&real.outcome==='pending');
+ check(real.tls.replanned_from_job===true&&real.tls.selected.length>0);
+ check(!real.tls.deferred_hosts.some((d)=>d.reason==='https_service_not_observed'));
+ // Mutant: the replan moved back after the completion decision -> 0 TLS, complete.
+ const source=readFileSync(new URL('../workers/scan-api/src/engines/exposure-jobs.js',import.meta.url),'utf8');
+ const anchor='    if(cursor>=plan.checks.length)replanTlsFromOwnResults(plan,results);\n';
+ check(source.split(anchor).length===2);
+ const { mkdtempSync, rmSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+ const dir=mkdtempSync(join(tmpdir(),'cm-first-tls-'));
+ try{
+   const relinked=source.replace(anchor,'').replace(/from '(\.{1,2}\/[^']+)'/g,(_m,spec)=>`from '${new URL(spec,new URL('../workers/scan-api/src/engines/exposure-jobs.js',import.meta.url))}'`);
+   const target=join(dir,'exposure-jobs-first-tls-mutant.mjs');writeFileSync(target,relinked);
+   const mutant=await import(`file://${target}`);
+   const m=await firstScan(mutant.processExposureMessage);
+   check(m.state==='complete'&&m.tls.selected.length===0);
+ }finally{rmSync(dir,{recursive:true,force:true});}
 }
 {
  // 22 Oct 2026 (sheshire.co.uk, scan_8120f550): the failure cap counts
