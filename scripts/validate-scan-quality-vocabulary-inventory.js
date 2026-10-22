@@ -231,7 +231,8 @@ const EXPECTED = Object.freeze({
     // validator; runtime comparison membership remains 59 across 26 files.
     // 451 access-restricted (21 Oct 2026): validate-p1-serviceability-contract.js GATE 2b adds one governed comparison (r.scan_quality.status !== "complete"); 84 -> 85, files unchanged; keyed two-tree diff shows no other change.
     // Stated access limit (21 Oct 2026): validate-https-observation-deadline-lifecycle.js asserts withheld.status === "complete" (one governed comparison); 85 -> 86, files unchanged; keyed two-tree diff shows no other change.
-    comparison_occurrences: 86,
+    // Takeover stated limit (22 Oct 2026): the same validator asserts a second withheld.status === "complete"; keyed two-tree diff shows exactly that one added, 86 -> 87.
+    comparison_occurrences: 87,
     source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -251,7 +252,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "c00094a6f341b9f5dfae0dd941e654591c7ad800faa19313a108d1ee04c362cf",
+    fingerprint: "4b28f484a298430da82185e864a9c9675a85f4e120edb62e50c5bc936c2aa068",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.

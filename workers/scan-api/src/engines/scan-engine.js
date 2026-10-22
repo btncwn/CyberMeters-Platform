@@ -224,12 +224,25 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // is not a gap in OUR assessment. The module record stays incomplete with its
   // reason; the scan lists it as a stated limit instead of turning partial.
   // Technology is not score-bearing; every other reason or module still counts.
-  const isStatedAccessLimit = (name, value) =>
-    name === "technology_detection" && value?.incomplete === true &&
-    value?.incomplete_reason === "origin_access_restricted";
+  // Subdomain takeover (22 Oct 2026, Executive): a candidate whose provider
+  // answered the confirming probe with its access-restricted page is reported
+  // as a hedged finding (subdomain_takeover_unconfirmed, scoring.js), so the
+  // coverage is stated, not missing. Only when that is the module's SOLE
+  // reason and EVERY unconfirmed row is origin_access_restricted; truncation,
+  // lookup failure or any fetch/refusal still makes the scan partial.
+  const takeoverWithheldOnly = (value) => {
+    const reasons = Array.isArray(value?.incomplete_reasons) ? value.incomplete_reasons : [value?.incomplete_reason];
+    const rows = Array.isArray(value?.unconfirmed) ? value.unconfirmed : [];
+    return !value?.error && reasons.length === 1 && reasons[0] === "host_probe_unconfirmed" &&
+      rows.length > 0 && rows.every((row) => row?.reason === "origin_access_restricted" && row.host && row.cname);
+  };
+  const isStatedAccessLimit = (name, value) => value?.incomplete === true && (
+    (name === "technology_detection" && value?.incomplete_reason === "origin_access_restricted") ||
+    (name === "subdomain_takeover" && takeoverWithheldOnly(value)));
   const statedLimits = Object.entries(modules)
     .filter(([name, value]) => isStatedAccessLimit(name, value))
-    .map(([name, value]) => ({ module: name, reason: value.incomplete_reason }));
+    .map(([name, value]) => ({ module: name,
+      reason: name === "subdomain_takeover" ? "origin_access_restricted" : value.incomplete_reason }));
   const incompleteModules = Object.entries(modules)
     .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
     .filter(([name, value]) => !isStatedAccessLimit(name, value))

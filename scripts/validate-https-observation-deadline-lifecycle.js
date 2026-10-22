@@ -33,7 +33,7 @@ const NOW = "2026-07-28T13:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
 
 // PINNED — a dropped assertion or mutant hard-fails even if everything else passes.
-const EXPECTED_MUTANTS = 3;
+const EXPECTED_MUTANTS = 4;
 
 let passed = 0, failed = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -240,6 +240,15 @@ const MUTATIONS = [
       return q.status !== "partial";
     },
   },
+  {
+    // 22 Oct 2026: only a provider-withheld takeover probe is a stated limit.
+    name: "M-D4 every unconfirmed takeover row no longer has to be provider-withheld",
+    target: SCAN_ENGINE,
+    from: 'rows.every((row) => row?.reason === "origin_access_restricted" && row.host && row.cname)',
+    to: 'rows.every((row) => row.host && row.cname)',
+    check: (mod) => mod.buildScanQuality({ subdomain_takeover: { incomplete: true, incomplete_reason: "host_probe_unconfirmed",
+      incomplete_reasons: ["host_probe_unconfirmed"], unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", reason: "fetch_failed" }] } }).status !== "partial",
+  },
 ];
 for (const m of MUTATIONS) {
   const r = await withMutant(m, (mod) => m.check(mod));
@@ -268,6 +277,26 @@ ok("no mutant file left behind", strays.length === 0, strays.join(", "));
     buildScanQuality({ technology_detection: tech("origin_timeout") }).status === "partial");
   ok("a withheld technology page never hides another module's gap",
     buildScanQuality({ technology_detection: tech("origin_access_restricted"), ssl: tech("https_origin_not_observed") }).status === "partial");
+}
+
+// 22 Oct 2026 (Executive, sheshire.co.uk scan 4): a takeover candidate whose
+// provider withheld the confirming page is a hedged finding plus a stated
+// limit, never a module gap that withholds the whole score.
+{
+  const row = (reason, host = "www.example.com") => ({ host, cname: "shops.provider.example", provider: "Provider", reason });
+  const takeover = (rows, reasons = ["host_probe_unconfirmed"]) => ({ checked: 1, risks: [], error: null, unconfirmed: rows,
+    incomplete: true, incomplete_reason: reasons[0], incomplete_reasons: reasons });
+  const withheld = buildScanQuality({ subdomain_takeover: takeover([row("origin_access_restricted")]) });
+  ok("takeover probe withheld by the provider: scan is complete with a stated limit",
+    withheld.status === "complete" && withheld.modules_incomplete.length === 0 &&
+    withheld.stated_limits?.[0]?.module === "subdomain_takeover" && withheld.stated_limits[0].reason === "origin_access_restricted",
+    JSON.stringify(withheld));
+  ok("a takeover probe that failed to fetch is still a partial scan",
+    buildScanQuality({ subdomain_takeover: takeover([row("fetch_failed")]) }).status === "partial");
+  ok("one withheld and one failed takeover row: still partial",
+    buildScanQuality({ subdomain_takeover: takeover([row("origin_access_restricted"), row("fetch_failed", "shop.example.com")]) }).status === "partial");
+  ok("a withheld row never hides host truncation or lookup failure",
+    buildScanQuality({ subdomain_takeover: takeover([row("origin_access_restricted")], ["host_lookup_failure", "host_probe_unconfirmed"]) }).status === "partial");
 }
 
 console.log(`\nhttps-observation deadline+lifecycle: ${passed}/${passed + failed} passed; ${killed}/${EXPECTED_MUTANTS} mutants killed`);
