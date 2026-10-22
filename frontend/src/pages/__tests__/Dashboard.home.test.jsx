@@ -190,3 +190,30 @@ describe('no score yet (founder, 20 Oct 2026)', () => {
     expect(screen.queryByTestId('incomplete-assessment-note')).toBeNull()
   })
 })
+
+describe('after a scan finishes (22 Oct 2026)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('the page reloads in place: no full-page spinner, and the scan box keeps its "complete" note', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    api.getWorkspaces.mockResolvedValue({ workspaces: [{ id: 'ws_a', name: 'Customer A', role: 'analyst' }] })
+    api.getScan.mockResolvedValue({ scan: { id: 'scan_new', status: 'completed' } })
+    renderHome()
+    const picker = await screen.findByRole('combobox', { name: 'Domain to scan' })
+    await waitFor(() => expect(picker).toHaveValue('example.co.uk'))
+    fireEvent.click(screen.getByRole('button', { name: 'Scan' }))
+    await waitFor(() => expect(api.createScan).toHaveBeenCalled())
+    // Hold the reload's scan list open, so the page is observed mid-reload.
+    let release
+    api.getWorkspaceScans.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve({ scans: [{ id: 'scan_new', domain: 'example.co.uk', status: 'completed', created_at: new Date().toISOString() }] }) }))
+    await vi.advanceTimersByTimeAsync(15000)
+    await waitFor(() => expect(release).toBeTypeOf('function'))
+    // Mid-reload the page stays mounted: same heading, same scan box, its note intact.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Where is Customer A exposed today?')
+    expect(screen.getByRole('combobox', { name: 'Domain to scan' })).toBe(picker)
+    expect(screen.getByRole('status')).toHaveTextContent('The scan of example.co.uk is complete')
+    release()
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Domain to scan' })).toBe(picker))
+    expect(screen.getByRole('status')).toHaveTextContent('The scan of example.co.uk is complete')
+  })
+})

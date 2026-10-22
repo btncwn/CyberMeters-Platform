@@ -321,18 +321,24 @@ export default function Dashboard() {
     // by a silent redirect that consumed the token (P1, 18 Oct 2026).
 
     const wsId = activeWorkspaceId
-    setScans([])
-    setReport(null)
-    setMotDomains([])
-    setScorecard(null)
-    setMotRequest('loading')
-    setDomainCount(null)
-    setSetupState(null)
-    setHasWorkspaces(null)
+    // A silent reload (after a scan finishes) keeps the page mounted: no
+    // full-page spinner, and the scan box keeps its "scan complete" note. The
+    // new data replaces the old when it arrives. A first or workspace-change
+    // load still clears everything so one workspace never shows another's data.
+    if (!silent) {
+      setScans([])
+      setReport(null)
+      setMotDomains([])
+      setScorecard(null)
+      setMotRequest('loading')
+      setDomainCount(null)
+      setSetupState(null)
+      setHasWorkspaces(null)
+      setLoadedWorkspaceId(null)
+      setLoading(true)
+    }
     setError(null)
-    setLoadedWorkspaceId(null)
     reportFetchedForRef.current = null
-    setLoading(true)
     setRefreshing(silent)
 
     // Security gate — never call global /api/scans when a workspace is set.
@@ -373,6 +379,8 @@ export default function Dashboard() {
 
       // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
+      // On a silent reload the previous scan's report must not outlive it.
+      if (silent) setReport(null)
       if (latestCompleted && reportFetchedForRef.current !== latestCompleted.id) {
         loadReport(latestCompleted.id, generation)
       }
