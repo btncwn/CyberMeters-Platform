@@ -304,6 +304,10 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
     ['grant','admin','admin','Pat Owner','IT Manager','203.0.113.9','seed.example',[],['takeover_active_confirm','mail_spoof_resistance'],ACTIVE_CHECK_AUTHORITY_VERSION,true,true]);
   eq('consent: the grant is audited',db.prepare("SELECT COUNT(*) n FROM audit_events WHERE event_type='active_check_consent_granted' AND entity_id=?").get(g.id).n,1);
   eq('consent: listed with its status',(await consent()).body.consents.map(c=>[c.id,c.status]),[[g.id,'active']]);
+  const ownerView=(await consent()).body.consents[0],viewerView=(await consent('',{user:'viewer'})).body.consents[0];
+  ok('consent: the receipt carries the exact statement agreed',ownerView.authority_text===ACTIVE_CHECK_AUTHORITY_TEXT&&viewerView.authority_text===ACTIVE_CHECK_AUTHORITY_TEXT);
+  eq('consent: the signer IP is shown to those who manage the workspace',ownerView.signer.ip_address,'203.0.113.9');
+  ok('consent: ...and never to a viewer',!('ip_address' in viewerView.signer)&&!JSON.stringify((await consent('',{user:'viewer'})).body).includes('203.0.113.9'));
   eq('consent: the other workspace sees none of it',(await consent('',{user:'other',workspace:'wb'})).body.consents.length,0);
 
   const yes=await ask({check:'takeover_active_confirm'});
@@ -328,12 +332,17 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   eq('consent: another workspace cannot revoke it (same 404 as unknown)',(await consent(`/${g.id}/revoke`,{method:'POST',user:'other',workspace:'wb'})).status,404);
   eq('consent: an unknown id is the same 404',(await consent('/acc_nope/revoke',{method:'POST'})).status,404);
   eq('consent: an analyst cannot revoke',(await consent(`/${g.id}/revoke`,{method:'POST',user:'analyst'})).status,403);
-  eq('consent: the owner revokes',(await consent(`/${g.id}/revoke`,{method:'POST'})).status,200);
+  eq('consent: a reason longer than 240 characters is refused',(await consent(`/${g.id}/revoke`,{method:'POST',body:{reason:'x'.repeat(241)}})).status,400);
+  eq('consent: an unknown revoke field is refused',(await consent(`/${g.id}/revoke`,{method:'POST',body:{reason:'ok',when:'now'}})).status,400);
+  const revoked=await consent(`/${g.id}/revoke`,{method:'POST',body:{reason:'  Contract with the hosting company ended  '}});
+  eq('consent: the owner revokes, with a reason',[revoked.status,revoked.body.consent?.status,revoked.body.consent?.revocation_reason],[200,'revoked','Contract with the hosting company ended']);
+  eq('consent: the reason is written once, on the revocation row',db.prepare("SELECT revocation_reason r FROM active_check_consents WHERE kind='revocation' AND grant_id=?").get(g.id).r,'Contract with the hosting company ended');
   eq('consent: a second revocation is refused',(await consent(`/${g.id}/revoke`,{method:'POST'})).status,409);
   eq('consent: revoking added one row and left the grant unchanged',[rows().length,JSON.stringify(rows()[0]),rows().at(-1).kind,rows().at(-1).grant_id],[3,before,'revocation',g.id]);
   eq('isAuthorised: a revoked grant',(await ask({check:'takeover_active_confirm'})).reason,'grant_revoked');
   eq('isAuthorised: the other live grant is unaffected',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'8.8.8.8'})).authorised,true);
   eq('consent: listed as revoked',(await consent()).body.consents.find(c=>c.id===g.id).status,'revoked');
+  eq('consent: the list returns the revocation reason',(await consent()).body.consents.find(c=>c.id===g.id).revocation_reason,'Contract with the hosting company ended');
   const projected=(await consent()).body.consents.find(c=>c.id===g.id);
   ok('consent: the customer API carries no raw internal user id',projected.signer.user_id===undefined&&projected.revoked_by===undefined&&!JSON.stringify((await consent()).body).includes('"user_id"'));
 
