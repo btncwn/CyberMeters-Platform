@@ -5,7 +5,7 @@ import LiveTlsEvidence from './LiveTlsEvidence'
 import { formatDate, parseServerDate } from '../utils/dates'
 import InternalIdCopyButton from './InternalIdCopyButton'
 
-const OBSERVATION_LABELS = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
+const OBSERVATION_LABELS = { open: 'Open', closed: 'Closed', timeout: 'No answer', error: 'Measurement failed', not_run: 'Not run' }
 const RUN_LABELS = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed' }
 // Customer sentences for the probe's reason and basis keys (design standard §4,
 // founder 22 Oct 2026): a key never reaches the screen; an unknown key reads a
@@ -60,11 +60,17 @@ function Observation({ state }) {
 function Coverage({ coverage, quality }) {
   const planned = count(coverage?.planned)
   const attempted = count(coverage?.attempted)
-  const completed = count(coverage?.completed)
+  // `concluded` (newer scans) counts open, closed and no-answer ports; older
+  // scans only recorded `completed` (open or closed), shown under that name.
+  const hasConcluded = count(coverage?.concluded) !== null
+  const completed = count(hasConcluded ? coverage?.concluded : coverage?.completed)
   const notRun = count(coverage?.not_run)
   return <div className="text-sm text-gray-600 space-y-1">
     <p>{quality === 'complete' ? 'Selected checks completed. This is not a security clearance.' : quality === 'partial' ? 'Partial coverage: some selected checks did not complete.' : 'Coverage has not been established.'}</p>
-    {planned !== null && <p>{planned} planned{attempted !== null ? ` · ${attempted} attempted` : ''}{completed !== null ? ` · ${completed} completed` : ''}{notRun !== null ? ` · ${notRun} not run` : ''}</p>}
+    {(Array.isArray(coverage?.unreachable_addresses) ? coverage.unreachable_addresses : []).map(address => (
+      <p key={`unreachable-${address}`}>Nothing on {address} answered; CyberMeters could not tell whether the ports are filtered or the host was unreachable. Previous observations are kept.</p>
+    ))}
+    {planned !== null && <p>{planned} planned{attempted !== null ? ` · ${attempted} attempted` : ''}{completed !== null ? ` · ${completed} ${hasConcluded ? 'concluded' : 'completed'}` : ''}{count(coverage?.no_answer) ? ` · ${count(coverage?.no_answer)} no answer` : ''}{notRun !== null ? ` · ${notRun} not run` : ''}</p>}
   </div>
 }
 

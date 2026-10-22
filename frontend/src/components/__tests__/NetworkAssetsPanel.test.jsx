@@ -116,7 +116,7 @@ describe('Network assets customer workflow', () => {
     ], changes: [] })
     await ready()
     fireEvent.click(screen.getByRole('tab', { name: 'Services' }))
-    expect(screen.getByText('Timed out')).toBeInTheDocument()
+    expect(screen.getByText('No answer')).toBeInTheDocument()
     expect(screen.getByText('Last observed: open')).toBeInTheDocument()
     expect(screen.getByText('Not run')).toBeInTheDocument()
     expect(screen.getAllByText('Not identified')).toHaveLength(2)
@@ -124,6 +124,20 @@ describe('Network assets customer workflow', () => {
     expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeInTheDocument()
     expect(document.querySelector('img')).toBeNull()
     expect(screen.getByText(/An open port is an observation, not a vulnerability/)).toBeInTheDocument()
+  })
+
+  it('states an address where nothing answered instead of calling its ports closed', async () => {
+    // Executive R1 (22 Oct 2026): filtered vs unreachable cannot be told apart.
+    const silentRun = { ...run, quality: 'partial', coverage: { planned: 2, attempted: 2, concluded: 0, no_answer: 0,
+      unreachable_addresses: [target.target], reason: 'address_unreachable' } }
+    api.getNetworkScans.mockResolvedValue({ scans: [silentRun] })
+    api.getNetworkScan.mockResolvedValue({ scan: silentRun, receipt: { quality: 'partial', coverage: silentRun.coverage, finished_at: '2026-10-09T00:01:00Z', observations: [
+      { address: target.target, port: 22, transport: 'tcp', state: 'timeout' },
+      { address: target.target, port: 443, transport: 'tcp', state: 'timeout' },
+    ] }, changes: [] })
+    await ready()
+    fireEvent.click(screen.getByRole('tab', { name: 'Recent scans' }))
+    expect((await screen.findAllByText(new RegExp(`Nothing on ${target.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} answered; CyberMeters could not tell whether the ports are filtered or the host was unreachable`))).length).toBeGreaterThan(0)
   })
 
   it('shows partial receipt coverage, every selected tuple and recorded changes', async () => {
@@ -210,7 +224,7 @@ describe('Network assets customer workflow', () => {
     api.getNetworkAssets.mockResolvedValue({ assets: [{ address: target.target, port: 22, transport: 'tcp', state: 'timeout', last_observed_state: 'open', service: { name: 'SSH', basis: 'SSH-2.0 banner' }, last_seen_at: '2026-10-08T00:00:00Z', last_checked_at: '2026-10-09T00:00:00Z' }], changes: [] })
     await ready()
     fireEvent.click(screen.getByRole('tab', { name: 'Services' }))
-    expect(screen.getByText('Timed out')).toBeInTheDocument()
+    expect(screen.getByText('No answer')).toBeInTheDocument()
     expect(screen.getByText('Last observed: open')).toBeInTheDocument()
     expect(screen.getByText('Retained from the last observation')).toBeInTheDocument()
     expect(screen.getByText('SSH')).toBeInTheDocument()
