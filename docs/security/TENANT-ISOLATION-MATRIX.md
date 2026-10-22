@@ -11,9 +11,9 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 122
-- **classified:** 122
-- **tenant owned tables:** 114
+- **schema tables:** 123
+- **classified:** 123
+- **tenant owned tables:** 115
 - **infra or identity tables:** 8
 - **unclassified:** 0
 - **resource classes:** 43
@@ -43,7 +43,7 @@ data cannot be silently omitted.
 | identity_public_sources | identity | direct(workspace_id) | 1 | — | — |
 | dns_provider_remediation | email | direct(workspace_id) | 2 | — | — |
 | hostname_lists | attack_surface | direct(workspace_id) | 1 | — | — |
-| network_assets | attack_surface | direct(workspace_id) | 3 | — | — |
+| network_assets | attack_surface | direct(workspace_id) | 4 | — | — |
 | active_check_consents | attack_surface | direct(workspace_id) | 1 | — | — |
 | tls_authorizations | attack_surface | direct(workspace_id) | 2 | — | — |
 | workspaces | core | account(owner_user_id) | 1 | ✓ | ✓ |
@@ -91,7 +91,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **identity_public_sources:** Masked evidence only. Dedicated production-router coverage in validate-identity-public-secrets.js verifies roles, domain authority, SSRF denial, post-fetch revocation, storage and tenant isolation.
 - **dns_provider_remediation:** Workspace/domain-owned encrypted connections and saved DNS changes. Dedicated production-entry coverage lives in scripts/validate-dns-remediation.js; not part of the general two-tenant/property harness.
 - **hostname_lists:** Customer hostname lists (mig 117): workspace_id + domain_id scoped; writes need domain:import on a live workspace and a domain verified in it, re-checked inside the write SQL; foreign and unverified domains refused alike; scan reads join the verified link and a live workspace and re-check scope; purged with the workspace (validate-discovery-hostname-list).
-- **network_assets:** Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
+- **network_assets:** Declared-range consent (mig 138) is append-only and workspace_id-scoped: foreign and nonexistent grants/targets are the same 404, admin-only writes, a revocation stops admission and dispatch in SQL (validate-network-assets.js). Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js.
 - **active_check_consents:** Append-only Active Checks consent (mig 135): workspace_id on every query, foreign and nonexistent grants are the same 404, admin-only writes, no update or delete path; two-tenant routes, revocation, immutability triggers and isAuthorised fail-closed reasons are covered by validate-network-assets.js.
 - **tls_authorizations:** Workspace-owned TLS consent and exact service scopes; production-route two-tenant and role denial, revocation generation, domain/target rechecks, atomic audit rollback and no scan dispatch are covered by validate-tls-authorization.js. Queue receipt fencing and mid-flight revocation are covered by validate-deep-tls-queue.js.
 - **asset_events:** written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit
@@ -183,6 +183,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `mfa_challenges` | user(user_id) | auth_sessions |
 | `msp_branding_profiles` | account(owner_user_id) | report_branding |
 | `network_assets` | direct(workspace_id) | network_assets |
+| `network_range_consents` | direct(workspace_id) | network_assets |
 | `network_scans` | direct(workspace_id) | network_assets |
 | `network_targets` | direct(workspace_id) | network_assets |
 | `notification_events` | direct(workspace_id) | notifications |

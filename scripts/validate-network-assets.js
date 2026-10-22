@@ -382,4 +382,91 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='wa' AND domain_id='d_seed'").run();
 }
 
+// ── Declared network range consent (mig 138): an unobserved address only under a scoped grant ──
+{
+  const {NETWORK_RANGE_AUTHORITY_VERSION,NETWORK_RANGE_AUTHORITY_TEXT,liveRangeGrant}=await import('../workers/scan-api/src/engines/network-range-consent.js');
+  db.prepare("UPDATE network_scans SET status='completed' WHERE status IN ('queued','running')").run();
+  const consentBody={ports:[22,443],signer_name:'Pat Owner',signer_title:'IT Manager',authority_confirmed:true,authority_version:NETWORK_RANGE_AUTHORITY_VERSION};
+  const declare=(extra={},args={})=>call('network-targets',{method:'POST',user:'admin',body:{target:'9.9.9.9',authorization_confirmed:true,...extra},...args});
+  const grants=()=>db.prepare('SELECT * FROM network_range_consents ORDER BY rowid').all();
+  const targetFor=t=>db.prepare('SELECT * FROM network_targets WHERE workspace_id=? AND target=?').get('wa',t);
+
+  const plain=await declare();
+  eq('range: an unobserved address without consent is refused and asks for one',[plain.status,plain.body.range_consent],[422,'required']);
+  for(const [name,extra,args,status] of [
+    ['analyst',{range_consent:consentBody},{user:'analyst'},403],
+    ['authority not confirmed',{range_consent:{...consentBody,authority_confirmed:false}},{},400],
+    ['stale authority version',{range_consent:{...consentBody,authority_version:'old'}},{},400],
+    ['no signer',{range_consent:{...consentBody,signer_name:' '}},{},400],
+    ['unknown consent field',{range_consent:{...consentBody,checks:['dns_open_resolver']}},{},400],
+    ['a port outside the catalogue',{range_consent:{...consentBody,ports:[65535]}},{},400],
+    ['no ports',{range_consent:{...consentBody,ports:[]}},{},400],
+  ])eq(`range: refused — ${name}`,(await declare(extra,args)).status,status);
+  eq('range: refused requests wrote no grant and no target',[grants().length,!!targetFor('9.9.9.9')],[0,false]);
+  const edge=await declare({target:'104.18.1.1',range_consent:consentBody});
+  eq('range: shared provider infrastructure is never grantable',[edge.status,edge.body.range_consent,grants().length],[422,'not_grantable_shared',0]);
+
+  const made=await declare({range_consent:consentBody});
+  eq('range: a declared address with consent is accepted',made.status,201);
+  const t=made.body.target;
+  eq('range: the scope stays what DNS says',t.scope.state,'out_of_scope');
+  eq('range: the grant is exact and honest',[t.range_consent?.status,t.range_consent?.addresses,t.range_consent?.ports,t.range_consent?.independently_verified],['active',['9.9.9.9'],[22,443],false]);
+  ok('range: the customer wording says it is not independently verified',/not independently verified/.test(t.range_consent?.declaration||''));
+  const row=grants()[0];
+  eq('range: the stored record names signer, role, account and the verbatim text',[row.signer_name,row.signer_title,row.actor_user_id,row.actor_workspace_role,row.authority_text,row.authority_version],['Pat Owner','IT Manager','admin','admin',NETWORK_RANGE_AUTHORITY_TEXT,NETWORK_RANGE_AUTHORITY_VERSION]);
+  ok('range: the grant is audited',!!db.prepare("SELECT 1 FROM audit_events WHERE event_type='network_range_consent_granted' AND entity_id=?").get(row.id));
+  await rejects('range: grant rows are immutable (SQL trigger)',async()=>db.prepare("UPDATE network_range_consents SET ports_json='[1]' WHERE id=?").run(row.id));
+  const viewerList=(await call('network-targets',{user:'viewer'})).body.targets.find(x=>x.id===t.id);
+  ok('range: a viewer sees the grant but not the signer IP',viewerList.range_consent?.status==='active'&&!('ip_address' in viewerList.range_consent.signer));
+
+  // Scan admission under the grant.
+  const scan=await call(`network-targets/${t.id}/scans`,{user:'analyst',method:'POST',body:{ports:[443]}});
+  eq('range: a scan within the granted ports is admitted under the grant',[scan.status,scan.body.scan?.authorised_by,scan.body.scan?.range_consent_id],[202,'declared_range_consent',row.id]);
+  db.prepare("UPDATE network_scans SET status='completed' WHERE id=?").run(scan.body.scan.id);
+  const extraPort=await call(`network-targets/${t.id}/scans`,{user:'analyst',method:'POST',body:{ports:[80]}});
+  eq('range: a port the grant does not name is refused',[extraPort.status,extraPort.body.range_consent],[409,'ports_not_covered']);
+
+  // Dispatch: the claim passes on a live grant and stops on a revoked one.
+  const probing={collectNetworkProbe:async()=>{probeCalls++;throw new Error('probe reached');},validateNetworkProbeReceipt:()=>({ok:true})};
+  const live=await call(`network-targets/${t.id}/scans`,{user:'analyst',method:'POST',body:{ports:[22]}});
+  const before=probeCalls;
+  await processNetworkScanMessage(queued.at(-1),env,{adapter:probing});
+  eq('range: dispatch claims and probes under a live grant',probeCalls-before,1);
+  db.prepare("UPDATE network_scans SET status='completed' WHERE id=?").run(live.body.scan.id);
+  const pending=await call(`network-targets/${t.id}/scans`,{user:'analyst',method:'POST',body:{ports:[22]}});
+  eq('range: queued before the revocation',pending.status,202);
+
+  // Revocation.
+  eq('range: a foreign workspace cannot revoke (same 404)',(await call(`network-range-consents/${row.id}/revoke`,{user:'other',workspace:'wb',method:'POST'})).status,404);
+  eq('range: a viewer cannot revoke',(await call(`network-range-consents/${row.id}/revoke`,{user:'viewer',method:'POST'})).status,403);
+  eq('range: an unknown id is the same 404',(await call('network-range-consents/nrc_missing/revoke',{user:'admin',method:'POST'})).status,404);
+  const revoked=await call(`network-range-consents/${row.id}/revoke`,{user:'admin',method:'POST',body:{reason:'contract ended'}});
+  eq('range: an admin revokes with a reason',[revoked.status,revoked.body.consent?.status,revoked.body.consent?.revocation_reason],[200,'revoked','contract ended']);
+  eq('range: a second revocation is refused',(await call(`network-range-consents/${row.id}/revoke`,{user:'admin',method:'POST'})).status,409);
+  const stopped=probeCalls;
+  const outcome=await processNetworkScanMessage(queued.at(-1),env,{adapter:probing});
+  eq('range: a scan queued before the revocation is failed at dispatch, never probed',[outcome.outcome,probeCalls-stopped,db.prepare('SELECT status,reason FROM network_scans WHERE id=?').get(pending.body.scan.id)],['range_consent_revoked',0,{status:'failed',reason:'network_range_consent_revoked'}]);
+  const after=await call(`network-targets/${t.id}/scans`,{user:'analyst',method:'POST',body:{ports:[443]}});
+  eq('range: after revocation no new scan is admitted',[after.status,after.body.range_consent],[409,'required']);
+  const history=(await call('network-range-consents',{user:'viewer'})).body.consents;
+  eq('range: the revoked grant stays in the history',history.map(c=>[c.id,c.status]),[[row.id,'revoked']]);
+
+  // A fresh grant for the existing target restores scanning; tenants stay apart.
+  eq('range: another workspace cannot grant on this target (same 404)',(await call(`network-targets/${t.id}/range-consents`,{user:'other',workspace:'wb',method:'POST',body:consentBody})).status,404);
+  eq('range: an analyst cannot grant',(await call(`network-targets/${t.id}/range-consents`,{user:'analyst',method:'POST',body:consentBody})).status,403);
+  const regrant=await call(`network-targets/${t.id}/range-consents`,{user:'admin',method:'POST',body:{...consentBody,ports:[443]}});
+  eq('range: a new grant on the existing target',[regrant.status,regrant.body.consent?.ports],[201,[443]]);
+  eq('range: scanning resumes within the new grant',(await call(`network-targets/${t.id}/scans`,{user:'analyst',method:'POST',body:{ports:[443]}})).status,202);
+  db.prepare("UPDATE network_scans SET status='completed' WHERE status IN ('queued','running')").run();
+  // A grant covers the addresses it was signed for, never a changed list.
+  eq('range: a grant does not cover a different address list',await liveRangeGrant(env.cybermeters_db,'wa',{...targetFor('9.9.9.9'),addresses_json:'["9.9.9.10"]'}),null);
+  // A soft-deleted workspace takes no new grant.
+  db.prepare("UPDATE workspaces SET deleted_at=datetime('now') WHERE id='wa'").run();
+  const count=grants().length;
+  const deleted=await call(`network-targets/${t.id}/range-consents`,{user:'admin',method:'POST',body:consentBody});
+  ok('range: a soft-deleted workspace takes no new grant',deleted.status>=400&&grants().length===count);
+  db.prepare("UPDATE workspaces SET deleted_at=NULL WHERE id='wa'").run();
+  ok('range: the workspace purge erases the consent table',/"network_range_consents",\s*\n?\s*"network_assets"/.test(fs.readFileSync(path.join(root,'workers/scan-api/src/index.js'),'utf8').replace(/\/\/[^\n]*\n/g,'')));
+}
+
 console.log(`\nNetwork assets: ${passed} passed, ${failed} failed`);if(failed)process.exit(1);

@@ -45,14 +45,28 @@ export async function processNetworkScanMessage(body,env,deps={}) {
   }catch{try{await failScan(env,row,'network_scope_invalid');}catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}return {action:'ack',outcome:'scope_rejected'};}
   // The scope decision made at admission (network-ownership.js) must still be
   // in scope and fresh: an address no longer observed in verified DNS is not probed.
-  if(row.scope_state!=='in_scope'||!(Date.parse(row.scope_checked_at)>Date.now()-NETWORK_SCOPE_LIMITS.max_age_ms)){
+  // A scan admitted under a declared-range grant (migration 138) is held to that
+  // grant instead, re-checked in the claim below.
+  if(!row.range_consent_id&&(row.scope_state!=='in_scope'||!(Date.parse(row.scope_checked_at)>Date.now()-NETWORK_SCOPE_LIMITS.max_age_ms))){
     try{await failScan(env,row,'network_target_out_of_scope');}catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
     return {action:'ack',outcome:'out_of_scope'};
   }
   let claimed;
-  try{claimed=await env.cybermeters_db.prepare("UPDATE network_scans SET status='running',started_at=? WHERE id=? AND status='queued'").bind(new Date().toISOString(),row.id).run();}
+  // The claim re-checks the declared-range grant in SQL: still a grant of this
+  // workspace for this target's exact addresses, and not revoked.
+  try{claimed=await env.cybermeters_db.prepare(`UPDATE network_scans SET status='running',started_at=? WHERE id=? AND status='queued'
+      AND (range_consent_id IS NULL OR EXISTS(SELECT 1 FROM network_range_consents g WHERE g.id=network_scans.range_consent_id AND g.workspace_id=network_scans.workspace_id AND g.kind='grant' AND g.network_target_id=network_scans.target_id AND g.addresses_json=?
+        AND NOT EXISTS(SELECT 1 FROM network_range_consents r WHERE r.kind='revocation' AND r.grant_id=g.id AND r.workspace_id=g.workspace_id)))`).bind(new Date().toISOString(),row.id,row.addresses_json).run();}
   catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
-  if(claimed.meta?.changes!==1)return {action:'ack',outcome:'already_claimed'};
+  if(claimed.meta?.changes!==1){
+    if(!row.range_consent_id)return {action:'ack',outcome:'already_claimed'};
+    // Only a still-queued scan is failed here: one another consumer already
+    // claimed is left alone.
+    let failed;
+    try{failed=await env.cybermeters_db.prepare("UPDATE network_scans SET status='failed',quality=NULL,reason='network_range_consent_revoked',completed_at=? WHERE id=? AND workspace_id=? AND status='queued'").bind(new Date().toISOString(),row.id,row.workspace_id).run();}
+    catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
+    return {action:'ack',outcome:failed.meta?.changes===1?'range_consent_revoked':'already_claimed'};
+  }
   try {
     const adapter=deps.adapter||await import('./network-probe.js');
     const request={schema_version:'network-probe-request-v1',request_id:row.id,workspace_id:row.workspace_id,scan_id:row.id,profile:'network_services',deadline_at:new Date(Date.now()+90_000).toISOString(),targets:normalized.addresses.map(address=>({address,hostname:null})),ports};
