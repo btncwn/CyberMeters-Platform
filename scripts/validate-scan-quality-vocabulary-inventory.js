@@ -94,8 +94,14 @@ const EXPECTED = Object.freeze({
     // Per-module verification (22 Oct 2026): canVerifyModule in asm-cases.js adds
     // two snapshot comparisons (!== "complete", !== "partial"); keyed two-tree diff
     // shows exactly those two added on top of the line above. 69 -> 71, files unchanged.
-    comparison_occurrences: 71,
-    source_file_count: 29,
+    // WORKSPACE-TILE SUCCESSION (22 Oct 2026): 71 -> 72, files 29 -> 30. The
+    // workspace Cyber Score tile says "No score yet" when the newest finished
+    // assessment is incomplete: WorkspaceDetailPage.jsx adds
+    // `latestScan?.scan_quality !== 'complete'` (backend-recorded quality,
+    // presentation only). Two-tree semantic diff against origin/main: that one
+    // addition; none removed.
+    comparison_occurrences: 72,
+    source_file_count: 30,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -143,7 +149,7 @@ const EXPECTED = Object.freeze({
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
     // C-11: one additive ScanDetail partial/degraded membership comparison
     // selects recorded backend area messages; the two-tree diff removes none.
-    fingerprint: "51a1d2b0cb1f2578b38571c919792c7477c6300c85308dedb0a8589dd502f8de",
+    fingerprint: "eb8ee7b2da06e29a0f80b1035f4bf0ff7ce5259fa29b0dc42784a382627a9afd",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -271,7 +277,8 @@ const EXPECTED = Object.freeze({
   // MCP discovery, status, and projection routes join the governed runtime set.
   // 37 -> 38: frontend/src/lib/scoreHonesty.js (score-honesty succession above).
   // SCAN-PROGRESS (22 Oct 2026): 39 -> 40 — ScanProgress.jsx joins the runtime sources.
-  runtime_source_file_count: 40,
+  // WORKSPACE-TILE (22 Oct 2026): 40 -> 41 — WorkspaceDetailPage.jsx joins the runtime sources.
+  runtime_source_file_count: 41,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -349,7 +356,9 @@ const EXPECTED = Object.freeze({
     // SCAN-PROGRESS (22 Oct 2026): 141 -> 143, files 48 -> 49 — ScanProgress.jsx
     // reads the list row's `s?.scan_quality` (filter) and passes
     // `row.scan_quality` to the remembered sample. Two-tree diff: these two only.
-    runtime: { occurrence_count: 143, source_file_count: 49, fingerprint: "b78001f8e74d1dcb1d5669d311e38ebd0d57316d67f710dbb6527987f2b62be8" },
+    // WORKSPACE-TILE (22 Oct 2026): 143 -> 144 — one read, `latestScan?.scan_quality`,
+    // in WorkspaceDetailPage.jsx (same file set). Two-tree diff: this read only.
+    runtime: { occurrence_count: 144, source_file_count: 49, fingerprint: "7fa6b7962cc78a37a1699cb8813eb6c8c3985d67d7004b282a5494cf885ca43f" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
