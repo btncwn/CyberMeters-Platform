@@ -65,8 +65,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 310,
-    "authed": 264,
+    "total": 312,
+    "authed": 266,
     "public_unauthed": 46,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -79,8 +79,8 @@
         "authed": 0
       },
       "unknown": {
-        "total": 81,
-        "authed": 66
+        "total": 83,
+        "authed": 68
       },
       "public-or-global": {
         "total": 47,
@@ -2800,9 +2800,7 @@
       "auth_guards": [
         "requireWorkspaceRole"
       ],
-      "scope_helpers": [
-        "getWorkspaceBillingUserId"
-      ],
+      "scope_helpers": [],
       "authed": true,
       "public_reason": null
     },
@@ -2829,7 +2827,7 @@
       "public_reason": null
     },
     {
-      "method": "POST",
+      "method": "GET",
       "path": null,
       "path_kind": null,
       "file": "workers/scan-api/src/routes/network-assets.js",
@@ -2853,6 +2851,34 @@
         "requireWorkspaceRole"
       ],
       "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/network-assets.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/network-assets.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
       "authed": true,
       "public_reason": null
     },

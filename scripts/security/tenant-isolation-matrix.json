@@ -208,7 +208,8 @@
       "tables": [
         "network_targets",
         "network_scans",
-        "network_assets"
+        "network_assets",
+        "network_range_consents"
       ],
       "ownership": {
         "network_targets": {
@@ -222,13 +223,17 @@
         "network_assets": {
           "model": "direct",
           "column": "workspace_id"
+        },
+        "network_range_consents": {
+          "model": "direct",
+          "column": "workspace_id"
         }
       },
       "non_tenant": false,
       "coverage": {
         "dynamic_harness": false,
         "property_based": false,
-        "note": "Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js."
+        "note": "Declared-range consent (mig 138) is append-only and workspace_id-scoped: foreign and nonexistent grants/targets are the same 404, admin-only writes, a revocation stops admission and dispatch in SQL (validate-network-assets.js). Explicit attested public IP/CIDR scope; actual route/role, two-tenant denial, immutable receipt and queue identity coverage in validate-network-assets.js; purge and queue wiring in validate-network-integration.js."
       }
     },
     {
@@ -1350,6 +1355,7 @@
     "mfa_challenges": "auth_sessions",
     "msp_branding_profiles": "report_branding",
     "network_assets": "network_assets",
+    "network_range_consents": "network_assets",
     "network_scans": "network_assets",
     "network_targets": "network_assets",
     "notification_events": "notifications",
@@ -1410,9 +1416,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 122,
-    "classified": 122,
-    "tenant_owned_tables": 114,
+    "schema_tables": 123,
+    "classified": 123,
+    "tenant_owned_tables": 115,
     "infra_or_identity_tables": 8,
     "unclassified": 0,
     "resource_classes": 43,

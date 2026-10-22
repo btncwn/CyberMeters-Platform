@@ -1123,6 +1123,8 @@ const WORKSPACE_PURGE_TABLES = [
   "workspace_tls_service_authorizations", "workspace_tls_authorizations",
   // Active Checks consent (mig 135): append-only, purged only with the workspace.
   "active_check_consents",
+  // Declared network range consent (mig 138): append-only, purged only with the workspace.
+  "network_range_consents",
   "network_assets", "network_scans", "network_targets",
   "external_exposure_jobs", "external_exposure_visits",
   // email_protection_events holds no FK to either record family it describes
