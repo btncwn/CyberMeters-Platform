@@ -17,4 +17,16 @@ describe('LiveTlsEvidence intrusive-check wording', () => {
     render(<TlsAssessmentEvidence assessment={assessment} />)
     expect(screen.getAllByText(/Not tested — requires your authorisation/).length).toBeGreaterThan(0)
   })
+
+  it('states an authorised check whose engine is not released yet', () => {
+    const assessment = {
+      source: 'tls_assessment', quality: 'complete', phase_state: 'complete',
+      coverage: { planned: 1, completed: 0, uncertain: 0, unexecutable: 1, not_authorized: 0, not_applicable: 0 },
+      endpoints: [{ hostname: 'example.com', address: '81.2.69.160', port: 443, application_protocol: 'https', checks: [
+        { control: 'heartbleed', protocol: 'tls1_2', state: 'unexecutable', reason: 'authorised_engine_not_released' },
+      ] }],
+    }
+    render(<TlsAssessmentEvidence assessment={assessment} />)
+    expect(screen.getAllByText(/Authorised — not yet available/).length).toBeGreaterThan(0)
+  })
 })

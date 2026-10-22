@@ -14,7 +14,9 @@ function Field({ label, children }) {
 const controlStates = { accepted: 'Accepted', rejected: 'Rejected', uncertain: 'Uncertain', not_applicable: 'Not applicable', not_authorized: 'Not authorized', unexecutable: 'Could not execute' }
 // S3-B: an intrusive check the customer has not authorised is stated plainly.
 const controlState = row => row?.state === 'not_authorized' && row.reason === 'requires_customer_authorisation'
-  ? 'Not tested — requires your authorisation' : controlStates[row?.state] || 'Unknown'
+  ? 'Not tested — requires your authorisation'
+  : row?.state === 'unexecutable' && row.reason === 'authorised_engine_not_released'
+    ? 'Authorised — not yet available' : controlStates[row?.state] || 'Unknown'
 const number = value => Number.isSafeInteger(value) && value >= 0 ? String(value) : 'Not recorded'
 const yesNo = value => value === true ? 'Yes' : value === false ? 'No' : 'Unknown'
 const controlName = value => typeof value === 'string' ? value.replaceAll('_', ' ').replaceAll('-', ' ') : 'Unnamed check'

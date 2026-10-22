@@ -44,6 +44,8 @@ export const TLS_SAFE_ACTIVE_CONTROLS = Object.freeze(TLS_CONTROLS.filter(contro
 // The reason an intrusive control was not run because the customer has not
 // authorised it: stated, never a gap in CyberMeters' own assessment.
 export const TLS_AUTHORISATION_REQUIRED_REASON = 'requires_customer_authorisation';
+// The customer authorised an intrusive control, but the engine is not released.
+export const TLS_AUTHORISED_NOT_RELEASED_REASON = 'authorised_engine_not_released';
 export const TLS_SLICE_LIMITS = Object.freeze({
   checks:8, connections:16, bytes:1048576, overreadBytes:65536,
   durationMs:25000, requestBytes:16384, responseBytes:524288,
