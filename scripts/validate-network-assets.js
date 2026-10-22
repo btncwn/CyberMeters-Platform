@@ -334,6 +334,24 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   eq('isAuthorised: a revoked grant',(await ask({check:'takeover_active_confirm'})).reason,'grant_revoked');
   eq('isAuthorised: the other live grant is unaffected',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'8.8.8.8'})).authorised,true);
   eq('consent: listed as revoked',(await consent()).body.consents.find(c=>c.id===g.id).status,'revoked');
+  const projected=(await consent()).body.consents.find(c=>c.id===g.id);
+  ok('consent: the customer API carries no raw internal user id',projected.signer.user_id===undefined&&projected.revoked_by===undefined&&!JSON.stringify((await consent()).body).includes('"user_id"'));
+
+  // Storage is bounded: at most 100 grants per workspace per 24 h, enforced in the insert itself.
+  const fill=db.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+    signer_name,signer_title,authority_text,authority_version,created_at) VALUES(?,'wa','grant','d_seed','seed.example','[]','["takeover_active_confirm"]','owner','owner','P','T','t','v',?)`);
+  const already=db.prepare("SELECT COUNT(*) n FROM active_check_consents WHERE workspace_id='wa' AND kind='grant'").get().n;
+  for(let i=already;i<100;i++)fill.run(`acc_fill_${i}`,new Date().toISOString());
+  const capped=await consent('',{method:'POST',body:grant});
+  eq('consent: the 101st grant in 24 h is refused',[capped.status,capped.body.error],[429,'active_check_consent_limit']);
+  eq('consent: ...and writes nothing',db.prepare("SELECT COUNT(*) n FROM active_check_consents WHERE workspace_id='wa' AND kind='grant'").get().n,100);
+  db.prepare("DROP TRIGGER trg_active_check_consents_no_update").run();
+  db.prepare("UPDATE active_check_consents SET created_at='2026-01-01T00:00:00.000Z' WHERE id LIKE 'acc_fill_%'").run();
+  db.exec(fs.readFileSync(path.join(root,'database/migrations/135-active-check-consents.sql'),'utf8'));
+  eq('consent: older grants do not count against the day',(await consent('',{method:'POST',body:grant})).status,201);
+  db.prepare("DROP TRIGGER trg_active_check_consents_no_update").run();
+  db.prepare("DELETE FROM active_check_consents WHERE id LIKE 'acc_fill_%' OR id=(SELECT id FROM active_check_consents WHERE kind='grant' ORDER BY rowid DESC LIMIT 1)").run();
+  db.exec(fs.readFileSync(path.join(root,'database/migrations/135-active-check-consents.sql'),'utf8'));
 
   // Immutable in the database itself, not only in the route.
   await rejects('consent rows cannot be updated',async()=>db.prepare("UPDATE active_check_consents SET checks_json='[\"tls_robot\"]' WHERE id=?").run(g.id));

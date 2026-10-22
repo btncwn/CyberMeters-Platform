@@ -113,7 +113,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 47 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 53 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 
