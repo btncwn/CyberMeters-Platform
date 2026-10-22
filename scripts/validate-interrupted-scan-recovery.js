@@ -80,6 +80,7 @@ const {
   RECOVERY_BATCH_LIMIT,
   RECOVERY_QUEUED_MAX_WAIT_MS,
   INTERRUPTED_REASON,
+  RECOVERY_RUNNING_MIN_AGE_MS,
 } = await import(enginePath);
 const { scanCompletionAuditStatement } = await import(eventsPath);
 
@@ -857,6 +858,52 @@ for (const inherited of [{ status: "complete" }, { status: "partial" }]) {
     ok("E3 past the six-hour queued bound the scan is recovered whatever its exposure job says",
       state.scans[0].status === "failed" && summary.recovered_interrupted === 1, JSON.stringify(summary));
   }
+}
+
+// ── P1-SCAN-STALL (22 Oct 2026): a dead RUNNING scan is recovered after a 10-min
+// silence, without waiting for the 30-min age; nothing still executing qualifies.
+{
+  const runner = (id, ageMs, beatAgoMs) => ({ id, workspace_id: "ws_S", domain_id: "dom_S", domain: "stall.example",
+    status: "running", created_at: sqlite(ageMs), last_heartbeat_at: beatAgoMs == null ? null : iso(beatAgoMs) });
+  const runningPlaceholder = (id) => ({ [`reports/${id}.json`]: { scan_id: id, status: "running", findings: [] } });
+  {
+    const { env, state } = makeEnv({ scans: [runner("scan_s_dead", 13 * 60_000, 11 * 60_000)], r2Objects: runningPlaceholder("scan_s_dead") });
+    const summary = await recoverInterruptedScans(env, { now: NOW });
+    ok("S1 a running scan silent for 11 min at age 13 min is recovered (no 30-min wait)",
+      state.scans[0].status === "failed" && summary.recovered_interrupted === 1, JSON.stringify(summary));
+  }
+  {
+    const { env, state } = makeEnv({ scans: [runner("scan_s_alive", 13 * 60_000, 4 * 60_000)], r2Objects: runningPlaceholder("scan_s_alive") });
+    await recoverInterruptedScans(env, { now: NOW });
+    ok("S2 a running scan that heartbeated 4 min ago is left alone", state.scans[0].status === "running");
+  }
+  {
+    const { env, state } = makeEnv({ scans: [runner("scan_s_young", RECOVERY_RUNNING_MIN_AGE_MS - 60_000, 10 * 60_000 + 30_000)], r2Objects: runningPlaceholder("scan_s_young") });
+    await recoverInterruptedScans(env, { now: NOW });
+    ok("S3 younger than the 12-min consumer bound: never recovered, even if quiet", state.scans[0].status === "running");
+  }
+  {
+    const { env, state } = makeEnv({ scans: [runner("scan_s_nobeat", 15 * 60_000, null)], r2Objects: runningPlaceholder("scan_s_nobeat") });
+    await recoverInterruptedScans(env, { now: NOW });
+    ok("S4 a running scan that never heartbeated keeps the 30-min age rule", state.scans[0].status === "running");
+  }
+  {
+    const queued = { id: "scan_s_queued", workspace_id: "ws_S", domain_id: "dom_S", domain: "stall.example", status: "queued",
+      created_at: sqlite(15 * 60_000), last_heartbeat_at: iso(14 * 60_000) };
+    const { env, state } = makeEnv({ scans: [queued], r2Objects: { "reports/scan_s_queued.json": { scan_id: "scan_s_queued", status: "queued", findings: [] } } });
+    await recoverInterruptedScans(env, { now: NOW });
+    ok("S5 a queued scan keeps the 30-min rule", state.scans[0].status === "queued");
+  }
+  ok("S6 the running bound exceeds the ~11-min consumer budget", RECOVERY_RUNNING_MIN_AGE_MS >= 12 * 60_000 && RECOVERY_RUNNING_MIN_AGE_MS < RECOVERY_MIN_AGE_MS);
+
+  // The scan read API states the live stage honestly.
+  const { scanProgress } = await import(new URL("../workers/scan-api/src/routes/scans.js", import.meta.url).href);
+  const p = scanProgress({ status: "running", current_stage: "phase5_intelligence", completed_modules: 12, last_heartbeat_at: iso(11 * 60_000) }, NOW);
+  ok("S7 progress names the stage, modules and last activity, and says it has gone quiet",
+    p.stage === "phase5_intelligence" && p.completed_modules === 12 && p.last_heartbeat_at === iso(11 * 60_000) && p.stale === true, JSON.stringify(p));
+  ok("S8 a fresh heartbeat is not stale", scanProgress({ status: "running", current_stage: "finalizing", last_heartbeat_at: iso(60_000) }, NOW).stale === false);
+  ok("S9 an unknown internal stage never leaves the API", scanProgress({ status: "running", current_stage: "debug_internal_x" }, NOW).stage === null);
+  ok("S10 a terminal scan has no progress", scanProgress({ status: "completed", current_stage: "finalizing" }, NOW) === null);
 }
 
 console.log(`\ninterrupted-scan-recovery: ${passed} passed, ${failed} failed`);

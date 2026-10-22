@@ -232,7 +232,14 @@ export async function runScheduled(event, env, ctx, tasks) {
     const nowMs = Date.parse(now);
     ctx.waitUntil(runBoundedPool(dueScans, SCHEDULED_SCAN_CONCURRENCY, (schedule) => dispatchDueSchedule(schedule, env, tasks, nowMs)));
   }
-  if (dispatchOnly) return;
+  if (dispatchOnly) {
+    // A dead scan must not wait for the hourly tick: the canonical recovery is
+    // bounded and idempotent, so it also runs every ten minutes.
+    if (tasks.recoverInterruptedScans) {
+      ctx.waitUntil(runCronTask(env, "interrupted_scan_recovery", () => tasks.recoverInterruptedScans(env)));
+    }
+    return;
+  }
 
   // One revoked MCP grant per hourly tick. D1 already rejects its tokens;
   // this bounded retry removes provider KV state after transient failures.
