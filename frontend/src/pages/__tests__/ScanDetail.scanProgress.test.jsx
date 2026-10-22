@@ -48,31 +48,45 @@ describe('ScanDetail — active scan status block', () => {
     expect(screen.queryByText('Scan in progress')).toBeNull()
     expect(screen.queryByText(/auto-refreshing/)).toBeNull()
     expect(screen.getByTestId('scan-progress-timer')).toHaveTextContent(/^Queued for 4\d s$/)
-    await waitFor(() => expect(screen.getByTestId('scan-progress-expectation')).toHaveTextContent('Usually takes about 2 min, based on your last 4 scans of this domain.'))
+    await waitFor(() => expect(screen.getByTestId('scan-progress-expectation')).toHaveTextContent('Usually takes about 2 min, based on your last 4 complete scans of this domain.'))
     // Only the other, completed scans' reports were read — never the active scan's.
     expect(api.getScanReport).toHaveBeenCalledTimes(4)
     expect(api.getScanReport.mock.calls.map(([id]) => id)).not.toContain('scan_active_1234567890abcdef')
     expect(screen.queryByTestId('scan-progress-long')).toBeNull()
   })
 
-  it('running: running wording, workspace fallback under three domain samples, and the long-running note past twice the median', async () => {
-    api.getWorkspaceScans.mockResolvedValue({ scans: [active('running', 5 * 60000), ...history(2), ...history(3, 'other.example')] })
+  it('running: running wording, workspace fallback under three domain samples, the stage, and the 15-minute line', async () => {
+    api.getWorkspaceScans.mockResolvedValue({ scans: [active('running', 16 * 60000), ...history(2), ...history(3, 'other.example')] })
     api.getScanReport.mockImplementation(async () => ({ started_at: '2026-10-10T08:00:00Z', completed_at: '2026-10-10T08:01:30Z' }))
-    renderPage(active('running', 5 * 60000))
+    api.getScan.mockResolvedValue({ scan: active('running', 16 * 60000), progress: { stage: 'phase5_intelligence', stale: false, last_heartbeat_at: iso(20000) }, report_availability: { status: 'scan_in_progress', retryable: false } })
+    render(<MemoryRouter initialEntries={['/scans/scan_active_1234567890abcdef']}><Routes><Route path="/scans/:id" element={<ScanDetail />} /></Routes></MemoryRouter>)
     await screen.findByTestId('scan-progress')
     expect(screen.getByText('Scan in progress')).toBeInTheDocument()
     expect(screen.queryByText('Scan queued')).toBeNull()
-    expect(screen.getByTestId('scan-progress-timer')).toHaveTextContent(/^Running for 5 min 0\d s$/)
-    await waitFor(() => expect(screen.getByTestId('scan-progress-expectation')).toHaveTextContent('Usually takes about 2 min, based on your last 5 scans.'))
-    expect(screen.getByTestId('scan-progress-long')).toHaveTextContent('Taking longer than usual; it is still running.')
+    expect(screen.getByTestId('scan-progress-timer')).toHaveTextContent(/^Running for 16 min 0\d s$/)
+    await waitFor(() => expect(screen.getByTestId('scan-progress-expectation')).toHaveTextContent('Usually takes about 2 min, based on your last 5 complete scans.'))
+    expect(screen.getByTestId('scan-progress-stage')).toHaveTextContent('Now checking: technology and known-vulnerability information.')
+    expect(screen.getByTestId('scan-progress-long')).toHaveTextContent('This is taking longer than most checks. It is still running; you can leave this page and come back.')
+    expect(screen.queryByTestId('scan-progress-stale')).toBeNull()
   })
 
-  it('no history: says first scan and invents no number', async () => {
+  it('partial scans never feed the estimate; a quiet scan says so', async () => {
+    const partials = history(4).map((s) => ({ ...s, scan_quality: 'partial' }))
+    api.getWorkspaceScans.mockResolvedValue({ scans: [active('running', 12 * 60000), ...partials] })
+    api.getScan.mockResolvedValue({ scan: active('running', 12 * 60000), progress: { stage: null, stale: true, last_heartbeat_at: iso(11 * 60000) }, report_availability: { status: 'scan_in_progress', retryable: false } })
+    render(<MemoryRouter initialEntries={['/scans/scan_active_1234567890abcdef']}><Routes><Route path="/scans/:id" element={<ScanDetail />} /></Routes></MemoryRouter>)
+    await screen.findByTestId('scan-progress')
+    await waitFor(() => expect(screen.getByTestId('scan-progress-expectation')).toHaveTextContent('A full check usually takes 5–15 minutes.'))
+    expect(api.getScanReport).not.toHaveBeenCalled()
+    expect(screen.getByTestId('scan-progress-stale')).toHaveTextContent('This check has gone quiet.')
+    expect(screen.queryByTestId('scan-progress-stage')).toBeNull()
+  })
+
+  it('no history: states the documented range for a full check', async () => {
     api.getWorkspaceScans.mockResolvedValue({ scans: [active('running', 10000)] })
     renderPage(active('running', 10000))
     await screen.findByTestId('scan-progress')
-    await waitFor(() => expect(screen.getByTestId('scan-progress-expectation')).toHaveTextContent('First scan of cybermeters.com; usually a few minutes.'))
-    expect(screen.getByTestId('scan-progress-expectation').textContent).not.toMatch(/\d/)
+    await waitFor(() => expect(screen.getByTestId('scan-progress-expectation')).toHaveTextContent('A full check usually takes 5–15 minutes.'))
     expect(api.getScanReport).not.toHaveBeenCalled()
   })
 
