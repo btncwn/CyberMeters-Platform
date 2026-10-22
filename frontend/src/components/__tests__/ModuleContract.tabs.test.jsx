@@ -66,7 +66,7 @@ describe('ModuleContract — head and tabs', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Email Protection' })).toHaveClass('cm-hero-title')
     expect(screen.getByText('Monitor DMARC alignment.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Review DMARC setup' })).toBeInTheDocument()
-    expect(screen.getByRole('searchbox', { name: 'Filter pages and cases in this area' })).toHaveAttribute('placeholder', 'Filter pages and cases in this area')
+    expect(screen.getByRole('searchbox', { name: 'Filter pages and cases in this area' })).toHaveAttribute('placeholder', 'Filter pages and cases')
     await waitFor(() => expect(within(screen.getByTestId('module-head-status')).getByText('Action required')).toBeInTheDocument())
     expect(within(screen.getByTestId('module-head-status')).getByText(/Last assessed 3 days ago/)).toBeInTheDocument()
     const tabs = screen.getAllByRole('tab')

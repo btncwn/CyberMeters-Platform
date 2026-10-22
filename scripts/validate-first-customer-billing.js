@@ -205,6 +205,25 @@ check("the other workspace's history is untouched",
   { workspace_id: "mirror-old", subscription_status: "canceled", stripe_customer_id: null });
 check("live-case owner holds the purchased plan", (await getEffectivePlanState("mirror", env)).plan, "starter");
 
+// Executive 15:45: the converted trial row must not keep a stale trial_end, and
+// the owner gets ONE plan-active email per (subscription, plan) from our path.
+check("conversion clears the stale trial_end on the active paid row",
+  db.prepare("SELECT trial_end FROM subscriptions WHERE id='sub-row-mirror-trial'").get().trial_end, null);
+const converted = db.prepare("SELECT payload_json FROM subscription_events WHERE subscription_id='sub-row-mirror-trial' AND event_type='trial_converted'").all();
+check("…and keeps the old value in the append-only subscription event", converted.length === 1 && JSON.parse(converted[0].payload_json).previous_trial_end !== null, true);
+const planMails = () => db.prepare("SELECT dedupe_key FROM lifecycle_email_events WHERE type='lifecycle_plan_active' AND user_id='mirror'").all().map((r) => r.dedupe_key);
+check("the owner is sent one plan-active email for the new plan", planMails(), ["lifecycle_plan_active:sub-mirror:starter"]);
+await deliver({ id: "mirror-created-retry", type: "customer.subscription.created", data: { object: { id: "sub-mirror", customer: "cus-mirror", status: "active", metadata: mirrorMeta, items: { data: [{ price: { id: "price_sm" } }] } } } });
+check("a repeated subscription event never sends it twice", planMails(), ["lifecycle_plan_active:sub-mirror:starter"]);
+{
+  const { buildLifecycleEmail } = await import("../workers/scan-api/src/lib/lifecycle-email.js");
+  const mail = buildLifecycleEmail("lifecycle_plan_active", { origin: "https://app.cybermeters.com", wsName: "Sheshire Test", plan: "professional", nextInvoiceAt: "2026-02-22T15:16:29.000Z" });
+  check("plan-active email: subject names the plan", mail.subject, "Your CyberMeters Professional plan is active");
+  check("plan-active email: the next invoice date in UTC, a Billing link, no amount or card data",
+    /next invoice is due on 22 Feb 2026 \(UTC\)/.test(mail.text) && /Manage billing: https:\/\/app\.cybermeters\.com\/billing/.test(mail.text)
+      && !/£|\$|€|\d+\.\d\d|card|•••/i.test(mail.text), true);
+}
+
 // Targeted storage errors wrap only the named D1 statement. SQLite handles
 // every other query normally; the test never fakes a completed marker.
 const realD1 = env.cybermeters_db;

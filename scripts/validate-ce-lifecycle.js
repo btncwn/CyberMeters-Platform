@@ -510,6 +510,51 @@ async function improvementScenario(evaluate, ws) {
   }
 }
 
+// ── Verifier retry (22 Oct 2026, Executive 15:45 (3)) ───────────────────────
+// sheshire.co.uk: Secure Configuration recovered while its case was 'detected';
+// verifyCeCaseFromRecovery ran only on that transition, so a case marked ready
+// later was never verified. While a control STAYS ready, the verifier is retried
+// quietly on every evaluation.
+{
+  const model = await import(eng("managed-case-model.js"));
+  const retryScenario = async (evaluate, ws) => {
+    db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES (?,'u1',?)").run(ws, ws);
+    db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?,?, 'u1','owner')").run(`m_${ws}`, ws);
+    activate(ws, "2026-06-01T00:00:00Z");
+    db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, 'd1')").run(ws);
+    setScan(ws, `${ws}_s1`); REPORT = HEALTHY();    await evaluate(env, ws, { scanId: `${ws}_s1` });
+    setScan(ws, `${ws}_s2`); REPORT = NO_HEADERS(); await evaluate(env, ws, { scanId: `${ws}_s2` });
+    setScan(ws, `${ws}_s3`); REPORT = HEALTHY();    await evaluate(env, ws, { scanId: `${ws}_s3` }); // recovered while 'detected'
+    let k = db.prepare("SELECT * FROM managed_cases WHERE workspace_id=? ORDER BY created_at LIMIT 1").get(ws);
+    if (!k) return { opened: false };
+    const eventsBefore = db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=?").get(k.id).n;
+    setScan(ws, `${ws}_s3b`); REPORT = HEALTHY();   await evaluate(env, ws, { scanId: `${ws}_s3b` }); // retry on 'detected'
+    const quiet = db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=?").get(k.id).n === eventsBefore;
+    for (const t of ["triaged", "assigned", "approved", "action_in_progress", "awaiting_verification"]) {
+      const d = model.canTransitionCase({ case: k, target_status: t, actor: { actor_type: "customer", actor_id: "u1" }, owner_ref: "u1" });
+      if (!d.ok) return { opened: true, drove: false, at: t };
+      db.prepare("UPDATE managed_cases SET status=? WHERE id=?").run(d.case.status, k.id);
+      k = db.prepare("SELECT * FROM managed_cases WHERE id=?").get(k.id);
+    }
+    setScan(ws, `${ws}_s4`); REPORT = HEALTHY();    await evaluate(env, ws, { scanId: `${ws}_s4` }); // still ready, no transition
+    return { opened: true, drove: true, quiet, after: db.prepare("SELECT status FROM managed_cases WHERE id=?").get(k.id).status };
+  };
+  const real = await retryScenario(evaluateCyberEssentialsLifecycle, "ws_retry");
+  ok("CE retry: the deterioration opened a case and the customer reached awaiting_verification", real.opened && real.drove, JSON.stringify(real));
+  ok("CE retry: a 'detected' case collects no note from the per-pass retry", real.quiet === true);
+  eq("CE retry: the next pass while still ready verifies the case", real.after, "verified");
+  const original = fs.readFileSync(srcPath("engines", "ce-lifecycle.js"), "utf8");
+  const anchor = '        if (g.state === "ready") {\n          await verifyCeCaseFromRecovery(env, {';
+  ok("CE retry mutant anchor present once", original.split(anchor).length === 2);
+  const tmp = srcPath("engines", `.ce-lifecycle.mutant.retry.${process.pid}.js`);
+  try {
+    fs.writeFileSync(tmp, original.replace(anchor, '        if (false) {\n          await verifyCeCaseFromRecovery(env, {'));
+    const m = await import(pathToFileURL(tmp).href);
+    const mutant = await retryScenario(m.evaluateCyberEssentialsLifecycle, "ws_retry_m");
+    eq("CE retry MUTANT (single-shot) is caught: the case stays awaiting_verification", mutant.after, "awaiting_verification");
+  } finally { fs.rmSync(tmp, { force: true }); }
+}
+
 globalThis.fetch = realFetch;
 console.log(`\nce-lifecycle: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("ce-lifecycle validation FAILED"); process.exit(1); }

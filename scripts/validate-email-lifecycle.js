@@ -370,7 +370,11 @@ await group("15 compatibility behavior", async () => {
     const email = real.buildLifecycleEmail(type, { origin: env.FRONTEND_URL, wsName: "Acme", domain: "acme.example" });
     must(email.subject && email.text && email.html, `template missing for ${type}`);
   }
-  must(real.LIFECYCLE_TYPES.size === 6, "lifecycle type set drifted");
+  // 7 since lifecycle_plan_active (22 Oct 2026, plan-change email).
+  must(real.LIFECYCLE_TYPES.size === 7, "lifecycle type set drifted");
+  const lifecycleSource = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "lib", "lifecycle-email.js"), "utf8");
+  must(/le\.type != 'lifecycle_plan_active'/.test(lifecycleSource),
+    "failed-email retry must exclude lifecycle_plan_active (its dedupe key and plan/date are not stored)");
   // Welcome: a domain added before email confirmation turns it into "ready to
   // verify" (escaped, linked to onboarding); without one it is the plain welcome.
   const ready = real.buildLifecycleEmail("lifecycle_welcome", { origin: env.FRONTEND_URL, domain: "a<b>.example" });
