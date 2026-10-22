@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointIdentity } from '../shared/tls/catalog.js';
+import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
-import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { processExposureMessage, readTlsAssessmentForScan, tlsProbeScope } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
 import { loadTlsEndpoints } from '../workers/scan-api/src/engines/tls-planner.js';
 import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
@@ -222,11 +222,10 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_target').plan_json).tls.results.length,0);
   sql.prepare("UPDATE network_targets SET scope_state='in_scope' WHERE id='target_scope'").run();
 }
-// A normal check and each active check get separate reservations. In
-// particular ROBOT's 21 connections cannot spill into the next control.
-// C-28 (PR 2) fixes the withheld special-scope contract; keep this assertion live.
-let specialScopeRejection = null;
-await test('special-control scope matches the probe contract', { todo: 'C-28 / PR 2: invalid_scope before intrusive engine release' }, async () => {
+// A normal check must carry a valid projected scope even when the plan
+// contains Active Checks grants. Intrusive controls remain withheld.
+// C-28: current Active Checks authority is projected to the probe wire scope.
+await test('special-control scope matches the probe contract', async () => {
   const workspace='w_special',scanId='tls_special_slices',domainId='d_special',domain='special.example.org',now=Date.now();
   sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(workspace);
   sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
@@ -241,7 +240,7 @@ await test('special-control scope matches the probe contract', { todo: 'C-28 / P
   const authoriseActiveCheck=async()=>({authorised:true,reason:'authorised',consent_id:'acc_special'});
   const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
     dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
-  const controls=['protocol','robot','ccs'];
+  const controls=['protocol'];
   const selected=controls.map(control=>({endpoint_index:0,check:{control,protocol:'tls1_2',cipher_id:null}}));
   const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
     endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
@@ -251,9 +250,23 @@ await test('special-control scope matches the probe contract', { todo: 'C-28 / P
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
   const reservations=[];
   const specialCollector=async(_env,input)=>{
-    const verdict = validateTlsAssessmentRequest(input);
-    if (!verdict.ok) { specialScopeRejection = verdict.reason; console.error('PROBE_CONTRACT', verdict.reason); }
-    assert.equal(verdict.ok, true, `Probe request rejected: ${verdict.reason}`);
+    assertProbeRequest(input);
+    assert.equal(input.scope.special_consent, true);
+    assert.equal(input.scope.consent_version, TLS_SPECIAL_CONSENT_VERSION);
+    assert.equal(Object.hasOwn(input.scope, 'special_checks'), false);
+    // Request mutant: replacing the projection with raw plan scope reproduces
+    // the real probe rejection; the fake must never accept this drift again.
+    const rawScope = plan.tls.endpoints[0].scope;
+    assert.deepEqual(validateTlsAssessmentRequest({...input, scope: rawScope}), {ok: false, reason: 'invalid_scope'});
+    assert.equal(rawScope.consent_version, 'active-checks-2026-10-22', 'stored authority is unchanged');
+    // The wire projection does not release an intrusive engine. Its genuine
+    // contract refusal stays visible rather than a fake accepting the request.
+    for (const [control, max_connections] of [['robot',21],['ccs',5]]) {
+      assert.deepEqual(validateTlsAssessmentRequest({...input, checks:[{control,protocol:'tls1_2',cipher_id:null}],
+        max_connections}), {ok:false,reason:'control_unavailable'});
+    }
+    assert.deepEqual(validateTlsAssessmentRequest({...input,
+      scope: tlsProbeScope({...rawScope, consent_version: 'unknown-authority-version'})}), {ok: false, reason: 'invalid_scope'});
     const control=input.checks[0].control;
     assert.equal(input.checks.length,1);
     reservations.push([control,input.max_connections]);
@@ -274,15 +287,12 @@ await test('special-control scope matches the probe contract', { todo: 'C-28 / P
     return projectTlsCollectorReceipt(input,raw);
   };
   const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
-  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
-  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'complete');
-  assert.deepEqual(reservations,[['protocol',16],['robot',21],['ccs',5]]);
+  assert.deepEqual(reservations,[['protocol',16]]);
   const finished=sql.prepare('SELECT charged_requests,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
-  assert.equal(finished.charged_requests,27);
-  assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
+  assert.equal(finished.charged_requests,1);
+  assert.equal(JSON.parse(finished.plan_json).tls.results.length,1);
 });
-assert.equal(specialScopeRejection, 'invalid_scope', 'Only the classified C-28 scope rejection is expected');
 // The planner asks Active Checks consent per intrusive control and per address and
 // records only the granted ones. With the controls unavailable it still asks
 // (22 Oct 2026, Executive: a grant must read "Authorised — not yet available"),
