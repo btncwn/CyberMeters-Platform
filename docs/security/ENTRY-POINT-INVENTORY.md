@@ -13,9 +13,9 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 307
+- **Total entry points:** 309
 - **Auth-guarded:** 263
-- **Unauthenticated (public by design):** 44
+- **Unauthenticated (public by design):** 46
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
@@ -25,8 +25,8 @@ guard without an explicit, documented public-allowlist reason.
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
 | preflight | 3 | 0 |
-| public-or-global | 46 | 21 |
-| unknown | 79 | 65 |
+| public-or-global | 47 | 21 |
+| unknown | 80 | 65 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
 
@@ -423,6 +423,13 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 37 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `(none)` | 67 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 79 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+
+### `workers/scan-api/src/routes/site-proof.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| HEAD | `(none)` | 118 | unknown | **GAP** | — |
+| POST | `/login` | 133 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/tls-authorization.js`
 
