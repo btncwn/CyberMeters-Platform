@@ -65,10 +65,13 @@ function CaseRow({ c }) {
         </p>
       </div>
       <div className="shrink-0 flex items-center gap-2 flex-wrap">
-        {/* The badge is the same vocabulary word the lane is named after; the
-            case's own step (e.g. "Assigned") is shown beside it. */}
+        {/* One status word per row (founder, 22 Oct 2026: "Action required"
+            beside "Detected" was two words for one thing). The badge is the
+            lane's own word; the case's step is on the case page. A concluded
+            case keeps one line naming WHO verified it ("Verified by
+            CyberMeters"), because "Verified" alone does not say. */}
         <StatusChip status={caseStatus(c)} title={`${word.label} · ${meta.label}`} />
-        {meta.label !== word.label && <span className="text-xs text-gray-500" data-testid="case-step">{meta.label}</span>}
+        {laneForCase(c) === 'closed' && meta.label !== word.label && <span className="text-xs text-gray-500" data-testid="case-verifier">{meta.label}</span>}
         {c.reopened_count > 0 && (
           <span className="text-xs text-red-700 font-medium">Reopened {c.reopened_count}×</span>
         )}

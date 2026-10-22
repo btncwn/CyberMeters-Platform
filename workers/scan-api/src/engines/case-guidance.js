@@ -212,6 +212,23 @@ function continuityFor(row, events) {
  * Guidance for one case. `row` is the managed_cases row; `phase` its canonical
  * phase; `events` its append-only history (detail_json as stored).
  */
+// The case's title for customer screens, at read time (founder, 22 Oct 2026:
+// Operations rows read "header missing strict transport security
+// (sheshire.co.uk:header_missing_strict_transport_security)"). The canonical
+// remediation's customer title when the registry knows the finding; otherwise
+// the stored title without a trailing "(host:raw_key)" and without underscores,
+// so an unmapped finding stays explicit but never shows a machine key. The
+// stored title is history and is never rewritten.
+const RAW_KEY_SUFFIX = /\s*\([^()]*\b[a-z0-9]+_[a-z0-9_]+\b[^()]*\)\s*$/;
+export function caseDisplayTitleFor(row) {
+  try {
+    const registered = short(remediationFor(row)?.customer_title, 160);
+    if (registered) return registered;
+  } catch { /* fall through to the stored title */ }
+  const stored = typeof row?.title === "string" ? row.title.replace(RAW_KEY_SUFFIX, "").replace(/_/g, " ").trim() : "";
+  return stored ? stored.charAt(0).toUpperCase() + stored.slice(1) : null;
+}
+
 export function caseGuidance(row, { phase = null, support = null, events = [], hostRecheck = false } = {}) {
   const entry = remediationFor(row);
   const method = entry?.verification_method || null;

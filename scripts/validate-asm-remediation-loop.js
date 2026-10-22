@@ -652,6 +652,25 @@ await import("./remote-admin-exposure-fixture.js");
   ok("S2-C: ...the reopen alert is HIGH again", told().at(-1).severity === "high");
 }
 
+// ── Case titles on customer lists (founder, 22 Oct 2026) ─────────────────────
+// Operations rows read the stored title "header missing strict transport
+// security (sheshire.co.uk:header_missing_strict_transport_security)". The list
+// projection's display_title is the canonical remediation title; an unmapped
+// finding keeps its own words without the machine key. The stored title is
+// never rewritten.
+{
+  const { caseDisplayTitleFor } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "case-guidance.js")).href);
+  const RAW = /\b[a-z0-9]+_[a-z0-9_]+\b/;
+  const hsts = caseDisplayTitleFor({ title: "header missing strict transport security (sheshire.co.uk:header_missing_strict_transport_security)", source_finding_type: "header_missing_strict_transport_security" });
+  const redirect = caseDisplayTitleFor({ title: "ssl no http redirect (sheshire.co.uk:ssl_no_http_redirect)", source_finding_type: "ssl_no_http_redirect" });
+  const unmapped = caseDisplayTitleFor({ title: "Website Security: an unusual answer (sheshire.co.uk:not_a_registered_finding)", source_finding_type: "not_a_registered_finding" });
+  ok("case titles: a registered finding reads its canonical remediation title", hsts === "Add or strengthen HSTS" && redirect === "Redirect HTTP to HTTPS");
+  ok("case titles: an unmapped finding stays explicit but never shows its machine key", unmapped === "Website Security: an unusual answer" && !RAW.test(unmapped));
+  ok("case titles: no title, no invented one", caseDisplayTitleFor({}) === null);
+  const route = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "routes", "managed-cases.js"), "utf8");
+  ok("case titles: the universal list projection uses the canonical display title", /display_title: display\?\.display_title \?\? caseDisplayTitleFor\(row\)/.test(route));
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
