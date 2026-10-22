@@ -364,6 +364,8 @@ export function tlsProbeScope(scope) {
   // The Worker checks the current per-control Active Checks grant before this
   // projection. The probe carries its own protocol version, not that grant's
   // authority-text version. Unknown authority versions remain rejected.
+  // When ACTIVE_CHECK_AUTHORITY_VERSION is bumped, review/update this mapping
+  // and the pinned current-version fixture before releasing intrusive engines.
   if (scope?.special_consent === true && scope.consent_version === ACTIVE_CHECK_AUTHORITY_VERSION)
     projected.consent_version = TLS_SPECIAL_CONSENT_VERSION;
   return projected;
