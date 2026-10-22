@@ -67,6 +67,9 @@ function Coverage({ coverage, quality }) {
   const notRun = count(coverage?.not_run)
   return <div className="text-sm text-gray-600 space-y-1">
     <p>{quality === 'complete' ? 'Selected checks completed. This is not a security clearance.' : quality === 'partial' ? 'Partial coverage: some selected checks did not complete.' : 'Coverage has not been established.'}</p>
+    {(Array.isArray(coverage?.unreachable_addresses) ? coverage.unreachable_addresses : []).map(address => (
+      <p key={`unreachable-${address}`}>Nothing on {address} answered; CyberMeters could not tell whether the ports are filtered or the host was unreachable. Previous observations are kept.</p>
+    ))}
     {planned !== null && <p>{planned} planned{attempted !== null ? ` · ${attempted} attempted` : ''}{completed !== null ? ` · ${completed} ${hasConcluded ? 'concluded' : 'completed'}` : ''}{count(coverage?.no_answer) ? ` · ${count(coverage?.no_answer)} no answer` : ''}{notRun !== null ? ` · ${notRun} not run` : ''}</p>}
   </div>
 }

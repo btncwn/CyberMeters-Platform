@@ -52,6 +52,7 @@ export function isStatedAccessLimit(name, value) {
 const REMOTE_ADMIN_LIMIT = Object.freeze({
   address_cap: "Remote-administration ports were checked on the first eight of this domain's own addresses only.",
   ports_not_all_checked: "Some remote-administration port checks did not complete in this scan.",
+  address_unreachable: "Nothing on one of this domain's addresses answered, so CyberMeters could not tell whether its ports are filtered or the host was unreachable.",
   address_lookup_failed: "Some of this domain's addresses could not be looked up, so remote-administration ports may not have been checked on every address.",
   probe_unavailable: "The remote-administration port check was unavailable in this scan.",
   module_deadline: "The remote-administration port check did not finish within its time limit in this scan.",

@@ -17,13 +17,20 @@ const details=o=>JSON.stringify({
 // connect, so `timeout` is a conclusive no-answer. Only error / not_run are
 // checks that did not complete. The immutable receipt keeps its own fields;
 // this projection is what the scan row records.
+// A no-answer is conclusive only when something on the SAME address answered
+// (open or closed) in that run (Executive R1, 22 Oct 2026): if nothing on an
+// address answered, CyberMeters cannot tell "filtered" from "host offline / not
+// reachable", so that address is stated as unreachable and the run is partial.
 export function networkReceiptCoverage(receipt) {
   const rows=Array.isArray(receipt?.observations)?receipt.observations:[];
-  const noAnswer=rows.filter(o=>o?.state==='timeout').length;
-  const concluded=rows.filter(o=>o?.state==='open'||o?.state==='closed'||o?.state==='timeout').length;
+  const answered=new Set(rows.filter(o=>o?.state==='open'||o?.state==='closed').map(o=>o.address));
+  const conclusiveNoAnswer=rows.filter(o=>o?.state==='timeout'&&answered.has(o.address)).length;
+  const unreachable=[...new Set(rows.filter(o=>o?.state==='timeout'&&!answered.has(o.address)).map(o=>o.address))].filter(Boolean);
+  const concluded=rows.filter(o=>o?.state==='open'||o?.state==='closed').length+conclusiveNoAnswer;
   const planned=Number.isInteger(receipt?.coverage?.planned)?receipt.coverage.planned:rows.length;
   return {quality:planned>0&&concluded===planned?'complete':'partial',
-    coverage:{...(receipt?.coverage||{}),concluded,no_answer:noAnswer}};
+    coverage:{...(receipt?.coverage||{}),concluded,no_answer:conclusiveNoAnswer,
+      ...(unreachable.length?{unreachable_addresses:unreachable,reason:'address_unreachable'}:{})}};
 }
 export function networkObservationChanges(previous,observations) {
   const before=new Map(previous.map(r=>[tupleKey(r),r]));

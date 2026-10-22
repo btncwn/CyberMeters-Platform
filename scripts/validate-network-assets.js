@@ -109,7 +109,7 @@ const key=db.prepare('SELECT receipt_key FROM network_scans WHERE id=?').get(sca
 let retest=await call(`network-scans/${scanId}/retest`,{method:'POST'});eq('retest uses original scope',retest.status,202);eq('retest linkage',retest.body.scan.retest_of,scanId);state='timeout';
 eq('timeout run completes partial',(await processNetworkScanMessage(queued.at(-1),env,{adapter})).outcome,'completed');
 const timeoutRow=db.prepare('SELECT * FROM network_scans WHERE id=?').get(retest.body.scan.id);
-eq('unknown attempt preserves last actual seen',db.prepare('SELECT last_seen_at FROM network_assets ORDER BY port').all().map(r=>r.last_seen_at),JSON.parse(completed)[2].map(r=>r.last_seen_at));/* 22 Oct 2026 (Executive 17:50): a port that did not answer is a conclusive 'no answer', so an all-no-answer run is complete coverage; it still records no 'closed' change below. */eq('timeout grade honest',timeoutRow.quality,'complete');eq('timeout no closed change',JSON.parse(timeoutRow.changes_json),[]);eq('previous open retained',db.prepare('SELECT last_observed_state FROM network_assets ORDER BY port').all().map(r=>r.last_observed_state),['open','open']);eq('latest timeout visible',db.prepare('SELECT state FROM network_assets ORDER BY port').all().map(r=>r.state),['timeout','timeout']);
+eq('unknown attempt preserves last actual seen',db.prepare('SELECT last_seen_at FROM network_assets ORDER BY port').all().map(r=>r.last_seen_at),JSON.parse(completed)[2].map(r=>r.last_seen_at));/* 22 Oct 2026 (Executive R1): nothing on the address answered, so the no-answers are not conclusive (filtered vs unreachable): partial; no 'closed' change recorded below. */eq('timeout grade honest',timeoutRow.quality,'partial');eq('timeout no closed change',JSON.parse(timeoutRow.changes_json),[]);eq('previous open retained',db.prepare('SELECT last_observed_state FROM network_assets ORDER BY port').all().map(r=>r.last_observed_state),['open','open']);eq('latest timeout visible',db.prepare('SELECT state FROM network_assets ORDER BY port').all().map(r=>r.state),['timeout','timeout']);
 retest=await call(`network-scans/${scanId}/retest`,{method:'POST'});state='closed';await processNetworkScanMessage(queued.at(-1),env,{adapter});eq('actual closed observation produces change',JSON.parse(db.prepare('SELECT changes_json FROM network_scans WHERE id=?').get(retest.body.scan.id).changes_json).map(c=>c.type),['closed','closed']);
 const inventory=JSON.stringify(db.prepare('SELECT * FROM network_assets ORDER BY port').all());
 retest=await call(`network-scans/${scanId}/retest`,{method:'POST'});invalid=true;eq('invalid receipt fails',(await processNetworkScanMessage(queued.at(-1),env,{adapter})).outcome,'failed');invalid=false;eq('invalid receipt no inventory rewrite',JSON.stringify(db.prepare('SELECT * FROM network_assets ORDER BY port').all()),inventory);
@@ -392,15 +392,22 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   ok('the receipt\'s own counts are kept beside the projection',proof.coverage.completed===1&&proof.coverage.planned===4);
   ok('a measurement error leaves coverage partial',networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'error')]}).quality==='partial');
   ok('a pair that never ran leaves coverage partial',networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'not_run')]}).quality==='partial');
+  // Nothing on the address answered: filtered vs unreachable cannot be told.
+  const silent=networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'timeout'),o(443,'timeout')]});
+  ok('nothing on an address answered: partial, address_unreachable, no conclusive no-answer',
+    silent.quality==='partial'&&silent.coverage.reason==='address_unreachable'&&silent.coverage.unreachable_addresses?.[0]==='35.224.199.137'&&silent.coverage.no_answer===0);
+  const mixed=networkReceiptCoverage({coverage:{planned:3},observations:[o(22,'open'),o(80,'timeout'),{address:'35.224.199.138',port:22,state:'timeout'}]});
+  ok('one answering address and one silent address: partial, only the silent one listed',
+    mixed.quality==='partial'&&JSON.stringify(mixed.coverage.unreachable_addresses)==='["35.224.199.138"]'&&mixed.coverage.no_answer===1);
   // Mutant: no-answer no longer concluded -> the false "partial" returns.
   const file=new URL('../workers/scan-api/src/engines/network-scan-dispatch.js',import.meta.url);
   const source=fs.readFileSync(file,'utf8');
-  const anchor="o?.state==='open'||o?.state==='closed'||o?.state==='timeout'";
+  const anchor="o?.state==='timeout'&&answered.has(o.address)";
   ok('no-answer mutant anchor present once',source.split(anchor).length===2);
   const dir=fs.mkdtempSync(path.join((await import('node:os')).tmpdir(),'cm-no-answer-'));
   try{
     const target=path.join(dir,'network-scan-dispatch-mutant.mjs');
-    fs.writeFileSync(target,source.replace(anchor,"o?.state==='open'||o?.state==='closed'").replace(/from '(\.{1,2}\/[^']+)'/g,(_m,spec)=>`from '${new URL(spec,file)}'`));
+    fs.writeFileSync(target,source.replace(anchor,"false").replace(/from '(\.{1,2}\/[^']+)'/g,(_m,spec)=>`from '${new URL(spec,file)}'`));
     const mutant=await import(`file://${target}`);
     ok('mutant (no-answer not concluded) is caught: the proof reads partial again',
       mutant.networkReceiptCoverage({coverage:{planned:4},observations:[o(22,'open'),o(80,'timeout'),o(443,'timeout'),o(3389,'timeout')]}).quality==='partial');

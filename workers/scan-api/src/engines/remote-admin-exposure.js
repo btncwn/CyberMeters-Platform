@@ -137,12 +137,17 @@ export async function runRemoteAdminExposureModule(env, scan, {
   }
   const rows = Array.isArray(receipt?.observations) ? receipt.observations : [];
   // A port that did not answer (timeout at connect) is a conclusive "no
-  // answer": checked. Only error / not_run leave a pair unchecked.
-  const completedPairs = rows.filter((row) => row?.state === "open" || row?.state === "closed" || row?.state === "timeout").length;
+  // answer" only when another port on the SAME address answered in this run;
+  // if nothing on an address answered, the host may simply be unreachable.
+  const answeredAddresses = new Set(rows.filter((row) => row?.state === "open" || row?.state === "closed").map((row) => row.address));
+  const completedPairs = rows.filter((row) => row?.state === "open" || row?.state === "closed" ||
+    (row?.state === "timeout" && answeredAddresses.has(row.address))).length;
+  const unreachableAddresses = [...new Set(rows.filter((row) => row?.state === "timeout" && !answeredAddresses.has(row.address)).map((row) => row.address))];
   const exposures = rows.map((row) => exposureFromObservation(row, hostnamesByAddress.get(row?.address) || [])).filter(Boolean);
   const reasons = [];
   if (owned.length > selected.length) reasons.push("address_cap");
-  if (completedPairs < coverageBase.planned_pairs) reasons.push("ports_not_all_checked");
+  if (unreachableAddresses.length) reasons.push("address_unreachable");
+  if (completedPairs < coverageBase.planned_pairs && !unreachableAddresses.length) reasons.push("ports_not_all_checked");
   if (lookupsFailed > 0) reasons.push("address_lookup_failed");
   return result({
     state: "observed", reason: null, exposures,
