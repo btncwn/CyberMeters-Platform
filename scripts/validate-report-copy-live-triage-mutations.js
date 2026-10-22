@@ -52,7 +52,7 @@ const mutants = [
     to:   '    return null;',
     mustContain: "FAIL D2a: rua-authorisation gap names the rua axis" },
   { id: "TRIAGE-M5-D2-monitoring-divergence", file: "workers/scan-api/src/engines/dmarcbis-production.js",
-    from: '    monitoring_state: complete && policy.corroboration_state !== "unavailable" &&\n      !policy.resolver_fallback_used ? "monitoring_healthy" : "monitoring_degraded",',
+    from: '    monitoring_state: complete && policy.corroboration_state !== "unavailable" &&\n      (!policy.resolver_fallback_used || fallbackAnswersDefinitive(policy.lookup_path)) ? "monitoring_healthy" : "monitoring_degraded",',
     to:   '    monitoring_state: policy.monitoring_state,',
     mustContain: "FAIL D2b: core completeness and corroboration jointly bound monitoring state" },
   { id: "TRIAGE-M6-D3-suppression-disarmed", file: "workers/scan-api/src/engines/phase5-evidence.js",
