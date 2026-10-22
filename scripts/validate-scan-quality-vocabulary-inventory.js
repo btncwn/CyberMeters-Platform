@@ -442,7 +442,11 @@ const EXPECTED = Object.freeze({
   // current_stage, last_heartbeat_at and completed_modules for `progress`. The
   // two-tree --dump-current diff changes exactly that one snippet; it reads
   // scan_quality exactly as before, and the same 24 projections remain.
-  sql_reads: { projection_occurrences: 24, fingerprint: "8d04f7b870d20ab3815984cc91a7827df8bbec6d34d8e3b6b211c3f6b140f44a" },
+  // Failed-scan progress (22 Oct 2026): scanProgress grows by eleven lines, so the
+  // two scans.js projections shift 440/970 -> 451/981. The two-tree
+  // --dump-current diff shows the same 24 projections with unchanged file, kind
+  // and snippet.
+  sql_reads: { projection_occurrences: 24, fingerprint: "ff64b18a14389fc8fb9228da3415462f06348d6cde2be09b9c90a44075fb8bb7" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
