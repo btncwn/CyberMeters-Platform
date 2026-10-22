@@ -44,6 +44,7 @@ import { persistFindingsWithIdentity } from "./finding-identity.js";
 import { runEmailIntelModule } from "./email-intel.js";
 import { runMailTransportModule } from "./mail-transport.js";
 import { runRemoteAdminExposureModule } from "./remote-admin-exposure.js";
+import { runDaneModule } from "./dane.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
 import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
@@ -242,7 +243,7 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // The module stays incomplete, so it can never close a case it did not
   // fully re-check (asm-cases.js moduleCompletionGate).
   const isStatedAccessLimit = (name, value) => value?.incomplete === true && (
-    name === "remote_admin_exposure" ||
+    name === "remote_admin_exposure" || name === "dane" ||
     (name === "technology_detection" && value?.incomplete_reason === "origin_access_restricted") ||
     (name === "subdomain_takeover" && takeoverWithheldOnly(value)));
   const statedLimits = Object.entries(modules)
@@ -1518,6 +1519,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() }))
         .finally(() => clearTimeout(mailTransportTimeout))
       : null;
+    // S3-C: DANE/TLSA for the MX hosts and the website. Passive DNS, every scan.
+    const daneOutbound = outboundContext("dane", deadline.signal || null);
+    const danePromise = runDaneModule(domain, dnsResult, { accounting: daneOutbound })
+      .catch(() => ({ source: "dane", mail: [], web: null, incomplete: true, incomplete_reason: "tlsa_lookup_failed",
+        error: "dane_unavailable", observed_at: new Date(now()).toISOString() }));
     // S3-0: remote-administration ports on the addresses this verified
     // domain's DNS points at. One bounded collector call, launched alongside.
     const remoteAdminController = workspaceId && env.NETWORK_PROBE?.fetch ? createChildSignal() : null;
@@ -1852,6 +1858,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // so its outbound count is final whatever the security outcome. Without
     // this the RFC 9990 launch gate read it as an unsettled leaf on every scan.
     mailTransportOutbound?.markSettled();
+    modules.dane = await danePromise;
+    daneOutbound.markSettled();
     if (remoteAdminPromise) {
       modules.remote_admin_exposure = await remoteAdminPromise;
       remoteAdminOutbound?.markSettled();

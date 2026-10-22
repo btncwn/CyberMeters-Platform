@@ -596,6 +596,35 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     verification_evidence_requirements: "The record is removed or repointed, or the service is confirmed as yours, on a fresh scan.",
     supporting_evidence_types: ["dns_lookup", "http_probe"],
   }),
+  // DANE / TLSA published but ineffective (S3-C, 22 Oct 2026).
+  entry({
+    remediation_id: "email.dane.tlsa_ineffective",
+    domain_key: "email_protection",
+    finding_types: ["email_dane_tlsa_ineffective"],
+    customer_title: "Make the mail servers' DANE records effective",
+    technical_explanation: "TLSA records are published for a mail server, but either the answer is not DNSSEC-validated or every record uses a usage that sending mail servers ignore (PKIX-TA or PKIX-EE).",
+    business_impact: "The records give no protection: senders fall back to opportunistic encryption, which an attacker on the path can strip.",
+    recommended_action: "Sign the zone that holds the TLSA records with DNSSEC and publish the DS record at the registrar, and use TLSA usage 3 (DANE-EE) or 2 (DANE-TA). If the mail server is run by a provider, ask the provider; otherwise remove records that cannot be made effective.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "dns_recheck",
+    verification_evidence_requirements: "A fresh scan finds the TLSA answer DNSSEC-validated with usage 2 or 3.",
+    supporting_evidence_types: ["dns_lookup"],
+  }),
+  entry({
+    remediation_id: "cert.dane.web_tlsa_not_validated",
+    domain_key: "certificates_trust",
+    finding_types: ["web_dane_tlsa_not_validated"],
+    customer_title: "Sign the zone that publishes the website's TLSA record",
+    technical_explanation: "The website publishes a TLSA record, but the answer is not DNSSEC-validated, so clients that support DANE ignore it.",
+    business_impact: "The record gives no protection and may suggest a safeguard that is not in effect.",
+    recommended_action: "Enable DNSSEC for the zone and publish the DS record at the registrar, or remove the TLSA record.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "dns_recheck",
+    verification_evidence_requirements: "A fresh scan finds the TLSA answer DNSSEC-validated, or no TLSA record.",
+    supporting_evidence_types: ["dns_lookup"],
+  }),
   // Remote administration and data services reachable from the internet on
   // the domain's own addresses (S3-0, 22 Oct 2026). Observation is a TCP
   // connect plus any banner the service sends; no sign-in was attempted.

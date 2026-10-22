@@ -592,6 +592,9 @@ export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
   // its accounting, its one probe fetch is recorded first, and the engine
   // awaits and settles it alongside mail_transport, before the launch gate.
   "remote_admin_exposure",
+  // S3-C: one DNSSEC-OK TLSA question per endpoint through dnsQueryDnssec
+  // with its accounting; awaited and settled with the two modules above.
+  "dane",
 ]));
 
 export function createOutboundAccounting() {
