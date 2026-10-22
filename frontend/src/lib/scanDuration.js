@@ -28,6 +28,49 @@ export const STAGE_TEXT = Object.freeze({
   phase5_intelligence: 'Now checking: technology and known-vulnerability information.',
   finalizing: 'Now checking: putting the results together.',
 })
+// Where an interrupted scan stopped (#880: a failed scan's progress keeps its
+// last stage). One table; an unknown stage says nothing.
+export const STAGE_STOPPED_TEXT = Object.freeze({
+  discovery_complete: 'It stopped after finding the hosts and services for this domain.',
+  phase5_intelligence: 'It stopped while checking technology and known-vulnerability information.',
+  finalizing: 'It stopped while putting the results together.',
+})
+
+/**
+ * The failed-scan block's words (#880 progress on a failed scan):
+ * { heading, stage, modules (customer labels) | null, namesRecorded } or null
+ * when no check is known to have completed.
+ */
+// Module keys as a failed scan records them (#880), in customer words. Kept
+// here, not in the shared code table: that table rewrites any matching word in
+// any sentence, and short keys like "headers" or "dns" are ordinary words.
+export const SCAN_MODULE_NAMES = Object.freeze({
+  dns: 'DNS checks', headers: 'Security header checks', ssl: 'HTTPS and certificate checks',
+  email_security: 'Email authentication checks', email_security_intelligence: 'Email security detail',
+  dmarc_core: 'DMARC checks', dmarc_external_rua: 'DMARC report-address checks',
+  subdomains: 'Subdomain discovery', dns_bruteforce: 'Subdomain name checks', discovery_depth: 'Subdomain discovery depth',
+  customer_hostnames: 'Your listed host names', referenced_hostnames: 'Host names your website references',
+  page_discovery: 'Website page discovery', page_references: 'Website page references',
+  asset_exposure: 'Asset exposure checks', cloud_storage_discovery: 'Cloud storage checks',
+  identity_discovery: 'Identity discovery checks', subdomain_takeover: 'Subdomain takeover checks',
+  technology_detection: 'Technology detection', whois_intelligence: 'Domain registration checks',
+  signed_in_scan: 'Signed-in page checks', scan_finalisation: 'Putting the results together',
+})
+const moduleName = (key) => SCAN_MODULE_NAMES[key] || 'Another check'
+
+export function interruptedScanCopy(progress, moduleLabel = moduleName) {
+  const n = progress?.terminal === true && Number.isInteger(progress?.completed_modules) ? progress.completed_modules : 0
+  if (n <= 0) return null
+  const names = progress.module_names_recorded === true && Array.isArray(progress.completed_module_names)
+    ? progress.completed_module_names.map(moduleLabel) : null
+  return {
+    heading: `Interrupted — ${n} check${n === 1 ? '' : 's'} completed`,
+    stage: STAGE_STOPPED_TEXT[progress.stage] || null,
+    modules: names,
+    namesNote: names ? null : 'Which checks finished was not recorded for this scan.',
+  }
+}
+
 export const STALE_TEXT = 'This check has gone quiet. If it does not resume, we will mark what could not be completed rather than guess.'
 const STORE_KEY = 'cybermeters_scan_duration_samples'
 const STORE_CAP = 60
