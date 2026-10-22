@@ -1054,6 +1054,81 @@ export function computeScore(modules, domain) {
     }));
   }
 
+  // ── Remote-administration exposure (S3-0, 22 Oct 2026) ────────────────
+  // Ports answering from the internet on addresses this domain's own DNS
+  // points at (remote-admin-exposure.js). "Reachable" is what was observed;
+  // never "vulnerable" or "compromised". The service is named from its banner
+  // only when it announced itself, otherwise the port is said to have answered.
+  // Severity is stated; no score deduction yet (methodology unchanged).
+  const remoteAdmin = modules.remote_admin_exposure;
+  if (remoteAdmin && !remoteAdmin.error && Array.isArray(remoteAdmin.exposures)) {
+    const describe = (row) => {
+      const where = `${row.address}${row.hostnames?.length ? ` (${row.hostnames.slice(0, 3).join(", ")})` : ""}`;
+      return row.service_basis === "banner"
+        ? `${row.banner_service} answered on port ${row.port} at ${where}`
+        : `port ${row.port} answered at ${where}; this port is commonly used by ${row.service}`;
+    };
+    const hostsOf = (rows) => [...new Set(rows.flatMap((row) => row.hostnames || []))];
+    const evidenceOf = (rows, expected) => ({
+      evidence_type:  "network_port_observation",
+      probe_target:   rows.map((row) => `${row.address}:${row.port}`).join(", "),
+      observed_value: rows.map((row) => `${row.address}:${row.port} open${row.service_basis === "banner" ? ` (${row.banner_service})` : ""}`).join(", "),
+      expected_value: expected,
+      source:         "remote_admin_exposure",
+      checked_at:     remoteAdmin.observed_at || evidenceTime,
+    });
+    const high = remoteAdmin.exposures.filter((row) => row.tier === "high");
+    if (high.length > 0) {
+      finding({
+        id:           "remote_admin_service_reachable",
+        module:       "remote_admin_exposure",
+        severity:     "high",
+        affected_hosts: hostsOf(high),
+        title:        "Remote Administration Service Reachable from the Internet",
+        description:  `${high.map(describe).join("; ")}. Remote administration and database services reachable from the whole internet are a common way in for attackers. CyberMeters connected only; it did not try to sign in.`,
+        score_impact: 0,
+        evidence:     evidenceOf(high, "Port closed to the internet, or limited to a VPN or allow-list"),
+      });
+      recommendations.push(canonicalRec("remote_admin_service_reachable", {
+        priority: 1, module: "remote_admin_exposure",
+        detail: `Reachable: ${high.map((row) => `${row.address}:${row.port} (${row.service})`).join("; ")}.`,
+      }));
+    }
+    const ftp = remoteAdmin.exposures.filter((row) => row.tier === "medium");
+    if (ftp.length > 0) {
+      finding({
+        id:           "ftp_service_reachable",
+        module:       "remote_admin_exposure",
+        severity:     "medium",
+        affected_hosts: hostsOf(ftp),
+        title:        "File Transfer (FTP) Service Reachable from the Internet",
+        description:  `${ftp.map(describe).join("; ")}. FTP sends sign-in details without encryption unless it is explicitly secured. CyberMeters connected only; it did not try to sign in.`,
+        score_impact: 0,
+        evidence:     evidenceOf(ftp, "Port closed to the internet, or replaced by an encrypted transfer service"),
+      });
+      recommendations.push(canonicalRec("ftp_service_reachable", {
+        priority: 2, module: "remote_admin_exposure",
+        detail: `Reachable: ${ftp.map((row) => `${row.address}:${row.port}`).join("; ")}.`,
+      }));
+    }
+    const ssh = remoteAdmin.exposures.filter((row) => row.tier === "observation");
+    if (ssh.length > 0) {
+      // Pushed directly: finding() would make this observation actionable.
+      findings.push({
+        id:           "ssh_service_observed",
+        module:       "remote_admin_exposure",
+        severity:     "info",
+        confidence:   100,
+        finding_type: "observation",
+        affected_hosts: hostsOf(ssh),
+        title:        "SSH Service Reachable from the Internet",
+        description:  `${ssh.map((row) => `${describe(row)}${row.banner_excerpt ? ` (announced as "${row.banner_excerpt}")` : ""}`).join("; ")}. SSH is a normal way to manage servers; make sure it accepts keys rather than passwords and is kept up to date.`,
+        score_impact: 0,
+        evidence:     evidenceOf(ssh, "Only expected management access is reachable"),
+      });
+    }
+  }
+
   // ── Asset Exposure ─────────────────────────────────────────────────────
   const exposureMod = modules.asset_exposure;
   if (exposureMod && !exposureMod.error && exposureMod.assets?.length > 0) {

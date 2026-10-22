@@ -656,8 +656,11 @@ const parity = states.map(parityOutputs);
 // The unconfirmed takeover-candidate entry (21 Oct 2026) adds one more and moves
 // only the fingerprint (r112-286dce37 -> r113-1a7ce169); with ONLY the registry reverted to
 // its predecessor both prior hashes (89e9e4ef… / b1b96ef3…) reproduce.
-const GOLDEN_F13 = "9c021774426343f5657b767e65abbeab231ccba1d2f4ef579d2faf3374e2a5dd";
-const GOLDEN_F14 = "7eb2b55a5be37fb9eee9cf56b5342c0feeeac34900f99ddab3e62ec11bd74d48";
+// S3-0 remote-admin entries (22 Oct 2026) add two more and move only the
+// fingerprint (r113-1a7ce169 -> r115-64a2e4fd); with ONLY the registry reverted to its
+// predecessor both prior hashes (9c021774… / 7eb2b55a…) reproduce.
+const GOLDEN_F13 = "1d68563a238a69fc5ee2850424089d55a8fc5505337ab31461fa110f01ee2bc5";
+const GOLDEN_F14 = "a2596c0ded3ab9307c9c469b16e6663aefabc0ef8bc81e1a410045efcc03cee2";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
