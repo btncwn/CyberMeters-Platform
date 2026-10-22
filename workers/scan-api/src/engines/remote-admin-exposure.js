@@ -136,7 +136,9 @@ export async function runRemoteAdminExposureModule(env, scan, {
       error: "probe_unavailable", coverage: { ...coverageBase, completed_pairs: 0 } });
   }
   const rows = Array.isArray(receipt?.observations) ? receipt.observations : [];
-  const completedPairs = rows.filter((row) => row?.state === "open" || row?.state === "closed").length;
+  // A port that did not answer (timeout at connect) is a conclusive "no
+  // answer": checked. Only error / not_run leave a pair unchecked.
+  const completedPairs = rows.filter((row) => row?.state === "open" || row?.state === "closed" || row?.state === "timeout").length;
   const exposures = rows.map((row) => exposureFromObservation(row, hostnamesByAddress.get(row?.address) || [])).filter(Boolean);
   const reasons = [];
   if (owned.length > selected.length) reasons.push("address_cap");
