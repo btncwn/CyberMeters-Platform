@@ -677,7 +677,10 @@ const parity = states.map(parityOutputs);
 // configured" and both goldens move. With ONLY the section line and the builder
 // version reverted the previous hashes (0908a80d… / efeee99a…) reproduce exactly
 // and the evidence hash (ebd729ca…) is unchanged.
-const GOLDEN_F13 = "e621f237cf4542e04cd8c3032d6d3c825d78c769e19c6108378e69b869a9d92a";
+// PDF type scale (22 Oct 2026): the rendered PDF sets nothing below the 8 pt floor
+// and section headings at 14 pt. Only F13's PDF bytes move; with ONLY pdf.js
+// reverted the previous hash (e621f237…) reproduces exactly; F14 is unchanged.
+const GOLDEN_F13 = "92416c4b103d73b6cbbe914c5150a7b1c4bb3852be457867553779797fbb9a35";
 const GOLDEN_F14 = "b8b177e00629b862d6985cc7dd33d4b387d996a5e5b99a1fe0cb907fc6af5874";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

@@ -320,9 +320,13 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   // check". Applying ONLY those wording changes to origin/main reproduces both new
   // goldens exactly (8e004ddc… / 670babe7…), so the renames and the API alias
   // move neither.
+  // PDF type scale (22 Oct 2026): text is never set below the 8 pt floor (7 pt
+  // lines become 8 pt) and section headings use the 14 pt section size. With
+  // ONLY pdf.js reverted to origin/main the previous goldens (8e004ddc… /
+  // 670babe7…) reproduce and the new floor assertion fails on a 7 pt line.
   const executiveGolden = {
-    false: "8e004ddca4b25ccb3db4c15c9c97d2a8d848f0efa60c10f47b0c99e9b1c0dd2a",
-    true: "670babe7eb6f554d224d4be7245523fb74fde3562f87ff66fb1f787309f960f3",
+    false: "85d54c0e52fc6c1d1cde5a1829bb159380488a92043826b49d95f73c4aa3a65a",
+    true: "f3beee42614ba28bb090add681b4721de37888a808556a771c46b79caf34a8f2",
   };
   for (const complete of [false, true]) {
     const bytes = render(mkSnap({ complete }));
@@ -403,6 +407,21 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   verbose.domains[7].summary = "Recorded evidence. ".repeat(180) + "IMPORTANT_FINAL_LIMIT";
   const verboseText = latin1(render(verbose));
   ok("brief exceptional long evidence continues without silent clipping", verboseText.includes("IMPORTANT_FINAL_LIMIT") && (verboseText.match(/\/Type \/Page \/Parent/g) || []).length > 2);
+}
+
+// ── PDF type scale (DESIGN-STANDARD §7; Executive decision 22 Oct 2026) ──
+// Both customer PDFs: no text below the floor, and the scale descends.
+{
+  const { PDF_TYPE } = await eng("pdf.js");
+  ok("type: the PDF scale descends and keeps a floor",
+     PDF_TYPE.pageTitle > PDF_TYPE.section && PDF_TYPE.section > PDF_TYPE.subsection && PDF_TYPE.subsection > PDF_TYPE.body
+       && PDF_TYPE.body > PDF_TYPE.fine && PDF_TYPE.fine >= PDF_TYPE.floor && PDF_TYPE.floor === 8);
+  const sizes = (bytes) => [...latin1(bytes).matchAll(/\/F[12] ([0-9.]+) Tf/g)].map((m) => Number(m[1]));
+  const exec = sizes(render(mkSnap({ complete: false, pad: 3 })));
+  const scanPdf = sizes(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(mkSnap({ complete: false, pad: 3 }))));
+  ok("type: no executive PDF text is set below the floor", exec.length > 0 && Math.min(...exec) >= PDF_TYPE.floor, String(Math.min(...exec)));
+  ok("type: no assessment PDF text is set below the floor", scanPdf.length > 0 && Math.min(...scanPdf) >= PDF_TYPE.floor, String(Math.min(...scanPdf)));
+  ok("type: section headings use the section size", scanPdf.includes(PDF_TYPE.section));
 }
 
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);
