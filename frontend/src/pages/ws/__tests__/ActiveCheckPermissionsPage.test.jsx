@@ -177,4 +177,3 @@ describe('Active Checks permission (S1-A)', () => {
     expect(newReceipt.queryByText('IP address')).toBeNull()
   })
 })
-
