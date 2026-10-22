@@ -114,6 +114,8 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     await expect(page.getByText(/^completed$/)).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Download PDF' }).first()).toBeVisible()
     await expect(page.getByRole('button', { name: /^PDF$|^Refresh$/ })).toHaveCount(0)
+  })
+}
 
 // Scan report (Executive 21 Oct, sheshire.co.uk first scan): a degraded scan
 // reads in sentences, the duration is not shifted by an hour, and an absent
