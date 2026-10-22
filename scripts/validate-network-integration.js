@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertProbeFetch } from './lib/probe-contract-fixture.mjs';
 // Actual production queue/cron/purge entry points, real schema and enforced FKs.
 // All targets and receipts below are synthetic; external transport is disabled.
 import fs from 'node:fs';
@@ -42,7 +43,7 @@ function fixture(){
   get:async key=>objects.has(key)?{text:async()=>objects.get(key),json:async()=>JSON.parse(objects.get(key))}:null,
   put:async(key,text,options)=>{if(options.onlyIf.get('If-None-Match')!=='*'||objects.has(key))return null;objects.set(key,text);return {etag:'fixture'};},
  },NETWORK_PROBE:{fetch:async(_url,options)=>{
-  probeCalls++;const req=JSON.parse(options.body),now=new Date().toISOString();
+  probeCalls++;const req=assertProbeFetch(options),now=new Date().toISOString();
   return Response.json({schema_version:'network-probe-receipt-v1',request_id:req.request_id,workspace_id:req.workspace_id,scan_id:req.scan_id,profile:req.profile,started_at:now,finished_at:now,
    collector:{name:'cybermeters-cloudflare-network-probe',version:'1',node_version:'v26.10.0',openssl_version:'synthetic',trust_store:{name:'Node.js bundled Mozilla CA roots',sha256:'a'.repeat(64)}},
    limitations:['Synthetic local integration fixture; no provider observation.'],quality:'complete',coverage:{planned:1,attempted:1,completed:1,not_run:0},

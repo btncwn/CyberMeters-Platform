@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertProbeFetch } from './lib/probe-contract-fixture.mjs';
 // ─────────────────────────────────────────────────────────────────────────────
 // validate-email-deadline-evidence.js  (CI-blocking)
 //
@@ -413,7 +414,7 @@ async function trace(variant, {
     ...(CERT_LIVE_DAYS.has(variant)
       ? { NETWORK_PROBE: liveTlsProbeBinding({ days: CERT_LIVE_DAYS.get(variant) }) }
       : CERT_COLLECTOR_UNAVAILABLE.has(variant)
-        ? { NETWORK_PROBE: { fetch: async () => new Response("collector unavailable", { status: 503 }) } }
+        ? { NETWORK_PROBE: { fetch: async (_url, init) => { assertProbeFetch(init); return new Response("collector unavailable", { status: 503 }); } } }
         : {}),
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','o@example.com')").run();

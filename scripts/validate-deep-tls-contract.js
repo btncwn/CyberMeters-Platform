@@ -1,3 +1,4 @@
+import { assertProbeFetch } from './lib/probe-contract-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -201,7 +202,7 @@ assert.equal(customerSnapshot.overall.not_fully_assessed.find(row=>row.domain_ke
   'tls_checks_outside_scan_budget');
 assert.equal(storedSnapshot.overall.score_band,'excellent','immutable snapshot facts are untouched');
 const stop=new AbortController();
-const hung=collectTlsAssessment({NETWORK_PROBE:{fetch:()=>new Promise(()=>{})}},request,{signal:stop.signal});
+const hung=collectTlsAssessment({NETWORK_PROBE:{fetch:(_url,init)=>{assertProbeFetch(init);return new Promise(()=>{});}}},request,{signal:stop.signal});
 const abortTimer=setTimeout(()=>stop.abort(),5);
 let guardTimer;
 try {

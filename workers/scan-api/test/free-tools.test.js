@@ -1,3 +1,4 @@
+import { assertProbeFetch } from '../../../scripts/lib/probe-contract-fixture.mjs';
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -768,7 +769,7 @@ test("ssl: busy says try again in a minute; no connection is 'could not check', 
 
 function probeBinding(respond) {
   const calls = [];
-  return { calls, binding: { fetch: async (url, init) => { const request = JSON.parse(init.body); calls.push({ url, request }); return respond(request); } } };
+  return { calls, binding: { fetch: async (url, init) => { const request = assertProbeFetch(init); calls.push({ url, request }); return respond(request); } } };
 }
 
 test("ssl: the route calls the free-tool TLS profile once, after the gate; busy is never cached", async () => {

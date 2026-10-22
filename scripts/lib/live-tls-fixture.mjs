@@ -1,3 +1,4 @@
+import { assertProbeFetch } from './probe-contract-fixture.mjs';
 // Shared validator fixture: an SSL module carrying a live TLS observation, built
 // through the production attachLiveTlsToSsl() so fixtures cannot drift from the
 // collector receipt contract. Certificates reach the product only this way.
@@ -121,7 +122,7 @@ export function liveTlsProbeBinding(optionsOrFactory = {}) {
   return {
     calls,
     fetch: async (_url, init) => {
-      const request = JSON.parse(init.body);
+      const request = assertProbeFetch(init);
       calls.push(request);
       const options = typeof optionsOrFactory === "function"
         ? optionsOrFactory(request)

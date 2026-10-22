@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertProbeRequest } from './lib/probe-contract-fixture.mjs';
 // Real SQLite, production job functions, controlled Queue delivery harness.
 // The 1,000 jobs are synthetic records, never 1,000 live customer domains.
 import assert from 'node:assert/strict';
@@ -30,6 +31,7 @@ function harness(){
   }
   let calls=0;
   async function collect(env,input){
+    assertProbeRequest(input);
     calls++;
     const end=Date.now();
     const receipt = {schema_version:'exposure-receipt-v1',request_id:input.request_id,workspace_id:input.workspace_id,scan_id:input.scan_id,origin:input.origin,
@@ -49,6 +51,7 @@ function enableContent(h,scan){
   h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(plan),scan.id);
 }
 function contentReceipt(input,{paths=[],results=[]}={}){
+  assertProbeRequest(input);
   const stamp=new Date().toISOString(),origin=`https://${input.domain}`;
   const page=sanitizeWebsitePageDiscovery({pages:[],partial_reasons:['homepage_unavailable'],counts:{fetched:1}},input.domain);
   const receipt={schema_version:'website-content-receipt-v1',request_id:input.request_id,workspace_id:input.workspace_id,scan_id:input.scan_id,domain:input.domain,
@@ -87,7 +90,7 @@ function contentReceipt(input,{paths=[],results=[]}={}){
 }
 {
  const h=harness(),{body,scan}=h.seed('content_crash');enableContent(h,scan);
- await processExposureMessage(body,h.env,{collectWebsiteContent:async()=>{throw new Error('SENSITIVE_BODY_MUST_NOT_PERSIST');}});
+ await processExposureMessage(body,h.env,{collectWebsiteContent:async(_env,input)=>{assertProbeRequest(input);throw new Error('SENSITIVE_BODY_MUST_NOT_PERSIST');}});
  const failed=h.sql.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=?').get(scan.id);
  check(failed.charged_requests===WEBSITE_CONTENT_LIMITS.requests);
  check(failed.charged_bytes===WEBSITE_CONTENT_LIMITS.bytes+WEBSITE_CONTENT_LIMITS.overreadBytes);
@@ -99,6 +102,7 @@ function contentReceipt(input,{paths=[],results=[]}={}){
 {
  const h=harness(),{body,scan}=h.seed('content_revoked');enableContent(h,scan);let aborted=false;
  await processExposureMessage(body,h.env,{collectWebsiteContent:async(_env,_input,{signal})=>{
+   assertProbeRequest(_input);
    h.sql.exec("UPDATE workspace_domains SET verification_status='pending'");
    return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>{aborted=true;reject(new Error('cancelled'));},{once:true}));
  }});
@@ -153,6 +157,7 @@ for(const outcome of [
  plan.retest_checks=[original];
  h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(plan),scan.id);
  const terminalReceipt=async(_env,input)=>{
+  assertProbeRequest(input);
   const stamp=new Date().toISOString();
   const summary=status=>({status,content_type:status?'text/html':null,body_length:status?20:0,normalized_length:status?20:0,
     body_sha256:status?'0'.repeat(64):null,normalized_sha256:status?'0'.repeat(64):null});
@@ -192,7 +197,7 @@ for(const outcome of [
 }
 {
  const h=harness(),{body}=h.seed('retry');
- for(let i=0;i<3;i++)await processExposureMessage(body,h.env,{collect:async()=>{throw Error('SENSITIVE_VALUE_NOT_FOR_LOGS');}});
+ for(let i=0;i<3;i++)await processExposureMessage(body,h.env,{collect:async(_env,input)=>{assertProbeRequest(input);throw Error('SENSITIVE_VALUE_NOT_FOR_LOGS');}});
  check(h.sql.prepare('SELECT charged_requests FROM external_exposure_jobs').get().charged_requests===36);
  const result=await processExposureMessage(body,h.env,{collect:h.collect});check(result.outcome==='completion_budget');check(h.calls===0);
 }
@@ -201,7 +206,7 @@ for(const outcome of [
  // CONSECUTIVE thrown slices. Two transient failures, a stored slice, then a
  // third failure must not end a healthy job; its remaining slice still runs.
  const h=harness(),{body}=h.seed('streak',{count:14});
- const fail=async()=>{throw Error('transient collector error');};
+ const fail=async(_env,input)=>{assertProbeRequest(input);throw Error('transient collector error');};
  await processExposureMessage(body,h.env,{collect:fail});
  await processExposureMessage(body,h.env,{collect:fail});
  check((await processExposureMessage(body,h.env,{collect:h.collect})).outcome==='pending');
@@ -297,6 +302,7 @@ for(const outcome of [
 {
  const h=harness(),{body}=h.seed('midflight');let aborted=false;
  await processExposureMessage(body,h.env,{collect:async(env,input,{signal})=>{
+   assertProbeRequest(input);
    h.sql.exec("UPDATE workspace_domains SET verification_status='pending'");
    return await new Promise((resolve,reject)=>signal.addEventListener('abort',()=>{aborted=true;reject(new Error('cancelled'));},{once:true}));
  }});

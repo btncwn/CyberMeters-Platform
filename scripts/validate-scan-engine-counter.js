@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertProbeFetch } from './lib/probe-contract-fixture.mjs';
 //
 // Faithful scan-engine subrequest counter + legacy-probe-shape proof.
 //
@@ -223,7 +224,7 @@ async function runEngineLedger(mode, {
     SCAN_CAPACITY_MODE: mode,
     // A private network-probe binding makes the engine launch mail_transport
     // alongside later phases, as in production.
-    ...(mailTransport ? { NETWORK_PROBE: { fetch: async () => new Response("{}", { status: 503 }) } } : {}),
+    ...(mailTransport ? { NETWORK_PROBE: { fetch: async (_url, init) => { assertProbeFetch(init); return new Response("{}", { status: 503 }); } } } : {}),
     ...(platformCeiling == null ? {} : { SCAN_PLATFORM_SUBREQUEST_CEILING: String(platformCeiling) }),
     ...(subrequestLimit == null ? {} : {
       SCAN_SUBREQUEST_LIMIT: String(subrequestLimit),
