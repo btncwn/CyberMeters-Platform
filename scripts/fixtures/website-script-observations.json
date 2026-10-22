@@ -1,0 +1,15 @@
+{
+  "domain": "example.com",
+  "page_url": "https://example.com/",
+  "html": "<html><head><script src=\"https://cdn.external.example/jquery-3.4.1.min.js?token=omit-this-value\"></script><script src='/vendor/lodash-4.17.18.min.js' integrity='sha384-declared-not-verified'></script><script type='module' src='/assets/app.js'></script><script src='https://static.example.com/site.js'></script></head><body>ok</body></html>",
+  "pipeline_html": "<html><head><script src='https://cdn.external.example/jquery-3.4.1.min.js?token=omit-this-value'></script><script src='https://assets.external.example/lodash-4.17.18.min.js' integrity='sha384-declared-not-verified'></script></head><body>ok</body></html>",
+  "expected_scripts": 4,
+  "expected_external_hosts": 1,
+  "expected_without_integrity": 3,
+  "expected_advisories": [
+    "CVE-2020-11022",
+    "CVE-2020-8203"
+  ],
+  "quoted_attributes_html": "<script data-note=\" src='https://fake.example/fake.js' integrity='fake'\" src='/real.js'></script><script src='https://first.example/one.js' src='https://second.example/two.js' integrity='present'></script>",
+  "quoted_gt_html": "<script data-note='>' src='/real.js' integrity='present'></script>"
+}

@@ -5,6 +5,7 @@
 import { safeFetch, SCANNER_PAGE_HEADERS } from "../lib/http.js";
 import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
 import { classifyServiceability } from "../lib/serviceability.js";
+import { observeWebsiteScripts } from "./website-script-observations.js";
 
 // ── Module 5: Technology Detection ───────────────────────────────────────────
 // Ported from tech_fingerprint.py — collects response headers and infers the
@@ -287,6 +288,7 @@ export async function runTechModule(domain, opts = {}) {
     x_frame_options:           xfo,
     x_content_type_options:    xcto,
     external_scripts:          [...new Set(externalScripts)],
+    script_observations:       isHtmlResponse(res) ? observeWebsiteScripts(linkWindow?.text ?? bodySnippet, finalUrl, domain) : null,
     technologies:              [...new Set(technologies)],  // deduplicate
     technology_fingerprints:   [...technologyFingerprints.values()],
     serviceability_contract:   serviceability,

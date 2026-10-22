@@ -113,6 +113,7 @@ import {
 } from "./phase5-evidence.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
+import { websiteScriptFindings } from "./website-script-observations.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
 import { recomputeVendorRiskScoresForDomain } from "./vendor-risk.js";
 import { detectVendorsFromModules, dnsServiceRegistrationObservations } from "./vendor-signatures.js";
@@ -2603,6 +2604,8 @@ function buildCanonicalUrlProfile(modules) {
     findings.push(...brandWatchlistDnsObservations(modules.brand_monitoring, {
       domain, checkedAt: startedAt, verified: registrationScopeVerified,
     }));
+    if (!registrationScopeVerified && modules.technology_detection) modules.technology_detection.script_observations = null;
+    findings.push(...websiteScriptFindings(modules.technology_detection, { domain, verified: registrationScopeVerified }));
 
     // Phase 7f: Third-Party Asset Discovery — pure computation, zero I/O.
     // Business-focused SaaS inventory derived from vendor_risk.  Excludes

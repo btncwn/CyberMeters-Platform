@@ -1274,6 +1274,21 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     limitations: ["Coverage reflects externally observed services only; internal SSO/MFA configuration cannot be assessed from external ASM data."],
   }),
 
+  entry({
+    remediation_id: "web.script_metadata.review",
+    domain_key: "website_security",
+    finding_types: ["tech_script_host_observation", "tech_script_integrity_observation", "tech_script_advisory_observation"],
+    customer_title: "Review the observed script references",
+    technical_explanation: "A bounded window of the fetched page declared external script hosts, script elements without nonempty integrity attributes, or version labels matching a small bundled advisory list. Browser execution and affected file contents were not verified.",
+    business_impact: "Script references help the website owner review dependencies. A version label or missing integrity attribute alone does not establish compromise or an exploitable vulnerability.",
+    recommended_action: "Confirm the referenced hosts are expected. Consider integrity metadata where appropriate, and review declared library versions against the linked advisory with the website owner before deciding whether an update is needed.",
+    effort: "low", owner_type: "customer", verification_method: "manual_attestation",
+    verification_evidence_requirements: "The website owner checks the actual dependency, advisory applicability and integrity configuration. A changed filename or an integrity attribute alone is not product verification of a fix.",
+    supporting_evidence_types: ["http_probe"], managed_workflow_compatible: false,
+    limitations: ["Only the already-read HTML window and at most 40 script references are examined; dynamically inserted scripts and references outside that window are not inventoried. Windows with ambiguous markup, encoded references and relative URLs with a base element are omitted.",
+      "The versioned bundled list covers only its named libraries and advisories; it is not a complete vulnerability database. Version labels may be inaccurate or have backported fixes. Integrity metadata presence does not prove a matching hash or browser enforcement."],
+  }),
+
   // ─────────────────────────── IDENTITY EXPOSURE ─────────────────────────────
   entry({
     remediation_id: "identity.oidc.review",
