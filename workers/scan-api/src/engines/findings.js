@@ -230,6 +230,16 @@ export function normalizeFindingSchema(finding) {
   };
 }
 
+// A header check that could not validate (scoring.js "— Validation Uncertain"):
+// header_missing_* emitted at info severity because the response may have come
+// from a bot-protection layer, was not a canonical 200, or the header varied by
+// path. Every validated header finding is medium/high or the consolidated
+// security_headers_not_observed. It asserts nothing, so it is not a finding,
+// and it is not evidence of health either.
+export function isUnvalidatedHeaderObservation(finding) {
+  return /^header_missing_/.test(finding?.id || "") && finding?.severity === "info";
+}
+
 export function isActionableFinding(finding) {
   return finding?.finding_type === "finding"
     || (finding?.finding_type == null && Number(finding?.score_impact) < 0);

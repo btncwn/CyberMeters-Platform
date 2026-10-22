@@ -65,14 +65,22 @@ const redirect301 = (url) => new Response(null, {
   status: 301,
   headers: { location: `https://${new URL(String(url)).hostname}/`, "server": "nginx" },
 });
+// A healthy origin sends the full security-header set. (23 Oct 2026: with only
+// HSTS, the other five header checks read "Validation Uncertain" here because a
+// constructed Response has no final URL; resting "healthy" on unvalidated
+// header checks is the defect the sibling block below closes.)
+const SECURITY_HEADER_SET = {
+  "strict-transport-security": "max-age=63072000",
+  "content-security-policy": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+  "x-frame-options": "DENY", "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin", "permissions-policy": "camera=()",
+};
 const originHealthy = () => new Response(
   "<html><head></head><body>wp-content</body></html>",
-  { status: 200, headers: { "server": "nginx", "content-type": "text/html",
-                            "strict-transport-security": "max-age=63072000" } });
+  { status: 200, headers: { "server": "nginx", "content-type": "text/html", ...SECURITY_HEADER_SET } });
 const cloudflareHealthy = () => new Response(
   "<html><body>wp-content</body></html>",
-  { status: 200, headers: { "server": "cloudflare", "cf-ray": "8f00-LHR", "content-type": "text/html",
-                            "strict-transport-security": "max-age=63072000" } });
+  { status: 200, headers: { "server": "cloudflare", "cf-ray": "8f00-LHR", "content-type": "text/html", ...SECURITY_HEADER_SET } });
 const signedEdge530 = () => new Response("edge", {
   status: 530, headers: { "server": "cloudflare", "cf-ray": "8f00-LHR", "content-type": "text/html" },
 });
@@ -213,6 +221,35 @@ const R_ALL_503 = async () => origin503();
   ok("F48_BAR3_CONTROL_404_NOT_TREATED_AS_ORIGIN_ERROR",
      notFound.headers.incomplete !== true,
      `incomplete=${notFound.headers.incomplete} reason=${notFound.headers.incomplete_reason}`);
+}
+
+// ── Sibling (item 15 corpus, 23 Oct 2026): an UNCERTAIN header observation ──
+// A 202 or a 403 challenge page gets every header check titled "— Validation
+// Uncertain" (info). Those assert nothing, so they were not material, and
+// Website Security resolved "Assessed — no material issue observed" on 8 of
+// 22 healthy corpus states. It must read provisional instead; a fully-headered
+// 200 must still read healthy.
+{
+  const bare = (status) => async (url) => (new URL(String(url)).protocol === "http:" ? redirect301(url)
+    : new Response("<html><body>please wait</body></html>", { status, headers: { "server": "nginx", "content-type": "text/html" } }));
+  const allHeaders = async (url) => (new URL(String(url)).protocol === "http:" ? redirect301(url)
+    : new Response("<html><body>wp-content</body></html>", { status: 200, headers: {
+        "server": "nginx", "content-type": "text/html",
+        "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+        "content-security-policy": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        "x-frame-options": "DENY", "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin", "permissions-policy": "camera=()" } }));
+  for (const status of [202, 403]) {
+    const r = await observe(bare(status));
+    const uncertain = r.findings.filter((f) => /^header_missing_/.test(f.id) && f.severity === "info");
+    ok(`UNCERTAIN_${status}_HEADERS_READ_VALIDATION_UNCERTAIN`, uncertain.length > 0 && uncertain.every((f) => /Validation Uncertain/.test(f.title)),
+      r.findings.map((f) => `${f.id}:${f.severity}`).join(","));
+    ok(`UNCERTAIN_${status}_WEBSITE_NOT_HEALTHY`, r.website?.state !== "assessed_healthy", `state=${r.website?.state}`);
+    ok(`UNCERTAIN_${status}_SUMMARY_SAYS_NOT_VALIDATED`,
+      !/^Assessed — no material issue observed/.test(String(r.website?.summary || "")), String(r.website?.summary || ""));
+  }
+  const healthy = await observe(allHeaders);
+  eq("UNCERTAIN_CONTROL_FULLY_HEADERED_200_STAYS_HEALTHY", healthy.website?.state, "assessed_healthy");
 }
 
 console.log(`\nF-48 origin-503 false-healthy: ${pass}/${pass + fail} assertions passed`);
