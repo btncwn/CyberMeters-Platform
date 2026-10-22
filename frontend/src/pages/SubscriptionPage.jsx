@@ -186,6 +186,15 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
   const scfg = statusCfg(trialActive ? 'trialing'
     : (status === 'active' && subscriptionActive === false ? 'expired' : (status || 'free')))
   const upgradeTo = UPGRADE_TARGET[plan]
+  // During a live trial the obvious purchase is the plan the trial is on
+  // (founder, 22 Oct 2026: a Professional trial only offered "Upgrade to
+  // Business"). Subscribe to it as the primary action; the next plan up is a
+  // secondary choice. Starter also gets the next-but-one plan as a secondary.
+  const subscribeTo = trialActive && PLAN_META[plan] && plan !== 'enterprise' && plan !== 'free' ? plan : null
+  const primaryTarget = subscribeTo || upgradeTo
+  const secondaryTarget = subscribeTo
+    ? (upgradeTo && upgradeTo !== 'enterprise' ? upgradeTo : null)
+    : (plan === 'starter' && UPGRADE_TARGET.professional !== 'enterprise' ? UPGRADE_TARGET.professional : null)
   // Price comes only from live canonical plan metadata; without it, no price
   // is displayed (never a stale local figure).
   //
@@ -245,21 +254,35 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
         )}
       </div>
 
-      {upgradeTo && upgradeTo !== 'enterprise' && (
+      {primaryTarget && primaryTarget !== 'enterprise' && (
         <button
-          onClick={() => onUpgrade(upgradeTo)}
+          onClick={() => onUpgrade(primaryTarget)}
           disabled={checkoutLoading}
+          data-testid="plan-primary-action"
           className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-brand-900 bg-brand-200 hover:bg-brand-300 rounded-xl transition-colors disabled:opacity-60"
         >
           {checkoutLoading
             ? <><RefreshCw className="w-4 h-4 animate-spin" /> {portalPlanChange ? 'Opening billing portal…' : 'Opening checkout…'}</>
             : portalPlanChange
               ? <span>Change plan in billing portal</span>
-              : <span>Upgrade to {PLAN_META[upgradeTo]?.label}</span>
+              : subscribeTo
+                ? <span>Subscribe to {PLAN_META[subscribeTo]?.label}{monthlyGbp ? ` — £${monthlyGbp.toFixed(2)}/month` : ''}</span>
+                : <span>Upgrade to {PLAN_META[primaryTarget]?.label}</span>
           }
         </button>
       )}
-      {upgradeTo === 'enterprise' && (
+      {secondaryTarget && !portalPlanChange && (
+        <button
+          type="button"
+          onClick={() => onUpgrade(secondaryTarget)}
+          disabled={checkoutLoading}
+          data-testid="plan-secondary-action"
+          className="mt-2 w-full text-center text-sm font-semibold text-brand-700 hover:text-brand-800 disabled:opacity-60"
+        >
+          Upgrade to {PLAN_META[secondaryTarget]?.label} instead
+        </button>
+      )}
+      {upgradeTo === 'enterprise' && !subscribeTo && (
         <a
           href="mailto:hello@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
           className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-brand-700 bg-transparent hover:bg-brand-50 border border-[1.5px] border-brand-700 rounded-xl transition-colors"
@@ -267,7 +290,7 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
           Contact Sales for MSP
         </a>
       )}
-      {!upgradeTo && (
+      {!upgradeTo && !subscribeTo && (
         <div className="flex items-center gap-2 text-xs text-brand-700 font-semibold">
           You're on our top plan
         </div>
