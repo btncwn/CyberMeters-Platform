@@ -196,7 +196,9 @@ function ok(name, cond, detail = "") {
   // uncorroborated fallback remains visibly degraded.
   const prod = readFileSync(new URL(eng("dmarcbis-production.js")), "utf8");
   ok("D2b: core completeness and corroboration jointly bound monitoring state",
-    /monitoring_state:\s*complete && policy\.corroboration_state !== "unavailable" &&\s*!policy\.resolver_fallback_used\s*\?\s*"monitoring_healthy"\s*:\s*"monitoring_degraded"/.test(prod));
+    // 22 Oct 2026: a fallback answer degrades monitoring unless every fallback
+    // answer was definitive (fallbackAnswersDefinitive); all three bounds remain.
+    /monitoring_state:\s*complete && policy\.corroboration_state !== "unavailable" &&\s*\(!policy\.resolver_fallback_used \|\| fallbackAnswersDefinitive\(policy\.lookup_path\)\)\s*\?\s*"monitoring_healthy"\s*:\s*"monitoring_degraded"/.test(prod));
 }
 
 // ---------------------------------------------------------------------------

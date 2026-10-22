@@ -6,6 +6,7 @@
 import { dnsQuery, dnsQueryGoogle } from "./dns.js";
 import {
   DMARCBIS_METHODOLOGY_VERSION,
+  fallbackAnswersDefinitive,
   normalizeDmarcbisDnsObservation,
   resolveDmarcbisExternalRuaAuthorizations,
   resolveDmarcbisPolicy,
@@ -470,11 +471,12 @@ export async function runDmarcbisCore(authorDomain, {
     // complete. Recompute here so the panel (monitoring_state) can never read
     // "evidence complete" while core_completeness is incomplete.
     monitoring_state: complete && policy.corroboration_state !== "unavailable" &&
-      !policy.resolver_fallback_used ? "monitoring_healthy" : "monitoring_degraded",
+      (!policy.resolver_fallback_used || fallbackAnswersDefinitive(policy.lookup_path)) ? "monitoring_healthy" : "monitoring_degraded",
     core_completeness: complete ? "complete" : "incomplete",
     executed: true,
     ...(complete ? {} : { incomplete: true }),
-    outcome: complete ? policy.corroboration_state === "unavailable" || policy.resolver_fallback_used
+    outcome: complete ? policy.corroboration_state === "unavailable" ||
+      (policy.resolver_fallback_used && !fallbackAnswersDefinitive(policy.lookup_path))
       ? "degraded" : "available" : "unavailable",
     evidence_grade: evidenceGradeForCore(policy, observedAt),
     limits: {
