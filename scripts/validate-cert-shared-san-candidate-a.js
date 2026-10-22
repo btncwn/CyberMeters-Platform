@@ -681,7 +681,11 @@ const parity = states.map(parityOutputs);
 // snapshot's website_signed_in section through and the customer PDF prints its
 // sentences under Website Security. Only F13 moves; with ONLY those two additions
 // reverted the previous hash (e621f237…) reproduces exactly and F14 is unchanged.
-const GOLDEN_F13 = "a0fab5c0a771a013a5b37baae3d232c4efb66b577733893115c610866bc2ac14";
+// PDF type scale (22 Oct 2026): the rendered PDF sets nothing below the 8 pt floor
+// and section headings at 14 pt. Only F13's PDF bytes move; with ONLY pdf.js
+// reverted the previous hash (e621f237…) reproduces exactly; F14 is unchanged.
+// Both changes together (#877 + #879): the hash below; each was proven alone above.
+const GOLDEN_F13 = "f9fbbfe4e9f30851d07a3fbf93f77f8534c6db66775712f06483dcf0ab203c2c";
 const GOLDEN_F14 = "b8b177e00629b862d6985cc7dd33d4b387d996a5e5b99a1fe0cb907fc6af5874";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
