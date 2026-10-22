@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertProbeRequest } from './lib/probe-contract-fixture.mjs';
 //
 // Managed ASM remediation loop validation: drives the DB-backed case engine
 // over real schema+migrations. Covers open -> assign -> fix completed ->
@@ -558,9 +559,9 @@ await import("./remote-admin-exposure-fixture.js");
   const run = (rdpState, extra = {}) => runRemoteAdminExposureModule(env,
     { id: "scan_net", workspace_id: "ws_net", domain_id: "dom_net", domain: "net-example.com" }, {
       observe: async () => ({ roots: ["net-example.com"], owned, shared: new Map(), lookups_failed: 0 }),
-      collect: async (_env, request) => ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
+      collect: async (_env, request) => { assertProbeRequest(request); return ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
         address: target.address, hostname: null, port, transport: "tcp",
-        state: port === 3389 ? rdpState : "closed", service: null, tls: null, reason: null }))) }),
+        state: port === 3389 ? rdpState : "closed", service: null, tls: null, reason: null }))) }); },
       ...extra,
     });
   const exposed = await run("open");
@@ -579,8 +580,8 @@ await import("./remote-admin-exposure-fixture.js");
   netRow = (await transitionManagedCase(env, netRow, "verification_requested", { actor_type: "customer", actor_id: "u", action: "fix_completed" })).case;
   ok("S3-0: the customer reports the port closed", netRow?.status === "verification_requested");
   // Closed, but the probe could not finish every pair: never verified.
-  const unfinished = await run("closed", { collect: async (_env, request) => ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
-    address: target.address, hostname: null, port, transport: "tcp", state: port === 3389 ? "not_run" : "closed", service: null, tls: null, reason: "deadline_exhausted" }))) }) });
+  const unfinished = await run("closed", { collect: async (_env, request) => { assertProbeRequest(request); return ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
+    address: target.address, hostname: null, port, transport: "tcp", state: port === 3389 ? "not_run" : "closed", service: null, tls: null, reason: "deadline_exhausted" }))) }); } });
   ok("S3-0: an unfinished re-check is incomplete", unfinished.incomplete === true && unfinished.incomplete_reason === "ports_not_all_checked");
   const deferredNet = await verifyManagedAsmCasesForScan("scan_net_2", "dom_net", "net-example.com", [], env,
     { modules: { remote_admin_exposure: unfinished }, scanQuality: { status: "complete", modules_skipped: [] } });
@@ -612,9 +613,9 @@ await import("./remote-admin-exposure-fixture.js");
   const run = (state) => runRemoteAdminExposureModule(env,
     { id: "scan_net_alert", workspace_id: "ws_net_alert", domain_id: "dom_net_alert", domain: "alert-net-example.com" }, {
       observe: async () => ({ roots: ["alert-net-example.com"], owned, shared: new Map(), lookups_failed: 0 }),
-      collect: async (_env, request) => ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
+      collect: async (_env, request) => { assertProbeRequest(request); return ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
         address: target.address, hostname: null, port, transport: "tcp",
-        state: port === 5985 ? state : "closed", service: null, tls: null, reason: null }))) }),
+        state: port === 5985 ? state : "closed", service: null, tls: null, reason: null }))) }); },
     });
   const same = (name, got, want) => ok(name, JSON.stringify(got) === JSON.stringify(want));
   const told = () => db.prepare(`SELECT type, severity FROM notification_events WHERE workspace_id='ws_net_alert' ORDER BY rowid`).all();

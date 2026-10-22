@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertProbeFetch } from './lib/probe-contract-fixture.mjs';
 // Real route/RBAC, D1 transaction and queue-consumer controls, no external I/O.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -92,7 +93,7 @@ let state='open',invalid=false;
 const adapter={collectNetworkProbe,validateNetworkProbeReceipt};
 env.NETWORK_PROBE.fetch=async(url,options)=>{
   if(url!=='https://network-probe.internal/collect'||options.method!=='POST')throw new Error('unexpected service request');
-  probeCalls++;const request=JSON.parse(options.body),now=new Date().toISOString();
+  probeCalls++;const request=assertProbeFetch(options),now=new Date().toISOString();
   return Response.json({schema_version:'network-probe-receipt-v1',request_id:request.request_id,workspace_id:invalid?'foreign':request.workspace_id,scan_id:request.scan_id,profile:request.profile,started_at:now,finished_at:now,
     collector:{name:'cybermeters-cloudflare-network-probe',version:'1',node_version:'v26.10.0',openssl_version:'synthetic-test',trust_store:{name:'Node.js bundled Mozilla CA roots',sha256:'a'.repeat(64)}},
     limitations:['Synthetic local transport fixture; not a provider receipt.'],quality:state==='timeout'?'partial':'complete',coverage:{planned:2,attempted:2,completed:state==='timeout'?0:2,not_run:0},observations:request.targets.flatMap(t=>request.ports.map(port=>({address:t.address,hostname:null,port,transport:'tcp',state,service:state==='open'?{name:'ssh',basis:'unsolicited_tcp_banner',banner_sha256:'b'.repeat(64),banner_sample:'SSH-2.0-SyntheticFixture'}:null,tls:null,reason:state==='timeout'?'timeout':null})))});

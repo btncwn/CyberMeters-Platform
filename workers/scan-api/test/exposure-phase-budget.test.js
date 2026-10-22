@@ -1,3 +1,4 @@
+import { assertProbeRequest } from '../../../scripts/lib/probe-contract-fixture.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
@@ -81,6 +82,7 @@ const lookupTlsDns = async (_host, type) => type === 'A'
   ? {Status: 0, Answer: [{type: 1, name: `${_host}.`, data: '8.8.8.8'}]}
   : {Status: 0, Answer: []};
 const collectTlsAssessment = async (_env, input) => {
+  assertProbeRequest(input, now);
   assert.equal(input.checks.length, 1);
   const stamp = new Date(now).toISOString();
   const physical = {connections: 1, bytes_sent: 130, bytes_received: 300, duration_ms: 10};

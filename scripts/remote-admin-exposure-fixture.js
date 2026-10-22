@@ -1,3 +1,4 @@
+import { assertProbeRequest } from './lib/probe-contract-fixture.mjs';
 // S3-0 remote-administration exposure: module, scoring and scan-quality
 // fixtures plus mutation proof. Imported by validate-asm-remediation-loop.js,
 // which also walks the managed case end to end.
@@ -15,9 +16,9 @@ import { isActionableFinding } from '../workers/scan-api/src/engines/findings.js
 const verifiedEnv = (allowed = true) => ({ cybermeters_db: { prepare: () => ({ bind: () => ({ first: async () => allowed ? { allowed: 1 } : null }) }) } });
 const scan = { id: 'scan_t', workspace_id: 'ws_t', domain_id: 'dom_t', domain: 'example.com' };
 const observe = (owned, lookups_failed = 0) => async () => ({ roots: ['example.com'], owned, shared: new Map(), lookups_failed });
-const answer = (states = {}, service = {}) => async (_env, request) => ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
+const answer = (states = {}, service = {}) => async (_env, request) => { assertProbeRequest(request); return ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
   address: target.address, hostname: null, port, transport: 'tcp', state: states[port] || 'closed', tls: null, reason: null,
-  service: states[port] === 'open' ? (service[port] || { name: 'unidentified', basis: 'unsolicited_tcp_banner', banner_sha256: '0'.repeat(64), banner_sample: '' }) : null }))) });
+  service: states[port] === 'open' ? (service[port] || { name: 'unidentified', basis: 'unsolicited_tcp_banner', banner_sha256: '0'.repeat(64), banner_sample: '' }) : null }))) }); };
 const one = new Map([['81.2.69.160', ['example.com', 'www.example.com']]]);
 
 // Unverified or anonymous: never reaches the probe.
@@ -65,7 +66,7 @@ const timedOut = await runRemoteAdminExposureModule(verifiedEnv(), scan, { obser
 assert.equal(timedOut.incomplete_reason, 'ports_not_all_checked', 'a timed-out pair is not a checked pair');
 const lookupGap = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(new Map(), 2), collect: counting });
 assert.equal(lookupGap.incomplete_reason, 'address_lookup_failed');
-const down = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: async () => { throw new Error('collector_unavailable'); } });
+const down = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: async (_env,input) => { assertProbeRequest(input); throw new Error('collector_unavailable'); } });
 assert.equal(down.error, 'probe_unavailable');
 for (const gap of [capped, timedOut, lookupGap, down]) {
   const quality = buildScanQuality({ remote_admin_exposure: gap });

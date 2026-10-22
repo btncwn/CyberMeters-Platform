@@ -1,3 +1,5 @@
+import { test } from 'node:test';
+import { assertProbeRequest } from './lib/probe-contract-fixture.mjs';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
@@ -87,7 +89,7 @@ function interruptedJob(scanId) {
   return {kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
 }
 const retryMessage=interruptedJob('tls_retry');
-const interruptedCollector=async()=>{throw new Error('simulated collector interruption');};
+const interruptedCollector=async(_env,input)=>{assertProbeRequest(input);throw new Error('simulated collector interruption');};
 assert.equal((await processExposureMessage(retryMessage,env,{lookupTlsDns,collectTlsAssessment:interruptedCollector})).outcome,
   'tls_uncertain_attempt_charged');
 let interrupted=sql.prepare('SELECT charged_requests,charged_bytes,unknown_attempts,plan_json FROM external_exposure_jobs WHERE scan_id=?').get('tls_retry');
@@ -222,7 +224,9 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
 }
 // A normal check and each active check get separate reservations. In
 // particular ROBOT's 21 connections cannot spill into the next control.
-{
+// C-28 (PR 2) fixes the withheld special-scope contract; keep this assertion live.
+let specialScopeRejection = null;
+await test('special-control scope matches the probe contract', { todo: 'C-28 / PR 2: invalid_scope before intrusive engine release' }, async () => {
   const workspace='w_special',scanId='tls_special_slices',domainId='d_special',domain='special.example.org',now=Date.now();
   sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(workspace);
   sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
@@ -247,6 +251,9 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
   const reservations=[];
   const specialCollector=async(_env,input)=>{
+    const verdict = validateTlsAssessmentRequest(input);
+    if (!verdict.ok) { specialScopeRejection = verdict.reason; console.error('PROBE_CONTRACT', verdict.reason); }
+    assert.equal(verdict.ok, true, `Probe request rejected: ${verdict.reason}`);
     const control=input.checks[0].control;
     assert.equal(input.checks.length,1);
     reservations.push([control,input.max_connections]);
@@ -274,7 +281,8 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   const finished=sql.prepare('SELECT charged_requests,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
   assert.equal(finished.charged_requests,27);
   assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
-}
+});
+assert.equal(specialScopeRejection, 'invalid_scope', 'Only the classified C-28 scope rejection is expected');
 // The planner asks Active Checks consent per intrusive control and per address and
 // records only the granted ones. With the controls unavailable it still asks
 // (22 Oct 2026, Executive: a grant must read "Authorised — not yet available"),

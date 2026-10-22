@@ -517,7 +517,9 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   // TLS assessment quality is a recorded fixture field, not scan_quality.
   "scripts/validate-cert-trust-l2.js:232:routeCert?.tls_assessment?.quality === \"partial\"",
   // The terminal-host queue fixture asserts exposure receipt quality, not scan_quality.
-  "scripts/validate-exposure-queue.js:174:report.quality==='partial'",
+  // C-27 guards move this exact assertion 174 -> 179; keyed two-tree diff
+  // against origin/main 16a4ae0b shows no other unresolved-site change.
+  "scripts/validate-exposure-queue.js:179:report.quality==='partial'",
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",

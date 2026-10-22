@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { assertProbeFetch } from './lib/probe-contract-fixture.mjs';
 // Item 9 P2 — deterministic production-module integration and deadline fixtures.
 //
 // Exercises the real SSL, live TLS collector client, subdomain discovery and
@@ -75,7 +76,7 @@ function collectorFor(mode) {
   return {
     calls,
     fetch: (_url, init) => {
-      calls.push(JSON.parse(init.body));
+      calls.push(assertProbeFetch(init));
       if (mode === "unavailable") return Promise.reject(new TypeError("collector refused"));
       return new Promise(() => {});
     },
