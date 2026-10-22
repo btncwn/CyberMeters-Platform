@@ -437,6 +437,38 @@ Search actual usage before adding or removing configuration:
 rg "env\.[A-Z0-9_]+" workers/scan-api/src
 ```
 
+## GitHub Actions secrets (network-probe deploys)
+
+`.github/workflows/network-probe-image.yml` (manual `workflow_dispatch` only)
+builds the network-probe TLS image on a GitHub runner and deploys the probe. It
+reads two **repository** secrets. These are not the Worker secret of the same
+name in the table above, which serves hosted DNS / email-routing.
+
+| GitHub secret | Purpose | Rotation rule |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | Deploy `cybermeters-network-probe` (Worker + container image) | Custom token: Account · Workers Scripts · Edit and Account · Cloudflare Workers Containers · Edit, the CyberMeters account only, no zone permissions. Created 22 Oct 2026 with a 1-year TTL; rotate before it expires (below) |
+| `CLOUDFLARE_ACCOUNT_ID` | Account the deploy targets | Changes only if the account changes |
+
+Rotating the deploy token (yearly, before the TTL ends; set a reminder about
+two weeks ahead):
+
+1. Cloudflare → My Profile → API Tokens → **Create Custom Token** with exactly
+   the two permissions above, the CyberMeters account only, no zones, and a new
+   TTL. Name it `github-network-probe-deploy-<year>`.
+2. GitHub → repository Settings → Secrets and variables → Actions →
+   `CLOUDFLARE_API_TOKEN` → **Update** with the new value.
+3. Prove it without changing behaviour: with no scan running, run the workflow
+   on the currently deployed commit as `ref`. The deploy is then a rebuild of the
+   same code (a real deploy with a new version, not a behaviour change).
+   Check that the run summary shows a new Worker Version ID and that the probe's
+   health is unchanged. If the token lacks a permission, the run fails before
+   anything changes; add only the permission Wrangler names.
+4. Cloudflare → API Tokens → **Roll** or **Delete** the old token. The old token
+   must not outlive the switch.
+
+If the token expires first, the workflow fails closed (nothing is deployed).
+Create the new token as above; there is nothing to roll back.
+
 ---
 
 # 8. Database Operations
