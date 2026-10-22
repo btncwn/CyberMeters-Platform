@@ -324,7 +324,19 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
               nextMonitoring, recurrence, band, rec.id)
         .run().catch(() => {});
 
-      if (!isMonitoringTransition(prev, next)) continue;
+      if (!isMonitoringTransition(prev, next)) {
+        // Still ready on this scan: retry the case verifier, so a case the
+        // customer marks ready to verify AFTER the recovery was observed is
+        // verified by the next scan (22 Oct 2026: it ran only on the transition).
+        // Quiet: it writes nothing unless it can verify.
+        if (g.state === "ready") {
+          await verifyCeCaseFromRecovery(env, {
+            workspace_id: workspaceId, record_id: rec.id, recovery_event_type: CE_EVENT_RECOVERED,
+            evidence_complete: (g.unknown?.length ?? 0) === 0, control_key: g.control_key, scan_id: scanId, retry: true,
+          }).catch(() => {});
+        }
+        continue;
+      }
 
       if (g.state === "ready") {
         await appendEvent(env, {

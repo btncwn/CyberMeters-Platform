@@ -202,6 +202,9 @@ export async function verifyCeCaseFromRecovery(env, {
   workspace_id, record_id, recovery_event_type = CE_RECOVERY_EVENT,
   evidence_complete = false, control_key = null, scan_id = null,
   observed_at = new Date().toISOString(),
+  // A retry on a later scan while the control stays ready (22 Oct 2026): it
+  // writes nothing unless it can actually verify.
+  retry = false,
 } = {}) {
   if (recovery_event_type !== CE_RECOVERY_EVENT) return { skipped: "not_a_recovery_observation" };
 
@@ -210,6 +213,7 @@ export async function verifyCeCaseFromRecovery(env, {
 
   // STOP 2 — a grade built on signals we never collected cannot verify anything.
   if (evidence_complete !== true) {
+    if (retry) return { skipped: "evidence_incomplete_verification_deferred" };
     await noteOnCase(env, kase, workspace_id, "recovery_observed_not_verifying", {
       recovery_event_type, control_key, scan_id,
       reason: "external_evidence_incomplete",
@@ -221,6 +225,7 @@ export async function verifyCeCaseFromRecovery(env, {
   // STOP 3 — the registry decides, per finding.
   const support = verificationSupportForCase(kase);
   if (support !== "automated") {
+    if (retry) return { skipped: "verification_not_automated_for_this_finding", support };
     await noteOnCase(env, kase, workspace_id, "recovery_observed_not_verifying", {
       recovery_event_type, support,
       reason: "registry_method_is_not_externally_observable",
@@ -232,6 +237,7 @@ export async function verifyCeCaseFromRecovery(env, {
   // STOP 4 — the machine governs the path.
   const phase = canonicalPhaseFor(kase.case_type, kase.status);
   if (phase !== "awaiting_verification") {
+    if (retry) return { skipped: "case_not_awaiting_verification", phase };
     await noteOnCase(env, kase, workspace_id, "recovery_observed", {
       recovery_event_type, phase, reason: "case_not_awaiting_verification",
     });
