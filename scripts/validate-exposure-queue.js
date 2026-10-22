@@ -197,6 +197,36 @@ for(const outcome of [
  const result=await processExposureMessage(body,h.env,{collect:h.collect});check(result.outcome==='completion_budget');check(h.calls===0);
 }
 {
+ // 22 Oct 2026 (sheshire.co.uk, scan_8120f550): the failure cap counts
+ // CONSECUTIVE thrown slices. Two transient failures, a stored slice, then a
+ // third failure must not end a healthy job; its remaining slice still runs.
+ const h=harness(),{body}=h.seed('streak',{count:14});
+ const fail=async()=>{throw Error('transient collector error');};
+ await processExposureMessage(body,h.env,{collect:fail});
+ await processExposureMessage(body,h.env,{collect:fail});
+ check((await processExposureMessage(body,h.env,{collect:h.collect})).outcome==='pending');
+ check(h.sql.prepare('SELECT failure_count FROM external_exposure_jobs').get().failure_count===0);
+ await processExposureMessage(body,h.env,{collect:fail});
+ const finished=await processExposureMessage(body,h.env,{collect:h.collect});
+ check(finished.outcome==='complete');check(h.calls===2);
+ // Mutant: no streak reset on a stored slice -> the job ends as completion_budget.
+ const source=readFileSync(new URL('../workers/scan-api/src/engines/exposure-jobs.js',import.meta.url),'utf8');
+ const anchor='results_json=?,costs_json=?,failure_count=0,';
+ check(source.split(anchor).length===2);
+ const { mkdtempSync, rmSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+ const dir=mkdtempSync(join(tmpdir(),'cm-exposure-streak-'));
+ try{
+   const relinked=source.replace(anchor,'results_json=?,costs_json=?,').replace(/from '(\.{1,2}\/[^']+)'/g,(_m,spec)=>`from '${new URL(spec,new URL('../workers/scan-api/src/engines/exposure-jobs.js',import.meta.url))}'`);
+   const target=join(dir,'exposure-jobs-mutant.mjs');writeFileSync(target,relinked);
+   const mutant=await import(`file://${target}`);
+   const m=harness(),{body:mb}=m.seed('streak_mutant',{count:14});
+   await mutant.processExposureMessage(mb,m.env,{collect:fail});await mutant.processExposureMessage(mb,m.env,{collect:fail});
+   await mutant.processExposureMessage(mb,m.env,{collect:m.collect});await mutant.processExposureMessage(mb,m.env,{collect:fail});
+   check((await mutant.processExposureMessage(mb,m.env,{collect:m.collect})).outcome==='completion_budget');
+   check(JSON.parse(m.sql.prepare('SELECT plan_json FROM external_exposure_jobs').get().plan_json).finish_reason==='completion_budget');
+ }finally{rmSync(dir,{recursive:true,force:true});}
+}
+{
  const h=harness(),{body}=h.seed('limit');
  h.sql.prepare('UPDATE external_exposure_jobs SET charged_requests=?').run(EXPOSURE_JOB_LIMITS.requests-2);
  check((await processExposureMessage(body,h.env,{collect:h.collect})).outcome==='network_budget');check(h.calls===0);
