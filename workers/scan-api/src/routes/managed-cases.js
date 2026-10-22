@@ -18,11 +18,50 @@ import {
 } from "../engines/dmarcbis-managed-lifecycle.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { caseGuidanceForRow, deriveAsmCaseTraceability } from "../engines/asm-cases.js";
+import { getCeControlRecord, listCeControlEvents } from "../engines/ce-lifecycle.js";
 import { caseDisplayTitleFor } from "../engines/case-guidance.js";
 import { certificateCaseDisplay } from "../engines/certificate-lifecycle.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
 // Customer-safe projection of a case row + its canonical phase.
+// Additive (22 Oct 2026): the current state of the condition a Website or Cyber
+// Essentials case was opened for, so the screen can say "the fix has been
+// observed" on a case the customer has not yet marked ready to verify. Read
+// from the condition record the case links to (managed_cases.finding_id),
+// workspace-scoped on every query. Other case types, or no record: both null.
+//   condition_state         observed | no_longer_observed | unknown | baseline
+//   last_observed_absent_at  when CyberMeters last recorded the recovery event,
+//                           only while the condition is no_longer_observed
+export async function caseConditionProjection(env, wsId, row) {
+  const none = { condition_state: null, last_observed_absent_at: null };
+  if (!row?.finding_id) return none;
+  if (row.case_type === "website_case") {
+    const rec = await env.cybermeters_db
+      .prepare("SELECT monitoring_status FROM website_security_conditions WHERE workspace_id = ? AND id = ? LIMIT 1")
+      .bind(wsId, row.finding_id).first().catch(() => null);
+    if (!rec) return none;
+    const state = rec.monitoring_status || null;
+    if (state !== "no_longer_observed") return { condition_state: state, last_observed_absent_at: null };
+    const ev = await env.cybermeters_db
+      .prepare("SELECT MAX(created_at) AS at FROM website_security_events WHERE workspace_id = ? AND record_id = ? AND event_type = 'condition_resolved'")
+      .bind(wsId, row.finding_id).first().catch(() => null);
+    return { condition_state: state, last_observed_absent_at: ev?.at || null };
+  }
+  if (row.case_type === "cyber_essentials_case") {
+    // Through CE's canonical, containment-gated accessors only (never a direct
+    // durable readiness read: validate-ce-multidomain-containment.js).
+    const rec = await getCeControlRecord(env, wsId, row.finding_id).catch(() => null);
+    if (!rec) return none;
+    const state = rec.readiness_state === "ready" ? "no_longer_observed"
+      : rec.readiness_state === "not_ready" ? "observed" : "unknown";
+    if (state !== "no_longer_observed") return { condition_state: state, last_observed_absent_at: null };
+    const events = await listCeControlEvents(env, wsId, row.finding_id).catch(() => []);
+    const recovered = events.find((event) => event.event_type === "control_recovered");
+    return { condition_state: state, last_observed_absent_at: recovered?.created_at || null };
+  }
+  return none;
+}
+
 function caseToUniversalApi(row) {
   // Read-time presentation the backend owns for domains whose stored title or
   // resource fields cannot be trusted to be current (certificate cases).
@@ -237,6 +276,7 @@ export async function managedCasesRoutes(rctx) {
       ? availableTransitionsForCase(row, { actor_type: "customer" })
       : [];
     const projected = caseToUniversalApi(row);
+    Object.assign(projected, await caseConditionProjection(env, wsId, row));
     try {
       const t = (await deriveAsmCaseTraceability(env, wsId, [row])).get(row.id);
       if (t) projected.traceability = t;

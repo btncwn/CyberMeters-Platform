@@ -346,11 +346,11 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 123 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 158 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 225 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 267 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 285 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 162 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 197 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 264 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 307 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 325 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/mcp-oauth-browser.js`
 

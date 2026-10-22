@@ -781,6 +781,33 @@ await import("./remote-admin-exposure-fixture.js");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
+// ── Case condition projection (22 Oct 2026, additive API fields) ─────────────
+// GET /cases/:caseId gains condition_state + last_observed_absent_at, read from
+// the condition the case links to, workspace-scoped.
+{
+  const { caseConditionProjection } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "managed-cases.js")).href);
+  const lifecycle = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "website-security-lifecycle.js")).href);
+  seedWorkspace("ws_proj", "dom_proj", "proj-example.com");
+  db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='ws_proj'").run();
+  const core = { dns: { resolves: true }, ssl: { https_available: true }, headers: { final_https: true, status_code: 200 } };
+  const hsts = { id: "header_missing_strict_transport_security", module: "headers", severity: "high", title: "HSTS not configured", finding_type: "finding", score_impact: -10 };
+  const run = (id, findings) => lifecycle.evaluateWebsiteSecurityForScan(env, { workspace_id: "ws_proj", domain_id: "dom_proj", domain: "proj-example.com",
+    scan_id: `proj_${id}`, findings, modules: core, scanQuality: { status: "complete", modules_skipped: [] } });
+  await run("s0", []); await run("s1", [hsts]);
+  const kase = db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws_proj'").get();
+  const open = await caseConditionProjection(env, "ws_proj", kase);
+  ok("projection: an open condition reads observed, with no absence time", open.condition_state === "observed" && open.last_observed_absent_at === null, JSON.stringify(open));
+  await run("s2", []);
+  const fixed = await caseConditionProjection(env, "ws_proj", kase);
+  ok("projection: a resolved condition reads no_longer_observed with when it was observed absent",
+    fixed.condition_state === "no_longer_observed" && typeof fixed.last_observed_absent_at === "string", JSON.stringify(fixed));
+  ok("projection: the case itself is still 'detected' (the customer has not marked it ready)", kase.status === "detected");
+  const foreign = await caseConditionProjection(env, "ws_case", kase);
+  ok("projection: another workspace reads nothing (tenant isolation)", foreign.condition_state === null && foreign.last_observed_absent_at === null);
+  const other = await caseConditionProjection(env, "ws_case", { case_type: "asm_exposure", finding_id: "x" });
+  ok("projection: a case type without a linked condition reads null", other.condition_state === null);
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
