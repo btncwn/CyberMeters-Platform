@@ -57,6 +57,8 @@ export interface ApiError extends Error {
   report_availability?: ReportAvailability;
   /** Canonical domain-verification outcome from POST /domains/:id/verify (e.g. 'no_token'). */
   outcome?: string;
+  /** Network target refused for scope (POST /network-targets): whether a declared-range grant may be offered. */
+  range_consent?: 'required' | 'not_grantable_shared';
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────

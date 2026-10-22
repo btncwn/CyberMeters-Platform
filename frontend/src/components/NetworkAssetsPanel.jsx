@@ -4,6 +4,8 @@ import { api } from '../api'
 import LiveTlsEvidence from './LiveTlsEvidence'
 import { formatDate, parseServerDate } from '../utils/dates'
 import InternalIdCopyButton from './InternalIdCopyButton'
+import NetworkRangeConsentForm, { DECLARED_RANGE_TEXT, SHARED_REFUSAL_TEXT } from './NetworkRangeConsentForm'
+import { useAppDialog } from './AppDialog'
 
 const OBSERVATION_LABELS = { open: 'Open', closed: 'Closed', timeout: 'No answer', error: 'Measurement failed', not_run: 'Not run' }
 const RUN_LABELS = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed' }
@@ -148,6 +150,9 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   const [target, setTarget] = useState('')
   const [label, setLabel] = useState('')
   const [authorized, setAuthorized] = useState(false)
+  // A scope refusal on Add: { kind: 'required' | 'not_grantable_shared', target, label }.
+  const [rangeRefusal, setRangeRefusal] = useState(null)
+  const dialog = useAppDialog()
   const [ports, setPorts] = useState([])
   const portsInitialized = useRef(null)
   const [detail, setDetail] = useState(null)
@@ -186,7 +191,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   useEffect(() => {
     const controller = new AbortController()
     detailRequest.current += 1
-    setDetail(null); setMessage(null); setError(null); setTarget(''); setLabel(''); setAuthorized(false); setTab('targets'); setBusy(false); setLoadingMore(false); setSuggestions(null)
+    setDetail(null); setMessage(null); setError(null); setTarget(''); setLabel(''); setAuthorized(false); setRangeRefusal(null); setTab('targets'); setBusy(false); setLoadingMore(false); setSuggestions(null)
     refresh(controller.signal)
     return () => { controller.abort(); loadRequest.current += 1 }
   }, [refresh])
@@ -251,11 +256,55 @@ export default function NetworkAssetsPanel({ workspaceId }) {
     setMessage('Address filled in. Confirm that you own it or have permission to test it, then add it.')
   }
 
+  // Add a target; when it is refused for scope, the refusal decides what comes
+  // next: the declared-range grant form, or a sentence and no form.
+  async function submitTarget(body, success) {
+    if (busy) return null
+    const scope = workspaceId
+    setBusy(true); setMessage(null); setError(null)
+    try {
+      const result = await api.addNetworkTarget(workspaceId, body)
+      if (workspaceRef.current !== scope) return null
+      setRangeRefusal(null); setTarget(''); setLabel(''); setAuthorized(false)
+      setMessage(success)
+      await refresh()
+      return result
+    } catch (failure) {
+      if (workspaceRef.current !== scope) return null
+      if (failure?.range_consent === 'required' || failure?.range_consent === 'not_grantable_shared') {
+        setRangeRefusal({ kind: failure.range_consent, target: body.target, label: body.label || '' })
+      } else setError(failure?.message || 'The request could not be completed.')
+      return null
+    } finally {
+      if (workspaceRef.current === scope) setBusy(false)
+    }
+  }
+
   async function addTarget(event) {
     event.preventDefault()
     if (!authorized || !target.trim() || capabilities.can_manage !== true) return
-    const saved = await act(() => api.addNetworkTarget(workspaceId, { target: target.trim(), authorization_confirmed: true, ...(label.trim() ? { label: label.trim() } : {}) }), 'Network target saved. Authorization is recorded as your declaration.')
-    if (saved && workspaceRef.current === workspaceId) { setTarget(''); setLabel(''); setAuthorized(false) }
+    await submitTarget({ target: target.trim(), authorization_confirmed: true, ...(label.trim() ? { label: label.trim() } : {}) }, 'Network target saved. Authorization is recorded as your declaration.')
+  }
+
+  async function grantRange(consent) {
+    if (!rangeRefusal) return
+    await submitTarget({ target: rangeRefusal.target, authorization_confirmed: true, ...(rangeRefusal.label ? { label: rangeRefusal.label } : {}), range_consent: consent },
+      'Authorisation recorded and target saved. No check was started.')
+  }
+
+  async function revokeRange(row) {
+    const reason = await dialog.prompt({
+      title: `Revoke the authorisation for ${row.target}?`,
+      message: 'CyberMeters will not check these addresses again under this authorisation. The authorisation and its revocation stay on record; results already recorded are kept.',
+      label: 'Reason (optional)',
+      hint: 'Kept with the revocation. Up to 240 characters.',
+      pattern: /^[\s\S]{0,240}$/,
+      patternMessage: 'The reason can be up to 240 characters.',
+      confirmLabel: 'Revoke',
+      tone: 'danger',
+    })
+    if (reason === null) return
+    await act(() => api.revokeNetworkRangeConsent(workspaceId, row.range_consent.id, reason), 'Authorisation revoked. No new check runs under it.')
   }
 
   async function loadMoreAssets() {
@@ -294,7 +343,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
   }
 
   if (!workspaceId) return null
-  return <section id="network-assets" className="card p-5 space-y-4 scroll-mt-24" aria-label="Network assets">
+  return <section id="network-assets" className="card p-5 space-y-4 scroll-mt-24" aria-label="Network assets">{dialog.element}
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h2 className="text-lg font-semibold text-gray-900 ">Network assets</h2><p className="text-sm text-gray-500 mt-1">Public IP addresses and networks you are authorized to test. An open port is an observation, not a vulnerability.</p></div>
       <button className="btn-secondary text-sm" onClick={() => refresh()} disabled={refreshing || busy}>{refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}Refresh network assets</button>
@@ -313,6 +362,8 @@ export default function NetworkAssetsPanel({ workspaceId }) {
           <p className="text-xs text-gray-500">This records your authorization declaration; it is not independent ownership verification.{count(capabilities.limits?.max_addresses) !== null ? ` Up to ${capabilities.limits.max_addresses} public addresses per target.` : ''}</p>
           <button className="btn-primary text-sm" type="submit" disabled={busy || !authorized || !target.trim()}>Add network target</button>
         </form>}
+        {capabilities.can_manage === true && rangeRefusal?.kind === 'not_grantable_shared' && <p role="alert" className="text-sm text-red-700 bg-red-50 rounded-sm p-3" data-testid="range-consent-refused">{SHARED_REFUSAL_TEXT}</p>}
+        {capabilities.can_manage === true && rangeRefusal?.kind === 'required' && <NetworkRangeConsentForm target={rangeRefusal.target} authority={capabilities.range_authority} allowedPorts={allowedPorts} maxPorts={maxPorts} busy={busy} onGrant={grantRange} onCancel={() => setRangeRefusal(null)} />}
         {capabilities.can_scan === true && <fieldset className="space-y-2"><legend className="font-medium text-sm">Ports to check</legend><div className="flex flex-wrap gap-x-4 gap-y-2">{allowedPorts.map(port => <label className="flex items-center gap-1 text-sm" key={port}><input type="checkbox" checked={selectedPorts.includes(port)} onChange={event => setPorts(previous => event.target.checked ? (atPortLimit ? previous : [...new Set([...previous, port])]) : previous.filter(value => value !== port))} disabled={busy || (atPortLimit && !selectedPorts.includes(port))} aria-describedby="network-ports-count" />{port}</label>)}</div>
           {/* The limit is shown as it is reached, and the remaining boxes lock, so
               an over-limit selection can never be made (founder, 22 Oct 2026). */}
@@ -321,7 +372,9 @@ export default function NetworkAssetsPanel({ workspaceId }) {
           {selectedPorts.length === 0 && <p className="text-sm text-brand-700">Select at least one port to check.</p>}
         </fieldset>}
         {!current.targets.length ? <p className="text-sm text-gray-500">No network targets recorded yet.</p> : <div className="relative overflow-x-auto"><table className="data-table w-full min-w-[800px]"><thead><tr><th>Target</th><th>Scope</th><th>Authorization</th><th><span className="sr-only">Scan</span></th></tr></thead><tbody>{current.targets.map(row => <tr key={row.id}>
-          <td className="font-mono text-xs">{row.target}{row.label && <span className="block font-sans text-gray-500">{row.label}</span>}</td><td>{count(row.address_count) === null ? 'Address count not recorded' : `${row.address_count} address${row.address_count === 1 ? '' : 'es'}`}</td><td className="text-xs">{row.authorization_status === 'attested' ? 'Authorization declared' : 'Authorization not established'}<span className="block text-gray-500">{date(row.authorized_at)}</span></td>
+          <td className="font-mono text-xs">{row.target}{row.label && <span className="block font-sans text-gray-500">{row.label}</span>}</td><td>{count(row.address_count) === null ? 'Address count not recorded' : `${row.address_count} address${row.address_count === 1 ? '' : 'es'}`}</td><td className="text-xs">{row.range_consent?.status === 'active'
+            ? <div data-testid="range-consent-active"><p>{DECLARED_RANGE_TEXT}</p><span className="block text-gray-500">{[row.range_consent.signer?.name, row.range_consent.signer?.title].filter(Boolean).join(', ')}{row.range_consent.granted_at ? ` · ${date(row.range_consent.granted_at)}` : ''}{Array.isArray(row.range_consent.ports) && row.range_consent.ports.length ? ` · ports ${row.range_consent.ports.join(', ')}` : ''}</span>{capabilities.can_manage === true && <button type="button" className="btn-secondary text-xs mt-1" disabled={busy} onClick={() => revokeRange(row)}>Revoke</button>}</div>
+            : <>{row.authorization_status === 'attested' ? 'Authorization declared' : 'Authorization not established'}<span className="block text-gray-500">{date(row.authorized_at)}</span></>}</td>
           <td>{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), SCAN_QUEUED_TEXT)}>{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-brand-700 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}</td>
         </tr>)}</tbody></table></div>}
       </div>}
