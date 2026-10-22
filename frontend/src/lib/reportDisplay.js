@@ -47,6 +47,41 @@ export function reportPeriodLabel(report) {
   return day ? `${head} · ${day}` : head
 }
 
+/**
+ * One customer name per report type (design standard §2/§4, 22 Oct 2026): the
+ * picker, the archive and the schedules all read this table, so the backend
+ * key is never title-cased onto the screen. An unknown type reads "Report".
+ */
+export const REPORT_TYPE_LABELS = Object.freeze({
+  manual: 'Current posture',
+  scan_snapshot: 'Single scan',
+  weekly_executive: 'Weekly executive summary',
+  monthly_executive: 'Monthly executive summary',
+  quarterly_executive: 'Quarterly executive summary',
+})
+export function reportTypeLabel(type) {
+  return REPORT_TYPE_LABELS[type] || 'Report'
+}
+
+/**
+ * The archive's Period cell beside its Report type cell: only the period, so
+ * the type is not said twice in one row ("Monthly executive summary" |
+ * "September 2026"). reportPeriodLabel stays the full label (filenames).
+ */
+export function reportPeriodCell(report) {
+  const full = reportPeriodLabel(report)
+  if (!report || typeof report !== 'object') return full
+  const day = fmtDay(report.generated_at || report.created_at)
+  if (report.report_type === 'manual') return day || '—'
+  if (report.report_type === 'scan_snapshot') {
+    const domain = typeof report.domain === 'string' && report.domain ? report.domain : null
+    return [domain, day].filter(Boolean).join(' · ') || '—'
+  }
+  const m = /^(Weekly|Monthly|Quarterly) executive · (.+)$/.exec(full)
+  if (m) return m[1] === 'Weekly' ? m[2].replace(/^week/, 'Week') : m[2]
+  return full
+}
+
 /** Download filename: never an internal id; the period label, made file-safe. */
 export function reportFileName(report) {
   const type = String(report?.report_type || 'report').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
