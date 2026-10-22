@@ -22,17 +22,24 @@ async function bodyJson(request) {
 
 // Customer projection: the engine's scope object keeps signer.user_id as
 // evidence; no raw internal user id ever leaves through this API.
-export const activeCheckConsentProjection = (grant, revocation) => {
+// `authority_text` is the statement stored on the row, so a receipt shows what
+// was agreed even after the current version moves. The signer's IP is evidence
+// for the people who manage the workspace and is returned to them only.
+export const activeCheckConsentProjection = (grant, revocation, { canManage = false } = {}) => {
   const scope = consentScope(grant);
   const { user_id: _userId, ...signer } = scope.signer;
+  if (canManage) signer.ip_address = grant.ip_address || null;
   return {
     id: grant.id,
     ...scope,
     signer,
+    authority_text: grant.authority_text,
     status: revocation ? 'revoked' : 'active',
     revoked_at: revocation?.created_at || null,
+    revocation_reason: revocation?.revocation_reason || null,
   };
 };
+export const REVOCATION_REASON_MAX = 240;
 
 export async function activeCheckConsentRoutes(rctx) {
   const { request, env, url, json, requireAuth, requireWorkspaceRole, serverError } = rctx;
@@ -56,7 +63,7 @@ export async function activeCheckConsentRoutes(rctx) {
       ).bind(workspaceId).all()).results || [];
       const revocations = new Map(rows.filter((r) => r.kind === 'revocation').map((r) => [r.grant_id, r]));
       return json({
-        consents: rows.filter((r) => r.kind === 'grant').map((g) => activeCheckConsentProjection(g, revocations.get(g.id))),
+        consents: rows.filter((r) => r.kind === 'grant').map((g) => activeCheckConsentProjection(g, revocations.get(g.id), { canManage })),
         catalogue: Object.entries(ACTIVE_CHECK_CATALOGUE).map(([id, c]) => ({ id, label: c.label })),
         authority: { version: ACTIVE_CHECK_AUTHORITY_VERSION, text: ACTIVE_CHECK_AUTHORITY_TEXT },
         capabilities: { can_manage: canManage },
@@ -80,20 +87,33 @@ export async function activeCheckConsentRoutes(rctx) {
         "SELECT * FROM active_check_consents WHERE id = ? AND workspace_id = ? AND kind = 'grant' LIMIT 1",
       ).bind(consentId, workspaceId).first();
       if (!grant) return json({ error: 'Consent not found' }, 404);
+      // Optional reason, written once on the revocation row. No body = no reason.
+      const raw = await request.text();
+      let reason = null;
+      if (raw.trim()) {
+        let payload;
+        try { payload = JSON.parse(raw); } catch { return json({ error: 'invalid_json_body' }, 400); }
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some((k) => k !== 'reason')) {
+          return json({ error: 'unsupported_consent_field' }, 400);
+        }
+        if (payload.reason != null && typeof payload.reason !== 'string') return json({ error: 'invalid_revocation_reason' }, 400);
+        reason = (payload.reason || '').trim() || null;
+        if (reason && reason.length > REVOCATION_REASON_MAX) return json({ error: 'invalid_revocation_reason' }, 400);
+      }
       const id = createId('acc');
       const [inserted] = await db.batch([
         db.prepare(`INSERT INTO active_check_consents
-            (id, workspace_id, kind, grant_id, actor_user_id, actor_email, actor_workspace_role, ip_address, user_agent, created_at)
-          SELECT ?, ?, 'revocation', ?, ?, ?, ?, ?, ?, ?
+            (id, workspace_id, kind, grant_id, actor_user_id, actor_email, actor_workspace_role, ip_address, user_agent, revocation_reason, created_at)
+          SELECT ?, ?, 'revocation', ?, ?, ?, ?, ?, ?, ?, ?
            WHERE NOT EXISTS (SELECT 1 FROM active_check_consents WHERE grant_id = ? AND kind = 'revocation')`)
-          .bind(id, workspaceId, grant.id, actor.user_id, actor.email, actor.role, actor.ip, actor.ua, now, grant.id),
+          .bind(id, workspaceId, grant.id, actor.user_id, actor.email, actor.role, actor.ip, actor.ua, reason, now, grant.id),
         db.prepare(`INSERT INTO audit_events (id, workspace_id, user_id, actor_type, event_type, entity_type, entity_id, description, metadata_json, created_at)
           SELECT ?, ?, ?, 'customer', 'active_check_consent_revoked', 'active_check_consent', ?, 'Active check permission revoked', ?, ?
            WHERE changes() = 1`)
-          .bind(createId('audit'), workspaceId, actor.user_id, grant.id, JSON.stringify({ revocation_id: id }), now),
+          .bind(createId('audit'), workspaceId, actor.user_id, grant.id, JSON.stringify({ revocation_id: id, reason_given: Boolean(reason) }), now),
       ]);
       if (inserted?.meta?.changes !== 1) return json({ error: 'consent_already_revoked' }, 409);
-      return json({ consent: activeCheckConsentProjection(grant, { created_at: now, actor_user_id: actor.user_id }) });
+      return json({ consent: activeCheckConsentProjection(grant, { created_at: now, revocation_reason: reason }, { canManage }) });
     }
 
     const body = await bodyJson(request);
@@ -146,7 +166,7 @@ export async function activeCheckConsentRoutes(rctx) {
       const live = await db.prepare('SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL').bind(workspaceId).first();
       return live ? json({ error: 'active_check_consent_limit' }, 429) : json({ error: 'Workspace not found' }, 404);
     }
-    return json({ consent: activeCheckConsentProjection(row, null) }, 201);
+    return json({ consent: activeCheckConsentProjection(row, null, { canManage }) }, 201);
   } catch (error) {
     if (['invalid_json_body', 'request_body_too_large'].includes(error?.message)) return json({ error: error.message }, 400);
     return serverError(error);
