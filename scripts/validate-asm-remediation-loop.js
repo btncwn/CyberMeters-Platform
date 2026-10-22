@@ -595,6 +595,63 @@ await import("./remote-admin-exposure-fixture.js");
   ok("S3-0: tenant isolation holds", (await listManagedCases(env, "ws_case")).every((item) => item.finding_id !== "remote_admin_service_reachable"));
 }
 
+// ── S2-C (22 Oct 2026): what the customer is TOLD about a remote-admin exposure ──
+// The walk above proves the case; this proves the alerts a customer receives.
+// The activation watermark is set in the past, as it is for any workspace whose
+// first scan has already run: real scans are minutes apart, while this harness
+// runs every step within the same second as a lazily created watermark.
+{
+  const engine = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
+  const { runRemoteAdminExposureModule } = await import(engine("remote-admin-exposure.js"));
+  const { computeScore } = await import(engine("scoring.js"));
+  seedWorkspace("ws_net_alert", "dom_net_alert", "alert-net-example.com");
+  db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='ws_net_alert'").run();
+  db.prepare(`INSERT INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+              VALUES ('aa_net_alert', 'ws_net_alert', 'attack_surface', '2026-01-01 00:00:00', 0, '2026-01-01 00:00:00')`).run();
+  const owned = new Map([["81.2.69.161", ["alert-net-example.com"]]]);
+  const run = (state) => runRemoteAdminExposureModule(env,
+    { id: "scan_net_alert", workspace_id: "ws_net_alert", domain_id: "dom_net_alert", domain: "alert-net-example.com" }, {
+      observe: async () => ({ roots: ["alert-net-example.com"], owned, shared: new Map(), lookups_failed: 0 }),
+      collect: async (_env, request) => ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
+        address: target.address, hostname: null, port, transport: "tcp",
+        state: port === 5985 ? state : "closed", service: null, tls: null, reason: null }))) }),
+    });
+  const same = (name, got, want) => ok(name, JSON.stringify(got) === JSON.stringify(want));
+  const told = () => db.prepare(`SELECT type, severity FROM notification_events WHERE workspace_id='ws_net_alert' ORDER BY rowid`).all();
+  const inApp = (kind) => db.prepare(`SELECT outcome, reason FROM alert_deliveries
+    WHERE workspace_id='ws_net_alert' AND channel='in_app' AND alert_kind=? ORDER BY rowid`).all(kind);
+
+  const scored = computeScore({ dns: { resolves: true, has_mx: true }, remote_admin_exposure: await run("open") }, "alert-net-example.com");
+  const finding = scored.findings.filter((item) => item.id === "remote_admin_service_reachable");
+  ok("S2-C: a newly open remote-admin port is one high finding", finding.length === 1 && finding[0].severity === "high");
+  await createManagedAsmCasesForScan("scan_net_alert_1", "dom_net_alert", "alert-net-example.com", finding, scored.recommendations, env);
+  const [opened] = await listManagedCases(env, "ws_net_alert");
+  same("S2-C: the customer is told once, at HIGH, that the case opened", told(), [{ type: "attack_surface.case_opened", severity: "high" }]);
+  same("S2-C: ...delivered in-app", inApp("attack_surface.case_opened").map((r) => r.outcome), ["delivered"]);
+  const alert = JSON.parse(db.prepare(`SELECT metadata_json FROM notification_events WHERE workspace_id='ws_net_alert'`).get().metadata_json);
+  same("S2-C: ...linked to the case and the canonical remediation", [alert.case_id, alert.remediation_id], [opened.id, "asm.network.remote_admin_reachable"]);
+
+  // The same exposure on the next scan: the open case absorbs it, nobody is told twice.
+  await createManagedAsmCasesForScan("scan_net_alert_2", "dom_net_alert", "alert-net-example.com", finding, scored.recommendations, env);
+  same("S2-C: a persisting exposure does not alert again", told().length, 1);
+
+  // The port closes and a complete re-check proves it: the customer hears it was resolved.
+  let row = await getManagedCase(env, "ws_net_alert", opened.id);
+  row = (await transitionManagedCase(env, row, "triage", { actor_type: "customer", actor_id: "u" })).case;
+  row = (await assignManagedCaseOwner(env, row, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "u" })).case;
+  row = (await transitionManagedCase(env, row, "remediation_in_progress", { actor_type: "customer", actor_id: "u" })).case;
+  row = (await transitionManagedCase(env, row, "verification_requested", { actor_type: "customer", actor_id: "u", action: "fix_completed" })).case;
+  await verifyManagedAsmCasesForScan("scan_net_alert_3", "dom_net_alert", "alert-net-example.com", [], env,
+    { modules: { remote_admin_exposure: await run("closed") }, scanQuality: { status: "complete", modules_skipped: [] } });
+  ok("S2-C: the closure resolves the case", (await getManagedCase(env, "ws_net_alert", opened.id)).status === "resolved");
+  same("S2-C: the customer is told it was resolved", told().map((r) => r.type), ["attack_surface.case_opened", "attack_surface.case_resolved"]);
+
+  // It opens again: reopened, and the customer is told.
+  await createManagedAsmCasesForScan("scan_net_alert_4", "dom_net_alert", "alert-net-example.com", finding, [], env);
+  same("S2-C: re-exposure reopens and alerts", told().map((r) => r.type), ["attack_surface.case_opened", "attack_surface.case_resolved", "attack_surface.case_reopened"]);
+  ok("S2-C: ...the reopen alert is HIGH again", told().at(-1).severity === "high");
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
