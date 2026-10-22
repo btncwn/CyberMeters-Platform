@@ -228,6 +228,9 @@ test('Network assets: no probe key on screen; the port limit cannot be passed', 
   await page.getByRole('tab', { name: 'Findings' }).click()
   const fieldset = page.locator('fieldset', { hasText: 'Ports to check' })
   const boxes = fieldset.getByRole('checkbox')
+  // count() does not wait: wait until every offered port is on screen first.
+  await expect(page.getByTestId('network-ports-count')).toHaveText(/^2 of 16 selected/)
+  await expect(boxes).toHaveCount(ports.length)
   for (let i = 0; i < await boxes.count(); i++) { const box = boxes.nth(i); if (await box.isEnabled() && !(await box.isChecked())) await box.check() }
   await expect(page.getByTestId('network-ports-count')).toHaveText(/^16 of 16 selected/)
   await expect(fieldset.locator('input[type="checkbox"]:checked')).toHaveCount(16)
