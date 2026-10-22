@@ -579,6 +579,58 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     managed_workflow_compatible: true,
     case_type: "asm_exposure",
   }),
+  // An unconfirmed candidate (21 Oct 2026): the record points at a provider
+  // where an unclaimed account can be taken over, but the provider withheld the
+  // page that would confirm it. Hedged; never "no longer claimed".
+  entry({
+    remediation_id: "asm.subdomain.takeover_unconfirmed",
+    domain_key: "attack_surface",
+    finding_types: ["subdomain_takeover_unconfirmed"],
+    customer_title: "Confirm or remove DNS records that point at external services",
+    technical_explanation: "A DNS record points at an external service where an unclaimed account could be taken over by someone else. The service withheld the page that would show whether it is claimed, so CyberMeters could not confirm either way.",
+    business_impact: "If the service is no longer yours, someone who claims it could serve content from a hostname your customers trust.",
+    recommended_action: "Check whether you still use the external service this record points at. If you do not, remove the record or repoint it.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "The record is removed or repointed, or the service is confirmed as yours, on a fresh scan.",
+    supporting_evidence_types: ["dns_lookup", "http_probe"],
+  }),
+  // Remote administration and data services reachable from the internet on
+  // the domain's own addresses (S3-0, 22 Oct 2026). Observation is a TCP
+  // connect plus any banner the service sends; no sign-in was attempted.
+  entry({
+    remediation_id: "asm.network.remote_admin_reachable",
+    domain_key: "attack_surface",
+    finding_types: ["remote_admin_service_reachable"],
+    customer_title: "Close remote administration and database ports to the internet",
+    technical_explanation: "A remote administration, file-sharing or database port on an address your domain points at accepted a connection from the internet. CyberMeters connected only; it did not try to sign in.",
+    business_impact: "Services like Remote Desktop, SMB, VNC and databases are among the most common ways attackers get in when they are reachable from anywhere.",
+    recommended_action: "Close each listed port to the internet at the firewall, or allow it only from a VPN or a short allow-list of known addresses. Disable the service where it is not needed.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "A fresh scan that checks every owned address finds the listed ports closed to the internet.",
+    supporting_evidence_types: ["network_port_observation"],
+    managed_workflow_compatible: true,
+    case_type: "asm_exposure",
+  }),
+  entry({
+    remediation_id: "asm.network.ftp_reachable",
+    domain_key: "attack_surface",
+    finding_types: ["ftp_service_reachable"],
+    customer_title: "Replace or restrict internet-facing FTP",
+    technical_explanation: "An FTP service on an address your domain points at accepted a connection from the internet. Plain FTP sends sign-in details unencrypted. CyberMeters connected only; it did not try to sign in.",
+    business_impact: "Sign-in details sent without encryption can be captured, and a reachable file service is a direct target.",
+    recommended_action: "Switch to an encrypted transfer service (SFTP or FTPS) and close plain FTP to the internet, or allow it only from known addresses.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "A fresh scan that checks every owned address finds the FTP port closed to the internet.",
+    supporting_evidence_types: ["network_port_observation"],
+    managed_workflow_compatible: true,
+    case_type: "asm_exposure",
+  }),
   entry({
     remediation_id: "asm.subdomain.sensitive",
     domain_key: "attack_surface",

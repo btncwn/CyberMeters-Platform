@@ -43,6 +43,7 @@ import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishable
 import { persistFindingsWithIdentity } from "./finding-identity.js";
 import { runEmailIntelModule } from "./email-intel.js";
 import { runMailTransportModule } from "./mail-transport.js";
+import { runRemoteAdminExposureModule } from "./remote-admin-exposure.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
 import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
@@ -224,12 +225,30 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // is not a gap in OUR assessment. The module record stays incomplete with its
   // reason; the scan lists it as a stated limit instead of turning partial.
   // Technology is not score-bearing; every other reason or module still counts.
-  const isStatedAccessLimit = (name, value) =>
-    name === "technology_detection" && value?.incomplete === true &&
-    value?.incomplete_reason === "origin_access_restricted";
+  // Subdomain takeover (22 Oct 2026, Executive): a candidate whose provider
+  // answered the confirming probe with its access-restricted page is reported
+  // as a hedged finding (subdomain_takeover_unconfirmed, scoring.js), so the
+  // coverage is stated, not missing. Only when that is the module's SOLE
+  // reason and EVERY unconfirmed row is origin_access_restricted; truncation,
+  // lookup failure or any fetch/refusal still makes the scan partial.
+  const takeoverWithheldOnly = (value) => {
+    const reasons = Array.isArray(value?.incomplete_reasons) ? value.incomplete_reasons : [value?.incomplete_reason];
+    const rows = Array.isArray(value?.unconfirmed) ? value.unconfirmed : [];
+    return !value?.error && reasons.length === 1 && reasons[0] === "host_probe_unconfirmed" &&
+      rows.length > 0 && rows.every((row) => row?.reason === "origin_access_restricted" && row.host && row.cname);
+  };
+  // Remote-admin exposure (S3-0) is supplementary: its gaps (address cap,
+  // deadline, lookup or probe unavailable) are stated, never a partial scan.
+  // The module stays incomplete, so it can never close a case it did not
+  // fully re-check (asm-cases.js moduleCompletionGate).
+  const isStatedAccessLimit = (name, value) => value?.incomplete === true && (
+    name === "remote_admin_exposure" ||
+    (name === "technology_detection" && value?.incomplete_reason === "origin_access_restricted") ||
+    (name === "subdomain_takeover" && takeoverWithheldOnly(value)));
   const statedLimits = Object.entries(modules)
     .filter(([name, value]) => isStatedAccessLimit(name, value))
-    .map(([name, value]) => ({ module: name, reason: value.incomplete_reason }));
+    .map(([name, value]) => ({ module: name,
+      reason: name === "subdomain_takeover" ? "origin_access_restricted" : value.incomplete_reason || value.error || null }));
   const incompleteModules = Object.entries(modules)
     .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
     .filter(([name, value]) => !isStatedAccessLimit(name, value))
@@ -1499,6 +1518,21 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() }))
         .finally(() => clearTimeout(mailTransportTimeout))
       : null;
+    // S3-0: remote-administration ports on the addresses this verified
+    // domain's DNS points at. One bounded collector call, launched alongside.
+    const remoteAdminController = workspaceId && env.NETWORK_PROBE?.fetch ? createChildSignal() : null;
+    const remoteAdminOutbound = remoteAdminController
+      ? outboundContext("remote_admin_exposure", remoteAdminController.signal) : null;
+    const remoteAdminTimeout = remoteAdminController
+      ? setTimeout(() => remoteAdminController.abort("remote_admin_deadline"), 33_000) : null;
+    const remoteAdminPromise = remoteAdminController
+      ? runRemoteAdminExposureModule(env, { id: scanId, domain_id: domainId, workspace_id: workspaceId, domain }, {
+          signal: remoteAdminController.signal,
+          accounting: remoteAdminOutbound,
+        }).catch(() => ({ source: "remote_admin_exposure", state: "not_assessed", reason: "probe_unavailable", exposures: [],
+          incomplete: true, incomplete_reason: "probe_unavailable", error: "probe_unavailable", observed_at: new Date(now()).toISOString() }))
+        .finally(() => clearTimeout(remoteAdminTimeout))
+      : null;
     if (liveTlsPromise) sslResult = attachLiveTlsToSsl(sslResult, await liveTlsPromise);
 
     emailResult = applyDmarcbisEmailCompatibilityProjection(
@@ -1818,6 +1852,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // so its outbound count is final whatever the security outcome. Without
     // this the RFC 9990 launch gate read it as an unsettled leaf on every scan.
     mailTransportOutbound?.markSettled();
+    if (remoteAdminPromise) {
+      modules.remote_admin_exposure = await remoteAdminPromise;
+      remoteAdminOutbound?.markSettled();
+    } else {
+      modules.remote_admin_exposure = { source: "remote_admin_exposure", state: "not_assessed", reason: "verified_workspace_required",
+        exposures: [], incomplete: false, incomplete_reason: null, error: null, observed_at: new Date(now()).toISOString() };
+    }
     // One module never stands in as the completion guard for the other:
     //   • the intelligence module proves its OWN completion — deferred, errored
     //     or skipped intel evidence is non-publishable and must not fabricate

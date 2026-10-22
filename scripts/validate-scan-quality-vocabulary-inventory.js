@@ -195,9 +195,10 @@ const EXPECTED = Object.freeze({
     // sql_static_sites, sql_query_sink_sites and sql_projection_sites 0 added / 0 removed,
     // one runtime comparison differs only in byte offsets. Counts unchanged.
     // BRI 2026-10-21.2: removing the inventory and no-vendor deductions moves business-risk.js SQL sites; keyed two-tree diff (origin/main vs this head) shows 0 entries added or removed.
-    fingerprint: "24ab563a03f9cd2ea484a91bea865fdc557551bb6276d447d2683dbea0591cb2",
+    // BRI summary from the band (21 Oct 2026): business-risk.js SQL sites move; keyed two-tree diff shows 0 added / 0 removed.
+    fingerprint: "6fd2f4afe3092586ba5611233d46c5cc153b8b14fc13ba9dd8c2ad3b651bf6a5",
     resolved_query_sink_count: 22,
-    resolved_query_sink_fingerprint: "c0f6e9c32fbd1ed30a470417e558ed4af906d8480c14a73078e27c32a1ca2623",
+    resolved_query_sink_fingerprint: "63df2a23ba6ed05bbf0aacb97bd749e56b5257a3f680833d8e901c7ace243d76",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -231,7 +232,8 @@ const EXPECTED = Object.freeze({
     // validator; runtime comparison membership remains 59 across 26 files.
     // 451 access-restricted (21 Oct 2026): validate-p1-serviceability-contract.js GATE 2b adds one governed comparison (r.scan_quality.status !== "complete"); 84 -> 85, files unchanged; keyed two-tree diff shows no other change.
     // Stated access limit (21 Oct 2026): validate-https-observation-deadline-lifecycle.js asserts withheld.status === "complete" (one governed comparison); 85 -> 86, files unchanged; keyed two-tree diff shows no other change.
-    comparison_occurrences: 86,
+    // Takeover stated limit (22 Oct 2026): the same validator asserts a second withheld.status === "complete"; keyed two-tree diff shows exactly that one added, 86 -> 87.
+    comparison_occurrences: 87,
     source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -251,7 +253,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "c00094a6f341b9f5dfae0dd941e654591c7ad800faa19313a108d1ee04c362cf",
+    fingerprint: "4b28f484a298430da82185e864a9c9675a85f4e120edb62e50c5bc936c2aa068",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -480,8 +482,9 @@ const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
 // a move, duplicate or wording change fails the classification gate.
 const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
   // 248 -> 249: the shared date import follows the score-honesty import from main.
+  // 249 -> 251: the shared customer-code import and a comment line above it.
   // The unchanged blank-coverage check still makes no security verdict.
-  ["frontend/src/components/ExecutiveReportV2.jsx:249:value !== ''",
+  ["frontend/src/components/ExecutiveReportV2.jsx:251:value !== ''",
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;

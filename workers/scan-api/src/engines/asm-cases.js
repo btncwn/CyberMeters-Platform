@@ -38,6 +38,8 @@ const ASM_MODULES = new Set([
   "cloud_storage_discovery",
   "asset_exposure",
   "domain_security_enrichment",
+  // S3-0 (22 Oct 2026): remote-administration ports on the domain's own addresses.
+  "remote_admin_exposure",
 ]);
 
 function safeJson(value, fallback = null) {

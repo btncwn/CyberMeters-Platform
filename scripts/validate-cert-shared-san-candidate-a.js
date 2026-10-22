@@ -653,8 +653,14 @@ const parity = states.map(parityOutputs);
 // Public identity metadata guidance adds only the frozen registry stamp here
 // (r111-368754e2 -> r112-286dce37). Predecessor-registry substitution reproduces
 // both prior report hashes; the certificate evidence hash stays unchanged.
-const GOLDEN_F13 = "89e9e4efc0351893af231b1220903131cc8eb433b72f91c4669a69d1f31dd92d";
-const GOLDEN_F14 = "b1b96ef306129c799631c0fd308f80bde5040e103059d0722959aa8b88a45052";
+// The unconfirmed takeover-candidate entry (21 Oct 2026) adds one more and moves
+// only the fingerprint (r112-286dce37 -> r113-1a7ce169); with ONLY the registry reverted to
+// its predecessor both prior hashes (89e9e4ef… / b1b96ef3…) reproduce.
+// S3-0 remote-admin entries (22 Oct 2026) add two more and move only the
+// fingerprint (r113-1a7ce169 -> r115-64a2e4fd); with ONLY the registry reverted to its
+// predecessor both prior hashes (9c021774… / 7eb2b55a…) reproduce.
+const GOLDEN_F13 = "1d68563a238a69fc5ee2850424089d55a8fc5505337ab31461fa110f01ee2bc5";
+const GOLDEN_F14 = "a2596c0ded3ab9307c9c469b16e6663aefabc0ef8bc81e1a410045efcc03cee2";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

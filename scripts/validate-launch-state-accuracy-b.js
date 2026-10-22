@@ -694,6 +694,20 @@ for (const [name, partial] of [
         mutant.deriveScanBusinessRisk({ findings, modules }).categories.attack_surface_exposure.score === baseline.score);
     } finally { fsm.rmSync(dir, { recursive: true, force: true }); }
   }
+  // One object, one verdict (21 Oct 2026): the sentence follows the band and
+  // names the same top risks the header shows.
+  {
+    const { computeBusinessRiskScore } = await import(engine("business-risk.js"));
+    const moderate = computeBusinessRiskScore(new Set(["email_missing_dmarc", "header_missing_strict_transport_security"]), {});
+    check("BRI moderate band with two top risks: the sentence says moderate and names both",
+      moderate.band === "Moderate Business Risk" && /^Business risk is moderate\./.test(moderate.summary) &&
+      moderate.top_business_risks.slice(0, 2).every((risk) => moderate.summary.includes(risk.title)) &&
+      !/no major gaps|low risk/i.test(moderate.summary), `${moderate.score} ${moderate.band} | ${moderate.summary}`);
+    const clean = computeBusinessRiskScore(new Set(), {});
+    check("BRI low band with no top risk: the sentence says low and no major gaps",
+      clean.band === "Low Business Risk" && /^Business risk is low\. No major gaps detected/.test(clean.summary),
+      `${clean.score} ${clean.band} | ${clean.summary}`);
+  }
   const { readFileSync } = await import("node:fs");
   const engineSource = readFileSync(new URL(engine("scan-engine.js")), "utf8");
   check("CM-P1-013 the scan-engine BRS passes the HSTS finding's severity",

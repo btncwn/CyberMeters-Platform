@@ -588,6 +588,10 @@ export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
   // through dnsQuery, and one private-probe fetch per tested host), and the
   // engine awaits it before the RFC 9990 launch gate, then settles it.
   "mail_transport",
+  // Same shape (S3-0): its owned-address DNS lookups go through dnsQuery with
+  // its accounting, its one probe fetch is recorded first, and the engine
+  // awaits and settles it alongside mail_transport, before the launch gate.
+  "remote_admin_exposure",
 ]));
 
 export function createOutboundAccounting() {

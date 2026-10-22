@@ -295,12 +295,73 @@ ok("unauthenticated is rejected (401)", (await call("GET", BASE)).status === 401
   ok("proof site: no form, no script, no input", !/<form|<script|<input/i.test(page.body));
   ok("proof site: HSTS present by default, with the other security headers", page.hsts === "max-age=31536000" && /default-src 'none'/.test(page.csp || ""));
   ok("proof site: HSTS absent only while SITE_PROOF_HSTS=off", (await get("sheshire.co.uk", "/", { e: { ...env, SITE_PROOF_HSTS: "off" } })).hsts === null);
-  for (const p of ["/login", "/health", "/api/auth/me", "/.well-known/mta-sts.txt", "/?x=1", "/cybermeters-verification-abc12345.html"]) {
+  for (const p of ["/health", "/api/auth/me", "/.well-known/mta-sts.txt", "/?x=1", "/login?next=/", "/account/other", "/cybermeters-verification-abc12345.html"]) {
     ok(`proof site host: ${p} is 404`, (await get("sheshire.co.uk", p)).status === 404);
   }
   ok("proof site host: only GET/HEAD", (await get("sheshire.co.uk", "/", { method: "POST" })).status === 404);
   ok("proof site: only the apex — www.sheshire.co.uk is not this host", site.isSiteProofHost(new URL("https://www.sheshire.co.uk/")) === false
     && site.isSiteProofHost(new URL("https://account.sheshire.co.uk/")) === false && site.isSiteProofHost(new URL("https://sheshire.co.uk/")) === true);
+}
+
+// ── 9. The proof site's test sign-in (S2-B signed-in scanning proof) ─────────
+{
+  const site = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "site-proof.js")).href);
+  const account = { SITE_PROOF_USERNAME: "proof-user", SITE_PROOF_PASSWORD: "proof-pass-123", SITE_PROOF_SESSION_KEY: "k".repeat(32) };
+  const e = { ...env, ...account };
+  const go = async (p, { method = "GET", body, cookie, en = e } = {}) => {
+    const headers = {};
+    if (cookie) headers.Cookie = cookie;
+    if (body) headers["Content-Type"] = "application/x-www-form-urlencoded";
+    const res = await worker.default.fetch(new Request(`https://sheshire.co.uk${p}`, { method, headers, body }), en, ctx);
+    return { status: res.status, location: res.headers.get("location"), cookie: res.headers.get("set-cookie"), csp: res.headers.get("content-security-policy"), body: await res.text() };
+  };
+  const login = await go("/login");
+  ok("sign-in: /login is one username/password form, marked as a test", login.status === 200 && /CyberMeters test page/.test(login.body)
+    && (login.body.match(/<form/g) || []).length === 1 && /type="password"/.test(login.body) && /name="username"/.test(login.body));
+  ok("sign-in: the form may post only to this site", /form-action 'self'/.test(login.csp || ""));
+  const good = new URLSearchParams({ username: "proof-user", password: "proof-pass-123" }).toString();
+  const wrong = await go("/login", { method: "POST", body: new URLSearchParams({ username: "proof-user", password: "nope" }).toString() });
+  ok("sign-in: a wrong password is refused, with no session", wrong.status === 401 && !wrong.cookie);
+  const unset = await go("/login", { method: "POST", body: good, en: env });
+  ok("sign-in: without the account secrets every sign-in is refused", unset.status === 401 && !unset.cookie);
+  const literal = await go("/login", { method: "POST", body: new URLSearchParams({ username: "undefined", password: "undefined" }).toString(), en: env });
+  ok("sign-in: without the secrets, 'undefined' is not a password", literal.status === 401 && !literal.cookie);
+  const signed = await go("/login", { method: "POST", body: good });
+  ok("sign-in: the test account signs in → /account", signed.status === 303 && signed.location === "/account");
+  ok("sign-in: the session cookie is HttpOnly, Secure, SameSite and expiring", /HttpOnly/.test(signed.cookie || "") && /Secure/.test(signed.cookie || "")
+    && /SameSite=Lax/.test(signed.cookie || "") && /Max-Age=3600/.test(signed.cookie || ""));
+  const jar = (signed.cookie || "").split(";")[0];
+  for (const p of ["/account", "/account/details"]) {
+    const anon = await go(p);
+    ok(`sign-in: ${p} sends an anonymous visitor to /login`, anon.status === 303 && anon.location === "/login");
+    const authed = await go(p, { cookie: jar });
+    ok(`sign-in: ${p} shows the signed-in text with the session`, authed.status === 200 && /Signed in to the CyberMeters test account/.test(authed.body));
+  }
+  ok("sign-in: a tampered session is refused", (await go("/account", { cookie: jar.replace(/.$/, (c) => (c === "0" ? "1" : "0")) })).status === 303);
+  const expired = await site.siteProofSessionCookie(e, Date.now() - 2 * 3600_000);
+  ok("sign-in: an expired session is refused", (await go("/account", { cookie: expired.split(";")[0] })).status === 303);
+  ok("sign-in: another key cannot mint a session", (await go("/account", { cookie: jar, en: { ...e, SITE_PROOF_SESSION_KEY: "x".repeat(32) } })).status === 303);
+  ok("sign-in: signed-in pages carry the same security headers", /default-src 'none'/.test((await go("/account", { cookie: jar })).csp || ""));
+
+  // The product's own sign-in engine and signed-in scan, against this site.
+  const { signIn } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "website-sign-in.js")).href);
+  const { runSignedInScan } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "website-signed-in-scan.js")).href);
+  const fetchImpl = async (url, init = {}) => {
+    const u = new URL(url);
+    const res = u.hostname === "sheshire.co.uk"
+      ? await worker.default.fetch(new Request(url, { method: init.method || "GET", headers: init.headers || {}, body: init.body ?? undefined, redirect: "manual" }), e, ctx)
+      : new Response("<html>another site</html>", { status: 200, headers: { "content-type": "text/html" } });
+    Object.defineProperty(res, "url", { value: url });
+    return res;
+  };
+  const profile = { method: "form", login_url: "https://sheshire.co.uk/login", start_url: "https://sheshire.co.uk/account", signed_in_text: "Signed in to the CyberMeters test account" };
+  const proven = await signIn("sheshire.co.uk", profile, { username: "proof-user", password: "proof-pass-123" }, { fetchImpl });
+  ok("engine: the product's sign-in is PROVEN against the proof site", proven.outcome === "signed_in", JSON.stringify(proven.detail));
+  ok("engine: a wrong password is reported as rejected", ["credentials_rejected", "session_rejected"].includes(
+    (await signIn("sheshire.co.uk", profile, { username: "proof-user", password: "nope" }, { fetchImpl })).outcome));
+  const scan = await runSignedInScan("sheshire.co.uk", profile, { username: "proof-user", password: "proof-pass-123" }, { fetchImpl });
+  const paths = (scan?.result?.pages || scan?.pages || []).map((pg) => pg.path);
+  ok("engine: the signed-in scan observes both signed-in pages", paths.includes("/account") && paths.includes("/account/details"), JSON.stringify(scan).slice(0, 600));
 }
 
 console.log(`\nHosted MTA-STS: ${pass}/${pass + fail} passed`);
