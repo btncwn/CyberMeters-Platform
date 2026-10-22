@@ -2,6 +2,7 @@ import { formatReportDay as formatDay, formatReportTime as formatDate, REPORT_TI
 import { parseServerDate } from '../utils/dates'
 import { customerCodeLabel } from '../lib/customerReasonText'
 import SignedInScanningSummary from '../components/SignedInScanningSummary'
+import { interruptedScanCopy } from '../lib/scanDuration'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
@@ -1354,6 +1355,7 @@ export default function ScanDetail() {
   const [scan,          setScan]          = useState(null)
   // The API's live progress for a scan in flight (stage, heartbeat, quiet).
   const [scanLiveProgress, setScanLiveProgress] = useState(null)
+  const interrupted = scan?.status === 'failed' ? interruptedScanCopy(scanLiveProgress) : null
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
   const [refreshing,    setRefreshing]    = useState(false)
@@ -1792,13 +1794,30 @@ export default function ScanDetail() {
                   </div>
                 ) : null
               ) : scan.status === 'failed' ? (
-                <div className="card flex flex-col sm:flex-row sm:items-start gap-3 px-6 py-6">
+                <div className="card flex flex-col sm:flex-row sm:items-start gap-3 px-6 py-6" data-testid="scan-failed">
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-gray-900">This scan didn't finish</p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Something interrupted the assessment before it could complete. This is usually temporary —
-                      running a new scan for <span className="font-medium text-gray-700">{scan.domain}</span> normally resolves it.
-                    </p>
+                    {interrupted ? (
+                      <>
+                        {/* #880: a failed scan keeps what it completed. Said as
+                            such, never as an assessment of the domain. */}
+                        <p className="font-bold text-sm text-gray-900" data-testid="scan-interrupted-heading">{interrupted.heading}</p>
+                        {interrupted.stage && <p className="text-sm text-gray-700 mt-1">{interrupted.stage}</p>}
+                        {interrupted.modules
+                          ? <ul className="text-sm text-gray-700 mt-2 list-disc pl-5" aria-label="Checks that completed">{interrupted.modules.map((m) => <li key={m}>{m}</li>)}</ul>
+                          : <p className="text-sm text-gray-600 mt-1">{interrupted.namesNote}</p>}
+                        <p className="text-sm text-gray-500 mt-2">
+                          These partial checks are not an assessment of <span className="font-medium text-gray-700">{scan.domain}</span>. Running a new scan normally completes it.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-bold text-sm text-gray-900">This scan didn't finish</p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          Something interrupted the assessment before it could complete. This is usually temporary —
+                          running a new scan for <span className="font-medium text-gray-700">{scan.domain}</span> normally resolves it.
+                        </p>
+                      </>
+                    )}
                     <button onClick={() => navigate('/scans/new')} className="btn-primary mt-4">
                       Run a new scan
                     </button>
