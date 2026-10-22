@@ -103,14 +103,41 @@ export async function assessmentEvidenceForWindow(env, workspaceId) {
     .catch(() => null);
   const complete = Number(row?.complete_scans ?? 0);
   const completed = Number(row?.completed_scans ?? 0);
+
+  // CM-4: one digest covers the whole workspace, so one domain's complete scan
+  // must not vouch for another. Each monitored domain needs its own complete
+  // scan in the window (same tenant-safe attribution as above). A failed read
+  // is unknown coverage, never "every domain assessed".
+  const domainRows = await env.cybermeters_db
+    .prepare(
+      `SELECT wd.domain_id, COALESCE(d.domain, wd.domain_id) AS domain,
+              EXISTS (SELECT 1 FROM scans s
+                       WHERE s.domain_id = wd.domain_id AND s.status = 'completed'
+                         AND s.scan_quality = 'complete' AND s.created_at > datetime('now', '-7 days')
+                         AND (s.workspace_id = ? OR s.workspace_id IS NULL)) AS complete
+         FROM workspace_domains wd LEFT JOIN domains d ON d.id = wd.domain_id
+        WHERE wd.workspace_id = ?
+        ORDER BY domain`
+    )
+    .bind(workspaceId, workspaceId)
+    .all()
+    .then((r) => r?.results || [])
+    .catch(() => null);
+  const notAssessed = domainRows ? domainRows.filter((d) => !Number(d.complete)).map((d) => String(d.domain)) : null;
+  const everyDomain = notAssessed !== null && notAssessed.length === 0;
   return {
     complete_scans: complete,
     completed_scans: completed,
-    // The three honest states, kept distinct:
-    //   complete_assessment  — full evidence exists; quiet may be called stable
-    //   partial_only         — something ran but full evidence never landed
-    //   no_assessment        — nothing completed at all
-    coverage: complete > 0 ? "complete_assessment" : completed > 0 ? "partial_only" : "no_assessment",
+    monitored_domains: domainRows ? domainRows.length : null,
+    not_assessed_domains: notAssessed,
+    // The honest states, kept distinct:
+    //   complete_assessment    — every monitored domain has full evidence; quiet may be called stable
+    //   some_domains_assessed  — full evidence for some domains only; the others are named
+    //   partial_only           — something ran but full evidence never landed
+    //   no_assessment          — nothing completed at all
+    coverage: complete > 0
+      ? (everyDomain ? "complete_assessment" : "some_domains_assessed")
+      : completed > 0 ? "partial_only" : "no_assessment",
   };
 }
 
@@ -336,6 +363,15 @@ function withFirstObservations(email, changes, origin, workspaceId) {
   return { ...email, text: `${email.text}${text}`, html: `${email.html}${html}` };
 }
 
+// The domains a digest could not vouch for, named (bounded so a large MSP
+// workspace stays readable; the timeline lists every domain).
+function missingLine(domains) {
+  const shown = domains.slice(0, 10).join(", ");
+  const more = domains.length > 10 ? ` and ${domains.length - 10} more` : "";
+  const what = domains.length ? `${shown}${more}` : "one or more monitored domains";
+  return `Not fully assessed this week: ${what}. CyberMeters does not report an unassessed domain as unchanged; a complete scan of it will include it next week.`;
+}
+
 function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
   const name = wsName || "your workspace";
   const base = `${(origin || "https://app.cybermeters.com").replace(/\/$/, "")}/exposure`;
@@ -368,6 +404,18 @@ function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
         html: `<h2>Lifecycle records need review</h2><p>${esc(body)}</p><p><a href="${link}">View your timeline →</a></p>`,
       };
     }
+    // Some domains fully assessed, others not: say what was checked and name
+    // what was not. No "all quiet" and no "stable" for the workspace.
+    if (changes.assessment?.coverage === "some_domains_assessed") {
+      const missing = changes.assessment.not_assessed_domains || [];
+      const subject = `Your CyberMeters week — not every domain was fully assessed on ${name}`;
+      const body = `This week's complete scans saw no change on the domains they covered. ${missingLine(missing)}`;
+      return {
+        subject,
+        text: `${body}\n\nView your timeline: ${link}`,
+        html: `<h2>Not every domain was fully assessed</h2><p>${esc(body)}</p><p><a href="${link}">View your timeline →</a></p>`,
+      };
+    }
     // Fail closed: an absent assessment object never earns reassurance.
     if (changes.assessment?.coverage !== "complete_assessment") {
       const subject = `Your CyberMeters week — no completed assessment for ${name}`;
@@ -388,9 +436,11 @@ function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
   const sevLine = ["critical", "high", "medium", "low", "info"]
     .filter((s) => sev[s]).map((s) => `${sev[s]} ${s}`).join(" · ");
   const subject = `Your CyberMeters week — ${total} change${total === 1 ? "" : "s"} on ${name}`;
-  const lifecycleReviewNote = Number(changes.lifecycle_review?.total || 0) > 0
+  const lifecycleReviewNote = (Number(changes.lifecycle_review?.total || 0) > 0
     ? `\n\n${changes.lifecycle_review.total} additional historical lifecycle record${changes.lifecycle_review.total === 1 ? " was" : "s were"} kept visible but not counted because support was not established.`
-    : "";
+    : "")
+    + (changes.assessment?.coverage === "some_domains_assessed"
+      ? `\n\n${missingLine(changes.assessment.not_assessed_domains || [])}` : "");
   // Honest repetition note: a change re-observed by several scans is ONE change,
   // stated once, with its observation count where it adds information.
   const seen = (e) => (Number(e.occurrences) > 1 ? ` (observed ${e.occurrences} times this week)` : "");
