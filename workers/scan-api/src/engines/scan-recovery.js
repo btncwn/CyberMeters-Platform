@@ -51,6 +51,12 @@ export const RECOVERY_ACTIVE_STATUSES = ["queued", "running"];
 // clears BOTH by a wide margin, so a genuinely executing scan can never qualify.
 export const RECOVERY_MIN_AGE_MS = 30 * 60 * 1000;
 export const RECOVERY_HEARTBEAT_STALE_MS = 10 * 60 * 1000;
+// A RUNNING scan that has heartbeated and then gone silent for 10 min is dead
+// (P1-SCAN-STALL, 22 Oct 2026: a customer scan spun for 50 min after its
+// invocation died). It does not have to reach the 30-min age: 12 min is beyond
+// the whole ~11-min queue-consumer budget, so a scan still executing can never
+// qualify. Queued scans keep the 30-min and queue-order rules below.
+export const RECOVERY_RUNNING_MIN_AGE_MS = 12 * 60 * 1000;
 
 // A queued scan is not lost merely because it is old: every scan waits in one
 // queue in arrival order, and when many are started together the last of them
@@ -135,7 +141,9 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
     // ── Eligibility: age AND heartbeat staleness must BOTH hold ────────────
     const createdMs = parseDbTime(s.created_at);
     const heartbeatMs = parseDbTime(s.last_heartbeat_at) ?? createdMs;
-    if (!createdMs || now - createdMs < RECOVERY_MIN_AGE_MS) { summary.skipped++; continue; }
+    const silentRunner = s.status === "running" && parseDbTime(s.last_heartbeat_at) != null;
+    const minAge = silentRunner ? RECOVERY_RUNNING_MIN_AGE_MS : RECOVERY_MIN_AGE_MS;
+    if (!createdMs || now - createdMs < minAge) { summary.skipped++; continue; }
     if (!heartbeatMs || now - heartbeatMs < RECOVERY_HEARTBEAT_STALE_MS) { summary.skipped++; continue; }
     // A queued scan behind others in a queue that is still moving is waiting
     // its turn, not lost.

@@ -123,6 +123,22 @@ export function projectHistoricalChangesForCustomer(historicalChanges, {
   };
 }
 
+// Live progress for a scan still in flight, so the scan page can say honestly
+// what it is doing ("Now checking: …") or that it has gone quiet. Only known
+// stage keys leave the API; anything else is null. null once terminal.
+const SCAN_PROGRESS_STAGES = new Set(["discovery_complete", "phase5_intelligence", "finalizing"]);
+const SCAN_PROGRESS_STALE_MS = 10 * 60 * 1000;
+export function scanProgress(scan, now = Date.now()) {
+  if (!scan || (scan.status !== "running" && scan.status !== "queued")) return null;
+  const beat = scan.last_heartbeat_at ? Date.parse(scan.last_heartbeat_at) : NaN;
+  return {
+    stage: SCAN_PROGRESS_STAGES.has(scan.current_stage) ? scan.current_stage : null,
+    completed_modules: Number.isInteger(scan.completed_modules) ? scan.completed_modules : null,
+    last_heartbeat_at: Number.isFinite(beat) ? new Date(beat).toISOString() : null,
+    stale: scan.status === "running" && Number.isFinite(beat) && now - beat >= SCAN_PROGRESS_STALE_MS,
+  };
+}
+
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
           requireAuth, requireWorkspaceRole, consumeApiRateLimit,
@@ -951,7 +967,8 @@ export async function scanRoutes(rctx) {
 
       let scan = await env.cybermeters_db
         .prepare(
-          `SELECT id, domain_id, domain, status, score, rating, scan_quality, created_at
+          `SELECT id, domain_id, domain, status, score, rating, scan_quality, created_at,
+                  current_stage, last_heartbeat_at, completed_modules
            FROM scans WHERE id = ?`
         )
         .bind(scanId)
@@ -1010,6 +1027,7 @@ export async function scanRoutes(rctx) {
       });
       return json({
         scan: customerScan,
+        progress: scanProgress(scan),
         report_key: `reports/${scan.id}.json`,
         report_availability: resolved.availability,
         phase5_evidence_coverage:

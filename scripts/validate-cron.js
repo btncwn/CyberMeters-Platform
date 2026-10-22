@@ -59,6 +59,7 @@ function makeTasks(calls, throwers = new Set()) {
     triggerScheduledScan: rec("triggerScheduledScan", (s) => { calls.lastSchedule = s; }),
     generateScheduledReports: rec("generateScheduledReports"),
     processScheduledReports: rec("processScheduledReports"),
+    recoverInterruptedScans: rec("recoverInterruptedScans"),
     runHostedDnsVerificationSweep: rec("runHostedDnsVerificationSweep"),
     runBrandTakedownFollowupSweep: rec("runBrandTakedownFollowupSweep"),
     cleanupExpiredReports: rec("cleanupExpiredReports"),
@@ -432,6 +433,19 @@ const seedSchedule = (db, id, owner, dueMs, { lastRunMs = dueMs - 864e5 } = {}) 
   ok("the Worker's cron triggers are exactly the hourly tick and the dispatch ticks the code expects",
     toml.includes(`crons = ["${HOURLY_CRON}", "${DISPATCH_CRON}"]`) &&
       DISPATCH_CRON.split(" ")[0].split(",").map(Number).every((m) => m % (DISPATCH_TICK_MS / 60_000) === 0));
+}
+
+// P1-SCAN-STALL: the ten-minute dispatch tick also runs the canonical recovery,
+// so a dead scan is not left until the next hour; it still runs nothing else.
+{
+  const db = scheduleDb();
+  const calls = {};
+  await tickAt(db, T0 + DISPATCH_TICK_MS, { cron: DISPATCH_CRON, calls });
+  ok("dispatch tick runs interrupted-scan recovery", calls.recoverInterruptedScans === 1, JSON.stringify(calls));
+  ok("dispatch tick still runs none of the hourly work", !calls.generateScheduledReports && !calls.runHostedDnsVerificationSweep, JSON.stringify(calls));
+  const hourly = {};
+  await tickAt(db, T0, { calls: hourly });
+  ok("the hourly tick runs recovery exactly once", hourly.recoverInterruptedScans === 1, JSON.stringify(hourly));
 }
 
 console.log(`\nCron orchestration: ${pass}/${pass + fail} passed`);
