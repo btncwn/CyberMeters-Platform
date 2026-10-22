@@ -1,0 +1,99 @@
+# Build, smoke-test and deploy the network-probe Worker and its TLS engine image.
+#
+# Founder decision 3b (22 Oct 2026): the container image is built on a GitHub
+# amd64 runner instead of a laptop under emulation. This is the ONLY workflow
+# that deploys the probe; ci.yml is untouched and never deploys.
+#
+# Manual only (workflow_dispatch): no push, schedule or PR trigger.
+# It does exactly what scripts/deploy-network-probe.sh does by hand: build the
+# image from workers/network-probe/tls-engine/Dockerfile and `wrangler deploy`
+# the Worker with it, after the same loopback engine tests and image smoke that
+# ci.yml runs. Secrets: CLOUDFLARE_API_TOKEN (Workers Scripts + Containers only)
+# and CLOUDFLARE_ACCOUNT_ID. See the PR that added this file for the token
+# template, the cost per run and the rollback.
+name: network-probe-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build and deploy (branch, tag or commit SHA)"
+        required: true
+        default: main
+      tag:
+        description: "Optional deployment tag/message suffix (e.g. probe-engine-1)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: network-probe-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the requested ref
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Build pinned native TLS engines and test real loopback handshakes
+        run: |
+          python3 scripts/build-tls-engine.py --jobs 4
+          python3 workers/network-probe/tls-engine/test-engine.py
+          node workers/network-probe/tls-engine/test-parent.js
+          node workers/network-probe/tls-engine/test-parent-active.js
+
+      - name: Build the container image and run its own smoke
+        run: |
+          docker build --file workers/network-probe/tls-engine/Dockerfile --tag cybermeters-tls-release:${{ github.sha }} .
+          set -o pipefail
+          for pair in legacy:ssl2 modern:tls1_3; do
+            engine="${pair%%:*}"
+            protocol="${pair##*:}"
+            docker run --rm --entrypoint "/opt/cybermeters/tls-baseline-${engine}" \
+              cybermeters-tls-release:${{ github.sha }} --control catalog --protocol "$protocol" |
+              python3 -c 'import json,sys; wire=sys.stdin.buffer.read(); assert len(wire)>5 and wire[0]==3 and int.from_bytes(wire[1:5],"big")==len(wire)-5; result=json.loads(wire[5:]); assert result["engine"]["sandboxed"] is True and result["state"]=="accepted"'
+          done
+
+      - name: Install the probe's pinned Wrangler
+        run: npm ci --prefix workers/network-probe --ignore-scripts
+
+      - name: Deploy the network probe (Worker + image)
+        working-directory: workers/network-probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOY_REF: ${{ inputs.ref }}
+          DEPLOY_TAG: ${{ inputs.tag }}
+        run: |
+          set -o pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is not set; nothing was deployed." >&2; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "CLOUDFLARE_ACCOUNT_ID is not set; nothing was deployed." >&2; exit 1; }
+          short=$(git rev-parse --short=8 HEAD)
+          message="network-probe ${short} (ref ${DEPLOY_REF})${DEPLOY_TAG:+ ${DEPLOY_TAG}}"
+          ./node_modules/.bin/wrangler deploy --tag "$short" --message "$message" 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          version_id=$(sed -nE 's/.*Current Version ID: *([0-9a-fA-F-]{36}).*/\1/p' "$RUNNER_TEMP/deploy.log" | tail -n 1)
+          test -n "$version_id" || { echo "Wrangler did not print a Version ID; check the deployment output." >&2; exit 1; }
+          {
+            echo "### network-probe deployed"
+            echo "- commit: \`$(git rev-parse HEAD)\`"
+            echo "- Worker Version ID: \`${version_id}\`"
+            echo "- rollback: \`wrangler rollback <previous Version ID>\` from workers/network-probe (the previous version keeps its own image)"
+          } >> "$GITHUB_STEP_SUMMARY"
