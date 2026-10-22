@@ -870,10 +870,23 @@ for (const [name, partial] of [
   const inspect = (html) => observeWebsiteScripts(html, fixture.page_url, fixture.domain);
   const fake = inspect(`<!-- <script src='https://fake.example/one.js'></script> --><template><script src='https://fake.example/two.js'></script></template><script>const text = "<script src='https://fake.example/three.js'>";</script>`);
   check("C23 comments inert markup and inline strings do not invent script references", fake.scripts.length === 0);
-  const quoted = inspect(`<script data-note=" src='https://fake.example/fake.js' integrity='fake'" src='/real.js'></script><script data-note='>' src='/hidden.js' integrity='present'></script><script src='https://first.example/one.js' src='https://second.example/two.js' integrity='present'></script>`);
+  const quoted = inspect(`<script data-note=" src='https://fake.example/fake.js' integrity='fake'" src='/real.js'></script><script src='https://first.example/one.js' src='https://second.example/two.js' integrity='present'></script>`);
   check("C23 actual first attributes win and ambiguous quoted tags are omitted", quoted.scripts.length === 2
     && quoted.scripts[0].host === "example.com" && quoted.scripts[0].integrity_declared === false
-    && quoted.scripts[1].host === "first.example" && quoted.scripts[1].integrity_declared === true);
+    && quoted.scripts[1].host === "first.example" && quoted.scripts[1].integrity_declared === true
+    && inspect(`<script data-note='>' src='/real.js' integrity='present'></script>`).scripts.length === 1);
+  const ambiguousWindows = [
+    `<div data-note="> <script src='https://fake.example/jquery-3.4.1.js'></script>">text</div>`,
+    `<div data-note="${"x".repeat(SCRIPT_LIMITS.tag_chars + 1)}> <script src='https://fake.example/jquery-3.4.1.js'></script>">text</div>`,
+    `<div data-note=">${"x".repeat(SCRIPT_LIMITS.tag_chars + 1)} <script src='https://fake.example/jquery-3.4.1.js'></script>">text</div>`,
+    `<script data-note=">${"x".repeat(SCRIPT_LIMITS.tag_chars + 1)}">const text = "<script src='https://fake.example/jquery-3.4.1.js'>";</script>`,
+  ].map(inspect);
+  check("C23 quoted outer attributes cannot invent script facts", ambiguousWindows.every((data) => data.scripts.length === 0
+    && websiteScriptFindings({ script_observations: data }, scope).length === 0));
+  check("C23 raw-text and RCDATA strings cannot invent script elements", ["title", "xmp", "iframe", "noembed", "noframes"].every((name) => {
+    const data = inspect(`<${name}><script src='https://fake.example/jquery-3.4.1.js'></script></${name}_not_closed><script src='https://fake.example/other.js'></script></${name}><script src='/actual.js'></script>`);
+    return data.scripts.length === 1 && data.scripts[0].host === "example.com";
+  }) && inspect(`<plaintext><script src='https://fake.example/jquery-3.4.1.js'></script>`).scripts.length === 0);
   check("C23 non-JavaScript unsafe and truncated references are omitted", inspect(`<script type='application/ld+json' src='https://data.example/a.js'></script><script src='javascript:alert(1)'></script><script src='https://user:secret@bad.example/a.js'></script><script src='https://truncated.example/a.js'`).scripts.length === 0);
   check("C23 relative references with a base element remain unassessed", inspect(`<base href='https://other.example/'><script src='/relative.js'></script><script src='https://explicit.example/absolute.js'></script>`).scripts.length === 1);
   check("C23 script output is capped", inspect(Array.from({ length: 60 }, (_, i) => `<script src='https://cdn${i}.external.example/file.js'></script>`).join("")).scripts.length === SCRIPT_LIMITS.scripts);

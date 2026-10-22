@@ -1285,7 +1285,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     effort: "low", owner_type: "customer", verification_method: "manual_attestation",
     verification_evidence_requirements: "The website owner checks the actual dependency, advisory applicability and integrity configuration. A changed filename or an integrity attribute alone is not product verification of a fix.",
     supporting_evidence_types: ["http_probe"], managed_workflow_compatible: false,
-    limitations: ["Only the already-read HTML window and at most 40 script references are examined; dynamically inserted scripts and references outside that window are not inventoried. Ambiguous tags, encoded references and relative URLs with a base element are omitted.",
+    limitations: ["Only the already-read HTML window and at most 40 script references are examined; dynamically inserted scripts and references outside that window are not inventoried. Windows with ambiguous markup, encoded references and relative URLs with a base element are omitted.",
       "The versioned bundled list covers only its named libraries and advisories; it is not a complete vulnerability database. Version labels may be inaccurate or have backported fixes. Integrity metadata presence does not prove a matching hash or browser enforcement."],
   }),
 

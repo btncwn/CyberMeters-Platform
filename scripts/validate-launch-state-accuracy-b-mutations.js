@@ -452,6 +452,16 @@ const cases = [
     name: "C23 script observations become actionable findings", file: "workers/scan-api/src/engines/website-script-observations.js",
     from: 'finding_type: "observation", score_impact: 0, confidence: 75,', to: 'finding_type: "finding", score_impact: 0, confidence: 75,', failure: "C23 script hosts integrity and advisory labels produce three zero-impact observations",
   },
+  {
+    name: "C23 raw-text context protection bypassed", file: "workers/scan-api/src/engines/page-discovery.js",
+    from: '(quotedAttributes ? STRICT_RAW_TEXT_TAGS : RAW_TEXT_TAGS).has(name)',
+    to: 'RAW_TEXT_TAGS.has(name)', failure: "C23 raw-text and RCDATA strings cannot invent script elements",
+  },
+  {
+    name: "C23 quote-aware traversal bypassed", file: "workers/scan-api/src/engines/website-script-observations.js",
+    from: '    return scripts.length < SCRIPT_LIMITS.scripts;\n  }, { quotedAttributes: true });',
+    to: '    return scripts.length < SCRIPT_LIMITS.scripts;\n  });', failure: "C23 quoted outer attributes cannot invent script facts",
+  },
 ];
 
 function run() {

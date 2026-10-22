@@ -1,7 +1,7 @@
 import { forEachTag } from "./page-discovery.js";
 import { JAVASCRIPT_ADVISORY_DATA } from "./javascript-advisory-data.js";
 
-export const SCRIPT_LIMITS = Object.freeze({ html_chars: 65536, scripts: 40 });
+export const SCRIPT_LIMITS = Object.freeze({ html_chars: 65536, scripts: 40, tag_chars: 4096 });
 const space = (c) => /[ \t\r\n\f]/.test(c || "");
 const ownHost = (host, root) => typeof host === "string" && typeof root === "string" && (host === root || host.endsWith(`.${root}`));
 
@@ -64,9 +64,29 @@ export function observeWebsiteScripts(html, pageUrl, domain) {
   try { base = new URL(pageUrl); } catch { return null; }
   if (!root || !ownHost(base.hostname, root) || !["http:", "https:"].includes(base.protocol) || base.username || base.password) return null;
   const window = String(html || "").slice(0, SCRIPT_LIMITS.html_chars);
-  let hasBase = false;
-  forEachTag(window, new Set(["base"]), () => { hasBase = true; return false; });
   const scripts = [];
+  const result = { schema_version: "website_scripts.v1", domain: root, source_host: base.hostname,
+    coverage: "bounded_html_window", chars_examined: window.length, advisory_data_version: JAVASCRIPT_ADVISORY_DATA.version,
+    advisory_data_reviewed_at: JAVASCRIPT_ADVISORY_DATA.reviewed_at, supported_packages: ["jquery", "lodash"],
+    relative_urls_with_base_omitted: false, scripts };
+  // Use the shared traversal's quote-aware mode, including HTML raw-text/RCDATA
+  // contexts. Validate ALL visited tags before accepting script facts; reject
+  // long contexts that the bounded traversal could skip. Both passes are linear
+  // within the existing HTML window. Legacy traversal callers keep their mode.
+  let ambiguous = false, end = -1;
+  for (let start = window.indexOf("<"); start !== -1; start = window.indexOf("<", start + 1)) {
+    if (end < start) end = window.indexOf(">", start);
+    if (end === -1) break;
+    if (end - start > SCRIPT_LIMITS.tag_chars) { ambiguous = true; break; }
+  }
+  const traversal = ambiguous ? null : forEachTag(window, { has: () => true }, (name, tag) => {
+    if (!attributes(tag, name)) { ambiguous = true; return false; }
+    if (name === "base") result.relative_urls_with_base_omitted = true;
+    return true;
+  }, { quotedAttributes: true });
+  if (traversal?.incomplete) ambiguous = true;
+  if (ambiguous) return { ...result, coverage: "not_assessed", reason: "ambiguous_markup" };
+  const hasBase = result.relative_urls_with_base_omitted;
   forEachTag(window, new Set(["script"]), (_name, tag) => {
     const attrs = attributes(tag, "script");
     const src = attrs?.get("src")?.trim();
@@ -83,11 +103,8 @@ export function observeWebsiteScripts(html, pageUrl, domain) {
       outside_domain: !ownHost(url.hostname, root), integrity_declared: Boolean(attrs.get("integrity")?.trim()),
       library: declaredLibrary(url.pathname) });
     return scripts.length < SCRIPT_LIMITS.scripts;
-  });
-  return { schema_version: "website_scripts.v1", domain: root, source_host: base.hostname,
-    coverage: "bounded_html_window", chars_examined: window.length, advisory_data_version: JAVASCRIPT_ADVISORY_DATA.version,
-    advisory_data_reviewed_at: JAVASCRIPT_ADVISORY_DATA.reviewed_at, supported_packages: ["jquery", "lodash"],
-    relative_urls_with_base_omitted: hasBase, scripts };
+  }, { quotedAttributes: true });
+  return result;
 }
 
 export function websiteScriptFindings(tech, { domain, verified = false } = {}) {

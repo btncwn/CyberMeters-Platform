@@ -186,6 +186,7 @@ export function toSameSitePageUrl(href, baseUrl, hosts) {
 // is inspected), so text inside inline scripts is never read as markup.
 const MAX_TAG_CHARS = 4096;
 const RAW_TEXT_TAGS = new Set(["script", "style", "template", "textarea", "noscript"]);
+const STRICT_RAW_TEXT_TAGS = new Set([...RAW_TEXT_TAGS, "title", "xmp", "iframe", "noembed", "noframes", "plaintext"]);
 
 export function attrOf(tag, name) {
   // `tag` is bounded by MAX_TAG_CHARS, so this regex runs on a short string.
@@ -198,7 +199,7 @@ export function attrOf(tag, name) {
  * lower-case tag names; visit(name, tagText, endIndex) may return false to stop.
  * Closing tags are reported as "/name".
  */
-export function forEachTag(html, wanted, visit) {
+export function forEachTag(html, wanted, visit, { quotedAttributes = false } = {}) {
   const text = String(html || "");
   const n = text.length;
   let lower = null; // lower-cased copy, built once on first raw-text tag
@@ -213,7 +214,20 @@ export function forEachTag(html, wanted, visit) {
       i = end + 3;
       continue;
     }
-    if (gt < lt) { gt = text.indexOf(">", lt); if (gt === -1) break; }
+    if (gt < lt) {
+      if (!quotedAttributes) gt = text.indexOf(">", lt);
+      else {
+        let quote = null;
+        for (gt = lt + 1; gt < n; gt++) {
+          const char = text[gt];
+          if (quote) { if (char === quote) quote = null; }
+          else if (char === '"' || char === "'") quote = char;
+          else if (char === ">") break;
+        }
+        if (gt >= n) gt = -1;
+      }
+      if (gt === -1) { if (quotedAttributes) return { incomplete: true }; break; }
+    }
     // Read the tag name directly (letters/digits only), no regex.
     let k = lt + 1;
     const closing = text[k] === "/";
@@ -227,14 +241,22 @@ export function forEachTag(html, wanted, visit) {
       k++;
     }
     name = name.toLowerCase();
-    if (!name || gt - lt > MAX_TAG_CHARS) { i = lt + 1; continue; }
+    if (quotedAttributes && gt - lt > MAX_TAG_CHARS) return { incomplete: true };
+    if (!name || gt - lt > MAX_TAG_CHARS) {
+      i = quotedAttributes && ["!", "?"].includes(text[lt + 1]) ? gt + 1 : lt + 1;
+      continue;
+    }
     const key = closing ? `/${name}` : name;
     if (wanted.has(key) && visit(key, text.slice(lt, gt + 1), gt + 1) === false) return;
     i = gt + 1;
-    if (!closing && RAW_TEXT_TAGS.has(name)) {
+    if (!closing && (quotedAttributes ? STRICT_RAW_TEXT_TAGS : RAW_TEXT_TAGS).has(name)) {
+      if (quotedAttributes && name === "plaintext") break;
       // ASCII-only folding keeps indexes aligned ("İ".toLowerCase() is 2 chars).
       if (lower === null) lower = text.replace(/[A-Z]+/g, (m) => m.toLowerCase());
-      const close = lower.indexOf(`</${name}`, i);
+      let close = lower.indexOf(`</${name}`, i);
+      while (quotedAttributes && close !== -1 && !/[\t\n\f\r />]/.test(text[close + name.length + 2] || "")) {
+        close = lower.indexOf(`</${name}`, close + name.length + 2);
+      }
       if (close === -1) break;
       i = close;
     }
