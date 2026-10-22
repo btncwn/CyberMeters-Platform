@@ -25,6 +25,7 @@
     "workers/scan-api/src/routes/identity-workforce.js",
     "workers/scan-api/src/routes/managed-cases.js",
     "workers/scan-api/src/routes/mcp-authz.js",
+    "workers/scan-api/src/routes/mcp-consent-style.js",
     "workers/scan-api/src/routes/mcp-customer-discovery.js",
     "workers/scan-api/src/routes/mcp-customer-service.js",
     "workers/scan-api/src/routes/mcp-customer-status.js",

@@ -356,13 +356,13 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 290 | unknown | **GAP** | — |
-| GET | `(none)` | 315 | unknown | **GAP** | — |
-| POST | `(none)` | 315 | unknown | **GAP** | — |
-| GET | `(none)` | 332 | unknown | **GAP** | — |
-| OPTIONS | `(none)` | 455 | preflight | public | — |
-| GET | `/api/mcp/oauth/connections` | 462 | public-or-global | **GAP** | — |
-| POST | `(none)` | 540 | unknown | **GAP** | — |
+| GET | `(none)` | 302 | unknown | **GAP** | — |
+| GET | `(none)` | 327 | unknown | **GAP** | — |
+| POST | `(none)` | 327 | unknown | **GAP** | — |
+| GET | `(none)` | 344 | unknown | **GAP** | — |
+| OPTIONS | `(none)` | 467 | preflight | public | — |
+| GET | `/api/mcp/oauth/connections` | 474 | public-or-global | **GAP** | — |
+| POST | `(none)` | 552 | unknown | **GAP** | — |
 
 ### `workers/scan-api/src/routes/network-assets.js`
 

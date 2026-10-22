@@ -26,6 +26,8 @@ import {
   purgeExpiredMcpOAuthBrowserRows, readBoundedMcpOAuthBody,
   readMcpOAuthBrowserSession, readMcpOAuthIntent, requireMcpWebSession,
 } from "../src/routes/mcp-oauth-browser.js";
+import { CONSENT_CSS, CONSENT_CSS_SHA256, CONSENT_LOGO_SVG } from "../src/routes/mcp-consent-style.js";
+import { createHash } from "node:crypto";
 
 function fixture() {
   const sqlite = new DatabaseSync(":memory:");
@@ -958,4 +960,16 @@ test("OAuth browser request bodies are capped without Content-Length", async () 
     method: "POST", duplex: "half", body: new ReadableStream({ start() {} }),
   });
   assert.equal(await readBoundedMcpOAuthBody(stalled, 32, 20), null);
+});
+
+test("the consent page's one style block is admitted by its exact hash and fetches nothing", () => {
+  assert.equal(createHash("sha256").update(CONSENT_CSS).digest("base64"), CONSENT_CSS_SHA256);
+  assert.doesNotMatch(CONSENT_CSS, /url\(|@import|https?:/i);
+  assert.doesNotMatch(CONSENT_LOGO_SVG, /\sstyle=|<style|<script|href=|https?:\/\/(?!www\.w3\.org\/2000\/svg)/i);
+  const server = readFileSync(fileURLToPath(new URL("../src/routes/mcp-oauth-server.js", import.meta.url)), "utf8");
+  // The policy names the hash, never 'unsafe-inline', and keeps default-src 'none'.
+  assert.match(server, /default-src 'none'; style-src 'sha256-\$\{CONSENT_CSS_SHA256\}'; form-action 'self'/);
+  const policyLine = server.split("\n").find((line) => line.includes('headers.set("Content-Security-Policy"'))
+  assert.ok(policyLine)
+  assert.doesNotMatch(policyLine, /unsafe-inline|unsafe-hashes|https?:/);
 });
