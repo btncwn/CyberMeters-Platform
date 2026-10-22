@@ -26,11 +26,6 @@ export default function WorkspaceCasesPage() {
         <p className="text-sm text-slate-500 mt-1">
           Evidence, fixes and verification across your external posture{wsName ? ` for ${wsName}` : ''}.
         </p>
-        {/* Also under Cases (founder, 16 Oct 2026): the related-changes record
-            moved here from the workspace popover; route and access unchanged. */}
-        <nav aria-label="Also under Cases" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <Link to="/ws/related-changes" className="font-semibold text-brand-700 hover:text-brand-800">Related changes</Link>
-        </nav>
       </div>
       {wsId && (
         <OperationsBoard
@@ -42,6 +37,13 @@ export default function WorkspaceCasesPage() {
           onViewChange={(view) => setParam('view', view)}
         />
       )}
+      {/* Also under Cases (founder, 16 Oct 2026): the related-changes record
+          moved here from the workspace popover; route and access unchanged.
+          Below the board so the header holds only the title and its purpose. */}
+      <nav aria-label="Also under Cases" className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
+        <span>Also in Operations:</span>
+        <Link to="/ws/related-changes" className="font-semibold text-brand-700 hover:text-brand-800">Open related changes</Link>
+      </nav>
     </div>
   )
 }

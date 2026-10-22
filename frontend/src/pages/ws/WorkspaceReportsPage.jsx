@@ -21,6 +21,9 @@ function fmtType(type) {
   return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
+// Customer words for a report's state; the backend key never reaches the screen.
+const REPORT_STATUS_LABELS = { completed: 'Ready', failed: 'Failed', skipped: 'Skipped', pending: 'Queued', running: 'Generating' }
+
 function StatusBadge({ status }) {
   const cfg = {
     completed: 'bg-brand-50 text-brand-700 border-brand-100',
@@ -35,7 +38,7 @@ function StatusBadge({ status }) {
       {(status === 'pending' || status === 'running') && (
         <span className="w-1.5 h-1.5 rounded-full bg-brand-700 animate-pulse" />
       )}
-      {status}
+      {REPORT_STATUS_LABELS[status] ?? 'Unknown'}
     </span>
   )
 }
@@ -119,12 +122,12 @@ function ScheduledReportsCard({ wsId }) {
   return (
     <div className="card p-6 mt-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-gray-900">Scheduled Reports</h2>
+        <h2 className="text-sm font-semibold text-gray-900">Scheduled reports</h2>
         <button
           onClick={() => { setShowForm(v => !v); setCreateErr(null) }}
           className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1"
         >
-          New Schedule
+          Schedule a report
         </button>
       </div>
 
@@ -382,20 +385,13 @@ function WorkspaceReports({ wsId, wsName }) {
       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            PDF Reports
+            Reports
           </h1>
           <p className="text-sm text-gray-400 mt-1">
             Generate executive reports and download your saved PDFs.
             {completedCount > 0 && ` · ${completedCount} report${completedCount !== 1 ? 's' : ''} ready`}
             {pendingCount > 0 && ` · ${pendingCount} generating…`}
           </p>
-          {/* Also under Reports (founder, 16 Oct 2026): the scorecard and the
-              executive dashboard moved here from the workspace popover; routes
-              and their entitlement checks are unchanged. */}
-          <nav aria-label="Also under Reports" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <Link to="/ws/scorecard" className="font-semibold text-brand-700 hover:text-brand-800">Scorecard</Link>
-            <Link to="/ws/executive-dashboard" className="font-semibold text-brand-700 hover:text-brand-800">Executive dashboard</Link>
-          </nav>
         </div>
 
         {/* Generate button + type picker */}
@@ -436,7 +432,7 @@ function WorkspaceReports({ wsId, wsName }) {
           >
             {generating
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generating…</>
-              : 'Generate Report'
+              : 'Generate report'
             }
           </button>
         </div>
@@ -485,7 +481,7 @@ function WorkspaceReports({ wsId, wsName }) {
           <div className="flex flex-wrap items-center justify-center gap-3">
             {role === 'owner' && (
               <Link to="/onboarding" className="btn-primary">
-                Get Started
+                Start guided setup
               </Link>
             )}
             <button
@@ -503,12 +499,12 @@ function WorkspaceReports({ wsId, wsName }) {
       ) : (
         <div className="card overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">Report Archive</h2>
+            <h2 className="font-semibold text-gray-900">Report archive</h2>
             <button
               onClick={() => load(true)}
               className="btn-ghost text-xs py-1.5 px-2.5"
             >
-              Refresh
+              Reload reports
             </button>
           </div>
 
@@ -516,10 +512,10 @@ function WorkspaceReports({ wsId, wsName }) {
             <table className="data-table w-full">
               <thead>
                 <tr>
-                  <th className="text-left">Report Type</th>
+                  <th className="text-left">Report type</th>
                   <th className="text-left">Period</th>
                   <th className="text-center">Status</th>
-                  <th className="text-left">Generated At</th>
+                  <th className="text-left">Generated</th>
                   <th className="text-center">Actions</th>
                 </tr>
               </thead>
@@ -532,7 +528,7 @@ function WorkspaceReports({ wsId, wsName }) {
                       </span>
                     </td>
                     <td>
-                      <span className="block max-w-64 truncate text-sm text-gray-600" title={reportPeriodLabel(report)}>
+                      <span className="block max-w-72 break-words text-sm text-gray-600">
                         {reportPeriodLabel(report)}
                       </span>
                       <InternalIdCopyButton id={report.id} label="report" />
@@ -557,7 +553,7 @@ function WorkspaceReports({ wsId, wsName }) {
                             onClick={() => handleDownload(report)}
                             className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-brand-700 hover:text-brand-800"
                           >
-                            PDF
+                            Download PDF
                           </button>
                         ) : report.status === 'failed' ? (
                           <span className="text-xs text-red-700">Failed</span>
@@ -577,6 +573,16 @@ function WorkspaceReports({ wsId, wsName }) {
       {/* Scheduled Reports */}
       <ScheduledReportsCard wsId={wsId} />
       <ReportSnapshotHistory wsId={wsId} />
+
+      {/* Also under Reports (founder, 16 Oct 2026): the scorecard and the
+          executive dashboard moved here from the workspace popover; routes and
+          their entitlement checks are unchanged. Kept below the page's own work
+          so the header holds only the title and its one primary action. */}
+      <nav aria-label="Also under Reports" className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
+        <span>Also in Reports:</span>
+        <Link to="/ws/scorecard" className="font-semibold text-brand-700 hover:text-brand-800">Open scorecard</Link>
+        <Link to="/ws/executive-dashboard" className="font-semibold text-brand-700 hover:text-brand-800">Open executive dashboard</Link>
+      </nav>
 
     </WsPage>
   )
