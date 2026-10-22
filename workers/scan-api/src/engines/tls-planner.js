@@ -1,6 +1,7 @@
 import { dnsQuery } from './dns.js';
+import { isAuthorised, ACTIVE_CHECK_AUTHORITY_VERSION } from './active-check-consent.js';
 import { isPublicProbeAddress, isProbeHostname } from '../../../network-probe/src/contract.js';
-import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
+import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
 
 const MAX_SERVICES_PER_SCAN = 4;
 const MAX_ENDPOINTS_PER_SCAN = 8;
@@ -14,6 +15,11 @@ const canonicalAddress = value => {
 };
 const safeHostname = (host,domain) => isProbeHostname(host) && (host === domain || host.endsWith('.' + domain));
 const offset = (seed,count) => count ? [...seed].reduce((sum,char) => (sum * 31 + char.charCodeAt(0)) >>> 0,0) % count : 0;
+// The intrusive TLS controls are Active Checks: each one is authorised per domain,
+// host and resolved address by its own grant (engines/active-check-consent.js),
+// never by the legacy workspace-wide switch (migration 120, now history only).
+export const TLS_SPECIAL_CHECK_IDS = Object.freeze({heartbleed:'tls_intrusive_heartbleed',robot:'tls_intrusive_robot',ccs:'tls_intrusive_ccs'});
+const consentIds = checks => [...new Set(Object.values(checks||{}).filter(Boolean))];
 const rotate = (values,seed) => values.length ? [...values.slice(offset(seed,values.length)),...values.slice(0,offset(seed,values.length))] : [];
 
 export function parseTlsDnsAnswers(results, hostname) {
@@ -48,11 +54,12 @@ function selectAddresses(addresses,scanId,hostname) {
   return [v4[0],v6[0],v4[1],v6[1]].filter(Boolean);
 }
 
-export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => Date.now()} = {}) {
+export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => Date.now(),authorise = isAuthorised,specialControlsAvailable = TLS_SPECIAL_CONTROLS_AVAILABLE} = {}) {
   if (!id(scan.workspace_id) || !id(scan.domain_id) || !id(scan.id) || !isProbeHostname(scan.domain)) throw new Error('invalid_scan');
   const db = env.cybermeters_db;
-  const auth = await db.prepare(`SELECT enabled,generation,consent_version FROM workspace_tls_authorizations WHERE workspace_id=?`).bind(scan.workspace_id).first();
-  const consent = auth?.enabled === 1 && auth.consent_version === TLS_SPECIAL_CONSENT_VERSION;
+  // The legacy row still carries the service-scope generation; its `enabled`
+  // switch no longer authorises anything.
+  const auth = await db.prepare(`SELECT generation FROM workspace_tls_authorizations WHERE workspace_id=?`).bind(scan.workspace_id).first();
   const generation = Number.isSafeInteger(auth?.generation) ? auth.generation : 0;
   const services = await db.prepare(`SELECT a.id,a.domain_id,a.hostname,a.sni,a.port,a.application_protocol,a.network_target_id,
       t.addresses_json,t.authorization_status AS target_authorization_status,t.scope_state AS target_scope_state,w.deleted_at,d.verification_status
@@ -95,12 +102,23 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
         application_protocol:candidate.application_protocol,reason:'endpoint_limit'}); break; }
       const endpoint = {hostname:candidate.hostname,sni:candidate.sni,address,port:candidate.port,transport:'tcp',
         application_protocol:candidate.application_protocol,dns_addresses:dns,dns_observed_at:observed};
+      // One Active Checks decision per intrusive control, for this exact address.
+      // Only asked when the controls can run at all: a check that cannot execute
+      // needs no permission, and asking would cost DNS lookups for nothing.
+      const special_checks = {};
+      if (specialControlsAvailable) {
+        for (const [control,check] of Object.entries(TLS_SPECIAL_CHECK_IDS)) {
+          const decision = await authorise(env,{workspaceId:scan.workspace_id,domain:scan.domain,host:candidate.hostname,check,address});
+          if (decision?.authorised === true && decision.consent_id) special_checks[control] = decision.consent_id;
+        }
+      }
+      const consent = consentIds(special_checks).length > 0;
       endpoints.push({endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),
         scope:{kind:candidate.kind,service_authorization_id:candidate.service_authorization_id,generation,
-          special_consent:consent,consent_version:consent?TLS_SPECIAL_CONSENT_VERSION:null}});
+          special_consent:consent,special_checks,consent_version:consent?ACTIVE_CHECK_AUTHORITY_VERSION:null}});
     }
   }
-  return {endpoints,gaps,scope_generation:generation,special_consent:consent,omitted_services:0,deferred_services:deferredServices};
+  return {endpoints,gaps,scope_generation:generation,special_consent:endpoints.some(e => e.scope.special_consent),omitted_services:0,deferred_services:deferredServices};
 }
 
 export async function refreshTlsEndpoint(entry,{lookup = dnsQuery,now = () => Date.now()} = {}) {
@@ -111,15 +129,25 @@ export async function refreshTlsEndpoint(entry,{lookup = dnsQuery,now = () => Da
   return { ...entry.endpoint,dns_addresses:addresses,dns_observed_at:new Date(now()).toISOString() };
 }
 
-export async function tlsScopeStillAuthorized(env,scan,entry) {
+export async function tlsScopeStillAuthorized(env,scan,entry,{authorise} = {}) {
+  authorise = authorise || isAuthorised;
   const db=env.cybermeters_db;
-  const base=await db.prepare(`SELECT w.id AS workspace_id,d.domain_id,a.generation,a.enabled,a.consent_version
+  const base=await db.prepare(`SELECT w.id AS workspace_id,d.domain_id,a.generation
     FROM workspaces w JOIN workspace_domains d ON d.workspace_id=w.id AND d.domain_id=? AND d.verification_status='verified'
     LEFT JOIN workspace_tls_authorizations a ON a.workspace_id=w.id
     WHERE w.id=? AND w.deleted_at IS NULL`).bind(scan.domain_id,scan.workspace_id).first();
   if (!base) return false;
   if (Number(base?.generation||0) !== entry.scope.generation) return false;
-  if (entry.scope.special_consent && (base?.enabled !== 1 || base?.consent_version !== TLS_SPECIAL_CONSENT_VERSION)) return false;
+  // Every intrusive control this entry carries must still hold its own grant for
+  // this exact address; a revoked or narrowed grant ends the phase.
+  if (entry.scope.special_consent) {
+    const checks = entry.scope.special_checks || {};
+    if (!consentIds(checks).length) return false;
+    for (const [control,consentId] of Object.entries(checks)) {
+      const decision = await authorise(env,{workspaceId:scan.workspace_id,domain:scan.domain,host:entry.endpoint.hostname,check:TLS_SPECIAL_CHECK_IDS[control],address:entry.endpoint.address});
+      if (decision?.authorised !== true || decision.consent_id !== consentId) return false;
+    }
+  }
   if (entry.scope.kind === 'standard_https') return entry.endpoint.hostname === scan.domain && entry.endpoint.port === 443 && entry.endpoint.application_protocol === 'https';
   const service=await db.prepare(`SELECT a.id,t.addresses_json FROM workspace_tls_service_authorizations a
     JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id AND t.authorization_status='attested' AND t.scope_state='in_scope'
@@ -143,7 +171,7 @@ export function buildTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[
         const special = TLS_SPECIAL_CONTROLS.includes(control);
         const status = !applicableTlsControl(control,protocol) ? 'not_applicable'
           : special && !TLS_SPECIAL_CONTROLS_AVAILABLE ? 'unexecutable'
-          : special && !entry.scope.special_consent ? 'not_authorized' : 'pending';
+          : special && !entry.scope.special_checks?.[control] ? 'not_authorized' : 'pending';
         all.push({endpoint_index:endpointIndex,check,state:status,
           reason:status === 'unexecutable' ? 'engine_capability_limit' : status === 'pending' ? null : status});
       }
@@ -228,7 +256,7 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
         if(candidate)add('cipher',protocol,candidate.name);
       }
     }
-    if(entry.scope?.special_consent)for(const control of TLS_SPECIAL_CONTROLS)add(control,'tls1_2');
+    for(const control of TLS_SPECIAL_CONTROLS)if(entry.scope?.special_checks?.[control])add(control,'tls1_2');
     const unique=[...new Map(rows.map(row=>[`${row.check.control}|${row.check.protocol}|${row.check.cipher_id||''}`,row])).values()];
     if(selected.length+unique.length>Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN))){
       deferredHosts.push({hostname:entry.endpoint.hostname,port:entry.endpoint.port,reason:'tls_plan_budget'});

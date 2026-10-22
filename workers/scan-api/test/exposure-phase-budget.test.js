@@ -56,6 +56,7 @@ function database() {
     CREATE TABLE network_targets(id TEXT PRIMARY KEY, workspace_id TEXT, authorization_status TEXT, addresses_json TEXT, scope_state TEXT DEFAULT 'in_scope');`);
   sql.exec(readFileSync(new URL('../../../database/migrations/119-external-exposure-jobs.sql', import.meta.url), 'utf8'));
   sql.exec(readFileSync(new URL('../../../database/migrations/120-tls-authorization.sql', import.meta.url), 'utf8'));
+  sql.exec(readFileSync(new URL('../../../database/migrations/135-active-check-consents.sql', import.meta.url), 'utf8'));
   const prepare = (query, args = []) => ({bind: (...values) => prepare(query, values),
     first: async () => sql.prepare(query).get(...args) || null,
     all: async () => ({results: sql.prepare(query).all(...args)}),

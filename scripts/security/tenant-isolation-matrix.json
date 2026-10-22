@@ -232,6 +232,25 @@
       }
     },
     {
+      "class": "active_check_consents",
+      "domain": "attack_surface",
+      "tables": [
+        "active_check_consents"
+      ],
+      "ownership": {
+        "active_check_consents": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "Append-only Active Checks consent (mig 135): workspace_id on every query, foreign and nonexistent grants are the same 404, admin-only writes, no update or delete path; two-tenant routes, revocation, immutability triggers and isAuthorised fail-closed reasons are covered by validate-network-assets.js."
+      }
+    },
+    {
       "class": "tls_authorizations",
       "domain": "attack_surface",
       "tables": [
@@ -1267,6 +1286,7 @@
     }
   ],
   "table_index": {
+    "active_check_consents": "active_check_consents",
     "aggregate_report_ingest_claims": "email_protection",
     "alert_activation": "alerts",
     "alert_deliveries": "alerts",
@@ -1390,12 +1410,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 121,
-    "classified": 121,
-    "tenant_owned_tables": 113,
+    "schema_tables": 122,
+    "classified": 122,
+    "tenant_owned_tables": 114,
     "infra_or_identity_tables": 8,
     "unclassified": 0,
-    "resource_classes": 42,
+    "resource_classes": 43,
     "classes_with_dynamic_coverage": 17
   }
 }

@@ -118,6 +118,7 @@ import { relatedChangesRoutes } from "./routes/related-changes.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
 import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
 import { tlsAuthorizationRoutes } from "./routes/tls-authorization.js";
+import { activeCheckConsentRoutes } from "./routes/active-check-consents.js";
 import { identityExposureRoutes } from "./routes/identity-exposure.js";
 import { identityWorkforceRoutes } from "./routes/identity-workforce.js";
 import { identityPublicSecretsRoutes } from "./routes/identity-public-secrets.js";
@@ -1120,6 +1121,8 @@ const WORKSPACE_PURGE_TABLES = [
   "identity_public_source_checks",
   "dns_provider_changes", "dns_provider_connections",
   "workspace_tls_service_authorizations", "workspace_tls_authorizations",
+  // Active Checks consent (mig 135): append-only, purged only with the workspace.
+  "active_check_consents",
   "network_assets", "network_scans", "network_targets",
   "external_exposure_jobs", "external_exposure_visits",
   // email_protection_events holds no FK to either record family it describes
@@ -2932,6 +2935,8 @@ const scanApi = {
     {
       const tlsAuthorizationResponse = await tlsAuthorizationRoutes(routeCtx);
       if (tlsAuthorizationResponse) return tlsAuthorizationResponse;
+      const activeCheckConsentResponse = await activeCheckConsentRoutes(routeCtx);
+      if (activeCheckConsentResponse) return activeCheckConsentResponse;
       const certLifecycleResponse = await certificatesLifecycleRoutes(routeCtx);
       if (certLifecycleResponse) return certLifecycleResponse;
     }

@@ -5,6 +5,7 @@
   "source_files": [
     "workers/scan-api/src/index.js",
     "workers/scan-api/src/routes/account.js",
+    "workers/scan-api/src/routes/active-check-consents.js",
     "workers/scan-api/src/routes/attack-surface.js",
     "workers/scan-api/src/routes/auth.js",
     "workers/scan-api/src/routes/billing.js",
@@ -64,8 +65,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 309,
-    "authed": 263,
+    "total": 310,
+    "authed": 264,
     "public_unauthed": 46,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -78,8 +79,8 @@
         "authed": 0
       },
       "unknown": {
-        "total": 80,
-        "authed": 65
+        "total": 81,
+        "authed": 66
       },
       "public-or-global": {
         "total": 47,
@@ -593,6 +594,20 @@
       "scope_helpers": [
         "getAccessibleWorkspaceIds"
       ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/active-check-consents.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
       "authed": true,
       "public_reason": null
     },

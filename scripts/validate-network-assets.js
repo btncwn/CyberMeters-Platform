@@ -267,4 +267,91 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   eq('dispatch refuses a stale decision',(await processNetworkScanMessage(queued.at(-1),env,{adapter:{collectNetworkProbe:async()=>{probeCalls++;throw new Error('must not probe');},validateNetworkProbeReceipt:()=>({ok:true})}})).outcome,'out_of_scope');
 }
 
+// ── Active Checks consent (mig 135): append-only grants, the isAuthorised gate ──
+{
+  const {activeCheckConsentRoutes}=await import('../workers/scan-api/src/routes/active-check-consents.js');
+  const {isAuthorised,ACTIVE_CHECK_AUTHORITY_VERSION,ACTIVE_CHECK_AUTHORITY_TEXT}=await import('../workers/scan-api/src/engines/active-check-consent.js');
+  async function consent(path='',{user='owner',workspace='wa',method='GET',body,token={}}={}){
+    const url=new URL(`https://unit.test/api/workspaces/${workspace}/active-check-consents${path}`);
+    const request=new Request(url,{method,...(method!=='GET'?{body:JSON.stringify(body??{}),headers:{'Content-Type':'application/json','CF-Connecting-IP':'203.0.113.9'}}:{})});
+    const response=await activeCheckConsentRoutes({request,url,env,requireAuth:async()=>user?{id:user,email:`${user}@example.test`,...token}:null,requireWorkspaceRole,json:(b,s=200)=>Response.json(b,{status:s}),serverError:e=>Response.json({error:'server',detail:String(e?.message||e)},{status:500})});
+    return {status:response.status,body:await response.json()};
+  }
+  db.prepare("INSERT INTO domains(id,user_id,domain) VALUES('d_other','other','other.example')").run();
+  db.prepare("INSERT INTO workspace_domains(workspace_id,domain_id,verification_status) VALUES('wb','d_other','verified')").run();
+  const grant={domain_id:'d_seed',hosts:[],checks:['takeover_active_confirm','mail_spoof_resistance'],signer_name:'Pat Owner',signer_title:'IT Manager',authority_confirmed:true,authority_version:ACTIVE_CHECK_AUTHORITY_VERSION};
+  const rows=()=>db.prepare('SELECT * FROM active_check_consents ORDER BY rowid').all();
+  const ask=(q)=>isAuthorised(env,{workspaceId:'wa',domain:'seed.example',...q});
+
+  eq('consent: nothing granted → no_grant',(await ask({check:'takeover_active_confirm'})).reason,'no_grant');
+  for(const [name,args,status] of [
+    ['unauthenticated',{user:null},401],['foreign workspace user',{user:'other'},403],['viewer',{user:'viewer'},403],['analyst',{user:'analyst'},403],
+    ['read token',{token:{token_scope:'read',token_workspace_id:'wa'}},403],
+    ['no authority confirmation',{body:{...grant,authority_confirmed:false}},400],['stale authority version',{body:{...grant,authority_version:'old'}},400],
+    ['unknown check',{body:{...grant,checks:['port_scan']}},400],['empty checks',{body:{...grant,checks:[]}},400],
+    ['host outside the domain',{body:{...grant,hosts:['evil.example']}},400],['wildcard host',{body:{...grant,hosts:['*.seed.example']}},400],
+    ['another workspace domain is not found',{body:{...grant,domain_id:'d_other'}},404],['unknown field',{body:{...grant,schedule:'daily'}},400],
+    ['no signer',{body:{...grant,signer_name:' '}},400],
+  ])eq(`consent POST refused: ${name}`,(await consent('',{method:'POST',body:grant,...args})).status,status);
+  eq('consent: refused requests wrote nothing',rows().length,0);
+  eq('consent: a viewer can read',(await consent('',{user:'viewer'})).status,200);
+
+  const created=await consent('',{method:'POST',body:grant,user:'admin'});
+  eq('consent: an admin grants',created.status,201);
+  const g=rows()[0];
+  eq('consent: the grant records who, when, where, what and the words agreed',
+    [g.kind,g.actor_user_id,g.actor_workspace_role,g.signer_name,g.signer_title,g.ip_address,g.domain,JSON.parse(g.hosts_json),JSON.parse(g.checks_json),g.authority_version,g.authority_text===ACTIVE_CHECK_AUTHORITY_TEXT,Boolean(Date.parse(g.created_at))],
+    ['grant','admin','admin','Pat Owner','IT Manager','203.0.113.9','seed.example',[],['takeover_active_confirm','mail_spoof_resistance'],ACTIVE_CHECK_AUTHORITY_VERSION,true,true]);
+  eq('consent: the grant is audited',db.prepare("SELECT COUNT(*) n FROM audit_events WHERE event_type='active_check_consent_granted' AND entity_id=?").get(g.id).n,1);
+  eq('consent: listed with its status',(await consent()).body.consents.map(c=>[c.id,c.status]),[[g.id,'active']]);
+  eq('consent: the other workspace sees none of it',(await consent('',{user:'other',workspace:'wb'})).body.consents.length,0);
+
+  const yes=await ask({check:'takeover_active_confirm'});
+  eq('isAuthorised: a granted check on the apex',[yes.authorised,yes.reason,yes.consent_id],[true,'authorised',g.id]);
+  eq('isAuthorised: returns the exact scope that was authorised',[yes.scope.checks,yes.scope.hosts,yes.scope.granted_at,yes.scope.signer.name,yes.scope.signer.workspace_role],
+    [['takeover_active_confirm','mail_spoof_resistance'],[],g.created_at,'Pat Owner','admin']);
+  eq('isAuthorised: a check not in the grant',(await ask({check:'dns_open_resolver',address:'8.8.8.8'})).reason,'check_not_in_grant');
+  eq('isAuthorised: an unknown check is never authorised',(await ask({check:'anything'})).reason,'check_not_in_grant');
+  eq('isAuthorised: an empty host list is the apex only',(await ask({host:'mail.seed.example',check:'takeover_active_confirm'})).reason,'host_not_in_grant');
+  eq('isAuthorised: a host outside the domain',(await ask({host:'seed.example.evil.test',check:'takeover_active_confirm'})).reason,'host_not_in_grant');
+  eq('isAuthorised: another workspace cannot use this grant',(await isAuthorised(env,{workspaceId:'wb',domain:'seed.example',check:'takeover_active_confirm'})).reason,'domain_not_verified');
+
+  // A per-address check: the #765 rule decides the address.
+  const relay=await consent('',{method:'POST',body:{...grant,hosts:['mail.seed.example'],checks:['mail_open_relay']}});
+  eq('consent: a host-scoped grant',relay.status,201);
+  eq('isAuthorised: per-address check on an address seen in verified DNS',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'8.8.8.8'})).authorised,true);
+  eq('isAuthorised: an address not seen in verified DNS',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'9.9.9.9'})).reason,'address_out_of_scope');
+  eq('isAuthorised: a per-address check without an address',(await ask({host:'mail.seed.example',check:'mail_open_relay'})).reason,'address_out_of_scope');
+
+  // Revocation appends; the grant row is never touched.
+  const before=JSON.stringify(rows()[0]);
+  eq('consent: another workspace cannot revoke it (same 404 as unknown)',(await consent(`/${g.id}/revoke`,{method:'POST',user:'other',workspace:'wb'})).status,404);
+  eq('consent: an unknown id is the same 404',(await consent('/acc_nope/revoke',{method:'POST'})).status,404);
+  eq('consent: an analyst cannot revoke',(await consent(`/${g.id}/revoke`,{method:'POST',user:'analyst'})).status,403);
+  eq('consent: the owner revokes',(await consent(`/${g.id}/revoke`,{method:'POST'})).status,200);
+  eq('consent: a second revocation is refused',(await consent(`/${g.id}/revoke`,{method:'POST'})).status,409);
+  eq('consent: revoking added one row and left the grant unchanged',[rows().length,JSON.stringify(rows()[0]),rows().at(-1).kind,rows().at(-1).grant_id],[3,before,'revocation',g.id]);
+  eq('isAuthorised: a revoked grant',(await ask({check:'takeover_active_confirm'})).reason,'grant_revoked');
+  eq('isAuthorised: the other live grant is unaffected',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'8.8.8.8'})).authorised,true);
+  eq('consent: listed as revoked',(await consent()).body.consents.find(c=>c.id===g.id).status,'revoked');
+
+  // Immutable in the database itself, not only in the route.
+  await rejects('consent rows cannot be updated',async()=>db.prepare("UPDATE active_check_consents SET checks_json='[\"tls_robot\"]' WHERE id=?").run(g.id));
+  await rejects('a revocation cannot name another workspace grant',async()=>db.prepare("INSERT INTO active_check_consents(id,workspace_id,kind,grant_id,actor_user_id,actor_workspace_role,created_at) VALUES('acc_x','wb','revocation',?,'other','owner','2026-10-22')").run(rows()[1].id));
+
+  // Fail closed.
+  readFailure=true;
+  eq('isAuthorised: a read error is consent_read_failed, never a pass',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'8.8.8.8'})),{authorised:false,reason:'consent_read_failed',consent_id:null,scope:null});
+  readFailure=false;
+  db.prepare("UPDATE workspaces SET deleted_at='2026-10-22' WHERE id='wa'").run();
+  eq('isAuthorised: a soft-deleted workspace',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'8.8.8.8'})).reason,'workspace_deleted');
+  const deletedRows=rows().length;
+  const deletedPost=await consent('',{method:'POST',body:grant});
+  ok('consent: a soft-deleted workspace takes no new grant',deletedPost.status>=400&&rows().length===deletedRows);
+  db.prepare("UPDATE workspaces SET deleted_at=NULL WHERE id='wa'").run();
+  db.prepare("UPDATE workspace_domains SET verification_status='pending' WHERE workspace_id='wa' AND domain_id='d_seed'").run();
+  eq('isAuthorised: a domain no longer verified',(await ask({host:'mail.seed.example',check:'mail_open_relay',address:'8.8.8.8'})).reason,'domain_not_verified');
+  db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='wa' AND domain_id='d_seed'").run();
+}
+
 console.log(`\nNetwork assets: ${passed} passed, ${failed} failed`);if(failed)process.exit(1);

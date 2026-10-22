@@ -6,7 +6,7 @@ import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
-import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, TLS_SPECIAL_CONSENT_VERSION, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { blockingTlsUnexecutable, classifyTlsRefusals } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
@@ -96,8 +96,10 @@ const AUTHORITY = `EXISTS(SELECT 1 FROM scans s JOIN workspaces w ON w.id=s.work
 // revocation between the JavaScript precheck and commit.
 const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_authorizations a
     WHERE a.workspace_id=external_exposure_jobs.workspace_id),0)=?
-  AND (?=0 OR EXISTS(SELECT 1 FROM workspace_tls_authorizations a
-    WHERE a.workspace_id=external_exposure_jobs.workspace_id AND a.enabled=1 AND a.consent_version=?))
+  AND (?=0 OR (json_array_length(?)>0 AND NOT EXISTS(SELECT 1 FROM json_each(?) c WHERE NOT EXISTS(
+    SELECT 1 FROM active_check_consents g WHERE g.id=c.value AND g.kind='grant'
+      AND g.workspace_id=external_exposure_jobs.workspace_id AND g.domain_id=external_exposure_jobs.domain_id
+      AND NOT EXISTS(SELECT 1 FROM active_check_consents r WHERE r.kind='revocation' AND r.grant_id=g.id)))))
   AND (?='standard_https' OR EXISTS(SELECT 1 FROM workspace_tls_service_authorizations sa
     JOIN network_targets t ON t.id=sa.network_target_id AND t.workspace_id=sa.workspace_id
     WHERE sa.id=? AND sa.workspace_id=external_exposure_jobs.workspace_id
@@ -105,7 +107,8 @@ const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_author
       AND sa.hostname=? AND sa.sni=? AND sa.port=? AND sa.application_protocol=?
       AND t.authorization_status='attested' AND t.scope_state='in_scope'
       AND EXISTS(SELECT 1 FROM json_each(t.addresses_json) WHERE value=?)))`;
-const tlsScopeParams = entry => [entry.scope.generation,entry.scope.special_consent?1:0,TLS_SPECIAL_CONSENT_VERSION,
+const specialConsentIds = entry => JSON.stringify([...new Set(Object.values(entry.scope.special_checks||{}).filter(Boolean))]);
+const tlsScopeParams = entry => [entry.scope.generation,entry.scope.special_consent?1:0,specialConsentIds(entry),specialConsentIds(entry),
   entry.scope.kind,entry.scope.service_authorization_id,entry.endpoint.hostname,entry.endpoint.sni,
   entry.endpoint.port,entry.endpoint.application_protocol,entry.endpoint.address];
 
@@ -566,11 +569,11 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
   if(env.TLS_ASSESSMENT_MODE!=='evidence-v1')
     return storeUnrunTlsSlice(env,row,plan,tls.selected.slice(tls.cursor),'unexecutable','feature_disabled',now);
   const scan={id:row.scan_id,workspace_id:row.workspace_id,domain_id:row.domain_id,domain:row.domain};
-  if(!await tlsScopeStillAuthorized(env,scan,entry))
+  if(!await tlsScopeStillAuthorized(env,scan,entry,{authorise:deps.authoriseActiveCheck}))
     return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
   const endpoint=await refreshTlsEndpoint(entry,{lookup:deps.lookupTlsDns}).catch(()=>null);
   if(!endpoint)return storeUnrunTlsSlice(env,row,plan,items,'uncertain','dns_authority_changed',now);
-  if(!await tlsScopeStillAuthorized(env,scan,entry))
+  if(!await tlsScopeStillAuthorized(env,scan,entry,{authorise:deps.authoriseActiveCheck}))
     return storeUnrunTlsSlice(env,row,plan,items,'not_authorized','scope_changed',now);
   const token=crypto.randomUUID().replaceAll('-',''),db=env.cybermeters_db;
   const budget=exposureJobBudget(plan);
@@ -608,14 +611,14 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
   let polling=false;
   const watchdog=setInterval(async()=>{
     if(polling)return;polling=true;
-    try{if(!await canRun(env,row)||!await tlsScopeStillAuthorized(env,scan,entry))controller.abort();}
+    try{if(!await canRun(env,row)||!await tlsScopeStillAuthorized(env,scan,entry,{authorise:deps.authoriseActiveCheck}))controller.abort();}
     catch{controller.abort();}finally{polling=false;}
   },1000);
   const input={schema_version:'tls-assessment-request-v1',request_id:token,workspace_id:row.workspace_id,scan_id:row.scan_id,
     domain_id:row.domain_id,domain:row.domain,endpoint,scope:entry.scope,checks:items.map(item=>item.check),
     deadline_at:new Date(now+remaining).toISOString(),max_connections:reservationRequests,max_bytes:TLS_SLICE_LIMITS.bytes};
   try{
-    if(!await tlsScopeStillAuthorized(env,scan,entry))throw new Error('tls_scope_revoked');
+    if(!await tlsScopeStillAuthorized(env,scan,entry,{authorise:deps.authoriseActiveCheck}))throw new Error('tls_scope_revoked');
     const receipt=await (deps.collectTlsAssessment||collectTlsAssessment)(env,input,{signal:controller.signal});
     if(controller.signal.aborted||!validateTlsAssessmentReceipt(input,receipt,{now:deps.now?.()??Date.now()}).ok)throw new Error('invalid_receipt');
     const t=receipt.telemetry,actualBytes=t.bytes_sent+t.bytes_received;

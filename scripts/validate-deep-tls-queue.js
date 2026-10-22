@@ -16,6 +16,7 @@ sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
   CREATE TABLE network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope');`);
 sql.exec(readFileSync(new URL('../database/migrations/119-external-exposure-jobs.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
+sql.exec(readFileSync(new URL('../database/migrations/135-active-check-consents.sql',import.meta.url),'utf8'));
 const prepare=(query,args=[])=>({bind:(...values)=>prepare(query,values),first:async()=>sql.prepare(query).get(...args)||null,
   all:async()=>({results:sql.prepare(query).all(...args)}),run:async()=>({meta:{changes:sql.prepare(query).run(...args).changes}})});
 const sent=[];
@@ -223,15 +224,21 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(workspace);
   sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
   sql.prepare("INSERT INTO workspace_domains VALUES(?,?,'verified')").run(workspace,domainId);
-  sql.prepare('INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,updated_at) VALUES(?,1,1,?,?)')
-    .run(workspace,'tls-special-2026-10-13',new Date(now).toISOString());
+  // The legacy switch stays OFF: only the Active Checks grant authorises the
+  // intrusive controls (migration 135). The legacy row just carries generation 1.
+  sql.prepare('INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,updated_at) VALUES(?,0,1,NULL,?)')
+    .run(workspace,new Date(now).toISOString());
+  sql.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+      signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_special',?,'grant',?,?,'[]',?,'u','owner','Pat','IT','text','v',?)`)
+    .run(workspace,domainId,domain,JSON.stringify(['tls_intrusive_robot','tls_intrusive_ccs']),new Date(now).toISOString());
+  const authoriseActiveCheck=async()=>({authorised:true,reason:'authorised',consent_id:'acc_special'});
   const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
     dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
   const controls=['protocol','robot','ccs'];
   const selected=controls.map(control=>({endpoint_index:0,check:{control,protocol:'tls1_2',cipher_id:null}}));
   const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
     endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
-      generation:1,special_consent:true,consent_version:'tls-special-2026-10-13'}}],selected,static_results:[],results:[],
+      generation:1,special_consent:true,special_checks:{robot:'acc_special',ccs:'acc_special'},consent_version:'active-checks-2026-10-22'}}],selected,static_results:[],results:[],
     cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
   sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
@@ -257,13 +264,55 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
     return projectTlsCollectorReceipt(input,raw);
   };
   const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
-  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector})).outcome,'pending');
-  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector})).outcome,'pending');
-  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector})).outcome,'complete');
+  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
+  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
+  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'complete');
   assert.deepEqual(reservations,[['protocol',16],['robot',21],['ccs',5]]);
   const finished=sql.prepare('SELECT charged_requests,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
   assert.equal(finished.charged_requests,27);
   assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
+}
+// The planner asks Active Checks consent per intrusive control and per address and
+// records only the granted ones. With the controls unavailable it does not ask.
+{
+  const scan={id:'tls_plan_consent',workspace_id:'w_special',domain_id:'d_special',domain:'special.example.org'};
+  const asked=[];
+  const authorise=async(_env,q)=>{asked.push([q.check,q.host,q.address,q.domain,q.workspaceId]);
+    return q.check==='tls_intrusive_robot'?{authorised:true,consent_id:'acc_plan'}:{authorised:false,reason:'check_not_in_grant',consent_id:null};};
+  const off=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:false});
+  assert.equal(asked.length,0,'no consent lookup while the intrusive controls cannot run');
+  assert.equal(off.endpoints[0].scope.special_consent,false);
+  const on=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:true});
+  assert.deepEqual(asked,['tls_intrusive_heartbleed','tls_intrusive_robot','tls_intrusive_ccs'].map(c=>[c,'special.example.org','8.8.8.8','special.example.org','w_special']));
+  assert.deepEqual(on.endpoints[0].scope.special_checks,{robot:'acc_plan'});
+}
+// A revoked grant stops the intrusive control in SQL itself: even when the
+// JavaScript precheck still says yes, the reservation fence refuses, and no
+// connection is opened.
+{
+  const workspace='w_special',scanId='tls_special_revoked',domainId='d_special',domain='special.example.org',now=Date.now();
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
+  sql.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+      signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_revoked',?,'grant',?,?,'[]',?,'u','owner','Pat','IT','text','v',?)`)
+    .run(workspace,domainId,domain,JSON.stringify(['tls_intrusive_robot']),new Date(now).toISOString());
+  sql.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,grant_id,actor_user_id,actor_workspace_role,created_at)
+      VALUES('acc_revoked_r',?,'revocation','acc_revoked','u','owner',?)`).run(workspace,new Date(now).toISOString());
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+    dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
+      generation:1,special_consent:true,special_checks:{robot:'acc_revoked'},consent_version:'active-checks-2026-10-22'}}],
+    selected:[{endpoint_index:0,check:{control:'robot',protocol:'tls1_2',cipher_id:null}}],static_results:[],results:[],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
+  sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
+  let collectorCalls=0;
+  const outcome=(await processExposureMessage({kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace},env,{lookupTlsDns,
+    collectTlsAssessment:async()=>{collectorCalls++;throw new Error('must not connect');},
+    authoriseActiveCheck:async()=>({authorised:true,reason:'authorised',consent_id:'acc_revoked'})})).outcome;
+  assert.equal(collectorCalls,0,'a revoked Active Checks grant must never reach the collector');
+  assert.notEqual(outcome,'pending');
+  assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId).plan_json).tls.results.length,0);
 }
 // A run that completed its checks apart from a capability-limited control (the
 // server offers no heartbeat extension, so the heartbleed vector cannot run)
