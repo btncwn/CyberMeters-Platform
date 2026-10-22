@@ -27,16 +27,29 @@ compatibility_flags = ["global_fetch_strictly_public"]
 # queue-dispatch validators assert this exact line.
 workers_dev = false
 
-# Workers Logs (P1-SCAN-STALL, 22 Oct 2026): a customer scan stalled with no
-# exception and no retained log, so the stalled await could not be named. Every
-# invocation (fetch, queue consumer, cron) is now logged, at 100% sampling while
-# volume is low. Retention and included volume follow the account's Workers plan
-# (Workers Paid: 7 days and 20 M events/month included at the time of writing);
-# lower head_sampling_rate before volume approaches that. Logs carry what the code
-# already logs: sanitised codes and ids, never secrets or customer content.
+# Workers Logs, Traces and Issues (P1-SCAN-STALL, 22 Oct 2026). The founder
+# enabled them in the dashboard; this block keeps them across every `wrangler
+# deploy`, which would otherwise reset dashboard-only settings. 100% sampling
+# while volume is low. Limits are the account plan's, not this file's (published
+# figures at the time of writing: Free 200,000 log events/day kept 3 days; Paid
+# 20 M events/month included, kept 7 days); lower head_sampling_rate before
+# volume nears them. Logs carry only what the code already logs: sanitised codes
+# and ids, never secrets or customer content.
 [observability]
 enabled = true
 head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = true
+persist = true
+
+[observability.issues]
+enabled = true
 
 # Explicit Workers Paid default, separate from the legacy admission estimate.
 # This setting does not grant Paid entitlement; verify actual runtime capacity.
