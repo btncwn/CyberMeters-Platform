@@ -306,12 +306,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/api/billing/plans` | 25 | public-or-global | public | — |
-| POST | `/api/dmarc-ingest` | 44 | webhook | public | — |
-| GET | `/api/billing/subscription` | 151 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/webhook` | 179 | webhook | public | — |
-| POST | `/api/billing/checkout` | 572 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/portal` | 627 | public-or-global | ✓ | requireAuth |
+| GET | `/api/billing/plans` | 56 | public-or-global | public | — |
+| POST | `/api/dmarc-ingest` | 75 | webhook | public | — |
+| GET | `/api/billing/subscription` | 182 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/webhook` | 210 | webhook | public | — |
+| POST | `/api/billing/checkout` | 608 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/portal` | 663 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/identity-exposure.js`
 
