@@ -249,7 +249,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("copy: canonical Attack-Surface limitation is ASCII with a semicolon",
      extObs === "External observation only; no internal-network discovery. Subdomain discovery covers the names CyberMeters checks in DNS, names in DNS records and links found on the website; it is not a complete inventory.");
   ok("copy: canonical Website-Security limitation is ASCII with a semicolon",
-     passive === "Passive external check only; no active, authenticated or intrusive testing.");
+     passive === "Passive external check only; pages behind a sign-in are checked only when signed-in scanning is set up, with read-only requests. No active or intrusive testing.");
   ok("copy: no non-ASCII in either flagged limitation (no em/en dash to strip)",
      !/[^\x00-\x7F]/.test(extObs || "x") && !/[^\x00-\x7F]/.test(passive || "x"));
 
@@ -262,8 +262,8 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const joined = pages.join(" ");
   ok("copy: corrected 'External observation only; no internal-network discovery' in PDF",
      joined.includes("External observation only; no internal-network discovery"));
-  ok("copy: corrected 'Passive external check only; no active, authenticated or intrusive testing' in PDF",
-     joined.includes("Passive external check only; no active, authenticated or intrusive testing"));
+  ok("copy: corrected 'Passive external check only; pages behind a sign-in…' in PDF",
+     joined.includes("Passive external check only; pages behind a sign-in are checked only when signed-in scanning is set up"));
   ok("copy: malformed double-space 'External observation only  no' absent",
      !/External observation only\s{2,}no/.test(joined) && !joined.includes("External observation only  no"));
   ok("copy: malformed double-space 'Passive external check only  no' absent",

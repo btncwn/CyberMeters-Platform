@@ -241,7 +241,10 @@ export const SECURITY_CHECK_DOMAINS = Object.freeze([
     match: (f) => isCookieFindingType(f?.id)
       || /^(external_exposure_|csp_|dse_hsts_|header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f?.id || ""),
     maturity: "M2", managed_status: "recommendations",
-    limitations: ["Passive external check only; no active, authenticated or intrusive testing."],
+    // True in both states (founder, 22 Oct 2026: the Settings tab said "Signed-in
+    // scanning · On" above "no active, authenticated or intrusive testing"). The
+    // signed-in result is workspace-private and never in this shared report.
+    limitations: ["Passive external check only; pages behind a sign-in are checked only when signed-in scanning is set up, with read-only requests. No active or intrusive testing."],
   },
   {
     domain_key: "identity_exposure",
