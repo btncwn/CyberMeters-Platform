@@ -18,6 +18,22 @@ export function takeoverWithheldOnly(value) {
     rows.length > 0 && rows.every((row) => row?.reason === "origin_access_restricted" && row.host && row.cname);
 }
 
+// A host where NO web port answered at all (every HTTP/HTTPS attempt timed
+// out: an SSH-only server, or 80/443 filtered) has no web service to assess.
+// That is stated per host, never an evidence gap for the whole domain
+// (22 Oct 2026: one SSH-only test host made cybermeters.com partial and hid
+// its score). Only when probe_timeout is the module's reason AND every
+// not-assessed asset is such a host; a server error, a budget cut, a DNS gap
+// or a host that answered and then stalled still counts.
+const ASSET_NOT_ASSESSED = new Set(["not_executed", "timed_out", "server_error"]);
+export function webServiceNeverAnsweredHosts(value) {
+  const assets = Array.isArray(value?.assets) ? value.assets : [];
+  const notAssessed = assets.filter((asset) => ASSET_NOT_ASSESSED.has(asset?.probe_status));
+  const silent = (asset) => asset?.probe_status === "timed_out" && Array.isArray(asset.attempts) &&
+    asset.attempts.length > 0 && asset.attempts.every((attempt) => attempt?.outcome === "timeout");
+  return notAssessed.length > 0 && notAssessed.every(silent) ? notAssessed.map((asset) => asset.host || asset.hostname).filter(Boolean) : [];
+}
+
 // Remote-admin exposure (S3-0) and DANE (S3-C) are supplementary: their gaps
 // (address cap, deadline, lookup or probe unavailable) are stated.
 // Technology detection the site itself withheld is stated, not ours.
@@ -25,5 +41,7 @@ export function isStatedAccessLimit(name, value) {
   return value?.incomplete === true && (
     name === "remote_admin_exposure" || name === "dane" ||
     (name === "technology_detection" && value?.incomplete_reason === "origin_access_restricted") ||
+    (name === "asset_exposure" && !value?.error && value?.incomplete_reason === "probe_timeout" &&
+      webServiceNeverAnsweredHosts(value).length > 0) ||
     (name === "subdomain_takeover" && takeoverWithheldOnly(value)));
 }
