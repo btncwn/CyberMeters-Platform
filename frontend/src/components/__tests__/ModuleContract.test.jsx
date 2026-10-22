@@ -130,7 +130,8 @@ describe('ModuleContract — the one area template', () => {
     expect(figure('Evidence observed')).toHaveTextContent('9')
     expect(figure('Highest severity')).toHaveTextContent('High')
     expect(figure('Coverage')).toHaveTextContent('Complete')
-    expect(count('findings')).toHaveTextContent('4')
+    // Findings is counted once on the screen (design standard §1).
+    expect(screen.queryByTestId('module-count-findings')).toBeNull()
     expect(within(section('module-scope')).getByText('DKIM is checked against common selectors only.')).toBeInTheDocument()
     // The recommendation count is stated on the Findings tab.
     api.getSecurityCheckDomains.mockResolvedValue(resolved)
@@ -194,12 +195,12 @@ describe('ModuleContract — the one area template', () => {
     expect(screen.getByTestId('module-next-action')).toHaveTextContent('Start questionnaire')
   })
 
-  it('the three counts open their tabs', async () => {
+  it('the two counts open their tabs; Findings is reached from its tab', async () => {
     api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: eight() })
     api.getCases.mockResolvedValue({ cases: [{ case_id: 'c1', domain_key: 'website_security', canonical_phase: 'awaiting_verification', verification_support: 'automated', title: 'HSTS' }] })
     show('website_security')
     await waitFor(() => expect(count('verification')).toHaveTextContent('Verification1'))
-    fireEvent.click(count('findings'))
+    fireEvent.click(screen.getByRole('tab', { name: 'Findings' }))
     expect(section('module-findings')).not.toBeNull()
     fireEvent.click(count('verification'))
     expect(section('module-verification')).not.toBeNull()
@@ -233,7 +234,6 @@ describe('ModuleContract — the one area template', () => {
     await waitFor(() => expect(headChip()).toBe('error'))
     expect(within(section('module-observed')).getByText(/could not be read/)).toBeInTheDocument()
     expect(screen.queryAllByTestId('module-figure')).toHaveLength(0)
-    expect(count('findings')).toHaveTextContent('—')
     await waitFor(() => expect(count('cases')).toHaveTextContent('—'))
     r.unmount()
     r = show('website_security', {}, 'cases')
