@@ -251,6 +251,44 @@ const rawRowCount = db.prepare("SELECT COUNT(*) c FROM asset_events").get().c;
      (await assessmentEvidenceForWindow(env, "ws2")).coverage, "complete_assessment");
   eq("the same unattributed scan does NOT count for a foreign workspace",
      (await assessmentEvidenceForWindow(env, "ws1")).coverage, "no_assessment");
+
+  // CM-4 (22 Oct 2026): a second monitored domain with no complete scan this
+  // week. One domain's complete scan must not make the whole workspace "quiet".
+  db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('d3','u2','second.example')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws2','d3')").run();
+  const some = await assessmentEvidenceForWindow(env, "ws2");
+  eq("one of two domains complete => some_domains_assessed", some.coverage, "some_domains_assessed");
+  eq("the unassessed domain is named", some.not_assessed_domains, ["second.example"]);
+  const q4 = buildDigestEmail("Beta", await computeWeeklyChanges(env, "ws2"), env.FRONTEND_URL, "ws2");
+  ok("partial domain coverage: no 'all quiet', no 'stable', names the domain",
+     !/all quiet/i.test(q4.subject) && !/stable/i.test(q4.text) && !/all quiet/i.test(q4.html)
+       && /Not fully assessed this week: second\.example/.test(q4.text));
+  // A complete scan of that domain in a FOREIGN workspace does not cover it here.
+  db.prepare(`INSERT INTO scans (id, domain_id, domain, status, workspace_id, scan_quality, created_at)
+              VALUES ('s_f','d3','second.example','completed','ws1','complete',datetime('now','-1 day'))`).run();
+  eq("a foreign workspace's scan of the domain does not cover it",
+     (await assessmentEvidenceForWindow(env, "ws2")).coverage, "some_domains_assessed");
+  // A partial scan of it does not either.
+  db.prepare(`INSERT INTO scans (id, domain_id, domain, status, workspace_id, scan_quality, created_at)
+              VALUES ('s_3p','d3','second.example','completed','ws2','partial',datetime('now','-1 day'))`).run();
+  eq("a partial scan of the second domain does not cover it",
+     (await assessmentEvidenceForWindow(env, "ws2")).coverage, "some_domains_assessed");
+  db.prepare(`INSERT INTO scans (id, domain_id, domain, status, workspace_id, scan_quality, created_at)
+              VALUES ('s_3c','d3','second.example','completed','ws2','complete',datetime('now','-1 day'))`).run();
+  eq("every monitored domain complete => complete_assessment",
+     (await assessmentEvidenceForWindow(env, "ws2")).coverage, "complete_assessment");
+  const q5 = buildDigestEmail("Beta", await computeWeeklyChanges(env, "ws2"), env.FRONTEND_URL, "ws2");
+  ok("every domain complete earns 'all quiet' again", /all quiet on Beta/i.test(q5.subject));
+  // A change week with partial domain coverage still names the gap.
+  const changeMail = buildDigestEmail("Beta", { total: 1, bySeverity: { low: 1 }, byCategory: {}, top: [{ title: "New host", description: "x" }],
+    assessment: { coverage: "some_domains_assessed", not_assessed_domains: ["third.example"] } }, env.FRONTEND_URL, "ws2");
+  ok("change digest also names a domain not fully assessed", /Not fully assessed this week: third\.example/.test(changeMail.text));
+  // The per-domain read failing is unknown coverage, never "every domain assessed".
+  const failingEnv = { ...env, cybermeters_db: makeD1(db, { rejectAll: (sql) => /FROM workspace_domains wd LEFT JOIN domains/.test(sql) }) };
+  eq("a failed per-domain read never earns complete_assessment",
+     (await assessmentEvidenceForWindow(failingEnv, "ws2")).coverage, "some_domains_assessed");
+  db.prepare("DELETE FROM scans WHERE id IN ('s_f','s_3p','s_3c')").run();
+  db.prepare("DELETE FROM workspace_domains WHERE workspace_id = 'ws2' AND domain_id = 'd3'").run();
 }
 
 // ── 4. Workspace-scoped CTA ──────────────────────────────────────────────────
