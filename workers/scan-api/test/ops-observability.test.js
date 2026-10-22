@@ -14,7 +14,7 @@ const BUILD = "ca3ca9c9-b5b1-4493-bd35-e240b13a129a";
 
 function fixture({ failWrites = null } = {}) {
   const sqlite = new DatabaseSync(":memory:");
-  for (const file of ["026-api-rate-limits.sql", "130-ops-observability.sql", "131-ops-canary-results.sql"]) {
+  for (const file of ["026-api-rate-limits.sql", "130-ops-observability.sql", "131-ops-canary-results.sql", "137-feedback-reply-email.sql"]) {
     sqlite.exec(readFileSync(fileURLToPath(new URL(`../../../database/migrations/${file}`, import.meta.url)), "utf8"));
   }
   sqlite.exec(`
@@ -169,7 +169,7 @@ test("the founder's daily email puts anomalies first and carries counts, not ide
     INSERT INTO workspaces VALUES ('w1','u1'); INSERT INTO scans VALUES ('s1','w1');
     INSERT INTO subscriptions VALUES ('sub1','stripe_sub','active','2026-10-20T12:00:00Z');`);
   sqlite.prepare(`INSERT INTO feedback_reports VALUES ('fb1','2026-10-20T15:30:00.000Z','free_tool','spf-checker',
-    '/tools/spf-checker','${BUILD}',NULL,'Tree did not load')`).run();
+    '/tools/spf-checker','${BUILD}',NULL,'Tree did not load',NULL)`).run();
   const digest = await collectFounderDigest(env, { nowMs: now });
   assert.equal(digest.day, "2026-10-20");
   assert.deepEqual(digest.funnel, { signups: 2, verified: 1, scanned: 1, paid: 1 });
@@ -188,8 +188,8 @@ test("the founder's daily email puts anomalies first and carries counts, not ide
 
 test("feedback older than 90 days and counters older than 180 days are deleted", async () => {
   const { sqlite, env } = fixture();
-  sqlite.exec(`INSERT INTO feedback_reports VALUES ('old','2026-01-01T00:00:00Z','app',NULL,'/','dev',NULL,'a'),
-    ('new','2026-10-19T00:00:00Z','app',NULL,'/','dev',NULL,'b');
+  sqlite.exec(`INSERT INTO feedback_reports VALUES ('old','2026-01-01T00:00:00Z','app',NULL,'/','dev',NULL,'a',NULL),
+    ('new','2026-10-19T00:00:00Z','app',NULL,'/','dev',NULL,'b',NULL);
     INSERT INTO ops_daily_counters VALUES ('2026-03-01','http_5xx','x',1,'x'),('2026-10-19','http_5xx','x',1,'x');`);
   await cleanupExpiredObservability(env, "2026-10-20T02:00:00Z");
   assert.deepEqual(sqlite.prepare("SELECT id FROM feedback_reports").all().map((r) => r.id), ["new"]);
@@ -258,4 +258,71 @@ test("the canary runs from the cron only where FREE_CHECK_CANARY is on (it makes
   assert.equal(await runs(null), 0, "no flag: never, whatever the hour");
   assert.equal(await runs("off"), 0, "flag off: never");
   assert.equal(await runs("on"), sevenUtc ? 1 : 0, "flag on: once, at 07:00 UTC only");
+});
+
+// ── S2-FEEDBACK-NOW: the founder hears about feedback immediately ───────────
+function withMailbox(env) {
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("resend")) { sent.push(JSON.parse(init.body)); return Response.json({ id: `email_${sent.length}` }); }
+    return realFetch(url, init);
+  };
+  Object.assign(env, { RESEND_API_KEY: "re_test", ALERT_EMAIL_TO: "ops@cybermeters.com", ALERT_EMAIL_FROM: "alerts@cybermeters.com" });
+  return { sent, restore: () => { globalThis.fetch = realFetch; } };
+}
+
+test("feedback-now: every accepted report emails the ops address at once, with no IP", async () => {
+  const { sqlite, env } = fixture();
+  const mail = withMailbox(env);
+  try {
+    const res = await post(env, "/api/feedback", feedback({ reply_email: "  pat@example.co.uk " }), { ip: "203.0.113.77" });
+    assert.equal(res.status, 202);
+    assert.equal(mail.sent.length, 1);
+    const email = mail.sent[0];
+    assert.deepEqual(email.to, ["ops@cybermeters.com"]);
+    assert.match(email.subject, /CyberMeters feedback \(free_tool: dmarc-checker\)/);
+    assert.match(email.text, /The DMARC result page froze\./);
+    assert.match(email.text, /Reply to: pat@example\.co\.uk/);
+    assert.ok(!JSON.stringify(email).includes("203.0.113.77"), "the sender IP never appears in the email");
+    assert.equal(sqlite.prepare("SELECT reply_email FROM feedback_reports").get().reply_email, "pat@example.co.uk");
+  } finally { mail.restore(); }
+});
+
+test("feedback-now: reply_email is optional and validated; a bad one refuses the report", async () => {
+  const { sqlite, env } = fixture();
+  const mail = withMailbox(env);
+  try {
+    assert.equal((await post(env, "/api/feedback", feedback(), { ip: "203.0.113.80" })).status, 202);
+    assert.equal((await post(env, "/api/feedback", feedback({ reply_email: "" }), { ip: "203.0.113.81" })).status, 202);
+    assert.match(mail.sent[0].text, /Reply to: not given/);
+    for (const bad of ["not-an-email", 42, `${"a".repeat(250)}@x.io`]) {
+      const res = await post(env, "/api/feedback", feedback({ reply_email: bad }), { ip: "203.0.113.82" });
+      assert.equal(res.status, 400);
+    }
+    assert.deepEqual(sqlite.prepare("SELECT reply_email FROM feedback_reports ORDER BY rowid").all().map((r) => r.reply_email), [null, null]);
+  } finally { mail.restore(); }
+});
+
+test("feedback-now: beyond 30 emails an hour reports are stored for the digest only", async () => {
+  const { sqlite, env } = fixture();
+  const mail = withMailbox(env);
+  try {
+    for (let i = 0; i < 32; i++) {
+      assert.equal((await post(env, "/api/feedback", feedback(), { ip: `198.51.100.${10 + i}` })).status, 202);
+    }
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM feedback_reports").get().n, 32);
+    assert.equal(mail.sent.length, 30);
+  } finally { mail.restore(); }
+});
+
+test("feedback-now: a mail outage never fails or delays the customer's answer", async () => {
+  const { sqlite, env } = fixture();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("mail provider down"); };
+  Object.assign(env, { RESEND_API_KEY: "re_test", ALERT_EMAIL_TO: "ops@cybermeters.com", ALERT_EMAIL_FROM: "alerts@cybermeters.com" });
+  try {
+    assert.equal((await post(env, "/api/feedback", feedback(), { ip: "203.0.113.90" })).status, 202);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM feedback_reports").get().n, 1);
+  } finally { globalThis.fetch = realFetch; }
 });

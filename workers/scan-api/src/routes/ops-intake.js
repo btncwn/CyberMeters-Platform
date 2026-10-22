@@ -7,11 +7,18 @@
 // no IP (rate limits use hashed keys) and refuse when the limiter cannot
 // answer. Shared contract with the frontend: see docs in the PR that added it.
 import { bumpDailyCounter, routeFamily, safeCode } from "../lib/ops-counters.js";
-import { createId } from "../lib/util.js";
+import { createId, isValidEmail } from "../lib/util.js";
+import { sendAlertEmail } from "../engines/alerts.js";
+import { escapeEmailHtml } from "../lib/lifecycle-email.js";
 
 export const FEEDBACK_LIMITS = Object.freeze({
   maxBodyBytes: 4096, messageMax: 2000, pathMax: 200, buildMax: 64,
-  perIpPerHour: 5, globalPerDay: 200, retentionDays: 90,
+  perIpPerHour: 5, globalPerDay: 200, retentionDays: 90, replyEmailMax: 254,
+  // Immediate founder email per accepted report (S2-FEEDBACK-NOW). Per source it
+  // is bounded by perIpPerHour above (the form is anonymous: there is no
+  // workspace to count by); beyond the global cap a report is stored for the
+  // daily digest only.
+  emailsPerHour: 30,
 });
 export const CLIENT_ERROR_LIMITS = Object.freeze({
   maxBodyBytes: 2048, perIpPerHour: 30, globalPerDay: 5000,
@@ -62,7 +69,7 @@ async function limited(rctx, action, perIp, perDay) {
 }
 
 export function validateFeedback(body) {
-  const keys = ["message", "surface", "tool", "path", "build", "error_code", "turnstile_token"];
+  const keys = ["message", "surface", "tool", "path", "build", "error_code", "turnstile_token", "reply_email"];
   if (!onlyKeys(body, keys)) return null;
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (message.length < 1 || message.length > FEEDBACK_LIMITS.messageMax) return null;
@@ -74,7 +81,17 @@ export function validateFeedback(body) {
   if (typeof body.build !== "string" || body.build.length > FEEDBACK_LIMITS.buildMax || !BUILD.test(body.build)) return null;
   const errorCode = body.error_code ?? null;
   if (errorCode !== null && !(typeof errorCode === "string" && /^[a-z0-9_.-]{1,64}$/.test(errorCode))) return null;
-  return { message, surface: body.surface, tool, path, build: body.build.toLowerCase(), error_code: errorCode };
+  // Optional, never required: an address the sender chose to give for a reply.
+  let replyEmail = null;
+  if (body.reply_email != null && body.reply_email !== "") {
+    if (typeof body.reply_email !== "string") return null;
+    const candidate = body.reply_email.trim();
+    if (candidate) {
+      if (candidate.length > FEEDBACK_LIMITS.replyEmailMax || !isValidEmail(candidate)) return null;
+      replyEmail = candidate;
+    }
+  }
+  return { message, surface: body.surface, tool, path, build: body.build.toLowerCase(), error_code: errorCode, reply_email: replyEmail };
 }
 
 export function validateClientError(body) {
@@ -88,6 +105,35 @@ export function validateClientError(body) {
   const status = body.status == null ? null : Number(body.status);
   if (status !== null && !(Number.isInteger(status) && status >= 100 && status <= 599)) return null;
   return { kind: body.kind, code, family: routeFamily(path), build: body.build.toLowerCase().slice(0, 8), status };
+}
+
+export function formatFeedbackEmail(feedback) {
+  const lines = [
+    `Where: ${feedback.surface}${feedback.tool ? ` · ${feedback.tool}` : ""} · ${feedback.path}`,
+    `Build: ${feedback.build}${feedback.error_code ? ` · error ${feedback.error_code}` : ""}`,
+    `Reply to: ${feedback.reply_email || "not given"}`,
+    "",
+    feedback.message,
+  ];
+  const text = lines.join("\n");
+  return {
+    subject: `CyberMeters feedback (${feedback.surface}${feedback.tool ? `: ${feedback.tool}` : ""})`,
+    text,
+    html: `<pre style="font-family:ui-monospace,monospace;font-size:13px;white-space:pre-wrap">${escapeEmailHtml(text)}</pre>`,
+  };
+}
+
+// One email to the ops address per accepted report, bounded globally per hour.
+// Over the cap, or when the limiter cannot answer, the report stays stored for
+// the daily digest only. Returns { sent, reason }.
+export async function notifyFounderOfFeedback(rctx, feedback) {
+  const { env, consumeApiRateLimit } = rctx;
+  const capped = await consumeApiRateLimit(env, [{ scope: "global", scope_id: "feedback_email" }],
+    "feedback_email_global", FEEDBACK_LIMITS.emailsPerHour, 3600, { failClosed: true, atomic: true, saturating: true });
+  if (capped) return { sent: false, reason: "digest_only" };
+  const mail = formatFeedbackEmail(feedback);
+  const result = await sendAlertEmail(mail.subject, mail.text, mail.html, env, "ALERT_EMAIL_FROM");
+  return { sent: Boolean(result?.sent), reason: result?.sent ? null : (result?.reason || "not_sent") };
 }
 
 export async function opsIntakeRoutes(rctx) {
@@ -107,13 +153,17 @@ export async function opsIntakeRoutes(rctx) {
     }
     try {
       await env.cybermeters_db.prepare(
-        `INSERT INTO feedback_reports (id, created_at, surface, tool, path, build, error_code, message)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO feedback_reports (id, created_at, surface, tool, path, build, error_code, message, reply_email)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(createId("fb"), new Date().toISOString(), feedback.surface, feedback.tool, feedback.path,
-        feedback.build, feedback.error_code, feedback.message).run();
+        feedback.build, feedback.error_code, feedback.message, feedback.reply_email).run();
     } catch {
       return json({ error: "Feedback is unavailable right now.", code: "feedback_unavailable" }, 503);
     }
+    // Stored first; the founder hears about it now, not only in the 09:00 digest.
+    // Never delays or fails the customer's answer.
+    const notify = notifyFounderOfFeedback(rctx, feedback).catch(() => ({ sent: false }));
+    if (rctx.ctx?.waitUntil) rctx.ctx.waitUntil(notify); else await notify;
     return json({ ok: true }, 202);
   }
 
