@@ -9,6 +9,13 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const suite = path.join(root, "scripts/validate-launch-reliability-a.js");
 const cases = [
   {
+    name: "CM-1 admin token admitted",
+    file: "workers/scan-api/src/routes/account.js",
+    from: "adminSession = !user.api_token_id",
+    to: "adminSession = true",
+    failure: "CM-1 admin token read/null status",
+  },
+  {
     name: "CM-P1-002 queue write outside transaction",
     file: "workers/scan-api/src/routes/workspaces-core.js",
     from: "const results = await db.batch(changes);",
@@ -52,6 +59,17 @@ const cases = [
   },
 ];
 
+// Optional exact case selection keeps a requested local proof bounded; CI
+// without arguments still runs the complete existing harness.
+const requested = [];
+for (let i = 2; i < process.argv.length; i += 2) {
+  if (process.argv[i] !== "--case" || !cases.some((item) => item.name === process.argv[i + 1])) {
+    throw new Error("Expected --case followed by an exact mutation name");
+  }
+  requested.push(process.argv[i + 1]);
+}
+const selectedCases = requested.length ? cases.filter((item) => requested.includes(item.name)) : cases;
+
 function run() {
   try {
     return { passed: true, output: execFileSync(process.execPath, [suite], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) };
@@ -65,7 +83,7 @@ if (!baseline.passed) {
   process.exit(1);
 }
 let allKilled = true;
-for (const mutant of cases) {
+for (const mutant of selectedCases) {
   const filename = path.join(root, mutant.file);
   const original = fs.readFileSync(filename, "utf8");
   const matches = original.split(mutant.from).length - 1;
@@ -89,5 +107,5 @@ for (const mutant of cases) {
   if (!killed) console.error(result.output.slice(-1200));
   allKilled &&= killed;
 }
-console.log(`Launch reliability mutations: ${allKilled ? `${cases.length}/${cases.length} killed` : "failed"}`);
+console.log(`Launch reliability mutations: ${allKilled ? `${selectedCases.length}/${selectedCases.length} killed` : "failed"}`);
 if (!allKilled) process.exit(1);

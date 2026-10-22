@@ -99,15 +99,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/api/account/usage` | 559 | account | ✓ | requireAuth |
 | GET | `/api/account/subscription/limits` | 580 | account | ✓ | requireAuth |
 | GET | `/api/admin/subscriptions` | 605 | admin | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/api/account/api-tokens` | 652 | account | ✓ | requireAuth |
-| POST | `/api/account/api-tokens` | 674 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 745 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 783 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 842 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 892 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 938 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1034 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1094 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/api-tokens` | 659 | account | ✓ | requireAuth |
+| POST | `/api/account/api-tokens` | 681 | account | ✓ | requireAuth, requireWorkspaceAccess |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 752 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 790 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 849 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 899 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 945 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1041 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1101 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/active-check-consents.js`
 
