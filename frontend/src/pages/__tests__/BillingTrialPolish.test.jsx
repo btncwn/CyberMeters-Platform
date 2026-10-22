@@ -116,7 +116,7 @@ describe('Account page', () => {
   it('API tokens default to 90 days, with Never still an explicit choice', async () => {
     api.createApiToken.mockResolvedValue({ token: 'cm_test_token' })
     renderAccount('/account/security')
-    await screen.findByText('API Tokens')
+    await screen.findByText('API tokens')
     const expires = screen.getAllByRole('combobox').find((el) => within(el).queryByRole('option', { name: 'Never' }))
     expect(expires).toHaveValue('90')
     fireEvent.change(screen.getByPlaceholderText('e.g. CI pipeline'), { target: { value: 'CI' } })

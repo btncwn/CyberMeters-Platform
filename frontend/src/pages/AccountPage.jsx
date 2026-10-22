@@ -266,7 +266,8 @@ export default function AccountPage() {
           const u = profileRes.value?.user
           setForm(prev => ({ ...prev, name: u?.name || '' }))
         } else {
-          setLoadError(profileRes.reason?.message || 'Failed to load profile')
+          // Never the server's own message on screen (design standard §4).
+          setLoadError('Your profile could not be loaded. Reload the page to try again.')
         }
 
         if (subRes.status === 'fulfilled') {
@@ -515,9 +516,11 @@ export default function AccountPage() {
         <div className="card p-16 text-center">
           <p className="text-sm text-gray-400">Loading…</p>
         </div>
-      ) : needsAccountLoad && loadError ? (
+      ) : tab === 'profile' && loadError ? (
+        // Only the tab whose read failed says so; Company, Security and Billing
+        // have their own reads and still render (design standard §3, 22 Oct 2026).
         <div className="card p-8 text-center">
-          <p className="text-sm text-red-700">{loadError}</p>
+          <p role="alert" className="text-sm text-red-700">{loadError}</p>
         </div>
       ) : (
         <div className="max-w-3xl" role="tabpanel" data-testid={`account-panel-${tab}`}>
@@ -799,7 +802,7 @@ export default function AccountPage() {
                 )}
               </Section>
 
-<Section title="API Tokens">
+<Section title="API tokens">
                 <div className="space-y-4">
                   <div className="space-y-3">
                     <div>

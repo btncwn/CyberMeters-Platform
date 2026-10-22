@@ -46,7 +46,7 @@ const EMAIL_FREQUENCY_OPTIONS = [
   },
   {
     value: 'disabled',
-    label: 'Disabled',
+    label: 'No alert emails',
     description: 'No alert emails. In-app notifications still appear.',
   },
 ]
@@ -143,7 +143,7 @@ export default function NotificationPreferencesCard() {
         disabled={saving || loading}
         className="btn-primary disabled:opacity-50"
       >
-        {saving ? 'Saving…' : 'Save Preferences'}
+        {saving ? 'Saving…' : 'Save notification setting'}
       </button>
 
       <p className="text-sm text-gray-600 pt-3 border-t border-gray-100">

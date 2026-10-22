@@ -37,7 +37,7 @@ function LoginHistory() {
       const data = await api.getLoginHistory()
       setEvents(data.events || [])
     } catch (e) {
-      setError(e.message || 'Failed to load login history')
+      setError('Sign-in history could not be loaded. Use Reload history to try again.')
     } finally {
       setLoading(false)
     }
@@ -58,7 +58,7 @@ function LoginHistory() {
   return (
     <section className="card p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-gray-900">Login History</h2>
+        <h2 className="text-sm font-semibold text-gray-900">Sign-in history</h2>
         <button
           onClick={load}
           disabled={loading}
@@ -77,8 +77,8 @@ function LoginHistory() {
 
       {loading && !events.length ? (
         <div className="py-8 text-center text-sm text-gray-400">Loading…</div>
-      ) : events.length === 0 ? (
-        <div className="py-8 text-center text-sm text-gray-400">No login events recorded yet.</div>
+      ) : error && !events.length ? null : events.length === 0 ? (
+        <div className="py-8 text-center text-sm text-gray-400">No sign-in events recorded yet.</div>
       ) : (
         <div className="space-y-0.5">
           {events.map(ev => (
@@ -111,8 +111,9 @@ function LoginHistory() {
         </div>
       )}
 
+      {/* A failed read has no count to state (design standard §3). */}
       <p className="mt-4 text-xs text-gray-400">
-        Showing the last {events.length} auth event{events.length !== 1 ? 's' : ''}.
+        {!(error && !events.length) && `Showing the last ${events.length} sign-in event${events.length !== 1 ? 's' : ''}. `}
         IP addresses are captured at sign-in time and are not retained indefinitely.
       </p>
     </section>
@@ -135,7 +136,7 @@ function ActiveSessions() {
       const data = await api.getActiveSessions()
       setSessions(data.sessions || [])
     } catch (e) {
-      setError(e.message || 'Failed to load sessions')
+      setError('Sessions could not be loaded. Use Reload sessions to try again.')
     } finally {
       setLoading(false)
     }
@@ -150,7 +151,7 @@ function ActiveSessions() {
       await api.revokeSession(sessionId)
       setSessions(prev => prev.filter(s => s.session_id !== sessionId))
     } catch (e) {
-      setError(e.message || 'Failed to revoke session')
+      setError('That session could not be signed out. Try again.')
     } finally {
       setRevoking(null)
     }
@@ -159,7 +160,7 @@ function ActiveSessions() {
   return (
     <section className="card p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-gray-900">Active Sessions</h2>
+        <h2 className="text-sm font-semibold text-gray-900">Active sessions</h2>
         <button
           onClick={load}
           disabled={loading}
@@ -178,7 +179,7 @@ function ActiveSessions() {
 
       {loading && !sessions.length ? (
         <div className="py-8 text-center text-sm text-gray-400">Loading…</div>
-      ) : sessions.length === 0 ? (
+      ) : error && !sessions.length ? null : sessions.length === 0 ? (
         <div className="py-8 text-center text-sm text-gray-400">No active sessions.</div>
       ) : (
         <div className="space-y-2">
