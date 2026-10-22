@@ -45,7 +45,7 @@ import { runEmailIntelModule } from "./email-intel.js";
 import { runMailTransportModule } from "./mail-transport.js";
 import { runRemoteAdminExposureModule } from "./remote-admin-exposure.js";
 import { runDaneModule } from "./dane.js";
-import { isStatedAccessLimit, webServiceNeverAnsweredHosts } from "./scan-stated-limits.js";
+import { isStatedAccessLimit, statedLimitMessage, webServiceNeverAnsweredHosts } from "./scan-stated-limits.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
 import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
@@ -251,11 +251,13 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // monitoring states so both read the same evidence the same way.
   const statedLimits = Object.entries(modules)
     .filter(([name, value]) => isStatedAccessLimit(name, value))
-    .map(([name, value]) => name === "asset_exposure"
-      // "No web service observed on <host> (ports 80/443 did not answer); the
-      // host is still recorded in your inventory."
-      ? { module: name, reason: "no_web_service_answered", hosts: webServiceNeverAnsweredHosts(value) }
-      : { module: name, reason: name === "subdomain_takeover" ? "origin_access_restricted" : value.incomplete_reason || value.error || null });
+    .map(([name, value]) => ({
+      ...(name === "asset_exposure"
+        ? { module: name, reason: "no_web_service_answered", hosts: webServiceNeverAnsweredHosts(value) }
+        : { module: name, reason: name === "subdomain_takeover" ? "origin_access_restricted" : value.incomplete_reason || value.error || null }),
+      // The customer sentence every surface renders (never the reason key).
+      message: statedLimitMessage(name, value),
+    }));
   const incompleteModules = Object.entries(modules)
     .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
     .filter(([name, value]) => !isStatedAccessLimit(name, value))

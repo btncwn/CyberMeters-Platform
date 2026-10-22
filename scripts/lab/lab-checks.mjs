@@ -345,8 +345,11 @@ export async function runLabChecks({ ok, root }) {
     echo.scans.every((scan) => scan.status === "completed" && !scan.error) && echo.unexpected_hosts.length === 0 &&
       echoCases.length === 1 && echoCase.asset_ref === echoHost,
     json({ scans: echo.scans.map((scan) => [scan.scan_id, scan.status]), cases: echoCases.map((row) => [row.finding_id, row.status]) }));
+  // 22 Oct 2026 (#901): a host where no web port answered is a stated limit,
+  // so the scan itself is complete; the asset_exposure record stays incomplete,
+  // so the case still defers — now on the module, not the scan.
   ok("lab echo: a scan that timed out on the host does not close the case",
-    deferralOf(2)?.detail?.reason === "scan_partial", json(deferralOf(2)?.detail));
+    deferralOf(2)?.detail?.reason === "module_incomplete", json(deferralOf(2)?.detail));
   ok("lab echo: a refused connection does not close the case",
     deferralOf(3)?.detail?.reason === "affected_host_no_answer" && deferralOf(3)?.detail?.recheck?.hosts?.[0]?.outcome === "no_answer",
     json(deferralOf(3)?.detail));

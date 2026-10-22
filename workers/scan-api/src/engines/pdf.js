@@ -626,6 +626,15 @@ function sectionOverall(w, snap, { concise = false } = {}) {
       color: "0.45 0.35 0.10",
     });
   }
+  // Stated limits: the backend's customer sentence, never a reason key.
+  const statedMessages = (Array.isArray(ec.stated_limits) ? ec.stated_limits : [])
+    .map((limit) => (typeof limit?.message === "string" ? customerBodyText(limit.message) : "")).filter(Boolean);
+  if (statedMessages.length > 0) {
+    w.prose(`Stated limits of this scan: ${statedMessages.join(" ")}`, {
+      size: 9,
+      color: "0.35 0.38 0.44",
+    });
+  }
   if (
     Array.isArray(ec.skipped_score_bearing_modules) &&
     ec.skipped_score_bearing_modules.length > 0

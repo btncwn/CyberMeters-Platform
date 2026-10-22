@@ -685,8 +685,11 @@ const parity = states.map(parityOutputs);
 // and section headings at 14 pt. Only F13's PDF bytes move; with ONLY pdf.js
 // reverted the previous hash (e621f237…) reproduces exactly; F14 is unchanged.
 // Both changes together (#877 + #879): the hash below; each was proven alone above.
-const GOLDEN_F13 = "f9fbbfe4e9f30851d07a3fbf93f77f8534c6db66775712f06483dcf0ab203c2c";
-const GOLDEN_F14 = "b8b177e00629b862d6985cc7dd33d4b387d996a5e5b99a1fe0cb907fc6af5874";
+// Stated-limit sentences (22 Oct 2026): the snapshot evidence_completeness gains
+// stated_limits (here []); with ONLY report-snapshot.js reverted both prior hashes
+// (f9fbbfe4… / b8b177e0…) reproduce.
+const GOLDEN_F13 = "c4382a255c8e9ddb10ce11f7cec43fd82dc7eb1c863d4c8cbae84957a6531926";
+const GOLDEN_F14 = "2f7b557f9389fee949637d26362e60f750122cb6e87f9afc00bd6e7826d670cb";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
