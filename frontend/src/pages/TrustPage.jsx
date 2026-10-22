@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import PublicSiteHeader from '../components/PublicSiteHeader'
 import PublicSiteFooter from '../components/PublicSiteFooter'
+import { OWN_DOMAIN_SUMMARY } from '../data/ownDomainSummary'
 
 function Section({ title, children }) {
   return <section className="mt-8">
@@ -13,8 +14,12 @@ function Item({ children }) {
 }
 
 // Dated, operator-published observation; deliberately not a live trust badge.
-// Evidence: the separately authorised owned-domain scan completed
-// 2026-10-14T11:16:05.640Z. Its score and incomplete checks remain provisional.
+// The figures come from data/ownDomainSummary.js (latest COMPLETE assessment);
+// a test fails when they are more than 7 days old. Public copy names the hosting
+// provider but never the component architecture (founder, 21 Oct 2026).
+const measured = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC', hour12: false })
+  .format(new Date(OWN_DOMAIN_SUMMARY.measuredAt)).replace(/, /, ' at ') + ' UTC'
+
 export default function TrustPage() {
   return <div className="min-h-screen bg-gray-50">
       <PublicSiteHeader />
@@ -25,20 +30,18 @@ export default function TrustPage() {
         <Link to="/status" className="mt-5 inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700">System status</Link>
 
         <Section title="We use CyberMeters on our own domain">
-          <p>This is a summary published by the operator from a real CyberMeters scan of <strong className="text-gray-900">cybermeters.com</strong>, completed <time dateTime="2026-10-14T11:16:05.640Z">14 October 2026 at 11:16:05 UTC</time>. It is a dated observation of our Cloudflare edge endpoints, not a live status or an independent audit.</p>
+          <p>This is a summary published by the operator from the latest complete CyberMeters assessment of <strong className="text-gray-900">{OWN_DOMAIN_SUMMARY.domain}</strong>, measured <time dateTime={OWN_DOMAIN_SUMMARY.measuredAt}>{measured}</time>. It is a dated observation, not a live status or an independent audit.</p>
           <dl className="rounded-xl border border-gray-200 divide-y divide-gray-100">
-            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Reported score</dt><dd>Score available after a complete scan</dd></div>
-            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Live TLS evidence</dt><dd>4 Cloudflare edge endpoints</dd></div>
-            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Scan and TLS coverage</dt><dd>Partial</dd></div>
+            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Reported score</dt><dd>{OWN_DOMAIN_SUMMARY.score} out of 100</dd></div>
+            <div className="p-4 flex flex-col sm:flex-row sm:justify-between gap-1"><dt className="font-medium text-gray-800">Assessment</dt><dd>Complete — every planned check of this assessment ran</dd></div>
           </dl>
-          <p><strong className="text-gray-800">Why provisional?</strong> The TLS assessment completed 162 of 2,024 planned check outcomes; 346 were uncertain, 212 could not execute and 1,216 were outside this scan budget. Exposed-content coverage was also partial. No final score or assessment band was established.</p>
-          <p><strong className="text-gray-800">Special checks.</strong> The separately permitted Heartbleed, ROBOT and OpenSSL CCS tests ran on the recorded endpoints. ROBOT and CCS were not observed in their four TLS 1.2 tests; Heartbleed remained inconclusive because a heartbeat response was unavailable. These observations do not establish safety for other endpoints or later dates.</p>
-          <p><strong className="text-gray-800">TLS limits.</strong> The endpoint assessment records offered certificate-chain and stapled-OCSP evidence where available. A missing staple does not establish revocation status; no external revocation lookup was performed. These TCP checks do not assess QUIC or the origin behind Cloudflare.</p>
+          <p><strong className="text-gray-800">Active checks.</strong> Intrusive checks that send test traffic (for example, for known TLS weaknesses) are not run against any domain, including ours, until customer-authorised Active Checks are available. This summary covers passive, publicly visible evidence only.</p>
+          <p><strong className="text-gray-800">Limits.</strong> A missing revocation staple does not establish revocation status, and no external revocation lookup was performed. The assessment looks at what is publicly visible and does not assess systems behind the hosting network.</p>
           <p>This result is not a clean bill of health, a guarantee against vulnerabilities or proof of complete security. The example.co.uk sample on our home page is a separate, clearly labelled illustration.</p>
         </Section>
 
         <Section title="How the service runs">
-          <p>CyberMeters uses Cloudflare Workers, Containers, D1, R2 and Pages for application processing, bounded probes, storage and the web app. External checks run without installing an agent on your devices.</p>
+          <p>Hosted on Cloudflare&rsquo;s network. No agent is installed on your systems. Checks run from our infrastructure against what is publicly visible.</p>
           <p>Checks have declared scope and limits. Unavailable sources, timeouts and unmeasured controls remain visible rather than becoming successful results.</p>
         </Section>
         <Section title="Account and workspace protection">
