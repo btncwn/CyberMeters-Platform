@@ -665,8 +665,14 @@ const parity = states.map(parityOutputs);
 // Script metadata guidance adds only the registry stamp (r118-25b6147b).
 // Substituting current origin/main registry reproduces both preceding hashes
 // exactly; the certificate evidence hash remains unchanged.
-const GOLDEN_F13 = "4b779e3c7810b1abd731a6239d8616f5fc4c098f8ef9b0aadfeae623f69dd61d";
-const GOLDEN_F14 = "3d973605048c594cfee920c2fff150650a3eb95ac48160ae5a3011bdaf15c979";
+// Website Security scope line (22 Oct 2026, founder): the limitation sentence no
+// longer says "no active, authenticated or intrusive testing" (false for a
+// workspace using signed-in scanning). It travels in the resolved states (F14)
+// and the customer PDF (F13). With ONLY that sentence reverted the previous
+// hashes (4b779e3c… / 3d973605…) reproduce exactly; all five SAN projection
+// states agree and the certificate evidence hash is unchanged.
+const GOLDEN_F13 = "0908a80da023d018a77980750f2235b34c8c745385fe915959deb959f8721a07";
+const GOLDEN_F14 = "efeee99a0c575c45faf825789ba033c474ddf1696fa4b820a3d4b4db3182e493";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
