@@ -72,8 +72,8 @@ jobs:
               python3 -c 'import json,sys; wire=sys.stdin.buffer.read(); assert len(wire)>5 and wire[0]==3 and int.from_bytes(wire[1:5],"big")==len(wire)-5; result=json.loads(wire[5:]); assert result["engine"]["sandboxed"] is True and result["state"]=="accepted"'
           done
 
-      - name: Install the probe's pinned Wrangler
-        run: npm ci --prefix workers/network-probe --ignore-scripts
+      - name: Install the probe's pinned Wrangler (governed installer)
+        run: node scripts/install-governed-dependencies.js --root workers/network-probe
 
       - name: Deploy the network probe (Worker + image)
         working-directory: workers/network-probe
