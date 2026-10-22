@@ -9,6 +9,14 @@
 -- path; only the workspace purge erases them (WORKSPACE_PURGE_TABLES), because
 -- deleting a customer's data on request is the one deletion we owe them.
 --
+-- Two scopes, one table (Executive decision A, 22 Oct 2026):
+--   • 'domain': a verified domain of the workspace, exact hosts under it;
+--   • 'network_range': an IP/CIDR the customer declares they are authorised to
+--     have checked although it is not observed in their verified DNS — the exact
+--     address set (≤ 32) and port list (≤ 16). Shared provider infrastructure is
+--     refused even with a grant. Customer wording: "authorisation declared by the
+--     customer; not independently verified".
+--
 -- No scheduling fields: a grant authorises on-demand checks only.
 --
 -- Additive: one new table, its indexes and triggers. Nothing existing changes;
@@ -26,6 +34,7 @@ CREATE TABLE IF NOT EXISTS active_check_consents (
   id                    TEXT PRIMARY KEY,
   workspace_id          TEXT NOT NULL,
   kind                  TEXT NOT NULL CHECK (kind IN ('grant', 'revocation')),
+  scope_kind            TEXT NOT NULL DEFAULT 'domain' CHECK (scope_kind IN ('domain', 'network_range')),
   -- revocation → the grant it ends; NULL on a grant.
   grant_id              TEXT,
   -- Exact scope (grants only): a verified domain of this workspace, the exact
@@ -34,6 +43,12 @@ CREATE TABLE IF NOT EXISTS active_check_consents (
   domain                TEXT,
   hosts_json            TEXT,
   checks_json           TEXT,
+  -- network_range grants: the declared target as typed (normalised), its exact
+  -- addresses and ports; the network target when it already existed.
+  network_target        TEXT,
+  network_target_id     TEXT,
+  addresses_json        TEXT,
+  ports_json            TEXT,
   -- Who: the signed-in account and its workspace role at that moment, plus the
   -- name and title the signer typed.
   actor_user_id         TEXT NOT NULL,
@@ -48,15 +63,18 @@ CREATE TABLE IF NOT EXISTS active_check_consents (
   authority_version     TEXT,
   created_at            TEXT NOT NULL,
   CHECK (
-    (kind = 'grant' AND grant_id IS NULL AND domain_id IS NOT NULL AND domain IS NOT NULL
-      AND hosts_json IS NOT NULL AND checks_json IS NOT NULL AND signer_name IS NOT NULL
-      AND signer_title IS NOT NULL AND authority_text IS NOT NULL AND authority_version IS NOT NULL)
+    (kind = 'grant' AND grant_id IS NULL AND checks_json IS NOT NULL AND signer_name IS NOT NULL
+      AND signer_title IS NOT NULL AND authority_text IS NOT NULL AND authority_version IS NOT NULL
+      AND ((scope_kind = 'domain' AND domain_id IS NOT NULL AND domain IS NOT NULL AND hosts_json IS NOT NULL)
+        OR (scope_kind = 'network_range' AND network_target IS NOT NULL AND addresses_json IS NOT NULL AND ports_json IS NOT NULL)))
     OR (kind = 'revocation' AND grant_id IS NOT NULL)
   )
 );
 
 CREATE INDEX IF NOT EXISTS idx_active_check_consents_scope
   ON active_check_consents (workspace_id, domain_id, kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_active_check_consents_range
+  ON active_check_consents (workspace_id, scope_kind, kind, created_at);
 
 -- A grant is revoked at most once.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_check_consents_one_revocation

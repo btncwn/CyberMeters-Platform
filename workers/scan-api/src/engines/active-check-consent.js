@@ -17,6 +17,7 @@
 import {
   observedNetworkAddresses,
   evaluateTargetScope,
+  NETWORK_SCOPE_REASONS,
 } from "./network-ownership.js";
 
 export const ACTIVE_CHECK_AUTHORITY_VERSION = "active-checks-2026-10-22";
@@ -44,6 +45,9 @@ export const ACTIVE_CHECK_CATALOGUE = Object.freeze({
   mail_open_relay:          { per_address: true,  label: "Open mail relay (no message is delivered)" },
   mail_starttls_strip:      { per_address: true,  label: "Mail accepted without STARTTLS" },
   mail_spoof_resistance:    { per_address: false, label: "Spoofed message to your designated seed mailbox" },
+  // Open ports, service banners and protocol facts on a customer-declared range.
+  // Nothing exploitative: no exploit, no credential testing, no data extraction.
+  network_service_scan:     { per_address: true,  label: "Open ports and service banners on a declared range (no exploit, no credentials)" },
 });
 
 // Stable reason codes; the customer wording is the caller's.
@@ -61,7 +65,8 @@ export const ACTIVE_CHECK_REASONS = Object.freeze({
 
 // grants_per_day bounds storage: an admin creating rows in their own workspace is
 // not a tenant risk, but it must not be unbounded.
-export const ACTIVE_CHECK_LIMITS = Object.freeze({ hosts: 32, name: 120, title: 120, grants_per_day: 100 });
+export const ACTIVE_CHECK_LIMITS = Object.freeze({ hosts: 32, name: 120, title: 120, grants_per_day: 100, addresses: 32, ports: 16 });
+export const ACTIVE_CHECK_SCOPE_KINDS = Object.freeze(["domain", "network_range"]);
 
 export const normaliseHost = (value) => String(value ?? "").trim().toLowerCase().replace(/\.$/, "");
 
@@ -78,7 +83,21 @@ const parseList = (text) => {
 // The grant's own scope, carried on every result so a check records exactly what
 // was authorised at run time without a later join.
 export function consentScope(row) {
+  if (row.scope_kind === "network_range") {
+    return {
+      scope_kind: "network_range",
+      network_target: row.network_target,
+      addresses: parseList(row.addresses_json),
+      ports: parseNumbers(row.ports_json),
+      checks: parseList(row.checks_json),
+      granted_at: row.created_at,
+      signer: { name: row.signer_name, title: row.signer_title, workspace_role: row.actor_workspace_role, user_id: row.actor_user_id },
+      authority_version: row.authority_version,
+      independently_verified: false,
+    };
+  }
   return {
+    scope_kind: "domain",
     domain: row.domain,
     hosts: parseList(row.hosts_json),
     checks: parseList(row.checks_json),
@@ -86,6 +105,50 @@ export function consentScope(row) {
     signer: { name: row.signer_name, title: row.signer_title, workspace_role: row.actor_workspace_role, user_id: row.actor_user_id },
     authority_version: row.authority_version,
   };
+}
+
+const parseNumbers = (text) => {
+  try {
+    const value = JSON.parse(text || "[]");
+    return Array.isArray(value) ? value.filter((v) => Number.isInteger(v)) : [];
+  } catch { return []; }
+};
+
+const LIVE_RANGE_GRANTS = `SELECT g.* FROM active_check_consents g
+  WHERE g.workspace_id = ? AND g.kind = 'grant' AND g.scope_kind = 'network_range'
+    AND NOT EXISTS (SELECT 1 FROM active_check_consents r
+                     WHERE r.kind = 'revocation' AND r.grant_id = g.id AND r.workspace_id = g.workspace_id)
+  ORDER BY g.created_at DESC, g.id DESC LIMIT 200`;
+
+/**
+ * The newest live network_range grant naming `check` that covers EVERY address
+ * (and every port, when ports are given). Throws on a read error: callers fail closed.
+ */
+export async function findDeclaredRangeGrant(env, workspaceId, addresses, { check = "network_service_scan", ports = null } = {}) {
+  if (!workspaceId || !Array.isArray(addresses) || !addresses.length) return null;
+  const rows = (await env.cybermeters_db.prepare(LIVE_RANGE_GRANTS).bind(workspaceId).all()).results || [];
+  return rows.find((g) => {
+    const covered = new Set(parseList(g.addresses_json));
+    const allowedPorts = new Set(parseNumbers(g.ports_json));
+    return (check === null || parseList(g.checks_json).includes(check))
+      && addresses.every((a) => covered.has(String(a)))
+      && (!ports || ports.every((p) => allowedPorts.has(p)));
+  }) || null;
+}
+
+/**
+ * Widen an out-of-scope network-target decision with the customer's declared
+ * authorisation. Never applies to shared provider infrastructure, never narrows.
+ * A read error leaves the decision out of scope.
+ */
+export async function withDeclaredConsent(env, workspaceId, addresses, decision) {
+  if (decision?.state === "in_scope" || (decision?.shared || []).length) return decision;
+  try {
+    const grant = await findDeclaredRangeGrant(env, workspaceId, addresses);
+    if (!grant) return decision;
+    return { ...decision, state: "in_scope", reason: NETWORK_SCOPE_REASONS.declared, unobserved: [], shared: [],
+      consent_id: grant.id, consent_ports: parseNumbers(grant.ports_json) };
+  } catch { return decision; }
 }
 
 // An empty host list means the apex only.
@@ -103,9 +166,11 @@ const refuse = (reason, extra = {}) => ({ authorised: false, reason, consent_id:
  * required for per-address checks and is held to the #765 rule: it must be seen
  * in the workspace's verified DNS and must not be shared provider infrastructure.
  */
-export async function isAuthorised(env, { workspaceId, domain, host, check, address } = {}, deps = {}) {
+export async function isAuthorised(env, { workspaceId, domain, host, check, address, port } = {}, deps = {}) {
   try {
     const db = env.cybermeters_db;
+    // A declared range: no domain, an address, and a live network_range grant.
+    if (!domain && address) return await isAuthorisedForDeclaredRange(env, { workspaceId, check, address, port }, deps);
     const apex = normaliseHost(domain);
     const target = normaliseHost(host || domain);
     if (!workspaceId || !apex || !target) return refuse(ACTIVE_CHECK_REASONS.no_grant);
@@ -152,4 +217,21 @@ export async function isAuthorised(env, { workspaceId, domain, host, check, addr
     console.error("[active-check-consent] read failed", JSON.stringify({ workspace_id: workspaceId, check, reason: error?.message }));
     return refuse(ACTIVE_CHECK_REASONS.consent_read_failed);
   }
+}
+
+// The network_range half of isAuthorised: same reasons, same fail-closed rule.
+async function isAuthorisedForDeclaredRange(env, { workspaceId, check, address, port }, deps) {
+  const definition = Object.prototype.hasOwnProperty.call(ACTIVE_CHECK_CATALOGUE, check) ? ACTIVE_CHECK_CATALOGUE[check] : null;
+  if (!workspaceId || !definition || !definition.per_address) return refuse(ACTIVE_CHECK_REASONS.check_not_in_grant);
+  const workspace = await env.cybermeters_db.prepare("SELECT id, deleted_at FROM workspaces WHERE id = ? LIMIT 1").bind(workspaceId).first();
+  if (!workspace || workspace.deleted_at) return refuse(ACTIVE_CHECK_REASONS.workspace_deleted);
+  // Shared provider infrastructure is refused even with a declaration.
+  const observed = await (deps.observedNetworkAddresses || observedNetworkAddresses)(env, workspaceId, deps.ownership || {});
+  const seen = evaluateTargetScope([String(address)], observed);
+  if (seen.shared.length) return refuse(ACTIVE_CHECK_REASONS.address_out_of_scope, { address_scope: seen.reason });
+  const ports = Number.isInteger(port) ? [port] : null;
+  const grant = await findDeclaredRangeGrant(env, workspaceId, [String(address)], { check, ports });
+  if (grant) return { authorised: true, reason: ACTIVE_CHECK_REASONS.authorised, consent_id: grant.id, scope: consentScope(grant) };
+  const any = await findDeclaredRangeGrant(env, workspaceId, [String(address)], { check: null });
+  return refuse(any ? ACTIVE_CHECK_REASONS.check_not_in_grant : ACTIVE_CHECK_REASONS.no_grant);
 }

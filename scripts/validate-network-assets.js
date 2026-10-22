@@ -372,4 +372,77 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='wa' AND domain_id='d_seed'").run();
 }
 
+// ── A customer-declared range under Active Checks consent (00:40 principle) ──
+// Not in verified DNS: scannable only under a live network_range grant for this
+// exact range and its ports; shared provider infrastructure never; revocation
+// stops the probe in SQL.
+{
+  const {activeCheckConsentRoutes}=await import('../workers/scan-api/src/routes/active-check-consents.js');
+  const {isAuthorised,ACTIVE_CHECK_AUTHORITY_VERSION}=await import('../workers/scan-api/src/engines/active-check-consent.js');
+  async function consent(path='',{user='owner',method='GET',body}={}){
+    const url=new URL(`https://unit.test/api/workspaces/wa/active-check-consents${path}`);
+    const request=new Request(url,{method,...(method!=='GET'?{body:JSON.stringify(body??{}),headers:{'Content-Type':'application/json','CF-Connecting-IP':'203.0.113.9'}}:{})});
+    const response=await activeCheckConsentRoutes({request,url,env,requireAuth:async()=>user?{id:user,email:`${user}@example.test`}:null,requireWorkspaceRole,json:(b,s=200)=>Response.json(b,{status:s}),serverError:e=>Response.json({error:'server',detail:String(e?.message||e)},{status:500})});
+    return {status:response.status,body:await response.json()};
+  }
+  const range={scope_kind:'network_range',target:'93.184.216.120/30',ports:[22,443],checks:['network_service_scan'],
+    signer_name:'Pat Owner',signer_title:'IT Manager',authority_confirmed:true,authority_version:ACTIVE_CHECK_AUTHORITY_VERSION};
+  const declare=(target)=>call('network-targets',{method:'POST',body:{target,authorization_confirmed:true}});
+  eq('declared range: without a grant it is not admitted',(await declare('93.184.216.120/30')).status,422);
+  for(const [name,body,status] of [
+    ['shared provider infrastructure',{...range,target:'104.18.1.1'},422],
+    ['a per-host check on a range',{...range,checks:['takeover_active_confirm']},400],
+    ['a private range',{...range,target:'10.0.0.0/30'},400],
+    ['more than 16 ports',{...range,ports:Array.from({length:17},(_,i)=>1000+i)},400],
+    ['an unknown field',{...range,domain_id:'d_ok'},400],
+    ['no authority confirmation',{...range,authority_confirmed:false},400],
+  ])eq(`declared range grant refused: ${name}`,(await consent('',{method:'POST',body})).status,status);
+  eq('declared range grant refused: a viewer',(await consent('',{method:'POST',body:range,user:'viewer'})).status,403);
+  const granted=await consent('',{method:'POST',body:range});
+  eq('declared range: an owner grants it',granted.status,201);
+  const c=granted.body.consent;
+  eq('declared range: the grant records the exact addresses, ports and checks, not verified',
+    [c.scope_kind,c.addresses,c.ports,c.checks,c.independently_verified,c.signer.user_id],
+    ['network_range',['93.184.216.120','93.184.216.121','93.184.216.122','93.184.216.123'],[22,443],['network_service_scan'],false,undefined]);
+
+  const created=await declare('93.184.216.120/30');
+  eq('declared range: the target is admitted under the grant',[created.status,created.body.target?.scope?.state,created.body.target?.scope?.reason],[201,'in_scope','authorisation_declared_by_customer']);
+  ok('declared range: the customer reads that it is declared, not verified',/declared by the customer; not independently verified/.test(created.body.target?.scope?.message||''));
+  ok('declared range: a range outside the grant is refused',(await declare('93.184.216.124/30')).status===422);
+  ok('declared range: a wider range that the grant only partly covers is refused',(await declare('93.184.216.120/29')).status===422);
+  // Even a grant written straight into the table cannot admit a provider's shared edge.
+  db.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,scope_kind,network_target,addresses_json,ports_json,checks_json,actor_user_id,actor_workspace_role,
+    signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_edge','wa','grant','network_range','104.18.1.1','["104.18.1.1"]','[443]','["network_service_scan"]','owner','owner','P','T','t','v',?)`).run(new Date().toISOString());
+  eq('declared range: a grant never widens shared provider infrastructure',[(await declare('104.18.1.1')).status,(await declare('104.18.1.1')).body.scope?.reason],[422,'address_is_shared_provider_infrastructure']);
+  const targetId=created.body.target.id;
+  const refusedPorts=await call(`network-targets/${targetId}/scans`,{user:'analyst',method:'POST',body:{ports:[22,3389]}});
+  eq('declared range: a port outside the grant is refused',[refusedPorts.status,refusedPorts.body.error],[409,'network_ports_not_authorised']);
+  db.prepare("UPDATE network_scans SET status='completed' WHERE status IN ('queued','running')").run();
+  const scan=await call(`network-targets/${targetId}/scans`,{user:'analyst',method:'POST',body:{ports:[22]}});
+  eq('declared range: a granted port is admitted',scan.status,202);
+
+  // A queued scan whose ports the grant does not list (written past the route) is refused at the claim.
+  const sneaky=db.prepare("SELECT * FROM network_scans WHERE id=?").get(scan.body.scan.id);
+  db.prepare("UPDATE network_scans SET ports_json='[22,3389]' WHERE id=?").run(sneaky.id);
+  const sneakyProbes=probeCalls;
+  const sneakyOut=await processNetworkScanMessage(queued.at(-1),env,{adapter:{collectNetworkProbe:async()=>{probeCalls++;throw new Error('must not probe');},validateNetworkProbeReceipt:()=>({ok:true})}});
+  eq('declared range: the claim refuses ports the grant does not list',[sneakyOut.outcome,probeCalls-sneakyProbes],['consent_not_live',0]);
+  db.prepare("UPDATE network_scans SET ports_json='[22]',status='queued',reason=NULL,completed_at=NULL WHERE id=?").run(sneaky.id);
+  const ask=(q)=>isAuthorised(env,{workspaceId:'wa',check:'network_service_scan',...q});
+  eq('isAuthorised (range): a granted address and port',[(await ask({address:'93.184.216.121',port:22})).authorised,(await ask({address:'93.184.216.121',port:22})).consent_id],[true,c.id]);
+  ok('isAuthorised (range): a port the grant does not list',(await ask({address:'93.184.216.121',port:25})).authorised===false);
+  eq('isAuthorised (range): an address outside the grant',(await ask({address:'93.184.216.130',port:22})).reason,'no_grant');
+  eq('isAuthorised (range): shared infrastructure even with a grant',(await ask({address:'104.18.1.1',port:22})).reason,'address_out_of_scope');
+  eq('isAuthorised (range): a check the grant does not name',(await ask({address:'93.184.216.121',port:22,check:'dns_open_resolver'})).reason,'check_not_in_grant');
+
+  // Revoke between admission and probe: the claim refuses in SQL, nothing is probed.
+  eq('declared range: the owner revokes',(await consent(`/${c.id}/revoke`,{method:'POST'})).status,200);
+  const probesBefore=probeCalls;
+  const outcome=await processNetworkScanMessage(queued.at(-1),env,{adapter:{collectNetworkProbe:async()=>{probeCalls++;throw new Error('must not probe');},validateNetworkProbeReceipt:()=>({ok:true})}});
+  eq('declared range: after revocation the probe never runs',[outcome.outcome,probeCalls-probesBefore,db.prepare('SELECT status,reason FROM network_scans WHERE id=?').get(scan.body.scan.id)],
+    ['consent_not_live',0,{status:'failed',reason:'network_consent_not_live'}]);
+  db.prepare("UPDATE network_scans SET status='completed' WHERE status IN ('queued','running')").run();
+  eq('declared range: after revocation no new scan is admitted',(await call(`network-targets/${targetId}/scans`,{user:'analyst',method:'POST',body:{ports:[22]}})).status,409);
+}
+
 console.log(`\nNetwork assets: ${passed} passed, ${failed} failed`);if(failed)process.exit(1);

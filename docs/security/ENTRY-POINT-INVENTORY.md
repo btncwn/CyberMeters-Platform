@@ -113,7 +113,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 53 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 112 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 
@@ -374,12 +374,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `(none)` | 45 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `(none)` | 62 | unknown | **GAP** | — |
-| POST | `(none)` | 71 | unknown | ✓ | requireWorkspaceRole |
-| GET | `(none)` | 93 | unknown | **GAP** | — |
-| GET | `(none)` | 112 | unknown | **GAP** | — |
-| POST | `(none)` | 122 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 46 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 63 | unknown | **GAP** | — |
+| POST | `(none)` | 72 | unknown | ✓ | requireWorkspaceRole |
+| GET | `(none)` | 97 | unknown | **GAP** | — |
+| GET | `(none)` | 116 | unknown | **GAP** | — |
+| POST | `(none)` | 126 | unknown | ✓ | requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/portfolio.js`
 

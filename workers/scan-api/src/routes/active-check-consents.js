@@ -1,4 +1,6 @@
 import { createId } from '../lib/util.js';
+import { normalizeNetworkTarget, normalizeNetworkPorts } from '../engines/network-targets.js';
+import { observedNetworkAddresses, evaluateTargetScope } from '../engines/network-ownership.js';
 import {
   ACTIVE_CHECK_AUTHORITY_TEXT, ACTIVE_CHECK_AUTHORITY_VERSION, ACTIVE_CHECK_CATALOGUE, ACTIVE_CHECK_LIMITS,
   consentScope, hostIsUnderDomain, normaliseHost,
@@ -33,6 +35,63 @@ export const activeCheckConsentProjection = (grant, revocation) => {
     revoked_at: revocation?.created_at || null,
   };
 };
+
+const cleanText = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= max ? v.trim() : null;
+const dayAgo = (now) => new Date(Date.parse(now) - 24 * 3600_000).toISOString();
+
+// A customer-declared range (scope_kind 'network_range'): exact addresses and
+// ports, socket checks only, never shared provider infrastructure. The wording
+// stays "authorisation declared by the customer; not independently verified".
+async function grantNetworkRange(body, { db, env, json, workspaceId, actor, now }) {
+  const keys = ['scope_kind', 'target', 'ports', 'checks', 'signer_name', 'signer_title', 'authority_confirmed', 'authority_version'];
+  if (Object.keys(body).some((k) => !keys.includes(k))) return json({ error: 'unsupported_consent_field' }, 400);
+  if (body.authority_confirmed !== true || body.authority_version !== ACTIVE_CHECK_AUTHORITY_VERSION) {
+    return json({ error: 'active_check_authority_required' }, 400);
+  }
+  const signerName = cleanText(body.signer_name, ACTIVE_CHECK_LIMITS.name);
+  const signerTitle = cleanText(body.signer_title, ACTIVE_CHECK_LIMITS.title);
+  if (!signerName || !signerTitle) return json({ error: 'signer_name_and_title_required' }, 400);
+  const checks = Array.isArray(body.checks) ? [...new Set(body.checks)] : [];
+  if (!checks.length || checks.some((c) => typeof c !== 'string' || !Object.prototype.hasOwnProperty.call(ACTIVE_CHECK_CATALOGUE, c)
+    || !ACTIVE_CHECK_CATALOGUE[c].per_address)) return json({ error: 'invalid_active_checks' }, 400);
+  let range, ports;
+  try {
+    range = await normalizeNetworkTarget(body.target);
+    ports = normalizeNetworkPorts(body.ports, range.address_count);
+  } catch { return json({ error: 'invalid_network_range' }, 400); }
+  if (range.address_count > ACTIVE_CHECK_LIMITS.addresses || ports.length > ACTIVE_CHECK_LIMITS.ports) return json({ error: 'invalid_network_range' }, 400);
+  // A provider's shared edge is never the customer's to authorise.
+  const seen = evaluateTargetScope(range.addresses, await observedNetworkAddresses(env, workspaceId));
+  if (seen.shared.length) return json({ error: 'address_is_shared_provider_infrastructure', shared: seen.shared.slice(0, 32) }, 422);
+  const existing = await db.prepare('SELECT id FROM network_targets WHERE workspace_id = ? AND target = ? LIMIT 1').bind(workspaceId, range.target).first();
+  const id = createId('acc');
+  await db.batch([
+    db.prepare(`INSERT INTO active_check_consents
+        (id, workspace_id, kind, scope_kind, network_target, network_target_id, addresses_json, ports_json, checks_json,
+         actor_user_id, actor_email, actor_workspace_role, signer_name, signer_title, ip_address, user_agent,
+         authority_text, authority_version, created_at)
+      SELECT ?, ?, 'grant', 'network_range', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)
+         AND (SELECT COUNT(*) FROM active_check_consents
+               WHERE workspace_id = ? AND kind = 'grant' AND created_at > ?) < ?`)
+      .bind(id, workspaceId, range.target, existing?.id || null, JSON.stringify(range.addresses), JSON.stringify(ports), JSON.stringify(checks),
+        actor.user_id, actor.email, actor.role, signerName, signerTitle, actor.ip, actor.ua,
+        ACTIVE_CHECK_AUTHORITY_TEXT, ACTIVE_CHECK_AUTHORITY_VERSION, now, workspaceId,
+        workspaceId, dayAgo(now), ACTIVE_CHECK_LIMITS.grants_per_day),
+    db.prepare(`INSERT INTO audit_events (id, workspace_id, user_id, actor_type, event_type, entity_type, entity_id, description, metadata_json, created_at)
+      SELECT ?, ?, ?, 'customer', 'active_check_consent_granted', 'active_check_consent', ?, 'Active check permission granted', ?, ?
+       WHERE changes() = 1`)
+      .bind(createId('audit'), workspaceId, actor.user_id, id,
+        JSON.stringify({ scope_kind: 'network_range', target: range.target, ports, checks, independently_verified: false,
+          authority_version: ACTIVE_CHECK_AUTHORITY_VERSION }), now),
+  ]);
+  const row = await db.prepare('SELECT * FROM active_check_consents WHERE id = ? AND workspace_id = ?').bind(id, workspaceId).first();
+  if (!row) {
+    const live = await db.prepare('SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL').bind(workspaceId).first();
+    return live ? json({ error: 'active_check_consent_limit' }, 429) : json({ error: 'Workspace not found' }, 404);
+  }
+  return json({ consent: activeCheckConsentProjection(row, null) }, 201);
+}
 
 export async function activeCheckConsentRoutes(rctx) {
   const { request, env, url, json, requireAuth, requireWorkspaceRole, serverError } = rctx;
@@ -97,6 +156,9 @@ export async function activeCheckConsentRoutes(rctx) {
     }
 
     const body = await bodyJson(request);
+    if (body.scope_kind === 'network_range') return await grantNetworkRange(body, { db, env, json, workspaceId, actor, now });
+    if (body.scope_kind != null && body.scope_kind !== 'domain') return json({ error: 'invalid_consent_scope' }, 400);
+    delete body.scope_kind;
     const keys = ['domain_id', 'hosts', 'checks', 'signer_name', 'signer_title', 'authority_confirmed', 'authority_version'];
     if (Object.keys(body).some((k) => !keys.includes(k))) return json({ error: 'unsupported_consent_field' }, 400);
     if (body.authority_confirmed !== true || body.authority_version !== ACTIVE_CHECK_AUTHORITY_VERSION) {

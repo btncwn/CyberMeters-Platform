@@ -4,7 +4,8 @@ import { NETWORK_LIMITS, NETWORK_PORTS, normalizeNetworkTarget, normalizeNetwork
 import { createId } from '../lib/util.js';
 import { networkReceiptHash } from '../engines/network-scan-dispatch.js';
 import { buildNetworkSuggestions, hostsNeedingResolution, NETWORK_SUGGESTION_LIMITS, resolveHostAddresses } from '../engines/network-suggestions.js';
-import { checkNetworkTargetScope, evaluateTargetScope, NETWORK_SCOPE_VERSION, networkScopeProjection, observedNetworkAddresses, scopeMessage } from '../engines/network-ownership.js';
+import { checkNetworkTargetScope, evaluateTargetScope, NETWORK_SCOPE_REASONS, NETWORK_SCOPE_VERSION, networkScopeProjection, observedNetworkAddresses, scopeMessage } from '../engines/network-ownership.js';
+import { withDeclaredConsent } from '../engines/active-check-consent.js';
 
 const parseJson = value => value ? JSON.parse(value) : null;
 export const networkTargetProjection = row => ({ id:row.id,target:row.target,target_type:row.target_type,address_count:row.address_count,label:row.label,authorization_status:row.authorization_status,authorized_by:row.authorized_by,authorized_at:row.authorized_at,created_at:row.created_at,scope:networkScopeProjection(row) });
@@ -48,7 +49,7 @@ export async function networkAssetRoutes(rctx) {
       // decisions are refreshed here, bounded by a rate limit (DNS lookups).
       const stale=(rows.results||[]).filter(scopeStale);
       if(stale.length&&!await consumeApiRateLimit(env,[{scope:'workspace',scope_id:workspaceId}],'network_scope_check',30,3600)) {
-        await checkNetworkTargetScope(env,workspaceId,stale);
+        await checkNetworkTargetScope(env,workspaceId,stale,{adjust:(addresses,decision)=>withDeclaredConsent(env,workspaceId,addresses,decision)});
         rows=await db.prepare('SELECT * FROM network_targets WHERE workspace_id=? ORDER BY created_at DESC,id').bind(workspaceId).all();
       }
       const manage=await requireWorkspaceRole(user,workspaceId,'domain:import',env);
@@ -77,9 +78,12 @@ export async function networkAssetRoutes(rctx) {
       // The attestation is necessary, not sufficient: every address must be
       // observed in this workspace's verified-domain DNS (network-ownership.js).
       const observed=await observedNetworkAddresses(env,workspaceId);
-      const decision=evaluateTargetScope(normalized.addresses,observed);
+      // An address outside verified DNS is admitted only under a live Active
+      // Checks network_range grant for this exact range (never shared infrastructure).
+      const decision=await withDeclaredConsent(env,workspaceId,normalized.addresses,evaluateTargetScope(normalized.addresses,observed));
       if(decision.state!=='in_scope')return json({error:'network_target_not_observed',scope:scopeRefusal(decision)},422);
-      const scopeEvidence=JSON.stringify({version:NETWORK_SCOPE_VERSION,unobserved:[],shared:[],evidence:decision.evidence,roots:observed.roots,lookups_failed:observed.lookups_failed});
+      const scopeEvidence=JSON.stringify({version:NETWORK_SCOPE_VERSION,unobserved:[],shared:[],evidence:decision.evidence,roots:observed.roots,lookups_failed:observed.lookups_failed,
+        ...(decision.consent_id?{consent_id:decision.consent_id,consent_ports:decision.consent_ports}:{})});
       const insert=db.prepare(`INSERT INTO network_targets (id,workspace_id,target,target_type,addresses_json,address_count,label,authorization_status,authorized_by,authorized_at,created_at,scope_state,scope_reason,scope_checked_at,scope_evidence_json) SELECT ?,?,?,?,?,?,?,'attested',?,?,?,'in_scope',?,?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) AND (SELECT COUNT(*) FROM network_targets WHERE workspace_id=?)<?`)
         .bind(targetId,workspaceId,normalized.target,normalized.target_type,JSON.stringify(normalized.addresses),normalized.address_count,body.label||null,user.id,now,now,decision.reason,now,scopeEvidence,workspaceId,workspaceId,NETWORK_LIMITS.max_targets);
       // The audit selects the inserted identity so reaching the target cap leaves no false authorization event.
@@ -141,8 +145,11 @@ export async function networkAssetRoutes(rctx) {
       if(rate)return json(rate.body,rate.status);
       // Checked again now, after the plan and rate checks: DNS may have moved
       // since the target was declared (network-ownership.js).
-      const decision=(await checkNetworkTargetScope(env,workspaceId,[target])).get(target.id);
+      const decision=(await checkNetworkTargetScope(env,workspaceId,[target],{adjust:(addresses,d)=>withDeclaredConsent(env,workspaceId,addresses,d)})).get(target.id);
       if(decision?.state!=='in_scope')return json({error:'network_target_out_of_scope',scope:scopeRefusal(decision||{state:'out_of_scope',reason:null,unobserved:[],shared:[]})},409);
+      // A declared range is scanned only on the ports its grant lists.
+      if(decision.reason===NETWORK_SCOPE_REASONS.declared&&!ports.every(port=>(decision.consent_ports||[]).includes(port)))
+        return json({error:'network_ports_not_authorised',allowed_ports:decision.consent_ports||[]},409);
       const scanId=createId('netscan'),now=new Date().toISOString(),key=`network-reports/${workspaceId}/${scanId}.json`;
       // The quota predicate executes in the same D1 statement as admission.
       const admission=await getOperationAdmission(env,workspaceId,user.id,'scans');

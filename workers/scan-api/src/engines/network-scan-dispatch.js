@@ -1,4 +1,4 @@
-import { NETWORK_SCOPE_LIMITS } from './network-ownership.js';
+import { NETWORK_SCOPE_LIMITS, NETWORK_SCOPE_REASONS } from './network-ownership.js';
 import { normalizeNetworkTarget, normalizeNetworkPorts } from './network-targets.js';
 import { createId } from '../lib/util.js';
 
@@ -49,10 +49,27 @@ export async function processNetworkScanMessage(body,env,deps={}) {
     try{await failScan(env,row,'network_target_out_of_scope');}catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
     return {action:'ack',outcome:'out_of_scope'};
   }
+  // A customer-declared range (Active Checks network_range grant) is claimed only
+  // while its grant is live, still names network_service_scan and lists every
+  // requested port: a revocation stops the probe in the same statement.
   let claimed;
-  try{claimed=await env.cybermeters_db.prepare("UPDATE network_scans SET status='running',started_at=? WHERE id=? AND status='queued'").bind(new Date().toISOString(),row.id).run();}
+  try{claimed=await env.cybermeters_db.prepare(`UPDATE network_scans SET status='running',started_at=? WHERE id=? AND status='queued'
+    AND EXISTS(SELECT 1 FROM network_targets t WHERE t.id=network_scans.target_id AND t.workspace_id=network_scans.workspace_id
+      AND (t.scope_reason IS NOT ? OR EXISTS(SELECT 1 FROM active_check_consents g
+        WHERE g.id=json_extract(t.scope_evidence_json,'$.consent_id') AND g.workspace_id=t.workspace_id
+          AND g.kind='grant' AND g.scope_kind='network_range'
+          AND EXISTS(SELECT 1 FROM json_each(g.checks_json) k WHERE k.value='network_service_scan')
+          AND NOT EXISTS(SELECT 1 FROM active_check_consents r WHERE r.kind='revocation' AND r.grant_id=g.id)
+          AND NOT EXISTS(SELECT 1 FROM json_each(network_scans.ports_json) p WHERE p.value NOT IN (SELECT value FROM json_each(g.ports_json))))))`)
+    .bind(new Date().toISOString(),row.id,NETWORK_SCOPE_REASONS.declared).run();}
   catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
-  if(claimed.meta?.changes!==1)return {action:'ack',outcome:'already_claimed'};
+  if(claimed.meta?.changes!==1){
+    let still;
+    try{still=await env.cybermeters_db.prepare("SELECT status FROM network_scans WHERE id=?").bind(row.id).first();}catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
+    if(still?.status!=='queued')return {action:'ack',outcome:'already_claimed'};
+    try{await failScan(env,row,'network_consent_not_live');}catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
+    return {action:'ack',outcome:'consent_not_live'};
+  }
   try {
     const adapter=deps.adapter||await import('./network-probe.js');
     const request={schema_version:'network-probe-request-v1',request_id:row.id,workspace_id:row.workspace_id,scan_id:row.id,profile:'network_services',deadline_at:new Date(Date.now()+90_000).toISOString(),targets:normalized.addresses.map(address=>({address,hostname:null})),ports};

@@ -36,6 +36,9 @@ export const NETWORK_SCOPE_REASONS = Object.freeze({
   not_observed: "address_not_observed_in_verified_dns",
   shared: "address_is_shared_provider_infrastructure",
   no_domain: "no_verified_domain",
+  // Not observed in verified DNS, but covered by a live Active Checks
+  // network_range grant (engines/active-check-consent.js).
+  declared: "authorisation_declared_by_customer",
 });
 
 const MESSAGES = Object.freeze({
@@ -43,6 +46,7 @@ const MESSAGES = Object.freeze({
   [NETWORK_SCOPE_REASONS.not_observed]: "Not scanned: an address is not observed in the DNS (A, AAAA or MX) of a domain you verified, or of a host discovered under it. Point a record of your verified domain at it, then check again.",
   [NETWORK_SCOPE_REASONS.shared]: "Not scanned: an address belongs to a provider's shared infrastructure (for example a CDN edge), not to a server you control.",
   [NETWORK_SCOPE_REASONS.no_domain]: "Not scanned: verify a domain first. Only addresses observed in its DNS can be scanned.",
+  [NETWORK_SCOPE_REASONS.declared]: "Authorisation declared by the customer; not independently verified. Scanned only under the signed Active Checks permission for this exact range and its listed ports.",
 });
 
 function hostUnder(host, root) {
@@ -155,6 +159,9 @@ export function networkScopeProjection(row) {
  * decision. Returns Map(target id -> decision). One observation per call.
  */
 export async function checkNetworkTargetScope(env, workspaceId, targets, deps = {}) {
+  // deps.adjust(addresses, decision) may widen an out-of-scope decision with a
+  // customer's declared authorisation (routes/network-assets.js); it never
+  // narrows, and it is never applied to shared provider infrastructure.
   const observed = deps.observed || await observedNetworkAddresses(env, workspaceId, deps);
   const now = (deps.now ? new Date(deps.now()) : new Date()).toISOString();
   const decisions = new Map();
@@ -162,7 +169,8 @@ export async function checkNetworkTargetScope(env, workspaceId, targets, deps = 
   for (const target of targets) {
     let addresses = [];
     try { addresses = JSON.parse(target.addresses_json); } catch { addresses = []; }
-    const decision = evaluateTargetScope(Array.isArray(addresses) ? addresses : [], observed);
+    let decision = evaluateTargetScope(Array.isArray(addresses) ? addresses : [], observed);
+    if (deps.adjust) decision = await deps.adjust(Array.isArray(addresses) ? addresses : [], decision);
     decisions.set(target.id, { ...decision, checked_at: now });
     statements.push(env.cybermeters_db.prepare(
       `UPDATE network_targets SET scope_state = ?, scope_reason = ?, scope_checked_at = ?, scope_evidence_json = ?
@@ -170,6 +178,7 @@ export async function checkNetworkTargetScope(env, workspaceId, targets, deps = 
     ).bind(decision.state, decision.reason, now, JSON.stringify({
       version: NETWORK_SCOPE_VERSION, unobserved: decision.unobserved, shared: decision.shared,
       evidence: decision.evidence, roots: observed.roots, lookups_failed: observed.lookups_failed,
+      ...(decision.consent_id ? { consent_id: decision.consent_id, consent_ports: decision.consent_ports } : {}),
     }), target.id, workspaceId));
   }
   if (statements.length === 1) await statements[0].run();
