@@ -730,6 +730,57 @@ await import("./remote-admin-exposure-fixture.js");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
+// ── Website case verifier retry (22 Oct 2026, Executive 15:45 (2)) ───────────
+// sheshire.co.uk: the HSTS condition went no_longer_observed while its case was
+// still 'detected'; the verifier ran only on that transition, so when the case
+// is later marked ready to verify, nothing ever verified it. The base machine
+// has no detected -> verified path (canTransitionCase), so the honest fix is a
+// quiet retry on every scan while the condition stays resolved.
+{
+  const engineUrl = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
+  const core = { dns: { resolves: true }, ssl: { https_available: true }, headers: { final_https: true, status_code: 200 } };
+  const hsts = { id: "header_missing_strict_transport_security", module: "headers", severity: "high", title: "HSTS not configured", finding_type: "finding", score_impact: -10 };
+  const walk = async (lifecycle, ws, domainId, domain) => {
+    seedWorkspace(ws, domainId, domain);
+    db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id=?").run(ws);
+    const run = (id, findings) => lifecycle.evaluateWebsiteSecurityForScan(env, { workspace_id: ws, domain_id: domainId, domain, scan_id: `${ws}_${id}`,
+      findings, modules: core, scanQuality: { status: "complete", modules_skipped: [] } });
+    await run("s0", []); await run("s1", [hsts]); await run("s2", []);           // fixed while the case is 'detected'
+    const caseId = db.prepare("SELECT id FROM managed_cases WHERE workspace_id=?").get(ws)?.id;
+    const eventsBefore = db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=?").get(caseId).n;
+    await run("s2b", []);                                                          // retry on a 'detected' case
+    const quiet = db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=?").get(caseId).n === eventsBefore;
+    let row = await getManagedCase(env, ws, caseId);
+    row = (await transitionManagedCase(env, row, "triaged", { actor_type: "customer", actor_id: "u" })).case || row;
+    row = (await assignManagedCaseOwner(env, row, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "u" })).case || row;
+    for (const to of ["assigned", "approved", "action_in_progress", "awaiting_verification"]) {
+      row = (await transitionManagedCase(env, row, to, { actor_type: "customer", actor_id: "u" })).case || row;
+    }
+    const ready = row.status;
+    await run("s3", []);                                                           // next complete scan, no transition
+    return { ready, quiet, after: (await getManagedCase(env, ws, caseId))?.status };
+  };
+  const real = await walk(await import(engineUrl("website-security-lifecycle.js")), "ws_retry", "dom_retry", "retry-example.com");
+  ok("verifier retry: the case reaches awaiting_verification through the customer path", real.ready === "awaiting_verification");
+  ok("verifier retry: a 'detected' case collects no note from the per-scan retry", real.quiet === true);
+  ok("verifier retry: the next complete scan verifies a case whose fix was observed earlier", real.after === "verified");
+
+  // Mutant: the retry removed (single-shot verifier) -> the case never verifies.
+  const file = path.join(root, "workers", "scan-api", "src", "engines", "website-security-lifecycle.js");
+  const source = fs.readFileSync(file, "utf8");
+  const anchor = 'if (nextStatus === "no_longer_observed" && moduleAssessed) {';
+  ok("verifier retry mutant anchor present once", source.split(anchor).length === 2);
+  const relinked = source.replace(anchor, "if (false) {")
+    .replace(/from (["'])(\.{1,2}\/[^"']+)\1/g, (_m, q, spec) => `from ${q}${new URL(spec, pathToFileURL(file))}${q}`);
+  const dir = fs.mkdtempSync(path.join((await import("node:os")).tmpdir(), "cm-verify-retry-"));
+  try {
+    const target = path.join(dir, "website-security-lifecycle-retry-mutant.mjs");
+    fs.writeFileSync(target, relinked);
+    const mutant = await walk(await import(pathToFileURL(target).href), "ws_retry_m", "dom_retry_m", "retry-mutant-example.com");
+    ok("verifier retry mutant (single-shot) is caught: the case stays awaiting_verification", mutant.after === "awaiting_verification");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");

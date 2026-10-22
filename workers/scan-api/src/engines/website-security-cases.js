@@ -233,6 +233,10 @@ export async function verifyWebsiteCaseFromResolution(env, {
   workspace_id, record_id, recovery_event_type = WEBSITE_RECOVERY_EVENT,
   module_assessed = false, detecting_module = null, scan_id = null,
   observed_at = new Date().toISOString(),
+  // A retry on a later scan while the condition stays resolved (22 Oct 2026):
+  // it writes nothing unless it can actually verify, so a case the customer has
+  // not yet marked ready never collects a note per scan.
+  retry = false,
 } = {}) {
   // Only THE Website Security recovery event verifies. `control_recovered` is Cyber
   // Essentials' vocabulary and must never conclude anything here.
@@ -243,6 +247,7 @@ export async function verifyWebsiteCaseFromResolution(env, {
 
   // STOP 1 — absence is only evidence of a fix when the module that detects it provably ran.
   if (module_assessed !== true) {
+    if (retry) return { skipped: "evidence_incomplete_verification_deferred" };
     await noteOnCase(env, kase, workspace_id, "resolution_observed_not_verifying", {
       recovery_event_type, detecting_module, scan_id,
       reason: "detecting_module_not_proven_complete",
@@ -256,6 +261,7 @@ export async function verifyWebsiteCaseFromResolution(env, {
   // the registry is the authority and this function must not assume its current answer.
   const support = verificationSupportForCase(kase);
   if (support !== "automated") {
+    if (retry) return { skipped: "verification_not_automated_for_this_finding", support };
     await noteOnCase(env, kase, workspace_id, "resolution_observed_not_verifying", {
       recovery_event_type, support,
       reason: "registry_method_is_not_externally_observable",
@@ -267,6 +273,7 @@ export async function verifyWebsiteCaseFromResolution(env, {
   // STOP 3 — the machine still governs the path.
   const phase = canonicalPhaseFor(kase.case_type, kase.status);
   if (phase !== "awaiting_verification") {
+    if (retry) return { skipped: "case_not_awaiting_verification", phase };
     await noteOnCase(env, kase, workspace_id, "resolution_observed", {
       recovery_event_type, phase, reason: "case_not_awaiting_verification",
     });

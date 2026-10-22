@@ -466,7 +466,26 @@ export async function evaluateWebsiteSecurityForScan(env, {
               nextStatus, reason, unknown_reason, recurrence, band, rec.id)
         .run().catch(() => {});
 
-      if (!isMonitoringTransition(prev, next)) continue;
+      // The module evidence that lets this scan verify the condition's case:
+      // the scan-wide gate, or the per-module gate (#873) on a scan that is
+      // partial only because of a supplementary module.
+      const moduleAssessed = exposureObservation
+        ? exposureObservation.state === "clear" && gate.qualityAuthoritative && !gate.scanPartial
+        : gate.canVerify(spec.module) || gate.canVerifyModule(spec.module);
+      if (!isMonitoringTransition(prev, next)) {
+        // Still resolved on this scan: retry the case verifier, so a case the
+        // customer marks ready to verify AFTER the fix was observed is verified
+        // by the next complete scan (22 Oct 2026: the verifier ran only on the
+        // transition, and a case still 'detected' then was never retried).
+        // Quiet: it writes nothing unless it can verify.
+        if (nextStatus === "no_longer_observed" && moduleAssessed) {
+          await verifyWebsiteCaseFromResolution(env, {
+            workspace_id, record_id: rec.id, recovery_event_type: WS_EVENT_RESOLVED,
+            module_assessed: true, detecting_module: spec.module, scan_id, retry: true,
+          }).catch(() => {});
+        }
+        continue;
+      }
 
       // ── A real transition. Which KIND decides whether it can alert. ─────────
       if (nextStatus === "no_longer_observed") {
@@ -482,7 +501,7 @@ export async function evaluateWebsiteSecurityForScan(env, {
         // of trusting the branch it was called from.
         await verifyWebsiteCaseFromResolution(env, {
           workspace_id, record_id: rec.id, recovery_event_type: WS_EVENT_RESOLVED,
-          module_assessed: exposureObservation ? exposureObservation.state === "clear" && gate.qualityAuthoritative && !gate.scanPartial : gate.canVerify(spec.module), detecting_module: spec.module, scan_id,
+          module_assessed: moduleAssessed, detecting_module: spec.module, scan_id,
         }).catch(() => {});
         resolved++;
         continue;
