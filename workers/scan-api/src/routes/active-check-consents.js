@@ -20,13 +20,19 @@ async function bodyJson(request) {
   } catch { throw new Error('invalid_json_body'); }
 }
 
-export const activeCheckConsentProjection = (grant, revocation) => ({
-  id: grant.id,
-  ...consentScope(grant),
-  status: revocation ? 'revoked' : 'active',
-  revoked_at: revocation?.created_at || null,
-  revoked_by: revocation?.actor_user_id || null,
-});
+// Customer projection: the engine's scope object keeps signer.user_id as
+// evidence; no raw internal user id ever leaves through this API.
+export const activeCheckConsentProjection = (grant, revocation) => {
+  const scope = consentScope(grant);
+  const { user_id: _userId, ...signer } = scope.signer;
+  return {
+    id: grant.id,
+    ...scope,
+    signer,
+    status: revocation ? 'revoked' : 'active',
+    revoked_at: revocation?.created_at || null,
+  };
+};
 
 export async function activeCheckConsentRoutes(rctx) {
   const { request, env, url, json, requireAuth, requireWorkspaceRole, serverError } = rctx;
@@ -123,17 +129,23 @@ export async function activeCheckConsentRoutes(rctx) {
           (id, workspace_id, kind, domain_id, domain, hosts_json, checks_json, actor_user_id, actor_email, actor_workspace_role,
            signer_name, signer_title, ip_address, user_agent, authority_text, authority_version, created_at)
         SELECT ?, ?, 'grant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-         WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)`)
+         WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)
+           AND (SELECT COUNT(*) FROM active_check_consents
+                 WHERE workspace_id = ? AND kind = 'grant' AND created_at > ?) < ?`)
         .bind(id, workspaceId, domain.id, domain.domain, JSON.stringify(hosts), JSON.stringify(checks),
           actor.user_id, actor.email, actor.role, signerName, signerTitle, actor.ip, actor.ua,
-          ACTIVE_CHECK_AUTHORITY_TEXT, ACTIVE_CHECK_AUTHORITY_VERSION, now, workspaceId),
+          ACTIVE_CHECK_AUTHORITY_TEXT, ACTIVE_CHECK_AUTHORITY_VERSION, now, workspaceId,
+          workspaceId, new Date(Date.parse(now) - 24 * 3600_000).toISOString(), ACTIVE_CHECK_LIMITS.grants_per_day),
       db.prepare(`INSERT INTO audit_events (id, workspace_id, user_id, actor_type, event_type, entity_type, entity_id, description, metadata_json, created_at)
         SELECT ?, ?, ?, 'customer', 'active_check_consent_granted', 'active_check_consent', ?, 'Active check permission granted', ?, ?
          WHERE changes() = 1`)
         .bind(createId('audit'), workspaceId, actor.user_id, id, scopeMeta, now),
     ]);
     const row = await db.prepare('SELECT * FROM active_check_consents WHERE id = ? AND workspace_id = ?').bind(id, workspaceId).first();
-    if (!row) return json({ error: 'Workspace not found' }, 404);
+    if (!row) {
+      const live = await db.prepare('SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL').bind(workspaceId).first();
+      return live ? json({ error: 'active_check_consent_limit' }, 429) : json({ error: 'Workspace not found' }, 404);
+    }
     return json({ consent: activeCheckConsentProjection(row, null) }, 201);
   } catch (error) {
     if (['invalid_json_body', 'request_body_too_large'].includes(error?.message)) return json({ error: error.message }, 400);

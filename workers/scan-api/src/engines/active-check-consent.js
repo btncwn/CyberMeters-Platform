@@ -59,7 +59,9 @@ export const ACTIVE_CHECK_REASONS = Object.freeze({
   consent_read_failed: "consent_read_failed",
 });
 
-export const ACTIVE_CHECK_LIMITS = Object.freeze({ hosts: 32, name: 120, title: 120 });
+// grants_per_day bounds storage: an admin creating rows in their own workspace is
+// not a tenant risk, but it must not be unbounded.
+export const ACTIVE_CHECK_LIMITS = Object.freeze({ hosts: 32, name: 120, title: 120, grants_per_day: 100 });
 
 export const normaliseHost = (value) => String(value ?? "").trim().toLowerCase().replace(/\.$/, "");
 

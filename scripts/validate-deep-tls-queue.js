@@ -314,6 +314,29 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   assert.notEqual(outcome,'pending');
   assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId).plan_json).tls.results.length,0);
 }
+// A live grant that names a DIFFERENT check is refused by the fence too: the
+// planned control must be in the grant's own checks_json.
+{
+  const workspace='w_special',scanId='tls_special_wrong_check',domainId='d_special',domain='special.example.org',now=Date.now();
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
+  sql.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+      signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_ccs_only',?,'grant',?,?,'[]',?,'u','owner','Pat','IT','text','v',?)`)
+    .run(workspace,domainId,domain,JSON.stringify(['tls_intrusive_ccs']),new Date(now).toISOString());
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+    dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
+      generation:1,special_consent:true,special_checks:{robot:'acc_ccs_only'},consent_version:'active-checks-2026-10-22'}}],
+    selected:[{endpoint_index:0,check:{control:'robot',protocol:'tls1_2',cipher_id:null}}],static_results:[],results:[],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
+  sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
+  let collectorCalls=0;
+  await processExposureMessage({kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace},env,{lookupTlsDns,
+    collectTlsAssessment:async()=>{collectorCalls++;throw new Error('must not connect');},
+    authoriseActiveCheck:async()=>({authorised:true,reason:'authorised',consent_id:'acc_ccs_only'})});
+  assert.equal(collectorCalls,0,'a grant for another check must never authorise ROBOT');
+}
 // A run that completed its checks apart from a capability-limited control (the
 // server offers no heartbeat extension, so the heartbleed vector cannot run)
 // is a complete TLS module; a check CyberMeters itself did not run is not.
