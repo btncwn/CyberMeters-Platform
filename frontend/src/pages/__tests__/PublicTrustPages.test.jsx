@@ -24,22 +24,22 @@ describe('Founder and public assurance pages', () => {
     expect(document.body.textContent).not.toMatch(/Scotist|100\/100|years of experience/i)
     expect(document.body.textContent).not.toMatch(/small businesses, startups|digital agencies|small teams/i)
   })
-  it('keeps the real dated own-domain observation provisional and separate from the illustrative landing score', () => {
+  it('shows the latest complete own-domain assessment, dated, separate from the illustrative landing score', () => {
     mount(TrustPage)
     expect(screen.getByText('cybermeters.com', { exact: true })).toBeInTheDocument()
-    expect(screen.getByText('14 October 2026 at 11:16:05 UTC')).toHaveAttribute('dateTime', '2026-10-14T11:16:05.640Z')
-    expect(screen.getByText('Score available after a complete scan')).toBeInTheDocument()
-    expect(screen.queryByText(/100\/100/)).not.toBeInTheDocument()
-    expect(screen.getByText('4 Cloudflare edge endpoints')).toBeInTheDocument()
-    expect(screen.getByText('Partial', { exact: true })).toBeInTheDocument()
-    expect(screen.getByText(/The TLS assessment completed 162/)).toHaveTextContent('346 were uncertain')
-    expect(screen.getByText(/The separately permitted Heartbleed/)).toHaveTextContent('Heartbleed remained inconclusive')
+    expect(screen.getByText('21 October 2026 at 18:45 UTC')).toHaveAttribute('dateTime', '2026-10-21T18:45:31.000Z')
+    expect(screen.getByText('100 out of 100')).toBeInTheDocument()
+    expect(screen.getByText(/^Complete — every planned check/)).toBeInTheDocument()
+    // Tonight's containment: intrusive checks are not run until customer-authorised Active Checks ship.
+    expect(screen.getByText(/Intrusive checks that send test traffic/)).toHaveTextContent('are not run against any domain, including ours')
+    expect(document.body.textContent).not.toMatch(/\bsecure\b/i)
     expect(screen.getByText(/example.co.uk sample on our home page/)).toHaveTextContent('separate, clearly labelled illustration')
   })
-  it('retains exact TLS and independent-assurance limitations beside the evidence', () => {
+  it('names the hosting provider, never the blueprint, and keeps every honest limit', () => {
     mount(TrustPage)
-    expect(screen.getByText(/endpoint assessment records offered certificate-chain/)).toHaveTextContent('no external revocation lookup was performed')
-    expect(screen.getByText(/endpoint assessment records offered certificate-chain/)).toHaveTextContent('do not assess QUIC or the origin behind Cloudflare')
+    expect(screen.getByText(/Hosted on Cloudflare.s network/)).toHaveTextContent('No agent is installed on your systems. Checks run from our infrastructure against what is publicly visible.')
+    expect(document.body.textContent).not.toMatch(/Workers|Containers|\bD1\b|\bR2\b|edge endpoints|planned check outcomes|Heartbleed|ROBOT/)
+    expect(screen.getByText(/A missing revocation staple/)).toHaveTextContent('no external revocation lookup was performed')
     expect(screen.getByText(/We do not claim a completed independent third-party penetration test/)).toHaveTextContent('SOC 2 attestation or ISO 27001 certification')
     expect(screen.getByText(/controlled Cloudflare recovery exercise/)).toHaveTextContent('does not establish an off-provider backup or guarantee a recovery time')
     expect(screen.queryByText(/planned before commercial general availability/)).not.toBeInTheDocument()
