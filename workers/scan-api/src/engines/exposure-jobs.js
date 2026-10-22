@@ -10,7 +10,7 @@ import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, isWe
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { blockingTlsUnexecutable, classifyTlsRefusals } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
-import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized } from './tls-planner.js';
+import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized, TLS_SPECIAL_CHECK_IDS } from './tls-planner.js';
 import { getEffectiveDomainLimit, getEffectivePlanState } from './entitlements.js';
 
 export const EXPOSURE_JOB_LIMITS = Object.freeze({
@@ -97,8 +97,9 @@ const AUTHORITY = `EXISTS(SELECT 1 FROM scans s JOIN workspaces w ON w.id=s.work
 const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_authorizations a
     WHERE a.workspace_id=external_exposure_jobs.workspace_id),0)=?
   AND (?=0 OR (json_array_length(?)>0 AND NOT EXISTS(SELECT 1 FROM json_each(?) c WHERE NOT EXISTS(
-    SELECT 1 FROM active_check_consents g WHERE g.id=c.value AND g.kind='grant'
+    SELECT 1 FROM active_check_consents g WHERE g.id=json_extract(c.value,'$[0]') AND g.kind='grant'
       AND g.workspace_id=external_exposure_jobs.workspace_id AND g.domain_id=external_exposure_jobs.domain_id
+      AND EXISTS(SELECT 1 FROM json_each(g.checks_json) k WHERE k.value=json_extract(c.value,'$[1]'))
       AND NOT EXISTS(SELECT 1 FROM active_check_consents r WHERE r.kind='revocation' AND r.grant_id=g.id)))))
   AND (?='standard_https' OR EXISTS(SELECT 1 FROM workspace_tls_service_authorizations sa
     JOIN network_targets t ON t.id=sa.network_target_id AND t.workspace_id=sa.workspace_id
@@ -107,7 +108,10 @@ const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_author
       AND sa.hostname=? AND sa.sni=? AND sa.port=? AND sa.application_protocol=?
       AND t.authorization_status='attested' AND t.scope_state='in_scope'
       AND EXISTS(SELECT 1 FROM json_each(t.addresses_json) WHERE value=?)))`;
-const specialConsentIds = entry => JSON.stringify([...new Set(Object.values(entry.scope.special_checks||{}).filter(Boolean))]);
+// [consent id, check id] for every planned intrusive control: the fence proves
+// each grant is live AND still names that exact check.
+const specialConsentIds = entry => JSON.stringify(Object.entries(entry.scope.special_checks||{})
+  .filter(([control,id]) => id && TLS_SPECIAL_CHECK_IDS[control]).map(([control,id]) => [id,TLS_SPECIAL_CHECK_IDS[control]]));
 const tlsScopeParams = entry => [entry.scope.generation,entry.scope.special_consent?1:0,specialConsentIds(entry),specialConsentIds(entry),
   entry.scope.kind,entry.scope.service_authorization_id,entry.endpoint.hostname,entry.endpoint.sni,
   entry.endpoint.port,entry.endpoint.application_protocol,entry.endpoint.address];
