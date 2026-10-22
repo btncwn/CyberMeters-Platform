@@ -16,7 +16,9 @@ const NOW = "2026-07-28T09:00:00.000Z";
 const PARTIAL_NOW = new Date(Date.parse(NOW) + 60 * 60 * 1000).toISOString();
 const registrationFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/dns-service-registrations.json"), "utf8"));
 const watchlistFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/brand-watchlist-dns.json"), "utf8"));
-const EXPECTED_ASSERTIONS = 28;
+const oidcFixture = JSON.parse(fs.readFileSync(path.join(root, "scripts/fixtures/identity-oidc-observation.json"), "utf8"));
+let oidcRequests = 0;
+const EXPECTED_ASSERTIONS = 30;
 let passed = 0;
 let failed = 0;
 const check = (name, condition, detail = "") => {
@@ -101,6 +103,10 @@ let providerMode = "complete";
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input) => {
   const url = new URL(String(input));
+  if (url.hostname === oidcFixture.domain && url.pathname === "/.well-known/openid-configuration") {
+    oidcRequests++;
+    return jsonResponse(oidcFixture.document);
+  }
   // This fixture's first scan is the positive complete control. A successful,
   // empty KEV catalogue is measured zero; an unmocked HTML response would make
   // Phase-5 evidence unavailable and correctly turn that control partial.
@@ -242,11 +248,19 @@ try {
     && watchlistFact.finding_type === "observation" && watchlistFact.score_impact === 0
     && watchlistProjection?.domain_keys?.join() === "brand_protection"
     && watchlistProjection.remediation_id === "brand.watchlist_dns.review");
+  const oidcFact = registrationReport?.findings?.find((row) => row.id === "identity_oidc_observation");
+  const oidcProjection = registrationSnapshot?.observations?.find((row) => row.finding_id === "identity_oidc_observation");
+  check("C22 real verified HTTP metadata -> normal scan -> report -> Identity Exposure snapshot",
+    oidcRequests === 1 && oidcFact?.evidence?.length === 3 && oidcFact.finding_type === "observation" && oidcFact.score_impact === 0
+    && registrationReport.modules.identity_discovery.openid_connect.observations[0]?.issuer === oidcFixture.document.issuer
+    && oidcProjection?.domain_keys?.join() === "identity_exposure" && oidcProjection.remediation_id === "identity.oidc.review");
   db.prepare("UPDATE workspace_domains SET verification_status='pending' WHERE workspace_id='ws' AND domain_id='dom'").run();
 
   providerMode = "partial";
   const partialError = await run("scan-partial", PARTIAL_NOW, Date.parse(PARTIAL_NOW));
   const partialWatchlistReport = storedFor("scan-partial").find((value) => value.scan_id === "scan-partial" && value.modules);
+  check("C22 real unverified scan performs no metadata request and publishes no identity fact",
+    !!partialWatchlistReport && oidcRequests === 1 && !partialWatchlistReport.findings?.some((row) => row.id === "identity_oidc_observation"));
   check("C21 real unverified scan cannot publish retained watchlist DNS receipts",
     !!partialWatchlistReport && !partialWatchlistReport.findings?.some((row) => row.id === "brand_watchlist_dns_observation"));
   eq("real partial engine trace does not throw", partialError, null);
