@@ -354,9 +354,12 @@ async function canRun(env,row) {
     .bind(row.scan_id,row.workspace_id).first();
 }
 async function finishWithoutProbe(env,row,state,reason,now) {
-  const result=await env.cybermeters_db.prepare(`UPDATE external_exposure_jobs SET state=?,updated_at=?,lease_token=NULL,lease_until=0
+  // The finish reason is kept with the plan, so "budget_exhausted" can always
+  // be told apart: completion_budget, network_budget, tls_network_budget, ...
+  const result=await env.cybermeters_db.prepare(`UPDATE external_exposure_jobs SET state=?,updated_at=?,lease_token=NULL,lease_until=0,
+    plan_json=json_set(plan_json,'$.finish_reason',?)
     WHERE scan_id=? AND workspace_id=? AND state IN ('pending','running') AND lease_until<=?`)
-    .bind(state,new Date(now).toISOString(),row.scan_id,row.workspace_id,now).run();
+    .bind(state,new Date(now).toISOString(),reason,row.scan_id,row.workspace_id,now).run();
   if(changed(result)||terminal(row.state))await resumeDomain(env,row);
   return {action:'ack',outcome:reason};
 }
@@ -639,7 +642,10 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     tls.cursor+=items.length;
     tls.state=tls.cursor>=tls.selected.length?'complete':'pending';
     const state=tls.state==='complete'?'complete':'pending';
-    const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,plan_json=?,costs_json=?,
+    // A stored slice resets the failure streak: the cap ends a job only on
+    // CONSECUTIVE thrown slices (22 Oct 2026: two transient content errors and
+    // one TLS error ended a healthy sheshire.co.uk job before any TLS ran).
+    const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,plan_json=?,costs_json=?,failure_count=0,
       charged_requests=charged_requests-?+?,charged_bytes=charged_bytes-?+?,lease_token=NULL,lease_until=0,updated_at=?
       WHERE scan_id=? AND workspace_id=? AND lease_token=? AND lease_until>? AND ${AUTHORITY}
         AND ${TLS_SCOPE_FENCE}`)
@@ -772,7 +778,7 @@ export async function processExposureMessage(body,env,deps={}) {
     const state=cursor>=plan.checks.length && (!plan.tls || plan.tls.cursor>=plan.tls.selected.length)?'complete':'pending';
     // Receipt + progress + refund are one atomic, fenced commit. A late result
     // from a replaced process cannot refund its already-charged reservation.
-    const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,cursor=?,plan_json=?,results_json=?,costs_json=?,
+    const stored=await db.prepare(`UPDATE external_exposure_jobs SET state=?,cursor=?,plan_json=?,results_json=?,costs_json=?,failure_count=0,
       charged_requests=charged_requests-?+?,charged_bytes=charged_bytes-?+?,lease_token=NULL,lease_until=0,updated_at=?
       WHERE scan_id=? AND workspace_id=? AND lease_token=? AND lease_until>? AND ${AUTHORITY}`)
       .bind(state,cursor,JSON.stringify(plan),JSON.stringify(results),JSON.stringify(costs),reservationRequests,t.requests,
