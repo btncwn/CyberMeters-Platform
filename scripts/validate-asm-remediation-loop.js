@@ -542,6 +542,59 @@ eq("host-less finding falls back to the domain", (await getManagedCase(env, "ws_
   eq("…and the other workspace's form case is still open", caseFor("form").status, "open");
 }
 
+// ── S3-0 (22 Oct 2026): remote-administration exposure, end to end ──────────
+// Module, scoring, scan-quality fixtures and mutation proof live beside it.
+await import("./remote-admin-exposure-fixture.js");
+// module result -> scoring finding -> Attack Surface case + alert -> customer
+// asks for verification -> an incomplete re-check defers -> a complete
+// re-check with the port closed resolves -> re-detection reopens.
+{
+  const engine = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
+  const { runRemoteAdminExposureModule } = await import(engine("remote-admin-exposure.js"));
+  const { computeScore } = await import(engine("scoring.js"));
+  seedWorkspace("ws_net", "dom_net", "net-example.com");
+  db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='ws_net'").run();
+  const owned = new Map([["81.2.69.160", ["net-example.com", "www.net-example.com"]]]);
+  const run = (rdpState, extra = {}) => runRemoteAdminExposureModule(env,
+    { id: "scan_net", workspace_id: "ws_net", domain_id: "dom_net", domain: "net-example.com" }, {
+      observe: async () => ({ roots: ["net-example.com"], owned, shared: new Map(), lookups_failed: 0 }),
+      collect: async (_env, request) => ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
+        address: target.address, hostname: null, port, transport: "tcp",
+        state: port === 3389 ? rdpState : "closed", service: null, tls: null, reason: null }))) }),
+      ...extra,
+    });
+  const exposed = await run("open");
+  const scored = computeScore({ dns: { resolves: true, has_mx: true }, remote_admin_exposure: exposed }, "net-example.com");
+  const rdp = scored.findings.filter((item) => item.id === "remote_admin_service_reachable");
+  ok("S3-0: an open RDP port on an owned address is one high finding", rdp.length === 1 && rdp[0].severity === "high");
+  await createManagedAsmCasesForScan("scan_net_1", "dom_net", "net-example.com", rdp, scored.recommendations, env);
+  const netCases = await listManagedCases(env, "ws_net");
+  ok("S3-0: the finding opens one Attack Surface case", netCases.length === 1 && netCases[0].finding_id === "remote_admin_service_reachable" && netCases[0].status === "open");
+  const alerted = db.prepare("SELECT COUNT(*) AS n FROM managed_case_events WHERE case_id=? AND action='monitoring_changed'").get(netCases[0].id).n;
+  ok("S3-0: opening the case raised the lifecycle alert", alerted >= 1);
+  let netRow = await getManagedCase(env, "ws_net", netCases[0].id);
+  for (const to of ["triage"]) netRow = (await transitionManagedCase(env, netRow, to, { actor_type: "customer", actor_id: "u" })).case;
+  netRow = (await assignManagedCaseOwner(env, netRow, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "u" })).case;
+  netRow = (await transitionManagedCase(env, netRow, "remediation_in_progress", { actor_type: "customer", actor_id: "u" })).case;
+  netRow = (await transitionManagedCase(env, netRow, "verification_requested", { actor_type: "customer", actor_id: "u", action: "fix_completed" })).case;
+  ok("S3-0: the customer reports the port closed", netRow?.status === "verification_requested");
+  // Closed, but the probe could not finish every pair: never verified.
+  const unfinished = await run("closed", { collect: async (_env, request) => ({ observations: request.targets.flatMap((target) => request.ports.map((port) => ({
+    address: target.address, hostname: null, port, transport: "tcp", state: port === 3389 ? "not_run" : "closed", service: null, tls: null, reason: "deadline_exhausted" }))) }) });
+  ok("S3-0: an unfinished re-check is incomplete", unfinished.incomplete === true && unfinished.incomplete_reason === "ports_not_all_checked");
+  const deferredNet = await verifyManagedAsmCasesForScan("scan_net_2", "dom_net", "net-example.com", [], env,
+    { modules: { remote_admin_exposure: unfinished }, scanQuality: { status: "complete", modules_skipped: [] } });
+  ok("S3-0: an incomplete re-check defers, never resolves", deferredNet.resolved === 0 && (await getManagedCase(env, "ws_net", netRow.id)).status !== "resolved");
+  const closed = await run("closed");
+  const resolvedNet = await verifyManagedAsmCasesForScan("scan_net_3", "dom_net", "net-example.com", [], env,
+    { modules: { remote_admin_exposure: closed }, scanQuality: { status: "complete", modules_skipped: [] } });
+  ok("S3-0: a complete re-check with the port closed resolves the case", resolvedNet.resolved === 1 && (await getManagedCase(env, "ws_net", netRow.id)).status === "resolved");
+  await createManagedAsmCasesForScan("scan_net_4", "dom_net", "net-example.com", rdp, [], env);
+  const reopenedNet = await getManagedCase(env, "ws_net", netRow.id);
+  ok("S3-0: the port opening again reopens the case", reopenedNet.reopened_count === 1 && reopenedNet.status !== "resolved");
+  ok("S3-0: tenant isolation holds", (await listManagedCases(env, "ws_case")).every((item) => item.finding_id !== "remote_admin_service_reachable"));
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
