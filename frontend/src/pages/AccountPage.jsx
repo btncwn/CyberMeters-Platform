@@ -23,6 +23,7 @@ import { CheckCircle, ChevronDown, Trash2, Copy } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { USER_KEY } from '../context/authKeys'
+import { trialPlanLabel } from '../lib/trialPlan'
 import { subscriptionStatusDisplay } from '../lib/subscriptionStatusDisplay'
 
 // ── Plan display helpers ─────────────────────────────────────────────────────
@@ -934,7 +935,9 @@ export default function AccountPage() {
                     {subscription.plan && (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">Plan</span>
-                        <PlanBadge plan={subscription.plan} />
+                        {trialPlanLabel(authUser)
+                          ? <span className="text-xs font-semibold text-gray-800" data-testid="trial-plan-label">{trialPlanLabel(authUser)}</span>
+                          : <PlanBadge plan={subscription.plan} />}
                       </div>
                     )}
                     <div className="flex items-center justify-between">

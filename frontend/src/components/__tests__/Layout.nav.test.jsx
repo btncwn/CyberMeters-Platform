@@ -109,6 +109,12 @@ describe('selectNav (pure)', () => {
     // A paid plan names itself, even while viewing a workspace the user only belongs to.
     expect(planLabelFor({ user: { plan: 'professional' }, workspaces, activeWsId: 'ws_bbb', ownerName: 'Taylor Owner' })).toBe('Professional plan')
     expect(planLabelFor({ user: {}, workspaces: [], activeWsId: null })).toBeNull()
+    // A live 14-day trial is never "<Plan> plan" (founder, 22 Oct 2026).
+    expect(planLabelFor({ user: { plan: 'professional', is_trial: true, trial_end: '2026-11-04T12:00:00.000Z' }, workspaces, activeWsId: 'ws_own' })).toBe('Professional trial · ends 4 Nov')
+    expect(planLabelFor({ user: { plan: 'professional', is_trial: true, trial_end: null }, workspaces: [], activeWsId: null })).toBe('Professional trial')
+    expect(planLabelFor({ user: { plan: 'professional', is_trial: false, trial_end: null }, workspaces: [], activeWsId: null })).toBe('Professional plan')
+    // Before Seat 2's fields reach production the label is unchanged.
+    expect(planLabelFor({ user: { plan: 'professional' }, workspaces: [], activeWsId: null })).toBe('Professional plan')
   })
 
   it('role label comes from the plan the API published', () => {

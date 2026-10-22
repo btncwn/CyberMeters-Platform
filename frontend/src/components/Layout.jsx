@@ -11,6 +11,7 @@ import AreaMenu from './shell/AreaMenu'
 import WorkspaceMenu from './shell/WorkspaceMenu'
 import EarthButton from './shell/EarthButton'
 import UpgradePromptModal from './shell/UpgradePromptModal'
+import { trialPlanLabel } from '../lib/trialPlan'
 import SomethingWrong from './SomethingWrong'
 
 // The app shell v2 (founder prototype, 17 Oct 2026):
@@ -126,6 +127,9 @@ const PLAN_LABELS = { free: 'Free plan', starter: 'Starter plan', professional: 
  * with no memberships and no subscription.
  */
 export function planLabelFor({ user = null, workspaces = [], activeWsId = null, ownerName = null } = {}) {
+  // A live trial is a trial, never "<Plan> plan" (zero false claims).
+  const trial = trialPlanLabel(user)
+  if (trial) return trial
   const plan = String(user?.plan || '').toLowerCase()
   if (plan && plan !== 'free' && PLAN_LABELS[plan]) return PLAN_LABELS[plan]
   const list = Array.isArray(workspaces) ? workspaces : []
