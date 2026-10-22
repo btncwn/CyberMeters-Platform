@@ -18,6 +18,7 @@ import {
 } from "../engines/dmarcbis-managed-lifecycle.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { caseGuidanceForRow, deriveAsmCaseTraceability } from "../engines/asm-cases.js";
+import { caseDisplayTitleFor } from "../engines/case-guidance.js";
 import { certificateCaseDisplay } from "../engines/certificate-lifecycle.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
@@ -41,7 +42,9 @@ function caseToUniversalApi(row) {
     verification_support: verificationSupportForCase(row),
     status_reason: row.reason ?? null,
     title: row.title ?? null,
-    display_title: display?.display_title ?? row.title ?? null,
+    // Certificate cases own their read-time title; every other case reads the
+    // canonical remediation title, never a raw finding key.
+    display_title: display?.display_title ?? caseDisplayTitleFor(row) ?? row.title ?? null,
     reason_label: display?.reason_label ?? null,
     resource: display?.resource ?? row.asset_ref ?? row.domain ?? null,
     summary: row.summary ?? null,

@@ -75,10 +75,11 @@ describe('Operations view — lanes', () => {
     await waitFor(() => expect(count(b, 'triage')).toBe('1'))
     const tab = b.getByRole('tab', { name: /^Action required/ })
     const row = within(b.getByTestId('case-row'))
-    // The badge reads the tab's own word; the case's step sits beside it.
+    // The badge reads the tab's own word, and it is the row's ONE status word.
     expect(row.getByText('Action required')).toHaveAttribute('data-status', 'action_required')
     expect(tab.textContent).toMatch(/^Action required/)
-    expect(row.getByTestId('case-step')).toHaveTextContent('Assigned')
+    expect(row.queryByTestId('case-step')).toBeNull()
+    expect(row.queryByText(/^(Assigned|Detected|Triaged)$/)).toBeNull()
     // The title is the backend's current one, not the stored "(owner missing)".
     expect(row.getByRole('link', { name: 'Certificate follow-up: cybermeters.com — expiring soon' })).toBeInTheDocument()
   })
@@ -105,7 +106,9 @@ describe('Operations view — lanes', () => {
     expect(b.getByRole('tab', { name: /In progress/ })).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(b.getByRole('tab', { name: /Ready to verify/ }))
     await waitFor(() => expect(rowIds(b)).toEqual(['c_await']))
-    expect(b.getByText('Awaiting verification')).toBeInTheDocument()
+    // One status word: the lane's own badge, no second step word beside it.
+    expect(within(b.getByTestId('case-row')).getAllByText(/^Ready to verify$/)).toHaveLength(1)
+    expect(b.queryByText('Awaiting verification')).toBeNull()
   })
 
   it('opens a lane directly from ?view=', async () => {
