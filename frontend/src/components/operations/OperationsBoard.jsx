@@ -16,6 +16,7 @@ import { phaseMeta, domainKeyLabel, DOMAIN_KEY_LABELS, caseDisplayTitle } from '
 import { caseStatus, statusMeta } from '../../lib/statusVocabulary'
 import { MODULES } from '../../lib/moduleRegistry'
 import StatusChip from '../StatusChip'
+import { formatDay } from '../../utils/dates'
 
 // Lanes in working order. `words` are the vocabulary words a lane collects,
 // and a lane is NAMED by its first word's vocabulary label, so a tab and the
@@ -43,7 +44,7 @@ export function laneCounts(cases) {
   return counts
 }
 
-const fmtDate = (s) => (s ? String(s).slice(0, 10) : '—')
+const fmtDate = (s) => (s ? formatDay(s) : '—')
 
 function CaseRow({ c }) {
   const meta = phaseMeta(c.canonical_phase, c.verification_support)
@@ -60,7 +61,7 @@ function CaseRow({ c }) {
           {' · '}
           {c.owner_ref ? `Owner: ${c.owner_ref}` : 'Unassigned'}
           {c.severity ? ` · ${String(c.severity)[0].toUpperCase()}${String(c.severity).slice(1)}` : ''}
-          {' · Updated '}{fmtDate(c.updated_at)}
+          {' · '}<span className="whitespace-nowrap">Updated {fmtDate(c.updated_at)}</span>
         </p>
       </div>
       <div className="shrink-0 flex items-center gap-2 flex-wrap">
@@ -132,10 +133,10 @@ export default function OperationsBoard({ workspaceId, domainKey = '', onDomainC
         <select
           className="max-w-full text-sm border border-gray-200 rounded-md px-2 py-1.5 text-gray-700 bg-white"
           value={domainFilter}
-          aria-label="Filter cases by service"
+          aria-label="Filter cases by area"
           onChange={(e) => onDomainChange?.(e.target.value)}
         >
-          <option value="">All services</option>
+          <option value="">All areas</option>
           {MODULES.map((m) => <option key={m.domainKey} value={m.domainKey}>{m.title}</option>)}
         </select>
       </div>

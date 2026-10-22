@@ -172,9 +172,9 @@ describe('Operations view — lanes', () => {
   it('keeps the service filter in the URL and re-reads with it', async () => {
     const b = await board()
     await waitFor(() => expect(api.getCases).toHaveBeenLastCalledWith('ws1', { limit: 200 }))
-    fireEvent.change(b.getByLabelText('Filter cases by service'), { target: { value: 'certificates_trust' } })
+    fireEvent.change(b.getByLabelText('Filter cases by area'), { target: { value: 'certificates_trust' } })
     await waitFor(() => expect(api.getCases).toHaveBeenLastCalledWith('ws1', { domain_key: 'certificates_trust', limit: 200 }))
-    const options = [...b.getByLabelText('Filter cases by service').querySelectorAll('option')].map((o) => o.textContent)
-    expect(options).toEqual(['All services', 'Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness'])
+    const options = [...b.getByLabelText('Filter cases by area').querySelectorAll('option')].map((o) => o.textContent)
+    expect(options).toEqual(['All areas', 'Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure', 'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness'])
   })
 })

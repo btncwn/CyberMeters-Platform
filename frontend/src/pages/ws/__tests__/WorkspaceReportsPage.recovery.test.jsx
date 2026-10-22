@@ -46,7 +46,7 @@ it('keeps the archive as historical evidence with a dated period, ID copy and do
   render(page())
   expect(await screen.findByTitle('rpt_abc123')).toHaveAccessibleName('Copy report ID')
   expect(screen.getByText(/Manual · 10 Oct 2026/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'PDF' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Download PDF' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Delete report/i })).toBeNull()
   expect(screen.queryByRole('columnheader', { name: 'Created At' })).toBeNull()
   expect(screen.queryByText('rpt_abc123')).toBeNull()
@@ -62,10 +62,10 @@ it.each([
   expect(await screen.findByText('No reports generated yet.')).toBeInTheDocument()
   await waitFor(() => expect(api.getWorkspaces).toHaveBeenCalled())
   if (offered) {
-    expect(await screen.findByRole('link', { name: 'Get Started' })).toHaveAttribute('href', '/onboarding')
+    expect(await screen.findByRole('link', { name: 'Start guided setup' })).toHaveAttribute('href', '/onboarding')
   } else {
     expect(await screen.findByText('Reports for this workspace appear here once one is generated.')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Get Started' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Start guided setup' })).toBeNull()
   }
 })
 
@@ -77,7 +77,7 @@ it('Retry recovers the archive and its PDF download after an initial request err
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   expect(await screen.findByTitle('recovered-report')).toBeInTheDocument()
   expect(screen.queryByText('Temporary failure')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'PDF' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Download PDF' }))
   expect(api.downloadWorkspaceReport).toHaveBeenCalledWith('workspace-a', 'recovered-report')
 })
 
@@ -94,7 +94,7 @@ it('recovers from a failed background poll and stops polling once the PDF is com
   await act(async () => vi.advanceTimersByTimeAsync(5000))
   expect(screen.queryByText('Polling interrupted')).not.toBeInTheDocument()
   expect(screen.getByTitle('completed-report')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'PDF' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Download PDF' })).toBeInTheDocument()
   await act(async () => vi.advanceTimersByTimeAsync(15000))
   expect(api.getWorkspaceReports).toHaveBeenCalledTimes(3)
 })
@@ -109,7 +109,7 @@ it.each(['success', 'error'])('ignores a previous workspace’s late %s, includi
   workspace.wsName = 'Workspace B'
   view.rerender(page())
   expect(await screen.findByTitle('report-b')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'PDF' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Download PDF' }))
   expect(api.downloadWorkspaceReport).toHaveBeenLastCalledWith('workspace-b', 'report-b')
   workspace.wsId = 'workspace-a'
   workspace.wsName = 'Workspace A'
@@ -122,7 +122,7 @@ it.each(['success', 'error'])('ignores a previous workspace’s late %s, includi
   expect(screen.getByTitle('new-report-a')).toBeInTheDocument()
   expect(screen.queryByTitle('old-report-a')).not.toBeInTheDocument()
   expect(screen.queryByText('Old workspace failure')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'PDF' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Download PDF' }))
   expect(api.downloadWorkspaceReport).toHaveBeenLastCalledWith('workspace-a', 'new-report-a')
 })
 
@@ -134,7 +134,7 @@ it('hides the previous workspace archive until the new workspace finishes loadin
   workspace.wsId = 'workspace-b'
   view.rerender(page())
   expect(screen.queryByTitle('report-a')).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'PDF' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Download PDF' })).not.toBeInTheDocument()
   await act(async () => next.resolve(result('report-b')))
   expect(screen.getByTitle('report-b')).toBeInTheDocument()
 })
@@ -145,8 +145,8 @@ it.each(['success', 'error'])('ignores an older refresh’s late %s in the same 
     .mockReturnValueOnce(older.promise).mockResolvedValueOnce(result('newest-report'))
   render(page())
   expect(await screen.findByTitle('initial-report')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Refresh/ }))
-  fireEvent.click(screen.getByRole('button', { name: /Refresh/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reload reports' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reload reports' }))
   expect(await screen.findByTitle('newest-report')).toBeInTheDocument()
   await act(async () => {
     if (outcome === 'success') older.resolve(result('stale-report'))
@@ -182,7 +182,7 @@ it('lets a slow automatic refresh finish instead of superseding it every five se
   expect(api.getWorkspaceReports).toHaveBeenCalledTimes(2)
   await act(async () => slow.resolve(result('completed-report')))
   expect(screen.getByTitle('completed-report')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'PDF' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Download PDF' })).toBeInTheDocument()
   await act(async () => vi.advanceTimersByTimeAsync(10000))
   expect(api.getWorkspaceReports).toHaveBeenCalledTimes(2)
 })
@@ -202,10 +202,10 @@ it('requires an explicit completed scan and generates its executive snapshot', a
   await act(async () => {})
   await chooseReport('Scan Snapshot')
   expect(api.getWorkspaceScans).toHaveBeenCalledWith('workspace-a')
-  expect(screen.getByRole('button', { name: 'Generate Report', exact: true })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Generate report', exact: true })).toBeDisabled()
   expect(screen.getAllByRole('option').map(option => option.value)).not.toContain('running-scan')
   fireEvent.change(screen.getByLabelText('Recent completed scan'), { target: { value: 'older-scan' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Generate Report', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Generate report', exact: true }))
   await act(async () => {})
   expect(api.generateWorkspaceReport).toHaveBeenCalledWith('workspace-a', 'scan_snapshot', 'older-scan')
   fireEvent.click(screen.getByRole('button', { name: 'Download generated PDF' }))
@@ -221,7 +221,7 @@ it.each([
   render(page())
   await act(async () => {})
   await chooseReport(label)
-  fireEvent.click(screen.getByRole('button', { name: 'Generate Report', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Generate report', exact: true }))
   await act(async () => {})
   expect(api.generateWorkspaceReport).toHaveBeenCalledWith('workspace-a', type)
   expect(api.getWorkspaceScans).not.toHaveBeenCalled()
@@ -237,12 +237,12 @@ it('lets the customer retry a failed scan list without enabling generation prema
   await act(async () => {})
   await chooseReport('Scan Snapshot')
   expect(screen.getByRole('alert')).toHaveTextContent('Scan list unavailable')
-  expect(screen.getByRole('button', { name: 'Generate Report', exact: true })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Generate report', exact: true })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Retry scan list' }))
   await act(async () => {})
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   expect(screen.getAllByRole('option').map(option => option.value)).toContain('ready-scan')
-  expect(screen.getByRole('button', { name: 'Generate Report', exact: true })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Generate report', exact: true })).toBeDisabled()
 })
 
 it('cannot reuse scans from a workspace left while the scan list was loading', async () => {
@@ -289,6 +289,6 @@ it('a skipped archive report says why no PDF exists and offers no download', asy
   }] })
   render(page())
   expect(await screen.findByText(/no scan has completed in this workspace yet/)).toBeInTheDocument()
-  expect(screen.getByText('skipped')).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'PDF' })).toBeNull()
+  expect(screen.getByText('Skipped')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Download PDF' })).toBeNull()
 })

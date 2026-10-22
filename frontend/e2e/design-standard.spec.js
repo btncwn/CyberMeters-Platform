@@ -81,6 +81,42 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
   })
 }
 
+// Design standard, Operations and Reports groups: header = title + purpose + at
+// most one primary action; one status word per row; human dates and labels.
+for (const [width, height] of [[1440, 900], [390, 844]]) {
+  test(`Operations meets the design standard at ${width}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height })
+    await seedSession(context)
+    await installAppMock(page)
+    await page.goto('/ws/cases', { waitUntil: 'networkidle' })
+    await page.getByTestId('case-row').first().waitFor()
+    await expectOnePrimaryAction(page)
+    await expectNoRawKeys(page)
+    await expectNoOverlap(page, '[data-testid="case-row"]')
+    const row = await page.getByTestId('case-row').first().innerText()
+    expect(row).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+    // An "Assigned" step never sits beside "Unassigned".
+    expect(/Assigned/.test(row) && /Unassigned/.test(row)).toBe(false)
+    await expect(page.getByLabel('Filter cases by area')).toBeVisible()
+    // The header block (title + purpose) holds no links; related pages sit below the board.
+    await expect(page.locator('main h1').locator('xpath=..').getByRole('link')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Open related changes' })).toBeVisible()
+  })
+
+  test(`Reports meets the design standard at ${width}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height })
+    await seedSession(context)
+    await installAppMock(page)
+    await page.goto('/reports', { waitUntil: 'networkidle' })
+    await expect(page.getByRole('heading', { level: 1, name: 'Reports' })).toBeVisible()
+    await expectOnePrimaryAction(page)
+    await expectNoRawKeys(page)
+    await expect(page.getByText(/^completed$/)).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Download PDF' }).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: /^PDF$|^Refresh$/ })).toHaveCount(0)
+  })
+}
+
 // Scan report (Executive 21 Oct, sheshire.co.uk first scan): a degraded scan
 // reads in sentences, the duration is not shifted by an hour, and an absent
 // header behind a protection layer says "Validation uncertain", not "Missing".

@@ -51,7 +51,7 @@ export const notifications = (count = 4) => {
   return { workspace_id: workspace.id, unread_count: count >= 30 ? 120 : 3, count: list.length, notifications: list }
 }
 export const cases = { cases: [
-  { id: 'case_1', case_type: 'website_case', domain_key: 'website_security', domain: domain.domain, finding_id: 'header_missing_strict_transport_security', title: 'Send the HSTS header', severity: 'medium', status: 'assigned', canonical_phase: 'assigned', verification_support: 'automated', owner_type: 'customer_it', created_at: '2026-10-10T09:00:00.000Z', updated_at: now },
+  { id: 'case_1', case_type: 'website_case', domain_key: 'website_security', domain: domain.domain, finding_id: 'header_missing_strict_transport_security', title: 'Send the HSTS header', severity: 'medium', status: 'assigned', owner_ref: 'Taylor Owner', canonical_phase: 'assigned', verification_support: 'automated', owner_type: 'customer_it', created_at: '2026-10-10T09:00:00.000Z', updated_at: now },
   { id: 'case_2', case_type: 'email_case', domain_key: 'email_protection', domain: domain.domain, finding_id: 'email_dmarc_policy_none', title: 'Move DMARC to enforcement', severity: 'high', status: 'awaiting_verification', canonical_phase: 'awaiting_verification', verification_support: 'automated', owner_type: 'customer_it', created_at: '2026-10-01T09:00:00.000Z', updated_at: now },
   { id: 'case_3', case_type: 'certificate_case', domain_key: 'certificates_trust', domain: domain.domain, finding_id: 'certificate_expiring_soon', title: 'Renew the certificate', severity: 'medium', status: 'verified', canonical_phase: 'verified', verification_support: 'automated', owner_type: 'customer_it', created_at: '2026-09-20T09:00:00.000Z', updated_at: now },
 ] }
