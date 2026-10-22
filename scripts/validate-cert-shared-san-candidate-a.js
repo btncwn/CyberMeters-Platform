@@ -671,8 +671,14 @@ const parity = states.map(parityOutputs);
 // and the customer PDF (F13). With ONLY that sentence reverted the previous
 // hashes (4b779e3c… / 3d973605…) reproduce exactly; all five SAN projection
 // states agree and the certificate evidence hash is unchanged.
-const GOLDEN_F13 = "0908a80da023d018a77980750f2235b34c8c745385fe915959deb959f8721a07";
-const GOLDEN_F14 = "efeee99a0c575c45faf825789ba033c474ddf1696fa4b820a3d4b4db3182e493";
+// Signed-in scanning in the report (22 Oct 2026): the snapshot gains the additive
+// website_signed_in section and the builder stamp moves to 2026-10-22.1. This
+// fixture has no sign-in profile, so the section reads "unavailable"/"not
+// configured" and both goldens move. With ONLY the section line and the builder
+// version reverted the previous hashes (0908a80d… / efeee99a…) reproduce exactly
+// and the evidence hash (ebd729ca…) is unchanged.
+const GOLDEN_F13 = "e621f237cf4542e04cd8c3032d6d3c825d78c769e19c6108378e69b869a9d92a";
+const GOLDEN_F14 = "b8b177e00629b862d6985cc7dd33d4b387d996a5e5b99a1fe0cb907fc6af5874";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
