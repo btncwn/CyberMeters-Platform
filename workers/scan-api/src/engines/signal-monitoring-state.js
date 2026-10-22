@@ -1,4 +1,4 @@
-import { isStatedAccessLimit } from "./scan-stated-limits.js";
+import { isStatedAccessLimit, statedLimitMessage } from "./scan-stated-limits.js";
 // ── Canonical within-scan signal monitoring state ────────────────────────────
 //
 // This is the ONE backend-owned resolver for customer-facing monitoring health.
@@ -344,15 +344,22 @@ export function deriveSignalMonitoringStates({
       moduleEvidenceState(modules || {}, moduleName, skipped) ===
         SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
     );
+    // Stated limits inside this signal: disclosed in its copy, never a gap.
+    const statedNotes = definition.modules
+      .filter((moduleName) => modules?.[moduleName] != null && !skipped.has(moduleName) &&
+        isStatedAccessLimit(moduleName, modules[moduleName]))
+      .map((moduleName) => statedLimitMessage(moduleName, modules[moduleName]));
+    const baseMessage = signal === "attack_surface" && state === SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
+      ? attackSurfaceIncompleteMessage(incompleteModules, modules)
+      : SIGNAL_MONITORING_WORDING[signal]?.[state]
+      ?? "Monitoring evidence was incomplete in this run.";
     signals[signal] = {
       state,
-      message: signal === "attack_surface" && state === SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
-        ? attackSurfaceIncompleteMessage(incompleteModules, modules)
-        : SIGNAL_MONITORING_WORDING[signal]?.[state]
-        ?? "Monitoring evidence was incomplete in this run.",
+      message: statedNotes.length ? [baseMessage, ...statedNotes].join(" ") : baseMessage,
       evidence: {
         modules: [...definition.modules],
         incomplete_modules: incompleteModules,
+        ...(statedNotes.length ? { stated_limits: statedNotes } : {}),
       },
       ...(definition.optional === true ? { optional: true } : {}),
     };

@@ -33,7 +33,7 @@ const NOW = "2026-07-28T13:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
 
 // PINNED — a dropped assertion or mutant hard-fails even if everything else passes.
-const EXPECTED_MUTANTS = 5;
+const EXPECTED_MUTANTS = 6;
 
 let passed = 0, failed = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -263,6 +263,15 @@ const MUTATIONS = [
       return outcome === "hung";
     },
   },
+  {
+    // 22 Oct 2026: only a host where NO web port answered is a stated limit.
+    name: "M-D6 a host with any non-timeout attempt is treated as 'no web service'",
+    target: path.join(root, "workers/scan-api/src/engines/scan-stated-limits.js"),
+    from: 'asset.attempts.every((attempt) => attempt?.outcome === "timeout")',
+    to: 'true',
+    check: (mod) => mod.isStatedAccessLimit("asset_exposure", { incomplete: true, incomplete_reason: "probe_timeout", assets: [
+      { host: "slow.example.com", probe_status: "timed_out", attempts: [{ protocol: "https", port: 443, outcome: "timeout" }, { protocol: "http", port: 80, outcome: "error" }] }] }) === true,
+  },
 ];
 for (const m of MUTATIONS) {
   const r = await withMutant(m, async (mod) => m.check(mod));
@@ -325,6 +334,30 @@ ok("no mutant file left behind", strays.length === 0, strays.join(", "));
   const quality = buildScanQuality({ dane: late, remote_admin_exposure: { incomplete: true, incomplete_reason: "module_deadline", error: null } });
   ok("a module_deadline fallback is a stated limit, never a partial scan",
     quality.status === "complete" && quality.stated_limits.filter((limit) => limit.reason === "module_deadline").length === 2, JSON.stringify(quality.stated_limits));
+}
+
+// No web service answered (22 Oct 2026, cybermeters.com scan_8801b58c): an
+// SSH-only host whose 443 and 80 both timed out is stated per host, so the
+// domain's scan stays complete; any other gap still makes it partial.
+{
+  const web = (host) => ({ host, probe_status: "responded", attempts: [{ protocol: "https", port: 443, outcome: "responded" }] });
+  const silent = (host) => ({ host, probe_status: "timed_out", reason: "probe_timeout",
+    attempts: [{ protocol: "https", port: 443, outcome: "timeout" }, { protocol: "http", port: 80, outcome: "timeout" }] });
+  const exposure = (assets, reason = "probe_timeout") => ({ asset_exposure: { incomplete: true, incomplete_reason: reason, error: null, assets } });
+  const sshOnly = buildScanQuality(exposure([web("www.example.com"), silent("probe.example.com")]));
+  ok("an SSH-only host among web hosts: scan complete, stated per host",
+    sshOnly.status === "complete" && sshOnly.stated_limits.some((limit) => limit.reason === "no_web_service_answered" && limit.hosts?.[0] === "probe.example.com"),
+    JSON.stringify(sshOnly.stated_limits));
+  ok("a host whose attempts did not all time out is still a gap",
+    buildScanQuality(exposure([{ ...silent("slow.example.com"), attempts: [{ protocol: "https", port: 443, outcome: "timeout" }, { protocol: "http", port: 80, outcome: "error" }] }])).status === "partial");
+  ok("a silent host beside a server error is still a gap",
+    buildScanQuality(exposure([silent("probe.example.com"), { host: "api.example.com", probe_status: "server_error", attempts: [{ protocol: "https", port: 443, outcome: "responded" }] }])).status === "partial");
+  ok("a budget cut is never a stated limit",
+    buildScanQuality(exposure([silent("probe.example.com"), { host: "x.example.com", probe_status: "not_executed", attempts: [] }], "subrequest_budget_exhausted")).status === "partial");
+  const { deriveSignalMonitoringStates } = await import(engUrl("signal-monitoring-state.js"));
+  const states = deriveSignalMonitoringStates({ modules: { dns_bruteforce: {}, subdomain_takeover: {}, cloud_storage_discovery: {},
+    ...exposure([web("www.example.com"), silent("probe.example.com")]) }, scanQuality: sshOnly });
+  ok("monitoring agrees: attack surface healthy for the SSH-only host", states.signals.attack_surface.state === "monitoring_healthy", states.signals.attack_surface.state);
 }
 
 console.log(`\nhttps-observation deadline+lifecycle: ${passed}/${passed + failed} passed; ${killed}/${EXPECTED_MUTANTS} mutants killed`);

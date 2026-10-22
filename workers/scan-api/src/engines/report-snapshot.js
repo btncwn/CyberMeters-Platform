@@ -1178,6 +1178,12 @@ export function composeSnapshot({
           })),
         modules_skipped: skippedModules,
         modules_incomplete: incompleteModules,
+        // Stated limits (22 Oct 2026): disclosed, not gaps; carried as the
+        // customer sentence so every renderer shows text, never a reason key.
+        stated_limits: Array.isArray(scanQuality?.stated_limits)
+          ? scanQuality.stated_limits.filter((limit) => typeof limit?.message === "string")
+            .map((limit) => ({ module: limit.module, message: limit.message }))
+          : [],
         phase5_evidence: phase5Projection.evidence,
         skipped_score_bearing_modules:
           phase5Projection.skipped_score_bearing_modules ?? [],

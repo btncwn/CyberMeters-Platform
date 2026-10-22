@@ -1264,6 +1264,16 @@ function ReportView({ report, signedIn = null, queuedAt = null, waivers = {}, on
         </div>
       )}
 
+      {/* Stated limits: disclosed, not gaps — the backend's own sentence, never a reason key. */}
+      {(scan_quality?.stated_limits || []).some(limit => typeof limit?.message === 'string') && (
+        <div className="rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700" data-testid="scan-stated-limits">
+          <p className="font-semibold">Stated limits of this scan</p>
+          {(scan_quality.stated_limits || []).filter(limit => typeof limit?.message === 'string').slice(0, 6).map((limit, i) => (
+            <p key={`${limit.module}-${i}`} className="text-xs mt-0.5">{customerEvidenceText(limit.message)}</p>
+          ))}
+        </div>
+      )}
+
       {/* Findings — actionable, score-impacting (Sprint 10A) */}
       <div className="card overflow-hidden">
         <SectionHeader title={`Findings (${actionableFindings.length})`} />

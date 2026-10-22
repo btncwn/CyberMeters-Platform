@@ -249,7 +249,9 @@ const EXPECTED = Object.freeze({
     // Takeover stated limit (22 Oct 2026): the same validator asserts a second withheld.status === "complete"; keyed two-tree diff shows exactly that one added, 86 -> 87.
     // Supplementary-module deadline (22 Oct 2026): validate-https-observation-deadline-lifecycle.js adds one
     // governed assertion (quality.status === "complete"); keyed two-tree diff shows exactly that one. 87 -> 88.
-    comparison_occurrences: 88,
+    // No-web-service stated limit (22 Oct 2026): the deadline-lifecycle validator asserts
+    // sshOnly.status === "complete"; keyed two-tree diff shows exactly that one added. 88 -> 89.
+    comparison_occurrences: 89,
     source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -269,7 +271,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "6252c9ede646cc313732ae725388af734fb0c1a37614a4d27c7cd79ea301286a",
+    fingerprint: "b17f3123ffe9d7c9144e475649dcc0f85f352fb49842ac60bdf40aef84e8c490",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -536,7 +538,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   // The lab's measurements: the certificate world's unreachable-certificate scan
   // is partial, and the load lab counts partial scans. Both read the quality the
   // engine recorded; neither decides a status.
-  "scripts/lab/lab-checks.mjs:409:fox.scans[4].quality === \"partial\"",
+  "scripts/lab/lab-checks.mjs:412:fox.scans[4].quality === \"partial\"",
   "scripts/lab/load-lab.mjs:944:j.quality === \"partial\"",
 ]);
 

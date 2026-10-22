@@ -42,9 +42,9 @@ async function loadStateModule() {
   if (mutated === source) throw new Error(`state mutation target missing: ${mutation}`);
   // data: modules cannot resolve relative specifiers: the shared stated-limit
   // import is rewritten to its absolute file URL (must-fail anchor).
-  const statedImport = 'import { isStatedAccessLimit } from "./scan-stated-limits.js";';
+  const statedImport = 'import { isStatedAccessLimit, statedLimitMessage } from "./scan-stated-limits.js";';
   const relinked = mutated.replace(statedImport,
-    `import { isStatedAccessLimit } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
+    `import { isStatedAccessLimit, statedLimitMessage } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
   if (relinked === mutated) throw new Error("state stated-limit import anchor missing");
   return import(`data:text/javascript;base64,${Buffer.from(relinked).toString("base64")}#${mutation}`);
 }
@@ -468,8 +468,8 @@ if (mutation === null) {
   const source = fs.readFileSync(statePath, "utf8");
   const anchor = "  if (value != null && !skipped.has(moduleName) && isStatedAccessLimit(moduleName, value)) {";
   ok("stated-limit mutant anchor present once", source.split(anchor).length === 2);
-  const mutated = source.replace(anchor, "  if (false) {").replace('import { isStatedAccessLimit } from "./scan-stated-limits.js";',
-    `import { isStatedAccessLimit } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
+  const mutated = source.replace(anchor, "  if (false) {").replace('import { isStatedAccessLimit, statedLimitMessage } from "./scan-stated-limits.js";',
+    `import { isStatedAccessLimit, statedLimitMessage } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
   const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#stated-limit-ignored`);
   eq("mutant (stated limit ignored) is caught: attack surface reads incomplete again",
     mutant.deriveSignalMonitoringStates({ modules: batch4, scanQuality: { status: "complete", modules_skipped: [] } }).signals.attack_surface.state, "evidence_incomplete");
