@@ -7,6 +7,8 @@
 // no domain, email or IP appears in the email; feedback text is quoted as typed.
 import { readDailyCounters, utcDay } from "./ops-counters.js";
 import { readCanarySince } from "../engines/free-check-canary.js";
+import { FREE_SCAN_STATE_LABELS, FREE_SCAN_PREVIEW_BADGES } from "../../../../frontend/src/lib/freeScanPresentation.js";
+import { CUSTOMER_CODE_COPY } from "../../../../frontend/src/lib/customerReasonText.js";
 
 const DAY_MS = 86_400_000;
 // An anomaly needs both: at least this many events, and this many times the
@@ -98,13 +100,88 @@ export async function collectFounderDigest(env, { nowMs = Date.now() } = {}) {
     }
   }
   for (const [name, value] of Object.entries(metrics)) {
-    if (value === null) anomalies.push(`Could not read ${name} counters`);
+    if (value === null) anomalies.push(`Could not read ${digestLabel(name)} counters`);
   }
   if (Object.values(funnel).some((value) => value === null)) anomalies.push("Could not read the signup funnel");
   if (feedback === null) anomalies.push("Could not read feedback");
   else if (feedback.length > 0) anomalies.unshift(`${feedback.length} feedback message${feedback.length === 1 ? "" : "s"} (below)`);
 
   return { day: yesterday, metrics, funnel, feedback, canary, anomalies };
+}
+
+// Reuse the public preview/reason vocabulary; only digest-specific keys live
+// here. Unknown keys remain visible rather than acquiring an invented meaning.
+const DIGEST_LABELS = Object.freeze({
+  ...CUSTOMER_CODE_COPY,
+  ...FREE_SCAN_STATE_LABELS,
+  ...FREE_SCAN_PREVIEW_BADGES,
+  ...Object.fromEntries(Object.entries(FREE_SCAN_PREVIEW_BADGES).map(([key, label]) =>
+    [`ok_${key}`, `${FREE_SCAN_STATE_LABELS.completed} — ${label.toLowerCase()}`])),
+  ok_complete: FREE_SCAN_STATE_LABELS.completed,
+  ok_unknown: "Completed — result unknown",
+  ok_good: "Completed — good result",
+  ok_attention: "Completed — needs attention",
+  ok_risk: "Completed — risk observed",
+  free_scan: "Free scans",
+  free_tool: "Free tools",
+  http_5xx: "Server errors (5xx)",
+  client_error: "Browser error reports",
+  app: "App",
+  domain_not_found: "Domain not found",
+  domain_no_website_address: "Domain has no website address",
+  target_verification_unavailable: "Domain verification unavailable",
+  rate_limit_exceeded: "Request limit reached",
+  rate_limit_unavailable: "Request limiting unavailable",
+  limiter_unavailable: "Request limiting unavailable",
+  limit_reached: "Daily limit reached",
+  capacity_paused: "Checks paused at capacity",
+  invalid_input: "Invalid input",
+  body_too_large: "Request too large",
+  invalid_json: "Unreadable request",
+  invalid_domain: "Invalid domain",
+  non_public_domain: "Domain is not public",
+  verification_required: "Human verification required",
+  verification_failed: "Human verification failed",
+  verification_unavailable: "Human verification unavailable",
+  lookup_failed: "Lookup failed",
+  js_error: "JavaScript error",
+  unhandled_rejection: "Unhandled promise rejection",
+  chunk_load: "Page code could not load",
+  api_error: "API request error",
+  render_error: "Page rendering error",
+  none: "No reason reported",
+  spf: "SPF",
+  dmarc: "DMARC",
+  headers: "Security headers",
+  ssl: "SSL/TLS",
+  lookalike: "Lookalike domains",
+});
+
+function digestLabel(key) {
+  return Object.hasOwn(DIGEST_LABELS, key) ? DIGEST_LABELS[key] : `Other (${key})`;
+}
+
+function counterLabel(metric, label) {
+  if (metric === "http_5xx") {
+    const match = /^(\d{3}):(.*)$/.exec(label);
+    return match ? `${match[1]} — ${match[2]}` : digestLabel(label);
+  }
+  if (metric === "client_error") {
+    const parts = label.split("|");
+    if (parts.length !== 5) return digestLabel(label);
+    const [kind, code, status, route, build] = parts;
+    return `${digestLabel(kind)} — ${digestLabel(code)} — ${status} — ${route} — ${build}`;
+  }
+  if (metric === "free_tool") {
+    const separator = label.indexOf(":");
+    if (separator < 0) return digestLabel(label);
+    const tool = label.slice(0, separator), outcome = label.slice(separator + 1);
+    const base = outcome.replace(/_cached$/, "");
+    const result = outcome.endsWith("_cached") && Object.hasOwn(DIGEST_LABELS, base)
+      ? `${digestLabel(base)} (cached)` : digestLabel(outcome);
+    return `${digestLabel(tool)} — ${result}`;
+  }
+  return digestLabel(label);
 }
 
 const line = (label, value) => `${label}: ${value ?? "unavailable"}`;
@@ -117,13 +194,13 @@ export function formatFounderDigest(digest) {
   const section = (title, metric) => {
     const m = digest.metrics[metric];
     if (!m) return `${title}: unavailable`;
-    const rows = m.labels.slice(0, 12).map(([label, n]) => `  ${label}: ${n}`);
+    const rows = m.labels.slice(0, 12).map(([label, n]) => `  ${counterLabel(metric, label)}: ${n}`);
     return [`${title}: ${m.total} (7-day average ${m.weekAverage.toFixed(1)})`, ...rows].join("\n");
   };
   out.push(section("Free scans by outcome", "free_scan"));
   out.push(section("Free tools by outcome", "free_tool"));
   out.push(section("Server errors (5xx) by route", "http_5xx"));
-  out.push(section("Browser errors by kind|code|status|route|build", "client_error"));
+  out.push(section("Browser errors by type, reason, status, route and build", "client_error"));
   const f = digest.funnel;
   out.push(["Funnel (accounts created yesterday):", `  ${line("Signed up", f.signups)}`, `  ${line("Verified email", f.verified)}`,
     `  ${line("Ran a scan", f.scanned)}`, `  ${line("New paid subscriptions (any age)", f.paid)}`].join("\n"));
@@ -132,7 +209,7 @@ export function formatFounderDigest(digest) {
   }
   if (digest.feedback?.length) {
     out.push(["Feedback:", ...digest.feedback.map((item) =>
-      `  [${item.created_at.slice(11, 16)} UTC] ${item.surface}${item.tool ? `/${item.tool}` : ""} ${item.path}${item.error_code ? ` (${item.error_code})` : ""}\n    "${item.message.replace(/\s+/g, " ")}"`)].join("\n"));
+      `  [${item.created_at.slice(11, 16)} UTC] ${digestLabel(item.surface)}${item.tool ? `/${item.tool}` : ""} ${item.path}${item.error_code ? ` (${digestLabel(item.error_code)})` : ""}\n    "${item.message.replace(/\s+/g, " ")}"`)].join("\n"));
   }
   const text = `CyberMeters, ${digest.day} (UTC)\n\n${out.join("\n\n")}\n`;
   const subject = `[CyberMeters] Daily: ${digest.anomalies.length ? `${digest.anomalies.length} to look at` : "nothing unusual"} (${digest.day})`;
