@@ -19,7 +19,7 @@ const MCP_ENDPOINT = (() => {
 // 2026: three cards read "bhSWf6RgdRikkev-", "GTUBLg6Ee9z9…", "NDZYnyivspx-mnsY").
 // In order: the name the client registered (shown as the name IT gave — not a
 // verified identity), the host of a client whose id is a web address, else a
-// plain "AI assistant" with the date it connected.
+// plain "Unnamed client" with the date it connected (Executive, 22 Oct 2026).
 export function displayClient(connection) {
   const name = typeof connection?.client_name === 'string' ? connection.client_name.replace(/[\u0000-\u001f\u007f]/g, '').trim() : ''
   if (name) return { title: name.length <= 80 ? name : `${name.slice(0, 77)}…`, givenName: true }
@@ -30,7 +30,7 @@ export function displayClient(connection) {
       if (url.protocol === 'https:') return { title: url.hostname, givenName: false }
     } catch { /* A dynamically registered client has an opaque id: never shown as its name. */ }
   }
-  return { title: connection?.created_at ? `AI assistant (connected ${formatDate(connection.created_at)})` : 'AI assistant', givenName: false }
+  return { title: connection?.created_at ? `Unnamed client (connected ${formatDate(connection.created_at)})` : 'Unnamed client', givenName: false }
 }
 
 // One card per connection id. The API pages with an offset over a status-ordered
