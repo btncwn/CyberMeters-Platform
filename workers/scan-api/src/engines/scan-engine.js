@@ -45,6 +45,7 @@ import { runEmailIntelModule } from "./email-intel.js";
 import { runMailTransportModule } from "./mail-transport.js";
 import { runRemoteAdminExposureModule } from "./remote-admin-exposure.js";
 import { runDaneModule } from "./dane.js";
+import { isStatedAccessLimit } from "./scan-stated-limits.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
 import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
@@ -246,20 +247,8 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // coverage is stated, not missing. Only when that is the module's SOLE
   // reason and EVERY unconfirmed row is origin_access_restricted; truncation,
   // lookup failure or any fetch/refusal still makes the scan partial.
-  const takeoverWithheldOnly = (value) => {
-    const reasons = Array.isArray(value?.incomplete_reasons) ? value.incomplete_reasons : [value?.incomplete_reason];
-    const rows = Array.isArray(value?.unconfirmed) ? value.unconfirmed : [];
-    return !value?.error && reasons.length === 1 && reasons[0] === "host_probe_unconfirmed" &&
-      rows.length > 0 && rows.every((row) => row?.reason === "origin_access_restricted" && row.host && row.cname);
-  };
-  // Remote-admin exposure (S3-0) is supplementary: its gaps (address cap,
-  // deadline, lookup or probe unavailable) are stated, never a partial scan.
-  // The module stays incomplete, so it can never close a case it did not
-  // fully re-check (asm-cases.js moduleCompletionGate).
-  const isStatedAccessLimit = (name, value) => value?.incomplete === true && (
-    name === "remote_admin_exposure" || name === "dane" ||
-    (name === "technology_detection" && value?.incomplete_reason === "origin_access_restricted") ||
-    (name === "subdomain_takeover" && takeoverWithheldOnly(value)));
+  // The stated-limit rule lives in scan-stated-limits.js, shared with the
+  // monitoring states so both read the same evidence the same way.
   const statedLimits = Object.entries(modules)
     .filter(([name, value]) => isStatedAccessLimit(name, value))
     .map(([name, value]) => ({ module: name,

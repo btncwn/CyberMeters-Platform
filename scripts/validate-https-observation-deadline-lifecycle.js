@@ -243,11 +243,11 @@ const MUTATIONS = [
   {
     // 22 Oct 2026: only a provider-withheld takeover probe is a stated limit.
     name: "M-D4 every unconfirmed takeover row no longer has to be provider-withheld",
-    target: SCAN_ENGINE,
+    target: path.join(root, "workers/scan-api/src/engines/scan-stated-limits.js"),
     from: 'rows.every((row) => row?.reason === "origin_access_restricted" && row.host && row.cname)',
     to: 'rows.every((row) => row.host && row.cname)',
-    check: (mod) => mod.buildScanQuality({ subdomain_takeover: { incomplete: true, incomplete_reason: "host_probe_unconfirmed",
-      incomplete_reasons: ["host_probe_unconfirmed"], unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", reason: "fetch_failed" }] } }).status !== "partial",
+    check: (mod) => mod.isStatedAccessLimit("subdomain_takeover", { incomplete: true, incomplete_reason: "host_probe_unconfirmed",
+      incomplete_reasons: ["host_probe_unconfirmed"], unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", reason: "fetch_failed" }] }) === true,
   },
   {
     // 22 Oct 2026: a supplementary module that never settles must not hold the scan.

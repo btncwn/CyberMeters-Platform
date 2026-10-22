@@ -521,7 +521,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",
-  "scripts/validate-signal-monitoring-state.js:290:degraded.quality === \"degraded\"",
+  "scripts/validate-signal-monitoring-state.js:296:degraded.quality === \"degraded\"",
   // The lab's measurements: the certificate world's unreachable-certificate scan
   // is partial, and the load lab counts partial scans. Both read the quality the
   // engine recorded; neither decides a status.
