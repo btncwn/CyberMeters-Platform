@@ -128,6 +128,26 @@ function rctx(pathname, db, { failing = false, user = { id: "u1", email: "u1@exa
     validateFrontendRedirectUrl: () => null,
   };
 }
+// /api/auth/me (S2-TRIAL-LABEL): the trial borrows Professional features but is
+// not a bought plan, so the payload says so in is_trial + trial_end.
+{
+  const { authRoutes } = await import("../workers/scan-api/src/routes/auth.js");
+  const me = async (db, opts) => { const r = await authRoutes(rctx("/api/auth/me", db, opts)); return r.json(); };
+  const trialEnd = iso(4);
+  const trial = await me(createDb([row({ subscription_status: "trialing", trial_end: trialEnd, current_period_end: null, stripe_subscription_id: null })]));
+  eq("auth/me: a trial keeps its feature plan and says it is a trial",
+     [trial.plan, trial.is_trial, trial.trial_end], ["professional", true, new Date(trialEnd).toISOString()]);
+  const paid = await me(createDb([row()]));
+  eq("auth/me: a paid plan is not a trial", [paid.plan, paid.is_trial, paid.trial_end], ["professional", false, null]);
+  const none = await me(createDb([]));
+  eq("auth/me: no subscription", [none.plan, none.is_trial, none.trial_end], ["free", false, null]);
+  const ended = await me(createDb([row({ subscription_status: "trialing", trial_end: iso(-1), current_period_end: null, stripe_subscription_id: null })]));
+  eq("auth/me: an ended trial is free and not a trial", [ended.plan, ended.is_trial, ended.trial_end], ["free", false, null]);
+  const broken = await me(createDb([row()]), { failing: true });
+  eq("auth/me: a read error fails closed to free, not a trial", [broken.plan, broken.is_trial, broken.trial_end], ["free", false, null]);
+  eq("auth/me: identity fields unchanged", [trial.id, trial.email], ["u1", "u1@example.test"]);
+}
+
 async function account(db, opts) { const r = await accountRoutes(rctx("/api/account/subscription", db, opts)); return [r.status, await r.json()]; }
 async function billing(db, opts) { const r = await globalBillingRoutes(rctx("/api/billing/subscription", db, opts)); return [r.status, await r.json()]; }
 

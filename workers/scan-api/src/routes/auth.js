@@ -7,7 +7,7 @@
 // PR #20 — the final route group). Receives the per-request routeCtx from
 // index.js; returns a Response when a route matches, or null so the main
 // router continues.
-import { getEffectivePlan } from "../engines/entitlements.js";
+import { getEffectivePlanState } from "../engines/entitlements.js";
 import { safeInvitationReturn } from "../lib/invitation-return.js";
 import { decryptTotpSecret, encryptTotpSecret, generateEmailVerificationToken, generateMfaChallengeToken, generatePasswordResetToken, generateRecoveryCodes, generateSessionToken, getEmailVerificationTokenStatus, hashToken, isEmailVerificationResendCoolingDown, verifyRecoveryCode } from "../lib/auth-crypto.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -19,6 +19,18 @@ import { browserBindingChallenges, isBrowserBindingChallenge } from "../lib/oaut
 import { generateTotpSecret, verifyTotp } from "../lib/totp.js";
 import { createId, isValidEmail } from "../lib/util.js";
 import { revokeMcpOAuthUserGrantsForPurge } from "./mcp-oauth-purge.js";
+
+// The user's plan as every sign-in response and /api/auth/me report it, from one
+// canonical decision (entitlements.getEffectivePlanState). `plan` is the feature
+// plan, unchanged; a 14-day trial borrows Professional features, so the frontend
+// must not call that a bought plan: `is_trial` and `trial_end` (ISO 8601 UTC, or
+// null) say what it is.
+export async function planFields(userId, env) {
+  const state = await getEffectivePlanState(userId, env);
+  const isTrial = state.is_trial === true;
+  const trialEndMs = isTrial ? Date.parse(state.trial_end) : NaN;
+  return { plan: state.plan, is_trial: isTrial, trial_end: Number.isFinite(trialEndMs) ? new Date(trialEndMs).toISOString() : null };
+}
 
 export async function authRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -369,14 +381,14 @@ export async function authRoutes(rctx) {
           metadata:    { ip_address: _loginIp, user_agent: _loginUa },
         });
 
-        const plan = await getEffectivePlan(user.id, env);
+        const planInfo = await planFields(user.id, env);
         return json({
           token,
           user: {
             id:    user.id,
             email: user.email,
             name:  user.name,
-            plan,
+            ...planInfo,
           },
         });
       } catch (e) {
@@ -388,12 +400,11 @@ export async function authRoutes(rctx) {
     if (request.method === "GET" && url.pathname === "/api/auth/me") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-      const plan = await getEffectivePlan(user.id, env);
       return json({
         id:    user.id,
         email: user.email,
         name:  user.name,
-        plan,
+        ...await planFields(user.id, env),
       });
     }
 
@@ -1010,7 +1021,7 @@ export async function authRoutes(rctx) {
           .bind(sessionId, user.id, tokenHash, expiresAt, loginIp, loginUa)
           .run();
 
-        const plan = await getEffectivePlan(user.id, env);
+        const planInfo = await planFields(user.id, env);
         await createAuditEvent(env, {
           user_id:     user.id,
           event_type:  "USER_LOGIN_MICROSOFT",
@@ -1030,7 +1041,7 @@ export async function authRoutes(rctx) {
           id:      user.id,
           email:   user.email,
           name:    user.name || "",
-          plan,
+          ...planInfo,
           // The challenge this sign-in was bound to (not secret), so the page
           // forgets only that verifier and keeps other tabs' sign-ins.
           binding: payload.binding,
@@ -1523,14 +1534,14 @@ export async function authRoutes(rctx) {
           metadata:    { challenge_id: challenge.id, ip_address: _mfaIp, user_agent: _mfaUa },
         }).catch(() => {});
 
-        const plan = await getEffectivePlan(challenge.user_id, env);
+        const planInfo = await planFields(challenge.user_id, env);
         return json({
           token,
           user: {
             id:    challenge.uid,
             email: challenge.email,
             name:  challenge.name,
-            plan,
+            ...planInfo,
           },
         });
       } catch (e) {
@@ -1621,10 +1632,10 @@ export async function authRoutes(rctx) {
           metadata:    { challenge_id: challenge.id, remaining_codes: remainingHashes.length, ip_address: _rcIp, user_agent: _rcUa },
         }).catch(() => {});
 
-        const plan = await getEffectivePlan(challenge.user_id, env);
+        const planInfo = await planFields(challenge.user_id, env);
         return json({
           token,
-          user:    { id: challenge.uid, email: challenge.email, name: challenge.name, plan },
+          user:    { id: challenge.uid, email: challenge.email, name: challenge.name, ...planInfo },
           warning: remainingHashes.length <= 2
             ? `Only ${remainingHashes.length} recovery code(s) remaining. Disable and re-enable MFA to generate new codes.`
             : null,
