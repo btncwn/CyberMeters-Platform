@@ -210,3 +210,28 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     await expect(page.getByText('No score yet')).toBeVisible()
   })
 }
+
+// Network assets (founder live, 22 Oct 2026 17:50): probe keys in the evidence
+// table read as sentences; the Ports limit is shown and enforced.
+test('Network assets: no probe key on screen; the port limit cannot be passed', async ({ page, context }) => {
+  await seedSession(context)
+  await installAppMock(page)
+  const ws = `${API_BASE}/workspaces/${workspace.id}`
+  const ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 465, 587, 993, 995, 1433, 3306, 3389, 8080]
+  await page.route(`${ws}/network-targets*`, (route) => route.fulfill(json({ targets: [{ id: 't1', target: '93.184.216.34', target_type: 'ip', address_count: 1, authorization_status: 'attested', authorized_at: '2026-10-09T00:00:00Z' }], capabilities: { can_manage: true, can_scan: true, collector_available: true, allowed_ports: ports, limits: { max_addresses: 32, max_ports: 16, max_pairs: 256, max_targets: 32 } } })))
+  await page.route(`${ws}/network-assets*`, (route) => route.fulfill(json({ assets: [
+    { address: '93.184.216.34', port: 22, transport: 'tcp', state: 'open', service: { name: 'ssh', basis: 'unsolicited_tcp_banner', banner_sample: 'SSH-2.0' }, last_seen_at: '2026-10-22T10:00:00Z', last_checked_at: '2026-10-22T10:00:00Z' },
+    { address: '93.184.216.34', port: 8080, transport: 'tcp', state: 'timeout', reason: 'connect_timeout', last_checked_at: '2026-10-22T10:00:00Z' },
+  ], changes: [], total: 2 })))
+  await page.route(`${ws}/network-scans*`, (route) => route.fulfill(json({ scans: [] })))
+  await page.goto('/assets')
+  await page.getByRole('tab', { name: 'Findings' }).click()
+  const fieldset = page.locator('fieldset', { hasText: 'Ports to check' })
+  const boxes = fieldset.getByRole('checkbox')
+  for (let i = 0; i < await boxes.count(); i++) { const box = boxes.nth(i); if (await box.isEnabled() && !(await box.isChecked())) await box.check() }
+  await expect(page.getByTestId('network-ports-count')).toHaveText(/^16 of 16 selected/)
+  await expect(fieldset.locator('input[type="checkbox"]:checked')).toHaveCount(16)
+  await page.getByRole('tab', { name: 'Services' }).click()
+  await expect(page.getByText('Service banner received')).toBeVisible()
+  await expectNoRawKeys(page, '#network-assets')
+})
