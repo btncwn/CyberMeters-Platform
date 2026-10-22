@@ -217,10 +217,10 @@ await deliver({ id: "mirror-created-retry", type: "customer.subscription.created
 check("a repeated subscription event never sends it twice", planMails(), ["lifecycle_plan_active:sub-mirror:starter"]);
 {
   const { buildLifecycleEmail } = await import("../workers/scan-api/src/lib/lifecycle-email.js");
-  const mail = buildLifecycleEmail("lifecycle_plan_active", { origin: "https://app.cybermeters.com", wsName: "Sheshire Test", plan: "professional", nextInvoiceAt: "2026-11-22T15:16:29.000Z" });
+  const mail = buildLifecycleEmail("lifecycle_plan_active", { origin: "https://app.cybermeters.com", wsName: "Sheshire Test", plan: "professional", nextInvoiceAt: "2026-02-22T15:16:29.000Z" });
   check("plan-active email: subject names the plan", mail.subject, "Your CyberMeters Professional plan is active");
   check("plan-active email: the next invoice date in UTC, a Billing link, no amount or card data",
-    /next invoice is due on 22 Nov 2026 \(UTC\)/.test(mail.text) && /Manage billing: https:\/\/app\.cybermeters\.com\/billing/.test(mail.text)
+    /next invoice is due on 22 Feb 2026 \(UTC\)/.test(mail.text) && /Manage billing: https:\/\/app\.cybermeters\.com\/billing/.test(mail.text)
       && !/£|\$|€|\d+\.\d\d|card|•••/i.test(mail.text), true);
 }
 
