@@ -8,10 +8,10 @@ import { APP_ROUTES } from './fixtures/app-routes.js'
 // floor. Read from computed styles on every signed-in route, so a page that
 // sets its own size cannot slip past the tokens (index.css @theme).
 
-const FLOOR_PX = 12 // the benchmarks' smallest readable fine print
-const BODY_PX = 14 // tabs and nav are controls: never below body
+const FLOOR_PX = 13 // Executive decision 22 Oct 2026: never below the benchmarks' smallest readable
+const BODY_PX = 16 // tabs and nav are controls: never below body
 
-const scan = () => {
+const scan = (floor) => {
   const px = (el) => parseFloat(getComputedStyle(el).fontSize)
   const shown = (el) => {
     const r = el.getBoundingClientRect()
@@ -26,7 +26,7 @@ const scan = () => {
   const own = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
   const all = (sel) => [...document.querySelectorAll(`main ${sel}, header ${sel}, nav ${sel}`)].filter(shown)
   const sizes = (sel) => all(sel).map(px)
-  const tooSmall = [...document.querySelectorAll('body *')].filter((el) => own(el) && shown(el) && px(el) < 12)
+  const tooSmall = [...document.querySelectorAll('body *')].filter((el) => own(el) && shown(el) && px(el) < floor)
     .slice(0, 5).map((el) => `${px(el)}px "${el.textContent.trim().slice(0, 40)}"`)
   return {
     h1: sizes('h1'), h2: sizes('h2'), h3: sizes('h3, h4'),
@@ -45,7 +45,7 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     for (const route of APP_ROUTES) {
       await page.goto(route, { waitUntil: 'networkidle' })
       await page.waitForTimeout(200)
-      const m = await page.evaluate(scan)
+      const m = await page.evaluate(scan, FLOOR_PX)
       const lo = (xs) => (xs.length ? Math.min(...xs) : null)
       const hi = (xs) => (xs.length ? Math.max(...xs) : null)
       if (m.tooSmall.length) failures.push(`${route}: under ${FLOOR_PX}px → ${m.tooSmall.join(' | ')}`)

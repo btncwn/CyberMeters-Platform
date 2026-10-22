@@ -1,26 +1,27 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Type scale (DESIGN-STANDARD §7, founder 22 Oct 2026): the rounded average of
-     three benchmark dashboards per level, recorded in the PR that set it. Strictly
-     descending: page title > section > sub-section > control ≥ body > fine print.
-     Fine print is the floor; nothing customer-readable is smaller. */
-  --text-page-title: 25px;
-  --text-page-title--line-height: 35px;
+  /* Type scale (DESIGN-STANDARD §7, founder 22 Oct 2026; Executive decision
+     13:32 UTC). Body stays 16px and the floor 13px; each heading level takes the
+     benchmark dashboards' ratio to their body (readings and ratios in the PR that
+     set it), so the app keeps its size. Strictly descending: page title >
+     section > sub-section > control = body > fine print ≥ floor. */
+  --text-page-title: 29px;
+  --text-page-title--line-height: 40px;
   --text-page-title--font-weight: 600;
-  --text-section: 20px;
-  --text-section--line-height: 28px;
+  --text-section: 23px;
+  --text-section--line-height: 32px;
   --text-section--font-weight: 600;
-  --text-subsection: 16px;
-  --text-subsection--line-height: 24px;
+  --text-subsection: 18px;
+  --text-subsection--line-height: 27px;
   --text-subsection--font-weight: 600;
-  --text-control: 14px;
-  --text-control--line-height: 20px;
+  --text-control: 16px;
+  --text-control--line-height: 23px;
   --text-control--font-weight: 500;
-  --text-body: 14px;
-  --text-body--line-height: 20px;
-  --text-fine: 12px;
-  --text-fine--line-height: 16px;
+  --text-body: 16px;
+  --text-body--line-height: 23px;
+  --text-fine: 14px;
+  --text-fine--line-height: 19px;
   --color-gray-50: #f9fafb;
   --color-gray-100: #f3f4f6;
   --color-gray-200: #e5e7eb;
@@ -549,8 +550,9 @@
    order. Deliberately unlayered: with Tailwind v4 the base and utilities layers
    are real cascade layers and a later layer wins regardless of specificity, so
    only an unlayered rule beats text-sm / text-2xl on the element. The Overview's
-   hero question (.cm-hero-title) is the one display heading above the scale. */
-.cm-app h1:not(.cm-hero-title) { font-size: var(--text-page-title); line-height: var(--text-page-title--line-height); font-weight: var(--text-page-title--font-weight); }
+   question (#home-question) is the one display heading above the scale; area
+   page titles share .cm-hero-title styling but take the page-title level. */
+.cm-app h1:not(#home-question) { font-size: var(--text-page-title); line-height: var(--text-page-title--line-height); font-weight: var(--text-page-title--font-weight); }
 .cm-app h2 { font-size: var(--text-section); line-height: var(--text-section--line-height); font-weight: var(--text-section--font-weight); }
 .cm-app :is(h3, h4) { font-size: var(--text-subsection); line-height: var(--text-subsection--line-height); font-weight: var(--text-subsection--font-weight); }
 
@@ -625,7 +627,7 @@
 .cm-wsbtn:hover, .cm-wsbtn:focus-visible { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(11, 87, 208, 0.32); color: #fff; background: linear-gradient(145deg, #173a78 0%, #1d67db 100%); }
 .cm-wsbtn:focus-visible, .cm-wsmini:focus-visible { outline: 3px solid #a9f2e5; outline-offset: 2px; box-shadow: 0 0 0 2px #081f1c, 0 14px 30px rgba(11, 87, 208, 0.32); }
 .cm-wsbtn-initial { font-family: 'Computer Modern Serif', Georgia, Cambria, serif; font-size: 42px; line-height: 1; }
-.cm-wsbtn-label { position: absolute; left: 0; right: 0; bottom: 9px; font-size: var(--text-fine); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; text-align: center; }
+.cm-wsbtn-label { position: absolute; left: 0; right: 0; bottom: 9px; font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase; opacity: 0.75; text-align: center; }
 .cm-tip {
   position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
   padding: 6px 10px; border-radius: 8px; white-space: nowrap;
