@@ -186,8 +186,11 @@ const executableFingerprint = (source) => {
 };
 
 const EXPECTED_EXECUTABLE_AST_SHA256 = Object.freeze({
+  // 22 Oct 2026: verifyCeCaseFromRecovery gains a `retry` flag (quiet early
+  // returns, so the per-scan retry writes nothing unless it can verify). No
+  // coverage declaration or claim changes; executable edit only.
   "workers/scan-api/src/engines/cyber-essentials-cases.js":
-    "d3705ecd49b6b035100c1ad9e8652a949f28c315569567784b339a5fefd7bbeb",
+    "e2d9906084a0f3a3094fbb2e049c3b418d1edcd62146450f0ac6d35bd79a6eef",
   "workers/scan-api/src/lib/cyber-essentials.js":
     "819b0b5ca7df1558baa95b561bfb89a9aef7a4b5030d04085ddf05be45bc72e7",
 });
