@@ -64,9 +64,9 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 307,
+    "total": 309,
     "authed": 263,
-    "public_unauthed": 44,
+    "public_unauthed": 46,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -78,11 +78,11 @@
         "authed": 0
       },
       "unknown": {
-        "total": 79,
+        "total": 80,
         "authed": 65
       },
       "public-or-global": {
-        "total": 46,
+        "total": 47,
         "authed": 21
       },
       "account": {
@@ -3289,6 +3289,28 @@
       ],
       "scope_helpers": [],
       "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/login",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/site-proof.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "authentication endpoint — pre-auth by definition"
+    },
+    {
+      "method": "HEAD",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/site-proof.js",
+      "scope": "unknown",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
       "public_reason": null
     },
     {
