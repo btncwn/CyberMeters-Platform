@@ -1,12 +1,13 @@
 // Existing scan Queue continuations. Only the scan row grants tenant/scope.
 // Receipts contain static indicators, never bodies; the ordinary scan report
 // subsequently stores these cleaned observations in R2 with canonical findings.
+import { ACTIVE_CHECK_AUTHORITY_VERSION } from './active-check-consent.js';
 import { exposureIdentity } from '../../../../shared/exposure/redaction.js';
 import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
-import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { blockingTlsNotAuthorized, blockingTlsUnexecutable, classifyTlsRefusals } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
@@ -359,7 +360,15 @@ async function canRun(env,row) {
 // them made every deep-TLS request invalid_scope (22 Oct 2026).
 export const TLS_PROBE_SCOPE_KEYS = Object.freeze(['kind','service_authorization_id','generation','special_consent','consent_version']);
 export function tlsProbeScope(scope) {
-  return Object.fromEntries(TLS_PROBE_SCOPE_KEYS.map(key=>[key,scope?.[key]??null]));
+  const projected = Object.fromEntries(TLS_PROBE_SCOPE_KEYS.map(key=>[key,scope?.[key]??null]));
+  // The Worker checks the current per-control Active Checks grant before this
+  // projection. The probe carries its own protocol version, not that grant's
+  // authority-text version. Unknown authority versions remain rejected.
+  // When ACTIVE_CHECK_AUTHORITY_VERSION is bumped, review/update this mapping
+  // and the pinned current-version fixture before releasing intrusive engines.
+  if (scope?.special_consent === true && scope.consent_version === ACTIVE_CHECK_AUTHORITY_VERSION)
+    projected.consent_version = TLS_SPECIAL_CONSENT_VERSION;
+  return projected;
 }
 
 async function finishWithoutProbe(env,row,state,reason,now) {

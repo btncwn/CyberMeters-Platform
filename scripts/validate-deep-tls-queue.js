@@ -2,11 +2,15 @@ import { test } from 'node:test';
 import { assertProbeRequest } from './lib/probe-contract-fixture.mjs';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, cpSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, tlsEndpointIdentity } from '../shared/tls/catalog.js';
+import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS_AVAILABLE, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
-import { processExposureMessage, readTlsAssessmentForScan } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { processExposureMessage, readTlsAssessmentForScan, tlsProbeScope } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
 import { loadTlsEndpoints } from '../workers/scan-api/src/engines/tls-planner.js';
 import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
@@ -222,11 +226,10 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_target').plan_json).tls.results.length,0);
   sql.prepare("UPDATE network_targets SET scope_state='in_scope' WHERE id='target_scope'").run();
 }
-// A normal check and each active check get separate reservations. In
-// particular ROBOT's 21 connections cannot spill into the next control.
-// C-28 (PR 2) fixes the withheld special-scope contract; keep this assertion live.
-let specialScopeRejection = null;
-await test('special-control scope matches the probe contract', { todo: 'C-28 / PR 2: invalid_scope before intrusive engine release' }, async () => {
+// A normal check must carry a valid projected scope even when the plan
+// contains Active Checks grants. Intrusive controls remain withheld.
+// C-28: current Active Checks authority is projected to the probe wire scope.
+await test('special-control scope matches the probe contract', async () => {
   const workspace='w_special',scanId='tls_special_slices',domainId='d_special',domain='special.example.org',now=Date.now();
   sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(workspace);
   sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
@@ -241,7 +244,7 @@ await test('special-control scope matches the probe contract', { todo: 'C-28 / P
   const authoriseActiveCheck=async()=>({authorised:true,reason:'authorised',consent_id:'acc_special'});
   const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
     dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
-  const controls=['protocol','robot','ccs'];
+  const controls=['protocol'];
   const selected=controls.map(control=>({endpoint_index:0,check:{control,protocol:'tls1_2',cipher_id:null}}));
   const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
     endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
@@ -251,8 +254,106 @@ await test('special-control scope matches the probe contract', { todo: 'C-28 / P
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
   const reservations=[];
   const specialCollector=async(_env,input)=>{
+    assertProbeRequest(input);
+    assert.equal(input.scope.special_consent, true);
+    assert.equal(input.scope.consent_version, TLS_SPECIAL_CONSENT_VERSION);
+    assert.equal(Object.hasOwn(input.scope, 'special_checks'), false);
+    // Request mutant: replacing the projection with raw plan scope reproduces
+    // the real probe rejection; the fake must never accept this drift again.
+    const rawScope = plan.tls.endpoints[0].scope;
+    assert.deepEqual(validateTlsAssessmentRequest({...input, scope: rawScope}), {ok: false, reason: 'invalid_scope'});
+    assert.equal(rawScope.consent_version, 'active-checks-2026-10-22', 'stored authority is unchanged');
+    // The wire projection does not release an intrusive engine. Its genuine
+    // contract refusal stays visible rather than a fake accepting the request.
+    for (const [control, max_connections] of [['robot',21],['ccs',5]]) {
+      assert.deepEqual(validateTlsAssessmentRequest({...input, checks:[{control,protocol:'tls1_2',cipher_id:null}],
+        max_connections}), TLS_SPECIAL_CONTROLS_AVAILABLE ? {ok:true} : {ok:false,reason:'control_unavailable'});
+    }
+    assert.deepEqual(validateTlsAssessmentRequest({...input,
+      scope: tlsProbeScope({...rawScope, consent_version: 'unknown-authority-version'})}), {ok: false, reason: 'invalid_scope'});
+    const control=input.checks[0].control;
+    assert.equal(input.checks.length,1);
+    reservations.push([control,input.max_connections]);
+    const physical={connections:control==='robot'?21:control==='ccs'?5:1,bytes_sent:1000,bytes_received:2000,duration_ms:10};
+    const special=control!=='protocol';
+    const engine={schema:'tls-engine-result-v1',engine:{family:special?'active_legacy':'modern',
+      version:special?'1.0.2u':'3.5.9',build_id:'a'.repeat(64),sandboxed:true},
+      control:special?control:'handshake',protocol:'tls1_2',state:special?'rejected':'accepted',
+      reason:special?'active_not_observed':'handshake_completed',authenticated_finished:true,
+      vulnerability:special?{status:'not_observed',profile:control==='robot'?'robot-finite-v1':'ccs-early-record-v1',
+        completed_vectors:control==='robot'?20:4,planned_vectors:control==='robot'?20:4}:null,
+      negotiated:{version:'tls1_2',cipher:'AES128-GCM-SHA256',cipher_bits:128,group:null,group_bits:null,pfs:false,alpn:null,sni_sent:true},
+      certificates:null,ocsp:null,extensions:null,telemetry:physical,limitations:[],catalog:null};
+    const timestamp=new Date().toISOString();
+    const raw={schema_version:'tls-collector-raw-v1',request_id:input.request_id,started_at:timestamp,finished_at:timestamp,
+      results:[{check:input.checks[0],engine_result:engine,reason:null,observed_at:timestamp,physical_telemetry:physical}],
+      telemetry:physical};
+    return projectTlsCollectorReceipt(input,raw);
+  };
+  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
+  assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'complete');
+  assert.deepEqual(reservations,[['protocol',16]]);
+  const finished=sql.prepare('SELECT charged_requests,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
+  assert.equal(finished.charged_requests,1);
+  assert.equal(JSON.parse(finished.plan_json).tls.results.length,1);
+});
+// RELEASE_RESERVATION_FIXTURE_BEGIN
+// This sibling runs the original three-slice proof with released engines only
+// in an isolated source copy; the real catalog and production switch stay OFF.
+await test('released intrusive controls keep protocol/ROBOT/CCS reservations isolated', async () => {
+  if (!TLS_SPECIAL_CONTROLS_AVAILABLE) {
+    const root = dirname(dirname(fileURLToPath(import.meta.url)));
+    const fixture = mkdtempSync(join(tmpdir(), 'tls-reservations-release-'));
+    try {
+      for (const tree of ['shared', 'workers/scan-api/src', 'workers/network-probe/src', 'scripts/lib', 'database/migrations']) {
+        cpSync(join(root, tree), join(fixture, tree), {recursive:true});
+      }
+      symlinkSync(join(root, 'workers/scan-api/node_modules'), join(fixture, 'workers/scan-api/node_modules'), 'dir');
+      const catalog = join(fixture, 'shared/tls/catalog.js');
+      const original = readFileSync(catalog, 'utf8');
+      assert.ok(original.includes('TLS_SPECIAL_CONTROLS_AVAILABLE = false'));
+      writeFileSync(catalog, original.replace('TLS_SPECIAL_CONTROLS_AVAILABLE = false', 'TLS_SPECIAL_CONTROLS_AVAILABLE = true'));
+      const source = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+      const start = source.indexOf('\n// RELEASE_RESERVATION_FIXTURE_BEGIN');
+      const end = source.indexOf('\n// RELEASE_RESERVATION_FIXTURE_END', start);
+      assert.ok(start > 0 && end > start);
+      // Reuse this exact sibling and its database setup, without the unrelated
+      // queue/planner tests whose purpose is to prove the engine is withheld.
+      writeFileSync(join(fixture, 'scripts/validate-deep-tls-queue.js'),
+        source.slice(0, source.indexOf('const started=performance.now();')) + source.slice(start, end));
+      const output = execFileSync(process.execPath, [join(fixture, 'scripts/validate-deep-tls-queue.js')],
+        {encoding:'utf8', timeout:30000});
+      assert.match(output, /TLS_RESERVATIONS_RELEASED_OK/);
+      assert.equal(readFileSync(join(root, 'shared/tls/catalog.js'), 'utf8'), original, 'production switch unchanged');
+      return;
+    } finally { rmSync(fixture, {recursive:true, force:true}); }
+  }
+  const workspace='w_reservations',scanId='tls_reservation_slices',domainId='d_reservations',domain='reservations.example.org',now=Date.now();
+  sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(workspace);
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
+  sql.prepare("INSERT INTO workspace_domains VALUES(?,?,'verified')").run(workspace,domainId);
+  // The legacy switch stays OFF: only the Active Checks grant authorises the
+  // intrusive controls (migration 135). The legacy row just carries generation 1.
+  sql.prepare('INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,updated_at) VALUES(?,0,1,NULL,?)')
+    .run(workspace,new Date(now).toISOString());
+  sql.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+      signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_reservations',?,'grant',?,?,'[]',?,'u','owner','Pat','IT','text','v',?)`)
+    .run(workspace,domainId,domain,JSON.stringify(['tls_intrusive_robot','tls_intrusive_ccs']),new Date(now).toISOString());
+  const authoriseActiveCheck=async()=>({authorised:true,reason:'authorised',consent_id:'acc_reservations'});
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+    dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const controls=['protocol','robot','ccs'];
+  const selected=controls.map(control=>({endpoint_index:0,check:{control,protocol:'tls1_2',cipher_id:null}}));
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
+      generation:1,special_consent:true,special_checks:{robot:'acc_reservations',ccs:'acc_reservations'},consent_version:'active-checks-2026-10-22'}}],selected,static_results:[],results:[],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
+  sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
+  const reservations=[];
+  const specialCollector=async(_env,input)=>{
     const verdict = validateTlsAssessmentRequest(input);
-    if (!verdict.ok) { specialScopeRejection = verdict.reason; console.error('PROBE_CONTRACT', verdict.reason); }
+    if (!verdict.ok) console.error('PROBE_CONTRACT', verdict.reason);
     assert.equal(verdict.ok, true, `Probe request rejected: ${verdict.reason}`);
     const control=input.checks[0].control;
     assert.equal(input.checks.length,1);
@@ -281,8 +382,9 @@ await test('special-control scope matches the probe contract', { todo: 'C-28 / P
   const finished=sql.prepare('SELECT charged_requests,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
   assert.equal(finished.charged_requests,27);
   assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
+  console.log("TLS_RESERVATIONS_RELEASED_OK protocol16 robot21 ccs5 charged27");
 });
-assert.equal(specialScopeRejection, 'invalid_scope', 'Only the classified C-28 scope rejection is expected');
+// RELEASE_RESERVATION_FIXTURE_END
 // The planner asks Active Checks consent per intrusive control and per address and
 // records only the granted ones. With the controls unavailable it still asks
 // (22 Oct 2026, Executive: a grant must read "Authorised — not yet available"),
