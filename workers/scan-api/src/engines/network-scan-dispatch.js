@@ -11,6 +11,27 @@ const details=o=>JSON.stringify({
   service:o.service ? {name:o.service.name,basis:o.service.basis,banner_sha256:o.service.banner_sha256} : null,
   tls:o.tls ? {leaf:o.tls.leaf_certificate?.certificate_identity,protocol:o.tls.protocol,cipher:o.tls.cipher,alpn:o.tls.alpn,hostname_match:o.tls.hostname_match?.result,trust:o.tls.trust_store_validation?.validation_result} : null,
 });
+// A port that did not answer is an OBSERVATION ("no answer — closed or
+// filtered"), not an unfinished check (22 Oct 2026, S3-0 live proof: 1 open +
+// 3 no-answer read "Partial coverage"). The collector only times out at
+// connect, so `timeout` is a conclusive no-answer. Only error / not_run are
+// checks that did not complete. The immutable receipt keeps its own fields;
+// this projection is what the scan row records.
+// A no-answer is conclusive only when something on the SAME address answered
+// (open or closed) in that run (Executive R1, 22 Oct 2026): if nothing on an
+// address answered, CyberMeters cannot tell "filtered" from "host offline / not
+// reachable", so that address is stated as unreachable and the run is partial.
+export function networkReceiptCoverage(receipt) {
+  const rows=Array.isArray(receipt?.observations)?receipt.observations:[];
+  const answered=new Set(rows.filter(o=>o?.state==='open'||o?.state==='closed').map(o=>o.address));
+  const conclusiveNoAnswer=rows.filter(o=>o?.state==='timeout'&&answered.has(o.address)).length;
+  const unreachable=[...new Set(rows.filter(o=>o?.state==='timeout'&&!answered.has(o.address)).map(o=>o.address))].filter(Boolean);
+  const concluded=rows.filter(o=>o?.state==='open'||o?.state==='closed').length+conclusiveNoAnswer;
+  const planned=Number.isInteger(receipt?.coverage?.planned)?receipt.coverage.planned:rows.length;
+  return {quality:planned>0&&concluded===planned?'complete':'partial',
+    coverage:{...(receipt?.coverage||{}),concluded,no_answer:conclusiveNoAnswer,
+      ...(unreachable.length?{unreachable_addresses:unreachable,reason:'address_unreachable'}:{})}};
+}
 export function networkObservationChanges(previous,observations) {
   const before=new Map(previous.map(r=>[tupleKey(r),r]));
   const changes=[];
@@ -76,6 +97,7 @@ export async function processNetworkScanMessage(body,env,deps={}) {
     if(!active)throw new Error('finalization_refused');
     const prior=await env.cybermeters_db.prepare('SELECT * FROM network_assets WHERE workspace_id=?').bind(row.workspace_id).all();
     const changes=networkObservationChanges(prior.results||[],receipt.observations);
+    const projected=networkReceiptCoverage(receipt);
     const text=JSON.stringify(receipt),hash=await networkReceiptHash(text),now=new Date().toISOString();
     const stored=await env.cybermeters_reports.put(`network-reports/${row.workspace_id}/${row.id}.json`,text,{onlyIf:new Headers({'If-None-Match':'*'}),httpMetadata:{contentType:'application/json'},sha256:hash});
     if(!stored)throw new Error('receipt_exists');
@@ -87,9 +109,9 @@ export async function processNetworkScanMessage(body,env,deps={}) {
         .bind(row.workspace_id,item.address,item.port,item.state,observed(item)?item.state:null,JSON.stringify(item.service??null),JSON.stringify(item.tls??null),observed(item)?now:null,observed(item)?now:null,now,row.id,row.workspace_id));
     }
     statements.push(env.cybermeters_db.prepare(`UPDATE network_scans SET status='completed',quality=?,receipt_sha256=?,coverage_json=?,changes_json=?,completed_at=? WHERE id=? AND workspace_id=? AND status='running' AND EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)`)
-      .bind(receipt.quality,hash,JSON.stringify(receipt.coverage),JSON.stringify(changes),now,row.id,row.workspace_id,row.workspace_id));
+      .bind(projected.quality,hash,JSON.stringify(projected.coverage),JSON.stringify(changes),now,row.id,row.workspace_id,row.workspace_id));
     statements.push(env.cybermeters_db.prepare(`INSERT INTO audit_events (id,workspace_id,user_id,actor_type,event_type,entity_type,entity_id,description,metadata_json,created_at) SELECT ?,?,?,'system','network_scan_completed','network_scan',?,'Network service observation completed',?,? WHERE EXISTS(SELECT 1 FROM network_scans WHERE id=? AND workspace_id=? AND status='completed')`)
-      .bind(createId('audit'),row.workspace_id,row.requested_by,row.id,JSON.stringify({receipt_sha256:hash,quality:receipt.quality,coverage:receipt.coverage,changes:changes.length}),now,row.id,row.workspace_id));
+      .bind(createId('audit'),row.workspace_id,row.requested_by,row.id,JSON.stringify({receipt_sha256:hash,quality:projected.quality,coverage:projected.coverage,changes:changes.length}),now,row.id,row.workspace_id));
     const results=await env.cybermeters_db.batch(statements);
     if(results[receipt.observations.length+1]?.meta?.changes!==1)throw new Error('finalization_refused');
     return {action:'ack',outcome:'completed'};

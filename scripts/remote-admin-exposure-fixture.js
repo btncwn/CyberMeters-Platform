@@ -62,8 +62,16 @@ assert.equal(computeScore({ dns: { resolves: true }, remote_admin_exposure: awai
 const many = new Map(Array.from({ length: REMOTE_ADMIN_LIMITS.max_addresses + 1 }, (_, i) => [`81.2.69.${150 + i}`, ['example.com']]));
 const capped = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(many), collect: answer() });
 assert.equal(capped.incomplete_reason, 'address_cap');
-const timedOut = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: answer({ 3389: 'timeout' }) });
-assert.equal(timedOut.incomplete_reason, 'ports_not_all_checked', 'a timed-out pair is not a checked pair');
+// A port that did not answer is a conclusive "no answer" (22 Oct 2026); only a
+// measurement error or a pair that never ran leaves the module incomplete.
+const noAnswer = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: answer({ 3389: 'timeout' }) });
+assert.equal(noAnswer.incomplete, false, 'a port that did not answer is a checked pair');
+const timedOut = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: answer({ 3389: 'error' }) });
+assert.equal(timedOut.incomplete_reason, 'ports_not_all_checked', 'a measurement error is not a checked pair');
+// Nothing on the address answered: not conclusive (filtered vs unreachable).
+const allTimeout = Object.fromEntries(REMOTE_ADMIN_PORT_LIST.map((port) => [port, 'timeout']));
+const silentHost = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: answer(allTimeout) });
+assert.equal(silentHost.incomplete_reason, 'address_unreachable', 'an address where nothing answered is stated unreachable');
 const lookupGap = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(new Map(), 2), collect: counting });
 assert.equal(lookupGap.incomplete_reason, 'address_lookup_failed');
 const down = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: async (_env,input) => { assertProbeRequest(input); throw new Error('collector_unavailable'); } });
@@ -85,8 +93,8 @@ const source = readFileSync(new URL('../workers/scan-api/src/engines/remote-admi
 const MUTANTS = [
   { name: 'address cap no longer stated', from: 'if (owned.length > selected.length) reasons.push("address_cap");', to: '',
     caught: async (m) => (await m.runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(many), collect: answer() })).incomplete === false },
-  { name: 'a timed-out pair counted as checked', from: 'row?.state === "open" || row?.state === "closed"', to: 'row?.state !== "not_run"',
-    caught: async (m) => (await m.runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: answer({ 3389: 'timeout' }) })).incomplete === false },
+  { name: 'a measurement error counted as checked', from: '(row?.state === "timeout" && answeredAddresses.has(row.address))', to: 'row?.state !== "not_run"',
+    caught: async (m) => (await m.runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(one), collect: answer({ 3389: 'error' }) })).incomplete === false },
   { name: 'another domain\'s address probed', from: '.filter((h) => hostUnder(h, root))', to: '',
     caught: async (m) => { let r = null; await m.runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(new Map([['81.2.69.162', ['mail.other.example']]])), collect: async (e, q) => { r = q; return answer()(e, q); } }); return r !== null; } },
 ];
