@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { searchArticles } from '../data/academy'
-import { GUIDE_AREAS, getGuideAreaForArticle } from '../data/fieldGuide'
+import { getArticle, searchArticles } from '../data/academy'
+import { GUIDE_AREAS, GUIDE_PRODUCT_ARTICLES, getGuideAreaForArticle } from '../data/fieldGuide'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 
 // The Field Guide home: the eight areas in the order the product shows them,
@@ -80,6 +80,10 @@ export default function AcademyPage() {
           <h2 className="sr-only">The areas</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {GUIDE_AREAS.map((area, i) => <AreaCard key={area.key} area={area} index={i} />)}
+          </div>
+          <h2 className="text-[19px] font-bold text-black mt-10 mb-4">Using CyberMeters</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {GUIDE_PRODUCT_ARTICLES.map(getArticle).filter(Boolean).map(a => <ArticleResult key={a.slug} article={a} />)}
           </div>
         </section>
       )}

@@ -167,12 +167,15 @@ export default function AcademyArticlePage() {
           Field Guide
         </Link>
         <span aria-hidden="true">/</span>
+        {/* A product article (e.g. AI assistant access) has no area: no empty step. */}
         {area && (
-          <Link to={`/guide/${area.key}`} className="hover:text-brand-800 transition-colors">
-            {area.title}
-          </Link>
+          <>
+            <Link to={`/guide/${area.key}`} className="hover:text-brand-800 transition-colors">
+              {area.title}
+            </Link>
+            <span aria-hidden="true">/</span>
+          </>
         )}
-        <span aria-hidden="true">/</span>
         <span className="text-gray-600 font-medium truncate max-w-xs">{article.title}</span>
       </nav>
 

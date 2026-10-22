@@ -41,11 +41,78 @@ export const CATEGORIES = [
   { slug: 'vendor-risk',               label: 'Third-party risk',               icon: 'Briefcase',   color: 'orange' },
   { slug: 'supply-chain-intelligence', label: 'Third-party dependencies', icon: 'Link',        color: 'rose'   },
   { slug: 'cyber-essentials',          label: 'Cyber Essentials',          icon: 'ClipboardCheck', color: 'green' },
+  { slug: 'using-cybermeters',         label: 'Using CyberMeters',         icon: 'Link',        color: 'brand'  },
 ]
 
 // ── Articles ─────────────────────────────────────────────────────────────────
 
 export const ARTICLES = [
+
+  // ── Using CyberMeters: AI assistant access (MCP) ──────────────────────────
+  // Facts match the consent page (api.cybermeters.com/authorize) and the
+  // Support page's setup steps; this article explains, Support shows how.
+  {
+    slug: 'connect-your-ai-assistant',
+    title: 'Connect your AI assistant (MCP)',
+    category: 'using-cybermeters',
+    summary: 'You can give an AI assistant you already use read-only access to your CyberMeters evidence, through the Model Context Protocol (MCP). It can answer questions about your posture in plain language. It cannot change anything.',
+    readTime: 4,
+    featured: false,
+    publishedAt: '2026-10-22',
+    sections: [
+      {
+        heading: 'What it is',
+        blocks: [
+          p('MCP is an open standard that lets an AI assistant read from a service you approve. With CyberMeters connected, you can ask your assistant questions such as "what needs fixing first?" or "why is email protection provisional?" and it answers from your workspace\'s evidence.'),
+          p('Access is available for eligible workspaces. Your assistant\'s own account and administrator settings may also limit it.'),
+        ],
+      },
+      {
+        heading: 'What it can read',
+        blocks: [
+          li([
+            'The workspaces you approve, and their domains',
+            'Security posture for every area, findings and the evidence behind them',
+            'Recent scans and their status, and managed cases',
+            'Certificate and email posture, and existing report summaries',
+            'For an MSP: a portfolio summary of only the customer workspaces you separately approve',
+          ]),
+          callout('Answers keep the same evidence rules as the product: something CyberMeters did not observe is never presented as healthy, and a customer\'s own statement is never presented as CyberMeters verification.', 'info'),
+        ],
+      },
+      {
+        heading: 'What it cannot do',
+        blocks: [
+          p('The connection is read-only. It cannot start scans, change DNS, create or close cases, manage users, change settings or fix issues.'),
+        ],
+      },
+      {
+        heading: 'What you approve',
+        blocks: [
+          li([
+            'You sign in to CyberMeters and choose one workspace, or, for portfolio access, up to 50 customer workspaces. None are selected for you.',
+            'The name shown for the app is the name it registered for itself. CyberMeters has not verified it, so connect only an app you started yourself.',
+            'The app receives a 15-minute access token and can renew read access for up to 7 days from your approval. After 7 days you reconnect.',
+          ]),
+        ],
+      },
+      {
+        heading: 'Your data and removing access',
+        blocks: [
+          p('The app, or the company that provides it, may keep what it receives under its own terms and settings. Check those before you connect.'),
+          p('To stop access, open Account → AI assistant (MCP) and select Remove access, then remove the connection in the app too. This stops future CyberMeters reads. It cannot delete data the app has already received.'),
+        ],
+      },
+      {
+        heading: 'Set it up',
+        blocks: [
+          p('The server address and the setup steps for each assistant are on the Support page, under "Connect your AI assistant": cybermeters.com/support#mcp.'),
+          callout('Never paste a password or an access token into a chat, and never send one to support.', 'warning'),
+        ],
+      },
+    ],
+    relatedSlugs: [],
+  },
 
   // ── 1. What is Attack Surface Management? ─────────────────────────────────
   {

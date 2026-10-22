@@ -18,4 +18,13 @@ describe('Academy content', () => {
     const all = ARTICLES.flatMap(a => [a.slug, ...(a.aliases ?? [])])
     expect(new Set(all).size).toBe(all.length)
   })
+
+  it('explains AI assistant access honestly, names no assistant product and points to the setup steps', () => {
+    const article = getArticle('connect-your-ai-assistant')
+    const text = JSON.stringify(article)
+    for (const fact of ['read-only', 'cannot start scans', 'change DNS', '15-minute access token', 'up to 7 days', 'up to 50 customer workspaces', 'has not verified it', 'cannot delete data the app has already received', 'Remove access', 'cybermeters.com/support#mcp']) {
+      expect(text, fact).toContain(fact)
+    }
+    expect(text).not.toMatch(/ChatGPT|OpenAI|Claude|Anthropic|Gemini|Google|Copilot|Microsoft/)
+  })
 })
