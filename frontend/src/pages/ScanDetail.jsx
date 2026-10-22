@@ -1350,6 +1350,8 @@ export default function ScanDetail() {
   const navigate = useNavigate()
 
   const [scan,          setScan]          = useState(null)
+  // The API's live progress for a scan in flight (stage, heartbeat, quiet).
+  const [scanLiveProgress, setScanLiveProgress] = useState(null)
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
   const [refreshing,    setRefreshing]    = useState(false)
@@ -1513,6 +1515,7 @@ export default function ScanDetail() {
       if (!requestIsCurrent()) return
       const s    = data.scan || data
       setScan(s)
+      setScanLiveProgress(data.progress ?? null)
       setReportAvailability(data.report_availability ?? null)
     } catch (e) {
       if (requestIsCurrent() && e?.name !== 'AbortError') {
@@ -1800,7 +1803,7 @@ export default function ScanDetail() {
                   </div>
                 </div>
               ) : (
-                <ScanProgress scan={scan} workspaceId={activeWsId} pollSeconds={POLL_MS / 1000} />
+                <ScanProgress scan={scan} workspaceId={activeWsId} pollSeconds={POLL_MS / 1000} progress={scanLiveProgress} />
               )}
             </div>
 

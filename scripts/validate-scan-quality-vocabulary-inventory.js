@@ -86,8 +86,13 @@ const EXPECTED = Object.freeze({
     // Two-tree semantic diff (file/kind/operator/status/snippet) against
     // origin/main shows exactly these; direct reads unchanged at 278; the
     // partial-only fingerprint is unchanged.
-    comparison_occurrences: 68,
-    source_file_count: 28,
+    // SCAN-PROGRESS SUCCESSION (22 Oct 2026): 68 -> 69, files 28 -> 29. The
+    // running-scan estimate counts only COMPLETE scans: ScanProgress.jsx adds
+    // `s?.scan_quality === 'complete'` on the workspace scan list (the backend's
+    // recorded quality, presentation only). Two-tree semantic diff against
+    // origin/main: that single addition; none removed or reclassified.
+    comparison_occurrences: 69,
+    source_file_count: 29,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
     // AS-B2 SUCCESSION: counts UNCHANGED (48 across 22 files). The KEV/CVE score
@@ -135,7 +140,7 @@ const EXPECTED = Object.freeze({
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
     // C-11: one additive ScanDetail partial/degraded membership comparison
     // selects recorded backend area messages; the two-tree diff removes none.
-    fingerprint: "361d9b911f45a2b37d69c0d04ed36063739b74ce01b1bf1a12c0477dda1d8448",
+    fingerprint: "b4e90d0a46c7576f7fc0791510ec4e0e5277023a569204569467fcd40f7d9529",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -233,7 +238,9 @@ const EXPECTED = Object.freeze({
     // 451 access-restricted (21 Oct 2026): validate-p1-serviceability-contract.js GATE 2b adds one governed comparison (r.scan_quality.status !== "complete"); 84 -> 85, files unchanged; keyed two-tree diff shows no other change.
     // Stated access limit (21 Oct 2026): validate-https-observation-deadline-lifecycle.js asserts withheld.status === "complete" (one governed comparison); 85 -> 86, files unchanged; keyed two-tree diff shows no other change.
     // Takeover stated limit (22 Oct 2026): the same validator asserts a second withheld.status === "complete"; keyed two-tree diff shows exactly that one added, 86 -> 87.
-    comparison_occurrences: 87,
+    // Supplementary-module deadline (22 Oct 2026): validate-https-observation-deadline-lifecycle.js adds one
+    // governed assertion (quality.status === "complete"); keyed two-tree diff shows exactly that one. 87 -> 88.
+    comparison_occurrences: 88,
     source_file_count: 31,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
@@ -253,14 +260,15 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "4b28f484a298430da82185e864a9c9675a85f4e120edb62e50c5bc936c2aa068",
+    fingerprint: "6252c9ede646cc313732ae725388af734fb0c1a37614a4d27c7cd79ea301286a",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
   // TLS quality: the new quality projector joins the runtime set, 33 -> 34.
   // MCP discovery, status, and projection routes join the governed runtime set.
   // 37 -> 38: frontend/src/lib/scoreHonesty.js (score-honesty succession above).
-  runtime_source_file_count: 39,
+  // SCAN-PROGRESS (22 Oct 2026): 39 -> 40 — ScanProgress.jsx joins the runtime sources.
+  runtime_source_file_count: 40,
   direct: {
     // D1 SUCCESSION: count unchanged at 92; fingerprint moves because the
     // asm-cases read now flows through the shared predicate.
@@ -335,7 +343,10 @@ const EXPECTED = Object.freeze({
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
     // C-11: only the ScanDetail scanQuality prop and report.scan_quality read
     // are added. All earlier reads and SQL projections remain unchanged.
-    runtime: { occurrence_count: 141, source_file_count: 48, fingerprint: "7a26f0a0224d0fd4d0dddcc975dd31d77d744cf2a8b5b3841dca37cd849341be" },
+    // SCAN-PROGRESS (22 Oct 2026): 141 -> 143, files 48 -> 49 — ScanProgress.jsx
+    // reads the list row's `s?.scan_quality` (filter) and passes
+    // `row.scan_quality` to the remembered sample. Two-tree diff: these two only.
+    runtime: { occurrence_count: 143, source_file_count: 49, fingerprint: "b78001f8e74d1dcb1d5669d311e38ebd0d57316d67f710dbb6527987f2b62be8" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

@@ -16,6 +16,19 @@ import { parseServerDate } from '../utils/dates'
 export const SAMPLE_WINDOW = 10
 export const DOMAIN_MIN_SAMPLES = 3
 export const LONG_RUNNING_FACTOR = 2
+// Fixed, honest thresholds (founder, 22 Oct 2026): past 15 minutes the page says
+// the check is taking longer than most; past 30 it says so again, plainly.
+export const LONGER_THAN_MOST_MS = 15 * 60 * 1000
+export const VERY_LONG_MS = 30 * 60 * 1000
+export const NO_HISTORY_EXPECTATION = 'A full check usually takes 5–15 minutes.'
+// What the scan is doing now, from the API's progress.stage (#862). One table;
+// an unknown or absent stage says nothing rather than guess.
+export const STAGE_TEXT = Object.freeze({
+  discovery_complete: 'Now checking: the hosts and services found for this domain.',
+  phase5_intelligence: 'Now checking: technology and known-vulnerability information.',
+  finalizing: 'Now checking: putting the results together.',
+})
+export const STALE_TEXT = 'This check has gone quiet. If it does not resume, we will mark what could not be completed rather than guess.'
 const STORE_KEY = 'cybermeters_scan_duration_samples'
 const STORE_CAP = 60
 
@@ -79,7 +92,7 @@ export function elapsedLabel(msValue) {
  *   estimate    expectedDuration() result or null
  *   domain      for the first-scan sentence
  */
-export function scanProgressCopy({ status, elapsedMs, estimate, domain } = {}) {
+export function scanProgressCopy({ status, elapsedMs, estimate, progress = null } = {}) {
   const queued = status === 'queued'
   const elapsed = elapsedLabel(elapsedMs)
   const timer = queued ? `Queued for ${elapsed}` : `Running for ${elapsed}`
@@ -87,17 +100,18 @@ export function scanProgressCopy({ status, elapsedMs, estimate, domain } = {}) {
   const detail = queued
     ? 'Waiting for a scanner to pick it up. Results appear here automatically.'
     : 'Checks are running against the domain. Results appear here automatically.'
-  if (!estimate || !Number.isFinite(estimate.medianMs)) {
-    return { heading, timer, detail, expectation: domain ? `First scan of ${domain}; usually a few minutes.` : 'First scan of this domain; usually a few minutes.', longRunning: false }
-  }
-  const longRunning = !queued && Number.isFinite(elapsedMs) && elapsedMs > estimate.medianMs * LONG_RUNNING_FACTOR
-  const scope = estimate.basis === 'domain' ? `your last ${estimate.count} scans of this domain` : `your last ${estimate.count} scans`
-  return {
-    heading, timer, detail,
-    expectation: `Usually takes ${aboutDuration(estimate.medianMs)}, based on ${scope}.`,
-    longRunning,
-    longRunningText: longRunning ? 'Taking longer than usual; it is still running.' : null,
-  }
+  const stage = !queued ? STAGE_TEXT[progress?.stage] || null : null
+  const stale = !queued && progress?.stale === true ? STALE_TEXT : null
+  const running = !queued && Number.isFinite(elapsedMs)
+  const longRunningText = !running ? null
+    : elapsedMs >= VERY_LONG_MS ? 'This check has been running for over 30 minutes. It is still running; if it cannot finish, we will mark what could not be completed rather than guess.'
+      : elapsedMs >= LONGER_THAN_MOST_MS ? 'This is taking longer than most checks. It is still running; you can leave this page and come back.'
+        : null
+  const base = { heading, timer, detail, stage, stale, longRunning: Boolean(longRunningText), longRunningText }
+  if (!estimate || !Number.isFinite(estimate.medianMs)) return { ...base, expectation: NO_HISTORY_EXPECTATION }
+  const scans = estimate.count === 1 ? 'your last complete scan' : `your last ${estimate.count} complete scans`
+  const scope = estimate.basis === 'domain' ? `${scans} of this domain` : scans
+  return { ...base, expectation: `Usually takes ${aboutDuration(estimate.medianMs)}, based on ${scope}.` }
 }
 
 // ── Local sample memory (per workspace, bounded, best effort) ────────────────
@@ -107,17 +121,22 @@ function readStore() {
 }
 function writeStore(rows) { try { localStorage.setItem(STORE_KEY, JSON.stringify(rows.slice(0, STORE_CAP))) } catch { /* storage unavailable: estimate still works from fetched samples */ } }
 
-/** Samples remembered for a workspace: [{ scanId, domain, durationMs, completedAt }]. */
+/**
+ * Samples remembered for a workspace: [{ scanId, domain, durationMs, completedAt }].
+ * Only COMPLETE scans count (founder, 22 Oct 2026: four quick PARTIAL runs made
+ * "Usually takes under a minute"); rows remembered before quality was recorded
+ * are ignored.
+ */
 export function rememberedSamples(workspaceId) {
   if (!workspaceId) return []
-  return readStore().filter((r) => r && r.workspaceId === workspaceId)
+  return readStore().filter((r) => r && r.workspaceId === workspaceId && r.quality === 'complete')
 }
 
 /** Remember one completed scan's duration (idempotent by scan id). */
-export function rememberSample({ workspaceId, scanId, domain, startedAt, completedAt }) {
+export function rememberSample({ workspaceId, scanId, domain, startedAt, completedAt, quality = null }) {
   const durationMs = scanDurationMs(startedAt, completedAt)
-  if (!workspaceId || !scanId || durationMs === null) return null
-  const row = { workspaceId, scanId, domain: String(domain || '').toLowerCase(), durationMs, completedAt: ms(completedAt) }
+  if (!workspaceId || !scanId || durationMs === null || quality !== 'complete') return null
+  const row = { workspaceId, scanId, domain: String(domain || '').toLowerCase(), durationMs, completedAt: ms(completedAt), quality }
   const rest = readStore().filter((r) => !(r && r.scanId === scanId))
   writeStore([row, ...rest])
   return row

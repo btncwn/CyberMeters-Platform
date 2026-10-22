@@ -353,6 +353,15 @@ async function canRun(env,row) {
   return !!await env.cybermeters_db.prepare(`SELECT scan_id FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=? AND ${AUTHORITY}`)
     .bind(row.scan_id,row.workspace_id).first();
 }
+// The probe's TLS request contract (network-probe/src/tls-contract.js) accepts
+// exactly these scope keys. The plan's scope also carries the per-control
+// Active Checks grants (special_checks, #838), which stay in the plan; sending
+// them made every deep-TLS request invalid_scope (22 Oct 2026).
+export const TLS_PROBE_SCOPE_KEYS = Object.freeze(['kind','service_authorization_id','generation','special_consent','consent_version']);
+export function tlsProbeScope(scope) {
+  return Object.fromEntries(TLS_PROBE_SCOPE_KEYS.map(key=>[key,scope?.[key]??null]));
+}
+
 async function finishWithoutProbe(env,row,state,reason,now) {
   // The finish reason is kept with the plan, so "budget_exhausted" can always
   // be told apart: completion_budget, network_budget, tls_network_budget, ...
@@ -622,7 +631,7 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     catch{controller.abort();}finally{polling=false;}
   },1000);
   const input={schema_version:'tls-assessment-request-v1',request_id:token,workspace_id:row.workspace_id,scan_id:row.scan_id,
-    domain_id:row.domain_id,domain:row.domain,endpoint,scope:entry.scope,checks:items.map(item=>item.check),
+    domain_id:row.domain_id,domain:row.domain,endpoint,scope:tlsProbeScope(entry.scope),checks:items.map(item=>item.check),
     deadline_at:new Date(now+remaining).toISOString(),max_connections:reservationRequests,max_bytes:TLS_SLICE_LIMITS.bytes};
   try{
     if(!await tlsScopeStillAuthorized(env,scan,entry,{authorise:deps.authoriseActiveCheck}))throw new Error('tls_scope_revoked');

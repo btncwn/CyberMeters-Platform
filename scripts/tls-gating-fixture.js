@@ -6,9 +6,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TLS_CONTROLS, TLS_SAFE_ACTIVE_CONTROLS, TLS_INTRUSIVE_CONTROLS, TLS_AUTHORISATION_REQUIRED_REASON } from '../shared/tls/catalog.js';
+import { TLS_CONTROLS, TLS_SAFE_ACTIVE_CONTROLS, TLS_INTRUSIVE_CONTROLS, TLS_AUTHORISATION_REQUIRED_REASON, TLS_AUTHORISED_NOT_RELEASED_REASON } from '../shared/tls/catalog.js';
 import { buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
-import { blockingTlsNotAuthorized } from '../workers/scan-api/src/engines/tls-quality.js';
+import { blockingTlsNotAuthorized, blockingTlsUnexecutable } from '../workers/scan-api/src/engines/tls-quality.js';
 
 assert.deepEqual([...TLS_INTRUSIVE_CONTROLS].sort(), ['ccs', 'heartbleed', 'robot']);
 assert.equal(TLS_SAFE_ACTIVE_CONTROLS.some((control) => TLS_INTRUSIVE_CONTROLS.includes(control)), false);
@@ -31,6 +31,16 @@ assert.ok(stated.every((row) => row.state === 'not_authorized' && row.reason ===
 // Even a recorded grant cannot plan them while the engine is not released.
 assert.equal(intrusiveSelected(plan({ heartbleed: 'acc_1', robot: 'acc_2', ccs: 'acc_3' })).length, 0, 'unreleased engine: never planned');
 
+// A grant with the engine withheld reads "Authorised — not yet available".
+const grantedEndpoint = { ...endpoint(), scope: { ...endpoint().scope, granted_checks: { heartbleed: 'acc_1' } } };
+const granted = buildBudgetedTlsCheckPlan({ endpoints: [grantedEndpoint], observedHttpsHosts: ['example.com'], scanId: 'scan_t' });
+const heartbleedRow = granted.static_results.find((row) => row.check.control === 'heartbleed');
+assert.equal(heartbleedRow?.state, 'unexecutable');
+assert.equal(heartbleedRow?.reason, TLS_AUTHORISED_NOT_RELEASED_REASON);
+assert.equal(granted.static_results.find((row) => row.check.control === 'robot')?.reason, TLS_AUTHORISATION_REQUIRED_REASON);
+assert.equal(intrusiveSelected(granted).length, 0, 'a grant alone never plans an intrusive control');
+assert.equal(blockingTlsUnexecutable(granted.static_results), 0, 'authorised-but-unreleased never makes TLS partial');
+
 // Quality: the stated rows never make TLS partial; a lost authority still does.
 assert.equal(blockingTlsNotAuthorized(stated), 0);
 assert.equal(blockingTlsNotAuthorized([...stated, { state: 'not_authorized', reason: 'scope_changed' }]), 1);
@@ -44,6 +54,10 @@ const MUTANTS = [
     from: "if(TLS_SPECIAL_CONTROLS_AVAILABLE&&entry.scope?.special_checks?.[control])", to: "if(entry.scope?.special_checks?.[control])",
     caught: (m) => m.buildBudgetedTlsCheckPlan({ endpoints: [endpoint({ heartbleed: 'acc_1' })], observedHttpsHosts: ['example.com'], scanId: 'scan_t' })
       .selected.some((row) => row.check.control === 'heartbleed') },
+  { name: 'a recorded grant ignored while the engine is withheld', file: 'tls-planner.js', source: plannerSource,
+    from: "else if(entry.scope?.granted_checks?.[control]||entry.scope?.special_checks?.[control])", to: "else if(false)",
+    caught: (m) => m.buildBudgetedTlsCheckPlan({ endpoints: [grantedEndpoint], observedHttpsHosts: ['example.com'], scanId: 'scan_t' })
+      .static_results.find((row) => row.check.control === 'heartbleed')?.reason === TLS_AUTHORISATION_REQUIRED_REASON },
   { name: 'unauthorised intrusive control counted as a gap', file: 'tls-quality.js', source: qualitySource,
     from: "&& row.reason !== TLS_AUTHORISATION_REQUIRED_REASON", to: '',
     caught: (m) => m.blockingTlsNotAuthorized(stated) > 0 },

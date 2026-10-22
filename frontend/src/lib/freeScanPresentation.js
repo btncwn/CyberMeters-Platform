@@ -1,3 +1,6 @@
+import { FREE_SCAN_STATE_LABELS, FREE_SCAN_PREVIEW_BADGES } from '../../../shared/customer-labels.js'
+export { FREE_SCAN_STATE_LABELS, FREE_SCAN_PREVIEW_BADGES } from '../../../shared/customer-labels.js'
+
 // Presentation adapter for the backend-owned anonymous preview contract.
 // It never derives health, severity or domain verdicts. Missing/legacy fields
 // fail closed so the public page cannot turn absent evidence into reassurance.
@@ -43,23 +46,6 @@ const DOMAIN_STATES = new Set([
   'not_yet_assessed',
   'evidence_insufficient',
 ])
-
-export const FREE_SCAN_STATE_LABELS = Object.freeze({
-  attempted: 'Attempted',
-  completed: 'Completed',
-  failed: 'Failed',
-  partial: 'Partial',
-  incomplete: 'Incomplete',
-  unavailable: 'Unavailable',
-})
-
-// Summary badge for the backend preview state (resolveFreeScanPreviewState).
-// An unknown or unsupported state reads as incomplete, never as clean.
-export const FREE_SCAN_PREVIEW_BADGES = Object.freeze({
-  issues_observed: 'Findings observed',
-  no_issues_observed: 'No findings observed',
-  evidence_incomplete: 'Evidence incomplete',
-})
 
 export const DOMAIN_STATE_LABELS = Object.freeze({
   assessed_healthy: 'Assessed — no issue observed',

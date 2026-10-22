@@ -29,6 +29,26 @@ export function lastAssessmentLabel(scan) {
   return [`Last assessment of ${scan.domain}`, date].filter(Boolean).join(' · ')
 }
 
+const ACTIVE_SCAN = new Set(['queued', 'running', 'processing'])
+
+/**
+ * The Overview's "Last assessment" line (founder, 22 Oct 2026: it named a scan
+ * that FAILED). A failed scan is not an assessment: the line names the newest
+ * COMPLETED scan (partial evidence included — the page says what it covers),
+ * and a newer attempt that did not finish is said separately. A scan still
+ * running is neither; the scan box reports it.
+ */
+export function overviewAssessmentLine(scans) {
+  const list = Array.isArray(scans) ? scans : []
+  const completed = list.find((s) => s?.status === 'completed') || null
+  const newest = list.find((s) => s && !ACTIVE_SCAN.has(s.status)) || null
+  const failedAfter = newest && newest !== completed && newest.status !== 'completed' ? newest : null
+  const assessment = completed ? lastAssessmentLabel(completed) : 'No completed assessment yet.'
+  if (!failedAfter) return completed ? assessment : (list.length ? assessment : lastAssessmentLabel(null))
+  const when = formatDate(failedAfter.created_at, '')
+  return `${assessment} The last attempt${when ? ` (${when})` : ''} did not finish.`
+}
+
 function assessedScan(scan) {
   const assessment = scan?.assessment
   const score = assessment
@@ -440,7 +460,7 @@ export default function Dashboard() {
       <section className="text-center pt-4 sm:pt-10 pb-2" aria-labelledby="home-question">
         <h1 id="home-question" className="cm-hero-title">Where is {activeWorkspaceName || 'your organisation'} exposed today?</h1>
         <p className="text-[15px] text-gray-500 mt-3">
-          {lastAssessmentLabel(latestScan)}
+          {overviewAssessmentLine(scans)}
         </p>
         {/* ONE scan control (founder, 21 Oct 2026): the domain field, prefilled
             with the verified domain. No separate "Scan now", no "Reload results":

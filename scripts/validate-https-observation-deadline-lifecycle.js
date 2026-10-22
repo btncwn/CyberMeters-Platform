@@ -26,14 +26,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engUrl = (f) => pathToFileURL(path.join(root, "workers/scan-api/src/engines", f)).href;
-const { runScanEngine, buildScanQuality } = await import(engUrl("scan-engine.js"));
+const { runScanEngine, buildScanQuality, settleByDeadline } = await import(engUrl("scan-engine.js"));
 const { moduleCompletionGate } = await import(engUrl("asm-cases.js"));
 
 const NOW = "2026-07-28T13:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
 
 // PINNED — a dropped assertion or mutant hard-fails even if everything else passes.
-const EXPECTED_MUTANTS = 4;
+const EXPECTED_MUTANTS = 5;
 
 let passed = 0, failed = 0, killed = 0;
 const ok = (name, cond, detail = "") => {
@@ -249,9 +249,23 @@ const MUTATIONS = [
     check: (mod) => mod.buildScanQuality({ subdomain_takeover: { incomplete: true, incomplete_reason: "host_probe_unconfirmed",
       incomplete_reasons: ["host_probe_unconfirmed"], unconfirmed: [{ host: "www.example.com", cname: "shops.provider.example", reason: "fetch_failed" }] } }).status !== "partial",
   },
+  {
+    // 22 Oct 2026: a supplementary module that never settles must not hold the scan.
+    name: "M-D5 the supplementary-module deadline race is removed (a hanging module holds the scan)",
+    target: SCAN_ENGINE,
+    from: "Promise.race([Promise.resolve(promise).then((value) => ({ value })), late])",
+    to: "Promise.resolve(promise).then((value) => ({ value }))",
+    check: async (mod) => {
+      const outcome = await Promise.race([
+        mod.settleByDeadline(new Promise(() => {}), Date.now() + 50, () => "fallback").then(() => "settled"),
+        new Promise((resolve) => setTimeout(() => resolve("hung"), 400)),
+      ]);
+      return outcome === "hung";
+    },
+  },
 ];
 for (const m of MUTATIONS) {
-  const r = await withMutant(m, (mod) => m.check(mod));
+  const r = await withMutant(m, async (mod) => m.check(mod));
   ok(`${m.name} :: mutation APPLIED (anchor matches the product source)`, r.applied,
     "anchor not found — this mutation tests NOTHING");
   if (!r.applied) continue;
@@ -297,6 +311,20 @@ ok("no mutant file left behind", strays.length === 0, strays.join(", "));
     buildScanQuality({ subdomain_takeover: takeover([row("origin_access_restricted"), row("fetch_failed", "shop.example.com")]) }).status === "partial");
   ok("a withheld row never hides host truncation or lookup failure",
     buildScanQuality({ subdomain_takeover: takeover([row("origin_access_restricted")], ["host_lookup_failure", "host_probe_unconfirmed"]) }).status === "partial");
+}
+
+// Supplementary modules never hold the scan (22 Oct 2026, sheshire.co.uk batch
+// scans silent after the phase5 heartbeat): a module that never settles yields
+// its stated fallback at the hard deadline, and that fallback is a stated limit.
+{
+  const started = Date.now();
+  const late = await settleByDeadline(new Promise(() => {}), Date.now() + 120, () => ({ source: "dane", incomplete: true, incomplete_reason: "module_deadline" }));
+  ok("a never-settling supplementary module yields its fallback at the deadline",
+    late?.incomplete_reason === "module_deadline" && Date.now() - started < 1000);
+  ok("a settled module keeps its own result", (await settleByDeadline(Promise.resolve("value"), Date.now() + 120, () => "fallback")) === "value");
+  const quality = buildScanQuality({ dane: late, remote_admin_exposure: { incomplete: true, incomplete_reason: "module_deadline", error: null } });
+  ok("a module_deadline fallback is a stated limit, never a partial scan",
+    quality.status === "complete" && quality.stated_limits.filter((limit) => limit.reason === "module_deadline").length === 2, JSON.stringify(quality.stated_limits));
 }
 
 console.log(`\nhttps-observation deadline+lifecycle: ${passed}/${passed + failed} passed; ${killed}/${EXPECTED_MUTANTS} mutants killed`);

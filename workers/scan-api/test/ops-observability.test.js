@@ -186,6 +186,93 @@ test("the founder's daily email puts anomalies first and carries counts, not ide
   assert.match(formatFounderDigest(quiet).subject, /nothing unusual/);
 });
 
+const rendererDigest = (metrics = {}) => ({
+  day: "2026-10-20", anomalies: [], metrics,
+  funnel: { signups: 2, verified: 1, scanned: 1, paid: 0 }, feedback: [], canary: null,
+});
+const counted = (labels) => ({ total: labels.reduce((n, [, count]) => n + count, 0), weekAverage: 1.5, labels });
+
+test("digest renders known outcomes and all browser error kinds in plain words", () => {
+  const outcomes = [
+    "domain_not_found", "domain_no_website_address", "target_verification_unavailable",
+    "rate_limit_exceeded", "rate_limit_unavailable", "limiter_unavailable", "limit_reached", "capacity_paused",
+    "invalid_input", "body_too_large", "invalid_json", "invalid_domain", "non_public_domain",
+    "verification_required", "verification_failed", "verification_unavailable", "lookup_failed",
+    "ok_issues_observed", "ok_no_issues_observed", "ok_evidence_incomplete", "ok_complete", "ok_unknown",
+    "attempted", "completed", "failed", "partial", "incomplete", "unavailable", "server_error",
+  ];
+  for (const outcome of outcomes) {
+    const { text } = formatFounderDigest(rendererDigest({ free_scan: counted([[outcome, 7]]) }));
+    assert.doesNotMatch(text, /[a-z]+_[a-z_]+/, outcome);
+    assert.doesNotMatch(text, /Other \(/, outcome);
+    assert.match(text, /Free scans by outcome: 7 \(7-day average 1\.5\)/);
+  }
+  for (const kind of ["js_error", "unhandled_rejection", "chunk_load", "api_error", "render_error"]) {
+    const { text } = formatFounderDigest(rendererDigest({
+      client_error: counted([[`${kind}|rate_limit_unavailable|503|/workspaces/:id/scans|abc12345`, 3]]),
+    }));
+    assert.doesNotMatch(text, /[a-z]+_[a-z_]+|kind\|code\|status\|route\|build|Other \(/);
+    assert.match(text, /Request limiting unavailable — 503 — \/workspaces\/:id\/scans — abc12345: 3/);
+  }
+});
+
+test("digest preserves totals, order, row limits, routes, builds and quoted feedback", () => {
+  const digest = rendererDigest({
+    free_scan: counted([["domain_not_found", 7], ["ok_issues_observed", 2]]),
+    free_tool: counted([["spf:ok_risk_cached", 4], ["dmarc:limit_reached", 1], ["headers:ok_good", 2],
+      ["ssl:ok_unknown", 1], ["lookalike:ok_attention", 3]]),
+    http_5xx: counted([["503:/api/scans/:id/report", 6]]),
+  });
+  digest.feedback.push({ created_at: "2026-10-20T15:30:00Z", surface: "free_scan", path: "/",
+    error_code: "domain_not_found", message: "This is my original message." });
+  const original = structuredClone(digest);
+  const { text } = formatFounderDigest(digest);
+  assert.match(text, /Domain not found: 7/);
+  assert.match(text, /Completed — findings observed: 2/);
+  assert.match(text, /SPF — Completed — risk observed \(cached\): 4/);
+  assert.match(text, /DMARC — Daily limit reached: 1/);
+  assert.match(text, /Free tools by outcome: 11 \(7-day average 1\.5\)/);
+  assert.match(text, /Server errors \(5xx\) by route: 6/);
+  assert.match(text, /503 — \/api\/scans\/:id\/report: 6/);
+  assert.match(text, /\[15:30 UTC\] Free scans \/ \(Domain not found\)/);
+  assert.match(text, /"This is my original message\."/);
+  assert.doesNotMatch(text, /[a-z]+_[a-z_]+/);
+  assert.ok(text.indexOf("Domain not found: 7") < text.indexOf("findings observed: 2"));
+  assert.deepEqual(digest, original, "display does not rewrite the collected counters");
+  const capped = formatFounderDigest(rendererDigest({ free_scan: counted(
+    Array.from({ length: 13 }, (_, i) => ["domain_not_found", i + 1]),
+  ) })).text;
+  assert.equal((capped.match(/Domain not found:/g) || []).length, 12);
+  assert.match(capped, /Free scans by outcome: 91/);
+});
+
+test("digest keeps unknown outcome, tool, kind and reason keys visible", () => {
+  const { text } = formatFounderDigest(rendererDigest({
+    free_scan: counted([["future_scan_outcome", 5]]),
+    free_tool: counted([["future_tool:ok_future_cached", 2]]),
+    client_error: counted([["future_kind|future_reason|418|/new-route|newbuild", 1]]),
+    http_5xx: counted([["future_server_label", 3]]),
+  }));
+  for (const key of ["future_scan_outcome", "future_tool", "ok_future_cached", "future_kind", "future_reason", "future_server_label"]) {
+    assert.ok(text.includes(`Other (${key})`), key);
+  }
+  assert.match(text, /418 — \/new-route — newbuild: 1/);
+});
+
+test("missing metric counters use readable labels in digest anomalies", async () => {
+  const { env } = fixture();
+  const originalPrepare = env.cybermeters_db.prepare.bind(env.cybermeters_db);
+  env.cybermeters_db.prepare = (sql) => {
+    if (sql.includes("ops_daily_counters")) throw new Error("counter storage unavailable");
+    return originalPrepare(sql);
+  };
+  const digest = await collectFounderDigest(env, { nowMs: Date.parse("2026-10-21T08:00:00Z") });
+  const { text } = formatFounderDigest(digest);
+  assert.match(text, /Could not read Server errors \(5xx\) counters/);
+  assert.match(text, /Could not read Browser error reports counters/);
+  assert.doesNotMatch(text, /[a-z]+_[a-z_]+/);
+});
+
 test("feedback older than 90 days and counters older than 180 days are deleted", async () => {
   const { sqlite, env } = fixture();
   sqlite.exec(`INSERT INTO feedback_reports VALUES ('old','2026-01-01T00:00:00Z','app',NULL,'/','dev',NULL,'a',NULL),

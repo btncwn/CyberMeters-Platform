@@ -178,6 +178,19 @@ export function computeScanBudget(bruteforceChecked) {
 // Modules whose evidence is optional: see buildScanQuality.
 const OPTIONAL_EVIDENCE_MODULES = new Set(["whois_intelligence"]);
 
+// A module's promise, or its stated fallback once the hard deadline passes:
+// whichever comes first. The promise is never awaited past the deadline.
+export async function settleByDeadline(promise, deadlineAt, onDeadline, now = Date.now) {
+  let timer = null;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ timedOut: true }), Math.max(0, deadlineAt - now()));
+  });
+  try {
+    const winner = await Promise.race([Promise.resolve(promise).then((value) => ({ value })), late]);
+    return winner.timedOut ? onDeadline() : winner.value;
+  } finally { clearTimeout(timer); }
+}
+
 export function buildScanQuality(modules = {}, observedAt = undefined, capacity = null) {
   // F-026 capacity truth. 10,000 is the authenticated Workers Paid provider
   // default ceiling, NOT the application's effective admission/report limit and
@@ -1520,8 +1533,16 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() }))
         .finally(() => clearTimeout(mailTransportTimeout))
       : null;
+    // Supplementary modules (mail_transport, dane, remote_admin_exposure) must
+    // never hold the scan (22 Oct 2026: two sheshire.co.uk scans went silent after
+    // the phase5 heartbeat). Their own timers only abort their controllers; a step
+    // that ignores the signal could keep the await open forever. Each await below
+    // is raced against this one hard deadline; losing it is a stated limit.
+    const supplementaryDeadlineAt = now() + 35_000;
+    const settleBy = (promise, onDeadline) => settleByDeadline(promise, supplementaryDeadlineAt, onDeadline, now);
     // S3-C: DANE/TLSA for the MX hosts and the website. Passive DNS, every scan.
-    const daneOutbound = outboundContext("dane", deadline.signal || null);
+    const daneController = createChildSignal();
+    const daneOutbound = outboundContext("dane", daneController.signal);
     const danePromise = runDaneModule(domain, dnsResult, { accounting: daneOutbound })
       .catch(() => ({ source: "dane", mail: [], web: null, incomplete: true, incomplete_reason: "tlsa_lookup_failed",
         error: "dane_unavailable", observed_at: new Date(now()).toISOString() }));
@@ -1852,17 +1873,30 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       });
     }
     }
-    modules.mail_transport = mailTransportPromise ? await mailTransportPromise
+    modules.mail_transport = mailTransportPromise
+      ? await settleBy(mailTransportPromise, () => {
+          mailTransportController.abort("module_deadline");
+          return { source: "mail_transport", state: "not_tested", reason: "module_deadline", hosts: [],
+            coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() };
+        })
       : { source: "mail_transport", state: "not_tested", reason: "verified_workspace_required", hosts: [],
           coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() };
     // Every call it made has now returned or been aborted after being counted,
     // so its outbound count is final whatever the security outcome. Without
     // this the RFC 9990 launch gate read it as an unsettled leaf on every scan.
     mailTransportOutbound?.markSettled();
-    modules.dane = await danePromise;
+    modules.dane = await settleBy(danePromise, () => {
+      daneController.abort("module_deadline");
+      return { source: "dane", mail: [], web: null, incomplete: true, incomplete_reason: "module_deadline",
+        error: null, observed_at: new Date(now()).toISOString() };
+    });
     daneOutbound.markSettled();
     if (remoteAdminPromise) {
-      modules.remote_admin_exposure = await remoteAdminPromise;
+      modules.remote_admin_exposure = await settleBy(remoteAdminPromise, () => {
+        remoteAdminController.abort("module_deadline");
+        return { source: "remote_admin_exposure", state: "not_assessed", reason: "module_deadline", exposures: [],
+          incomplete: true, incomplete_reason: "module_deadline", error: null, observed_at: new Date(now()).toISOString() };
+      });
       remoteAdminOutbound?.markSettled();
     } else {
       modules.remote_admin_exposure = { source: "remote_admin_exposure", state: "not_assessed", reason: "verified_workspace_required",
