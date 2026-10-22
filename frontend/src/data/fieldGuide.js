@@ -568,6 +568,11 @@ export const ARTICLE_AREAS = {
   'cyber-essentials-what-you-actually-need-to-pass': 'cyber-essentials',
 }
 
+// Articles about using the product itself rather than one area (founder,
+// 22 Oct 2026: the Field Guide gains an MCP section). They are listed under
+// "Using CyberMeters" on the guide index instead of under an area.
+export const GUIDE_PRODUCT_ARTICLES = Object.freeze(['connect-your-ai-assistant'])
+
 export function getGuideArea(slug) {
   if (!slug) return null
   return GUIDE_AREAS.find(a => a.key === slug) || null

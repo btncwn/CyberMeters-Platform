@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { GUIDE_AREAS, ARTICLE_AREAS, COMMON_STATES, getGuideArea, getGuideAreaArticles, guideSlugForColourKey, getGuideAreaForArticle } from '../../data/fieldGuide'
+import { GUIDE_AREAS, GUIDE_PRODUCT_ARTICLES, ARTICLE_AREAS, COMMON_STATES, getGuideArea, getGuideAreaArticles, guideSlugForColourKey, getGuideAreaForArticle } from '../../data/fieldGuide'
 import { ARTICLES } from '../../data/academy'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import GuideAreaPage from '../GuideAreaPage'
@@ -75,8 +75,11 @@ describe('Field Guide data', () => {
       expect(slugs.has(slug), slug).toBe(true)
       expect(getGuideArea(areaKey), `${slug} → ${areaKey}`).not.toBeNull()
     }
+    // Product articles (e.g. AI assistant access) belong to no area and are
+    // listed explicitly; every other article maps to exactly one area.
     const unmapped = ARTICLES.filter(a => !ARTICLE_AREAS[a.slug]).map(a => a.slug)
-    expect(unmapped).toEqual([])
+    expect(unmapped).toEqual([...GUIDE_PRODUCT_ARTICLES])
+    for (const slug of GUIDE_PRODUCT_ARTICLES) expect(ARTICLE_AREAS[slug]).toBeUndefined()
     expect(getGuideAreaArticles('email-protection').map(a => a.slug)).toContain('dmarc-explained')
     expect(getGuideAreaForArticle('hsts-explained')?.key).toBe('website-security')
     expect(getGuideArea('')).toBeNull()
@@ -100,8 +103,10 @@ describe('Field Guide pages', () => {
     renderAt('/guide')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('CyberMeters Field Guide')
     const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent).filter(t => t !== 'The areas')
-    expect(headings).toEqual(FOUNDER_ORDER.map(([, , title]) => title))
+    // The eight areas in order, then the product section after them.
+    expect(headings).toEqual([...FOUNDER_ORDER.map(([, , title]) => title), 'Using CyberMeters'])
     expect(screen.getByRole('link', { name: /Email Protection/ })).toHaveAttribute('href', '/guide/email-protection')
+    expect(screen.getByRole('link', { name: /Connect your AI assistant \(MCP\)/ })).toHaveAttribute('href', '/guide/connect-your-ai-assistant')
   })
 
   it('renders an area with the four numbered sections and both scope lists', () => {
@@ -141,5 +146,12 @@ describe('Field Guide pages', () => {
       </MemoryRouter>,
     )
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('CyberMeters Field Guide')
+  })
+
+  it('a product article has no empty breadcrumb step', () => {
+    renderAt('/guide/connect-your-ai-assistant')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Connect your AI assistant (MCP)')
+    const crumbs = screen.getByRole('link', { name: 'Field Guide' }).parentElement.textContent
+    expect(crumbs).not.toMatch(/\/\s*\//)
   })
 })
