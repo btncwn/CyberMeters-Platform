@@ -9,6 +9,8 @@
 // headers. HSTS is present unless the deploy sets SITE_PROOF_HSTS=off for one
 // scan, which is the change Website Security and Cyber Essentials (secure
 // configuration) observe, alert on, and recover from when it returns.
+// Plain http is redirected to https unless the deploy sets
+// SITE_PROOF_HTTP_REDIRECT=off, the same one-scan switch for the redirect check.
 //
 // S2-B adds a test sign-in for the signed-in scanning proof: /login (one
 // username/password form), then two pages only a signed-in visitor sees
@@ -124,6 +126,9 @@ const LOGIN_CSP = { "Content-Security-Policy": "default-src 'none'; frame-ancest
 export async function handleSiteProof(request, env, { now = Date.now() } = {}) {
   const url = new URL(request.url);
   const read = request.method === "GET" || request.method === "HEAD";
+  if (url.protocol === "http:" && env?.SITE_PROOF_HTTP_REDIRECT !== "off") {
+    return new Response(null, { status: 301, headers: { Location: `https://${SITE_PROOF_HOST}${url.pathname}`, "Cache-Control": "no-store" } });
+  }
   if (url.search) return notFound();
   if (url.pathname === "/" && read) return html(request, env, PAGE);
   if (url.pathname === "/login" && read) {

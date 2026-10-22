@@ -436,8 +436,8 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| HEAD | `(none)` | 118 | unknown | **GAP** | — |
-| POST | `/login` | 133 | public-or-global | public | — |
+| HEAD | `(none)` | 120 | unknown | **GAP** | — |
+| POST | `/login` | 138 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/tls-authorization.js`
 
