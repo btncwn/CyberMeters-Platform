@@ -232,3 +232,13 @@ describe('RelatedChangesList', () => {
     }
   })
 })
+
+// Design standard §3 (22 Oct 2026): a list that failed to load states no count.
+describe('a failed read', () => {
+  it('shows the error and no "0 … observed" beside it', async () => {
+    api.getRelatedChanges.mockRejectedValue(new Error('down'))
+    renderList()
+    expect(await screen.findByText(/could not load related changes/i)).toBeInTheDocument()
+    expect(screen.queryByText(/observed in this period/)).toBeNull()
+  })
+})

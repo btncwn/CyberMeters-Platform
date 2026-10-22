@@ -106,7 +106,8 @@ export default function RelatedChangesList({ workspaceId }) {
 
       <div className="flex items-center justify-between gap-3 mb-4">
         <p className="text-xs text-slate-500">
-          {loading ? 'Loading…' : `${items.length} change ${items.length === 1 ? 'cluster' : 'clusters'} observed in this period.`}
+          {/* A list that failed to load has no count to state (no "0" beside an error). */}
+          {loading ? 'Loading…' : error ? '' : `${items.length} related ${items.length === 1 ? 'change' : 'changes'} observed in this period.`}
         </p>
         <label className="flex items-center gap-2 text-xs text-slate-500">
           <span className="sr-only">Filter by review state</span>
