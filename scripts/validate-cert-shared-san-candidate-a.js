@@ -677,7 +677,11 @@ const parity = states.map(parityOutputs);
 // configured" and both goldens move. With ONLY the section line and the builder
 // version reverted the previous hashes (0908a80d… / efeee99a…) reproduce exactly
 // and the evidence hash (ebd729ca…) is unchanged.
-const GOLDEN_F13 = "e621f237cf4542e04cd8c3032d6d3c825d78c769e19c6108378e69b869a9d92a";
+// Signed-in scanning in the report (22 Oct 2026): the executive report passes the
+// snapshot's website_signed_in section through and the customer PDF prints its
+// sentences under Website Security. Only F13 moves; with ONLY those two additions
+// reverted the previous hash (e621f237…) reproduces exactly and F14 is unchanged.
+const GOLDEN_F13 = "a0fab5c0a771a013a5b37baae3d232c4efb66b577733893115c610866bc2ac14";
 const GOLDEN_F14 = "b8b177e00629b862d6985cc7dd33d4b387d996a5e5b99a1fe0cb907fc6af5874";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));

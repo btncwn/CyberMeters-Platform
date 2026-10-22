@@ -501,8 +501,9 @@ const REVIEWED_DYNAMIC_QUALITY_EXPRESSIONS = new Map([
 const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
   // 248 -> 249: the shared date import follows the score-honesty import from main.
   // 249 -> 251: the shared customer-code import and a comment line above it.
+  // 251 -> 252: the SignedInScanningSummary import above it (22 Oct 2026).
   // The unchanged blank-coverage check still makes no security verdict.
-  ["frontend/src/components/ExecutiveReportV2.jsx:251:value !== ''",
+  ["frontend/src/components/ExecutiveReportV2.jsx:252:value !== ''",
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;

@@ -13,6 +13,17 @@ import { dmarcPolicyApiProjection } from "./dmarcbis-contract.js";
 import { certificateAssuranceFromSnapshot } from "./certificate-customer-presentation.js";
 import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-presentation.js";
 
+// Signed-in scanning as the snapshot recorded it (#868, migration-free): the
+// snapshot owns the words; the report passes them through verbatim. A snapshot
+// built before the section existed has none, and the report says nothing.
+const SIGNED_IN_FIELDS = ["status", "configured", "signed_in", "sign_in_outcome", "pages_checked",
+  "anonymous_access_refused", "last_successful_sign_in_at", "coverage", "customer_message", "limitation"];
+function signedInFromSnapshot(snap, raw) {
+  const si = snap?.website_signed_in ?? raw?.website_signed_in ?? null;
+  if (!si || typeof si !== "object") return null;
+  return Object.fromEntries(SIGNED_IN_FIELDS.map((k) => [k, si[k] ?? null]));
+}
+
 export function buildExecutiveReportV2({ scan, workspace = null, read }) {
   const snap = read.customerSnapshot ?? read.snapshot;
   const s = snap.snapshot || {};
@@ -78,6 +89,7 @@ export function buildExecutiveReportV2({ scan, workspace = null, read }) {
     security_domains: snap.domains ?? [],   // neutral alias of cyber_mot_domains
     certificate_assurance: certificateAssuranceFromSnapshot(snap),
     attack_surface_assurance: attackSurfaceAssuranceFromSnapshot(snap),
+    website_signed_in: signedInFromSnapshot(snap, read.snapshot),
     monitoring_states: snap.monitoring_states ?? null,
     observed_findings: observed,
     observations,
