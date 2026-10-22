@@ -73,13 +73,15 @@ function Section({ title, children }) {
 
 // ── Form field ────────────────────────────────────────────────────────────────
 
+// The label wraps its control, so every input, select and textarea passed in
+// is named by it (axe select-name / label), whatever wrapper it sits in.
 function Field({ label, children, hint }) {
   return (
     <div className="mb-4">
-      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
-        {label}
+      <label className="block">
+        <span className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">{label}</span>
+        {children}
       </label>
-      {children}
       {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
     </div>
   )
@@ -806,10 +808,11 @@ export default function AccountPage() {
                 <div className="space-y-4">
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                      <label htmlFor="token-name" className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                         Token name
                       </label>
                       <input
+                        id="token-name"
                         type="text"
                         value={tokenName}
                         onChange={(e) => { setTokenName(e.target.value); setTokenError(null) }}
@@ -820,10 +823,11 @@ export default function AccountPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                        <label htmlFor="token-scope" className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                           Scope
                         </label>
                         <select
+                          id="token-scope"
                           value={tokenScope}
                           onChange={(e) => setTokenScope(e.target.value)}
                           className="input"
@@ -834,10 +838,11 @@ export default function AccountPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                        <label htmlFor="token-expiry" className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
                           Expires
                         </label>
                         <select
+                          id="token-expiry"
                           value={tokenExpiry}
                           onChange={(e) => setTokenExpiry(e.target.value)}
                           className="input"
