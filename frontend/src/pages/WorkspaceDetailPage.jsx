@@ -11,6 +11,7 @@ import CanonicalScore from '../components/CanonicalScore'
 import { WorkspaceReportBranding } from '../components/ReportBranding'
 import { canonicalDomainInput, isValidDomainSyntax, isAuthoritativeVerified } from '../lib/newScanVerification'
 import { roleCan, scanAccessFor } from '../lib/workspaceRole'
+import InternalIdCopyButton from '../components/InternalIdCopyButton'
 import IncompleteAssessmentNote from '../components/overview/IncompleteAssessmentNote'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -420,6 +421,20 @@ export default function WorkspaceDetailPage() {
   // present retained scans/assets/score as CURRENT monitoring state. The history itself is
   // preserved and shown below, explicitly labelled as retained — never deleted or hidden.
   const noCurrentMonitoring = (stats?.total_domains ?? 0) === 0
+  // One page, one number (founder, 22 Oct 2026): the Cyber Score tile showed the
+  // workspace's last COMPLETE assessment (75, from getCurrentPosturePresentation)
+  // as its headline while the newest assessment — the one the domain row reads —
+  // was incomplete ("Score available after a complete scan"). When the newest
+  // finished assessment is incomplete, the tile says so; the last complete score
+  // is kept only as a labelled secondary line, never as the headline.
+  const latestScan = stats?.latest_scan || null
+  const latestIncomplete = latestScan?.status === 'completed' && latestScan?.scan_quality !== 'complete'
+  const scoreHeadline = noCurrentMonitoring ? '—' : latestIncomplete ? 'No score yet' : (postureScore != null ? postureScore : '—')
+  const ratingWord = postureRating ? postureRating.charAt(0).toUpperCase() + postureRating.slice(1) : null
+  const scoreSub = noCurrentMonitoring ? 'No current monitoring'
+    : latestIncomplete
+      ? `Latest assessment incomplete${postureScore != null ? ` · last complete assessment: ${postureScore}${ratingWord ? ` · ${ratingWord}` : ''}` : ''}`
+      : (ratingWord || postureMessage)
   const hasRetainedHistory = (stats?.total_scans ?? 0) > 0 || (assetSummary?.total_assets ?? 0) > 0
 
   return (
@@ -437,13 +452,14 @@ export default function WorkspaceDetailPage() {
           <div className="flex items-center gap-3">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{workspace?.name}</h1>
-              <p className="text-xs text-gray-400 mt-0.5">Workspace ID: <span className="mono">{id}</span></p>
+              {/* DESIGN-STANDARD §4: no internal id in body text; a small Copy-ID for support. */}
+              <InternalIdCopyButton id={id} label="workspace" />
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
               {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
-              Refresh
+              Reload results
             </button>
             <button
               onClick={handleExportPdf}
@@ -506,8 +522,8 @@ export default function WorkspaceDetailPage() {
         <StatCard
           icon={BarChart2}
           label="Cyber Score"
-          value={noCurrentMonitoring ? '—' : (postureScore != null ? postureScore : '—')}
-          sub={noCurrentMonitoring ? 'No current monitoring' : (postureRating ? postureRating.charAt(0).toUpperCase() + postureRating.slice(1) : postureMessage)}
+          value={scoreHeadline}
+          sub={scoreSub}
           iconColor="text-purple-600"
           iconBg="bg-purple-50"
         />
@@ -569,11 +585,6 @@ export default function WorkspaceDetailPage() {
               {domains.length} domain{domains.length !== 1 ? 's' : ''} in this workspace
             </p>
           </div>
-          {canAddDomain && (
-            <button onClick={() => setShowAdd(true)} className="btn-ghost text-brand-700">
-              Add Domain
-            </button>
-          )}
         </div>
 
         {domains.length === 0 ? (

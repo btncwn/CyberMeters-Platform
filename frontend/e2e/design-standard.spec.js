@@ -182,3 +182,25 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   })
 }
+
+// Workspace detail (founder, 22 Oct 2026): one control per job — Add Domain in
+// the header only; one primary action; no raw keys.
+for (const [width, height] of [[1440, 900], [390, 844]]) {
+  test(`workspace detail meets the design standard at ${width}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height })
+    await seedSession(context)
+    await installAppMock(page)
+    await page.route(`${API_BASE}/workspaces/${workspace.id}`, (route) => route.fulfill(json({
+      workspace: { id: workspace.id, name: workspace.name, created_at: workspace.created_at, role: 'owner' },
+      stats: { total_domains: 2, total_scans: 9, cyber_score_average: null, posture_established: true, posture_score: 75, posture_rating: 'good', posture_message: null,
+        latest_scan: { id: 'scan_e2e', domain: 'blackbullbarbers.co.uk', status: 'completed', scan_quality: 'partial', score: null, created_at: '2026-10-22T11:16:00Z' } },
+    })))
+    await page.route(`${API_BASE}/workspaces/${workspace.id}/assets/summary`, (route) => route.fulfill(json(null)))
+    await page.goto(`/workspaces/${workspace.id}`, { waitUntil: 'networkidle' })
+    await page.getByRole('heading', { level: 1 }).first().waitFor()
+    await expectOnePrimaryAction(page)
+    await expectNoRawKeys(page)
+    await expect(page.getByRole('button', { name: 'Add Domain' })).toHaveCount(1)
+    await expect(page.getByText('No score yet')).toBeVisible()
+  })
+}

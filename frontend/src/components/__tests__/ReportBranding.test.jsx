@@ -11,7 +11,8 @@ vi.mock('../../api', () => ({ api: {
 const PNG = 'data:image/png;base64,aGVsbG8='
 const profile = (id = 'profile-a') => ({ id, name: `Agency ${id}`, accent: '#123456', mode: 'white_label', is_default: 1, logo_sha256: 'a'.repeat(64) })
 const meta = (overrides = {}) => ({ profiles: [profile()], white_label_available: true, ...overrides })
-const workspace = (overrides = {}) => ({ can_manage: true, has_logo: true, logo: { display_name: 'Client A' }, effective_mode: 'co_brand', effective_display_name: 'Client A', effective_attribution: 'full', ...overrides })
+// An agency client: the owner's agency profile is in play (plain-business copy is tested below).
+const workspace = (overrides = {}) => ({ can_manage: true, has_logo: true, logo: { display_name: 'Client A' }, effective_profile_id: 'bp_agency', effective_mode: 'co_brand', effective_display_name: 'Client A', effective_attribution: 'full', ...overrides })
 const deferred = () => { let resolve; let reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 const wrap = node => <MemoryRouter>{node}</MemoryRouter>
 const mountAgency = id => render(wrap(<AgencyReportBranding accountId={id || 'account-a'} />))
@@ -146,5 +147,23 @@ describe('Client workspace branding', () => {
     const late = deferred(); api.getWorkspaceBranding.mockReturnValueOnce(late.promise).mockResolvedValue(workspace())
     render(<StrictMode>{wrap(<WorkspaceReportBranding workspaceId="workspace-a" />)}</StrictMode>); await screen.findByDisplayValue('Client A'); expect(api.getWorkspaceBranding.mock.calls[0][1].signal.aborted).toBe(true)
     await act(async () => late.resolve(workspace({ effective_display_name: 'Stale secret name' }))); expect(document.body.textContent).not.toContain('Stale secret name')
+  })
+})
+
+// Founder, 22 Oct 2026: a small business sees one sentence, never agency wording.
+describe('Report branding for a single business', () => {
+  it('no agency profile in play: one plain sentence and plain labels, no "agency" anywhere', async () => {
+    api.getWorkspaceBranding.mockResolvedValue(workspace({ effective_profile_id: null, effective_mode: 'cybermeters', has_logo: false, logo: null, effective_display_name: null }))
+    render(<WorkspaceReportBranding workspaceId="ws_plain" />)
+    expect(await screen.findByText('Put your company name and logo on reports.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Report branding' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Name on reports')).toHaveAttribute('placeholder', 'Your company name')
+    expect(screen.getByRole('button', { name: 'Save report branding' })).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/agency/i)
+  })
+  it('an agency profile in play keeps the client/agency wording', async () => {
+    api.getWorkspaceBranding.mockResolvedValue(workspace({ effective_mode: 'white_label' }))
+    render(<WorkspaceReportBranding workspaceId="ws_agency" />)
+    expect(await screen.findByRole('heading', { name: 'Client report branding' })).toBeInTheDocument()
   })
 })

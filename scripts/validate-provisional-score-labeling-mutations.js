@@ -156,8 +156,10 @@ const mutants = [
   },
   {
     name: 'workspace overall dash falls back to a domain number', file: 'page',
-    anchor: "value={noCurrentMonitoring ? '—' : (postureScore != null ? postureScore : '—')}",
-    replacement: "value={noCurrentMonitoring ? '—' : (postureScore != null ? postureScore : (domains[0]?.latest_score ?? '—'))}",
+    // The tile's headline moved into scoreHeadline (22 Oct 2026: an incomplete
+    // newest assessment reads "No score yet"); the injected defect is unchanged.
+    anchor: "const scoreHeadline = noCurrentMonitoring ? '—' : latestIncomplete ? 'No score yet' : (postureScore != null ? postureScore : '—')",
+    replacement: "const scoreHeadline = noCurrentMonitoring ? '—' : latestIncomplete ? 'No score yet' : (postureScore != null ? postureScore : (domains[0]?.latest_score ?? '—'))",
     expected: [A.overall],
   },
   {

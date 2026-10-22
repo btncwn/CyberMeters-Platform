@@ -34,7 +34,8 @@ it.each(['owner', 'admin'])('%s: unchanged — Add Domain, Scan Now and remove o
   mount(role)
   expect(within(await row('bbb-bookings.co.uk')).getByRole('button', { name: 'Scan Now' })).toBeInTheDocument()
   expect(within(await row('blackbullbarbers.co.uk')).getByRole('button', { name: 'Scan Now' })).toBeInTheDocument()
-  expect(screen.getAllByRole('button', { name: 'Add Domain' })).toHaveLength(2)
+  // One control per job (founder, 22 Oct 2026): Add Domain lives in the header only.
+  expect(screen.getAllByRole('button', { name: 'Add Domain' })).toHaveLength(1)
   expect(screen.getAllByRole('button', { name: 'Remove from workspace' })).toHaveLength(2)
 })
 

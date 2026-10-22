@@ -178,6 +178,19 @@ function WorkspaceBranding({ workspaceId }) {
     return data
   }, [workspaceId])
   const state = useBranding(load)
+  // A small business sees one plain sentence; the agency wording appears only
+  // when the owner's agency (MSP) profile is actually in play (founder, 22 Oct 2026).
+  const agency = state.data?.effective_mode === 'white_label' || Boolean(state.data?.effective_profile_id)
+  // Until the API shows an agency profile in play, speak to a single business.
+  if (!agency) {
+    return <section className="card p-5 sm:p-6 space-y-4 min-w-0" aria-label="Report branding">
+      <h2 className="text-sm font-bold text-gray-900">Report branding</h2>
+      <p className="text-sm text-gray-600">Put your company name and logo on reports.</p>
+      <Messages state={state} />
+      {state.data && <p className="text-sm text-gray-600">On reports now: <strong>{state.data.effective_display_name || 'CyberMeters'}</strong></p>}
+      {!state.data ? null : state.data.can_manage === true ? <WorkspaceBrandingForm key={state.revision} data={state.data} plain disabled={state.busy || state.loading || state.uncertain} onSave={body => state.perform(signal => body.logo ? api.updateWorkspaceBrandingLogo(workspaceId, body, { signal }) : api.updateWorkspaceBranding(workspaceId, body, { signal }), 'Report branding saved.')} onRemove={() => state.perform(signal => api.deleteWorkspaceBrandingLogo(workspaceId, { signal }), 'Logo removed; saved PDF branding is retained.')} /> : <p className="text-sm text-gray-500">A workspace admin can change report branding.</p>}
+    </section>
+  }
   return <section className="card p-5 sm:p-6 space-y-4 min-w-0" aria-label="Client report branding">
     <h2 className="text-sm font-bold text-gray-900">Client report branding</h2>
     <p className="text-sm text-gray-600">Set this client’s report name and logo. A workspace logo overrides the agency logo; without a client logo, an eligible agency profile also supplies the report name. Agency colours apply when the workspace owner has an eligible profile. Reports retain CyberMeters attribution.</p>
@@ -189,13 +202,13 @@ function WorkspaceBranding({ workspaceId }) {
     </>}
   </section>
 }
-function WorkspaceBrandingForm({ data, disabled, onSave, onRemove }) {
+function WorkspaceBrandingForm({ data, disabled, onSave, onRemove, plain = false }) {
   const [name, setName] = useState(data.display_name ?? data.logo?.display_name ?? '')
   const [logo, setLogo] = useState(undefined)
   const [reading, setReading] = useState(false)
   return <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (!disabled && !reading) onSave({ display_name: name.trim(), ...(logo ? { logo } : {}) }) }}>
-    <label className="label block">Client report name<input className="input mt-1" value={name} maxLength={120} disabled={disabled} onChange={e => setName(e.target.value)} placeholder="Client name" /></label>
+    <label className="label block">{plain ? 'Name on reports' : 'Client report name'}<input className="input mt-1" value={name} maxLength={120} disabled={disabled} onChange={e => setName(e.target.value)} placeholder={plain ? 'Your company name' : 'Client name'} /></label>
     <LogoInput value={logo} saved={data.logo_data_uri} hasSaved={data.has_logo} onChange={setLogo} disabled={disabled || reading} onReading={setReading} />
-    <div className="flex flex-wrap gap-2"><button className="btn-primary" type="submit" disabled={disabled || reading}>Save client branding</button>{data.has_logo && <button type="button" className="btn-secondary" disabled={disabled || reading} onClick={onRemove}>Remove client logo</button>}</div>
+    <div className="flex flex-wrap gap-2"><button className="btn-primary" type="submit" disabled={disabled || reading}>{plain ? 'Save report branding' : 'Save client branding'}</button>{data.has_logo && <button type="button" className="btn-secondary" disabled={disabled || reading} onClick={onRemove}>Remove client logo</button>}</div>
   </form>
 }
