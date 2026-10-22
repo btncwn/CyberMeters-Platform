@@ -55,13 +55,18 @@ check((await request('GET','',undefined,{role:'viewer'})).body.capabilities.can_
 check((await request('GET','',undefined,{workspace:'deleted',allowedWorkspace:'deleted'})).status,404);
 for (const invalid of [{enabled:true},{...enable,consent_version:'old'},{...enable,authorization_confirmed:false},{...enable,workspace_id:'b'},[],{enabled:'true'}]) check((await request('PUT','',invalid)).status,400);
 check((await request('PUT','',JSON.stringify({enabled:false,padding:'x'.repeat(5000)}))).status,400);
-response=await request('PUT','',enable);check(response.status,200);check(response.body.authorization.enabled,true);check(response.body.authorization.generation,1);check(response.body.authorization.authorized_by,'admin_a');
+// Active Checks consent (migration 135) is now the only authority for the intrusive
+// controls: the legacy workspace-wide switch can no longer be turned on, and the
+// refused request writes nothing.
+response=await request('PUT','',enable);check(response.status,409);check(response.body.error,'active_check_consent_required');
+check(sql.prepare('SELECT COUNT(*) AS n FROM workspace_tls_authorizations').get().n,0);check(sql.prepare('SELECT COUNT(*) AS n FROM audit_events').get().n,0);
+response=await request('PUT','',{enabled:false});check(response.status,200);check(response.body.authorization.enabled,false);check(response.body.authorization.generation,1);
 check(sql.prepare('SELECT COUNT(*) AS n FROM audit_events').get().n,1);
 check(JSON.parse(sql.prepare('SELECT metadata_json FROM audit_events').get().metadata_json).generation,1);
 response=await request('PUT','',{enabled:false});check(response.body.authorization.enabled,false);check(response.body.authorization.generation,2);check(response.body.authorization.revoked_by,'admin_a');check(!!response.body.authorization.revoked_at,true);
-// A stale special-control phase holding generation1 no longer has authority.
-check(sql.prepare('SELECT enabled FROM workspace_tls_authorizations WHERE workspace_id=? AND generation=? AND enabled=1').get('a',1),undefined);
-response=await request('PUT','',enable);check(response.body.authorization.generation,3);
+// No legacy row can carry authority.
+check(sql.prepare('SELECT enabled FROM workspace_tls_authorizations WHERE workspace_id=? AND enabled=1').get('a'),undefined);
+response=await request('PUT','',{enabled:false});check(response.body.authorization.generation,3);
 for (const change of [{domain_id:'domain_b'},{domain_id:'unverified'},{hostname:'other.example.com',sni:'other.example.com'},{hostname:'owned.example.com.evil.net',sni:'owned.example.com.evil.net'},{sni:'another.owned.example.com'},{hostname:'127.0.0.1',sni:'127.0.0.1'},{port:443},{application_protocol:'https'},{application_protocol:'__proto__'},{port:'587'},{authorization_confirmed:false},{transport_override:'udp'}]) check((await request('POST','/services',{...service,...change})).status,400);
 for (const target of ['target_b','revoked_target','unobserved_target','missing']) check((await request('POST','/services',{...service,network_target_id:target})).status,409);
 check((await request('POST','/services',service,{role:'viewer'})).status,403);
@@ -78,7 +83,7 @@ const revoked=sql.prepare('SELECT * FROM workspace_tls_service_authorizations WH
 check((await request('POST',`/services/${id}/revoke`,{})).status,404);check((await request()).body.authorization.generation,5);
 // Failure to retain the audit rolls the permission write back atomically.
 sql.exec("CREATE TRIGGER fail_audit BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'controlled audit failure'); END;");
-check((await request('PUT','',{enabled:false})).status,500);check((await request()).body.authorization.enabled,true);check((await request()).body.authorization.generation,5);
+check((await request('PUT','',{enabled:false})).status,500);check((await request()).body.authorization.enabled,false);check((await request()).body.authorization.generation,5);
 check((await request('POST','/services',service)).status,500);check((await request('GET','/services')).body.services,[]);
 sql.exec('DROP TRIGGER fail_audit');
 for (const [application_protocol,ports] of Object.entries(TLS_SERVICE_PORTS)) {

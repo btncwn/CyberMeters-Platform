@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 307
-- **Auth-guarded:** 263
+- **Total entry points:** 308
+- **Auth-guarded:** 264
 - **Unauthenticated (public by design):** 44
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -26,7 +26,7 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 3 | 0 |
 | public-or-global | 46 | 21 |
-| unknown | 79 | 65 |
+| unknown | 80 | 66 |
 | webhook | 2 | 0 |
 | workspace | 139 | 139 |
 
@@ -73,15 +73,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2767 | preflight | public | — |
-| DELETE | `(none)` | 2773 | unknown | **GAP** | — |
-| GET | `(none)` | 2773 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2773 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2773 | unknown | **GAP** | — |
-| POST | `(none)` | 2773 | unknown | **GAP** | — |
-| PUT | `(none)` | 2773 | unknown | **GAP** | — |
-| GET | `/health` | 2778 | public-or-global | public | — |
-| GET | `/ready` | 2797 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2770 | preflight | public | — |
+| DELETE | `(none)` | 2776 | unknown | **GAP** | — |
+| GET | `(none)` | 2776 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2776 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2776 | unknown | **GAP** | — |
+| POST | `(none)` | 2776 | unknown | **GAP** | — |
+| PUT | `(none)` | 2776 | unknown | **GAP** | — |
+| GET | `/health` | 2781 | public-or-global | public | — |
+| GET | `/ready` | 2800 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -108,6 +108,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/api/account/export` | 938 | account | ✓ | requireAuth |
 | POST | `/api/account/delete-request` | 1034 | account | ✓ | requireAuth |
 | GET | `/api/platform/accuracy` | 1094 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+
+### `workers/scan-api/src/routes/active-check-consents.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `(none)` | 47 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/attack-surface.js`
 

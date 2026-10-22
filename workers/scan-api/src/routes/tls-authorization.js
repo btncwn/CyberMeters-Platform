@@ -54,6 +54,11 @@ export async function tlsAuthorizationRoutes(rctx, { specialControlsAvailable = 
       if (!strict(body,['enabled','authorization_confirmed','consent_version']) || typeof body.enabled !== 'boolean') return json({error:'invalid_tls_authorization_body'},400);
       if (body.enabled && (body.authorization_confirmed !== true || body.consent_version !== TLS_SPECIAL_CONSENT_VERSION)) return json({error:'tls_explicit_authorization_required'},400);
       if (body.enabled && (!assessmentAvailable || !specialControlsAvailable)) return json({error:'tls_assessment_unavailable'},409);
+      // Compatibility adapter: the intrusive TLS controls are authorised only by
+      // Active Checks consent (per domain, host, address and check; migration 135).
+      // This workspace-wide switch can still be turned off, which keeps its
+      // history and fences in-flight work, but it can no longer grant anything.
+      if (body.enabled) return json({error:'active_check_consent_required',consent_path:`/api/workspaces/${workspaceId}/active-check-consents`},409);
       const write = db.prepare(`INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,authorized_by,authorized_at,revoked_by,revoked_at,updated_at)
         SELECT ?,?,1,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
         ON CONFLICT(workspace_id) DO UPDATE SET enabled=excluded.enabled,generation=generation+1,

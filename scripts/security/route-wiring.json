@@ -79,6 +79,10 @@
       "class": "external_api",
       "reason": "Canonical eight-domain snapshot (M5.c) for export/API clients; screens render through report routes."
     },
+    "re:^\\/api\\/workspaces\\/([^/]+)\\/active-check-consents(?:\\/([^/]+)\\/(revoke))?$": {
+      "class": "customer_pending",
+      "reason": "Active Checks consent (mig 135): grant, list and revoke; the consent screen is Seat 1's next frontend item."
+    },
     "re:^\\/api\\/workspaces\\/([^/]+)\\/alerts(\\/[^/]*)?$": {
       "class": "customer_pending",
       "reason": "Workspace alert list + summary API; the Alerts page shows alert channels, not this list."
