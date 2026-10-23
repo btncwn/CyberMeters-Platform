@@ -70,6 +70,9 @@ db.exec(`
     ('scan-established','ws-founder','d-established','established.example','completed',82,'good','complete','2026-08-12 12:03:00'),
     ('scan-foreign-newer','ws-foreign','d-blackbull','blackbullbarbers.co.uk','completed',1,'critical','complete','2026-08-12 13:00:00');
 `)
+// Production column, added by migration (the route derives latest_outcome from
+// it, item 15 fix D).
+db.exec('ALTER TABLE scans ADD COLUMN current_stage TEXT')
 
 const d1 = {
   prepare(sql) {
