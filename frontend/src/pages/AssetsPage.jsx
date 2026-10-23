@@ -477,7 +477,7 @@ export default function AssetsPage() {
           { key: 'services', id: 'asm-exposed-services', label: 'Exposed services', value: summary.exposed_services ?? '—', explanation: 'Internet-facing services to review', tone: (summary.exposed_services ?? 0) > 0 ? 'text-brand-700' : undefined },
           // high_risk_assets counts assets rated high or critical risk (any reason),
           // not takeovers; takeover_risks is its deprecated alias for one release.
-          { key: 'takeover', id: 'asm-high-risk', label: 'High or critical risk assets', value: summary.high_risk_assets ?? summary.takeover_risks ?? '—', explanation: 'Assets the latest assessments rated high or critical risk', tone: (summary.takeover_risks ?? 0) > 0 ? 'text-red-700' : undefined },
+          { key: 'takeover', id: 'asm-high-risk', label: 'High or critical risk assets', value: summary.high_risk_assets ?? summary.takeover_risks ?? '—', explanation: 'Assets the latest assessments rated high or critical risk', tone: (summary.high_risk_assets ?? summary.takeover_risks ?? 0) > 0 ? 'text-red-700' : undefined },
         ] : null}
         description="Your externally reachable hosts and services, tracked across scans: what appeared, what changed and what is exposed."
         /* The "Network assets" page tile (Findings · #network-assets) carries an
