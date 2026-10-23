@@ -284,6 +284,26 @@ eq("CSP uncertain response admits no weak-policy result", cspFinding("script-src
 eq("CSP non-200 response admits no weak-policy result", cspFinding("script-src 'unsafe-inline'", { status: 503 }), undefined);
 eq("shared CSP classifier identifies style-only weakness",
   headersContract.classifyCspPolicy("script-src 'self'; style-src 'unsafe-inline'")?.classification, "weak_style_only");
+// Item 15 fix C (23 Oct 2026), CSP Level 3 effective policy. Corpus shapes:
+// 'unsafe-inline' beside a nonce (and with 'strict-dynamic') is ignored by the
+// browser, so it is not a script weakness; 'unsafe-eval' never is neutralised.
+const cspClass = (policy) => headersContract.classifyCspPolicy(policy)?.classification;
+eq("CSP 'unsafe-inline' beside a nonce is not a script weakness",
+  cspClass("script-src 'report-sample' 'nonce-edco' 'unsafe-inline'; object-src 'none'; base-uri 'self'"), "no_admitted_weakness");
+eq("CSP 'unsafe-inline' beside a hash is not a script weakness",
+  cspClass("script-src 'sha256-abc=' 'unsafe-inline' 'self'"), "no_admitted_weakness");
+eq("CSP 'strict-dynamic' + nonce also neutralises '*' and 'unsafe-inline'",
+  cspClass("script-src 'strict-dynamic' 'nonce-x' 'unsafe-inline' 'self' https: *"), "no_admitted_weakness");
+eq("CSP 'unsafe-eval' beside a nonce is still a script weakness",
+  cspClass("script-src 'nonce-x' 'unsafe-eval'"), "weak_script");
+eq("CSP 'unsafe-inline' without a nonce or hash is still a script weakness",
+  cspClass("script-src 'self' 'unsafe-inline'"), "weak_script");
+eq("CSP default-src is only the script fallback: a strict script-src governs scripts",
+  cspClass("default-src 'unsafe-inline'; script-src 'self'"), "weak_style_only");
+eq("CSP default-src governs scripts when script-src is absent",
+  cspClass("default-src 'self' 'unsafe-inline'"), "weak_script");
+eq("CSP nonce policy produces no weak-policy finding",
+  cspFinding("default-src 'self'; script-src 'nonce-x' 'unsafe-inline' 'self'"), undefined);
 
 eq("score methodology version records the current deduction rule", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-10-21.1");
 eq("score-bearing module order remains frozen", scoring.SCORE_BEARING_MODULES,

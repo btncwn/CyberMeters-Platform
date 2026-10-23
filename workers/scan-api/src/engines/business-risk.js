@@ -37,7 +37,10 @@ import { visibleFindingSql } from "./finding-identity.js";
 // Public endpoint reachability is now inventory-only, without a risk deduction.
 // 2026-10-20.1: missing HSTS deducts 10, not 20, when its finding carries the
 // observed-redirect severity of HSTS_MISSING_SEVERITY_POLICY.
-export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-21.2";
+// 2026-10-23.1: a CSP 'unsafe-inline' beside a nonce/hash (ignored by CSP3
+// browsers) and a weak default-src beside its own script-src no longer count as
+// csp_weak_policy (item 15 fix C), so they no longer deduct.
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-10-23.1";
 
 // Website Trust deduction for a missing HSTS header, keyed by the severity the
 // finding carries. The severity already encodes whether CyberMeters observed

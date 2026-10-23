@@ -152,18 +152,24 @@ const MUTATIONS = Object.freeze([
   {
     id: "b1-csp-header-wide-substring",
     file: "workers/scan-api/src/engines/headers-scan.js",
-    anchor: `  const scriptDanger = ["script-src", "default-src"]
-    .map((directive) => ({ directive, tokens: dangerousTokens(directive) }))
+    // 23 Oct 2026 (item 15 fix C): re-anchored on the effective-directive
+    // block; the same header-wide substring mutant also breaks the CSP3
+    // nonce/hash and default-src-fallback cases.
+    anchor: `  const scriptDanger = [{ directive: scriptDirective, tokens: dangerousTokens(scriptDirective) }]
     .filter((entry) => entry.tokens.length > 0);`,
     replacement: `  const scriptDanger = raw.toLowerCase().includes("'unsafe-inline'")
     ? [{ directive: "header-wide", tokens: ["'unsafe-inline'"] }]
-    : ["script-src", "default-src"]
-      .map((directive) => ({ directive, tokens: dangerousTokens(directive) }))
+    : [{ directive: scriptDirective, tokens: dangerousTokens(scriptDirective) }]
       .filter((entry) => entry.tokens.length > 0);`,
     expectedFailures: [
       "CSP style-only producer is a low observation",
       "CSP style-only producer severity is low",
       "shared CSP classifier identifies style-only weakness",
+      "CSP 'unsafe-inline' beside a nonce is not a script weakness",
+      "CSP 'unsafe-inline' beside a hash is not a script weakness",
+      "CSP 'strict-dynamic' + nonce also neutralises '*' and 'unsafe-inline'",
+      "CSP default-src is only the script fallback: a strict script-src governs scripts",
+      "CSP nonce policy produces no weak-policy finding",
     ],
   },
   {

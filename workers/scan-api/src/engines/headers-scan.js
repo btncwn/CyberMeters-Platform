@@ -144,12 +144,25 @@ export function classifyCspPolicy(value) {
   }
 
   const dangerous = new Set(["'unsafe-inline'", "'unsafe-eval'", "*"]);
-  const dangerousTokens = (directive) =>
-    (directives.get(directive) || []).filter((token) => dangerous.has(token));
-  const scriptDanger = ["script-src", "default-src"]
-    .map((directive) => ({ directive, tokens: dangerousTokens(directive) }))
+  // Item 15 fix C (23 Oct 2026), CSP Level 3: 'unsafe-inline' is ignored in a
+  // directive that also carries a nonce or hash (it is a fallback for old
+  // browsers), and with 'strict-dynamic' beside a nonce/hash '*' is ignored
+  // too. 'unsafe-eval' is never neutralised.
+  const dangerousTokens = (directive) => {
+    const tokens = directives.get(directive) || [];
+    const nonceOrHash = tokens.some((token) => /^'(nonce-|sha(256|384|512)-)/.test(token));
+    const strictDynamic = nonceOrHash && tokens.includes("'strict-dynamic'");
+    return tokens.filter((token) => dangerous.has(token)
+      && !(nonceOrHash && token === "'unsafe-inline'")
+      && !(strictDynamic && token === "*"));
+  };
+  // Scripts are governed by script-src; default-src is only its fallback when
+  // script-src is absent.
+  const scriptDirective = directives.has("script-src") ? "script-src" : "default-src";
+  const scriptDanger = [{ directive: scriptDirective, tokens: dangerousTokens(scriptDirective) }]
     .filter((entry) => entry.tokens.length > 0);
-  const styleDanger = dangerousTokens("style-src");
+  // Styles likewise fall back to default-src only when style-src is absent.
+  const styleDanger = dangerousTokens(directives.has("style-src") ? "style-src" : "default-src");
 
   // A policy with neither script-src nor default-src lets the page load any
   // script (e.g. a CSP of only upgrade-insecure-requests): set, but it does
