@@ -62,6 +62,36 @@ export async function caseConditionProjection(env, wsId, row) {
   return none;
 }
 
+// A Cyber Essentials case whose workspace CE readiness is contained (not
+// assessed) is frozen on its last evidence: nothing re-evaluates it either way.
+// Say so, with the date, instead of letting it read as current (23 Oct 2026:
+// sheshire's case kept 'Action required' on evidence Website Security had since
+// verified fixed, because a second domain contained CE). Read through the
+// containment-gated accessor; no state change, history untouched.
+const CE_NOT_ASSESSED_WHY = Object.freeze({
+  workspace_multi_domain_not_aggregatable: "Cyber Essentials readiness is evaluated for single-domain workspaces only.",
+  workspace_has_no_linked_domain: "This workspace has no linked domain.",
+  workspace_domain_count_unavailable: "The workspace's domain scope could not be confirmed.",
+});
+const utcDay = (value) => {
+  const t = Date.parse(String(value || "").replace(" ", "T").replace(/(T[\d:.]+)$/, "$1Z"));
+  return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null;
+};
+export async function ceCaseAssessment(env, wsId, row) {
+  if (row?.case_type !== "cyber_essentials_case" || !row.finding_id) return null;
+  const rec = await getCeControlRecord(env, wsId, row.finding_id).catch(() => null);
+  if (!rec?.containment_active) return null;
+  const since = rec.last_assessed_at || null;
+  const day = utcDay(since);
+  const why = CE_NOT_ASSESSED_WHY[rec.readiness_reason] || "Cyber Essentials readiness is not currently assessed for this workspace.";
+  return {
+    state: "not_assessed",
+    reason: rec.readiness_reason || null,
+    since,
+    message: `${day ? `Not assessed since ${day}` : "Not currently assessed"} — ${why}`,
+  };
+}
+
 function caseToUniversalApi(row) {
   // Read-time presentation the backend owns for domains whose stored title or
   // resource fields cannot be trusted to be current (certificate cases).
@@ -177,6 +207,12 @@ export async function managedCasesRoutes(rctx) {
         .prepare(`SELECT * FROM managed_cases WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT ?`)
         .bind(...binds, limit).all();
       const cases = (rows.results || []).map(caseToUniversalApi);
+      // At most one per CE control (five), so bounded.
+      for (const [i, raw] of (rows.results || []).entries()) {
+        if (raw.case_type !== "cyber_essentials_case") continue;
+        const assessment = await ceCaseAssessment(env, wsId, raw);
+        if (assessment) cases[i].assessment = assessment;
+      }
       // Additive ASM traceability (pre-Item11 blocker 3): classify each ASM
       // case's relationship to the latest recorded scan through the SAME
       // canonical derivation the ASM route uses. Read-only; failure omits.
@@ -277,6 +313,8 @@ export async function managedCasesRoutes(rctx) {
       : [];
     const projected = caseToUniversalApi(row);
     Object.assign(projected, await caseConditionProjection(env, wsId, row));
+    const assessment = await ceCaseAssessment(env, wsId, row);
+    if (assessment) projected.assessment = assessment;
     try {
       const t = (await deriveAsmCaseTraceability(env, wsId, [row])).get(row.id);
       if (t) projected.traceability = t;
