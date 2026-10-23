@@ -109,7 +109,8 @@ function judge(name, value) {
       return { status: "valid", details: "Set. style-src allows 'unsafe-inline', a minor risk the full scan also treats as a note.", note: true };
     }
     if (csp.classification === "no_script_restriction") {
-      return { status: "weak", label: "Set, but doesn't restrict scripts", details: "There is no script-src or default-src, so any script can still run.", no_script_restriction: true };
+      return { status: "weak", label: "Set, but doesn't restrict scripts", details: "There is no script-src or default-src, so any script can still run.", no_script_restriction: true,
+        dangerous_directives: csp.dangerous_directives || [], unrestricted_contexts: csp.unrestricted_contexts || [] };
     }
     return { status: csp.status, details: csp.details, dangerous_directives: csp.dangerous_directives,
       unrestricted_contexts: csp.unrestricted_contexts || [] };

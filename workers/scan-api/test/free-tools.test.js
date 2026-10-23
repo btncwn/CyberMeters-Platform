@@ -607,6 +607,14 @@ test("headers: like the full scan, inline styles alone are a note; unsafe script
   assert.match(unsafeScript.next_step.cautions[0], /unsafe script sources in script-src/);
 });
 
+test("headers: an attribute-only CSP never claims event handlers are unrestricted (C-41c)", () => {
+  const attrOnly = buildHeadersToolResult("example.com", seen({ ...ALL_GOOD, "content-security-policy": "script-src-attr 'none'" }));
+  const csp = attrOnly.headers.find((h) => h.key === "content-security-policy");
+  assert.equal(csp.no_script_restriction, true);
+  assert.deepEqual(csp.unrestricted_contexts, ["script elements", "eval"]);
+  assert.ok(!csp.unrestricted_contexts.includes("inline event handlers"));
+});
+
 test("headers: an element-only CSP gets 'add a directive', never 'remove' tokens that do not exist", () => {
   // Executive R1 (23 Oct 2026): script-src-elem 'none' alone leaves inline event
   // handlers and eval() unrestricted; no directive carries an unsafe token.
