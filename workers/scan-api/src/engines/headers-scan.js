@@ -107,6 +107,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: false,
       style_only_weakness: false,
       dangerous_directives: [],
+      unrestricted_contexts: [],
       details: "CSP present but value is empty",
     };
   }
@@ -124,6 +125,7 @@ export function classifyCspPolicy(value) {
         actionable_weakness: false,
         style_only_weakness: false,
         dangerous_directives: [],
+        unrestricted_contexts: [],
         details: `CSP directive "${name}" is malformed`,
       };
     }
@@ -139,6 +141,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: false,
       style_only_weakness: false,
       dangerous_directives: [],
+      unrestricted_contexts: [],
       details: "CSP contains no parseable directives",
     };
   }
@@ -186,7 +189,7 @@ export function classifyCspPolicy(value) {
   // handlers and eval() open). Named per context, never as "all scripts".
   const unrestrictedScriptContexts = [
     !effectiveDirective(["script-src-attr", "script-src", "default-src"]) && "inline event handlers",
-    !effectiveDirective(["script-src", "default-src"]) && "eval()",
+    !effectiveDirective(["script-src", "default-src"]) && "eval",
   ].filter(Boolean);
   const styleDangerEntries = collect([
     // 'unsafe-eval' in a style directive stays a style-only observation, as before.
@@ -206,6 +209,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: true,
       style_only_weakness: false,
       dangerous_directives: [],
+      unrestricted_contexts: ["script elements", "inline event handlers", "eval"],
       details: "CSP is set but has no script-src or default-src, so it does not restrict scripts",
     };
   }
@@ -217,10 +221,11 @@ export function classifyCspPolicy(value) {
       parsed: true,
       actionable_weakness: true,
       style_only_weakness: false,
-      dangerous_directives: [...scriptDanger.map((entry) => entry.directive),
-        ...(unrestrictedScriptContexts.includes("inline event handlers") ? ["script-src-attr"] : []),
-        ...(unrestrictedScriptContexts.includes("eval()") ? ["script-src"] : [])].filter((d, i, all) => all.indexOf(d) === i),
-      details: `CSP does not restrict ${unrestrictedScriptContexts.join(" or ")} (no directive governs ${unrestrictedScriptContexts.length > 1 ? "them" : "it"})`
+      // Only directives that actually carry an unsafe token; the contexts no
+      // directive governs are named separately (Executive R1, 23 Oct 2026).
+      dangerous_directives: scriptDanger.map((entry) => entry.directive),
+      unrestricted_contexts: unrestrictedScriptContexts,
+      details: `CSP does not restrict ${unrestrictedScriptContexts.map((c) => c === "eval" ? "eval()" : c).join(" or ")} (no directive governs ${unrestrictedScriptContexts.length > 1 ? "them" : "it"})`
         + (scriptDanger.length ? `; it also allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}` : ""),
     };
   }
@@ -233,6 +238,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: true,
       style_only_weakness: false,
       dangerous_directives: dangerousDirectives,
+      unrestricted_contexts: [],
       details: `CSP allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}`,
     };
   }
@@ -244,6 +250,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: false,
       style_only_weakness: true,
       dangerous_directives: styleDangerEntries.map((entry) => entry.directive),
+      unrestricted_contexts: [],
       details: styleDangerEntries.every((entry) => entry.directive === "style-src")
         ? `CSP allows ${styleDanger.join(" and ")} in style-src only`
         : `CSP allows ${styleDanger.join(" and ")} in ${styleDangerEntries.map((entry) => entry.directive).join(" and ")} (styles only)`,
@@ -256,6 +263,7 @@ export function classifyCspPolicy(value) {
     actionable_weakness: false,
     style_only_weakness: false,
     dangerous_directives: [],
+    unrestricted_contexts: [],
     details: "CSP present with no dangerous script-src or default-src token detected",
   };
 }

@@ -111,7 +111,8 @@ function judge(name, value) {
     if (csp.classification === "no_script_restriction") {
       return { status: "weak", label: "Set, but doesn't restrict scripts", details: "There is no script-src or default-src, so any script can still run.", no_script_restriction: true };
     }
-    return { status: csp.status, details: csp.details, dangerous_directives: csp.dangerous_directives };
+    return { status: csp.status, details: csp.details, dangerous_directives: csp.dangerous_directives,
+      unrestricted_contexts: csp.unrestricted_contexts || [] };
   }
   const strength = classifyHeaderStrength(name, value);
   return { status: strength.status, details: strength.details };
@@ -173,6 +174,7 @@ export function buildHeadersToolResult(domain, observation, { now = Date.now() }
       no_script_restriction: verdict.no_script_restriction === true,
       meaning: GUIDE[entry.name].meaning,
       dangerous_directives: verdict.dangerous_directives || [],
+      unrestricted_contexts: verdict.unrestricted_contexts || [],
     };
   });
 
@@ -183,10 +185,21 @@ export function buildHeadersToolResult(domain, observation, { now = Date.now() }
     const guide = GUIDE[row.key];
     return { name: guide.report_only ? "Content-Security-Policy-Report-Only" : row.name, value: guide.suggest, caution: guide.caution || null };
   });
+  // A script context no directive governs needs a directive ADDED; an unsafe
+  // token is REMOVED only from a directive that actually carries it.
+  const unrestricted = cspToTighten?.unrestricted_contexts || [];
+  const addFor = [
+    unrestricted.includes("inline event handlers") && (unrestricted.includes("eval") ? null : "script-src-attr (or script-src)"),
+    unrestricted.includes("inline event handlers") && unrestricted.includes("eval") && "script-src-attr and script-src (or default-src)",
+    !unrestricted.includes("inline event handlers") && unrestricted.includes("eval") && "script-src (or default-src)",
+  ].filter(Boolean)[0];
+  const unrestrictedAdvice = !cspToTighten || cspToTighten.no_script_restriction || !addFor ? null
+    : `Your Content-Security-Policy does not restrict ${unrestricted.map((c) => c === "eval" ? "eval()" : c).join(" or ")}: no directive governs ${unrestricted.length > 1 ? "them" : "it"}. Add ${addFor}, such as script-src 'self', to the policy you already have, testing it first as Content-Security-Policy-Report-Only.`;
   const advice = !cspToTighten ? []
+    : unrestrictedAdvice && !(cspToTighten.dangerous_directives || []).length ? [unrestrictedAdvice]
     : cspToTighten.no_script_restriction
       ? ["Your Content-Security-Policy does not restrict scripts: it has no default-src or script-src. Add one, such as default-src 'self', to the policy you already have, testing it first as Content-Security-Policy-Report-Only."]
-      : [`Your Content-Security-Policy allows unsafe script sources in ${cspToTighten.dangerous_directives.join(" and ") || "a script directive"}. Remove 'unsafe-inline', 'unsafe-eval' and * there, moving inline scripts into files or allowing them by nonce or hash. Keep the rest of your policy as it is.`];
+      : [...(unrestrictedAdvice ? [unrestrictedAdvice] : []), `Your Content-Security-Policy allows unsafe script sources in ${cspToTighten.dangerous_directives.join(" and ") || "a script directive"}. Remove 'unsafe-inline', 'unsafe-eval' and * there, moving inline scripts into files or allowing them by nonce or hash. Keep the rest of your policy as it is.`];
   const missingHsts = needsWork.some((row) => row.key === "strict-transport-security");
   const missingCount = rows.filter((row) => row.status === "missing").length;
   const weakCount = needsWork.length - missingCount;

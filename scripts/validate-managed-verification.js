@@ -611,8 +611,13 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
     (await run({ policy: "script-src 'nonce-' 'unsafe-inline'" })).decision, "still_present");
   eq("csp: script-src-attr unsafe-inline overriding a nonce remains still_present (C-41)",
     (await run({ policy: "script-src 'nonce-YWJj' 'unsafe-inline'; script-src-attr 'unsafe-inline'" })).decision, "still_present");
-  eq("csp: element-only script-src-elem 'none' remains still_present (C-41b)",
-    (await run({ policy: "script-src-elem 'none'" })).decision, "still_present");
+  const elemOnly = await run({ policy: "script-src-elem 'none'" });
+  eq("csp: element-only script-src-elem 'none' remains still_present (C-41b)", elemOnly.decision, "still_present");
+  // Executive R1: the evidence names the unrestricted contexts, never absent
+  // directives as if they carried unsafe tokens.
+  eq("csp: element-only evidence names the unrestricted contexts, no absent directive",
+    JSON.stringify([elemOnly.evidence?.observations?.[0]?.dangerous_directives, elemOnly.evidence?.observations?.[0]?.unrestricted_contexts]),
+    JSON.stringify([[], ["inline event handlers", "eval"]]));
   eq("csp: a valid nonce beside unsafe-inline is fixed",
     (await run({ policy: "default-src 'self'; script-src 'nonce-YWJj' 'unsafe-inline'" })).decision, "fixed");
   eq("csp: missing policy defers, never fixes", (await run()).decision, "deferred");

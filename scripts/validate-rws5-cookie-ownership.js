@@ -331,6 +331,11 @@ for (const [name, policy, expected] of [
 eq("C-41b: script-src-elem 'none' alone is a script weakness", cspClass("script-src-elem 'none'"), "weak_script");
 eq("C-41b: it names the unrestricted contexts, not all scripts",
   headersContract.classifyCspPolicy("script-src-elem 'none'")?.details, "CSP does not restrict inline event handlers or eval() (no directive governs them)");
+eq("C-41b: dangerous_directives holds only directives that carry an unsafe token",
+  JSON.stringify([headersContract.classifyCspPolicy("script-src-elem 'none'")?.dangerous_directives, headersContract.classifyCspPolicy("script-src-elem 'none'")?.unrestricted_contexts]),
+  JSON.stringify([[], ["inline event handlers", "eval"]]));
+eq("C-41b: the scan finding's evidence names the unrestricted contexts",
+  JSON.stringify(cspFinding("script-src-elem 'none'")?.evidence?.strength_unrestricted_contexts), JSON.stringify(["inline event handlers", "eval"]));
 eq("C-41b: elem + attr locked, eval still unrestricted", cspClass("script-src-elem 'none'; script-src-attr 'none'"), "weak_script");
 eq("C-41b control: elem, attr and script-src all locked", cspClass("script-src-elem 'none'; script-src-attr 'none'; script-src 'none'"), "no_admitted_weakness");
 eq("C-41b control: script-src alone governs every script context", cspClass("script-src 'self'"), "no_admitted_weakness");
