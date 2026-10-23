@@ -375,6 +375,30 @@ const RECURRENCE_COPY = Object.freeze({
     }),
   }),
   email_protection: Object.freeze({
+    sender_unrecognised: Object.freeze({
+      what_changed: (entity) =>
+        `Receiving mail providers reported ${entity} sending mail that uses your domain, and it is not yet recognised as one of your senders.`,
+    }),
+    sender_classification_worsened: Object.freeze({
+      what_changed: (entity) =>
+        `Receiving mail providers reported more mail from ${entity} using your domain since it was last reviewed.`,
+    }),
+    sender_unauthorised_failures_active: Object.freeze({
+      what_changed: (entity) =>
+        `Receiving mail providers reported mail from ${entity}, a source you classified as unauthorised, using your domain and failing authentication.`,
+    }),
+    hosted_record_disconnected: Object.freeze({
+      what_changed: (entity) =>
+        `The DMARC record CyberMeters hosts for ${entity} is no longer being served: the _dmarc record no longer points to it.`,
+    }),
+    hosted_impact_regression: Object.freeze({
+      what_changed: (entity) =>
+        `Since the last DMARC policy change for ${entity}, receiving providers report more of your legitimate mail failing authentication.`,
+    }),
+    hosted_rolled_back_auto: Object.freeze({
+      what_changed: (entity) =>
+        `Authentication results dropped after the last DMARC policy change for ${entity}, so CyberMeters restored the previous policy.`,
+    }),
     record_removed: Object.freeze({
       what_changed: () =>
         "The previously observed applicable DMARC record is no longer present.",
@@ -397,6 +421,14 @@ const RECURRENCE_COPY = Object.freeze({
     }),
   }),
   website_security: Object.freeze({
+    browser_protection_missing: Object.freeze({
+      what_changed: (entity) =>
+        `A completed check of ${entity} found a browser protection header missing (for example HSTS or a content security policy).`,
+    }),
+    browser_protection_malformed: Object.freeze({
+      what_changed: (entity) =>
+        `A completed check of ${entity} found a browser protection header present but not in a form browsers can apply.`,
+    }),
     transport_not_available: Object.freeze({
       what_changed: (entity) =>
         `A completed HTTPS/TLS assessment positively identified a certificate or TLS configuration defect for ${entity}.`,
@@ -412,6 +444,84 @@ const RECURRENCE_COPY = Object.freeze({
     credential_form_exposed: Object.freeze({
       what_changed: (entity) =>
         `A sign-in page observed with a password field on ${entity} sends its form to another site or over plain HTTP.`,
+    }),
+  }),
+  attack_surface: Object.freeze({
+    case_opened: Object.freeze({
+      what_changed: (entity) => `An exposed service was observed on ${entity}, and a managed case was opened for it.`,
+    }),
+    case_reopened: Object.freeze({
+      what_changed: (entity) => `The exposure on ${entity} was observed again after its case was resolved, so the case is reopened.`,
+    }),
+    case_verification_failed: Object.freeze({
+      what_changed: (entity) => `CyberMeters re-checked ${entity} and still observed the exposure, so it could not verify the fix.`,
+    }),
+    case_resolved: Object.freeze({
+      what_changed: (entity) => `CyberMeters re-checked ${entity} and no longer observed the exposure.`,
+    }),
+  }),
+  certificates_trust: Object.freeze({
+    expired: Object.freeze({
+      what_changed: (entity) => `The certificate served for ${entity} has expired.`,
+    }),
+    renewal_overdue: Object.freeze({
+      what_changed: (entity) => `The certificate served for ${entity} expires soon and no replacement has been observed yet.`,
+    }),
+    replacement_contradicted: Object.freeze({
+      what_changed: (entity) => `A replacement certificate was recorded for ${entity}, but the previous certificate is still being served.`,
+    }),
+    verification_failed: Object.freeze({
+      what_changed: (entity) => `CyberMeters could not verify the replacement certificate for ${entity} from its own observation.`,
+    }),
+    replacement_unverified: Object.freeze({
+      what_changed: (entity) => `A new certificate was observed for ${entity}; CyberMeters has not verified it yet.`,
+    }),
+    coverage_regression: Object.freeze({
+      what_changed: (entity) => `The certificate now served for ${entity} no longer covers every hostname it is expected to cover.`,
+    }),
+    unexpected_san: Object.freeze({
+      what_changed: (entity) => `The certificate served for ${entity} covers hostnames that are not on its expected list.`,
+    }),
+    exception_expired: Object.freeze({
+      what_changed: (entity) => `The exception you recorded for the certificate on ${entity} has expired.`,
+    }),
+    owner_missing: Object.freeze({
+      what_changed: (entity) => `The certificate for ${entity} has no assigned owner.`,
+    }),
+    tls_condition_observed: Object.freeze({
+      what_changed: (entity) => `A TLS measurement of ${entity} observed a weak transport setting, and a managed case was opened for it.`,
+    }),
+    tls_condition_returned: Object.freeze({
+      what_changed: (entity) => `A TLS measurement of ${entity} observed the weak transport setting again after it was verified fixed.`,
+    }),
+  }),
+  identity_exposure: Object.freeze({
+    public_admin_surface: Object.freeze({
+      what_changed: (entity) => `A publicly reachable sign-in or administration surface was observed at ${entity}.`,
+    }),
+    removal_contradicted: Object.freeze({
+      what_changed: (entity) => `${entity} was marked as removed but is still externally observed.`,
+    }),
+    verification_failed: Object.freeze({
+      what_changed: (entity) => `CyberMeters re-checked ${entity} and could not verify the change from its own observation.`,
+    }),
+    unexpected_surface: Object.freeze({
+      what_changed: (entity) => `A sign-in surface not on your expected list was observed at ${entity}.`,
+    }),
+    retired_reappeared: Object.freeze({
+      what_changed: (entity) => `${entity}, which you retired, was observed again.`,
+    }),
+    investigate_unresolved: Object.freeze({
+      what_changed: (entity) => `The investigation you started for ${entity} is still open past its review date.`,
+    }),
+    exception_expired: Object.freeze({
+      what_changed: (entity) => `The exception you recorded for ${entity} has expired.`,
+    }),
+    provider_change: Object.freeze({
+      what_changed: (entity) => `The sign-in provider observed for ${entity} has changed.`,
+    }),
+    owner_missing: Object.freeze({
+      what_changed: (entity) => `${entity} has no assigned owner.`,
     }),
   }),
   cyber_essentials_readiness: Object.freeze({
@@ -464,6 +574,29 @@ const RECURRENCE_COPY = Object.freeze({
   }),
 });
 
+const utcDay = (value) => {
+  const t = Date.parse(String(value || "").replace(" ", "T").replace(/(T[\d:.]+)$/, "$1Z"));
+  return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null;
+};
+
+// The sentence a reopen alert carries when its case had been verified: from the
+// case row itself, workspace-scoped. Null for any other case, or when unknown.
+export async function reopenedAfterVerification(env, workspaceId, caseId) {
+  if (!workspaceId || !caseId) return null;
+  const kase = await env.cybermeters_db
+    .prepare("SELECT status, verified_at, last_verified_at FROM managed_cases WHERE id = ? AND workspace_id = ? LIMIT 1")
+    .bind(caseId, workspaceId).first().catch(() => null);
+  const day = utcDay(kase?.verified_at || kase?.last_verified_at);
+  if (kase?.status !== "reopened" || !day) return null;
+  return `CyberMeters verified this fixed on ${day}; it has been observed again, so the case is reopened.`;
+}
+
+// Whether a recurrence has its own customer copy (CI requires one for every
+// alerting recurrence, so the generic fallback sentence never reaches a customer).
+export function hasRecurrenceCopy(domain_key, recurrence) {
+  return typeof RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")]?.what_changed === "function";
+}
+
 export function humanizeRecurrence(recurrence) {
   return String(recurrence || "").replace(/_/g, " ").trim();
 }
@@ -474,7 +607,9 @@ export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay) {
   const subject = String(entityDisplay || "").trim() || "A monitored item";
   const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
   if (copy?.what_changed) return copy.what_changed(subject);
-  return `${subject}: condition "${humanizeRecurrence(recurrence)}" was observed.`;
+  // Never the internal recurrence name: CI requires copy for every alerting
+  // recurrence, so this generic sentence is only a last resort.
+  return `CyberMeters observed a change for ${subject} that needs your review.`;
 }
 
 // The recommendation: recurrence-specific override first (a transition can make
@@ -660,7 +795,11 @@ export async function emitLifecycleAlert(env, {
     // They are built by separate functions so they can never collapse back into
     // the same registry string (the defect this episode fixes).
     const displayName = String(entity_display || "").trim() || entity || record_id;
-    const canonicalWhatChanged = describeRecurrenceEvent(domain_key, recurrence, displayName);
+    // A reopen says what came before (23 Oct 2026): the customer was told it was
+    // fixed, so the alert names that verification and why the case is back.
+    const reopenedNote = await reopenedAfterVerification(env, workspace_id, case_id);
+    const eventDescription = describeRecurrenceEvent(domain_key, recurrence, displayName);
+    const canonicalWhatChanged = reopenedNote ? `${eventDescription} ${reopenedNote}` : eventDescription;
     const canonicalRecommendation = recommendationForRecurrence(
       domain_key, recurrence, displayName, resolved?.recommended_action || null,
     );
@@ -670,7 +809,7 @@ export async function emitLifecycleAlert(env, {
       finding_type,
       module_evidence,
       canonical: {
-        title: resolved?.customer_title || `${entity || record_id}: review required`,
+        title: resolved?.customer_title || `${displayName}: review required`,
         what_changed: canonicalWhatChanged,
         recommended_action: canonicalRecommendation,
         remediation_id: resolved?.remediation_id || null,

@@ -424,6 +424,8 @@ export async function evaluateWebsiteSecurityForScan(env, {
           const r = await emitLifecycleAlert(env, {
             workspace_id, domain_key: WEBSITE_SECURITY_DOMAIN_KEY,
             record_id: id, entity: obs?.affected_url || `${domain}:${key}`, hostname: domain,
+            // The customer sees the page or the domain, never the internal domain:key.
+            entity_display: obs?.affected_url || domain, monitored_domain: domain,
             recurrence, record_severity: obs.severity, finding_type: key,
             case_id: opened?.case_id || null,
             module_evidence: modules?.[spec.module] || null,
@@ -543,6 +545,7 @@ export async function evaluateWebsiteSecurityForScan(env, {
       const r = await emitLifecycleAlert(env, {
         workspace_id, domain_key: WEBSITE_SECURITY_DOMAIN_KEY,
         record_id: rec.id, entity: obs?.affected_url || `${domain}:${key}`, hostname: domain,
+        entity_display: obs?.affected_url || domain, monitored_domain: domain,
         recurrence, record_severity: obs.severity, finding_type: key,
         case_id: opened?.case_id || rec.linked_case_id || null,
         module_evidence: modules?.[spec.module] || null,

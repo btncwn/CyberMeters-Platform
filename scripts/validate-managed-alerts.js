@@ -638,6 +638,33 @@ await preActivate("ws_dead");
   eq("saas_exposure belongs to the shadow IT domain", r.domain_key, "shadow_it_unmanaged_technology");
 
   eq("alert kind is deterministic", alertKindFor("certificates_trust", "expired"), "certificates_trust.expired");
+
+  // 4b (23 Oct 2026): alert prose names no internal key. Every alerting recurrence in
+  // the severity map — read from the source, so a new one cannot slip past — has its own
+  // customer copy, and no copy (or the fallback) prints a raw key or recurrence name.
+  {
+    const ac = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "alert-consumers.js")).href);
+    const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "alert-consumers.js"), "utf8");
+    const start = src.indexOf("const RECURRENCE_SEVERITY");
+    const block = src.slice(start, src.indexOf("\n});", start));
+    const pairs = [...block.matchAll(/^  ([a-z_]+): Object\.freeze\(\{([\s\S]*?)\n  \}\),/gm)]
+      .flatMap(([, d, body]) => [...body.matchAll(/^\s{4}([a-z_]+):/gm)].map(([, r]) => [d, r]));
+    ok("the severity map was read (alerting recurrences found)", pairs.length >= 50);
+    eq("every alerting recurrence has its own customer copy",
+      pairs.filter(([d, r]) => !ac.isMonitoringOnlyRecurrence(d, r) && !ac.hasRecurrenceCopy(d, r)).map(([d, r]) => `${d}.${r}`), []);
+    const rawKey = /[a-z]+_[a-z_]+|[a-z0-9.-]+:[a-z]+_/;
+    eq("no alert sentence carries an internal key or recurrence name",
+      pairs.map(([d, r]) => [`${d}.${r}`, ac.describeRecurrenceEvent(d, r, "example.org")]).filter(([, t]) => rawKey.test(t.replace(/_dmarc/g, ""))).map(([k]) => k), []);
+    const fb = ac.describeRecurrenceEvent("certificates_trust", "brand_new_thing", "example.org");
+    ok("the fallback sentence names no recurrence, raw or humanised", !rawKey.test(fb) && !/brand.new.thing/.test(fb) && fb.includes("example.org"));
+    const fake = (row) => ({ cybermeters_db: { prepare: () => ({ bind: () => ({ first: async () => row }) }) } });
+    eq("a reopened, previously verified case says so with the date",
+      await ac.reopenedAfterVerification(fake({ status: "reopened", verified_at: "2026-10-22T23:58:09.125Z" }), "ws", "mc"),
+      "CyberMeters verified this fixed on 22 Oct 2026; it has been observed again, so the case is reopened.");
+    eq("a case that was never verified carries no reopen sentence", await ac.reopenedAfterVerification(fake({ status: "reopened", verified_at: null }), "ws", "mc"), null);
+    eq("an open (not reopened) case carries no reopen sentence", await ac.reopenedAfterVerification(fake({ status: "detected", verified_at: "2026-10-22T23:58:09Z" }), "ws", "mc"), null);
+    eq("no case id, no read", await ac.reopenedAfterVerification(fake(null), "ws", null), null);
+  }
   // TLS endpoint conditions inherit the finding's grade; no grade is invented.
   ok("TLS endpoint recurrences inherit the finding's severity",
      ["tls_condition_observed", "tls_condition_returned"].every((r) => isMappedRecurrence("certificates_trust", r) && !isMonitoringOnlyRecurrence("certificates_trust", r)));
