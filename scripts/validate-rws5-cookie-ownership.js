@@ -326,6 +326,14 @@ for (const [name, policy, expected] of [
   ["default fallback for scripts", "default-src 'unsafe-inline'; style-src 'self'", "weak_script"],
   ["first duplicate directive wins", "script-src 'nonce-YWJj' 'unsafe-inline'; script-src 'unsafe-inline'", "no_admitted_weakness"],
 ]) eq(`C-41 Chromium case: ${name}`, cspClass(policy), expected);
+// Codex C-41b (Chromium): an element-only policy leaves event handlers and
+// eval() unrestricted; each context with no governing directive is named.
+eq("C-41b: script-src-elem 'none' alone is a script weakness", cspClass("script-src-elem 'none'"), "weak_script");
+eq("C-41b: it names the unrestricted contexts, not all scripts",
+  headersContract.classifyCspPolicy("script-src-elem 'none'")?.details, "CSP does not restrict inline event handlers or eval() (no directive governs them)");
+eq("C-41b: elem + attr locked, eval still unrestricted", cspClass("script-src-elem 'none'; script-src-attr 'none'"), "weak_script");
+eq("C-41b control: elem, attr and script-src all locked", cspClass("script-src-elem 'none'; script-src-attr 'none'; script-src 'none'"), "no_admitted_weakness");
+eq("C-41b control: script-src alone governs every script context", cspClass("script-src 'self'"), "no_admitted_weakness");
 eq("CSP element override names the overriding directive",
   headersContract.classifyCspPolicy("script-src 'nonce-YWJj' 'unsafe-inline'; script-src-elem 'unsafe-inline'")?.dangerous_directives, ["script-src-elem"]);
 eq("CSP nonce policy produces no weak-policy finding",

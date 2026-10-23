@@ -181,6 +181,13 @@ export function classifyCspPolicy(value) {
     { chain: ["script-src-attr", "script-src", "default-src"], relevant: ["'unsafe-inline'"] },
     { chain: ["script-src", "default-src"], relevant: ["'unsafe-eval'"] },
   ], { script: true });
+  // Codex C-41b: a script context with NO governing directive is unrestricted
+  // in that context only (e.g. script-src-elem 'none' alone leaves inline event
+  // handlers and eval() open). Named per context, never as "all scripts".
+  const unrestrictedScriptContexts = [
+    !effectiveDirective(["script-src-attr", "script-src", "default-src"]) && "inline event handlers",
+    !effectiveDirective(["script-src", "default-src"]) && "eval()",
+  ].filter(Boolean);
   const styleDangerEntries = collect([
     // 'unsafe-eval' in a style directive stays a style-only observation, as before.
     { chain: ["style-src-elem", "style-src", "default-src"], relevant: ["'unsafe-inline'", "'unsafe-eval'", "*"] },
@@ -203,6 +210,20 @@ export function classifyCspPolicy(value) {
     };
   }
 
+  if (unrestrictedScriptContexts.length > 0) {
+    return {
+      status: "weak",
+      classification: "weak_script",
+      parsed: true,
+      actionable_weakness: true,
+      style_only_weakness: false,
+      dangerous_directives: [...scriptDanger.map((entry) => entry.directive),
+        ...(unrestrictedScriptContexts.includes("inline event handlers") ? ["script-src-attr"] : []),
+        ...(unrestrictedScriptContexts.includes("eval()") ? ["script-src"] : [])].filter((d, i, all) => all.indexOf(d) === i),
+      details: `CSP does not restrict ${unrestrictedScriptContexts.join(" or ")} (no directive governs ${unrestrictedScriptContexts.length > 1 ? "them" : "it"})`
+        + (scriptDanger.length ? `; it also allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}` : ""),
+    };
+  }
   if (scriptDanger.length > 0) {
     const dangerousDirectives = scriptDanger.map((entry) => entry.directive);
     return {

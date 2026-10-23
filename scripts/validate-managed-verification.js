@@ -611,6 +611,8 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
     (await run({ policy: "script-src 'nonce-' 'unsafe-inline'" })).decision, "still_present");
   eq("csp: script-src-attr unsafe-inline overriding a nonce remains still_present (C-41)",
     (await run({ policy: "script-src 'nonce-YWJj' 'unsafe-inline'; script-src-attr 'unsafe-inline'" })).decision, "still_present");
+  eq("csp: element-only script-src-elem 'none' remains still_present (C-41b)",
+    (await run({ policy: "script-src-elem 'none'" })).decision, "still_present");
   eq("csp: a valid nonce beside unsafe-inline is fixed",
     (await run({ policy: "default-src 'self'; script-src 'nonce-YWJj' 'unsafe-inline'" })).decision, "fixed");
   eq("csp: missing policy defers, never fixes", (await run()).decision, "deferred");
