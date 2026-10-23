@@ -274,6 +274,8 @@ function moduleAssessedForCe(modules, name) {
 
 function hstsPresent(modules) {
   const hsts = modules?.domain_security_enrichment?.hsts;
+  // Item 15 B2: the apex never answered HTTPS, so the domain's HSTS was not assessed.
+  if (hsts?.error === "apex_https_not_observed") return null;
   if (hsts && hsts.present !== undefined) return !!hsts.present;
   if (!moduleAssessedForCe(modules, 'headers')) return null;   // we did not look
   return !!headerValue(modules?.headers?.headers_observed ?? modules?.headers?.values, 'strict-transport-security');
@@ -499,12 +501,18 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
   // Secure Configuration: HSTS, CSP, TLS posture, certificate health.
   {
     const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [], unknown: [] };
-    if (hsts === false) {
+    const hstsDetail = modules?.domain_security_enrichment?.hsts;
+    if (hsts === false && hstsDetail?.final_host && hstsDetail?.final_host_value) {
+      // Item 15 B2: say exactly what is true, host by host.
+      addGap(state, 25, `The domain itself sends no HSTS; ${hstsDetail.final_host} does, which does not protect a first visit to the domain.`, 'header_missing_strict_transport_security');
+    } else if (hsts === false) {
       addGap(state, 25, 'HSTS is not present or could not be confirmed.', 'header_missing_strict_transport_security');
     } else if (hsts === true) {
       addReason(state, 'HSTS is present.');
     } else {
-      addUnknown(state, 'hsts', 'HSTS could not be assessed — the header probe did not complete.');
+      addUnknown(state, 'hsts', hstsDetail?.error === 'apex_https_not_observed'
+        ? 'HSTS could not be assessed — the domain itself did not answer over HTTPS.'
+        : 'HSTS could not be assessed — the header probe did not complete.');
     }
     if (csp === false) {
       addGap(state, 20, 'Content Security Policy is not present or could not be confirmed.', 'header_missing_content_security_policy');

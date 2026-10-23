@@ -10,7 +10,7 @@ import { runTyposquatModule } from "./brand-typosquat.js";
 import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, inferMxProvider, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
-import { classifyCspPolicy, classifyHeaderStrength, effectiveHstsValue } from "./headers-scan.js";
+import { classifyCspPolicy, classifyHeaderStrength, effectiveHstsValue, hstsPolicyOf } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 import { HSTS_MISSING_SEVERITY_POLICY, resolveRemediation } from "./remediation-registry.js";
@@ -427,17 +427,28 @@ export function computeScore(modules, domain) {
 
     // Collect Branch C (medium-severity, unverified) headers for consolidated output
     const branchCHeaders = [];
+    // Item 15 B2: HSTS is judged on the domain's own, host-scoped policy (the
+    // apex's HTTPS answer); a redirected page's header never stands for it.
+    const hstsPolicy = hstsPolicyOf(modules.headers, domain);
+    const hstsOnlyOnFinalHost = hstsPolicy.state === "absent" && hstsPolicy.final_value
+      && hstsPolicy.final_host && hstsPolicy.final_host !== hstsPolicy.apex_host;
 
     for (const h of SECURITY_HEADERS) {
       // HSTS is only meaningful on HTTPS — skip entirely on HTTP fallback
       if (h.name === "strict-transport-security" && !finalHttps) continue;
-      // Header is present — nothing to report
-      if (modules.headers.values?.[h.name]) continue;
+      if (h.name === "strict-transport-security") {
+        // Present for the domain, or not assessed (the apex never answered
+        // HTTPS): nothing to report as missing.
+        if (hstsPolicy.state !== "absent") continue;
+      } else if (modules.headers.values?.[h.name]) continue; // Header is present — nothing to report
 
-      const headerProbeUrl = modules.headers.response_url ?? `https://${domain}`;
-      const headerObservedElsewhere = (modules.headers.checked_paths || []).some(
-        (p) => p.headers_observed?.[h.name]
-      );
+      const headerProbeUrl = h.name === "strict-transport-security" && !hstsPolicy.legacy
+        ? hstsPolicy.apex_url : (modules.headers.response_url ?? `https://${domain}`);
+      // Item 15 B2: HSTS is host-scoped. The apex's own answer was observed
+      // without it; another host's or path's header is that host's policy, not
+      // "the same policy seen elsewhere".
+      const headerObservedElsewhere = !(h.name === "strict-transport-security" && !hstsPolicy.legacy)
+        && (modules.headers.checked_paths || []).some((p) => p.headers_observed?.[h.name]);
       const headerBaseEvidence = {
         evidence_type:               "http_header_probe",
         probe_target:                headerProbeUrl,
@@ -501,11 +512,15 @@ export function computeScore(modules, domain) {
             : HSTS_MISSING_SEVERITY_POLICY.default,
           confidence:   "high",
           title:        `Missing ${h.label} Header`,
-          description:  `The ${h.label} header (${h.name}) was not returned in HTTP responses from ${domain}. This was confirmed on a direct HTTPS 200 response.`,
+          description:  h.name === "strict-transport-security" && hstsOnlyOnFinalHost
+            ? `The apex (${hstsPolicy.apex_host}) sends no HSTS; ${hstsPolicy.final_host} does. A first HTTPS visit to ${hstsPolicy.apex_host} is not protected, and the domain is not eligible for the HSTS preload list.`
+            : `The ${h.label} header (${h.name}) was not returned in HTTP responses from ${domain}. This was confirmed on a direct HTTPS 200 response.`,
           score_impact: h.score_impact,
           evidence: {
             ...headerBaseEvidence,
-            observed_value: `Header absent from confirmed HTTPS 200 response at ${headerProbeUrl}`,
+            observed_value: h.name === "strict-transport-security" && !hstsPolicy.legacy
+              ? `Header absent from ${hstsPolicy.apex_host}'s own HTTPS answer${hstsPolicy.apex_status ? ` (HTTP ${hstsPolicy.apex_status})` : ""}${hstsOnlyOnFinalHost ? `; ${hstsPolicy.final_host} sends ${hstsPolicy.final_value}` : ""}`
+              : `Header absent from confirmed HTTPS 200 response at ${headerProbeUrl}`,
           },
         });
         recommendations.push(canonicalRec(`header_missing_${h.name.replace(/-/g, "_")}`, {
@@ -514,6 +529,31 @@ export function computeScore(modules, domain) {
           description: h.recommendation,
         }));
       }
+    }
+
+    // Item 15 B2: the apex's HSTS lacks includeSubDomains and the redirected
+    // host sends none of its own: that host is uncovered. Said of that host,
+    // never as an apex absence.
+    if (finalHttps && hstsPolicy.state === "present" && !hstsPolicy.final_covered && !hstsPolicy.final_value && hstsPolicy.final_host) {
+      findings.push({
+        id:           "header_hsts_redirect_host_uncovered",
+        finding_type: "observation",
+        module:       "headers",
+        severity:     "info",
+        confidence:   "high",
+        title:        "Redirected Host Not Covered by HSTS",
+        description:  `${hstsPolicy.final_host} sends no HSTS, and ${hstsPolicy.apex_host}'s HSTS does not cover it (no includeSubDomains). A first HTTPS visit to ${hstsPolicy.final_host} is not protected by HSTS.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type:               "http_header_probe",
+          probe_target:                modules.headers.response_url ?? `https://${hstsPolicy.final_host}`,
+          header_name:                 "strict-transport-security",
+          observed_value:              `${hstsPolicy.apex_host}: ${hstsPolicy.value}; ${hstsPolicy.final_host}: absent`,
+          source:                      "cloudflare_workers_fetch",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `curl -sI https://${hstsPolicy.final_host} | grep -i strict-transport-security`,
+        },
+      });
     }
 
     // ── Header Consolidation (Observation Consolidation v1) ──────────────

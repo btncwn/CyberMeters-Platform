@@ -28,7 +28,7 @@ import { dnsQuery } from "./dns.js";
 import { buildCaaFromAnswers } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
 import { DSE_PRESENCE, dsePresenceEvidenceUsable } from "./dse-findings.js";
-import { classifyCspPolicy, captureSetCookieRaw, securityHeaderValuesFrom } from "./headers-scan.js";
+import { buildHstsHostPolicy, classifyCspPolicy, captureSetCookieRaw, securityHeaderValuesFrom } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
 import { hostHasConfirmedTakeoverRisk, runTakeoverModule, takeoverObservationFor } from "./takeover-scan.js";
 
@@ -348,7 +348,7 @@ async function observeCspWeakPolicy(host, fetcher) {
 // dse_hsts_* / dse_cookie_*: re-observe the response headers with the scan's own capture
 // helpers, rebuild the enrichment through the real (pure) module, then re-evaluate the
 // canonical predicate.
-async function observeDseHeaders(findingId, host, fetcher) {
+async function observeDseHeaders(findingId, host, fetcher, apexFetcher = null) {
   const probe = await probeHost(host, fetcher);
   if (probe.completeness !== "complete") return { completeness: probe.completeness, reason: probe.reason || null };
 
@@ -356,6 +356,23 @@ async function observeDseHeaders(findingId, host, fetcher) {
     values: securityHeaderValuesFrom(probe.res.headers),
     set_cookie_raw: captureSetCookieRaw(probe.res.headers),
   };
+  // Item 15 B2: an HSTS finding is about the host's OWN HTTPS answer (its
+  // redirect included), never the page it redirects to. One no-follow request;
+  // no answer means the policy is not observed, so nothing can verify as fixed.
+  if (String(findingId).startsWith("dse_hsts_")) {
+    let own = null;
+    try { own = apexFetcher ? await apexFetcher(`https://${host}`) : null; } catch { own = null; }
+    headers.response_url = probe.res.url || `https://${host}`;
+    headers.hsts_policy = buildHstsHostPolicy({
+      domain: host,
+      apexObserved: Boolean(own),
+      apexValue: own?.headers?.get?.("strict-transport-security") || null,
+      apexUrl: `https://${host}`,
+      apexStatus: own?.status ?? null,
+      finalUrl: headers.response_url,
+      finalValue: headers.values["strict-transport-security"] || null,
+    });
+  }
   const enrich = runDomainSecurityEnrichmentModule(host, { headers });
   if (isCookieFindingType(findingId)) {
     const cookie = evaluateCookieObservation(findingId, enrich, { moduleComplete: true });
@@ -378,6 +395,21 @@ async function observeDseHeaders(findingId, host, fetcher) {
   if (!dsePresenceEvidenceUsable(findingId, enrich)) {
     return { completeness: "indeterminate", reason: "header_evidence_unusable" };
   }
+  // Item 15 B2: the host's own HTTPS answer carries no HSTS at all. An HSTS
+  // weakness case is not fixed by losing HSTS (or by another host's policy).
+  if (String(findingId).startsWith("dse_hsts_") && headers.hsts_policy?.state === "absent") {
+    return {
+      completeness: "complete",
+      present: true,
+      evidence: {
+        status: probe.res.status,
+        hsts_present: false,
+        hsts_apex_state: "absent",
+        hsts_redirected_host: headers.hsts_policy.final_host !== headers.hsts_policy.apex_host ? headers.hsts_policy.final_host : null,
+        limitations: "The host's own HTTPS answer carries no HSTS; a redirected host's policy does not protect it.",
+      },
+    };
+  }
 
   return {
     completeness: "complete",
@@ -395,13 +427,13 @@ async function observeDseHeaders(findingId, host, fetcher) {
   };
 }
 
-async function observeHost(entry, findingId, host, { fetcher, dnsImpl }) {
+async function observeHost(entry, findingId, host, { fetcher, apexFetcher = null, dnsImpl }) {
   switch (entry.technique) {
     case "http_asset":   return observeHttpAsset(entry, host, fetcher);
     case "dns_takeover": return observeTakeover(host, fetcher, dnsImpl);
     case "http_csp":     return observeCspWeakPolicy(host, fetcher);
     case "dns_caa":      return observeDseCaa(findingId, host, dnsImpl);
-    case "http_headers": return observeDseHeaders(findingId, host, fetcher);
+    case "http_headers": return observeDseHeaders(findingId, host, fetcher, apexFetcher);
     default:             return { completeness: "unsupported_finding_type", reason: "fail_closed" };
   }
 }
@@ -439,6 +471,8 @@ export async function runManagedVerificationProbe(finding, hostOrHosts, { onOutb
 
   const cache = new Map();
   const fetcher = makeReservedProbeFetch({ cache, onOutbound });
+  // The host's own answer, redirect not followed (HSTS is host-scoped).
+  const apexFetcher = makeReservedProbeFetch({ cache, onOutbound, maxHops: 0 });
   // DNS goes through the same metering so a verification's true cost stays visible.
   const dnsImpl = dnsQueryImpl || (async (name, type) => {
     if (typeof onOutbound === "function") onOutbound();
@@ -448,7 +482,7 @@ export async function runManagedVerificationProbe(finding, hostOrHosts, { onOutb
   let firstIncomplete = null;
 
   for (const host of hosts) {
-    const obs = await observeHost(entry, findingId, host, { fetcher, dnsImpl });
+    const obs = await observeHost(entry, findingId, host, { fetcher, apexFetcher, dnsImpl });
     if (obs.completeness !== "complete") {
       firstIncomplete = firstIncomplete || obs;
       observations.push({ host, technique: entry.technique, completeness: obs.completeness, reason: obs.reason || null });

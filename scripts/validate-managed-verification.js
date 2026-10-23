@@ -529,6 +529,30 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   eq("dse_hsts_not_preload_eligible: fully preload-eligible → fixed",
      (await run("dse_hsts_not_preload_eligible", { headers: { "strict-transport-security": "max-age=31536000; includeSubDomains; preload" } })).decision, "fixed");
 
+  // Item 15 B2 (23 Oct 2026): HSTS is host-scoped. The apex redirects to www;
+  // verification reads the apex's OWN answer, never the page it redirects to.
+  const runRedirect = (id, { apexHsts = null, wwwHsts = null }) => {
+    globalThis.fetch = async (url) => {
+      const s = String(url);
+      if (classifyRequest(s) === "doh") {
+        const name = new URL(s).searchParams.get("name");
+        const type = new URL(s).searchParams.get("type");
+        return new Response(JSON.stringify({ Status: 0, Answer: type === "A" && (name === HOST || name === `www.${HOST}`) ? [{ type: 1, data: "93.184.216.34" }] : [] }), { status: 200 });
+      }
+      if (new URL(s).hostname === HOST) {
+        return new Response(null, { status: 301, headers: { location: `https://www.${HOST}/`, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } });
+      }
+      return new Response("<html></html>", { status: 200, headers: wwwHsts ? { "strict-transport-security": wwwHsts } : {} });
+    };
+    return runManagedVerificationProbe({ id }, HOST);
+  };
+  eq("B2: apex sends no HSTS, www is preload-eligible → NOT fixed (still_present)",
+     (await runRedirect("dse_hsts_not_preload_eligible", { apexHsts: null, wwwHsts: "max-age=31536000; includeSubDomains; preload" })).decision, "still_present");
+  eq("B2: apex preload-eligible, www short → fixed (the apex is what is judged)",
+     (await runRedirect("dse_hsts_not_preload_eligible", { apexHsts: "max-age=31536000; includeSubDomains; preload", wwwHsts: "max-age=900" })).decision, "fixed");
+  eq("B2: apex short, www strong → short max-age still_present",
+     (await runRedirect("dse_hsts_short_maxage", { apexHsts: "max-age=900", wwwHsts: "max-age=31536000; includeSubDomains; preload" })).decision, "still_present");
+
   // THE COOKIE TRAP: a response that sets no cookies cannot distinguish "flags fixed"
   // from "this request just set no cookies". It must never read as remediation.
   eq("dse_cookie_no_secure: no cookies observed → deferred (NOT fixed)",

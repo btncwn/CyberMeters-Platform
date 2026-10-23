@@ -74,6 +74,9 @@ const ACTIONABLE = [
 // mapped (a remediation is available but not required); that is allowed.
 const REMEDIATION_NOT_REQUIRED = new Set([
   ...EXPOSURE_RULES.filter(rule => rule.observationOnly).map(rule => `external_exposure_${rule.id}`),
+  // item 15 B2: the redirected host is not covered by the apex's HSTS (an
+  // info observation naming that host; the apex policy itself is reported).
+  "header_hsts_redirect_host_uncovered",
   "dns_resolver_disagreement", "canonical_url_uncertain", "security_headers_not_observed",
   "email_not_applicable", "email_dkim_not_detected", "email_intel_dkim_not_found",
   "dkim_verification_uncertain", "bimi_not_configured", "bimi_certificate_not_listed",
