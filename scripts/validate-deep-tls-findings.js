@@ -85,7 +85,10 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id,verification_status) VALUES ('ws1','d1','verified')").run();
   const { reconcileTlsEndpointCases } = await import('../workers/scan-api/src/engines/tls-endpoint-cases.js');
   const run = assessment => reconcileTlsEndpointCases(env,{workspace_id:'ws1',domain:'example.org',scan_id:'scan_t',tls_assessment:assessment});
-  const kase = () => db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws1' AND finding_id=?").get(finding.id);
+  const { tlsCaseKey } = await import('../workers/scan-api/src/engines/tls-findings.js');
+  const caseKey = tlsCaseKey(finding.tls_condition);
+  assert.match(caseKey,/^tlscase:tls_legacy_protocol:[a-f0-9]{64}$/,'the case key is build-less');
+  const kase = () => db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws1' AND finding_id=?").get(caseKey);
   const events = () => db.prepare("SELECT action,from_status,to_status,actor_type FROM managed_case_events WHERE case_id=? ORDER BY rowid").all(kase()?.id).map(e=>({...e}));
   const transitions = () => db.prepare("SELECT detail_json FROM certificate_lifecycle_events WHERE lifecycle_id=? AND event_type='monitoring_changed' ORDER BY rowid").all(kase()?.id).map(r=>JSON.parse(r.detail_json).to_recurrence_type);
 
@@ -103,10 +106,21 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   assert.equal(kase().status,'detected');
   db.prepare("UPDATE managed_cases SET status='awaiting_verification' WHERE id=?").run(c1.id);
   assert.deepEqual(await run(module([protocol('tls1','uncertain'),protocol('tls1_3')])), {opened:0,reopened:0,verified:0}, 'an inconclusive retest never verifies');
-  assert.deepEqual(await run(module([{...protocol('tls1','rejected'),engine:{...engine,build_id:'c'.repeat(64)}},protocol('tls1_3')])), {opened:0,reopened:0,verified:0}, 'a retest by a different engine build never verifies');
-  assert.deepEqual(await run(fixed), {opened:0,reopened:0,verified:1}, 'an exact-retest clear verifies the submitted case');
+  // A new probe build (Executive, 23 Oct 13:45): the same weakness on the same
+  // endpoint reaches the SAME case, never a duplicate; the build is evidence.
+  const newBuild={...engine,build_id:'c'.repeat(64)};
+  const stillThereNewBuild=module([{...protocol('tls1'),engine:newBuild},{...protocol('tls1_3'),engine:newBuild}]);
+  assert.deepEqual(await run(stillThereNewBuild), {opened:0,reopened:0,verified:0}, 'a new engine build measuring the same condition opens no duplicate');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n,1,'still one case after the build changed');
+  assert.notEqual(tlsAssessmentFindings(stillThereNewBuild)[0].id, finding.id, 'the finding id does change with the build (it is evidence)');
+  assert.deepEqual(await run(module([{...protocol('tls1','rejected'),engine:newBuild},{...protocol('tls1','accepted')},protocol('tls1_3')])), {opened:0,reopened:0,verified:0}, 'one build clear while another still measures it present never verifies');
+  assert.deepEqual(await run({source:'tls_assessment',quality:'complete',endpoints:[endpoint([protocol('tls1','rejected'),protocol('tls1_3')],'1.1.1.1')]}), {opened:0,reopened:0,verified:0}, 'a scan that never re-measured this endpoint never verifies it');
+  const fixedNewBuild=module([{...protocol('tls1','rejected'),engine:newBuild},{...protocol('tls1_3'),engine:newBuild}]);
+  assert.deepEqual(await run(fixedNewBuild), {opened:0,reopened:0,verified:1}, 'an exact-retest clear from the new build verifies the submitted case');
   const v=kase(); assert.equal(v.status,'verified');
   assert.deepEqual(events().at(-1),{action:'transition_verified',from_status:'awaiting_verification',to_status:'verified',actor_type:'system'},'verified by the system');
+  const verifiedEvidence=JSON.parse(db.prepare("SELECT detail_json FROM managed_case_events WHERE case_id=? AND action='transition_verified'").get(c1.id).detail_json);
+  assert.deepEqual(verifiedEvidence.observation.engine_build_ids,['c'.repeat(64)],'the verifying engine build is recorded on the evidence');
   assert.deepEqual(await run(baseline), {opened:0,reopened:1,verified:0}, 'the condition measured again after verification reopens the same case');
   const r=kase(); assert.deepEqual([r.id,r.status,r.reopened_count],[c1.id,'reopened',1]);
   assert.deepEqual(transitions(),['tls_condition_observed','tls_condition_returned'],'the reopen is its own alert occurrence');

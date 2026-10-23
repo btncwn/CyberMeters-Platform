@@ -112,6 +112,41 @@ export function tlsAssessmentFindings(assessment) {
   return [...output.values()];
 }
 
+// The CASE identity of a TLS condition: the endpoint, the control and the
+// protocol/cipher, WITHOUT the engine build or profile versions (Executive,
+// 23 Oct 2026). A new probe build measures the same weakness on the same
+// endpoint; it must reach the same case, not orphan it and open a duplicate.
+// The build stays on the finding, the occurrence and the verification evidence.
+export function tlsCaseKey(condition) {
+  const c=condition||{};
+  if(!/^tls_[a-z_]+$/.test(String(c.type||''))||!c.endpoint_identity||!c.control)return null;
+  return `tlscase:${c.type}:${sha256Text(['tls-case-v1',c.type,c.endpoint_identity,c.control,c.protocol||'',c.cipher_id||'',c.detail||''].join('\n'))}`;
+}
+
+// Re-test a case on THIS assessment, whatever engine build produced it: find
+// the current measurement(s) of the same build-less condition and evaluate each
+// exactly. 'clear' only when every match clears; any 'present' wins; nothing
+// measured is deferred.
+export function evaluateTlsCase(caseKey,assessment) {
+  if(!/^tlscase:tls_[a-z_]+:[a-f0-9]{64}$/.test(String(caseKey||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded',condition_ids:[]};
+  const type=String(caseKey).split(':')[1];
+  const ids=new Set(),builds=new Set();
+  for(const endpoint of assessment.endpoints||[])for(const row of endpoint.checks||[]){
+    if(!row.engine?.sandboxed||!row.observed_at)continue;
+    const detail=type==='tls_weak_cipher'?row.cipher_id||'':type.endsWith('_confirmed')?row.evidence?.vulnerability?.profile||'':'';
+    if(tlsCaseKey({type,endpoint_identity:endpoint.endpoint_identity,control:row.control,protocol:row.protocol,cipher_id:row.cipher_id||null,detail})!==caseKey)continue;
+    const id=conditionKey(type,endpoint,row,detail);
+    if(id){ids.add(id);builds.add(row.engine.build_id);}
+  }
+  if(!ids.size)return {state:'deferred',reason:'tls_condition_not_measured',condition_ids:[],engine_build_ids:[]};
+  const measured={condition_ids:[...ids],engine_build_ids:[...builds]};
+  const results=[...ids].map(id=>({id,...evaluateTlsCondition(id,assessment)}));
+  const present=results.find(r=>r.state==='present');
+  if(present)return {state:'present',reason:present.reason,...measured};
+  if(results.every(r=>r.state==='clear'))return {state:'clear',reason:results[0].reason,...measured};
+  return {state:'deferred',reason:results.find(r=>r.state!=='clear')?.reason||'tls_retest_inconclusive',...measured};
+}
+
 export function evaluateTlsCondition(id,assessment) {
   if(!/^tls_[a-z_]+__[a-f0-9]{64}$/.test(String(id||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded'};
   for(const endpoint of assessment.endpoints||[]){
