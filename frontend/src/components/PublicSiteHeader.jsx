@@ -15,6 +15,8 @@ export function siteNav(sectionBase) {
     { label: 'Product', href: section('product') },
     { label: 'Areas', href: section('areas') },
     { label: 'How it works', href: section('how') },
+    // The six free tools were footer-only (founder, 23 Oct 2026).
+    { label: 'Free tools', to: '/tools' },
     { label: 'Pricing', to: '/pricing' },
     { label: 'Trust & Security', to: '/trust' },
     { label: 'About', to: '/about' },
@@ -65,7 +67,8 @@ export default function PublicSiteHeader({ tone = 'light', signedIn = false }) {
         {dark
           ? <Link to="/" aria-label="CyberMeters home"><CyberMetersLogo size={30} showWordmark darkMode /></Link>
           : <a href={home} aria-label="CyberMeters home"><CyberMetersLogo size={30} showWordmark /></a>}
-        <nav aria-label="Main" className={`hidden lg:flex items-center gap-7 xl:gap-9 text-[16px] font-semibold ${navText}`}>
+        {/* Seven items from 1024px: one line each, tighter only below 1280px (no wrap, no overlap). */}
+        <nav aria-label="Main" className={`hidden lg:flex items-center gap-4 xl:gap-9 text-[15px] xl:text-[16px] font-semibold whitespace-nowrap ${navText}`}>
           {nav.map(item => <NavItem key={item.label} item={item} className={link} />)}
         </nav>
         <div className="flex items-center gap-3">

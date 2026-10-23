@@ -147,6 +147,14 @@ function isMarketingHost() {
   return h === 'cybermeters.com' || h === 'www.cybermeters.com'
 }
 
+// /free-tools (and anything under it) is the free tools' other address: it opens
+// the tools index, as public/_redirects' 301 does at the edge.
+export function freeToolsAliasRoutes() {
+  return [
+    <Route key="free-tools" path="/free-tools/*" element={<Navigate to="/tools" replace />} />,
+  ]
+}
+
 // Marketing host serves only landing/legal/CE-readiness. Auth and app routes
 // live on the app subdomain — a react-router <Navigate> cannot cross hosts, so
 // without this, links like "Sign in" or "Run your security check" on cybermeters.com
@@ -184,6 +192,7 @@ function AppRoutes() {
           <Route path="/tools/security-headers-checker" element={<HeadersCheckerPage />} />
           <Route path="/tools/lookalike-domain-checker" element={<LookalikeCheckerPage />} />
           <Route path="/tools/ssl-checker" element={<SslCheckerPage />} />
+          {freeToolsAliasRoutes()}
           {APP_HOST_PATHS.map(p => (
             <Route key={p} path={p} element={<AppHostRedirect />} />
           ))}
@@ -232,6 +241,7 @@ function AppRoutes() {
         <Route path="/tools/security-headers-checker" element={<HeadersCheckerPage />} />
         <Route path="/tools/lookalike-domain-checker" element={<LookalikeCheckerPage />} />
         <Route path="/tools/ssl-checker" element={<SslCheckerPage />} />
+        {freeToolsAliasRoutes()}
         <Route path="/mcp/connect" element={<ProtectedRoute><McpConnectPage /></ProtectedRoute>} />
 
         {/* ── Protected app ───────────────────────────────────────────── */}
