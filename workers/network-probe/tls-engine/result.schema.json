@@ -633,6 +633,12 @@
         },
         "ca": {
           "type": "boolean"
+        },
+        "must_staple": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       }
     }

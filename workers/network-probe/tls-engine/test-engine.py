@@ -235,6 +235,16 @@ class BaselineTests(unittest.TestCase):
         run([cls.modern, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
              '-days', '2', '-config', alternate_config,
              '-out', cls.alternate_cert, '-keyout', cls.alternate_key])
+        # Must-Staple (RFC 7633): a leaf carrying the TLS Feature extension
+        # with status_request.
+        cls.staple_cert, cls.staple_key = cls.fixture / 'must-staple.pem', cls.fixture / 'must-staple.key'
+        staple_config = cls.fixture / 'must-staple.cnf'
+        staple_config.write_text('[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n'
+                                 '[dn]\nCN=localhost\n[ext]\nsubjectAltName=DNS:localhost\n'
+                                 'basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,digitalSignature,keyEncipherment\n'
+                                 'tlsfeature=status_request\n')
+        run([cls.modern, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
+             '-days', '2', '-config', staple_config, '-out', cls.staple_cert, '-keyout', cls.staple_key])
         cls.expired_cert, cls.expired_key = cls.fixture / 'expired.pem', cls.fixture / 'expired.key'
         cls.future_cert, cls.future_key = cls.fixture / 'future.pem', cls.fixture / 'future.key'
         cls.unrelated_cert, cls.unrelated_key = cls.fixture / 'unrelated.pem', cls.fixture / 'unrelated.key'
@@ -324,6 +334,21 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(len(result['certificates']['trusted_chain']), 1)
                 self.assertEqual(result['ocsp']['state'], 'absent')
                 self.assertNotIn('localhost', json.dumps(result))
+
+    def test_must_staple_is_read_from_the_offered_leaf(self):
+        # Production runs the certificate control for TLS 1.2/1.3 on the modern
+        # engine (tls-collector-runtime.js); the helper defaults tls1_2 to legacy.
+        with server(self.modern, self.staple_cert, self.staple_key, 'tls1_2') as port:
+            staple = self.assess('tls1_2', port, family='modern')
+        self.assertEqual(staple['state'], 'accepted', staple)
+        self.assertIs(staple['certificates']['offered_chain'][0]['must_staple'], True)
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            plain = self.assess('tls1_2', port, family='modern')
+        self.assertIs(plain['certificates']['offered_chain'][0]['must_staple'], False)
+        # The legacy build cannot read the extension: null, never a guess.
+        with server(self.legacy, self.staple_cert, self.staple_key, 'ssl3') as port:
+            legacy = self.assess('ssl3', port)
+        self.assertIsNone(legacy['certificates']['offered_chain'][0]['must_staple'])
 
     def test_ssl2_four_real_ciphers(self):
         catalog = self.assess('ssl2', control='catalog')['catalog']

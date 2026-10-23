@@ -1099,6 +1099,7 @@ const TLS_CONDITION_REASON = Object.freeze({
   tls_weak_certificate_key: "weak certificate key",
   tls_weak_certificate_signature: "weak certificate signature",
   tls_ocsp_revoked: "revoked certificate",
+  tls_must_staple_not_stapled: "Must-Staple certificate without a stapled OCSP response",
   tls_compression_enabled: "TLS compression enabled",
 });
 
