@@ -33,7 +33,21 @@ assert.notEqual(evaluateTlsCondition(finding.id,module([{...protocol('tls1','rej
 const cipher={...protocol('tls1_2'),control:'cipher',cipher_id:'RC4-MD5',evidence:{...protocol('tls1_2').evidence,negotiated:{version:'tls1_2',cipher:'RC4-MD5'}}};
 const cipherFinding=tlsAssessmentFindings(module([protocol('tls1_2'),cipher])).find(row=>row.id.startsWith('tls_weak_cipher__'));
 assert(cipherFinding);
-assert.equal(evaluateTlsCondition(cipherFinding.id,module([protocol('tls1_2'),{...cipher,state:'uncertain',reason:'peer_alert'}])).state,'deferred');
+// A weak cipher clears only on an exact negative (23 Oct 2026): the server answered
+// the cipher-only offer with a TLS alert while the same endpoint still serves tls1_2.
+assert.equal(evaluateTlsCondition(cipherFinding.id,module([protocol('tls1_2'),{...cipher,state:'uncertain',reason:'peer_alert'}])).state,'clear','weak cipher refused by alert on a served protocol clears');
+assert.equal(evaluateTlsCondition(cipherFinding.id,module([protocol('tls1_2'),cipher])).state,'present','weak cipher still negotiated is present');
+assert.equal(evaluateTlsCondition(cipherFinding.id,module([protocol('tls1_2'),{...cipher,state:'uncertain',reason:'transport_timeout'}])).state,'deferred','a timeout is not a refusal');
+assert.equal(evaluateTlsCondition(cipherFinding.id,module([protocol('tls1_3'),protocol('tls1_2','uncertain'),{...cipher,state:'uncertain',reason:'peer_alert'}])).state,'deferred','an alert while tls1_2 itself is not served proves nothing about the cipher');
+assert.equal(evaluateTlsCondition(cipherFinding.id,module([protocol('tls1_2'),{...cipher,state:'uncertain',reason:'peer_alert',physical_telemetry:{...good,bytes_received:0}}])).state,'deferred','no reply bytes is not a server alert');
+// Case keys: a profile bump keeps the case; a weak cipher key names its cipher.
+{
+  const { tlsCaseKey } = await import('../workers/scan-api/src/engines/tls-findings.js');
+  const base={type:'tls_robot_confirmed',endpoint_identity:identity,control:'robot',protocol:'tls1_2',cipher_id:null};
+  assert.equal(tlsCaseKey({...base,detail:'robot-finite-v1'}),tlsCaseKey({...base,detail:'robot-finite-v2'}),'a _confirmed profile bump (v1 → v2) keeps the same case');
+  const wc={type:'tls_weak_cipher',endpoint_identity:identity,control:'cipher',protocol:'tls1_2'};
+  assert.notEqual(tlsCaseKey({...wc,cipher_id:'RC4-MD5',detail:'RC4-MD5'}),tlsCaseKey({...wc,cipher_id:'DES-CBC3-SHA',detail:'DES-CBC3-SHA'}),'a weak-cipher case key includes its cipher id');
+}
 const leaf={key_type:'RSA',key_bits:1024,signature_algorithm:'rsa_sha1',sha256:'b'.repeat(64)};
 const certRow=certificate=>({...protocol('tls1_2'),control:'certificate',evidence:{...protocol('tls1_2').evidence,
   certificates:{offered_chain:[certificate],trust:'valid',hostname:true}}});
