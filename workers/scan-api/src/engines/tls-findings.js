@@ -27,6 +27,18 @@ const evidence = (endpoint,row,value) => ({type:'tls_endpoint_measurement',label
   endpoint_identity:endpoint.endpoint_identity,control:row.control,protocol:row.protocol,cipher:row.evidence?.negotiated?.cipher||null,
   engine:{family:row.engine.family,version:row.engine.version,build_id:row.engine.build_id},
   profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION});
+// Customer prose names things in words (C-45, 23 Oct 2026): protocol enums,
+// trust reasons, signature enums and active-profile ids stay in evidence
+// fields only, never in a title or description.
+const PROTOCOL_WORDS={ssl2:'SSL 2.0',ssl3:'SSL 3.0',tls1:'TLS 1.0',tls1_1:'TLS 1.1',tls1_2:'TLS 1.2',tls1_3:'TLS 1.3'};
+export const tlsProtocolWords=protocol=>PROTOCOL_WORDS[protocol]||'an unrecognised TLS version';
+const TRUST_REASON_WORDS={issuer_missing:'the issuing certificate could not be found',self_signed:'the certificate is self-signed',
+  expired:'the certificate has expired',not_yet_valid:'the certificate is not yet valid',signature_invalid:'a certificate signature is invalid',
+  invalid_purpose:'the certificate is not valid for this purpose',trust_unknown:'the chain could not be validated'};
+const trustReasonWords=reason=>TRUST_REASON_WORDS[reason]||'the chain could not be validated';
+const SIGNATURE_WORDS={rsa_md5:'RSA with MD5',rsa_sha1:'RSA with SHA-1',ecdsa_sha1:'ECDSA with SHA-1',dsa_sha1:'DSA with SHA-1'};
+const ACTIVE_CONTROL_WORDS={heartbleed:'Heartbleed',ccs:'CCS injection',robot:'ROBOT'};
+
 const make = (type,endpoint,row,{title,description,severity,recommendation,value,detail='',confidence=95}) => {
   const id=conditionKey(type,endpoint,row,detail);
   if(!id)return null;
@@ -44,8 +56,8 @@ export function tlsAssessmentFindings(assessment) {
   for(const endpoint of assessment.endpoints||[])for(const row of endpoint.checks||[]){
     if(!row.engine?.sandboxed || !row.observed_at)continue;
     if(row.control==='protocol'&&positive(row)&&row.evidence.negotiated?.version===row.protocol&&tlsProtocolRisk(row.protocol))
-      add(make('tls_legacy_protocol',endpoint,row,{title:`${row.protocol.toUpperCase().replace('_','.') } accepted on this endpoint`,
-        description:`The measured endpoint completed a ${row.protocol} TLS handshake. Certificate validity does not remove the risk of accepting this legacy protocol.`,
+      add(make('tls_legacy_protocol',endpoint,row,{title:`${tlsProtocolWords(row.protocol)} accepted on this endpoint`,
+        description:`The measured endpoint completed a ${tlsProtocolWords(row.protocol)} handshake. Certificate validity does not remove the risk of accepting this legacy protocol.`,
         severity:'high',recommendation:'Disable the observed legacy TLS version on this specific service after checking client compatibility, then repeat the same endpoint test.',
         value:`${row.protocol} authenticated Finished`}));
     if(row.control==='cipher'&&positive(row)&&row.evidence.negotiated?.cipher===row.cipher_id&&isWeakTlsCipher(row.cipher_id))
@@ -66,10 +78,10 @@ export function tlsAssessmentFindings(assessment) {
     if(['heartbleed','robot','ccs'].includes(row.control)&&row.evidence?.vulnerability?.status==='confirmed'&&
       row.evidence.vulnerability.completed_vectors===row.evidence.vulnerability.planned_vectors&&
       row.evidence.vulnerability.completed_vectors>0&&row.physical_telemetry?.connections>0)
-      add(make(`tls_${row.control}_confirmed`,endpoint,row,{title:row.control==='robot'?'RSA padding oracle signal observed':`${row.control.toUpperCase()} behaviour confirmed`,
+      add(make(`tls_${row.control}_confirmed`,endpoint,row,{title:row.control==='robot'?'RSA padding oracle signal observed':`${ACTIVE_CONTROL_WORDS[row.control]} behaviour confirmed`,
         description:row.control==='robot'
-          ? `The bounded ${row.evidence.vulnerability.profile} profile observed repeatable different TLS alerts for RSA padding classes on this measured endpoint. No decryption was attempted. A CDN edge result does not establish an origin vulnerability; confirm the edge behaviour with its operator.`
-          : `The bounded ${row.evidence.vulnerability.profile} profile confirmed the behaviour on this measured endpoint. No memory collection or decryption was performed.`,
+          ? `The bounded ROBOT test observed repeatable different TLS alerts for RSA padding classes on this measured endpoint. No decryption was attempted. A CDN edge result does not establish an origin vulnerability; confirm the edge behaviour with its operator.`
+          : `The bounded ${ACTIVE_CONTROL_WORDS[row.control]} test confirmed the behaviour on this measured endpoint. No memory collection or decryption was performed.`,
         severity:'high',confidence:row.control==='robot'?80:95,
         recommendation:row.control==='robot'
           ? 'Ask the measured edge or service operator to investigate the RSA padding oracle signal, update or reconfigure its TLS implementation where confirmed, then repeat this bounded control.'
@@ -83,7 +95,7 @@ export function tlsAssessmentFindings(assessment) {
         recommendation:'Deploy a certificate covering this hostname on this exact service and retest the endpoint.',
         value:leaf?.sha256||'hostname mismatch'}));
       if(cert?.trust==='invalid')add(make('tls_certificate_trust',endpoint,row,{title:'Certificate chain did not validate',
-        description:`The local trust snapshot rejected the offered certificate chain (${cert.reason}). Revocation status is separate.`,severity:'high',
+        description:`The local trust snapshot rejected the offered certificate chain: ${trustReasonWords(cert.reason)}. Revocation status is separate.`,severity:'high',
         recommendation:'Correct the certificate chain or trust configuration for this endpoint and retest against the recorded trust snapshot.',
         value:cert.reason}));
       if(leaf && ((leaf.key_type==='RSA'||leaf.key_type==='DSA')&&leaf.key_bits>0&&leaf.key_bits<2048 ||
@@ -94,7 +106,7 @@ export function tlsAssessmentFindings(assessment) {
           value:`${leaf.key_type} ${leaf.key_bits}`}));
       if(leaf&&['rsa_md5','rsa_sha1','ecdsa_sha1','dsa_sha1'].includes(leaf.signature_algorithm))
         add(make('tls_weak_certificate_signature',endpoint,row,{title:'Certificate uses a legacy signature algorithm',
-          description:`The offered leaf certificate uses ${leaf.signature_algorithm}.`,severity:'medium',
+          description:`The offered leaf certificate is signed with ${SIGNATURE_WORDS[leaf.signature_algorithm]}.`,severity:'medium',
           recommendation:'Replace the certificate with one signed using a current algorithm and verify the live chain.',
           value:leaf.signature_algorithm}));
       const ocsp=row.evidence.ocsp;

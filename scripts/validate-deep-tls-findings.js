@@ -94,6 +94,25 @@ const robot={...protocol('tls1_2'),control:'robot',reason:'active_confirmed',eng
   evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'robot-finite-v1',completed_vectors:10,planned_vectors:10}},
   physical_telemetry:{...good,connections:11}};
 const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).find(row=>row.id.startsWith('tls_robot_confirmed__'));
+// C-45: no internal identifier (snake_case enum or profile id) in customer prose.
+{
+  const prose=/[a-z]+_[a-z_]+|-v\d/;
+  const active=(control,profile,planned)=>({...robot,control,evidence:{...robot.evidence,vulnerability:{status:'confirmed',profile,completed_vectors:planned,planned_vectors:planned}}});
+  const rows=[...['ssl2','ssl3','tls1','tls1_1'].map(v=>protocol(v)),cipher,robot,active('heartbleed','heartbleed-minimal-v1',1),active('ccs','ccs-early-record-v1',4),
+    ...['rsa_md5','rsa_sha1','ecdsa_sha1','dsa_sha1'].map(sig=>certRow({...leaf,signature_algorithm:sig})),
+    ...['issuer_missing','self_signed','expired','not_yet_valid','signature_invalid','invalid_purpose','trust_unknown','something_new'].map(reason=>{
+      const row=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'});row.evidence.certificates={...row.evidence.certificates,trust:'invalid',reason};return row;})];
+  let checked=0;
+  for(const row of rows)for(const f of tlsAssessmentFindings(module([protocol('tls1_2'),row]))){
+    for(const field of ['title','description','recommendation'])assert.doesNotMatch(f[field],prose,`${f.id.split('__')[0]} ${field}: ${f[field]}`);
+    checked++;
+  }
+  assert.ok(checked>=20,`prose scan covered ${checked} findings`);
+  const tls10=tlsAssessmentFindings(module([protocol('tls1_2'),protocol('tls1')]))[0];
+  assert.match(tls10.title,/^TLS 1\.0 accepted/);assert.equal(tls10.evidence[0].value.startsWith('tls1 '),true,'evidence keeps the raw value');
+  const expired=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'});expired.evidence.certificates={...expired.evidence.certificates,trust:'invalid',reason:'expired'};
+  assert.match(tlsAssessmentFindings(module([protocol('tls1_2'),expired])).find(f=>f.id.startsWith('tls_certificate_trust__')).description,/certificate chain: the certificate has expired\./);
+}
 assert(robotFinding);
 assert.equal(robotFinding.confidence,80);
 assert.match(robotFinding.description,/CDN edge result does not establish an origin vulnerability/);
@@ -153,7 +172,7 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
     const titles = db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws1' AND source_finding_type='tls_legacy_protocol'").all().map(r=>certificateCaseDisplay({...r}).display_title).sort();
     assert.deepEqual(titles,['TLS endpoint mail.example.org — TLS 1.0 accepted','TLS endpoint mail.example.org — TLS 1.1 accepted'],'TLS 1.0 and TLS 1.1 cases are told apart');
     // An older case without the recorded condition gets it on the next re-measure, once, no duplicate.
-    const t11 = db.prepare("SELECT id FROM managed_cases WHERE workspace_id='ws1' AND title LIKE 'TLS1.1%'").get().id;
+    const t11 = db.prepare("SELECT id FROM managed_cases WHERE workspace_id='ws1' AND title LIKE 'TLS 1.1%'").get().id;
     db.prepare("UPDATE managed_cases SET evidence_json=NULL WHERE id=?").run(t11);
     assert.equal(certificateCaseDisplay({...db.prepare("SELECT * FROM managed_cases WHERE id=?").get(t11)}).display_title,'TLS endpoint mail.example.org — legacy TLS version accepted');
     const before = db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n;
@@ -193,7 +212,7 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   assert.deepEqual(transitions(),['tls_condition_observed','tls_condition_returned'],'the reopen is its own alert occurrence');
   const sent = certAlerts();
   assert.deepEqual(sent.map(a=>a.type),['certificates_trust.tls_condition_observed','certificates_trust.tls_condition_returned'],'one alert on open, one on reopen');
-  assert.match(sent[0].message,/A TLS measurement of mail\.example\.org observed: TLS1 accepted on this endpoint\./,'the open alert names the endpoint and the observed condition in plain words');
+  assert.match(sent[0].message,/A TLS measurement of mail\.example\.org observed: TLS 1\.0 accepted on this endpoint\./,'the open alert names the endpoint and the observed condition in plain words');
   assert.match(sent[1].message,/CyberMeters verified this fixed on \d{1,2} [A-Z][a-z]{2} \d{4}; it has been observed again, so the case is reopened\./,'the reopen alert says it was verified, and when');
   assert(!sent.some(a=>/tls_|tlscase:|condition "/.test(a.message)),'no internal key in alert prose');
   assert.deepEqual(await run({source:'not_tls'}), {opened:0,reopened:0,verified:0,skipped:'no_tls_assessment'});
