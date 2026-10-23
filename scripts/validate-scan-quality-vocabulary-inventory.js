@@ -549,12 +549,12 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   // The terminal-host queue fixture asserts exposure receipt quality, not scan_quality.
   // C-27 guards move this exact assertion 174 -> 179; keyed two-tree diff
   // Network-probe coverage quality (no-answer is an observation, 22 Oct 2026), not scan_quality.
-  "scripts/validate-network-assets.js:391:proof.quality==='complete'",
-  "scripts/validate-network-assets.js:393:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'error')]}).quality==='partial'",
-  "scripts/validate-network-assets.js:394:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'not_run')]}).quality==='partial'",
-  "scripts/validate-network-assets.js:398:silent.quality==='partial'",
-  "scripts/validate-network-assets.js:401:mixed.quality==='partial'",
-  "scripts/validate-network-assets.js:413:mutant.networkReceiptCoverage({coverage:{planned:4},observations:[o(22,'open'),o(80,'timeout'),o(443,'timeout'),o(3389,'timeout')]}).quality==='partial'",
+  "scripts/validate-network-assets.js:403:proof.quality==='complete'",
+  "scripts/validate-network-assets.js:405:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'error')]}).quality==='partial'",
+  "scripts/validate-network-assets.js:406:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'not_run')]}).quality==='partial'",
+  "scripts/validate-network-assets.js:410:silent.quality==='partial'",
+  "scripts/validate-network-assets.js:413:mixed.quality==='partial'",
+  "scripts/validate-network-assets.js:425:mutant.networkReceiptCoverage({coverage:{planned:4},observations:[o(22,'open'),o(80,'timeout'),o(443,'timeout'),o(3389,'timeout')]}).quality==='partial'",
   // against origin/main 16a4ae0b shows no other unresolved-site change.
   "scripts/validate-exposure-queue.js:180:report.quality==='partial'",
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",

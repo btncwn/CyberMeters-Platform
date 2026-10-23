@@ -272,10 +272,13 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
 {
   const {activeCheckConsentRoutes}=await import('../workers/scan-api/src/routes/active-check-consents.js');
   const {isAuthorised,ACTIVE_CHECK_AUTHORITY_VERSION,ACTIVE_CHECK_AUTHORITY_TEXT}=await import('../workers/scan-api/src/engines/active-check-consent.js');
-  async function consent(path='',{user='owner',workspace='wa',method='GET',body,token={}}={}){
+  // The consent mechanics below run with every check treated as available (a
+  // test-only seam); the production default refuses unavailable checks, tested
+  // separately below.
+  async function consent(path='',{user='owner',workspace='wa',method='GET',body,token={},available=true}={}){
     const url=new URL(`https://unit.test/api/workspaces/${workspace}/active-check-consents${path}`);
     const request=new Request(url,{method,...(method!=='GET'?{body:JSON.stringify(body??{}),headers:{'Content-Type':'application/json','CF-Connecting-IP':'203.0.113.9'}}:{})});
-    const response=await activeCheckConsentRoutes({request,url,env,requireAuth:async()=>user?{id:user,email:`${user}@example.test`,...token}:null,requireWorkspaceRole,json:(b,s=200)=>Response.json(b,{status:s}),serverError:e=>Response.json({error:'server',detail:String(e?.message||e)},{status:500})});
+    const response=await activeCheckConsentRoutes({...(available?{testOnlyActiveCheckAvailable:()=>true}:{}),request,url,env,requireAuth:async()=>user?{id:user,email:`${user}@example.test`,...token}:null,requireWorkspaceRole,json:(b,s=200)=>Response.json(b,{status:s}),serverError:e=>Response.json({error:'server',detail:String(e?.message||e)},{status:500})});
     return {status:response.status,body:await response.json()};
   }
   db.prepare("INSERT INTO domains(id,user_id,domain) VALUES('d_other','other','other.example')").run();
@@ -295,6 +298,15 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
     ['no signer',{body:{...grant,signer_name:' '}},400],
   ])eq(`consent POST refused: ${name}`,(await consent('',{method:'POST',body:grant,...args})).status,status);
   eq('consent: refused requests wrote nothing',rows().length,0);
+  // Executive 23 Oct 2026: no Active Check has a released engine today, so the
+  // catalogue says so and a grant is refused (a permission for a check that
+  // cannot run is a false offer).
+  const notAvailable=await consent('',{method:'POST',body:grant,user:'admin',available:false});
+  eq('consent: an unavailable check cannot be granted (production default)',[notAvailable.status,notAvailable.body.error],[422,'active_check_not_available']);
+  eq('consent: the refusal names the unavailable checks',notAvailable.body.checks,['takeover_active_confirm','mail_spoof_resistance']);
+  eq('consent: an unavailable-check refusal writes nothing',rows().length,0);
+  const catalogue=(await consent('',{user:'viewer'})).body.catalogue||[];
+  eq('consent: the catalogue lists all eight checks, each with availability',[catalogue.length,catalogue.every(c=>c.available===false)],[8,true]);
   eq('consent: a viewer can read',(await consent('',{user:'viewer'})).status,200);
 
   const created=await consent('',{method:'POST',body:grant,user:'admin'});
