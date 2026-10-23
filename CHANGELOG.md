@@ -4093,7 +4093,7 @@ controlled acceptance or customer invitations.
 
 - **Live Worker Version ID:** `18c075a7-92bf-41f2-a06b-38a17929b687` (main `d97625b`)
 - **Rollback Worker Version ID:** `f06f3c43-5c32-413d-a93e-5eb7e5808c9a` (v2026.07.16-4)
-- **Remote D1 migrations applied:** `091-cyber-mot-domain-states.sql` — additive; table + 2 named indexes verified present, 16 columns, 0 rows.
+- **Remote D1 migrations applied:** `091-domain-states.sql` — additive; table + 2 named indexes verified present, 16 columns, 0 rows.
 - **Pages:** auto-deployed from `main`; `app.cybermeters.com/portfolio/domains` 200.
 - **PRs:** #119 (exec-summary all-clear) · #120 (per-domain state + trend backend, mig 091) · #121 (per-domain UI)
 

@@ -14,7 +14,7 @@
 --    domains an alert belongs to. The existing `domain` metadata field is a
 --    HOSTNAME (it is rendered as one in the bell UI and carried in the frozen
 --    signed-webhook envelope), so it cannot be repurposed. domain_key is a new,
---    distinctly-named column holding a CYBER_MOT_DOMAINS key.
+--    distinctly-named column holding a SECURITY_CHECK_DOMAINS key.
 --
 -- 3. NO APPEND-ONLY DELIVERY HISTORY. workspace_alert_channels' three
 --    last_delivery_* columns are OVERWRITTEN on every send: one data point per
@@ -50,7 +50,7 @@
 
 -- ── notification_events: canonical alert identity + domain attribution ────────
 
--- The canonical domain this alert belongs to (a CYBER_MOT_DOMAINS key, e.g.
+-- The canonical domain this alert belongs to (a SECURITY_CHECK_DOMAINS key, e.g.
 -- 'certificates_trust'). NULL for pre-087 rows and for any writer that has not
 -- been migrated. NOT the same thing as the `domain` metadata field, which is a
 -- hostname.
@@ -165,7 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_alert_deliveries_notification
 CREATE TABLE IF NOT EXISTS alert_activation (
     id             TEXT PRIMARY KEY,
     workspace_id   TEXT NOT NULL,
-    -- A CYBER_MOT_DOMAINS key. Activation is per-domain so a domain wired later
+    -- A SECURITY_CHECK_DOMAINS key. Activation is per-domain so a domain wired later
     -- baselines on its own first evaluation rather than inheriting another's.
     domain_key     TEXT NOT NULL,
     -- The watermark. Anything observed at or before this instant is pre-existing

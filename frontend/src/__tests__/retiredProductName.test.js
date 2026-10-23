@@ -9,10 +9,12 @@ import { resolve } from 'node:path'
 // "external security check" (or "security check").
 //
 // Scans every tracked file in the repository. Only persisted names may remain:
-// applied migrations, the D1 table and API field names (snake_case), the
-// checksum-bound snapshot key, and the former API path and article address that
-// stay as aliases for existing clients and links. Each allowed file has an
-// exact count, so a new occurrence anywhere fails.
+// the D1 table and API field names (snake_case), the checksum-bound snapshot
+// key, and the former API path and article address that stay as aliases for
+// existing clients and links. Each allowed file has an exact count, so a new
+// occurrence anywhere fails. Since 23 Oct 2026 no comment, CI step name or file
+// name carries it either, migrations included (091 renamed: the D1 ledger never
+// recorded it, migrations being applied with `d1 execute --file`).
 
 const root = resolve(__dirname, '../../..')
 const SPACED = /cyber[\s ]+mot\b/gi
@@ -20,17 +22,9 @@ const IDENTIFIER = /CyberMot|cyberMot|CYBER_MOT/g
 const HYPHEN = /cyber-mot/gi
 const SNAKE = /cyber_mot\w*/g
 const PERSISTED_SNAKE = new Set(['cyber_mot_domains', 'cyber_mot_domain_states', 'cyber_mot_resolver_version'])
-// The applied migration's file name (migrations are never renamed).
-const MIGRATION_FILE = /091-cyber-mot-domain-states\.sql/g
 
-// Files that cannot change (applied migrations) or are outside this seat's
-// remit (the CI workflow): the spaced form is counted exactly.
-const SPACED_ALLOWED = {
-  '.github/workflows/ci.yml': 2,
-  'database/migrations/082-universal-managed-cases.sql': 1,
-  'database/migrations/091-cyber-mot-domain-states.sql': 1,
-  'database/migrations/093-scan-report-snapshots.sql': 3,
-}
+// No file may carry the spaced form (23 Oct 2026: migrations and CI cleaned too).
+const SPACED_ALLOWED = {}
 // The backend compatibility path and article redirects, kept for old clients/links.
 const HYPHEN_ALLOWED = {
   'frontend/public/_redirects': 2,
@@ -59,7 +53,7 @@ describe('retired product name', () => {
     expect(files).toContain('workers/scan-api/src/engines/security-check-domains.js')
   })
 
-  it('the spaced name appears only in applied migrations and the CI workflow', () => {
+  it('the spaced name appears nowhere', () => {
     const hits = sources
       .map(([file, s]) => [file, count(s, SPACED)])
       .filter(([file, n]) => n !== (SPACED_ALLOWED[file] || 0))
@@ -70,13 +64,13 @@ describe('retired product name', () => {
     expect(sources
       .filter(([file, s]) => !file.startsWith('database/migrations/') && count(s, IDENTIFIER) > 0)
       .map(([f]) => f)).toEqual([])
-    expect(files.filter((f) => /cyber[-_]?mot/i.test(f) && !f.startsWith('database/migrations/'))).toEqual([])
+    expect(files.filter((f) => /cyber[-_]?mot/i.test(f))).toEqual([])
   })
 
-  it('the hyphenated form is only the migration file name and the kept aliases', () => {
+  it('the hyphenated form is only the kept aliases', () => {
     const hits = sources
       .filter(([file]) => !file.startsWith('database/migrations/'))
-      .map(([file, s]) => [file, count(s.replace(MIGRATION_FILE, ''), HYPHEN)])
+      .map(([file, s]) => [file, count(s, HYPHEN)])
       .filter(([file, n]) => n !== (HYPHEN_ALLOWED[file] || 0))
     expect(hits).toEqual([])
   })

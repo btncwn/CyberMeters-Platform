@@ -6,7 +6,7 @@
 -- canonical alerting domain.
 --
 -- ── WHAT CE ALERTS ON, AND WHAT IT MUST NOT (founder ownership decision) ─────
--- CE detects NOTHING of its own: cyber-mot-domains.js gives it `modules: []` and
+-- CE detects NOTHING of its own: security-check-domains.js gives it `modules: []` and
 -- `match: () => false`, so no scan finding is ever attributed to it. Every control it
 -- grades is a RE-INTERPRETATION of evidence another domain already owns and already
 -- alerts on — DMARC belongs to Email Protection, HSTS/CSP to Website Security,
