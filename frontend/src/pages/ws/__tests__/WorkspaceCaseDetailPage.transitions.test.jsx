@@ -60,7 +60,7 @@ describe('WorkspaceCaseDetailPage — input-free transitions execute on one clic
     api.transitionCase.mockResolvedValue({ case: { ...baseCase, status: target_status } })
     renderCase()
     fireEvent.click(await screen.findByRole('button', { name: label }))
-    await waitFor(() => expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'c1', { target_status }))
+    await waitFor(() => expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'c1', { target_status, expected_status: 'action_in_progress' }))
     // No empty Confirm/Cancel panel ever appeared.
     expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
@@ -106,7 +106,7 @@ describe('WorkspaceCaseDetailPage — input-required transitions still open a fo
     fireEvent.change(screen.getByPlaceholderText(/Why is this the right outcome/i), { target: { value: 'Duplicate case.' } })
     expect(confirm).toBeEnabled()
     fireEvent.click(confirm)
-    await waitFor(() => expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'c1', { target_status: 'rejected', reason: 'Duplicate case.' }))
+    await waitFor(() => expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'c1', { target_status: 'rejected', reason: 'Duplicate case.', expected_status: 'triaged' }))
   })
 
   it('risk acceptance requests both a reason and an expiry', async () => {
@@ -171,5 +171,19 @@ describe('WorkspaceCaseDetailPage — viewer gating', () => {
     renderCase()
     expect(await screen.findByText('History')).toBeInTheDocument()
     expect(screen.queryByText('Next action')).toBeNull()
+  })
+})
+
+// #912 stale-client guard: the page names the status it rendered; when the case
+// has moved since, the server changes nothing, the page says so and reloads.
+describe('WorkspaceCaseDetailPage — a case that moved since the page loaded', () => {
+  it('a 409 case_status_changed shows a plain sentence and reloads the case; no generic error', async () => {
+    api.getCase.mockResolvedValue({ case: baseCase, events: [], can_manage: true, available_transitions: [{ target_status: 'triaged', label: 'Begin triage' }] })
+    api.transitionCase.mockRejectedValue(Object.assign(new Error('changed'), { status: 409, code: 'case_status_changed' }))
+    renderCase()
+    fireEvent.click(await screen.findByRole('button', { name: 'Begin triage' }))
+    expect(await screen.findByText('This case changed since the page was loaded, so nothing was changed. It now shows its current status.')).toBeInTheDocument()
+    expect(screen.queryByText('Could not complete this action. Please try again.')).toBeNull()
+    await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(2))
   })
 })
