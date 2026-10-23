@@ -1690,7 +1690,7 @@ export default function ScanDetail() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-bold text-gray-900 break-words min-w-0">Scan — {formatDate(scan.created_at)}</h1>
-                <StatusBadge status={scan.status} quality={scan.scan_quality} />
+                <StatusBadge status={scan.status} quality={scan.scan_quality} outcome={scan.outcome} />
               </div>
               <p className="text-xs text-gray-500">{scan.domain} · <InternalIdCopyButton id={scan.id} label="scan" /> · <span data-testid="report-time-note">{REPORT_TIME_NOTE}</span></p>
             </div>
@@ -1806,7 +1806,17 @@ export default function ScanDetail() {
               ) : scan.status === 'failed' ? (
                 <div className="card flex flex-col sm:flex-row sm:items-start gap-3 px-6 py-6" data-testid="scan-failed">
                   <div className="flex-1 min-w-0">
-                    {interrupted ? (
+                    {scan.outcome === 'domain_not_found' ? (
+                      <>
+                        {/* Item 15 fix D: nothing was assessed because the domain
+                            does not exist; this is not a product failure. */}
+                        <p className="font-bold text-sm text-gray-900" data-testid="scan-domain-not-found">Could not assess — domain does not exist in public DNS</p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          Two independent public DNS resolvers both answered that <span className="font-medium text-gray-700">{scan.domain}</span> does
+                          not exist, so CyberMeters could not assess it. Previous observations are kept, and nothing was scored.
+                        </p>
+                      </>
+                    ) : interrupted ? (
                       <>
                         {/* #880: a failed scan keeps what it completed. Said as
                             such, never as an assessment of the domain. */}
@@ -1849,7 +1859,7 @@ export default function ScanDetail() {
                   {/* A domain never breaks mid-word: one line, ellipsis, full name on hover. */}
                   <KV label="Domain"    value={<span className="block truncate" title={scan.domain} data-testid="scan-info-domain">{scan.domain}</span>} />
                   {/* The run finishing and its checks all completing are two facts. */}
-                  <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} />} />
+                  <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} outcome={scan.outcome} />} />
                   {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} assessment={assessment} scanQuality={report?.scan_quality} />} />}
                   {/* The backend decides finality; an incomplete assessment has no customer-facing number. */}
                   {headline.mode === 'established' && (

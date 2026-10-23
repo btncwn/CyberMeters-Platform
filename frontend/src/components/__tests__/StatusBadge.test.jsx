@@ -27,6 +27,12 @@ describe('StatusBadge', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 
+  it('a scan of a domain that does not exist reads not assessed, never failed', () => {
+    render(<StatusBadge status="failed" outcome="domain_not_found" />)
+    expect(screen.getByText('Not assessed — domain not found')).toBeInTheDocument()
+    expect(screen.queryByText('Failed')).toBeNull()
+  })
+
   it('never breaks onto two lines', () => {
     render(<StatusBadge status="completed" quality="partial" />)
     expect(screen.getByText('Partial results')).toHaveClass('whitespace-nowrap')

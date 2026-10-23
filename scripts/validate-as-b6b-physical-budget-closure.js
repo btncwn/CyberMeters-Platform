@@ -590,7 +590,9 @@ async function runEnginePhysicalProvenanceFixture(scanId, counter) {
     zeroCounter.contextFor("fixture_precharge").recordAttempt();
     zeroReport = await runEnginePhysicalProvenanceFixture("scan_asb6b_zero", zeroCounter);
 
-    const oneCounter = new PhysicalSubrequestCounter({ limit: 1, safetyMargin: 0 });
+    // Limit 3: the engine's Phase 0 domain-existence check (item 15 fix D)
+    // issues two DNS questions first; the core module then gets exactly one.
+    const oneCounter = new PhysicalSubrequestCounter({ limit: 3, safetyMargin: 0 });
     oneReport = await runEnginePhysicalProvenanceFixture("scan_asb6b_one", oneCounter);
   } finally {
     globalThis.fetch = realFetch;

@@ -199,6 +199,8 @@ export interface Scan {
   created_at?: string;
   workspace_id?: string | null;
   cyber_score?: number | null;
+  /** "domain_not_found": not assessed because the domain does not exist in public DNS. */
+  outcome?: "domain_not_found" | null;
 }
 
 export interface ScanList {

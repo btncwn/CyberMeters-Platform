@@ -247,6 +247,11 @@ const R_ALL_503 = async () => origin503();
     ok(`UNCERTAIN_${status}_WEBSITE_NOT_HEALTHY`, r.website?.state !== "assessed_healthy", `state=${r.website?.state}`);
     ok(`UNCERTAIN_${status}_SUMMARY_SAYS_NOT_VALIDATED`,
       !/^Assessed — no material issue observed/.test(String(r.website?.summary || "")), String(r.website?.summary || ""));
+    // Codex C-36 (P2): the customer sentence itself is pinned, so it cannot be
+    // emptied or reworded into a clean result while these checks still pass.
+    eq(`UNCERTAIN_${status}_PROVISIONAL_SENTENCE_EXACT`, [r.website?.state, r.website?.summary], ["provisional",
+      "No material issue observed, but the security headers could not be validated this scan " +
+      "(the site may have answered through bot protection, or its headers varied by page)."]);
   }
   const healthy = await observe(allHeaders);
   eq("UNCERTAIN_CONTROL_FULLY_HEADERED_200_STAYS_HEALTHY", healthy.website?.state, "assessed_healthy");

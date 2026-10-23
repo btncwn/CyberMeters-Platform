@@ -129,9 +129,17 @@ export function projectHistoricalChangesForCustomer(historicalChanges, {
 // progress with terminal: true, so the failed-scan page can say how far it got;
 // the completed module names exist only when the scan reached finalisation (an
 // interrupted scan has none recorded, and says so). null for a completed scan.
-const SCAN_PROGRESS_STAGES = new Set(["discovery_complete", "phase5_intelligence", "finalizing"]);
+const SCAN_PROGRESS_STAGES = new Set(["discovery_complete", "phase5_intelligence", "finalizing", "domain_not_found"]);
 const SCAN_PROGRESS_STALE_MS = 10 * 60 * 1000;
 const MODULE_NAME = /^[a-z0-9_]{1,48}$/;
+// The one scan outcome a customer row carries beyond its status (item 15 fix D):
+// a scan that stopped because the domain does not exist in public DNS is "not
+// assessed (domain not found)", never a product failure.
+export function scanOutcome(scan) {
+  return scan?.status === "failed" && scan?.current_stage === "domain_not_found" ? "domain_not_found" : null;
+}
+const withOutcome = ({ current_stage, ...row }) => ({ ...row, outcome: scanOutcome({ ...row, current_stage }) });
+
 export function scanProgress(scan, now = Date.now(), { completedModuleNames = null } = {}) {
   const live = scan && (scan.status === "running" || scan.status === "queued");
   if (!scan || (!live && scan.status !== "failed")) return null;
@@ -448,7 +456,7 @@ export async function scanRoutes(rctx) {
         // domain. NULL owner = unknown owner = not listable.
         result = await env.cybermeters_db
           .prepare(
-            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
+            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at, s.current_stage
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
@@ -468,7 +476,7 @@ export async function scanRoutes(rctx) {
         // leaked unattributed scans across every co-linked workspace.
         result = await env.cybermeters_db
           .prepare(
-            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
+            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at, s.current_stage
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
@@ -541,7 +549,7 @@ export async function scanRoutes(rctx) {
       }
       // ── End stuck-scan reconciliation ─────────────────────────────────
 
-      const customerScans = await projectPhase5ScanRowsForCustomer(env, result.results);
+      const customerScans = (await projectPhase5ScanRowsForCustomer(env, result.results)).map(withOutcome);
       return json({
         scans: customerScans,
         phase5_evidence_coverage: phase5EvidenceReadCoverage(customerScans),
@@ -1046,7 +1054,7 @@ export async function scanRoutes(rctx) {
         } catch { completedModuleNames = null; }
       }
       return json({
-        scan: customerScan,
+        scan: { ...customerScan, outcome: scanOutcome(scan) },
         progress: scanProgress(scan, Date.now(), { completedModuleNames }),
         report_key: `reports/${scan.id}.json`,
         report_availability: resolved.availability,
@@ -1077,7 +1085,7 @@ export async function scanRoutes(rctx) {
 
       const history = await env.cybermeters_db
         .prepare(
-          `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
+          `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at, s.current_stage
            FROM scans s
            -- F-021 — the domain link alone NEVER authorises. This route
            -- previously filtered on wd.workspace_id with NO condition on
@@ -1091,7 +1099,7 @@ export async function scanRoutes(rctx) {
         .bind(domain, ...workspaceIds, limit)
         .all();
 
-      const customerHistory = await projectPhase5ScanRowsForCustomer(env, history.results);
+      const customerHistory = (await projectPhase5ScanRowsForCustomer(env, history.results)).map(withOutcome);
       return json({
         domain,
         scans: customerHistory,

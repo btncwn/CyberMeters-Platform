@@ -114,22 +114,31 @@ export async function assessmentEvidenceForWindow(env, workspaceId) {
               EXISTS (SELECT 1 FROM scans s
                        WHERE s.domain_id = wd.domain_id AND s.status = 'completed'
                          AND s.scan_quality = 'complete' AND s.created_at > datetime('now', '-7 days')
-                         AND (s.workspace_id = ? OR s.workspace_id IS NULL)) AS complete
+                         AND (s.workspace_id = ? OR s.workspace_id IS NULL)) AS complete,
+              -- item 15 fix D: the week's latest finished scan found the domain
+              -- does not exist in public DNS ("not assessed (domain not found)").
+              (SELECT s2.current_stage FROM scans s2
+                WHERE s2.domain_id = wd.domain_id AND s2.status IN ('completed', 'failed')
+                  AND s2.created_at > datetime('now', '-7 days')
+                  AND (s2.workspace_id = ? OR s2.workspace_id IS NULL)
+                ORDER BY s2.created_at DESC LIMIT 1) = 'domain_not_found' AS not_found
          FROM workspace_domains wd LEFT JOIN domains d ON d.id = wd.domain_id
         WHERE wd.workspace_id = ?
         ORDER BY domain`
     )
-    .bind(workspaceId, workspaceId)
+    .bind(workspaceId, workspaceId, workspaceId)
     .all()
     .then((r) => r?.results || [])
     .catch(() => null);
-  const notAssessed = domainRows ? domainRows.filter((d) => !Number(d.complete)).map((d) => String(d.domain)) : null;
-  const everyDomain = notAssessed !== null && notAssessed.length === 0;
+  const notFound = domainRows ? domainRows.filter((d) => !Number(d.complete) && Number(d.not_found)).map((d) => String(d.domain)) : null;
+  const notAssessed = domainRows ? domainRows.filter((d) => !Number(d.complete) && !Number(d.not_found)).map((d) => String(d.domain)) : null;
+  const everyDomain = notAssessed !== null && notAssessed.length === 0 && notFound.length === 0;
   return {
     complete_scans: complete,
     completed_scans: completed,
     monitored_domains: domainRows ? domainRows.length : null,
     not_assessed_domains: notAssessed,
+    not_found_domains: notFound,
     // The honest states, kept distinct:
     //   complete_assessment    — every monitored domain has full evidence; quiet may be called stable
     //   some_domains_assessed  — full evidence for some domains only; the others are named
@@ -365,11 +374,19 @@ function withFirstObservations(email, changes, origin, workspaceId) {
 
 // The domains a digest could not vouch for, named (bounded so a large MSP
 // workspace stays readable; the timeline lists every domain).
-function missingLine(domains) {
-  const shown = domains.slice(0, 10).join(", ");
-  const more = domains.length > 10 ? ` and ${domains.length - 10} more` : "";
-  const what = domains.length ? `${shown}${more}` : "one or more monitored domains";
-  return `Not fully assessed this week: ${what}. CyberMeters does not report an unassessed domain as unchanged; a complete scan of it will include it next week.`;
+function missingLine(domains, notFound = []) {
+  const name = (list) => `${list.slice(0, 10).join(", ")}${list.length > 10 ? ` and ${list.length - 10} more` : ""}`;
+  const lines = [];
+  if (domains.length || !notFound.length) {
+    const what = domains.length ? name(domains) : "one or more monitored domains";
+    lines.push(`Not fully assessed this week: ${what}. CyberMeters does not report an unassessed domain as unchanged; a complete scan of it will include it next week.`);
+  }
+  // item 15 fix D: a domain that does not exist was not assessed, and a next
+  // scan will not include it until it resolves again.
+  if (notFound.length) {
+    lines.push(`Not assessed (domain not found): ${name(notFound)}. ${notFound.length === 1 ? "It does" : "They do"} not exist in public DNS, so CyberMeters could not assess ${notFound.length === 1 ? "it" : "them"}; previous observations are kept.`);
+  }
+  return lines.join(" ");
 }
 
 function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
@@ -409,7 +426,7 @@ function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
     if (changes.assessment?.coverage === "some_domains_assessed") {
       const missing = changes.assessment.not_assessed_domains || [];
       const subject = `Your CyberMeters week — not every domain was fully assessed on ${name}`;
-      const body = `This week's complete scans saw no change on the domains they covered. ${missingLine(missing)}`;
+      const body = `This week's complete scans saw no change on the domains they covered. ${missingLine(missing, changes.assessment.not_found_domains || [])}`;
       return {
         subject,
         text: `${body}\n\nView your timeline: ${link}`,
@@ -419,7 +436,9 @@ function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
     // Fail closed: an absent assessment object never earns reassurance.
     if (changes.assessment?.coverage !== "complete_assessment") {
       const subject = `Your CyberMeters week — no completed assessment for ${name}`;
-      const body = `No completed assessment was available for this digest period. We'll report changes once full evidence is available.`;
+      const notFoundOnly = changes.assessment?.not_found_domains || [];
+      const body = `No completed assessment was available for this digest period. We'll report changes once full evidence is available.`
+        + (notFoundOnly.length ? ` ${missingLine([], notFoundOnly)}` : "");
       const text = `${body}\n\nView your timeline: ${link}`;
       const html = `<h2>No completed assessment this week</h2><p>${esc(body)}</p><p><a href="${link}">View your timeline →</a></p>`;
       return { subject, text, html };
@@ -440,7 +459,7 @@ function buildDigestEmailCore(wsName, changes, origin, workspaceId = null) {
     ? `\n\n${changes.lifecycle_review.total} additional historical lifecycle record${changes.lifecycle_review.total === 1 ? " was" : "s were"} kept visible but not counted because support was not established.`
     : "")
     + (changes.assessment?.coverage === "some_domains_assessed"
-      ? `\n\n${missingLine(changes.assessment.not_assessed_domains || [])}` : "");
+      ? `\n\n${missingLine(changes.assessment.not_assessed_domains || [], changes.assessment.not_found_domains || [])}` : "");
   // Honest repetition note: a change re-observed by several scans is ONE change,
   // stated once, with its observation count where it adds information.
   const seen = (e) => (Number(e.occurrences) > 1 ? ` (observed ${e.occurrences} times this week)` : "");

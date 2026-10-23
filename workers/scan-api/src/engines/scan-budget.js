@@ -565,6 +565,9 @@ function isAbortError(err) {
 }
 
 export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
+  // Phase 0 domain-existence check (item 15 fix D): two DoH questions through
+  // dnsQuery/dnsQueryGoogle, each recording its attempt and completion.
+  "domain_existence",
   "identity_discovery",
   "dns",
   "ssl",

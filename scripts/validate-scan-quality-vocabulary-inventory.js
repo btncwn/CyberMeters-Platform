@@ -214,9 +214,14 @@ const EXPECTED = Object.freeze({
     // one runtime comparison differs only in byte offsets. Counts unchanged.
     // BRI 2026-10-21.2: removing the inventory and no-vendor deductions moves business-risk.js SQL sites; keyed two-tree diff (origin/main vs this head) shows 0 entries added or removed.
     // BRI summary from the band (21 Oct 2026): business-risk.js SQL sites move; keyed two-tree diff shows 0 added / 0 removed.
-    fingerprint: "c76fd7537ebaa376b379b351e9ae80bd6089ada9d9a0d97df650af3e15d1b3b5",
+    // Item 15 fix D (23 Oct 2026): the weekly-digest per-domain query also reads
+    // whether the week's latest finished scan stopped as domain_not_found. The
+    // keyed two-tree --dump-current diff changes exactly that one snippet in
+    // sql_sites / sql_static_sites / sql_query_sink_sites (same line 113, same
+    // single scan_quality = 'complete' predicate); every count is unchanged.
+    fingerprint: "3b09d999b42dc350fb6a61cd5091ff0498d3b8a96e4ec1b72943a0de99e3e6e8",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "1d68cc3739f0a4551625f13bd2a9871c72d81354d4497af77ef2b08794d6050c",
+    resolved_query_sink_fingerprint: "9a1354cf2adf8d9d913c831ed92a04b3e5aaa5d8b375312e9ef94ea60e2ef84e",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -406,7 +411,11 @@ const EXPECTED = Object.freeze({
     // production reads and SQL are unchanged by this governance addition.
     // TLS refusal replay (20 Oct 2026): scripts/lab/tls-refusal-replay.mjs reads report.scan_quality once to show the stored status beside the rebuilt one (138 -> 139 reads, 44 -> 45 files); keyed two-tree diff shows no other change.
     // 451 access-restricted (21 Oct 2026): the same GATE 2b read adds one governed direct read (139 -> 140, files unchanged at 45); keyed two-tree diff shows no other change.
-    governance: { occurrence_count: 140, source_file_count: 45, fingerprint: "49167c36974821d706b21096d46133f6dcfd429b5a24e0b4f82fdf2f8204eca3" },
+    // Item 15 fix D (23 Oct 2026): the P3 engine trace asserts that a scan of a
+    // domain that does not exist claims no quality (row.scan_quality is null).
+    // The keyed two-tree diff by (file, slot, snippet) adds exactly that one read
+    // in validate-item10-attack-surface-p3-engine-trace.js; nothing removed.
+    governance: { occurrence_count: 141, source_file_count: 45, fingerprint: "74e8a230f632009579c5782248e4b6f431910dd25163d3d85354dc0e64c538c3" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -461,7 +470,13 @@ const EXPECTED = Object.freeze({
   // two scans.js projections shift 440/970 -> 451/981. The two-tree
   // --dump-current diff shows the same 24 projections with unchanged file, kind
   // and snippet.
-  sql_reads: { projection_occurrences: 24, fingerprint: "ff64b18a14389fc8fb9228da3415462f06348d6cde2be09b9c90a44075fb8bb7" },
+  // Item 15 fix D (23 Oct 2026): GET /api/scans also reads s.current_stage to
+  // project outcome (domain_not_found), and the workspace domain list derives
+  // latest_outcome from it. The two-tree --dump-current diff changes exactly
+  // those two snippets (scans.js list, workspaces-core.js domains) and shifts the
+  // scans.js detail projection 981 -> 989; the same 24 projections remain and
+  // scan_quality is read exactly as before.
+  sql_reads: { projection_occurrences: 24, fingerprint: "72c71271192346bc5de16f586a7925da76abdf8258a865e44d8fcb397a52f80e" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

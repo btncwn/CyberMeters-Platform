@@ -288,6 +288,31 @@ const rawRowCount = db.prepare("SELECT COUNT(*) c FROM asset_events").get().c;
   eq("a failed per-domain read never earns complete_assessment",
      (await assessmentEvidenceForWindow(failingEnv, "ws2")).coverage, "some_domains_assessed");
   db.prepare("DELETE FROM scans WHERE id IN ('s_f','s_3p','s_3c')").run();
+  // Item 15 fix D (23 Oct 2026): a monitored domain whose latest scan this week
+  // stopped because it does not exist in public DNS is "not assessed (domain
+  // not found)", named apart from the domains a next scan will cover.
+  db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('d4','u2','lapsed.example')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws2','d4')").run();
+  db.prepare(`INSERT INTO scans (id, domain_id, domain, status, workspace_id, scan_quality, current_stage, created_at)
+              VALUES ('s_nx','d4','lapsed.example','failed','ws2',NULL,'domain_not_found',datetime('now','-1 day'))`).run();
+  const lapsed = await assessmentEvidenceForWindow(env, "ws2");
+  eq("a domain-not-found domain is listed as not found", lapsed.not_found_domains, ["lapsed.example"]);
+  ok("...and not among the domains a next scan will cover", !lapsed.not_assessed_domains.includes("lapsed.example"), JSON.stringify(lapsed.not_assessed_domains));
+  eq("...and it still keeps the workspace from 'every domain assessed'", lapsed.coverage, "some_domains_assessed");
+  const q6 = buildDigestEmail("Beta", await computeWeeklyChanges(env, "ws2"), env.FRONTEND_URL, "ws2");
+  ok("the digest counts it as 'Not assessed (domain not found)', never as a failed scan",
+     /Not assessed \(domain not found\): lapsed\.example\. It does not exist in public DNS/.test(q6.text)
+       && !/fail/i.test(q6.text) && !/all quiet/i.test(q6.subject), q6.text);
+  // A workspace whose only domain does not exist gets no assessment, and says why.
+  db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws9','Gamma','u2')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws9','d4')").run();
+  db.prepare(`INSERT INTO scans (id, domain_id, domain, status, workspace_id, scan_quality, current_stage, created_at)
+              VALUES ('s_nx9','d4','lapsed.example','failed','ws9',NULL,'domain_not_found',datetime('now','-1 day'))`).run();
+  const q7 = buildDigestEmail("Gamma", await computeWeeklyChanges(env, "ws9"), env.FRONTEND_URL, "ws9");
+  ok("only domain not found: no-assessment wording plus the not-found line",
+     /No completed assessment was available/.test(q7.text) && /Not assessed \(domain not found\): lapsed\.example/.test(q7.text), q7.text);
+  db.prepare("DELETE FROM scans WHERE id IN ('s_nx','s_nx9')").run();
+  db.prepare("DELETE FROM workspace_domains WHERE domain_id = 'd4'").run();
   db.prepare("DELETE FROM workspace_domains WHERE workspace_id = 'ws2' AND domain_id = 'd3'").run();
 }
 

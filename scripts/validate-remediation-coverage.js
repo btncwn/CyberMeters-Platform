@@ -193,6 +193,9 @@ const NON_FINDING = new Set([
   "dns_service_verification",
   // finding_type CLASS values (not ids)
   "finding", "observation",
+  // in-app notification type for a scan of a domain that does not exist
+  // (item 15 fix D) — a notification, never a finding
+  "scan_not_assessed",
   // cloud-storage/discovery classifications + exposure types
   "provider_dependency", "login_portal", "crm_portal", "dev_portal", "support_portal",
   "ecommerce_portal", "email_gateway",

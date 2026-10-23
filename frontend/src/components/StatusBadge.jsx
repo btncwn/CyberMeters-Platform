@@ -43,11 +43,21 @@ const PARTIAL_RESULTS = {
 }
 const PARTIAL_QUALITIES = new Set(['partial', 'degraded'])
 
-export default function StatusBadge({ status, quality = null }) {
+// A scan that stopped because the domain does not exist in public DNS was not
+// assessed; it is not a product failure (the backend sets outcome).
+const NOT_ASSESSED_NOT_FOUND = {
+  label: 'Not assessed — domain not found',
+  dot: 'bg-gray-400',
+  bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200',
+}
+
+export default function StatusBadge({ status, quality = null, outcome = null }) {
   const key = status?.toLowerCase()
-  const cfg = key === 'completed' && PARTIAL_QUALITIES.has(String(quality || '').toLowerCase())
-    ? PARTIAL_RESULTS
-    : STATUS_CONFIG[key] || DEFAULT
+  const cfg = outcome === 'domain_not_found'
+    ? NOT_ASSESSED_NOT_FOUND
+    : key === 'completed' && PARTIAL_QUALITIES.has(String(quality || '').toLowerCase())
+      ? PARTIAL_RESULTS
+      : STATUS_CONFIG[key] || DEFAULT
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-xs font-semibold whitespace-nowrap ${cfg.bg} ${cfg.text} ${cfg.border}`}>
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
