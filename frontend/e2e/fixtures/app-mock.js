@@ -102,6 +102,9 @@ export async function installAppMock(page, { notificationCount = 4 } = {}) {
     if (p === `/workspaces/${workspace.id}/certificates`) return route.fulfill(json({ certificates: [] }))
     if (p === `/workspaces/${workspace.id}/certificates/timeline`) return route.fulfill(json({ timeline: [] }))
     if (p === `/workspaces/${workspace.id}/identity-surfaces`) return route.fulfill(json({ items: [], counts: {} }))
+    // Identity assets: one provider and one possible hostname, so the page renders its sections.
+    if (p === `/workspaces/${workspace.id}/identity-assets`) return route.fulfill(json({ assets: [{ id: 'ia1', identity_type: 'idp', provider: 'Example IdP', hostname: 'login.blackbullbarbers.co.uk', risk_score: 10 }] }))
+    if (p === `/workspaces/${workspace.id}/identity-assets/summary`) return route.fulfill(json({ summary: { provider_relationship_count: 1, surface_candidate_count: 1, reachability_evaluated_count: 0 } }))
     if (p === `/workspaces/${workspace.id}/cyber-essentials/answers`) return route.fulfill(json(ceAnswers))
     if (p === `/workspaces/${workspace.id}/cyber-essentials-readiness`) return route.fulfill(json({ status: 'not_assessed', self_assessment: { controls: [] } }))
     return route.fulfill(json({ error: 'Not available in this check.' }, 404))

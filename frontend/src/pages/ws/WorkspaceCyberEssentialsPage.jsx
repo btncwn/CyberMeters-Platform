@@ -392,7 +392,7 @@ function Recommendations({ readiness }) {
 function ExternallyObservedControls({ data, error }) {
   if (error) {
     return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-5">
+      <div id="ce-observed-controls" className="rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-base font-bold text-gray-900">Externally observed controls</h2>
         <p className="mt-2 text-sm text-red-700">{error}</p>
       </div>
@@ -400,7 +400,7 @@ function ExternallyObservedControls({ data, error }) {
   }
   if (!data) {
     return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-5">
+      <div id="ce-observed-controls" className="rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-base font-bold text-gray-900">Externally observed controls</h2>
         <p className="mt-2 text-sm text-gray-400">Loading…</p>
       </div>
@@ -408,7 +408,7 @@ function ExternallyObservedControls({ data, error }) {
   }
   const items = data.items || []
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+    <div id="ce-observed-controls" className="rounded-2xl border border-gray-200 bg-white p-5">
       <h2 className="text-base font-bold text-gray-900">Externally observed controls</h2>
       <p className="mt-1 text-sm leading-relaxed text-gray-500">{EXTERNAL_SECTION_NOTE}</p>
 
@@ -490,7 +490,7 @@ function ExternallyObservedControls({ data, error }) {
 function ResultSummary({ readiness }) {
   const questionnaireIncomplete = readiness?.questionnaire?.complete === false
   return (
-    <section className={`rounded-2xl border p-5 ${overallTone(readiness)}`}>
+    <section id="ce-indicator" className={`rounded-2xl border p-5 ${overallTone(readiness)}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
           <div>

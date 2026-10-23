@@ -859,7 +859,7 @@ export default function AccountPage() {
                       type="button"
                       onClick={handleCreateToken}
                       disabled={tokenBusy || !tokenName.trim()}
-                      className="btn-primary w-full justify-center disabled:opacity-50"
+                      className="btn-secondary w-full justify-center disabled:opacity-50"
                     >
                       Generate token
                     </button>

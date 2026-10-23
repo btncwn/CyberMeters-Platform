@@ -1,19 +1,35 @@
-import { useState, useEffect } from 'react'
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import { api } from '../api'
 import { ACTIVE_WORKSPACE_EVENT, readActiveWorkspace, validateActiveWorkspace } from '../lib/activeWorkspace'
 import { useAuth } from '../context/AuthContext'
-import { detectServiceKey } from './WorkspaceNav'
+import { SERVICES, detectServiceKey } from './WorkspaceNav'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 import SafeBoundary from './SafeBoundary'
 import ProfileMenu from './shell/ProfileMenu'
-import AreaMenu from './shell/AreaMenu'
+import AreaSidebar from './shell/AreaSidebar'
+import { AreaShellProvider, useAreaShell } from './shell/AreaShell'
+import { MODULE_TABS } from '../lib/areaTabs'
+import CyberMetersLogo from './CyberMetersLogo'
 import WorkspaceMenu from './shell/WorkspaceMenu'
 import EarthButton from './shell/EarthButton'
 import UpgradePromptModal from './shell/UpgradePromptModal'
 import { trialPlanLabel } from '../lib/trialPlan'
 import SomethingWrong from './SomethingWrong'
 
+// S1-SHELL-V2 (founder-approved design, 22 Oct 2026) — supersedes the notes
+// below where they differ:
+//   • a 320px LEFT SIDEBAR at ≥1024px (AreaSidebar): the logo (→ Overview, no longer
+//     a menu), "Your external posture" and the eight areas with their state;
+//     the selected area expands into its sub-topics. Below 1024px the same
+//     sidebar opens as a drawer from a menu button beside the logo.
+//   • the TOP BAR has two rows: row 1 the product menu (Overview · Operations ·
+//     Active Checks · Reports, or the MSP menu) and, unchanged, the globe and
+//     the account initial (now 44px); row 2, only inside an area, "<Area> ·"
+//     and the area's tabs — the page's own tab strip moves up into it.
+//   • the workspace card stays bottom-left: at the foot of the sidebar from
+//     1024px, a 76px floating card below that.
+//
 // The app shell v2 (founder prototype, 17 Oct 2026):
 //   • a 68px top bar — on the left ONE button: the logo mark, the serif
 //     wordmark and a small caret, which opens the area sheet (the eight
@@ -42,9 +58,13 @@ export const MSP_NAV_FEATURE = 'portfolio_monitoring'
 
 // Founder, 17 Oct 2026: /services is gone (its setup steps live on Overview
 // while setup is incomplete), so the direct menu is Overview · Operations · Reports.
+// Active Checks links to the Active Checks page that exists today (the
+// permission record); a hub page, when it ships, takes this link over.
+export const ACTIVE_CHECKS_PATH = '/ws/active-checks/permission'
 export const DIRECT_NAV = [
   { to: '/dashboard', label: 'Overview'   },
   { to: '/ws/cases',  label: 'Operations' },
+  { to: ACTIVE_CHECKS_PATH, label: 'Active Checks' },
   { to: '/reports',   label: 'Reports'    },
 ]
 
@@ -52,6 +72,7 @@ export const MSP_NAV = [
   { to: '/portfolio',  label: 'Portfolio'  },
   { to: '/workspaces', label: 'Customers'  },
   { to: '/ws/cases',   label: 'Operations' },
+  { to: ACTIVE_CHECKS_PATH, label: 'Active Checks' },
   { to: '/reports',    label: 'Reports'    },
 ]
 
@@ -78,7 +99,8 @@ function useAccountFeatures() {
 // beside the content column, so no fixed element ever sits on page content
 // or a control. Below that, the deck is not rendered at all: a 36px workspace
 // card takes its place in the top bar, and the content keeps the full width.
-export const WIDE_LAYOUT_QUERY = '(min-width: 1280px)'
+// S1-SHELL-V2: the sidebar (and the workspace card at its foot) from 1024px.
+export const WIDE_LAYOUT_QUERY = '(min-width: 1024px)'
 function useWideLayout() {
   const query = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE_LAYOUT_QUERY) : null
   const [wide, setWide] = useState(Boolean(query?.matches))
@@ -175,6 +197,40 @@ export function roleLabelFor(user) {
 }
 
 export default function Layout() {
+  return (
+    <AreaShellProvider>
+      <ShellFrame />
+    </AreaShellProvider>
+  )
+}
+
+// Row 2 of the top bar, only inside an area: "<Area> ·" and the area's tabs.
+// The area page portals its own tablist into the slot; on an area's sub-page
+// (no tablist claims the slot) the same tabs show as links to the area page.
+function AreaRow({ svc }) {
+  const shell = useAreaShell()
+  const openCount = shell?.openCases?.[svc.domainKey]
+  return (
+    <div className="cm-arearow" data-testid="area-row">
+      <span className="cm-arearow-name">{svc.title}<span aria-hidden="true" className="cm-arearow-dot">·</span></span>
+      <div ref={shell?.setSlot} className="cm-arearow-slot" />
+      {/* The page's tools (filter + actions) sit with the tabs they act on (C-38 S07). */}
+      <div ref={shell?.setToolbarSlot} className="cm-arearow-tools" />
+      {!shell?.claimed && (
+        <nav aria-label={`${svc.title} sections`} className="cm-tabs">
+          {MODULE_TABS.map((t) => (
+            <Link key={t.id} to={t.id === 'overview' ? svc.to : `${svc.to}?tab=${t.id}`} className="cm-tab">
+              {t.label}
+              {t.id === 'cases' && openCount > 0 && <><span className="cm-tab-count" aria-hidden="true">{openCount}</span><span className="sr-only">, {openCount} open</span></>}
+            </Link>
+          ))}
+        </nav>
+      )}
+    </div>
+  )
+}
+
+function ShellFrame() {
   const { user } = useAuth()
   // Read the active workspace straight from localStorage (the workspace menu
   // writes it and fires a `storage` event) — deliberately NOT the
@@ -186,11 +242,29 @@ export default function Layout() {
   // Domain identity: the active area's accent travels as CSS variables for
   // pages that want a stronger accent on headers or tabs.
   const { pathname } = useLocation()
-  const domainColors = SERVICE_COLORS[detectServiceKey(pathname)] || null
+  const areaKey = detectServiceKey(pathname)
+  const area = SERVICES.find((svc) => svc.key === areaKey) || null
+  const domainColors = SERVICE_COLORS[areaKey] || null
   const nav = selectNav(useAccountFeatures())
   const wide = useWideLayout()
   const primaryDomain = usePrimaryDomain(wsId)
   const planLabel = useMembershipPlanLabel(user, wsId)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const menuButtonRef = useRef(null)
+  const drawerRef = useRef(null)
+  const headerRef = useRef(null)
+  // The sticky header's real height (row 1 + row 2 + border) is the scroll
+  // offset for every in-page anchor, so a sub-topic never lands under it (C-38 S08).
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return undefined
+    const apply = () => document.documentElement.style.setProperty('--cm-header-h', `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    apply()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(apply)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   useEffect(() => {
     function sync() {
       const active = readActiveWorkspace()
@@ -214,83 +288,123 @@ export default function Layout() {
     if (user?.id) validateActiveWorkspace(api)
   }, [user?.id])
 
+  // The drawer closes on navigation, on Escape (focus back to the menu
+  // button) and whenever the screen widens into the sidebar layout.
+  useEffect(() => { setDrawerOpen(false) }, [pathname, wide])
+  useEffect(() => {
+    if (!drawerOpen) return undefined
+    drawerRef.current?.querySelector('a, button')?.focus()
+    function onKeyDown(e) { if (e.key === 'Escape') { e.preventDefault(); setDrawerOpen(false); menuButtonRef.current?.focus() } }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [drawerOpen])
+
   return (
-    <div className="cm-app cm-shell min-h-screen flex flex-col">
+    <div className="cm-app cm-shell min-h-screen">
       <a href="#main" className="cm-skip-link">Skip to content</a>
       <UpgradePromptModal />
 
-      <header className="cm-top sticky top-0 z-40">
-        <div className="cm-top-inner">
-          <SafeBoundary>
-            <AreaMenu wsId={wsId} />
-          </SafeBoundary>
-          <nav aria-label="Main navigation" className="cm-pills">
-            {nav.map(({ to, label }) => (
-              <NavLink key={to} to={to} className={({ isActive }) => `cm-pill${isActive ? ' cm-pill-active' : ''}`}>
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="cm-top-account">
-            {!wide && (
-              <SafeBoundary>
-                <div className="flex items-center mr-3" data-testid="compact-controls">
-                  <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} size="mini" />
-                </div>
-              </SafeBoundary>
-            )}
-            {/* The globe: notifications, 40px like the initial, 12px before it. */}
+      <div className="cm-frame">
+        {wide && (
+          <aside className="cm-sidebar" data-testid="sidebar">
             <SafeBoundary>
-              <div className="mr-3 flex items-center" data-testid="earth-slot">
-                <EarthButton />
-              </div>
+              <AreaSidebar wsId={wsId} />
             </SafeBoundary>
-            <ProfileMenu roleLabel={planLabel} />
-          </div>
-        </div>
-      </header>
+          </aside>
+        )}
 
-      {/* The workspace deck (wide screens only) has a column of its own, so
-          it can never sit over content — at any width, any scroll position, or
-          when a long evidence line makes the page scroll sideways. It sticks to
-          the bottom of the viewport inside that column. Nothing sits bottom-right. */}
-      <div className="cm-body">
-      {wide && (
-        <aside className="cm-dock cm-dock-left" data-testid="workspace-dock" aria-label="Workspace">
-          <div className="cm-dock-card">
-            <SafeBoundary>
-              <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} />
-            </SafeBoundary>
-          </div>
-        </aside>
-      )}
-      <main
-        id="main"
-        className="cm-main flex-1 min-w-0"
-        style={domainColors ? {
-          '--domain-accent': domainColors.icon,
-          '--domain-text':   domainColors.text,
-          '--domain-chip':   domainColors.chip,
-          '--domain-ring':   domainColors.ring,
-        } : undefined}
-      >
-        <Outlet />
-      </main>
+        <div className="cm-column">
+          <header ref={headerRef} className="cm-top sticky top-0 z-40">
+            <div className="cm-top-inner">
+              {!wide && (
+                <div className="cm-top-brand">
+                  <button
+                    ref={menuButtonRef}
+                    type="button"
+                    className="cm-menubtn"
+                    aria-label="Open areas menu"
+                    aria-expanded={drawerOpen}
+                    aria-controls="cm-area-drawer"
+                    onClick={() => setDrawerOpen((v) => !v)}
+                    data-testid="areas-menu-button"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M3 5h12M3 9h12M3 13h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                  </button>
+                  <Link to="/dashboard" className="cm-top-logo" aria-label="CyberMeters — Overview">
+                    <CyberMetersLogo size={24} />
+                    <span className="cm-side-word">CyberMeters</span>
+                  </Link>
+                </div>
+              )}
+              <nav aria-label="Main navigation" className="cm-pills">
+                {nav.map(({ to, label }) => (
+                  // Whole class names as literals: Tailwind generates an @utility only for a name it can find in the source.
+                  <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'cm-pill cm-pill-active' : 'cm-pill')}>
+                    {label}
+                  </NavLink>
+                ))}
+              </nav>
+              <div className="cm-top-account">
+                {/* The globe: notifications, 12px before the account initial. */}
+                <SafeBoundary>
+                  <div className="mr-3 flex items-center" data-testid="earth-slot">
+                    <EarthButton />
+                  </div>
+                </SafeBoundary>
+                <ProfileMenu roleLabel={planLabel} />
+              </div>
+            </div>
+            {area && <AreaRow svc={area} />}
+          </header>
+
+          <main
+            id="main"
+            className="cm-main flex-1 min-w-0"
+            style={domainColors ? {
+              '--domain-accent': domainColors.icon,
+              '--domain-text':   domainColors.text,
+              '--domain-chip':   domainColors.chip,
+              '--domain-ring':   domainColors.ring,
+            } : undefined}
+          >
+            <Outlet />
+          </main>
+
+          <footer className="cm-footer">
+            <span>© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
+            <div className="flex flex-wrap items-center gap-4">
+              <NavLink to="/pricing" className="hover:text-gray-700">Pricing</NavLink>
+              <NavLink to="/terms"   className="hover:text-gray-700">Terms</NavLink>
+              <NavLink to="/privacy" className="hover:text-gray-700">Privacy</NavLink>
+              <NavLink to="/dpa"     className="hover:text-gray-700">DPA</NavLink>
+              <NavLink to="/cookies" className="hover:text-gray-700">Cookies</NavLink>
+              <NavLink to="/support" className="hover:text-gray-700">Support</NavLink>
+            </div>
+            <SomethingWrong surface="app" className="basis-full" />
+          </footer>
+        </div>
       </div>
 
-      <footer className="cm-footer">
-        <span>© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
-        <div className="flex flex-wrap items-center gap-4">
-          <NavLink to="/pricing" className="hover:text-gray-700">Pricing</NavLink>
-          <NavLink to="/terms"   className="hover:text-gray-700">Terms</NavLink>
-          <NavLink to="/privacy" className="hover:text-gray-700">Privacy</NavLink>
-          <NavLink to="/dpa"     className="hover:text-gray-700">DPA</NavLink>
-          <NavLink to="/cookies" className="hover:text-gray-700">Cookies</NavLink>
-          <NavLink to="/support" className="hover:text-gray-700">Support</NavLink>
+      {/* The workspace card floats bottom-left, exactly as before (founder rule):
+          from 1024px over the foot of the sidebar (whose list keeps room for it),
+          below that at 76px. It is not part of the sidebar. */}
+      <div className={wide ? 'cm-wsfloat cm-wsfloat-wide' : 'cm-wsfloat'} data-testid="workspace-dock">
+        <SafeBoundary>
+          <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} size={wide ? 'deck' : 'compact'} />
+        </SafeBoundary>
+      </div>
+      {!wide && drawerOpen && (
+        <div className="cm-drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setDrawerOpen(false) }}>
+          <div id="cm-area-drawer" ref={drawerRef} className="cm-drawer" role="dialog" aria-modal="true" aria-label="Areas" data-testid="area-drawer">
+            <button type="button" className="cm-drawer-close" aria-label="Close menu" onClick={() => { setDrawerOpen(false); menuButtonRef.current?.focus() }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+            </button>
+            <SafeBoundary>
+              <AreaSidebar wsId={wsId} stacked onNavigate={() => setDrawerOpen(false)} />
+            </SafeBoundary>
+          </div>
         </div>
-        <SomethingWrong surface="app" className="basis-full" />
-      </footer>
-
+      )}
     </div>
   )
 }

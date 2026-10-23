@@ -2,7 +2,7 @@
 // in founder order (lib/moduleRegistry.js order, SERVICE_COLORS key) with the
 // route it opens and its sub-pages. The 72px rail that once rendered this list
 // is gone (founder prototype v2, 17 Oct 2026): the areas now show only in the
-// sheet the brand button opens (shell/AreaMenu.jsx) and as tiles on each area
+// sidebar (shell/AreaSidebar.jsx, S1-SHELL-V2) and as tiles on each area
 // page. This file is the data; it renders nothing.
 // ── Canonical security domains — the areas ─────────────────────
 // Founder order (14 Oct): strongest evidence first, down to the readiness area.
@@ -15,6 +15,16 @@ const SERVICE_DEFINITIONS = [
   {
     key: 'email', domainKey: 'email_protection', title: 'Email Protection', to: '/ws/email-protection',
     match: p => p.startsWith('/ws/email-protection'),
+    // Sidebar sub-topics (S1-SHELL-V2, founder-approved 22 Oct 2026): names only,
+    // in order of importance; each opens an existing section or sub-page.
+    subtopics: [
+      { label: 'DMARC policy',            hash: '#auth-dmarc' },
+      { label: 'SPF',                     hash: '#auth-spf' },
+      { label: 'DKIM',                    hash: '#auth-dkim' },
+      { label: 'MTA-STS & TLS reporting', hash: '#mta-sts-setup', tab: 'settings' },
+      { label: 'Aggregate reports',       hash: '#report-history' },
+      { label: 'Mail transport (DANE)',   hash: '#mail-transport' },
+    ],
     items: [
       // Configuration lives on the Settings tab of the area template (18 Oct 2026).
       { hash: '#dmarc-setup',       label: 'DMARC Setup',          desc: 'Policy, alignment and the hosted record', tab: 'settings' },
@@ -28,6 +38,14 @@ const SERVICE_DEFINITIONS = [
     key: 'surface', domainKey: 'attack_surface', title: 'Attack Surface', to: '/assets',
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules') || p.startsWith('/intelligence'),
+    subtopics: [
+      // Each sub-topic opens its OWN named section (C-38 S28: no aliases).
+      { label: 'Hostnames',      hash: '#asset-inventory' },
+      { label: 'Admin surfaces', to: '/ws/admin-surfaces' },
+      { label: 'Cloud assets',   to: '/ws/cloud-assets' },
+      { label: 'Network assets', hash: '#network-assets' },
+      { label: 'Timeline',       to: '/exposure' },
+    ],
     items: [
       { to: '/exposure',          label: 'Timeline',       desc: 'What appeared, changed or disappeared' },
       { to: '/scans',             label: 'Scans',          desc: 'Every assessment run and its result' },
@@ -46,6 +64,12 @@ const SERVICE_DEFINITIONS = [
   {
     key: 'website', domainKey: 'website_security', title: 'Website Security', to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
+    subtopics: [
+      // HTTPS & HSTS and Content Security Policy return with their own Summary sections (S1-SHELL-V2b).
+      { label: 'Security headers',   hash: '#website-security-headers', tab: 'overview' },
+      { label: 'Signed-in scanning', hash: '#sign-in-settings', tab: 'settings' },
+      { label: 'Pages checked',      hash: '#pages-checked' },
+    ],
     items: [
       { hash: '#website-observations', label: 'Observations', desc: 'HTTPS, headers and cookies from the latest scan', tab: 'overview' },
       { hash: '#exposure-checks', label: 'Exposure checks', desc: 'Public content and management surfaces checked', tab: 'overview' },
@@ -56,6 +80,10 @@ const SERVICE_DEFINITIONS = [
   {
     key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',
     match: p => p.startsWith('/ws/identity-exposure') || p.startsWith('/ws/identity-assets'),
+    subtopics: [
+      { label: 'Provider relationships',    to: '/ws/identity-assets#identity-providers' },
+      { label: 'Identity-facing hostnames', to: '/ws/identity-assets#identity-hostnames' },
+    ],
     items: [
       { to: '/ws/identity-assets', label: 'People & evidence', desc: 'Accounts and identity evidence' },
       { to: '/ws/identity-assets#workforce-response', label: 'Workforce response', desc: 'Account observations and recorded responses' },
@@ -66,6 +94,11 @@ const SERVICE_DEFINITIONS = [
     key: 'shadow_it', domainKey: 'shadow_it_unmanaged_technology', title: 'Shadow IT & Unmanaged Technology', to: '/ws/shadow-it',
     match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-parties')
       || p.startsWith('/ws/third-party') || p.startsWith('/ws/vendors') || p.startsWith('/ws/supply-chain'),
+    subtopics: [
+      { label: 'Observed technology', hash: '#shadow-it-inventory' },
+      // The inventory with Approved selected (C-38 S27), not the all-items view.
+      { label: 'Approved inventory',  to: '/ws/shadow-it?filter=approved#shadow-it-inventory' },
+    ],
     items: [
       { to: '/ws/saas-exposure',   label: 'SaaS Exposure', desc: 'Portals and tenants observed for your domain' },
       // One home for third parties (founder, 17 Oct 2026): the services seen in
@@ -76,6 +109,11 @@ const SERVICE_DEFINITIONS = [
   {
     key: 'certs', domainKey: 'certificates_trust', title: 'Certificates & Trust', to: '/ws/certificates',
     match: p => p.startsWith('/ws/certificates'),
+    subtopics: [
+      { label: 'Expiry',        hash: '#cert-expiry', tab: 'overview' },
+      { label: 'Chain & trust', hash: '#cert-trust' },
+      { label: 'Lifecycle',     to: '/ws/certificates/lifecycle' },
+    ],
     items: [
       { to: '/ws/certificates/lifecycle', label: 'Managed Lifecycle', desc: 'Renewals, replacements and follow-up' },
       { hash: '#cert-inventory', label: 'Inventory',           desc: 'Certificates observed on your hostnames' },
@@ -87,6 +125,11 @@ const SERVICE_DEFINITIONS = [
   {
     key: 'brand', domainKey: 'brand_protection', title: 'Brand Protection', to: '/ws/brand-monitoring',
     match: p => p.startsWith('/ws/brand-monitoring'),
+    subtopics: [
+      { label: 'Lookalike domains', hash: '#typosquats' },
+      { label: 'Watchlist',         hash: '#protected-brand', tab: 'settings' },
+      { label: 'Takedown tracking', hash: '#managed-brand-cases' },
+    ],
     items: [
       { hash: '#typosquats',        label: 'Typosquat Candidates', desc: 'Lookalike domains observed' },
       // The brand counts are the template's always-visible figures; the editor lives on Settings (18 Oct 2026).
@@ -96,6 +139,11 @@ const SERVICE_DEFINITIONS = [
   {
     key: 'cyber_essentials', domainKey: 'cyber_essentials_readiness', title: 'Cyber Essentials Readiness', to: '/ws/cyber-essentials',
     match: p => p.startsWith('/ws/cyber-essentials'),
+    subtopics: [
+      { label: 'Questionnaire',      hash: '#questionnaire' },
+      { label: 'External indicator', hash: '#ce-indicator', tab: 'overview' },
+      { label: 'Controls',           hash: '#ce-observed-controls', tab: 'overview' },
+    ],
     items: [],
   },
 ]
@@ -125,6 +173,16 @@ export function subpagesForDomainKey(domainKey) {
     // A tile names the tab that holds its section when that is not Findings (the anchor default).
     to: item.to || `${svc.to}${item.tab ? `?tab=${item.tab}` : ''}${item.hash}`,
     anchor: Boolean(item.hash),
+  }))
+}
+
+/** The sidebar sub-topics of one area, each with an absolute `to` (same rule as the tiles). */
+export function subtopicsForDomainKey(domainKey) {
+  const svc = SERVICES.find((s) => s.domainKey === domainKey)
+  if (!svc) return []
+  return (svc.subtopics || []).map((item) => ({
+    label: item.label,
+    to: item.to || `${svc.to}${item.tab ? `?tab=${item.tab}` : ''}${item.hash}`,
   }))
 }
 

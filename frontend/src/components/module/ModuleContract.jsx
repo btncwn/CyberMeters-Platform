@@ -29,6 +29,9 @@ import { buildNextActions } from '../overview/NextActionsList'
 // the tiles and the case list by text; it does not search anything else and
 // its placeholder says so.
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useAreaShell } from '../shell/AreaShell'
+import { MODULE_TABS } from '../../lib/areaTabs'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronRight, Search } from 'lucide-react'
 import { customerEvidenceText } from '../../lib/evidenceStrengthDisplay'
@@ -54,15 +57,8 @@ export const MODULE_CONTRACT_SECTIONS = Object.freeze([
   { id: 'module-scope',          n: 10, label: 'Scope & limits' },
 ])
 
-export const MODULE_TABS = Object.freeze([
-  // "Summary", not "Overview": the top navigation already has an Overview,
-  // and one word names one place (design standard §2).
-  { id: 'overview', label: 'Summary' },
-  { id: 'findings', label: 'Findings' },
-  { id: 'cases',    label: 'Cases' },
-  { id: 'settings', label: 'Settings' },
-  { id: 'guide',    label: 'Field Guide' },
-])
+// The tab list lives in lib/areaTabs (shared with the app shell); re-exported here.
+export { MODULE_TABS }
 
 const COVERAGE_WORDS = { complete: 'Complete', partial: 'Partial', degraded: 'Degraded' }
 const STILL_TO_ASSESS = new Set(['not_yet_assessed', 'not_assessed', 'evidence_insufficient', 'unavailable', 'unknown'])
@@ -117,6 +113,19 @@ export function resolveNextAction({ nextAction = null, entry = null, request = '
     }
   }
   if (STILL_TO_ASSESS.has(String(entry.state || '').toLowerCase())) return { title: 'Run a scan to assess this area', body: 'The latest assessment could not establish this area yet.', label: 'Run a scan', to: '/scans/new' }
+  // Never "no issue" beside an open case without saying how they relate
+  // (S1-SHELL-V2): the latest scan found nothing new, but earlier cases are
+  // still open, so reviewing them is the real next action.
+  const stillOpen = (Array.isArray(cases) ? cases : []).filter((c) => ['action_required', 'in_progress', 'recurring'].includes(caseStatus(c)) && (!c.domain_key || c.domain_key === entry.domain_key))
+  if (stillOpen.length) {
+    const n = stillOpen.length
+    return {
+      title: `${n} case${n === 1 ? '' : 's'} from earlier ${n === 1 ? 'is' : 'are'} still open`,
+      body: 'The latest assessment found no new issue in this area, but these cases were opened earlier and are not closed yet. Review them to see what is left to do.',
+      label: `Review ${n} case${n === 1 ? '' : 's'}`,
+      tab: 'cases',
+    }
+  }
   // No finding is only an all-clear when the scan could check the whole area.
   if (String(entry.coverage || '').toLowerCase() !== 'complete') return { title: 'No issue found in what could be checked', body: 'Coverage was not complete, so this is not an all-clear. A new scan checks the rest.', label: 'Run a scan', to: '/scans/new' }
   return { title: 'Nothing to fix from the latest assessment', body: 'CyberMeters keeps monitoring and will raise anything new.', label: 'Open the Field Guide', to: guide }
@@ -296,6 +305,13 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   const limitations = read ? (entry.limitations || []).map(customerEvidenceText).filter(Boolean) : []
   const assessed = read ? formatDay(entry.last_assessed_at || entry.freshness, null) : null
   const open = cases.filter((c) => ['action_required', 'in_progress', 'ready_to_verify', 'recurring'].includes(caseStatus(c)))
+  // Inside the app shell the tab strip lives in the top bar's second row
+  // (S1-SHELL-V2); this page still owns the tab state and the case count.
+  const shell = useAreaShell()
+  const shellClaim = shell?.claim
+  const reportOpenCases = shell?.reportOpenCases
+  useEffect(() => (shellClaim ? shellClaim() : undefined), [shellClaim])
+  useEffect(() => { reportOpenCases?.(domainKey, casesRequest === 'ok' ? open.length : null) }, [reportOpenCases, domainKey, casesRequest, open.length])
   const filteredCases = cases.filter((c) => matchesFilter(`${c.title || ''} ${c.domain || ''} ${c.source_finding_type || ''} ${c.case_type || ''}`, query))
   const filteredOpen = open.filter((c) => filteredCases.includes(c))
   const shown = (filteredOpen.length ? filteredOpen : filteredCases).slice(0, tab === 'cases' ? 50 : 5)
@@ -318,6 +334,46 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
     selectTab(TAB_IDS[target])
     event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[target]?.focus()
   }
+
+  const openCount = casesRequest === 'ok' ? open.length : null
+  const tabStrip = (
+    <div role="tablist" aria-label="Area sections" className="cm-tabs">
+      {MODULE_TABS.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={`module-tab-${t.id}`}
+          aria-selected={tab === t.id}
+          aria-controls="module-tabpanel"
+          tabIndex={tab === t.id ? 0 : -1}
+          onClick={() => selectTab(t.id)}
+          onKeyDown={event => onTabKeyDown(event, t.id)}
+          className="cm-tab"
+        >
+          {t.label}
+          {t.id === 'cases' && openCount > 0 && <><span className="cm-tab-count" aria-hidden="true">{openCount}</span><span className="sr-only">, {openCount} open</span></>}
+        </button>
+      ))}
+    </div>
+  )
+
+  // The page tools; inside the shell they move up into row 2 beside the tabs.
+  const toolbar = (
+    <div className={shell ? 'cm-module-tools' : 'flex flex-wrap items-center justify-between gap-3 mb-3'} data-testid="module-toolbar">
+      <label className="cm-area-search">
+        <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Filter pages and cases in this area"
+          placeholder="Filter pages and cases"
+        />
+      </label>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  )
 
   const scopeSection = (
     <section id="module-scope" aria-labelledby="module-scope-heading" className="border-t border-gray-100 pt-4" data-testid="module-scope">
@@ -355,8 +411,9 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   )
   const next = resolveNextAction({ nextAction, entry, request: domainsRequest === 'ok' && !entry ? 'error' : domainsRequest, guide: guide || '/guide', cases: casesRequest === 'ok' ? cases : [] })
   const nextSection = (
-    <section id="module-next" aria-labelledby="module-next-heading" className="card p-5 border-l-4" style={theme ? { borderLeftColor: theme.icon } : undefined} data-testid="module-next">
-      <h2 id="module-next-heading" className="text-xs font-semibold text-gray-600">Do this next</h2>
+    // The one decision point (C-38 S20): neutral card, compact heading; its words come from backend state.
+    <section id="module-next" aria-labelledby="module-next-heading" className="card p-5" data-testid="module-next">
+      <h2 id="module-next-heading" className="cm-decision-heading">Do this next</h2>
       <div className="mt-1 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[15px] font-semibold text-gray-900" data-testid="module-next-title">{next.title}</p>
@@ -520,10 +577,13 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       <header className="cm-module-head">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="cm-hero-title text-left" style={theme ? { color: theme.text } : undefined}>{module?.title || domainKey}</h1>
+            {/* S1-SHELL-V2 (C-38 S18): the status chip beside the title; the date under the intro. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <h1 className="cm-hero-title text-left" style={theme ? { color: theme.text } : undefined}>{module?.title || domainKey}</h1>
+              <span data-testid="module-head-chip"><StatusChip status={evidenceStatus} size="md" /></span>
+            </div>
             <p className="text-[15px] text-gray-600 mt-2 max-w-2xl leading-relaxed">{description || module?.fallback}</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500" data-testid="module-head-status">
-              <StatusChip status={evidenceStatus} size="md" />
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500" data-testid="module-head-status">
               <span>
                 {domainsRequest === 'loading' ? 'Reading the latest assessment…'
                   : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read.'
@@ -550,37 +610,10 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       <div>
         {/* Page tools sit with the content they act on, not in the header
             (design standard §1: header = title, purpose, one action). */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3" data-testid="module-toolbar">
-          <label className="cm-area-search">
-            <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Filter pages and cases in this area"
-              placeholder="Filter pages and cases"
-            />
-          </label>
-          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-        </div>
-        <div role="tablist" aria-label="Area sections" className="cm-tabs">
-          {MODULE_TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              id={`module-tab-${t.id}`}
-              aria-selected={tab === t.id}
-              aria-controls="module-tabpanel"
-              tabIndex={tab === t.id ? 0 : -1}
-              onClick={() => selectTab(t.id)}
-              onKeyDown={event => onTabKeyDown(event, t.id)}
-              className="cm-tab"
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {!shell && toolbar}
+        {shell?.toolbarSlot && createPortal(toolbar, shell.toolbarSlot)}
+        {!shell && tabStrip}
+        {shell?.slot && createPortal(tabStrip, shell.slot)}
       </div>
 
       <div id="module-tabpanel" role="tabpanel" aria-labelledby={`module-tab-${tab}`} tabIndex={0} className="space-y-8">

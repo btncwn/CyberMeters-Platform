@@ -104,7 +104,7 @@ export default function ScansPage() {
                 )}
               </div>
               {scanAccess !== 'none' && (
-                <Link to="/scans/new" className="btn-primary shrink-0 inline-flex items-center gap-2">
+                <Link to="/scans/new" className="btn-secondary shrink-0 inline-flex items-center gap-2">
                   {canScanNewDomain ? 'New Scan' : 'Rescan a domain'}
                 </Link>
               )}

@@ -97,6 +97,6 @@ describe('sphere', () => {
     expect(spinAt(ROTATION_PERIOD_MS / 2)).toBeCloseTo(Math.PI)
     expect(spinAt(12345, true)).toBe(STILL_FRAME_SPIN)
     expect(spinAt(99999, true)).toBe(STILL_FRAME_SPIN)
-    expect(EARTH_SIZE_TOPBAR).toBe(40)   // the account initial's diameter (cm-avatar w-10 h-10)
+    expect(EARTH_SIZE_TOPBAR).toBe(44)   // the account initial's diameter (cm-avatar w-11 h-11, S1-SHELL-V2)
   })
 })

@@ -120,7 +120,8 @@ export default function NextActionsList({ workspaceId, domains, request, dmarcCo
               <div className="shrink-0">
                 {row.action.scan
                   ? <ScanNowButton workspaceId={workspaceId} domain={scanDomain} label="Run a fresh scan" />
-                  : <Link to={row.action.to} className="btn-primary text-sm" aria-label={row.action.label === row.title ? row.title : `${row.action.label}: ${row.title}`}>{row.action.label}</Link>}
+                  // Secondary: the Overview's one primary is its scan control (one primary per screen).
+                  : <Link to={row.action.to} className="btn-secondary text-sm" aria-label={row.action.label === row.title ? row.title : `${row.action.label}: ${row.title}`}>{row.action.label}</Link>}
               </div>
             </li>
           ))}
