@@ -112,6 +112,46 @@ export function tlsAssessmentFindings(assessment) {
   return [...output.values()];
 }
 
+// The CASE identity of a TLS condition: the endpoint, the control and the
+// protocol/cipher, WITHOUT the engine build or profile versions (Executive,
+// 23 Oct 2026). A new probe build measures the same weakness on the same
+// endpoint; it must reach the same case, not orphan it and open a duplicate.
+// The build stays on the finding, the occurrence and the verification evidence.
+export function tlsCaseKey(condition) {
+  const c=condition||{};
+  if(!/^tls_[a-z_]+$/.test(String(c.type||''))||!c.endpoint_identity||!c.control)return null;
+  // A _confirmed type's detail is the VERSIONED probe profile (heartbleed-minimal-v1,
+  // robot-finite-v1, ccs-early-record-v1): a profile bump must not change the case,
+  // so it is left out — type + control + endpoint already name the condition. The
+  // weak-cipher detail is the cipher id, which IS the condition, and stays.
+  const detail=c.type.endsWith('_confirmed')?'':(c.detail||'');
+  return `tlscase:${c.type}:${sha256Text(['tls-case-v1',c.type,c.endpoint_identity,c.control,c.protocol||'',c.cipher_id||'',detail].join('\n'))}`;
+}
+
+// Re-test a case on THIS assessment, whatever engine build produced it: find
+// the current measurement(s) of the same build-less condition and evaluate each
+// exactly. 'clear' only when every match clears; any 'present' wins; nothing
+// measured is deferred.
+export function evaluateTlsCase(caseKey,assessment) {
+  if(!/^tlscase:tls_[a-z_]+:[a-f0-9]{64}$/.test(String(caseKey||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded',condition_ids:[]};
+  const type=String(caseKey).split(':')[1];
+  const ids=new Set(),builds=new Set();
+  for(const endpoint of assessment.endpoints||[])for(const row of endpoint.checks||[]){
+    if(!row.engine?.sandboxed||!row.observed_at)continue;
+    const detail=type==='tls_weak_cipher'?row.cipher_id||'':type.endsWith('_confirmed')?row.evidence?.vulnerability?.profile||'':'';
+    if(tlsCaseKey({type,endpoint_identity:endpoint.endpoint_identity,control:row.control,protocol:row.protocol,cipher_id:row.cipher_id||null,detail})!==caseKey)continue;
+    const id=conditionKey(type,endpoint,row,detail);
+    if(id){ids.add(id);builds.add(row.engine.build_id);}
+  }
+  if(!ids.size)return {state:'deferred',reason:'tls_condition_not_measured',condition_ids:[],engine_build_ids:[]};
+  const measured={condition_ids:[...ids],engine_build_ids:[...builds]};
+  const results=[...ids].map(id=>({id,...evaluateTlsCondition(id,assessment)}));
+  const present=results.find(r=>r.state==='present');
+  if(present)return {state:'present',reason:present.reason,...measured};
+  if(results.every(r=>r.state==='clear'))return {state:'clear',reason:results[0].reason,...measured};
+  return {state:'deferred',reason:results.find(r=>r.state!=='clear')?.reason||'tls_retest_inconclusive',...measured};
+}
+
 export function evaluateTlsCondition(id,assessment) {
   if(!/^tls_[a-z_]+__[a-f0-9]{64}$/.test(String(id||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded'};
   for(const endpoint of assessment.endpoints||[]){
@@ -126,15 +166,22 @@ export function evaluateTlsCondition(id,assessment) {
           '';
         if(conditionKey(type,endpoint,row,detail)!==id)continue;
         if(!reachable)return {state:'deferred',reason:'endpoint_not_reachable'};
+        // A weak cipher no longer negotiates (23 Oct 2026). The engine offers ONLY
+        // this cipher; it reports no explicit cipher refusal, so the exact negative
+        // is: the server answered that offer with a TLS alert (bytes came back, not a
+        // timeout or EOF), while the SAME endpoint still completes a handshake on the
+        // SAME protocol version in this assessment. Anything less stays deferred.
+        if(type==='tls_weak_cipher'){
+          if(positive(row)&&row.evidence?.negotiated?.cipher===row.cipher_id)return {state:'present',reason:'tls_condition_still_observed'};
+          const alerted=row.state==='uncertain'&&row.reason==='peer_alert'&&row.physical_telemetry?.connections>0&&row.physical_telemetry?.bytes_received>0;
+          const protocolServed=(endpoint.checks||[]).some(o=>o.control==='protocol'&&o.protocol===row.protocol&&positive(o)&&o.evidence?.negotiated?.version===row.protocol);
+          return alerted&&protocolServed?{state:'clear',reason:'cipher_refused_on_exact_retest'}:{state:'deferred',reason:'cipher_retest_inconclusive'};
+        }
         if(row.state==='uncertain'||row.state==='unexecutable'||row.state==='not_authorized'||row.state==='not_applicable')return {state:'deferred',reason:'exact_tls_check_inconclusive'};
         if(type==='tls_legacy_protocol')
           return row.control==='protocol'&&row.state==='rejected'&&row.reason==='protocol_version_rejected'
             ? {state:'clear',reason:'exact_tls_condition_retested'}
             : positive(row)?{state:'present',reason:'tls_condition_still_observed'}:{state:'deferred',reason:'protocol_retest_inconclusive'};
-        if(type==='tls_weak_cipher')
-          return positive(row)&&row.evidence?.negotiated?.cipher===row.cipher_id
-            ? {state:'present',reason:'tls_condition_still_observed'}
-            : {state:'deferred',reason:'cipher_retest_inconclusive'};
         if(type==='tls_weak_key_exchange')return positive(row) && row.evidence?.negotiated?.group &&
           Number.isInteger(row.evidence.negotiated.group_bits) && !weakKeyExchange(row.evidence.negotiated)
           ? {state:'clear',reason:'key_exchange_retested'} : {state:'deferred',reason:'key_exchange_retest_inconclusive'};

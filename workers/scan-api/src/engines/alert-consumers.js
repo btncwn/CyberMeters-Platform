@@ -86,6 +86,10 @@ const RECURRENCE_SEVERITY = Object.freeze({
     unexpected_san: "medium",
     exception_expired: "medium",
     owner_missing: "low",
+    // TLS endpoint conditions (engines/tls-endpoint-cases.js) take the finding's own
+    // grade: a legacy protocol is high, a missing forward secrecy is lower.
+    tls_condition_observed: INHERIT_SEVERITY,
+    tls_condition_returned: INHERIT_SEVERITY,
   }),
   // `verification_failed` and `exception_expired` are declared here explicitly.
   // Under the old FLAT map they existed only in the Certificates block, and

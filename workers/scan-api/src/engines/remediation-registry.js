@@ -139,6 +139,10 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     verification_method: "certificate_recheck",
     verification_evidence_requirements: "Repeat the exact control on the same reachable endpoint with the same engine build and policy profile. A complete negative result is required; timeout, blocking, missing coverage and tool changes do not verify remediation.",
     supporting_evidence_types: ["tls_endpoint_measurement"],
+    // Certificates & Trust owns the TLS endpoint condition (Executive, 23 Oct 2026):
+    // one certificate_case per exact condition (engines/tls-endpoint-cases.js).
+    managed_workflow_compatible: true,
+    case_type: "certificate_case",
     limitations: ["This finding applies only to the observed TCP endpoint and does not attest to an origin behind a CDN or to QUIC."],
     introduced_at: "2026-10-13",
   })),

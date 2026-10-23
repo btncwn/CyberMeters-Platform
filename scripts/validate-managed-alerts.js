@@ -585,7 +585,9 @@ await preActivate("ws_dead");
   const EVALUATOR_RECURRENCES = {
     "certificate-lifecycle.js": { domain_key: "certificates_trust", recurrences:
       ["expired", "renewal_overdue", "replacement_contradicted", "verification_failed",
-       "replacement_unverified", "coverage_regression", "unexpected_san", "exception_expired", "owner_missing", "evidence_stale"] },
+       "replacement_unverified", "coverage_regression", "unexpected_san", "exception_expired", "owner_missing", "evidence_stale",
+       // TLS endpoint conditions, same domain (engines/tls-endpoint-cases.js, 23 Oct 2026).
+       "tls_condition_observed", "tls_condition_returned"] },
     "identity-lifecycle.js": { domain_key: "identity_exposure", recurrences:
       ["public_admin_surface", "removal_contradicted", "unexpected_surface", "retired_reappeared",
        "investigate_unresolved", "provider_change", "verification_failed", "exception_expired", "owner_missing", "evidence_stale"] },
@@ -636,6 +638,9 @@ await preActivate("ws_dead");
   eq("saas_exposure belongs to the shadow IT domain", r.domain_key, "shadow_it_unmanaged_technology");
 
   eq("alert kind is deterministic", alertKindFor("certificates_trust", "expired"), "certificates_trust.expired");
+  // TLS endpoint conditions inherit the finding's grade; no grade is invented.
+  ok("TLS endpoint recurrences inherit the finding's severity",
+     ["tls_condition_observed", "tls_condition_returned"].every((r) => isMappedRecurrence("certificates_trust", r) && !isMonitoringOnlyRecurrence("certificates_trust", r)));
 }
 
 async function emitLifecycleAlertProbe() {
