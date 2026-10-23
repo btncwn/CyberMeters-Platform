@@ -598,7 +598,7 @@ jobs:
 
       # M5.c — canonical reporting snapshot (mig 093). Five render paths with three
       # calculation brains could show different score/risk/state/remediation truth to the
-      # same customer, and every one recalculated history on read. One completed Cyber MOT
+      # same customer, and every one recalculated history on read. One completed CyberMeters assessment
       # now produces ONE immutable eight-domain snapshot (R2 JSON + D1 index): built once
       # (081 claim), completed only over a durable R2 object, never overwritten, superseded
       # append-only, methodology-stamped so a methodology change can never read as posture
@@ -777,7 +777,7 @@ jobs:
       - name: Validate Email Protection entitlement (effective plan, not stale users.plan)
         run: node scripts/validate-email-entitlement.js
 
-      - name: Validate eight-domain Cyber MOT coverage-state resolver (honest states, never healthy-on-missing)
+      - name: Validate eight-domain assessment coverage-state resolver (honest states, never healthy-on-missing)
         run: node scripts/validate-eight-domain-coverage-state.js
 
       - name: Validate eight-domain coverage-state wiring (four surfaces + PDF renders all eight)

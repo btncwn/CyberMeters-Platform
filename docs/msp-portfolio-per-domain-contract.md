@@ -1,7 +1,7 @@
 # MSP Portfolio — Per-Domain State and Trend Contract
 
 Authoritative for the MSP Portfolio per-domain surface. Shipped `v2026.07.16-5`
-(PRs #119, #120, #121; migration `091-cyber-mot-domain-states.sql`).
+(PRs #119, #120, #121; migration `091-domain-states.sql`).
 
 ---
 

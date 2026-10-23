@@ -70,7 +70,7 @@ const CANONICAL_M5_VALIDATORS = Object.freeze([
 const IDEMPOTENCY = Object.freeze([
   {
     label: "091 cyber_mot_domain_states",
-    migration: "database/migrations/091-cyber-mot-domain-states.sql",
+    migration: "database/migrations/091-domain-states.sql",
     unique: /UNIQUE \(workspace_id, domain_id, scan_id, domain_key\)/,
     engine: "workers/scan-api/src/engines/security-check-state-history.js",
     insert: /INSERT OR IGNORE INTO cyber_mot_domain_states/,

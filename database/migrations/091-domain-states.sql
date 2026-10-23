@@ -1,11 +1,11 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Migration 091: Canonical per-domain Cyber MOT state history (append-only)
+-- Migration 091: Canonical per-domain eight-domain assessment state history (append-only)
 -- ─────────────────────────────────────────────────────────────────────────────
 --
 -- MSP Portfolio Per-Domain State and Trend phase. Additive only.
 --
 -- ── WHY THIS TABLE, AND WHY NOT AN EXISTING ONE ─────────────────────────────
--- The eight-domain resolver (engines/cyber-mot-domains.js) is compute-on-read from the
+-- The eight-domain resolver (engines/security-check-domains.js) is compute-on-read from the
 -- R2 scan report and says so in its own header: "No new storage, no migration." That is
 -- the right design for "what is true right now" on ONE workspace — the Dashboard, Scan
 -- Detail, Executive Report and PDF each read one report and resolve eight states from
@@ -25,7 +25,7 @@
 --
 -- Nothing existing can be extended into it:
 --   • portfolio_risk_snapshots (036) — four scalars keyed by users.id. No workspace
---     dimension, no domain dimension, no Cyber-MOT-domain dimension, zero rows ever,
+--     dimension, no domain dimension, no assessment-domain dimension, zero rows ever,
 --     and its writer was deliberately deleted (#116). It stays dead. Reviving it would
 --     mean a new PK, three new columns and the first writer — a new table wearing an
 --     old name.
@@ -104,14 +104,14 @@
 --
 -- Apply:
 --   wrangler d1 execute cybermeters-db --remote \
---     --file=database/migrations/091-cyber-mot-domain-states.sql
+--     --file=database/migrations/091-domain-states.sql
 
 CREATE TABLE IF NOT EXISTS cyber_mot_domain_states (
   id                   TEXT PRIMARY KEY,          -- cmds-<hex>
   workspace_id         TEXT NOT NULL,             -- tenant boundary; purge key
   domain_id            TEXT NOT NULL,             -- domains.id — the domain RECORD, not the hostname
   scan_id              TEXT NOT NULL,             -- provenance; no FK (history outlives the scan)
-  domain_key           TEXT NOT NULL,             -- one of the canonical eight (CYBER_MOT_DOMAINS)
+  domain_key           TEXT NOT NULL,             -- one of the canonical eight (SECURITY_CHECK_DOMAINS)
 
   -- The resolver's verbatim output. Never re-derived, never second-guessed.
   state                TEXT NOT NULL,             -- assessed_healthy|issue_detected|provisional|evidence_insufficient|not_yet_assessed|customer_input_required|monitoring_only|degraded|unavailable|not_configured

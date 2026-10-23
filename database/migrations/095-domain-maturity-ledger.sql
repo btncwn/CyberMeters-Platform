@@ -10,7 +10,7 @@
 -- domain — from "not reliably observed" toward "fixed, CyberMeters-verified and under
 -- recurrence watch". It is DERIVED deterministically from truth that already exists and
 -- must never grow a second opinion about any of it:
---   • the domain STATE for the scan (engines/cyber-mot-domains.js resolver — the ONLY
+--   • the domain STATE for the scan (engines/security-check-domains.js resolver — the ONLY
 --     source of domain state; mirrored verbatim into cyber_mot_domain_states, mig 091);
 --   • the managed-case LIFECYCLE for the same (workspace, domain_key)
 --     (managed_cases phase timestamps + status + reopened_count, migs 076/082);
@@ -24,7 +24,7 @@
 --     opinion about domain state", which its own header forbids.
 --   • managed_cases (076/082) is per-CASE, not per-domain, and mutable. Maturity is a
 --     per-domain, append-only conclusion attributable to one completed eligible scan.
---   • The static CYBER_MOT_DOMAINS[].maturity ("M0".."M5") tag is a hand-declared,
+--   • The static SECURITY_CHECK_DOMAINS[].maturity ("M0".."M5") tag is a hand-declared,
 --     workspace-INDEPENDENT product-lifecycle label. This table is per-WORKSPACE and
 --     evidence-derived. They are different concepts (the static tag is left untouched).
 --
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS domain_maturity_ledger (
   workspace_id             TEXT NOT NULL,           -- tenant boundary; purge key
   domain_id                TEXT NOT NULL,           -- domains.id — the domain RECORD, not the hostname
   scan_id                  TEXT NOT NULL,           -- provenance; no FK (history outlives the scan)
-  domain_key               TEXT NOT NULL,           -- one of the canonical eight (CYBER_MOT_DOMAINS)
+  domain_key               TEXT NOT NULL,           -- one of the canonical eight (SECURITY_CHECK_DOMAINS)
 
   -- The deterministic conclusion. Never re-derived on read.
   maturity_stage           TEXT NOT NULL,           -- not_established|observed|managed|verified|monitored
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS domain_maturity_ledger (
   evidence_json            TEXT NOT NULL DEFAULT '{}',
 
   scan_quality             TEXT,                    -- complete only produces rows; recorded for audit
-  resolver_version         TEXT NOT NULL,           -- CYBER_MOT_RESOLVER_VERSION at write time
+  resolver_version         TEXT NOT NULL,           -- SECURITY_CHECK_RESOLVER_VERSION at write time
   ledger_contract_version  TEXT NOT NULL,           -- MATURITY_LEDGER_CONTRACT_VERSION — compare only within a version
 
   assessed_at              TEXT NOT NULL,           -- the SCAN's completion time = occurrence identity

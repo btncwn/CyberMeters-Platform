@@ -1,12 +1,12 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Migration 093: Canonical per-scan Cyber MOT reporting snapshot index
+-- Migration 093: Canonical per-scan CyberMeters assessment reporting snapshot index
 -- ─────────────────────────────────────────────────────────────────────────────
 --
 -- M5.c Unified Reporting Stage 1. Additive only.
 --
 -- ── WHY THIS TABLE, AND WHY NOT AN EXISTING ONE ─────────────────────────────
 -- The founder-approved Unified Reporting decision package (2026-07-16) requires ONE
--- completed Cyber MOT to produce ONE immutable canonical snapshot, later consumed by
+-- completed CyberMeters assessment to produce ONE immutable canonical snapshot, later consumed by
 -- the online report and the PDF as render-only clients. Today five render paths and
 -- three calculation brains re-derive score/risk/state/remediation truth on every
 -- read, so what a customer sees from the SAME scan changes as code changes.
@@ -46,7 +46,7 @@
 --
 -- ── IMMUTABILITY ─────────────────────────────────────────────────────────────
 -- A 'completed' row is never updated and its R2 object is never overwritten.
--- A later completed Cyber MOT creates a NEW snapshot that records
+-- A later completed CyberMeters assessment creates a NEW snapshot that records
 -- supersedes_snapshot_id at creation; the superseded row itself is not touched
 -- ("superseded" is derived on read from the chain — history is never edited).
 -- A methodology change adds snapshots, it does not rewrite them.
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS scan_report_snapshots (
   -- Version contract. The snapshot JSON carries the full methodology block; these
   -- two are duplicated into D1 because list/read paths gate on them without R2.
   snapshot_schema_version  TEXT NOT NULL,
-  resolver_version         TEXT NOT NULL,         -- CYBER_MOT_RESOLVER_VERSION at build time
+  resolver_version         TEXT NOT NULL,         -- SECURITY_CHECK_RESOLVER_VERSION at build time
 
   scan_quality             TEXT,                  -- complete|partial|degraded|unknown|NULL. NULL is NEVER complete.
   assessed_at              TEXT NOT NULL,         -- the SCAN's completion time = occurrence identity, never now()

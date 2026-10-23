@@ -6,7 +6,7 @@
 -- log. Existing asm_exposure / brand_abuse rows keep their status values and are
 -- back-filled with their canonical domain_key.
 
--- Canonical Cyber MOT domain the case belongs to (one of the eight keys).
+-- Canonical eight-domain assessment domain the case belongs to (one of the eight keys).
 ALTER TABLE managed_cases ADD COLUMN domain_key TEXT;
 
 -- Source finding + scan provenance (finding_id already stores the case-identity
