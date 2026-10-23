@@ -179,7 +179,11 @@ describe('Layout top bar — shape', () => {
     expect(within(h).queryByRole('button', { name: /New Scan/ })).not.toBeInTheDocument()
     expect(within(h).queryByRole('link', { name: 'Field Guide' })).not.toBeInTheDocument()
     expect(within(h).queryByRole('link', { name: 'Billing' })).not.toBeInTheDocument()
-    expect(within(h).queryByText('Customer A')).not.toBeInTheDocument()
+    // No workspace SELECTOR in the bar; the workspace is named only by the context
+    // bar (founder, 23 Oct 2026), never as a control of its own.
+    expect(within(h).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(within(h).getByRole('navigation', { name: 'Workspace context' })).toHaveTextContent('Customer A')
+    expect(within(h).getAllByText('Customer A')).toHaveLength(1)
     // The logo is no longer a menu (S1-SHELL-V2): no brand button anywhere.
     expect(screen.queryByRole('button', { name: 'CyberMeters — open areas' })).not.toBeInTheDocument()
     // The globe is the one notifications control in the bar; no bell beside it.
@@ -342,8 +346,9 @@ describe('Layout top bar — shape', () => {
     const dock = screen.getByTestId('workspace-dock')
     const card = () => within(dock).getByTestId('workspace-dock-button')
     await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('S'))
-    expect(card()).toHaveAttribute('title', 'Workspace · She.Shire')
-    expect(dock.textContent).not.toContain('blackbullbarbers')
+    // Name + domain count; the domains are listed on hover/focus, never as the identity.
+    await waitFor(() => expect(card()).toHaveAttribute('title', 'Workspace · She.Shire · 2 domains'))
+    expect(within(dock).getByTestId('workspace-initial')).not.toHaveTextContent('B')
     const switchTo = (id, name) => {
       localStorage.setItem('cybermeters_workspace_id', id)
       localStorage.setItem('cybermeters_workspace_name', name)
@@ -351,10 +356,10 @@ describe('Layout top bar — shape', () => {
     }
     switchTo('ws_b', 'Black Bull Barbers')
     await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('B'))
-    expect(card()).toHaveAttribute('title', 'Workspace · Black Bull Barbers')
+    await waitFor(() => expect(card()).toHaveAttribute('title', 'Workspace · Black Bull Barbers · 1 domain'))
     switchTo('ws_a', 'She.Shire')
     await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('S'))
-    expect(card()).toHaveAttribute('title', 'Workspace · She.Shire')
+    await waitFor(() => expect(card()).toHaveAttribute('title', 'Workspace · She.Shire · 2 domains'))
   })
 
   it('the account menu shows the member line for a workspace the user only belongs to', async () => {

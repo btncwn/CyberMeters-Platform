@@ -11,6 +11,7 @@ import { Check } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { setActiveWorkspace } from '../../lib/activeWorkspace'
+import { domainCountLabel } from './WorkspaceContext'
 
 export const WORKSPACE_MENU_ID = 'cm-workspace-menu'
 
@@ -29,7 +30,7 @@ export function workspaceInitial(name) {
   return source ? source[0].toUpperCase() : '?'
 }
 
-export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
+export default function WorkspaceMenu({ wsId, wsName, domainsState = null, size = 'deck' }) {
   const mini = size === 'mini'
   // 'compact': the same card at 76px, floating bottom-left below 1024px (S1-SHELL-V2).
   const compact = size === 'compact'
@@ -38,6 +39,10 @@ export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
   // domain, which in a workspace holding several domains read as another
   // workspace ("B · blackbullbarbers.co.uk" inside She.Shire).
   const subject = String(wsName || '').trim()
+  // "She.Shire · 2 domains", the domains listed on hover/focus and inside the menu
+  // (founder, 23 Oct 2026) — the workspace is the identity; domains belong to it.
+  const domains = domainsState?.status === 'ok' ? domainsState.domains : null
+  const tip = subject ? `${subject}${domains ? ` · ${domainCountLabel(domains.length)}` : ''}` : 'Select a workspace'
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState(null)
@@ -93,7 +98,7 @@ export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
         aria-expanded={open}
         aria-controls={WORKSPACE_MENU_ID}
         aria-label={wsName ? `Workspace: ${wsName}` : 'Select a workspace'}
-        title={subject ? `Workspace · ${subject}` : undefined}
+        title={subject ? `Workspace · ${tip}` : undefined}
         className={mini ? 'cm-wsmini' : `cm-wsbtn${compact ? ' cm-wsbtn-compact' : ''}`}
         data-testid={mini ? 'workspace-mini-button' : 'workspace-dock-button'}
       >
@@ -103,7 +108,12 @@ export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
         <span className="cm-wsbtn-initial" aria-hidden="true" data-testid="workspace-initial">{workspaceInitial(subject)}</span>
         {/* The card keeps its WORKSPACE label at every size; on the 76px card it sits at the 13px floor. */}
         {!mini && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
-        {!mini && <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">{subject ? `Workspace · ${subject}` : 'Select a workspace'}</span>}
+        {!mini && (
+          <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">
+            {subject ? `Workspace · ${tip}` : tip}
+            {domains && domains.length > 0 && domains.map((d) => <span key={d} className="cm-tip-line">{d}</span>)}
+          </span>
+        )}
       </button>
 
       {open && (
@@ -111,6 +121,12 @@ export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
           <div className="px-4 pt-3 pb-2 border-b border-gray-100">
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Workspace</p>
             <p className="text-[15px] font-semibold text-gray-900 truncate" data-testid="active-workspace-name">{wsName || 'No workspace selected'}</p>
+            {domains && (
+              <div className="mt-1" data-testid="active-workspace-domains">
+                <p className="text-[14px] text-gray-600">{domainCountLabel(domains.length)}</p>
+                {domains.length > 0 && <ul className="mt-0.5 text-[14px] text-gray-700">{domains.map((d) => <li key={d} className="truncate">{d}</li>)}</ul>}
+              </div>
+            )}
           </div>
           <div className="py-1">
             <p className="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Switch workspace</p>

@@ -9,6 +9,7 @@ import SafeBoundary from './SafeBoundary'
 import ProfileMenu from './shell/ProfileMenu'
 import AreaSidebar from './shell/AreaSidebar'
 import { AreaShellProvider, useAreaShell } from './shell/AreaShell'
+import ContextBar, { ScopedDomainProvider, useWorkspaceDomains } from './shell/WorkspaceContext'
 import { MODULE_TABS } from '../lib/areaTabs'
 import CyberMetersLogo from './CyberMetersLogo'
 import WorkspaceMenu from './shell/WorkspaceMenu'
@@ -175,7 +176,9 @@ export function roleLabelFor(user) {
 export default function Layout() {
   return (
     <AreaShellProvider>
-      <ShellFrame />
+      <ScopedDomainProvider>
+        <ShellFrame />
+      </ScopedDomainProvider>
     </AreaShellProvider>
   )
 }
@@ -219,6 +222,8 @@ function ShellFrame() {
   // bootstrap on every route.
   const [wsId, setWsId]     = useState(() => readActiveWorkspace().id)
   const [wsName, setWsName] = useState(() => readActiveWorkspace().name)
+  // The active workspace's domains: the card and the context bar read the same list.
+  const domainsState = useWorkspaceDomains(wsId)
 
   // Domain identity: the active area's accent travels as CSS variables for
   // pages that want a stronger accent on headers or tabs.
@@ -334,6 +339,8 @@ function ShellFrame() {
                 <ProfileMenu roleLabel={planLabel} />
               </div>
             </div>
+            {/* Which workspace and domain this screen is about (founder, 23 Oct 2026). */}
+            <ContextBar wsId={wsId} wsName={wsName} domainsState={domainsState} />
             {area && <AreaRow svc={area} />}
           </header>
 
@@ -370,7 +377,7 @@ function ShellFrame() {
           below that at 76px. It is not part of the sidebar. */}
       <div className={wide ? 'cm-wsfloat cm-wsfloat-wide' : 'cm-wsfloat'} data-testid="workspace-dock">
         <SafeBoundary>
-          <WorkspaceMenu wsId={wsId} wsName={wsName} size={wide ? 'deck' : 'compact'} />
+          <WorkspaceMenu wsId={wsId} wsName={wsName} domainsState={domainsState} size={wide ? 'deck' : 'compact'} />
         </SafeBoundary>
       </div>
       {!wide && drawerOpen && (
