@@ -267,7 +267,7 @@ const R_ALL_503 = async () => origin503();
 {
   const withUrl = (response, url) => { Object.defineProperty(response, "url", { value: url }); return response; };
   const WWW = `www.${DOMAIN}`;
-  const site = ({ apexHsts = null, wwwHsts = null, apexNoHttps = false, direct = false }) => async (input) => {
+  const site = ({ apexHsts = null, wwwHsts = null, apexNoHttps = false, direct = false, wwwStatus = 200 }) => async (input) => {
     const url = new URL(String(input));
     if (url.protocol === "http:") {
       const to = apexNoHttps ? `https://${WWW}/uk` : `https://${url.hostname}/`;
@@ -283,7 +283,7 @@ const R_ALL_503 = async () => origin503();
       return withUrl(new Response(null, { status: 301, headers: { location: `https://${WWW}/uk`, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } }), String(input));
     }
     const { "strict-transport-security": _omit, ...others } = SECURITY_HEADER_SET;
-    return withUrl(new Response("<html><body>shop</body></html>", { status: 200, headers: {
+    return withUrl(new Response("<html><body>shop</body></html>", { status: wwwStatus, headers: {
       "content-type": "text/html", ...others, ...(wwwHsts ? { "strict-transport-security": wwwHsts } : {}) } }), String(input));
   };
   const run = async (shape) => {
@@ -332,6 +332,11 @@ const R_ALL_503 = async () => origin503();
     uncovered.ids.includes("header_hsts_redirect_host_uncovered") && !uncovered.ids.includes("header_missing_strict_transport_security"), JSON.stringify(uncovered.ids));
   ok("B2_UNCOVERED_WWW_NAMES_WWW",
     (uncovered.hsts.find((f) => f.id === "header_hsts_redirect_host_uncovered")?.description || "").startsWith(`${WWW} sends no HSTS`));
+
+  // B3 (item 15 re-run, corpus-90): the www answer was a 429 with no HSTS —
+  // absence on a non-serviceable response is not evidence of an uncovered host.
+  const rateLimited = await run({ apexHsts: "max-age=31536000", wwwHsts: null, wwwStatus: 429 });
+  ok("B3_UNCOVERED_NEEDS_SERVICEABLE_FINAL_RESPONSE", !rateLimited.ids.includes("header_hsts_redirect_host_uncovered"), JSON.stringify(rateLimited.ids));
 
   // C-40 row 5 (reverse): short apex, strong www — the apex is what is judged.
   const shortApex = await run({ apexHsts: "max-age=900", wwwHsts: STRONG });

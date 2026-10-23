@@ -534,7 +534,10 @@ export function computeScore(modules, domain) {
     // Item 15 B2: the apex's HSTS lacks includeSubDomains and the redirected
     // host sends none of its own: that host is uncovered. Said of that host,
     // never as an apex absence.
-    if (finalHttps && hstsPolicy.state === "present" && !hstsPolicy.final_covered && !hstsPolicy.final_value && hstsPolicy.final_host) {
+    // B3 (item 15 re-run, corpus-90): absence is evidence only on a serviceable
+    // final response (the same gate as every other header finding); a 429 or a
+    // challenge page carrying no HSTS says nothing about the host's policy.
+    if (responseQualityOk && hstsPolicy.state === "present" && !hstsPolicy.final_covered && !hstsPolicy.final_value && hstsPolicy.final_host) {
       findings.push({
         id:           "header_hsts_redirect_host_uncovered",
         finding_type: "observation",
