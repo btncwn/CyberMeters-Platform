@@ -20,6 +20,8 @@ const NEXT = {
   approved: { target_status: 'action_in_progress', label: 'Start remediation' },
   action_in_progress: { target_status: 'awaiting_verification', label: 'Submit for verification' },
 }
+// The backend also advertises the legal rollback while waiting (C-37 row B06N).
+const ROLLBACK = { target_status: 'action_in_progress', label: 'Start remediation' }
 
 function caseBody(phase) {
   return {
@@ -34,7 +36,7 @@ function caseBody(phase) {
     },
     events: [],
     can_manage: true,
-    available_transitions: NEXT[phase] ? [NEXT[phase]] : [],
+    available_transitions: NEXT[phase] ? [NEXT[phase]] : phase === 'awaiting_verification' ? [ROLLBACK] : [],
   }
 }
 
@@ -48,7 +50,8 @@ test('HSTS case: detected → ready to verify → verified, the sentence only wh
   await page.route(`${base}/transition`, (route) => {
     const sent = route.request().postDataJSON()
     // The mock refuses anything the machine would refuse.
-    if (NEXT[phase]?.target_status !== sent.target_status) return route.fulfill(json({ error: 'invalid_transition' }, 409))
+    const allowed = NEXT[phase]?.target_status || (phase === 'awaiting_verification' ? ROLLBACK.target_status : null)
+    if (allowed !== sent.target_status) return route.fulfill(json({ error: 'invalid_transition' }, 409))
     moves.push(sent.target_status)
     phase = sent.target_status
     return route.fulfill(json(caseBody(phase).case))
@@ -64,7 +67,8 @@ test('HSTS case: detected → ready to verify → verified, the sentence only wh
     await expect(page.getByRole('button', { name: NEXT[step].label })).toBeVisible()
     await expect(page.getByTestId('case-no-longer-observed')).toHaveText(SENTENCE)
     await expectOnePrimaryAction(page)
-    await page.getByRole('button', { name: NEXT[step].label }).click()
+    // A double-click records one move, never two (S1-CASE-STALE).
+    await page.getByRole('button', { name: NEXT[step].label }).dblclick()
     await expect.poll(() => phase).toBe(NEXT[step].target_status)
   }
   expect(moves).toEqual(['triaged', 'assigned', 'approved', 'action_in_progress', 'awaiting_verification'])
@@ -76,6 +80,12 @@ test('HSTS case: detected → ready to verify → verified, the sentence only wh
   await expect(page.getByRole('button', { name: NEXT.action_in_progress.label })).toHaveCount(0)
   await expect(page.getByTestId('case-no-longer-observed')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Record customer attestation|Mark verified/ })).toHaveCount(0)
+  // S1-CASE-STALE: a waiting state has no primary; the rollback is secondary and says what it does.
+  await expect(page.getByTestId('case-waiting-verification')).toContainText('Submitted for verification on 22 Oct 2026 — CyberMeters verifies this on the next complete scan.')
+  await expect(page.locator('[data-primary="true"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Not fixed yet — reopen work', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Start remediation' })).toHaveCount(0)
+  expect(moves).toEqual(['triaged', 'assigned', 'approved', 'action_in_progress', 'awaiting_verification'])
 
   // The next scan confirms it: CyberMeters (the mock verifier) concludes verified.
   phase = 'verified'
