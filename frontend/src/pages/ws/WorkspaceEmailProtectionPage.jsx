@@ -230,13 +230,13 @@ const PENDING_TOPICS = [
   ['report-history', 'Aggregate reports'],
   ['mail-transport', 'Mail transport encryption'],
 ]
-function EmailTopicsPending() {
+function EmailTopicsPending({ message = 'Not read yet — this fills after a completed scan.' }) {
   return (
     <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="email-topics-pending">
       {PENDING_TOPICS.map(([id, title]) => (
         <section key={id} id={id} className="card p-5" aria-label={title}>
           <h3 className="text-sm font-bold text-gray-900">{title}</h3>
-          <p className="mt-1 text-sm text-gray-600">Not read yet — this fills after a completed scan.</p>
+          <p className="mt-1 text-sm text-gray-600">{message}</p>
         </section>
       ))}
     </div>
@@ -3812,11 +3812,19 @@ export default function WorkspaceEmailProtectionPage() {
   // reporting — connection status, ingestion, the DMARC reporting setup, connecting
   // report delivery and importing a report by hand.
   const emailReady = domainScans.length > 0 && !reportLoading && Boolean(es) && !moduleErrored && !notApplicable
+  // The sidebar's "MTA-STS & TLS reporting" opens ?tab=settings#mta-sts-setup in
+  // every state, so the section exists here too, saying why there is nothing to set (C-38b N02).
   const emailSettings = !emailReady ? (
+    <>
+    <section id="mta-sts-setup" className="card p-5 mb-4" aria-labelledby="mta-sts-setup-pending-heading">
+      <h3 id="mta-sts-setup-pending-heading" className="text-sm font-bold text-gray-900">MTA-STS &amp; TLS reporting</h3>
+      <p className="mt-1 text-sm text-gray-600">{notApplicable ? 'Not applicable — this domain is not expected to send mail, so this is not assessed.' : 'Set up after a completed scan of a domain in this workspace returns email-security data.'}</p>
+    </section>
     <EmptyCard
       title="Nothing to configure yet"
       body={domainScans.length === 0 ? 'Email reporting settings appear after a scan of a domain in this workspace.' : 'Email reporting settings appear once the latest scan returns email-security data for this domain.'}
     />
+    </>
   ) : (
     <div className="space-y-6">
       <EmailProtectionOverview
@@ -3946,8 +3954,11 @@ export default function WorkspaceEmailProtectionPage() {
           <EmailTopicsPending />
         </>
       ) : notApplicable ? (
+        <>
         <EmptyCard title="Email guidance not applicable for this domain"
           body={es.applicability?.reason ? `${es.applicability.reason}. This domain is not expected to send mail, so email-authentication findings are not raised.` : 'This domain is not expected to send mail, so email guidance does not apply.'} />
+        <EmailTopicsPending message="Not applicable — this domain is not expected to send mail, so this is not assessed." />
+        </>
       ) : (
         <div className="space-y-6">
           {toast && <Toast toast={toast} onClose={() => setToast(null)} />}

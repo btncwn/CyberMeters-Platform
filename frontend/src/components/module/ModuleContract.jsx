@@ -278,23 +278,52 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   useEffect(() => {
     if (!hash) return undefined
     const id = hash.slice(1)
-    let settle = null
+    let poll = null
+    let userMoved = false
+    const onUser = () => { userMoved = true }
+    const userEvents = ['wheel', 'touchstart', 'keydown', 'mousedown']
+    // Content above the target keeps loading after the first scroll (C-38b N03:
+    // a cold load could leave DMARC 1,900px below the viewport). Watch the
+    // target until it stops moving, then scroll once more — at most three
+    // re-scrolls in 6 s, and never after the customer scrolls themselves.
+    const settle = () => {
+      clearInterval(poll)
+      let last = null
+      let still = 0
+      let rescrolls = 0
+      let ticks = 0
+      poll = setInterval(() => {
+        const el = document.getElementById(id)
+        if (userMoved || ++ticks > 40 || !el || !el.isConnected || typeof el.getBoundingClientRect !== 'function') { clearInterval(poll); return }
+        const top = Math.round(el.getBoundingClientRect().top)
+        const height = document.documentElement.scrollHeight
+        still = last && last.top === top && last.height === height ? still + 1 : 0
+        last = { top, height }
+        if (still < 2) return
+        const margin = parseFloat(window.getComputedStyle(el).scrollMarginTop) || 0
+        if (Math.abs(top - margin) <= 4 || rescrolls >= 3) { clearInterval(poll); return }
+        rescrolls += 1
+        el.scrollIntoView({ block: 'start' })
+        last = null
+        still = 0
+      }, 150)
+    }
     const scroll = () => {
       const el = document.getElementById(id)
       if (!el) return false
       if (typeof el.scrollIntoView === 'function') {
         el.scrollIntoView({ block: 'start' })
-        // Content above may still be loading; settle once more where it lands.
-        clearTimeout(settle)
-        settle = setTimeout(() => el.isConnected && el.scrollIntoView({ block: 'start' }), 800)
+        settle()
       }
       return true
     }
-    if (scroll() || typeof MutationObserver !== 'function') return () => clearTimeout(settle)
+    userEvents.forEach((e) => window.addEventListener(e, onUser, { passive: true }))
+    const stopUser = () => userEvents.forEach((e) => window.removeEventListener(e, onUser))
+    if (scroll() || typeof MutationObserver !== 'function') return () => { clearInterval(poll); stopUser() }
     const observer = new MutationObserver(() => { if (scroll()) observer.disconnect() })
     observer.observe(document.body, { childList: true, subtree: true })
     const timer = setTimeout(() => observer.disconnect(), 8000)
-    return () => { observer.disconnect(); clearTimeout(timer); clearTimeout(settle) }
+    return () => { observer.disconnect(); clearTimeout(timer); clearInterval(poll); stopUser() }
   }, [hash, tab])
   const { domainsRequest, entry, casesRequest, cases } = useModuleContract(workspaceId, domainKey)
   const evidenceStatus = domainStatus(entry, domainsRequest === 'ok' && !entry ? 'error' : domainsRequest)

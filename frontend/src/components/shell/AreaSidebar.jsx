@@ -63,14 +63,19 @@ export default function AreaSidebar({ wsId, stacked = false, onNavigate = null }
   useEffect(() => { setOpen(current) }, [current])
   const here = `${pathname}${search}${hash}`
 
-  // An area row opens the area's front door and expands it — also from one of
-  // its own sub-pages (C-38 S01). Only on the front door itself does a second
-  // click collapse it. Any navigation closes the phone drawer.
+  // An area row opens the area's Summary and expands it — from one of its own
+  // sub-pages, and from a tab or section of the area page itself (?tab=,
+  // #auth-spf: C-38b S01). Only on the bare Summary does a second click collapse
+  // it. Any navigation closes the phone drawer.
   function selectArea(svc) {
-    const atFrontDoor = pathname === svc.to
-    if (atFrontDoor && open === svc.key) { setOpen(null); return }
+    const atSummary = pathname === svc.to && !search && !hash
+    if (atSummary && open === svc.key) { setOpen(null); return }
     setOpen(svc.key)
-    if (!atFrontDoor) navigate(svc.to)
+    if (!atSummary) {
+      navigate(svc.to)
+      // Same page, so nothing else resets the scroll: back to the top of the Summary.
+      if (pathname === svc.to) { try { window.scrollTo(0, 0) } catch { /* no window scroll (tests) */ } }
+    }
     onNavigate?.()
   }
 

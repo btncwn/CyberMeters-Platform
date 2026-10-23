@@ -212,20 +212,25 @@ function AreaRow({ svc }) {
   const openCount = shell?.openCases?.[svc.domainKey]
   return (
     <div className="cm-arearow" data-testid="area-row">
-      <span className="cm-arearow-name">{svc.title}<span aria-hidden="true" className="cm-arearow-dot">·</span></span>
-      <div ref={shell?.setSlot} className="cm-arearow-slot" />
+      {/* Name and tabs are one strip: on a phone it scrolls as one, so a long
+          area name never eats the tab viewport (C-38b S15); on desktop the strip
+          takes no box of its own. */}
+      <div className="cm-arearow-strip" data-testid="area-row-strip">
+        <span className="cm-arearow-name">{svc.title}<span aria-hidden="true" className="cm-arearow-dot">·</span></span>
+        <div ref={shell?.setSlot} className="cm-arearow-slot" />
+        {!shell?.claimed && (
+          <nav aria-label={`${svc.title} sections`} className="cm-tabs">
+            {MODULE_TABS.map((t) => (
+              <Link key={t.id} to={t.id === 'overview' ? svc.to : `${svc.to}?tab=${t.id}`} className="cm-tab">
+                {t.label}
+                {t.id === 'cases' && openCount > 0 && <><span className="cm-tab-count" aria-hidden="true">{openCount}</span><span className="sr-only">, {openCount} open</span></>}
+              </Link>
+            ))}
+          </nav>
+        )}
+      </div>
       {/* The page's tools (filter + actions) sit with the tabs they act on (C-38 S07). */}
       <div ref={shell?.setToolbarSlot} className="cm-arearow-tools" />
-      {!shell?.claimed && (
-        <nav aria-label={`${svc.title} sections`} className="cm-tabs">
-          {MODULE_TABS.map((t) => (
-            <Link key={t.id} to={t.id === 'overview' ? svc.to : `${svc.to}?tab=${t.id}`} className="cm-tab">
-              {t.label}
-              {t.id === 'cases' && openCount > 0 && <><span className="cm-tab-count" aria-hidden="true">{openCount}</span><span className="sr-only">, {openCount} open</span></>}
-            </Link>
-          ))}
-        </nav>
-      )}
     </div>
   )
 }
