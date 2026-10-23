@@ -40,6 +40,14 @@ const VERIFIED_PHASES = new Set(["verified", "monitoring"]);
 
 const hostOf = (finding) => finding?.evidence?.[0]?.endpoint?.hostname || null;
 
+// What tells two cases on one endpoint apart (the protocol, the cipher, the
+// vulnerability): kept on the case so its title can say "TLS 1.0 accepted" vs
+// "TLS 1.1 accepted" instead of one shared phrase (Executive, 23 Oct 19:42).
+const caseCondition = (finding) => {
+  const c = finding?.tls_condition || {};
+  return { tls_condition: { type: c.type || null, control: c.control || null, protocol: c.protocol || null, cipher_id: c.cipher_id || null } };
+};
+
 // Append-only case history, system actor (never updates a prior row).
 async function appendCaseEvent(env, kase, { from_status, to_status, action, detail }) {
   await env.cybermeters_db
@@ -112,10 +120,20 @@ export async function reconcileTlsEndpointCases(env, { workspace_id, domain, sca
         domain, asset_ref: hostOf(finding) || domain,
         title: finding.title, summary: finding.description || null,
         severity: SEVERITIES.has(finding.severity) ? finding.severity : "medium",
+        evidence: caseCondition(finding),
         actor: { actor_type: "system", actor_id: null },
       });
       if (!created.ok) continue;
       const kase = created.case;
+      // A case opened before the condition was recorded on it gets it on the next
+      // re-measure (once; same case, no duplicate, no state change).
+      if (!created.created && !String(kase.evidence_json || "").includes('"tls_condition"')) {
+        const evidence = JSON.stringify({ ...(() => { try { return JSON.parse(kase.evidence_json || "{}") || {}; } catch { return {}; } })(), ...caseCondition(finding) });
+        await env.cybermeters_db
+          .prepare("UPDATE managed_cases SET evidence_json = ? WHERE id = ? AND workspace_id = ?")
+          .bind(evidence, kase.id, workspace_id).run();
+        kase.evidence_json = evidence;
+      }
       if (created.created) {
         out.opened++;
         await alert(env, { workspace_id, kase, finding, recurrence: TLS_RECURRENCE_OBSERVED });
