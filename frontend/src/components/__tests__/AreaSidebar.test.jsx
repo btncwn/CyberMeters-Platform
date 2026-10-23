@@ -69,7 +69,7 @@ describe('AreaSidebar', () => {
     expect(within(side).getAllByRole('button', { expanded: true })).toHaveLength(1)
     const topics = within(side).getByRole('list', { name: 'Certificates & Trust topics' })
     // C-38 S28: each sub-topic opens its own named section; aliases were removed.
-    expect(within(topics).getAllByRole('link').map((a) => a.textContent)).toEqual(['Expiry', 'Chain & trust', 'Lifecycle'])
+    expect(within(topics).getAllByRole('link').map((a) => a.textContent)).toEqual(['Expiry', 'Chain & trust', 'Hostname match', 'Issuance policy (CAA)', 'Lifecycle'])
     expect(within(topics).getByRole('link', { name: 'Lifecycle' })).toHaveAttribute('href', '/ws/certificates/lifecycle')
     fireEvent.click(within(side).getByRole('button', { name: /Brand Protection/ }))
     expect(within(side).getAllByRole('button', { expanded: true }).map((b) => b.dataset.serviceKey)).toEqual(['brand'])
