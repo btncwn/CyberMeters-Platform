@@ -1103,11 +1103,29 @@ const TLS_CONDITION_REASON = Object.freeze({
   tls_compression_enabled: "TLS compression enabled",
 });
 
+const TLS_PROTOCOL_LABEL = Object.freeze({ ssl2: "SSL 2.0", ssl3: "SSL 3.0", tls1: "TLS 1.0", tls1_1: "TLS 1.1", tls1_2: "TLS 1.2", tls1_3: "TLS 1.3" });
+const TLS_VULNERABILITY_LABEL = Object.freeze({
+  tls_heartbleed_confirmed: "Heartbleed behaviour confirmed",
+  tls_robot_confirmed: "ROBOT (RSA padding oracle) signal",
+  tls_ccs_confirmed: "CCS injection behaviour confirmed",
+});
+// The distinguishing part of a TLS case's title, from the condition recorded on
+// the case: two cases on one endpoint never read the same.
+function tlsConditionReason(row) {
+  let c = null;
+  try { c = JSON.parse(row.evidence_json || "{}")?.tls_condition || null; } catch { c = null; }
+  const type = String(row.source_finding_type || "");
+  if (type === "tls_legacy_protocol" && TLS_PROTOCOL_LABEL[c?.protocol]) return `${TLS_PROTOCOL_LABEL[c.protocol]} accepted`;
+  if (type === "tls_weak_cipher" && c?.cipher_id) return `weak cipher ${c.cipher_id} accepted`;
+  if (TLS_VULNERABILITY_LABEL[type]) return TLS_VULNERABILITY_LABEL[type];
+  return TLS_CONDITION_REASON[type] || "TLS endpoint condition";
+}
+
 export function certificateCaseDisplay(row) {
   if (row?.case_type !== "certificate_case") return null;
   if (String(row.source_finding_type || "").startsWith("tls_")) {
     const host = row.asset_ref || row.domain || null;
-    const reason = TLS_CONDITION_REASON[row.source_finding_type] || "TLS endpoint condition";
+    const reason = tlsConditionReason(row);
     return { display_title: host ? `TLS endpoint ${host} — ${reason}` : (row.title ?? null), reason_label: reason, resource: host };
   }
   const host = certificateCaseHost(row) || row.asset_ref || null;
