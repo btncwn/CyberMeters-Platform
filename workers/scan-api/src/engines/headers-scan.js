@@ -144,30 +144,54 @@ export function classifyCspPolicy(value) {
   }
 
   const dangerous = new Set(["'unsafe-inline'", "'unsafe-eval'", "*"]);
-  // Item 15 fix C (23 Oct 2026), CSP Level 3: 'unsafe-inline' is ignored in a
-  // directive that also carries a nonce or hash (it is a fallback for old
-  // browsers), and with 'strict-dynamic' beside a nonce/hash '*' is ignored
-  // too. 'unsafe-eval' is never neutralised.
-  const dangerousTokens = (directive) => {
+  // Item 15 fix C (23 Oct 2026; Codex C-41, checked in Chromium), CSP Level 3:
+  //  - each context reads its effective directive (§6.8.2-6.8.3): script
+  //    elements script-src-elem -> script-src -> default-src, event-handler
+  //    attributes script-src-attr -> script-src -> default-src, eval
+  //    script-src -> default-src; styles likewise with style-src-elem /
+  //    style-src-attr -> style-src -> default-src;
+  //  - in that directive 'unsafe-inline' is ignored beside a grammar-valid
+  //    nonce or hash (§2.3.1; a bare prefix is not one) or, for scripts only,
+  //    'strict-dynamic' (§6.7.3.2), which also ignores '*' for scripts;
+  //  - 'unsafe-eval' is never neutralised.
+  const NONCE_OR_HASH = /^'(nonce|sha256|sha384|sha512)-[a-z0-9+/_-]+={0,2}'$/;
+  const effectiveDirective = (chain) => chain.find((name) => directives.has(name)) || null;
+  const dangerousIn = (directive, relevant, { script }) => {
+    if (!directive) return [];
     const tokens = directives.get(directive) || [];
-    const nonceOrHash = tokens.some((token) => /^'(nonce-|sha(256|384|512)-)/.test(token));
-    const strictDynamic = nonceOrHash && tokens.includes("'strict-dynamic'");
-    return tokens.filter((token) => dangerous.has(token)
-      && !(nonceOrHash && token === "'unsafe-inline'")
-      && !(strictDynamic && token === "*"));
+    const nonceOrHash = tokens.some((token) => NONCE_OR_HASH.test(token));
+    const strictDynamic = script && tokens.includes("'strict-dynamic'");
+    return [...new Set(tokens.filter((token) => dangerous.has(token) && relevant.includes(token)
+      && !((nonceOrHash || strictDynamic) && token === "'unsafe-inline'")
+      && !(strictDynamic && token === "*")))];
   };
-  // Scripts are governed by script-src; default-src is only its fallback when
-  // script-src is absent.
-  const scriptDirective = directives.has("script-src") ? "script-src" : "default-src";
-  const scriptDanger = [{ directive: scriptDirective, tokens: dangerousTokens(scriptDirective) }]
-    .filter((entry) => entry.tokens.length > 0);
-  // Styles likewise fall back to default-src only when style-src is absent.
-  const styleDanger = dangerousTokens(directives.has("style-src") ? "style-src" : "default-src");
+  const collect = (contexts, opts) => {
+    const byDirective = new Map();
+    for (const { chain, relevant } of contexts) {
+      const directive = effectiveDirective(chain);
+      for (const token of dangerousIn(directive, relevant, opts)) {
+        if (!byDirective.has(directive)) byDirective.set(directive, []);
+        if (!byDirective.get(directive).includes(token)) byDirective.get(directive).push(token);
+      }
+    }
+    return [...byDirective].map(([directive, tokens]) => ({ directive, tokens }));
+  };
+  const scriptDanger = collect([
+    { chain: ["script-src-elem", "script-src", "default-src"], relevant: ["'unsafe-inline'", "*"] },
+    { chain: ["script-src-attr", "script-src", "default-src"], relevant: ["'unsafe-inline'"] },
+    { chain: ["script-src", "default-src"], relevant: ["'unsafe-eval'"] },
+  ], { script: true });
+  const styleDangerEntries = collect([
+    // 'unsafe-eval' in a style directive stays a style-only observation, as before.
+    { chain: ["style-src-elem", "style-src", "default-src"], relevant: ["'unsafe-inline'", "'unsafe-eval'", "*"] },
+    { chain: ["style-src-attr", "style-src", "default-src"], relevant: ["'unsafe-inline'"] },
+  ], { script: false });
+  const styleDanger = [...new Set(styleDangerEntries.flatMap((entry) => entry.tokens))];
 
   // A policy with neither script-src nor default-src lets the page load any
   // script (e.g. a CSP of only upgrade-insecure-requests): set, but it does
   // nothing against injected scripts, so it is never a pass (20 Oct 2026).
-  if (!directives.has("script-src") && !directives.has("default-src")) {
+  if (!effectiveDirective(["script-src-elem", "script-src", "default-src"])) {
     return {
       status: "weak",
       classification: "no_script_restriction",
@@ -198,8 +222,10 @@ export function classifyCspPolicy(value) {
       parsed: true,
       actionable_weakness: false,
       style_only_weakness: true,
-      dangerous_directives: ["style-src"],
-      details: `CSP allows ${styleDanger.join(" and ")} in style-src only`,
+      dangerous_directives: styleDangerEntries.map((entry) => entry.directive),
+      details: styleDangerEntries.every((entry) => entry.directive === "style-src")
+        ? `CSP allows ${styleDanger.join(" and ")} in style-src only`
+        : `CSP allows ${styleDanger.join(" and ")} in ${styleDangerEntries.map((entry) => entry.directive).join(" and ")} (styles only)`,
     };
   }
   return {

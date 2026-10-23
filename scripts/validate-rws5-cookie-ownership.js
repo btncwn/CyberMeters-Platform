@@ -302,6 +302,32 @@ eq("CSP default-src is only the script fallback: a strict script-src governs scr
   cspClass("default-src 'unsafe-inline'; script-src 'self'"), "weak_style_only");
 eq("CSP default-src governs scripts when script-src is absent",
   cspClass("default-src 'self' 'unsafe-inline'"), "weak_script");
+// Codex C-41 (23 Oct 2026): 18 policies applied by real headless Chromium to
+// synthetic pages; the expected class is what the browser actually executed
+// (inline script, event handler, arbitrary external script, eval) or applied
+// (arbitrary stylesheet / style attribute).
+for (const [name, policy, expected] of [
+  ["valid nonce", "script-src 'nonce-YWJj' 'unsafe-inline'", "no_admitted_weakness"],
+  ["valid hash grammar", "script-src 'sha256-YWJj' 'unsafe-inline'", "no_admitted_weakness"],
+  ["empty nonce", "script-src 'nonce-' 'unsafe-inline'", "weak_script"],
+  ["invalid nonce alphabet", "script-src 'nonce-abc!' 'unsafe-inline'", "weak_script"],
+  ["unclosed nonce", "script-src 'nonce-abc 'unsafe-inline'", "weak_script"],
+  ["empty hash", "script-src 'sha256-' 'unsafe-inline'", "weak_script"],
+  ["strict dynamic nonce star", "script-src 'nonce-YWJj' 'strict-dynamic' 'unsafe-inline' *", "no_admitted_weakness"],
+  ["strict dynamic no nonce", "script-src 'strict-dynamic' 'unsafe-inline' *", "no_admitted_weakness"],
+  ["nonce wildcard without strict dynamic", "script-src 'nonce-YWJj' 'unsafe-inline' *", "weak_script"],
+  ["nonce unsafe eval", "script-src 'nonce-YWJj' 'unsafe-inline' 'unsafe-eval'", "weak_script"],
+  ["style strict dynamic star", "script-src 'nonce-YWJj'; style-src 'nonce-YWJj' 'strict-dynamic' *", "weak_style_only"],
+  ["strict dynamic default star", "default-src 'nonce-YWJj' 'strict-dynamic' *", "weak_style_only"],
+  ["element override unsafe inline", "script-src 'nonce-YWJj' 'unsafe-inline'; script-src-elem 'unsafe-inline'", "weak_script"],
+  ["attribute override unsafe inline", "script-src 'nonce-YWJj' 'unsafe-inline'; script-src-attr 'unsafe-inline'", "weak_script"],
+  ["style attribute override", "script-src 'nonce-YWJj'; style-src 'nonce-YWJj' 'unsafe-inline'; style-src-attr 'unsafe-inline'", "weak_style_only"],
+  ["default fallback for styles", "default-src 'unsafe-inline'; script-src 'self'", "weak_style_only"],
+  ["default fallback for scripts", "default-src 'unsafe-inline'; style-src 'self'", "weak_script"],
+  ["first duplicate directive wins", "script-src 'nonce-YWJj' 'unsafe-inline'; script-src 'unsafe-inline'", "no_admitted_weakness"],
+]) eq(`C-41 Chromium case: ${name}`, cspClass(policy), expected);
+eq("CSP element override names the overriding directive",
+  headersContract.classifyCspPolicy("script-src 'nonce-YWJj' 'unsafe-inline'; script-src-elem 'unsafe-inline'")?.dangerous_directives, ["script-src-elem"]);
 eq("CSP nonce policy produces no weak-policy finding",
   cspFinding("default-src 'self'; script-src 'nonce-x' 'unsafe-inline' 'self'"), undefined);
 

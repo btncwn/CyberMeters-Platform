@@ -155,21 +155,27 @@ const MUTATIONS = Object.freeze([
     // 23 Oct 2026 (item 15 fix C): re-anchored on the effective-directive
     // block; the same header-wide substring mutant also breaks the CSP3
     // nonce/hash and default-src-fallback cases.
-    anchor: `  const scriptDanger = [{ directive: scriptDirective, tokens: dangerousTokens(scriptDirective) }]
-    .filter((entry) => entry.tokens.length > 0);`,
+    anchor: `  const scriptDanger = collect([`,
     replacement: `  const scriptDanger = raw.toLowerCase().includes("'unsafe-inline'")
     ? [{ directive: "header-wide", tokens: ["'unsafe-inline'"] }]
-    : [{ directive: scriptDirective, tokens: dangerousTokens(scriptDirective) }]
-      .filter((entry) => entry.tokens.length > 0);`,
+    : collect([`,
     expectedFailures: [
+      "C-41 Chromium case: default fallback for styles",
+      "C-41 Chromium case: first duplicate directive wins",
+      "C-41 Chromium case: strict dynamic no nonce",
+      "C-41 Chromium case: strict dynamic nonce star",
+      "C-41 Chromium case: style attribute override",
+      "C-41 Chromium case: valid hash grammar",
+      "C-41 Chromium case: valid nonce",
+      "CSP 'strict-dynamic' + nonce also neutralises '*' and 'unsafe-inline'",
+      "CSP 'unsafe-inline' beside a hash is not a script weakness",
+      "CSP 'unsafe-inline' beside a nonce is not a script weakness",
+      "CSP default-src is only the script fallback: a strict script-src governs scripts",
+      "CSP element override names the overriding directive",
+      "CSP nonce policy produces no weak-policy finding",
       "CSP style-only producer is a low observation",
       "CSP style-only producer severity is low",
       "shared CSP classifier identifies style-only weakness",
-      "CSP 'unsafe-inline' beside a nonce is not a script weakness",
-      "CSP 'unsafe-inline' beside a hash is not a script weakness",
-      "CSP 'strict-dynamic' + nonce also neutralises '*' and 'unsafe-inline'",
-      "CSP default-src is only the script fallback: a strict script-src governs scripts",
-      "CSP nonce policy produces no weak-policy finding",
     ],
   },
   {
