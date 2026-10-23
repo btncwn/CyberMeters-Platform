@@ -23,6 +23,56 @@ function Pill({ meta }) {
 
 const CLASS_FILTERS = ['', 'unreviewed', 'expected', 'unexpected', 'investigate', 'exception', 'retired']
 
+// "What we observed" (S1-SHELL-V2b): counts of the backend's own records by
+// claim kind, from the unfiltered list. Counting is presentation; what each
+// record IS (claim_kind, reachability) is the backend's.
+// SUMMARY_LIMIT is the backend's own maximum page (routes/identity-exposure.js):
+// when a page comes back full, the claim-kind counts are lower bounds ("N+").
+export const SUMMARY_LIMIT = 500
+export function identitySummaryFigures({ status, items, counts, atLimit = false }) {
+  const by = (kind) => (items || []).filter((it) => it?.identity_claim?.claim_kind === kind).length
+  // Never 0 for "not known": loading and error say so (R1 15:55).
+  const v = (n) => (status === 'loading' ? 'Loading…' : status !== 'ok' ? 'Not available' : atLimit ? `${n}+` : n)
+  // counts.unreviewed is workspace-wide (not page-bound): never "+"; a missing field is "Not available".
+  const unreviewed = status === 'loading' ? 'Loading…' : status !== 'ok' || !Number.isInteger(counts?.unreviewed) ? 'Not available' : counts.unreviewed
+  return [
+    { key: 'providers', id: 'identity-providers-observed', label: 'Provider relationships', value: v(by('provider_relationship')), explanation: 'Identity providers observed for your domains' },
+    { key: 'possible', id: 'identity-hostnames-possible', label: 'Possible identity hostnames', value: v(by('surface_candidate')), explanation: 'Hostnames that may host a sign-in page; not confirmed' },
+    { key: 'measured', id: 'identity-measured', label: 'Measured sign-in surfaces', value: v(by('measured_identity_surface')), explanation: 'Hostnames where CyberMeters measured a sign-in endpoint' },
+    { key: 'unreviewed', id: 'identity-unreviewed', label: 'Not yet reviewed', value: unreviewed, explanation: 'Records you have not classified yet' },
+  ]
+}
+
+// The sidebar's "Measured endpoints": every record with measured endpoints, in
+// every state (an honest sentence before any is measured).
+export function MeasuredEndpoints({ status, items, atLimit = false }) {
+  const rows = status === 'ok' ? (items || []).filter((it) => Array.isArray(it?.measured_endpoints) && it.measured_endpoints.length > 0) : []
+  return (
+    <section id="identity-measured-endpoints" className="card p-6 mb-6" aria-labelledby="identity-measured-endpoints-heading" data-testid="identity-measured-endpoints">
+      <h2 id="identity-measured-endpoints-heading" className="font-semibold text-gray-900 mb-1">Measured endpoints</h2>
+      <p className="text-sm text-gray-500 leading-relaxed mb-4 max-w-3xl">Sign-in endpoints CyberMeters measured on your hostnames, and whether they answered. A measured endpoint is an observation, not evidence of misuse.</p>
+      {status === 'loading' ? <p className="text-sm text-gray-500">Loading…</p>
+        : status !== 'ok' ? <p className="text-sm text-gray-600">Not available — the identity records could not be loaded.</p>
+          : !rows.length ? <p className="text-sm text-gray-600">{atLimit
+            ? `None among the first ${SUMMARY_LIMIT} identity records.`
+            : 'No endpoint has been measured yet. This fills after a scan measures a sign-in endpoint on a monitored hostname.'}</p>
+            : (
+              <ul className="divide-y divide-gray-100">
+                {rows.map((it) => (
+                  <li key={it.identity_exposure_id} className="py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-4">
+                    <span className="text-sm font-medium text-gray-900 break-all">{it.primary_hostname || it.provider_name || surfaceLabel(it.surface_type)}</span>
+                    <span className="text-sm text-gray-700 sm:text-right break-all">
+                      <span className="font-semibold">{identityClaimMeta(it.identity_claim).label}</span>
+                      <span className="block text-gray-600">{it.measured_endpoints.join(', ')}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+    </section>
+  )
+}
+
 function IdentitySurfaceDetail({ workspaceId, recordId }) {
   const [detail, setDetail] = useState(null)
   const [error, setError] = useState(false)
@@ -74,6 +124,15 @@ export default function IdentityExposurePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('')
+  // "What we observed" and Measured endpoints read ONLY the unfiltered load (a
+  // filter chip never changes them): its status, records, workspace-wide counts
+  // and whether the page came back full.
+  const [summary, setSummary] = useState({ status: 'loading', items: [], counts: null, atLimit: false })
+  // Another workspace's records, counts or filter never stand in for this one's.
+  useEffect(() => {
+    setFilter('')
+    setSummary({ status: 'loading', items: [], counts: null, atLimit: false })
+  }, [workspaceId])
   const [busy, setBusy] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const requestGeneration = useRef(0)
@@ -85,9 +144,22 @@ export default function IdentityExposurePage() {
     setExpandedId(null)
     if (!workspaceId) { setLoading(false); return }   // never call the API with a null/unresolved workspace id
     setLoading(true)
-    api.getIdentitySurfaces(workspaceId, filter ? { customer_classification: filter } : {})
-      .then((res) => { if (generation === requestGeneration.current) { setData(res); setError(null) } })
-      .catch(() => { if (generation === requestGeneration.current) setError('Could not load managed identity surfaces.') })
+    const unfiltered = !filter
+    if (unfiltered) setSummary((prev) => ({ ...prev, status: 'loading' }))
+    api.getIdentitySurfaces(workspaceId, unfiltered ? { limit: SUMMARY_LIMIT } : { customer_classification: filter })
+      .then((res) => {
+        if (generation !== requestGeneration.current) return
+        setData(res); setError(null)
+        if (unfiltered) {
+          const list = Array.isArray(res?.items) ? res.items : []
+          setSummary({ status: Array.isArray(res?.items) ? 'ok' : 'error', items: list, counts: res?.counts || null, atLimit: list.length >= SUMMARY_LIMIT })
+        }
+      })
+      .catch(() => {
+        if (generation !== requestGeneration.current) return
+        setError('Could not load managed identity surfaces.')
+        if (unfiltered) setSummary({ status: 'error', items: [], counts: null, atLimit: false })
+      })
       .finally(() => { if (generation === requestGeneration.current) setLoading(false) })
   }, [workspaceId, filter])
 
@@ -159,6 +231,7 @@ export default function IdentityExposurePage() {
         actions={<Link to="/ws/identity-assets" className="btn-secondary inline-flex text-sm">People &amp; evidence →</Link>}
         /* The area template (18 Oct 2026): a real empty state — one sentence on what
            fills this page, and the one button that does it in "Do this next". */
+        figures={isEmpty ? null : identitySummaryFigures(summary)}
         nextAction={isEmpty ? {
           title: 'No identity records yet',
           body: 'This page fills after a scan finds a provider relationship or a possible identity-facing hostname for a monitored domain.',
@@ -226,7 +299,7 @@ export default function IdentityExposurePage() {
                 <tr className="border-b border-slate-50 align-top">
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.primary_hostname || it.provider_name || surfaceLabel(it.surface_type)}</div>
-                    <div className="text-xs text-slate-400">{surfaceLabel(it.surface_type)}{it.provider_name ? ` Â· ${it.provider_name}` : ''}</div>
+                    <div className="text-xs text-slate-400">{surfaceLabel(it.surface_type)}{it.provider_name ? ` · ${it.provider_name}` : ''}</div>
                     <div className="text-xs text-slate-400">{identityClaimMeta(it.identity_claim).label}</div>
                     <div className="text-xs text-slate-400">{confidenceDetailLabel(it.confidence_detail)} · reachability {it.identity_claim?.reachability?.status?.replace(/_/g, ' ') || 'not evaluated'}</div>
                     {it.linked_case_id && (
@@ -295,6 +368,7 @@ export default function IdentityExposurePage() {
           </table>
         </div>
       )}
+      <MeasuredEndpoints status={summary.status} items={summary.items} atLimit={summary.atLimit} />
       </ModuleContract>
       {dialog.element}
     </div>

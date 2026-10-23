@@ -72,7 +72,8 @@ describe('IdentityExposurePage — workspace resolution', () => {
     api.getIdentitySurfaces.mockResolvedValue({ items: [], counts: {}, actions: [] })
     mount()
     await waitFor(() => expect(api.getIdentitySurfaces).toHaveBeenCalled())
-    expect(api.getIdentitySurfaces).toHaveBeenCalledWith(WS_ID, {})
+    // The unfiltered load asks for the backend's maximum page (the summary counts read it).
+    expect(api.getIdentitySurfaces).toHaveBeenCalledWith(WS_ID, { limit: 500 })
     for (const call of api.getIdentitySurfaces.mock.calls) expect(call[0]).toBe(WS_ID)
     expect(screen.getByRole('heading', { name: 'Login-surface review' })).toBeInTheDocument()
     expect(screen.queryByText(/known.address breach|saved address.check|LeakCheck/i)).not.toBeInTheDocument()
