@@ -54,8 +54,11 @@ export async function identityExposureRoutes(rctx) {
       });
       const counts = await countIdentityExposureByClassification(env, wsId);
       // Workspace-wide, not page-bound; null when it could not be read (the page
-      // then says "Not available", never 0).
-      counts.by_claim_kind = await countIdentityExposureByClaimKind(env, wsId).catch(() => null);
+      // then says "Not available", never 0). Computed only for the unfiltered list
+      // (the page's summary load): a filtered call does not pay for a full read.
+      const filtered = ["customer_classification", "risk_status", "monitoring_status", "surface_type"]
+        .some((key) => url.searchParams.get(key));
+      if (!filtered) counts.by_claim_kind = await countIdentityExposureByClaimKind(env, wsId).catch(() => null);
       return json({
         workspace_id: wsId, count: items.length, counts,
         classifications: IDENTITY_CLASSIFICATIONS, ownership_statuses: IDENTITY_OWNERSHIP_STATUSES,

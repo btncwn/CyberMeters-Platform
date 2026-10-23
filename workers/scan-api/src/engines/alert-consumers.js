@@ -381,7 +381,9 @@ const RECURRENCE_COPY = Object.freeze({
     }),
     sender_classification_worsened: Object.freeze({
       what_changed: (entity) =>
-        `Receiving mail providers now report ${entity} using your domain at a higher level than when it was last reviewed.`,
+        // The band can rise from receiver reports OR from the customer's own threat
+        // escalation (resolveSenderPolicy higherBand): name the fact, not a cause.
+        `The sender band for ${entity} is now higher than at the last grading.`,
     }),
     sender_unauthorised_failures_active: Object.freeze({
       what_changed: (entity) =>
