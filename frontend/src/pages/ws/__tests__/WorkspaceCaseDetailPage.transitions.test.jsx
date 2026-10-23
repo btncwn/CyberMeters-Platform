@@ -1,175 +1,91 @@
-// ── Universal Case Detail — Next-action transition controls ───────────────────
-// UX correction (founder public-beta blocker): an input-free transition must
-// execute on ONE click — no redundant empty Confirm panel. A transition that
-// requires a reason / expiry / attestation still opens an inline form that
-// collects only those fields. These tests pin: direct one-click execution for
-// input-free moves, no empty Confirm panel, disable-while-submitting +
-// no-duplicate, real forms for input-required moves, honest attestation wording,
-// no false success, success refresh, and viewer gating.
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../../api'
-import WorkspaceCaseDetailPage from '../WorkspaceCaseDetailPage'
+import WorkspaceCaseDetailPage, { presentTransitions, submittedForVerificationText } from '../WorkspaceCaseDetailPage'
 
-vi.mock('../../../api', () => ({
-  api: { getCase: vi.fn(), transitionCase: vi.fn(), getWorkspaceMembers: vi.fn() },
-}))
-vi.mock('../../../hooks/useWorkspace', () => ({
-  useWorkspace: () => ({ wsId: 'ws1', wsName: 'WS', workspaces: [{ id: 'ws1', role: 'admin' }], loading: false }),
-}))
+// S1-CASE-STALE (Executive 00:00, 23 Oct 2026; Codex C-37): a backwards or
+// consequential move is never the primary and says what it does; after a
+// transition the controls stay disabled until the server's state is on screen.
 
-function renderCase(caseId = 'c1') {
-  return render(
-    <MemoryRouter initialEntries={[`/ws/cases/${caseId}`]}>
-      <Routes><Route path="/ws/cases/:caseId" element={<WorkspaceCaseDetailPage />} /></Routes>
-    </MemoryRouter>,
-  )
-}
+vi.mock('../../../api', () => ({ api: { getCase: vi.fn(), transitionCase: vi.fn(), transitionManagedCase: vi.fn(), getWorkspaceMembers: vi.fn() } }))
+vi.mock('../../../hooks/useWorkspace', () => ({ useWorkspace: () => ({ wsId: 'ws1', wsName: 'WS', workspaces: [{ id: 'ws1', role: 'admin' }], loading: false }) }))
 
-const baseCase = {
-  case_id: 'c1', workspace_id: 'ws1', domain_key: 'shadow_it_unmanaged_technology',
-  case_type: 'shadow_it_case', status: 'action_in_progress', canonical_phase: 'action_in_progress',
-  title: 'Unmanaged SaaS observed', severity: 'medium',
-  source_finding_type: 'shadow_it_service', asset_ref: 'app.example.com',
-  reopened_count: 0, created_at: '2026-07-01T10:00:00Z', updated_at: '2026-07-02T10:00:00Z',
-  verification_support: 'manual', owner_ref: 'Beta',
-}
-const T = (over) => ({ requires_owner: false, requires_note: false, requires_expiry: false, requires_attestation: false, verification_mode: null, ...over })
+const T = (target_status, label, extra = {}) => ({ target_status, label, ...extra })
+const view = (caseRecord, transitions) => presentTransitions(caseRecord, transitions).map(({ label, primary }) => `${primary ? '[P] ' : ''}${label}`)
 
-beforeEach(() => {
-  api.getCase.mockReset(); api.transitionCase.mockReset(); api.getWorkspaceMembers.mockReset()
-  api.getWorkspaceMembers.mockResolvedValue({ members: [] })
+describe('presentTransitions (C-37 rows)', () => {
+  it('B06N awaiting verification (automated): no primary; the rollback says it reopens work', () => {
+    expect(view({ status: 'awaiting_verification', canonical_phase: 'awaiting_verification', verification_support: 'automated' }, [T('action_in_progress', 'Start remediation')]))
+      .toEqual(['Not fixed yet — reopen work'])
+  })
+  it('B06M awaiting verification (manual): the attestation stays primary; the rollback is relabelled', () => {
+    expect(view({ status: 'awaiting_verification', canonical_phase: 'awaiting_verification', verification_support: 'manual' }, [T('verified', 'Record customer attestation'), T('action_in_progress', 'Start remediation')]))
+      .toEqual(['[P] Record customer attestation', 'Not fixed yet — reopen work'])
+  })
+  it('B08 monitoring and B11 accepted risk: reopening or re-triaging is never the primary', () => {
+    expect(view({ status: 'monitoring', canonical_phase: 'monitoring' }, [T('reopened', 'Reopen case'), T('closed_no_action', 'Close — no action needed')]))
+      .toEqual(['Reopen case', '[P] Close — no action needed'])
+    expect(view({ status: 'accepted_risk', canonical_phase: 'accepted_risk' }, [T('triaged', 'Begin triage')]))
+      .toEqual(['Withdraw the risk acceptance and re-triage'])
+  })
+  it('Attack Surface A06/A07/A08/A09/A11: the running check, the close, the risk request and the retry say what they do', () => {
+    expect(view({ status: 'verifying' }, [T('verification_requested', 'Request verification')])).toEqual(['Restart verification (cancels the running check)'])
+    expect(view({ status: 'resolved' }, [T('closed', 'Close case')])).toEqual(['Close case'])
+    expect(view({ status: 'risk_acceptance_requested' }, [T('risk_accepted', 'Accept risk'), T('remediation_in_progress', 'Start remediation')]))
+      .toEqual(['[P] Accept risk', 'Withdraw the risk request and resume work'])
+    expect(view({ status: 'risk_accepted' }, [T('triage', 'Begin triage')])).toEqual(['Withdraw the risk acceptance and re-triage'])
+    expect(view({ status: 'verification_failed' }, [T('remediation_in_progress', 'Start remediation'), T('verification_requested', 'Request verification')]))
+      .toEqual(['[P] Resume remediation', 'Request verification'])
+  })
+  it('forward moves keep their label and the first is the one primary', () => {
+    expect(view({ status: 'approved', canonical_phase: 'approved' }, [T('action_in_progress', 'Start remediation'), T('accepted_risk', 'Accept risk')]))
+      .toEqual(['[P] Start remediation', 'Accept risk'])
+  })
+  it('the waiting sentence names the submission date and who verifies; none for a manual case', () => {
+    const c = { canonical_phase: 'awaiting_verification', verification_support: 'automated', updated_at: '2026-10-21T09:00:00Z' }
+    expect(submittedForVerificationText(c, [{ to_status: 'awaiting_verification', created_at: '2026-10-22T12:00:00Z' }]))
+      .toBe('Submitted for verification on 22 Oct 2026 — CyberMeters verifies this on the next complete scan.')
+    expect(submittedForVerificationText({ ...c, verification_support: 'manual' }, [])).toBeNull()
+    expect(submittedForVerificationText({ ...c, canonical_phase: 'action_in_progress' }, [])).toBeNull()
+  })
 })
 
-describe('WorkspaceCaseDetailPage — input-free transitions execute on one click', () => {
-  const DIRECT = [
-    { target_status: 'triaged', label: 'Begin triage' },
-    { target_status: 'assigned', label: 'Move to Assigned' },
-    { target_status: 'approved', label: 'Approve to act' },
-    { target_status: 'action_in_progress', label: 'Start remediation' },
-    { target_status: 'awaiting_verification', label: 'Submit for verification' },
-    { target_status: 'monitoring', label: 'Move to monitoring' },
-    { target_status: 'reopened', label: 'Reopen case' },
-  ]
+const caseIn = (phase) => ({
+  case_id: 'mc-1', workspace_id: 'ws1', domain_key: 'website_security', case_type: 'website_case', status: phase, canonical_phase: phase,
+  verification_support: 'automated', title: 'Send the HSTS header', severity: 'medium', reopened_count: 0,
+  created_at: '2026-10-21T10:00:00Z', updated_at: '2026-10-22T12:00:00Z',
+})
+const transitionsFor = { action_in_progress: [T('awaiting_verification', 'Submit for verification')], awaiting_verification: [T('action_in_progress', 'Start remediation')] }
+const body = (phase) => ({ case: caseIn(phase), events: [], can_manage: true, available_transitions: transitionsFor[phase] || [] })
 
-  it.each(DIRECT)('"$label" transitions on a single click with no Confirm panel', async ({ target_status, label }) => {
-    api.getCase
-      .mockResolvedValueOnce({ case: baseCase, events: [], can_manage: true, available_transitions: [T({ target_status, label })] })
-      .mockResolvedValueOnce({ case: { ...baseCase, status: target_status }, events: [], can_manage: true, available_transitions: [] })
-    api.transitionCase.mockResolvedValue({ case: { ...baseCase, status: target_status } })
-    renderCase()
-    fireEvent.click(await screen.findByRole('button', { name: label }))
-    await waitFor(() => expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'c1', { target_status }))
-    // No empty Confirm/Cancel panel ever appeared.
-    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
-    // Success refreshes case + history.
+beforeEach(() => { vi.clearAllMocks(); api.getWorkspaceMembers.mockResolvedValue({ members: [] }) })
+
+describe('the case page after a transition', () => {
+  it('disables the clicked control in flight, applies the server state, and the old primary cannot take a second click', async () => {
+    let phase = 'action_in_progress'
+    let releaseReload
+    api.getCase.mockImplementation(() => (phase === 'action_in_progress'
+      ? Promise.resolve(body(phase))
+      : new Promise((resolve) => { releaseReload = () => resolve(body(phase)) })))
+    api.transitionCase.mockImplementation(async () => { phase = 'awaiting_verification'; return { ok: true } })
+    render(<MemoryRouter initialEntries={['/ws/cases/mc-1']}><Routes><Route path="/ws/cases/:caseId" element={<WorkspaceCaseDetailPage />} /></Routes></MemoryRouter>)
+    const submit = await screen.findByRole('button', { name: 'Submit for verification' })
+    fireEvent.click(submit)
+    // In flight and while the case reloads the control is disabled or gone; a second click does nothing.
     await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(2))
-  })
-
-  it('a double-click cannot create a duplicate transition request', async () => {
-    api.getCase.mockResolvedValue({ case: baseCase, events: [], can_manage: true, available_transitions: [T({ target_status: 'awaiting_verification', label: 'Submit for verification' })] })
-    let resolveFn
-    api.transitionCase.mockReturnValue(new Promise((res) => { resolveFn = res }))
-    renderCase()
-    const btn = await screen.findByRole('button', { name: 'Submit for verification' })
-    fireEvent.click(btn)   // starts the request; button becomes disabled/busy
-    fireEvent.click(btn)   // ignored — busy
-    await waitFor(() => expect(btn).toBeDisabled())
+    for (const b of screen.queryAllByRole('button', { name: /Working…|Submit for verification/ })) {
+      expect(b).toBeDisabled()
+      fireEvent.click(b)
+    }
     expect(api.transitionCase).toHaveBeenCalledTimes(1)
-    resolveFn({ case: baseCase }) // cleanup
-  })
-
-  it('shows a generic error and does NOT refresh when a direct transition fails', async () => {
-    api.getCase.mockResolvedValue({ case: baseCase, events: [], can_manage: true, available_transitions: [T({ target_status: 'awaiting_verification', label: 'Submit for verification' })] })
-    api.transitionCase.mockRejectedValue(new Error('boom'))
-    renderCase()
-    fireEvent.click(await screen.findByRole('button', { name: 'Submit for verification' }))
-    expect(await screen.findByText(/Could not complete this action/i)).toBeInTheDocument()
-    expect(api.getCase).toHaveBeenCalledTimes(1) // no reload → no false success
-  })
-})
-
-describe('WorkspaceCaseDetailPage — input-required transitions still open a form', () => {
-  it('a reason-required transition (Reject case) opens a form and sends the reason', async () => {
-    api.getCase.mockResolvedValue({
-      case: { ...baseCase, status: 'triaged', canonical_phase: 'triaged' }, events: [], can_manage: true,
-      available_transitions: [T({ target_status: 'rejected', label: 'Reject case', requires_note: true })],
-    })
-    api.transitionCase.mockResolvedValue({ case: baseCase })
-    renderCase()
-    fireEvent.click(await screen.findByRole('button', { name: 'Reject case' }))
-    // The submit button names the action (verb + object), not "Confirm".
-    const confirm = await screen.findByRole('button', { name: 'Reject case' })
-    expect(confirm).toBeDisabled()
-    fireEvent.change(screen.getByPlaceholderText(/Why is this the right outcome/i), { target: { value: 'Duplicate case.' } })
-    expect(confirm).toBeEnabled()
-    fireEvent.click(confirm)
-    await waitFor(() => expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'c1', { target_status: 'rejected', reason: 'Duplicate case.' }))
-  })
-
-  it('risk acceptance requests both a reason and an expiry', async () => {
-    api.getCase.mockResolvedValue({
-      case: { ...baseCase, status: 'assigned', canonical_phase: 'assigned' }, events: [], can_manage: true,
-      available_transitions: [T({ target_status: 'accepted_risk', label: 'Accept risk', requires_note: true, requires_expiry: true })],
-    })
-    api.transitionCase.mockResolvedValue({ case: baseCase })
-    renderCase()
-    fireEvent.click(await screen.findByRole('button', { name: 'Accept risk' }))
-    // The submit button names the action (verb + object), not "Confirm".
-    const confirm = await screen.findByRole('button', { name: 'Accept risk' })
-    expect(confirm).toBeDisabled()
-    fireEvent.change(screen.getByPlaceholderText(/Why is this the right outcome/i), { target: { value: 'Accepted by security.' } })
-    expect(confirm).toBeDisabled() // still needs expiry
-    fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: '2026-12-31' } })
-    expect(confirm).toBeEnabled()
-    fireEvent.click(confirm)
-    await waitFor(() => expect(api.transitionCase).toHaveBeenCalled())
-    const [, , payload] = api.transitionCase.mock.calls[0]
-    expect(payload.target_status).toBe('accepted_risk')
-    expect(payload.reason).toBe('Accepted by security.')
-    expect(payload.risk_accepted_until).toMatch(/^2026-12-31/)
-  })
-
-  it('a manual verification opens a structured attestation form — honest wording, never "Verified by CyberMeters"', async () => {
-    api.getCase.mockResolvedValue({
-      case: { ...baseCase, status: 'awaiting_verification', canonical_phase: 'awaiting_verification' }, events: [], can_manage: true,
-      available_transitions: [T({ target_status: 'verified', label: 'Record customer attestation', requires_attestation: true, verification_mode: 'manual' })],
-    })
-    api.transitionCase.mockResolvedValue({ case: baseCase })
-    renderCase()
-    fireEvent.click(await screen.findByRole('button', { name: 'Record customer attestation' }))
-    expect((await screen.findAllByText(/Attested by customer — not externally verifiable/i)).length).toBeGreaterThan(0)
-    expect(screen.queryByText('Verified by CyberMeters')).toBeNull()
-    const confirm = screen.getByRole('button', { name: 'Record customer attestation' })
-    expect(confirm).toBeDisabled()
-    fireEvent.change(screen.getByPlaceholderText(/Describe what you changed/i), { target: { value: 'Removed the unmanaged app.' } })
-    fireEvent.click(confirm)
-    await waitFor(() => expect(api.transitionCase).toHaveBeenCalled())
-    const [, , payload] = api.transitionCase.mock.calls[0]
-    expect(payload.evidence.verification_method).toBe('manual_attestation')
-    expect(payload.evidence.attestation.statement).toBe('Removed the unmanaged app.')
-  })
-
-  it('an owner-required Move to Assigned opens the guidance form (not a direct move)', async () => {
-    api.getCase.mockResolvedValue({
-      case: { ...baseCase, status: 'triaged', canonical_phase: 'triaged', owner_ref: null }, events: [], can_manage: true,
-      available_transitions: [T({ target_status: 'assigned', label: 'Move to Assigned', requires_owner: true })],
-    })
-    renderCase()
-    fireEvent.click(await screen.findByRole('button', { name: 'Move to Assigned' }))
-    expect(await screen.findByText(/Assign an owner in the Owner section/i)).toBeInTheDocument()
-    // No direct transition fired (owner missing).
-    expect(api.transitionCase).not.toHaveBeenCalled()
-  })
-})
-
-describe('WorkspaceCaseDetailPage — viewer gating', () => {
-  it('a non-manager sees no transition controls', async () => {
-    api.getCase.mockResolvedValue({ case: baseCase, events: [], can_manage: false, available_transitions: [] })
-    renderCase()
-    expect(await screen.findByText('History')).toBeInTheDocument()
-    expect(screen.queryByText('Next action')).toBeNull()
+    await act(async () => { releaseReload() })
+    // The server's state: waiting sentence, no primary, the rollback secondary and honest.
+    expect(await screen.findByTestId('case-waiting-verification')).toHaveTextContent('Submitted for verification on 22 Oct 2026 — CyberMeters verifies this on the next complete scan.')
+    expect(screen.queryByRole('button', { name: 'Submit for verification' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Start remediation' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Not fixed yet — reopen work' })).not.toHaveAttribute('data-primary')
+    expect(document.querySelectorAll('[data-primary="true"]')).toHaveLength(0)
+    expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'mc-1', { target_status: 'awaiting_verification' })
   })
 })

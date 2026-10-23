@@ -120,6 +120,59 @@ function sentence(key) {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : ''
 }
 
+// ── Which advertised move is the primary, and what it is called ─────────────
+// S1-CASE-STALE (Executive 00:00, 23 Oct 2026; Codex C-37 audit): the backend
+// advertises every LEGAL move, including moves backwards. A backwards or
+// consequential move (it leaves a waiting state, reopens, withdraws a risk
+// decision, cancels a running check, closes the workflow) is never the
+// primary, and its label says what it really does — "Start remediation" on an
+// awaiting-verification case undid the customer's own submission, three times
+// live. Keyed by "<current status>><target status>" (base and Attack Surface).
+export const SECONDARY_MOVES = Object.freeze({
+  'awaiting_verification>action_in_progress': 'Not fixed yet — reopen work',
+  'monitoring>reopened': 'Reopen case',
+  'accepted_risk>triaged': 'Withdraw the risk acceptance and re-triage',
+  'verifying>verification_requested': 'Restart verification (cancels the running check)',
+  'resolved>closed': 'Close case',
+  'risk_acceptance_requested>remediation_in_progress': 'Withdraw the risk request and resume work',
+  'risk_accepted>triage': 'Withdraw the risk acceptance and re-triage',
+})
+// A forward move whose generic label hides that it is a retry.
+const RELABELLED_MOVES = Object.freeze({
+  'verification_failed>remediation_in_progress': 'Resume remediation',
+})
+
+/** [{ t, label, primary }] in the backend's order; at most one primary, never a backwards move. */
+export function presentTransitions(caseRecord, transitions = []) {
+  const from = [caseRecord?.status, caseRecord?.canonical_phase].filter(Boolean)
+  const keyOf = (t) => from.map((f) => `${f}>${t.target_status}`)
+  const secondaryLabel = (t) => keyOf(t).map((k) => SECONDARY_MOVES[k]).find(Boolean) || null
+  const relabel = (t) => keyOf(t).map((k) => RELABELLED_MOVES[k]).find(Boolean) || null
+  let primaryTaken = false
+  return transitions.map((t) => {
+    const backwards = secondaryLabel(t)
+    const primary = !backwards && !primaryTaken
+    if (primary) primaryTaken = true
+    return { t, label: backwards || relabel(t) || t.label, primary }
+  })
+}
+
+// Awaiting verification is a waiting state: it says what happens next and when
+// it was submitted, instead of offering a primary (manual cases keep their
+// attestation form, which really records the customer's evidence).
+const WAITING_TEXT = {
+  automated: 'CyberMeters verifies this on the next complete scan.',
+  external: 'An independent party certifies this; record their evidence when you have it.',
+  unsupported: 'CyberMeters cannot observe this fix from outside, so it cannot verify it.',
+}
+export function submittedForVerificationText(caseRecord, events = []) {
+  if (caseRecord?.canonical_phase !== 'awaiting_verification' || caseRecord?.verification_support === 'manual') return null
+  const submitted = [...events].filter((e) => e?.to_status === 'awaiting_verification' || e?.to_status === 'verification_requested')
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]?.created_at || caseRecord.updated_at
+  const day = submitted ? formatDay(submitted, '') : ''
+  return `Submitted for verification${day ? ` on ${day}` : ''} — ${WAITING_TEXT[caseRecord.verification_support] || WAITING_TEXT.unsupported}`
+}
+
 // ── Next action ─────────────────────────────────────────────────────────────
 // Renders ONLY the transitions the backend advertised in available_transitions —
 // it never derives the state machine and never invents a shortcut. A transition
@@ -128,7 +181,7 @@ function sentence(key) {
 // attestation opens an inline form that collects ONLY those fields (no native
 // prompt/confirm). Manual verification is recorded honestly as a customer
 // attestation, never as "Verified by CyberMeters".
-function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRoute, domainLabel }) {
+function NextActionSection({ wsId, caseId, caseRecord, events = [], transitions, onDone, phase, domainRoute, domainLabel }) {
   const [selected, setSelected] = useState(null)   // the transition whose input form is open
   const [note, setNote] = useState('')
   const [expiry, setExpiry] = useState('')
@@ -159,7 +212,9 @@ function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRou
         await api.transitionCase(wsId, caseId, rest)
       }
       setSelected(null); resetForm()
-      onDone?.()
+      // Stay busy until the server's state is back on screen: the old buttons
+      // can never take a second click while the case reloads.
+      await onDone?.()
     } catch {
       setActionError('Could not complete this action. Please try again.')
     } finally {
@@ -179,6 +234,8 @@ function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRou
   const attestationOk = !selected?.requires_attestation || attestation.trim().length > 0
   const ownerOk       = !selected?.requires_owner // owner is set separately, in the Owner section
   const canSubmit = Boolean(selected) && noteOk && expiryOk && attestationOk && ownerOk && !busy
+  const presented = presentTransitions(caseRecord, transitions)
+  const waitingText = submittedForVerificationText(caseRecord, events)
 
   function submitForm() {
     if (!canSubmit) return
@@ -204,6 +261,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRou
         <h2 className="text-sm font-semibold text-slate-800">Next action</h2>
       </div>
 
+      {waitingText && <p className="mb-3 text-base text-slate-700" data-testid="case-waiting-verification">{waitingText}</p>}
       {transitions.length === 0 ? (
         // Never "no further actions" on a case that still needs action: a closed
         // case says it is closed; an open one says where it is handled.
@@ -217,19 +275,19 @@ function NextActionSection({ wsId, caseId, transitions, onDone, phase, domainRou
       ) : !selected ? (
         <>
           <div className="flex flex-wrap gap-2">
-            {transitions.map((t, index) => (
+            {presented.map(({ t, label, primary }) => (
               <button
                 key={t.target_status}
                 type="button"
-                onClick={() => onButtonClick(t)}
+                onClick={() => onButtonClick({ ...t, label })}
                 disabled={Boolean(busy)}
                 aria-busy={busy === t.target_status}
-                data-primary={index === 0 ? 'true' : undefined}
-                className={index === 0
+                data-primary={primary ? 'true' : undefined}
+                className={primary
                   ? 'btn-primary min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed'
                   : 'inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed'}
               >
-                {busy === t.target_status ? 'Working…' : t.label}
+                {busy === t.target_status ? 'Working…' : label}
               </button>
             ))}
           </div>
@@ -339,10 +397,11 @@ export default function WorkspaceCaseDetailPage() {
   const role = workspaces.find((w) => w.id === wsId)?.role || null
   const canManage = role === 'owner' || role === 'admin'
 
+  // Returns the request, so an action can wait for the server's state to render.
   const load = useCallback(() => {
-    if (!wsId || !caseId) return
+    if (!wsId || !caseId) return Promise.resolve()
     setLoading(true)
-    api.getCase(wsId, caseId)
+    return api.getCase(wsId, caseId)
       .then((res) => { setData(res); setError(null) })
       .catch(() => setError('Could not load this case.'))
       .finally(() => setLoading(false))
@@ -419,6 +478,8 @@ export default function WorkspaceCaseDetailPage() {
               wsId={wsId}
               caseId={c.case_id}
               transitions={data?.available_transitions || []}
+              caseRecord={c}
+              events={events}
               onDone={() => load()}
               phase={c.canonical_phase}
               domainRoute={dmeta?.route || null}

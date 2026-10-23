@@ -152,7 +152,8 @@ it.each(['email_protection', 'website_security', 'attack_surface', 'certificates
 it('the re-check never competes with an available transition', async () => {
   api.getCase.mockResolvedValue({ case: { ...baseCase, domain: 'example.com', verification_support: 'automated' }, events: [], can_manage: true, available_transitions: [{ target_status: 'action_in_progress', label: 'Start remediation' }] })
   renderCase()
-  await screen.findByRole('button', { name: 'Start remediation' })
+  // S1-CASE-STALE: the awaiting-verification rollback is secondary and says what it does.
+  await screen.findByRole('button', { name: 'Not fixed yet — reopen work' })
   expect(screen.queryByRole('button', { name: 'Run scan to re-check' })).toBeNull()
 })
 it.each(['manual', 'external', 'unsupported'])('does not offer an automated recheck for %s verification', async (verification_support) => {
