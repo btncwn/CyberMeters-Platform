@@ -11,8 +11,9 @@ export function ceSummaryFigures({ readiness, readinessLoaded, notAssessed = fal
       : readiness?.questionnaire?.complete === false ? 'Questionnaire first'
         : typeof readiness.score === 'number' ? `${readiness.score}/100` : 'Not available'
   const answered = progress?.total > 0 ? `${progress.answered} of ${progress.total}` : 'Not available'
+  // The workspace total (pagination.total), never the loaded page's length (50 by default).
   const observed = controlsError ? 'Not available' : !controls ? 'Loading…'
-    : Array.isArray(controls.items) ? controls.items.length : 'Not available'
+    : Number.isInteger(controls.pagination?.total) ? controls.pagination.total : 'Not available'
   return [
     { key: 'score', id: 'ce-score', label: 'External readiness indicator', value: score, explanation: 'From external evidence only; not a certification' },
     { key: 'answered', id: 'ce-answered', label: 'Questions answered', value: answered, explanation: 'Your self-declared answers' },

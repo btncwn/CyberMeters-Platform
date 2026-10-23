@@ -18,7 +18,7 @@ vi.mock('../../../api', () => ({
 vi.mock('../../../hooks/useWorkspace', () => ({ useWorkspace: vi.fn() }))
 
 const values = (f) => Object.fromEntries(f.map((x) => [x.id, x.value]))
-const base = { readinessLoaded: true, progress: { answered: 12, total: 20 }, controls: { items: [{}, {}] }, controlsError: null }
+const base = { readinessLoaded: true, progress: { answered: 12, total: 20 }, controls: { items: [{}, {}], pagination: { total: 2 } }, controlsError: null }
 
 describe('ceSummaryFigures', () => {
   it('the backend score, the self-declared progress and the observed records, each anchored', () => {
@@ -37,6 +37,10 @@ describe('ceSummaryFigures', () => {
     })
     expect(ceSummaryFigures({ ...base, readiness: { score: 64 }, controls: null, controlsError: 'x' })[2].value).toBe('Not available')
     expect(ceSummaryFigures({ ...base, readiness: { score: null, status: 'partial' } })[0].value).toBe('Not available')
+  })
+  it('observed records are the workspace total (pagination.total), never the loaded page; missing → Not available', () => {
+    expect(ceSummaryFigures({ ...base, readiness: { score: 64 }, controls: { items: Array(50).fill({}), pagination: { total: 137 } } })[2].value).toBe(137)
+    expect(ceSummaryFigures({ ...base, readiness: { score: 64 }, controls: { items: Array(50).fill({}) } })[2].value).toBe('Not available')
   })
 })
 
