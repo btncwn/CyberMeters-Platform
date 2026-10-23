@@ -46,7 +46,7 @@ describe('ModuleContract — head and tabs', () => {
     for (let i = 0; i < 30 && document.activeElement !== overview; i++) await user.tab()
     expect(overview).toHaveFocus()
 
-    for (const name of ['Findings', 'Cases', 'Settings', 'Field Guide', 'Summary']) {
+    for (const name of ['Findings', /^Cases/, 'Settings', 'Field Guide', 'Summary']) {
       await user.keyboard('{ArrowRight}')
       const target = screen.getByRole('tab', { name })
       expect(target).toHaveFocus()
@@ -70,7 +70,9 @@ describe('ModuleContract — head and tabs', () => {
     await waitFor(() => expect(within(screen.getByTestId('module-head-status')).getByText('Action required')).toBeInTheDocument())
     expect(within(screen.getByTestId('module-head-status')).getByText(/Last assessed 3 days ago/)).toBeInTheDocument()
     const tabs = screen.getAllByRole('tab')
-    expect(tabs.map(t => t.textContent)).toEqual(MODULE_TABS.map(t => t.label))
+    // The Cases tab carries the open-case count (S1-SHELL-V2: "Cases (count)").
+    expect(tabs.map(t => t.textContent.replace(/\d+, \d+ open$/, ''))).toEqual(MODULE_TABS.map(t => t.label))
+    expect(screen.getByRole('tab', { name: /^Cases/ })).toHaveAccessibleName(/^Cases\s*,\s*2 open$/)
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
     const tiles = within(screen.getByTestId('module-tiles')).getAllByRole('link')
     expect(tiles.map(t => t.getAttribute('href'))).toEqual(['/ws/email-protection?tab=settings#dmarc-setup', '/ws/email-protection#sender-inventory', '/ws/email-protection#auth-detail', '/ws/email-protection?tab=settings#connect-reporting', '/ws/email-protection#lifecycle-history'])
@@ -90,8 +92,8 @@ describe('ModuleContract — head and tabs', () => {
     expect(screen.queryByTestId('module-tiles')).not.toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['What we observed', 'Do this next', 'Findings', 'Recommended action', 'Scope & limits'])
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
-    expect(screen.getByRole('tab', { name: 'Cases' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: /^Cases/ }))
+    expect(screen.getByRole('tab', { name: /^Cases/ })).toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByText('DMARC policy is p=none')).toBeInTheDocument()
     expect(screen.queryByTestId('body')).not.toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent.trim())).toEqual(['What we observed', 'Do this next', 'Managed case', 'Verification', 'Scope & limits'])
@@ -215,7 +217,7 @@ describe('ModuleContract — head and tabs', () => {
       )
     }
     render(<MemoryRouter initialEntries={['/ws/email-protection?tab=cases']}><Routes><Route path="*" element={<Page />} /></Routes></MemoryRouter>)
-    expect(screen.getByRole('tab', { name: 'Cases' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: /^Cases/ })).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Go to stats' }))
     expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('statistic cards')).toBeInTheDocument()
@@ -231,20 +233,20 @@ describe('ModuleContract — head and tabs', () => {
       'Sender InventoryEvery source seen sending as your domain',
       'Lifecycle historyChanges to reporting and senders',
     ])
-    fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
+    fireEvent.click(screen.getByRole('tab', { name: /^Cases/ }))
     expect(screen.getByText('No case in this area matches the filter.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
     fireEvent.change(box, { target: { value: 'dkim' } })
     // The tile whose description names DKIM stays; the others go.
     expect(within(screen.getByTestId('module-tiles')).getAllByRole('link').map(t => t.getAttribute('href'))).toEqual(['/ws/email-protection#auth-detail'])
-    fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
+    fireEvent.click(screen.getByRole('tab', { name: /^Cases/ }))
     expect(screen.getByText('DKIM selector rotated')).toBeInTheDocument()
     expect(screen.queryByText('DMARC policy is p=none')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Summary' }))
     fireEvent.change(box, { target: { value: 'zzz-nothing' } })
     expect(screen.queryByTestId('module-tiles')).not.toBeInTheDocument()
     fireEvent.change(box, { target: { value: '' } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Cases' }))
+    fireEvent.click(screen.getByRole('tab', { name: /^Cases/ }))
     expect(screen.getByText('DMARC policy is p=none')).toBeInTheDocument()
     expect(matchesFilter('Sender Inventory', ' sender ')).toBe(true)
     expect(matchesFilter(null, 'x')).toBe(false)

@@ -187,7 +187,7 @@ export default function SchedulesPage() {
             {refreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             Refresh
           </button>
-          <Link to="/scans/new" className="btn-primary">
+          <Link to="/scans/new" className="btn-secondary">
             Manual Scan
           </Link>
         </div>

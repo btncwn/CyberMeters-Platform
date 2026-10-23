@@ -172,9 +172,10 @@ function statusPill(kind) {
   return map[kind] || map.na
 }
 
+// Each record card is an anchor the sidebar opens (#auth-spf, #auth-dmarc, …).
 function AuthCard({ title, status, statusKind = 'na', children }) {
   return (
-    <div className="card p-5 flex flex-col">
+    <div id={`auth-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} className="card p-5 flex flex-col scroll-mt-28">
       <div className="flex items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-bold text-gray-900 min-w-0">{title}</h3>
         {status && (
@@ -1480,7 +1481,7 @@ function DmarcReportHistory({ wsId, domain }) {
         <p className="p-6 text-sm text-gray-500">Report history could not be loaded right now. Try again later.</p>
       ) : reports.length === 0 ? (
         <div className="p-6">
-          <p className="text-sm font-semibold text-gray-800">No reports received yet</p>
+          <p className="text-sm font-semibold text-gray-800">Waiting for first report</p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             Once DMARC reporting is connected, each aggregate report that arrives for this domain will appear here.
           </p>
@@ -3385,7 +3386,8 @@ export function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders 
     U: { tone: 'na', label: 'Report status unavailable',
          msg: 'DMARC report history could not be loaded.',
          next: 'Refresh this page to check report receipt.' },
-    A: { tone: 'na',   label: 'No reports received yet',
+    // "Waiting for first report" (founder-approved wording, S1-SHELL-V2).
+    A: { tone: 'na',   label: 'Waiting for first report',
          msg: 'CyberMeters has not received DMARC aggregate reports for this domain yet.',
          next: 'Add the CyberMeters reporting address to your DMARC record.', cta: 'View setup instructions', act: onGotoSetup },
     B: { tone: 'ok',   label: 'Reports received',
@@ -3794,7 +3796,8 @@ export default function WorkspaceEmailProtectionPage() {
         workspaceId={wsId}
         workspaceName={wsName}
         scanDomain={selectedDomain}
-        description={selectedDomain ? `Monitor DMARC alignment, sender authentication and report ingestion for ${selectedDomain}.` : 'Monitor DMARC alignment, sender authentication and report ingestion for your domains.'}
+        // Founder-approved copy (S1-SHELL-V2, 22 Oct 2026).
+        description={`Checks the published policies used to authenticate email from ${selectedDomain || 'your domains'} — SPF, DKIM, DMARC, MTA-STS and TLS reporting — as read from your DNS.`}
         actions={headerActions}
         nextAction={domainScans.length === 0 ? {
           title: 'Run a scan to start email protection',
@@ -3947,7 +3950,7 @@ export default function WorkspaceEmailProtectionPage() {
               <TlsRptCard detail={es.tls_rpt_detail} />
               <MxRecordsCard intelligence={report?.modules?.email_security_intelligence} transport={report?.modules?.mail_transport} />
             </div>
-            <div className="mt-4"><MailTransportCard transport={report?.modules?.mail_transport} mtaSts={es.mta_sts_detail} tlsRpt={es.tls_rpt_detail} /></div>
+            <div id="mail-transport" className="mt-4 scroll-mt-28"><MailTransportCard transport={report?.modules?.mail_transport} mtaSts={es.mta_sts_detail} tlsRpt={es.tls_rpt_detail} /></div>
           </section>
 
           {/* 4. Auto-fix registry — every gap + the exact fix */}

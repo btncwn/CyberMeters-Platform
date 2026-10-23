@@ -4,12 +4,12 @@ import { AREA_ORDER, sortByAreaOrder } from '../../../shared/areas.js'
 import { SERVICES } from '../components/WorkspaceNav'
 import { MODULES } from '../lib/moduleRegistry'
 import { GUIDE_AREAS } from '../data/fieldGuide'
-import AreaMenu from '../components/shell/AreaMenu'
+import AreaSidebar from '../components/shell/AreaSidebar'
 import PostureCard from '../components/overview/PostureCard'
 import AcademyPage from '../pages/AcademyPage'
 import { api } from '../api'
 
-// Area order is ONE constant (shared/areas.js): the area sheet, the Overview
+// Area order is ONE constant (shared/areas.js): the sidebar, the Overview
 // posture list and the Field Guide all render the eight areas in that order —
 // Email, Attack Surface, Website, Identity, Shadow IT, Certificates, Brand,
 // Cyber Essentials.
@@ -40,10 +40,9 @@ describe('the three surfaces render in that order', () => {
     api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: ORDER.map((k) => ({ domain_key: k, display_name: k, state: 'assessed_healthy', coverage: 'complete', summary: '' })) })
   })
 
-  it('area sheet', async () => {
-    render(<MemoryRouter><AreaMenu wsId="ws1" /></MemoryRouter>)
-    fireEvent.click(screen.getByRole('button', { name: 'CyberMeters — open areas' }))
-    const items = within(screen.getByRole('menu', { name: 'Areas' })).getAllByRole('menuitem')
+  it('sidebar', async () => {
+    render(<MemoryRouter><AreaSidebar wsId="ws1" /></MemoryRouter>)
+    const items = within(screen.getByRole('navigation', { name: 'Security areas' })).getAllByRole('button')
     expect(items.map((i) => i.dataset.serviceKey)).toEqual(SERVICES.map((s) => s.key))
     expect(ascending(positions(items.map((i) => i.textContent).join('|'), MODULES.map((m) => m.title)))).toBe(true)
   })

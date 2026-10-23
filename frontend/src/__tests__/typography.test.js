@@ -71,12 +71,14 @@ describe('product typography', () => {
     // apart from the card itself.
     expect(css).not.toMatch(/\.cm-earthdock\s*\{/)
     expect(css).not.toMatch(/\.cm-bellbtn\s*\{/)
-    expect(css).toMatch(/\.cm-dock\s*\{[^}]*pointer-events:\s*none/)
-    // The deck never floats over content (19 Oct 2026): it is a grid column of
-    // its own, sticky to the viewport bottom, never a fixed overlay.
-    expect(css).not.toMatch(/\.cm-dock[^{]*\{[^}]*position:\s*fixed/)
-    expect(css).toMatch(/\.cm-body\s*\{[^}]*display:\s*grid;\s*grid-template-columns:\s*160px minmax\(0, 1fr\)/)
-    expect(css).toMatch(/\.cm-dock-card\s*\{[^}]*position:\s*sticky;\s*bottom:\s*22px/)
+    // S1-SHELL-V2 (founder-approved 22 Oct 2026): from 1024px the workspace card
+    // sits in its own block at the foot of the sticky 272px sidebar, never over
+    // an area row; below 1024px it floats at 76px and the page keeps room for it.
+    expect(css).toMatch(/\.cm-sidebar\s*\{[^}]*flex:\s*0 0 272px;[^}]*position:\s*sticky;\s*top:\s*0;\s*height:\s*100vh/)
+    expect(css).toMatch(/\.cm-sidebar-dock\s*\{[^}]*flex:\s*none/)
+    expect(css).not.toMatch(/\.cm-sidebar-dock\s*\{[^}]*position:\s*(fixed|absolute)/)
+    expect(css).toMatch(/\.cm-wsfloat\s*\{[^}]*position:\s*fixed;\s*left:\s*16px;\s*bottom:\s*16px/)
+    expect(css).toMatch(/@media \(max-width: 1023\.98px\)\s*\{\s*\.cm-main\s*\{\s*padding-bottom:\s*108px/)
     // The notification panel hangs under the globe, right-aligned, capped below the bar; the list scrolls inside.
     expect(css).toMatch(/\.cm-notif\s*\{[^}]*position:\s*absolute;\s*right:\s*0;\s*top:\s*calc\(100% \+ 10px\)/)
     expect(css).toMatch(/\.cm-notif\s*\{[^}]*max-height:\s*calc\(100dvh - 100px\)/)
@@ -90,5 +92,17 @@ describe('product typography', () => {
     expect(css).toMatch(/\.cm-earth-count\s*\{[^}]*background:\s*#a9f2e5;\s*color:\s*#081f1c/)
     expect(css).not.toMatch(/\.cm-globe\s*\{/)
     expect(css).not.toMatch(/\.cm-rail\s*\{/)
+  })
+})
+
+// Tailwind v4 generates an @utility only for a class name it finds verbatim in
+// the source. The top-bar pills once rendered unstyled in production because
+// Layout built the name in a template literal (`cm-pill${…}`) and the only
+// verbatim "cm-pill" lived in a test that was later rewritten (S1-SHELL-V2).
+describe('shell utilities are named verbatim where they are used', () => {
+  it('Layout spells cm-pill and cm-pill-active as whole literals', () => {
+    const layout = readFileSync(resolve(__dirname, '../components/Layout.jsx'), 'utf8')
+    expect(layout).toMatch(/'cm-pill cm-pill-active'/)
+    expect(layout).toMatch(/: 'cm-pill'/)
   })
 })

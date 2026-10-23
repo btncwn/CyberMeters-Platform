@@ -108,7 +108,7 @@ describe('DMARC receipt and BEC assessment evidence scopes', () => {
     api.getDmarcReportHistory.mockResolvedValue({ totals: { reports: 0, last_seen: null } })
     render(<DmarcIngestionStatus wsId={WS_ID} domain={DOMAIN} />)
 
-    expect(await screen.findByText('No reports received yet')).toBeInTheDocument()
+    expect(await screen.findByText('Waiting for first report')).toBeInTheDocument()
     expect(screen.getByText('No')).toBeInTheDocument()
     expect(screen.getByText('Not yet')).toBeInTheDocument()
     expect(screen.queryByText('Yes')).not.toBeInTheDocument()
@@ -122,7 +122,7 @@ describe('DMARC receipt and BEC assessment evidence scopes', () => {
     expect(await screen.findByText('Report status unavailable')).toBeInTheDocument()
     const receivedTile = screen.getByText('Reports received').parentElement
     expect(within(receivedTile).getByText('Unknown')).toBeInTheDocument()
-    expect(screen.queryByText('No reports received yet')).not.toBeInTheDocument()
+    expect(screen.queryByText('Waiting for first report')).not.toBeInTheDocument()
     expect(screen.queryByText('No')).not.toBeInTheDocument()
   })
 

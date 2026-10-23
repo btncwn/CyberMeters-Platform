@@ -31,6 +31,8 @@ export function workspaceInitial(name) {
 
 export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 'deck' }) {
   const mini = size === 'mini'
+  // 'compact': the same card at 76px, floating bottom-left below 1024px (S1-SHELL-V2).
+  const compact = size === 'compact'
   // The card's letter is the selected domain's initial (cybermeters.com → C,
   // blackbullbarbers.co.uk → B), falling back to the workspace name; hover
   // never changes it. The tooltip names the same thing.
@@ -81,7 +83,7 @@ export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 
   const itemClass = 'flex items-center gap-2 px-4 py-2 text-[15px] text-gray-800 hover:bg-gray-50 transition-colors'
 
   return (
-    <div className={mini ? 'relative' : 'relative cm-wsdock'} ref={ref} data-testid="workspace-menu">
+    <div className={mini ? 'relative' : `relative cm-wsdock${compact ? ' cm-wsdock-compact' : ''}`} ref={ref} data-testid="workspace-menu">
       <button
         ref={buttonRef}
         type="button"
@@ -91,14 +93,15 @@ export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 
         aria-controls={WORKSPACE_MENU_ID}
         aria-label={wsName ? `Workspace: ${wsName}` : 'Select a workspace'}
         title={subject ? `Workspace · ${subject}` : undefined}
-        className={mini ? 'cm-wsmini' : 'cm-wsbtn'}
+        className={mini ? 'cm-wsmini' : `cm-wsbtn${compact ? ' cm-wsbtn-compact' : ''}`}
         data-testid={mini ? 'workspace-mini-button' : 'workspace-dock-button'}
       >
         {/* The card deck (founder prototype v2): a navy-to-blue card with the
             serif initial and a WORKSPACE label, two offset white cards behind.
             The mini card keeps the initial only. */}
         <span className="cm-wsbtn-initial" aria-hidden="true" data-testid="workspace-initial">{workspaceInitial(subject)}</span>
-        {!mini && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
+        {/* The 76px card shows the initial only: its WORKSPACE label would fall under the 13px type floor. */}
+        {!mini && !compact && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
         {!mini && <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">{subject ? `Workspace · ${subject}` : 'Select a workspace'}</span>}
       </button>
 

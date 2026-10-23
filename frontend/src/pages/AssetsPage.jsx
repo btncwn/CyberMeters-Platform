@@ -524,7 +524,8 @@ export default function AssetsPage() {
           <HostingSummary summary={hostingSummary} />
 
           {/* ── Filters ───────────────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-3">
+          {/* The hostname inventory starts here: the sidebar's "Hostnames" opens it. */}
+          <div id="asset-inventory" className="flex flex-wrap items-center gap-3 scroll-mt-28">
             <div className="flex items-center gap-1.5">
               <span className="label">Status</span>
               {['all', 'observed', 'confirmed_removed'].map(v => (

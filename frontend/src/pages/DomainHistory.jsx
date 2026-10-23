@@ -96,7 +96,7 @@ export default function DomainHistory() {
             icon={Globe}
             title="No scan history"
             description={`No scans found for ${domain}`}
-            action={<Link to="/scans/new" className="btn-primary">Start first scan</Link>}
+            action={<Link to="/scans/new" className="btn-secondary">Start first scan</Link>}
           />
         ) : (
           <div className="relative">

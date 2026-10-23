@@ -60,8 +60,9 @@ const topBarLabels = () =>
   within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link').map(a => a.textContent)
 const header = () => screen.getByRole('banner')
 
-const DIRECT = ['Overview', 'Operations', 'Reports']
-const MSP = ['Portfolio', 'Customers', 'Operations', 'Reports']
+// S1-SHELL-V2 (founder-approved 22 Oct 2026): Active Checks joins row 1.
+const DIRECT = ['Overview', 'Operations', 'Active Checks', 'Reports']
+const MSP = ['Portfolio', 'Customers', 'Operations', 'Active Checks', 'Reports']
 
 beforeEach(() => {
   localStorage.clear()
@@ -86,11 +87,11 @@ describe('selectNav (pure)', () => {
     expect(MSP_NAV_FEATURE).toBe('portfolio_monitoring')
   })
 
-  it('names the destinations the founder fixed — three pills, Field Guide and Billing elsewhere', () => {
+  it('names the destinations the founder fixed — Active Checks to the page that exists today; Field Guide and Billing elsewhere', () => {
     expect(DIRECT_NAV.map(i => i.label)).toEqual(DIRECT)
-    expect(DIRECT_NAV.map(i => i.to)).toEqual(['/dashboard', '/ws/cases', '/reports'])
+    expect(DIRECT_NAV.map(i => i.to)).toEqual(['/dashboard', '/ws/cases', '/ws/active-checks/permission', '/reports'])
     expect(MSP_NAV.map(i => i.label)).toEqual(MSP)
-    expect(MSP_NAV.map(i => i.to)).toEqual(['/portfolio', '/workspaces', '/ws/cases', '/reports'])
+    expect(MSP_NAV.map(i => i.to)).toEqual(['/portfolio', '/workspaces', '/ws/cases', '/ws/active-checks/permission', '/reports'])
   })
 
   it('no two items in one menu share a destination', () => {
@@ -169,6 +170,7 @@ describe('Layout top bar — shape', () => {
     renderLayout({ features: DIRECT_FEATURES }, { path: '/reports' })
     const active = within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link').filter(a => a.className.includes('cm-pill-active'))
     expect(active.map(a => a.textContent)).toEqual(['Reports'])
+    for (const a of within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link')) expect(a.className.split(' ')).toContain('cm-pill')
   })
 
   it('carries no scan button, no workspace selector and no Field Guide or Billing pill', async () => {
@@ -178,10 +180,8 @@ describe('Layout top bar — shape', () => {
     expect(within(h).queryByRole('link', { name: 'Field Guide' })).not.toBeInTheDocument()
     expect(within(h).queryByRole('link', { name: 'Billing' })).not.toBeInTheDocument()
     expect(within(h).queryByText('Customer A')).not.toBeInTheDocument()
-    // The brand is ONE button that opens the areas; no bell and no lone dot in the bar.
-    const brand = within(h).getByRole('button', { name: 'CyberMeters — open areas' })
-    expect(brand).toHaveTextContent('CyberMeters')
-    expect(brand).toHaveAttribute('aria-haspopup', 'menu')
+    // The logo is no longer a menu (S1-SHELL-V2): no brand button anywhere.
+    expect(screen.queryByRole('button', { name: 'CyberMeters — open areas' })).not.toBeInTheDocument()
     // The globe is the one notifications control in the bar; no bell beside it.
     expect(within(h).getAllByRole('button', { name: /^Notifications/ })).toHaveLength(1)
     // The globe sits immediately before the account initial.
@@ -254,43 +254,63 @@ describe('Layout top bar — shape', () => {
     expect(await screen.findByTestId('login')).toBeInTheDocument()
   })
 
-  it('has no rail: the areas show only in the sheet the brand opens; the docks and the skip link are present', () => {
+  it('≥1024px: the sidebar lists the eight areas with their state; the logo links to Overview; the workspace card sits at its foot', async () => {
+    api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: [{ domain_key: 'email_protection', status: 'assessed_healthy', coverage_state: 'assessed_healthy' }] })
     renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' } })
-    expect(screen.queryByRole('navigation', { name: 'Modules' })).not.toBeInTheDocument()
-    expect(screen.queryByTestId('module-rail')).not.toBeInTheDocument()
-    expect(screen.queryByText('Email Protection')).not.toBeInTheDocument()
-    fireEvent.click(within(header()).getByRole('button', { name: 'CyberMeters — open areas' }))
-    const sheet = screen.getByRole('menu', { name: 'Areas' })
-    expect(within(sheet).getAllByRole('menuitem')).toHaveLength(8)
-    expect(within(sheet).getByText('Email Protection')).toBeInTheDocument()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('menu', { name: 'Areas' })).not.toBeInTheDocument()
-
-    // Workspace card deck bottom-left; the globe lives in the top bar, nothing bottom-right.
+    const side = screen.getByRole('navigation', { name: 'Security areas' })
+    expect(within(side).getByRole('link', { name: 'CyberMeters — Overview' })).toHaveAttribute('href', '/dashboard')
+    expect(within(side).getByText('Your external posture')).toBeInTheDocument()
+    const rows = within(side).getAllByRole('button')
+    expect(rows.map(b => b.querySelector('.cm-side-name').textContent)).toEqual([
+      'Email Protection', 'Attack Surface', 'Website Security', 'Identity Exposure',
+      'Shadow IT & Unmanaged Technology', 'Certificates & Trust', 'Brand Protection', 'Cyber Essentials Readiness',
+    ])
+    // Each row carries the vocabulary chip; nothing else (no workspace or account links) in the sidebar.
+    await waitFor(() => expect(within(side).getByTestId('area-state-email_protection').querySelector('[data-status]')).toBeTruthy())
+    expect(within(side).queryByRole('link', { name: /Billing|Account|Support|Field Guide/ })).not.toBeInTheDocument()
     const dock = screen.getByTestId('workspace-dock')
     expect(within(dock).getByRole('button', { name: 'Workspace: Customer A' })).toHaveClass('cm-wsbtn')
-    // The deck is a layout column beside the content, not an overlay on it.
-    expect(dock.parentElement).toHaveClass('cm-body')
-    expect(dock.parentElement).toBe(screen.getByRole('main').parentElement)
-    expect(screen.queryByTestId('earth-dock')).not.toBeInTheDocument()
+    expect(dock.closest('.cm-sidebar')).toBeTruthy()
+    expect(screen.queryByTestId('areas-menu-button')).not.toBeInTheDocument()
     expect(within(header()).getByTestId('shell-earth')).toBeInTheDocument()
     expect(screen.getByText('Skip to content')).toHaveAttribute('href', '#main')
-    expect(screen.getByRole('main')).toHaveAttribute('id', 'main')
-    for (const a of within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link')) {
-      expect(a.className.split(' ')).toContain('cm-pill')
-    }
   })
 
-  it('below 1280px no dock is rendered: the 36px workspace card and the same globe sit in the top bar; no bell', async () => {
+  it('inside an area: the selected area expands into its sub-topics and row 2 shows "<Area> ·" and the tabs', () => {
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' }, path: '/ws/email-protection' })
+    const side = screen.getByRole('navigation', { name: 'Security areas' })
+    const email = within(side).getByRole('button', { name: /Email Protection/ })
+    expect(email).toHaveAttribute('aria-expanded', 'true')
+    expect(within(side).getAllByRole('button', { expanded: true })).toHaveLength(1)
+    const topics = within(side).getByRole('list', { name: 'Email Protection topics' })
+    expect(within(topics).getAllByRole('link').map(a => a.textContent)).toEqual(['DMARC policy', 'SPF', 'DKIM', 'MTA-STS & TLS reporting', 'Aggregate reports', 'Mail transport (DANE)'])
+    expect(within(topics).getByRole('link', { name: 'SPF' })).toHaveAttribute('href', '/ws/email-protection#auth-spf')
+    const row = screen.getByTestId('area-row')
+    expect(row).toHaveTextContent(/^Email Protection·/)
+    // No area page claimed the slot (the route renders a stub): the tabs show as links.
+    expect(within(row).getAllByRole('link').map(a => a.textContent)).toEqual(['Summary', 'Findings', 'Cases', 'Settings', 'Field Guide'])
+    expect(within(row).getByRole('link', { name: 'Cases' })).toHaveAttribute('href', '/ws/email-protection?tab=cases')
+  })
+
+  it('outside an area there is no second row', () => {
+    renderLayout({ features: DIRECT_FEATURES }, { path: '/reports' })
+    expect(screen.queryByTestId('area-row')).not.toBeInTheDocument()
+  })
+
+  it('<1024px: a menu button opens the sidebar as a drawer (Escape closes it); the workspace card floats at 76px', async () => {
     renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' }, wide: false })
-    expect(screen.queryByTestId('earth-dock')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('workspace-dock')).not.toBeInTheDocument()
-    const h = header()
-    const mini = within(h).getByRole('button', { name: 'Workspace: Customer A' })
-    expect(mini).toHaveClass('cm-wsmini')
-    expect(screen.queryByTestId('compact-bell')).not.toBeInTheDocument()
-    expect(within(h).getAllByRole('button', { name: /^Notifications/ })).toHaveLength(1)
-    fireEvent.click(mini)
+    expect(screen.queryByRole('navigation', { name: 'Security areas' })).not.toBeInTheDocument()
+    const menu = within(header()).getByRole('button', { name: 'Open areas menu' })
+    expect(within(header()).getByRole('link', { name: 'CyberMeters — Overview' })).toHaveAttribute('href', '/dashboard')
+    fireEvent.click(menu)
+    const drawer = screen.getByRole('dialog', { name: 'Areas' })
+    expect(within(drawer).getAllByRole('button', { name: /Protection|Surface|Security|Exposure|Shadow|Certificates|Readiness/ }).length).toBeGreaterThanOrEqual(8)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Areas' })).not.toBeInTheDocument()
+    expect(menu).toHaveFocus()
+    const card = within(screen.getByTestId('workspace-dock')).getByRole('button', { name: 'Workspace: Customer A' })
+    expect(card).toHaveClass('cm-wsbtn-compact')
+    fireEvent.click(card)
     expect(await screen.findByRole('menu', { name: 'Workspace' })).toBeInTheDocument()
   })
 
