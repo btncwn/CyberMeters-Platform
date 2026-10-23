@@ -15,7 +15,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = path.join(root, "workers/scan-api/src/engines/identity-lifecycle.js");
 const validator = path.join(root, "scripts/validate-identity-exposure-lifecycle.js");
-const EXPECTED_ASSERTIONS = 105;
+// 111 since #942 (six workspace-wide claim-kind count checks; mutants unchanged).
+const EXPECTED_ASSERTIONS = 111;
 const EXPECTED_MUTANTS = 3;
 const EXPECTED_CONTROLS = 2;
 
