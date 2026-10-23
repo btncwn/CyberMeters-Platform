@@ -759,7 +759,7 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
             {rows.map(r => (
               <tr key={r.domain} onClick={() => onSelect(r.domain)}
                 className={`cursor-pointer transition-colors ${r.domain === selectedDomain ? 'bg-brand-50/50' : 'hover:bg-gray-50/60'}`}>
-                <td><button type="button" onClick={(e) => { e.stopPropagation(); onSelect(r.domain) }} aria-pressed={r.domain === selectedDomain} className="font-semibold text-gray-800 text-sm text-left hover:underline">{r.domain}</button></td>
+                <td><button type="button" onClick={(e) => { e.stopPropagation(); onSelect(r.domain) }} aria-pressed={r.domain === selectedDomain} className="cm-rowlink font-semibold text-sm text-left">{r.domain}</button></td>
                 <td><span className="text-xs font-semibold text-gray-700">{STAGE_LABEL[r.stage] || '—'}</span></td>
                 <td className="text-center">{compCell(r.compliance)}</td>
                 <td>{becCell(r.bec)}</td>

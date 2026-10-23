@@ -77,7 +77,7 @@ export default function IdentityWorkforceCard({ workspaceId }) {
         {data.accounts.length === 0 && <p className="text-sm text-gray-500">Add an account on a verified domain, or read the exact account from your Entra directory.</p>}
         {data.accounts.map(person => <article key={person.id} className={`border rounded-lg p-3 ${selected === person.id ? 'border-brand-500' : 'border-gray-200'}`}>
           <div className="flex flex-wrap gap-3 items-center justify-between">
-            <button type="button" className="text-sm text-left break-all font-medium" onClick={() => choose(person)}>{person.display_name || person.upn}{person.display_name && <span className="block text-xs text-gray-500 font-normal">{person.upn}</span>}</button>
+            <button type="button" className="cm-rowlink text-sm text-left break-all font-medium" onClick={() => choose(person)}>{person.display_name || person.upn}{person.display_name && <span className="block text-xs text-gray-500 font-normal">{person.upn}</span>}</button>
             <label className="text-xs flex gap-2 items-center"><input type="checkbox" aria-label={`VIP ${person.upn}`} checked={person.vip} onChange={e => run(() => api.updateIdentityAccount(workspaceId, person.id, { vip: e.target.checked }))} />VIP</label>
           </div>
           <p className="text-xs text-gray-500 mt-1">{person.source === 'entra' ? 'Microsoft account observed' : 'Customer-supplied account'} · {when(person.updated_at)}</p>

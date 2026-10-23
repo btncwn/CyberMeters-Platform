@@ -162,7 +162,7 @@ export default function RelatedChangesList({ workspaceId }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       {/* Explanation first, number second. */}
-                      <p className="text-sm font-semibold text-slate-900 leading-snug">{ruleLabel(rc.rule_id)}</p>
+                      <p className="cm-rowlink text-sm font-semibold leading-snug">{ruleLabel(rc.rule_id)}</p>
                       <p className="text-xs text-slate-500 mt-0.5 truncate">
                         Affects {rc.affected_domain || rc.registrable_domain} · {signalFamilyText(rc.signal_family_count)} · observed in the same period
                       </p>

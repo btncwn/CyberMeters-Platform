@@ -53,7 +53,7 @@ function CaseRow({ c }) {
   return (
     <li className="py-3 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4" data-testid="case-row" data-case-id={c.case_id} data-lane-word={caseStatus(c)}>
       <div className="min-w-0 flex-1">
-        <Link to={`/ws/cases/${encodeURIComponent(c.case_id)}`} className="text-sm font-semibold text-gray-900 hover:text-brand-800">
+        <Link to={`/ws/cases/${encodeURIComponent(c.case_id)}`} className="cm-rowlink text-sm font-semibold">
           {c.display_title || caseDisplayTitle(c)}
         </Link>
         <p className="text-xs text-gray-500 mt-0.5">
