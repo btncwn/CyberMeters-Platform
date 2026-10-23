@@ -1,0 +1,22 @@
+-- Migration 139: the creation time of the last Stripe subscription event applied
+-- to a row, so an OLDER event that arrives late is ignored (23 Oct 2026).
+--
+-- Stripe does not guarantee event order. Without this, a customer.subscription.
+-- updated event created before a newer one, but delivered after it, overwrote
+-- the newer plan/status. The Worker stores event.created (Unix seconds) on
+-- every applied customer.subscription.created/updated and skips any event whose
+-- created is strictly older (an equal second still applies: Stripe's
+-- granularity is one second).
+--
+-- Additive: one nullable INTEGER column. Existing rows start NULL, which applies
+-- the next event as before (no event is ignored until one has been recorded).
+--
+-- Apply (before the Worker deploy, which reads and writes this column):
+--   wrangler d1 execute cybermeters-db --remote \
+--     --file=database/migrations/139-subscription-event-order.sql
+--
+-- Rollback:
+--   Roll the Worker back first. The column can stay; the previous Worker does
+--   not read it.
+
+ALTER TABLE subscriptions ADD COLUMN stripe_event_created INTEGER;

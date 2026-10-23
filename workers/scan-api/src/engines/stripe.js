@@ -689,8 +689,31 @@ export async function handleCheckoutSessionCompleted(env, session) {
   });
 }
 
-export async function handleStripeSubscriptionUpsert(env, subscription) {
+// Stripe does not order events: an event created before the last one applied
+// to this row is stale and changes nothing (migration 139). An equal second
+// still applies. Null event time (older callers) keeps the previous behaviour.
+export async function isStaleSubscriptionEvent(env, stripeSubscriptionId, eventCreated) {
+  if (!stripeSubscriptionId || !Number.isInteger(eventCreated)) return null;
+  const row = await env.cybermeters_db
+    .prepare("SELECT id, stripe_event_created FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
+    .bind(stripeSubscriptionId).first();
+  return row && Number.isInteger(row.stripe_event_created) && eventCreated < row.stripe_event_created ? row.id : null;
+}
+
+async function recordSubscriptionEventTime(env, rowId, eventCreated) {
+  if (!rowId || !Number.isInteger(eventCreated)) return;
+  await env.cybermeters_db
+    .prepare("UPDATE subscriptions SET stripe_event_created = MAX(COALESCE(stripe_event_created, 0), ?) WHERE id = ?")
+    .bind(eventCreated, rowId).run();
+}
+
+export async function handleStripeSubscriptionUpsert(env, subscription, { eventCreated = null } = {}) {
   if (await hasCanceledSubscriptionMarker(env, subscription?.id)) return null;
+  const staleRowId = await isStaleSubscriptionEvent(env, subscription?.id || null, eventCreated);
+  if (staleRowId) {
+    console.warn("[stripe_subscription_event_stale_ignored]", { stripe_subscription_id: subscription?.id || null, event_created: eventCreated });
+    return staleRowId;
+  }
   const metadata = subscription?.metadata || {};
   const price = getStripeSubscriptionPrice(subscription, env);
   const priceId = price?.id || null;
@@ -752,7 +775,7 @@ export async function handleStripeSubscriptionUpsert(env, subscription) {
   // Period boundary: top-level on older API versions, base item on Basil+.
   const period = getStripeSubscriptionPeriod(subscription, env);
 
-  return upsertStripeSubscriptionState(env, {
+  const rowId = await upsertStripeSubscriptionState(env, {
     owner_user_id: metadata.user_id || null,
     workspace_id: workspaceId,
     plan,
@@ -766,6 +789,8 @@ export async function handleStripeSubscriptionUpsert(env, subscription) {
     current_period_end: period.end,
     cancel_at_period_end: subscription?.cancel_at_period_end ?? null,
   });
+  await recordSubscriptionEventTime(env, rowId, eventCreated);
+  return rowId;
 }
 
 export async function handleStripeSubscriptionDeleted(env, subscription) {
@@ -887,7 +912,12 @@ export async function handleStripeInvoicePaymentFailed(env, invoice) {
   });
 
   if (!rowId) return null;
-  await env.cybermeters_db
+  // P1 (23 Oct 2026): a late or retried invoice for a cancelled subscription
+  // must never re-grant paid access through the payment-grace window. A
+  // cancel-marked subscription or a cancelled row is a no-op (the event is
+  // still recorded as processed by the route); no failure email follows.
+  if (await hasCanceledSubscriptionMarker(env, stripeSubscriptionId)) return null;
+  const failed = await env.cybermeters_db
     .prepare(
       `UPDATE subscriptions
        SET subscription_status = 'past_due',
@@ -895,11 +925,11 @@ export async function handleStripeInvoicePaymentFailed(env, invoice) {
            payment_failed_at = datetime('now'),
            payment_retry_count = COALESCE(payment_retry_count, 0) + 1,
            updated_at = datetime('now')
-       WHERE id = ?`
+       WHERE id = ? AND COALESCE(subscription_status, status, '') NOT IN ('canceled', 'cancelled')`
     )
     .bind(rowId)
     .run();
-  return rowId;
+  return (failed?.meta?.changes ?? 0) > 0 ? rowId : null;
 }
 
 export async function handleStripeInvoicePaymentSucceeded(env, invoice) {
@@ -911,6 +941,8 @@ export async function handleStripeInvoicePaymentSucceeded(env, invoice) {
   });
 
   if (!rowId) return null;
+  // Same P1 guard as payment_failed: never revive a cancelled subscription.
+  if (await hasCanceledSubscriptionMarker(env, stripeSubscriptionId)) return null;
   // Clear past_due state when payment succeeds; only restore active if currently past_due
   // (subscription.updated events also fire on renewal and update period_end authoritatively).
   // Both SET expressions read the OLD subscription_status, so `status` lands in
@@ -924,7 +956,7 @@ export async function handleStripeInvoicePaymentSucceeded(env, invoice) {
            payment_failed_at = NULL,
            payment_retry_count = 0,
            updated_at = datetime('now')
-       WHERE id = ?`
+       WHERE id = ? AND COALESCE(subscription_status, status, '') NOT IN ('canceled', 'cancelled')`
     )
     .bind(rowId)
     .run();

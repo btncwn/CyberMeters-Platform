@@ -175,6 +175,52 @@ ok("late paid checkout after deletion accepted", lateCanceledCheckout.status ===
 ok("late paid checkout cannot reactivate deleted subscription or change its plan",
   JSON.stringify(rowStatus()) === JSON.stringify(canceledBeforeCheckout));
 
+// P1 (23 Oct 2026): late invoice events after cancellation never re-grant paid access.
+{
+  const { getEffectivePlanState } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "entitlements.js")).href);
+  const grace = () => db.prepare("SELECT payment_failed_at, payment_retry_count FROM subscriptions WHERE stripe_subscription_id = ?").get(SUB);
+  const lateFailed = await postWebhook(evt("evt_5_late_invoice_failed", "invoice.payment_failed", { id: "in_late_1", subscription: SUB, customer: CUS, attempt_count: 2 }));
+  ok("late invoice.payment_failed after deletion is accepted (200)", lateFailed.status === 200);
+  ok("late invoice.payment_failed leaves the deleted subscription canceled", rowStatus()?.subscription_status === "canceled" && rowStatus()?.status === "canceled");
+  ok("...and opens no payment-grace window", grace()?.payment_failed_at === null);
+  const plan = await getEffectivePlanState(UID, env);
+  ok("...so no paid plan is granted", !plan?.entitled || plan?.plan === "free");
+  const lateSucceeded = await postWebhook(evt("evt_5_late_invoice_succeeded", "invoice.payment_succeeded", { id: "in_late_2", subscription: SUB, customer: CUS }));
+  ok("late invoice.payment_succeeded after deletion is accepted (200)", lateSucceeded.status === 200);
+  ok("late invoice.payment_succeeded leaves the deleted subscription canceled", rowStatus()?.subscription_status === "canceled");
+  ok("no failure email or notification is written for a cancelled subscription",
+    db.prepare("SELECT COUNT(*) n FROM lifecycle_email_events WHERE type = 'lifecycle_payment_failed' AND dedupe_key LIKE '%in_late_1%'").get().n === 0);
+  // A cancel-marked subscription whose row was left past_due (a failure processed
+  // before the deletion landed) is not revived by a late payment_succeeded.
+  db.prepare("UPDATE subscriptions SET subscription_status = 'past_due', status = 'past_due' WHERE stripe_subscription_id = ?").run(SUB);
+  await postWebhook(evt("evt_5_late_invoice_succeeded_2", "invoice.payment_succeeded", { id: "in_late_3", subscription: SUB, customer: CUS }));
+  ok("a cancel-marked subscription left past_due is not revived to active", rowStatus()?.subscription_status !== "active");
+  db.prepare("UPDATE subscriptions SET subscription_status = 'canceled', status = 'canceled' WHERE stripe_subscription_id = ?").run(SUB);
+  // Row-level guard too: a cancelled row without a marker is never revived.
+  db.prepare(`INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_subscription_id, stripe_customer_id, created_at, updated_at)
+    VALUES ('row_cancel_nomark', 'usr_cancel_nomark', 'ws_cancel_nomark', 'business', 'canceled', 'canceled', 'sub_cancel_nomark', 'cus_cancel_nomark', datetime('now'), datetime('now'))`).run();
+  await postWebhook(evt("evt_nomark_failed", "invoice.payment_failed", { id: "in_nomark", subscription: "sub_cancel_nomark", customer: "cus_cancel_nomark" }));
+  ok("a cancelled row without a marker is not moved to past_due",
+    db.prepare("SELECT subscription_status FROM subscriptions WHERE id = 'row_cancel_nomark'").get().subscription_status === "canceled");
+}
+
+// Event ordering (migration 139): an older subscription event delivered after a newer one changes nothing.
+{
+  const OS = "sub_order", OC = "cus_order", ou = "usr_order";
+  const om = { user_id: ou, workspace_id: "ws_order", plan: "starter", interval: "monthly" };
+  const so = (price, created, id) => ({ id, type: "customer.subscription.updated", created, data: { object: {
+    id: OS, customer: OC, status: "active", metadata: om, items: { data: [{ price: { id: price } }] }, current_period_start: nowUnix, current_period_end: futureUnix } } });
+  const planOf = () => db.prepare("SELECT plan, stripe_event_created FROM subscriptions WHERE stripe_subscription_id = ?").get(OS);
+  await postWebhook({ ...so("price_sm", 1000, "evt_order_created"), type: "customer.subscription.created" });
+  await postWebhook(so("price_bm", 2000, "evt_order_newer"));
+  ok("the newer update applies", planOf()?.plan === "business" && planOf()?.stripe_event_created === 2000);
+  const older = await postWebhook(so("price_pm", 1500, "evt_order_older"));
+  ok("an older update delivered late is accepted (200)", older.status === 200);
+  ok("...and changes nothing: the newer plan stays", planOf()?.plan === "business" && planOf()?.stripe_event_created === 2000);
+  await postWebhook(so("price_pm", 2000, "evt_order_same_second"));
+  ok("an update in the same second still applies", planOf()?.plan === "professional");
+}
+
 // Provider deliveries can arrive out of order: a deletion may be processed
 // before any local subscription row exists. Its durable marker must still keep
 // the later, paid checkout and subscription.created from granting access.

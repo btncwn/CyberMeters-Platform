@@ -8,7 +8,7 @@
 import { billingRoutes } from "./billing.js";
 import { getEffectivePlan, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { extractIngestToken, hashIngestToken } from "../engines/rua-routing.js";
-import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeInvoiceSubscriptionId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
+import { findSubscriptionRowId, isStaleSubscriptionEvent, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeInvoiceSubscriptionId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
 import { auditApiTokenSessionRouteDenied, getPublicBillingPlans } from "../engines/subscription-state.js";
 import { ingestDmarcReport, ingestEndpointIsActive } from "../lib/dmarc-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
@@ -341,7 +341,20 @@ export async function globalBillingRoutes(rctx) {
           // Stripe status and current_period_end. Upserts the subscriptions row
           // so getEffectivePlan() reads the correct plan and expiry.
           case "customer.subscription.created": {
-            const rowId = await handleStripeSubscriptionUpsert(env, obj);
+            // Stripe does not order events: an older one delivered late changes
+            // nothing and triggers no audit, plan change or email (migration 139).
+            const eventCreated = Number.isInteger(event?.created) ? event.created : null;
+            const staleRowId = await isStaleSubscriptionEvent(env, obj?.id || null, eventCreated);
+            if (staleRowId) {
+              await createAuditEvent(env, {
+                user_id: null, event_type: "stripe_subscription_event_stale_ignored", entity_type: "subscription",
+                entity_id: obj?.id || staleRowId,
+                description: "An older Stripe subscription event arrived after a newer one and was ignored",
+                metadata: { subscription_row_id: staleRowId, stripe_event_type: eventType, event_created: eventCreated },
+              }).catch(() => {});
+              break;
+            }
+            const rowId = await handleStripeSubscriptionUpsert(env, obj, { eventCreated });
             mcpEntitlementRowId = rowId;
             const metadata = obj?.metadata || {};
             const price = getStripeSubscriptionPrice(obj, env);
@@ -392,7 +405,20 @@ export async function globalBillingRoutes(rctx) {
                   .first()
                 : null;
             } catch { /* audit metadata lookup only */ }
-            const rowId = await handleStripeSubscriptionUpsert(env, obj);
+            // Stripe does not order events: an older one delivered late changes
+            // nothing and triggers no audit, plan change or email (migration 139).
+            const eventCreated = Number.isInteger(event?.created) ? event.created : null;
+            const staleRowId = await isStaleSubscriptionEvent(env, obj?.id || null, eventCreated);
+            if (staleRowId) {
+              await createAuditEvent(env, {
+                user_id: null, event_type: "stripe_subscription_event_stale_ignored", entity_type: "subscription",
+                entity_id: obj?.id || staleRowId,
+                description: "An older Stripe subscription event arrived after a newer one and was ignored",
+                metadata: { subscription_row_id: staleRowId, stripe_event_type: eventType, event_created: eventCreated },
+              }).catch(() => {});
+              break;
+            }
+            const rowId = await handleStripeSubscriptionUpsert(env, obj, { eventCreated });
             mcpEntitlementRowId = rowId;
             const price = getStripeSubscriptionPrice(obj, env);
             const newPlan = getPlanFromStripePriceId(env, price?.id || null, metadata.plan);
