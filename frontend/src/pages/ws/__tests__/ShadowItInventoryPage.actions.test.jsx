@@ -392,7 +392,8 @@ describe('F-47 — loading, empty and load-error states', () => {
   it('shows loading, then the list', async () => {
     respond()
     mount()
-    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    // The list, the Summary figures and "Rejected but still seen" each say Loading… while loading.
+    expect(screen.getAllByText('Loading…').length).toBeGreaterThan(0)
     await screen.findByText('Acme CRM')
     await openMore()
     expect(screen.queryByText('Loading…')).toBeNull()

@@ -104,6 +104,7 @@ const SERVICE_DEFINITIONS = [
       { label: 'Observed technology', hash: '#shadow-it-inventory' },
       // The inventory with Approved selected (C-38 S27), not the all-items view.
       { label: 'Approved inventory',  to: '/ws/shadow-it?filter=approved#shadow-it-inventory' },
+      { label: 'Rejected but still seen', hash: '#shadow-it-rejected-still-seen' },
     ],
     items: [
       { to: '/ws/saas-exposure',   label: 'SaaS Exposure', desc: 'Portals and tenants observed for your domain' },

@@ -133,3 +133,16 @@ describe('IdentityExposurePage summary', () => {
     expect(screen.getByRole('button', { name: /^All/ }).className).toContain('bg-slate-800')
   })
 })
+
+describe('Identity "All (N)" chip (R1 16:20 follow-up a)', () => {
+  beforeEach(() => { vi.clearAllMocks(); useWorkspace.mockReturnValue({ wsId: 'ws1', wsName: 'WS', loading: false }) })
+  it('reads the unfiltered page; a full page reads "500+"; a filter never shrinks it', async () => {
+    const full = Array.from({ length: SUMMARY_LIMIT }, (_, i) => item(`h${i}`, 'surface_candidate'))
+    api.getIdentitySurfaces.mockImplementation(async (_ws, params) => (params?.customer_classification ? { items: [], counts: { unreviewed: 0 } } : { items: full, counts: { unreviewed: 0 } }))
+    mount()
+    expect(await screen.findByRole('button', { name: 'All (500+)' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Expected/ }))
+    await waitFor(() => expect(api.getIdentitySurfaces).toHaveBeenLastCalledWith('ws1', { customer_classification: 'expected' }))
+    expect(screen.getByRole('button', { name: 'All (500+)' })).toBeInTheDocument()
+  })
+})

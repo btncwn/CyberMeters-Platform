@@ -268,7 +268,7 @@ export default function IdentityExposurePage() {
             onClick={() => setFilter(c)}
             className={`text-xs rounded-full border px-3 py-1 ${filter === c ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
           >
-            {c === '' ? `All (${items.length})` : `${classificationMeta(c).label} (${counts[c] ?? 0})`}
+            {c === '' ? (summary.status === 'ok' ? `All (${summary.atLimit ? `${SUMMARY_LIMIT}+` : summary.items.length})` : 'All') : `${classificationMeta(c).label} (${counts[c] ?? 0})`}
           </button>
         ))}
       </div>

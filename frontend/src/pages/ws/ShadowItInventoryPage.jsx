@@ -7,6 +7,7 @@ import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
 import { useAppDialog } from '../../components/AppDialog'
 import { useSearchParams, Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
+import { formatDay } from '../../utils/dates'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
 import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
@@ -132,6 +133,44 @@ const ACTION_TONE_BY_ACTION = Object.fromEntries(
   ACTION_GROUPS.flatMap((g) => g.actions.map((a) => [a.action, a.tone])),
 )
 
+// "What we observed" (S1-SHELL-V2b): the backend's classification counts are
+// workspace-wide (countShadowItByClassification), so the last known counts hold
+// across filter chips; loading and unavailable say so, never 0 (R1 rules).
+export function shadowItSummaryFigures({ status, counts }) {
+  return ['unreviewed', 'approved', 'rejected', 'exception'].map((c) => ({
+    key: c, id: `shadow-it-${c}`, label: classificationMeta(c).label,
+    value: status === 'loading' ? 'Loading…' : status !== 'ok' || !Number.isInteger(counts?.[c]) ? 'Not available' : counts[c],
+  }))
+}
+
+// The backend's own page maximum (routes/shadow-it.js): a full page bounds any list read from it.
+export const SUMMARY_LIMIT = 500
+
+// The sidebar's "Rejected but still seen": items the customer rejected that the
+// backend still observes (monitoring_reason rejected_still_observed). Every state.
+export function RejectedStillSeen({ status, items, atLimit = false }) {
+  const rows = status === 'ok' ? (items || []).filter((it) => it?.monitoring_reason === 'rejected_still_observed') : []
+  return (
+    <section id="shadow-it-rejected-still-seen" className="card p-6 my-6" aria-labelledby="shadow-it-rejected-still-seen-heading" data-testid="shadow-it-rejected-still-seen">
+      <h2 id="shadow-it-rejected-still-seen-heading" className="font-semibold text-gray-900 mb-1">Rejected but still seen</h2>
+      <p className="text-sm text-gray-500 leading-relaxed mb-4 max-w-3xl">Technology you rejected that the latest scans still observe. Rejecting it records your decision; it does not remove it.</p>
+      {status === 'loading' ? <p className="text-sm text-gray-500">Loading…</p>
+        : status !== 'ok' ? <p className="text-sm text-gray-600">Not available — the inventory could not be loaded.</p>
+          : !rows.length ? <p className="text-sm text-gray-600">{atLimit ? `None among the first ${SUMMARY_LIMIT} inventory items.` : 'Nothing you rejected is still observed.'}</p>
+            : (
+              <ul className="divide-y divide-gray-100">
+                {rows.map((it) => (
+                  <li key={it.inventory_item_id} className="py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-4">
+                    <span className="text-sm font-medium text-gray-900 break-all">{it.display_name || 'Unnamed item'}</span>
+                    <span className="text-sm text-gray-600 sm:text-right">{it.last_seen_at ? `Last observed ${formatDay(it.last_seen_at)}` : 'Last observation not recorded'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+    </section>
+  )
+}
+
 export default function ShadowItInventoryPage() {
   const dialog = useAppDialog()
   // Workspace comes from the canonical context hook, not a route param — the
@@ -146,6 +185,15 @@ export default function ShadowItInventoryPage() {
   // action erased the entire inventory the customer was working in.
   const [actionError, setActionError] = useState(null)
   const [filter, setFilter] = useState('')
+  // The workspace-wide counts (held from the last successful load, any filter) and
+  // the unfiltered page (Summary lists and "Rejected but still seen").
+  const [countsState, setCountsState] = useState({ status: 'loading', counts: null })
+  const [summary, setSummary] = useState({ status: 'loading', items: [], atLimit: false })
+  // Another workspace's counts, items or filter never stand in for this one's.
+  useEffect(() => {
+    setCountsState({ status: 'loading', counts: null })
+    setSummary({ status: 'loading', items: [], atLimit: false })
+  }, [workspaceId])
   const [busy, setBusy] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const [moreOpenId, setMoreOpenId] = useState(null)
@@ -184,13 +232,50 @@ export default function ShadowItInventoryPage() {
     setExpandedId(null)
     if (!workspaceId) { setLoading(false); return }   // never call the API with a null/unresolved workspace id
     setLoading(true)
-    api.getShadowItInventory(workspaceId, filter ? { classification: filter } : {})
-      .then((res) => { if (generation === requestGeneration.current) { setData(res); setError(null) } })
-      .catch(() => { if (generation === requestGeneration.current) setError('Could not load the technology inventory.') })
+    const unfiltered = !filter
+    if (unfiltered) setSummary((prev) => ({ ...prev, status: 'loading' }))
+    api.getShadowItInventory(workspaceId, unfiltered ? { limit: SUMMARY_LIMIT } : { classification: filter })
+      .then((res) => {
+        if (generation !== requestGeneration.current) return
+        setData(res); setError(null)
+        setCountsState(res?.counts && typeof res.counts === 'object' ? { status: 'ok', counts: res.counts } : { status: 'error', counts: null })
+        if (unfiltered) {
+          const list = Array.isArray(res?.items) ? res.items : []
+          setSummary({ status: Array.isArray(res?.items) ? 'ok' : 'error', items: list, atLimit: list.length >= SUMMARY_LIMIT })
+        }
+      })
+      .catch(() => {
+        if (generation !== requestGeneration.current) return
+        setError('Could not load the technology inventory.')
+        setCountsState((prev) => (prev.status === 'ok' ? prev : { status: 'error', counts: null }))
+        if (unfiltered) setSummary({ status: 'error', items: [], atLimit: false })
+      })
       .finally(() => { if (generation === requestGeneration.current) setLoading(false) })
   }, [workspaceId, filter])
 
   useEffect(() => { load(); return () => { requestGeneration.current += 1 } }, [load])
+
+  // A filtered view (e.g. the sidebar's ?filter=approved) still needs the
+  // unfiltered page for the Summary lists: fetch it on its own when missing.
+  const summaryGeneration = useRef(0)
+  const loadSummary = useCallback(() => {
+    if (!workspaceId) return
+    const generation = ++summaryGeneration.current
+    setSummary((prev) => ({ ...prev, status: 'loading' }))
+    api.getShadowItInventory(workspaceId, { limit: SUMMARY_LIMIT })
+      .then((res) => {
+        if (generation !== summaryGeneration.current) return
+        const list = Array.isArray(res?.items) ? res.items : []
+        setSummary({ status: Array.isArray(res?.items) ? 'ok' : 'error', items: list, atLimit: list.length >= SUMMARY_LIMIT })
+        if (res?.counts && typeof res.counts === 'object') setCountsState({ status: 'ok', counts: res.counts })
+      })
+      .catch(() => { if (generation === summaryGeneration.current) setSummary({ status: 'error', items: [], atLimit: false }) })
+  }, [workspaceId])
+  const summaryMissing = summary.status === 'loading' && summary.items.length === 0
+  useEffect(() => {
+    if (filter && summaryMissing) loadSummary()
+    return () => { summaryGeneration.current += 1 }
+  }, [filter, summaryMissing, loadSummary])
 
   // Allowed actions are server-provided; the UI only surfaces those.
   const serverActions = data?.actions || []
@@ -240,7 +325,8 @@ export default function ShadowItInventoryPage() {
     }
     setActionError(null)
     setBusy(item.inventory_item_id)
-    try { await api.shadowItAction(workspaceId, item.inventory_item_id, payload); load() }
+    // A classification change moves items between the Summary lists too.
+    try { await api.shadowItAction(workspaceId, item.inventory_item_id, payload); load(); if (filter) loadSummary() }
     catch {
       // Deliberately claims nothing about server state: the request failed from
       // here, which does not prove the change was not applied.
@@ -250,7 +336,7 @@ export default function ShadowItInventoryPage() {
   }
 
   const items = data?.items || []
-  const counts = data?.counts || {}
+  const counts = countsState.counts || {}
   // "All" is every item in the workspace, never the length of the filtered list.
   const countValues = Object.values(counts).filter((n) => Number.isFinite(n))
   const allCount = countValues.length ? countValues.reduce((a, b) => a + b, 0) : (filter ? null : items.length)
@@ -258,7 +344,8 @@ export default function ShadowItInventoryPage() {
   const goToAnchor = useAreaAnchor()
   // Overview lists the unclassified items themselves (founder, 18 Oct 2026): the
   // first five, and "See all" opens the inventory filtered to them.
-  const unclassified = items.filter((it) => it.classification === 'unreviewed')
+  // From the unfiltered page: a filter chip never empties the Summary's list.
+  const unclassified = summary.items.filter((it) => it.classification === 'unreviewed')
   const seeAllUnclassified = () => { selectFilter('unreviewed'); goToAnchor('shadow-it-inventory') }
   const isEmpty = !loading && !error && items.length === 0 && !filter
 
@@ -273,15 +360,13 @@ export default function ShadowItInventoryPage() {
         description={SHADOW_IT_SCOPE_NOTE}
         /* The area template (18 Oct 2026): the backend's classification counts are
            "What we observed" — the customer's own record, never a verdict. */
-        figures={loading || error ? null : ['unreviewed', 'approved', 'rejected', 'exception'].map((c) => ({
-          key: c, label: classificationMeta(c).label, value: counts[c] ?? 0,
-        }))}
+        figures={isEmpty ? null : shadowItSummaryFigures(countsState)}
         nextAction={isEmpty ? {
           title: 'No externally observed technology yet',
           body: 'This page fills after a scan correlates the vendors and services seen for your domains.',
           label: 'Run a scan',
           to: '/scans/new',
-        } : (!loading && !error && (counts.unreviewed ?? 0) > 0) ? {
+        } : (countsState.status === 'ok' && Number.isInteger(counts.unreviewed) && counts.unreviewed > 0) ? {
           title: `${counts.unreviewed} item${counts.unreviewed === 1 ? '' : 's'} not yet classified`,
           body: 'Approve, reject or record an exception for each, so CyberMeters knows what you expect to see.',
           label: 'Classify items',
@@ -297,10 +382,10 @@ export default function ShadowItInventoryPage() {
               <h3 id="shadow-it-unclassified-heading" className="text-sm font-semibold text-gray-900">Not yet classified</h3>
               {unclassified.length > 0 && <button type="button" onClick={seeAllUnclassified} className="btn-secondary text-sm">Classify all {counts.unreviewed ?? unclassified.length} item{(counts.unreviewed ?? unclassified.length) === 1 ? '' : 's'}</button>}
             </div>
-            {loading && <p className="text-sm text-gray-600 mt-2">Loading…</p>}
-            {error && <p className="text-sm text-red-700 mt-2">{error}</p>}
-            {!loading && !error && unclassified.length === 0 && <p className="text-sm text-gray-600 mt-2">Every observed item has a classification.</p>}
-            {!loading && !error && unclassified.length > 0 && (
+            {summary.status === 'loading' && <p className="text-sm text-gray-600 mt-2">Loading…</p>}
+            {summary.status === 'error' && <p className="text-sm text-red-700 mt-2">Could not load the technology inventory.</p>}
+            {summary.status === 'ok' && unclassified.length === 0 && <p className="text-sm text-gray-600 mt-2">{summary.atLimit ? `None among the first ${SUMMARY_LIMIT} inventory items.` : 'Every observed item has a classification.'}</p>}
+            {summary.status === 'ok' && unclassified.length > 0 && (
               <ul className="mt-2 divide-y divide-gray-100">
                 {unclassified.slice(0, 5).map((it) => (
                   <li key={it.inventory_item_id} className="flex flex-wrap items-center justify-between gap-3 py-2" data-testid="shadow-it-unclassified-item">
@@ -516,6 +601,7 @@ export default function ShadowItInventoryPage() {
           </table>
         </div>
       )}
+      <RejectedStillSeen status={summary.status} items={summary.items} atLimit={summary.atLimit} />
       </ModuleContract>
       {dialog.element}
     </div>

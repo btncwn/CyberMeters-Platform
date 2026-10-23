@@ -60,7 +60,8 @@ describe('ShadowItInventoryPage — workspace resolution', () => {
     api.getShadowItInventory.mockResolvedValue({ items: [], counts: {}, actions: [] })
     mount()
     await waitFor(() => expect(api.getShadowItInventory).toHaveBeenCalled())
-    expect(api.getShadowItInventory).toHaveBeenCalledWith(WS_ID, {})
+    // The unfiltered load asks for the backend's maximum page (the Summary lists read it).
+    expect(api.getShadowItInventory).toHaveBeenCalledWith(WS_ID, { limit: 500 })
     for (const call of api.getShadowItInventory.mock.calls) expect(call[0]).toBe(WS_ID)
   })
 
