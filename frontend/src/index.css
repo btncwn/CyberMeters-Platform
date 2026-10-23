@@ -281,6 +281,9 @@
   background-color: #a9f2e5;
   &:hover { background-color: #8fe9d9; }
   &:active { background-color: #7aebd7; }
+  /* A disabled primary must LOOK disabled (founder, 23 Oct 2026: an enabled-looking
+     disabled Authorise read as a button that does nothing). */
+  &:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; transform: none; background-color: #a9f2e5; }
 }
 
 @utility btn-secondary {

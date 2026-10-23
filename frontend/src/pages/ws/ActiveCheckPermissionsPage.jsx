@@ -145,6 +145,17 @@ export default function ActiveCheckPermissionsPage() {
   const domain = (domains || []).find((d) => d.domain_id === form.domain_id) || null
   const hosts = hostsFromText(form.hosts)
   const ready = canManage && !busy && domain && form.checks.length > 0 && form.signer_name.trim() && form.signer_title.trim() && form.confirmed && authority && hosts.length <= MAX_HOSTS
+  // Why Authorise is not available yet, in one sentence (founder, 23 Oct 2026: a
+  // disabled button that looked enabled read as "nothing happens").
+  const anyAvailable = (data?.catalogue || []).some((c) => c.available === true)
+  const notReadyReason = ready || busy ? null
+    : !anyAvailable ? 'None of these checks can be authorised yet. They become available here when CyberMeters starts running them.'
+      : form.checks.length === 0 ? 'Tick at least one check to authorise.'
+        : !domain ? 'Choose a verified domain to authorise.'
+          : hosts.length > MAX_HOSTS ? `List up to ${MAX_HOSTS} hosts.`
+            : !form.signer_name.trim() || !form.signer_title.trim() ? 'Enter your name and your title to authorise.'
+              : !form.confirmed ? 'Confirm the authority statement to authorise.'
+                : 'Complete the form above to authorise.'
 
   const set = (key, value) => { setForm((f) => ({ ...f, [key]: value })); setError(null) }
   const toggleCheck = (id) => set('checks', form.checks.includes(id) ? form.checks.filter((c) => c !== id) : [...form.checks, id])
@@ -300,7 +311,10 @@ export default function ActiveCheckPermissionsPage() {
               )}
               <p className="text-xs text-gray-500">This records your own statement of authority; CyberMeters does not independently verify it. Authorising does not start a check.</p>
 
-              <button type="submit" className="btn-primary" disabled={!ready}>{busy ? 'Recording…' : 'Authorise'}</button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="submit" className="btn-primary" disabled={!ready} aria-describedby={notReadyReason ? 'authorise-reason' : undefined}>{busy ? 'Recording…' : 'Authorise'}</button>
+                {notReadyReason && <p id="authorise-reason" className="text-sm text-gray-700" data-testid="authorise-reason">{notReadyReason}</p>}
+              </div>
             </form>
           ) : (
             <p className="card p-5 text-sm text-gray-700">A workspace admin can authorise or revoke active checks. You can see every permission below.</p>
