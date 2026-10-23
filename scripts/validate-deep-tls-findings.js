@@ -58,6 +58,29 @@ assert(weakKeyFinding&&weakSignatureFinding);
 const unknown=module([protocol('tls1_2'),certRow({...leaf,key_type:'UNKNOWN',key_bits:0,signature_algorithm:'unknown'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,unknown).state,'deferred');
 assert.equal(evaluateTlsCondition(weakSignatureFinding.id,unknown).state,'deferred');
+// Must-Staple (RFC 7633, S3-MODERN 1): a finding only for a definite Must-Staple
+// leaf with no stapled OCSP response; null/missing is not assessed.
+{
+  const good={key_type:'RSA',key_bits:2048,signature_algorithm:'rsa_sha256',sha256:'e'.repeat(64)};
+  const stapleRow=(must_staple,ocsp)=>{const row=certRow({...good,must_staple});row.evidence.ocsp=ocsp;return row;};
+  const absent={state:'absent',signature_valid:null,cert_id_match:null,fresh:null,this_update:null,next_update:null};
+  const stapled={state:'good',signature_valid:true,cert_id_match:true,fresh:true,this_update:1,next_update:2};
+  const ids=(row)=>tlsAssessmentFindings(module([protocol('tls1_2'),row])).map(f=>f.id.split('__')[0]).filter(id=>id==='tls_must_staple_not_stapled');
+  assert.deepEqual(ids(stapleRow(true,absent)),['tls_must_staple_not_stapled'],'Must-Staple leaf without a staple is a finding');
+  assert.deepEqual(ids(stapleRow(true,stapled)),[],'Must-Staple leaf with a stapled response is fine');
+  assert.deepEqual(ids(stapleRow(false,absent)),[],'no Must-Staple, no staple: not a finding');
+  assert.deepEqual(ids(stapleRow(null,absent)),[],'unknown Must-Staple (legacy engine) is not assessed');
+  assert.deepEqual(ids(stapleRow(true,null)),[],'no OCSP observation is not assessed');
+  const finding=tlsAssessmentFindings(module([protocol('tls1_2'),stapleRow(true,absent)])).find(f=>f.id.startsWith('tls_must_staple_not_stapled__'));
+  assert.equal(finding.severity,'high');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,stapled)])).state,'clear','stapling enabled clears');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,absent)])).state,'present','still unstapled stays present');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(null,absent)])).state,'deferred','unknown is inconclusive');
+  const { mustStapleState } = await import('../workers/scan-api/src/engines/tls-findings.js');
+  const st=(row)=>mustStapleState(module([protocol('tls1_2'),row]))[0]?.state;
+  assert.deepEqual([st(stapleRow(true,absent)),st(stapleRow(true,stapled)),st(stapleRow(false,absent)),st(stapleRow(null,absent)),st(stapleRow(true,null))],
+    ['required_not_stapled','required_stapled','not_required','not_assessed','not_assessed'],'card states are backend-owned');
+}
 const strong=module([protocol('tls1_2'),certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,strong).state,'clear');
 assert.equal(evaluateTlsCondition(weakSignatureFinding.id,strong).state,'clear');

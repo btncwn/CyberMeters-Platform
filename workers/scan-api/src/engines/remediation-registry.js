@@ -128,6 +128,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     ["tls_weak_certificate_signature", "Replace the certificate with a current signature", "Replace the certificate with one signed using a current algorithm and verify the deployed chain."],
     ["tls_ocsp_revoked", "Replace the revoked certificate", "Replace the affected certificate and correct its stapled OCSP response on this service."],
     ["tls_compression_enabled", "Disable TLS compression", "Disable TLS-level compression on the measured service."],
+    ["tls_must_staple_not_stapled", "Staple OCSP for the Must-Staple certificate", "Enable OCSP stapling on this service, or reissue the certificate without the Must-Staple extension."],
   ].map(([findingType, title, action]) => entry({
     remediation_id: `tls.endpoint.${findingType.slice(4)}`,
     domain_key: "certificates_trust",

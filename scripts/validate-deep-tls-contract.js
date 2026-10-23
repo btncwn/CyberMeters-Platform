@@ -42,6 +42,18 @@ const engine = {
   limitations:[],catalog:null,
 };
 assert.equal(validateTlsEngineResult(engine,request.checks[0]).ok,true);
+// Must-Staple (RFC 7633, S3-MODERN 1): the engine reports must_staple per offered
+// certificate; an older engine image without the field still validates.
+{
+  const leaf = { sha256:'b'.repeat(64), spki_sha256:'c'.repeat(64), not_before:1700000000, not_after:1800000000,
+    key_type:'RSA', key_bits:2048, signature_algorithm:'rsa_sha256', self_signed:false, ca:false };
+  const withCerts = (cert) => ({ ...structuredClone(engine), certificates:{ offered_chain:[cert], trusted_chain:[], trust:'valid',
+    hostname:true, dates:true, reason:'trusted', evaluation_at:1750000000, trust_bundle_sha256:'d'.repeat(64) } });
+  for (const must_staple of [true,false,null])
+    assert.equal(validateTlsEngineResult(withCerts({ ...leaf, must_staple }),request.checks[0]).ok,true,`must_staple ${must_staple} validates`);
+  assert.equal(validateTlsEngineResult(withCerts(leaf),request.checks[0]).ok,true,'an older engine without must_staple still validates');
+  assert.equal(validateTlsEngineResult(withCerts({ ...leaf, must_staple:'yes' }),request.checks[0]).ok,false,'a malformed must_staple is rejected');
+}
 const injected=structuredClone(engine);injected.raw_certificate=['-----BEGIN','PRIVATE KEY-----'].join(' ');
 assert.equal(validateTlsEngineResult(injected,request.checks[0]).ok,false,'raw secret rejected');
 const noSandbox=structuredClone(engine);noSandbox.engine.sandboxed=false;

@@ -89,7 +89,10 @@ const optional = (value, test) => value === null || test(value);
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const token = (value, max = 96) => typeof value === 'string' && value.length <= max && /^[A-Za-z0-9_-]+$/.test(value);
 const keys = (value, expected) => exact(value, expected) && Object.keys(value).length === expected.length;
-const certificate = value => keys(value, ['sha256','spki_sha256','not_before','not_after','key_type','key_bits','signature_algorithm','self_signed','ca']) &&
+// must_staple (RFC 7633 TLS Feature) is optional so an older engine image still validates.
+const certificate = value => (keys(value, ['sha256','spki_sha256','not_before','not_after','key_type','key_bits','signature_algorithm','self_signed','ca'])
+  || (keys(value, ['sha256','spki_sha256','not_before','not_after','key_type','key_bits','signature_algorithm','self_signed','ca','must_staple'])
+    && [true,false,null].includes(value.must_staple))) &&
   hash(value.sha256) && hash(value.spki_sha256) && optional(value.not_before, x => integer(x,253402300799,-62167219200)) &&
   optional(value.not_after, x => integer(x,253402300799,-62167219200)) && choice(value.key_type,enums.key) &&
   integer(value.key_bits,16384) && choice(value.signature_algorithm,enums.signature) &&
