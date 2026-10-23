@@ -637,7 +637,7 @@ export default function WorkspaceDetailPage() {
                     {/* Status */}
                     <td>
                       {d.latest_status
-                        ? <StatusBadge status={d.latest_status} quality={d.latest_scan_quality} />
+                        ? <StatusBadge status={d.latest_status} quality={d.latest_scan_quality} outcome={d.latest_outcome} />
                         : <span className="text-xs text-gray-400">Never scanned</span>
                       }
                     </td>

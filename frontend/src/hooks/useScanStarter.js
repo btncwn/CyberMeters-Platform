@@ -24,7 +24,7 @@ export function useScanStarter(workspaceId, { onComplete = null } = {}) {
   const [loadFailed, setLoadFailed] = useState(false)
   const [starting, setStarting] = useState(false)
   const [note, setNote] = useState(null)
-  const [started, setStarted] = useState(null) // { id, domain, status }
+  const [started, setStarted] = useState(null) // { id, domain, status, outcome }
   const [refused, setRefused] = useState(false)
   const role = useWorkspaceRole(workspaceId, { refused })
   const polls = useRef(0)
@@ -58,7 +58,7 @@ export function useScanStarter(workspaceId, { onComplete = null } = {}) {
         .then((res) => {
           const status = res?.scan?.status || res?.status
           if (!status) return
-          setStarted((s) => (s && s.id === started.id ? { ...s, status } : s))
+          setStarted((s) => (s && s.id === started.id ? { ...s, status, outcome: res?.scan?.outcome ?? null } : s))
           if (status === 'completed') onCompleteRef.current?.()
         })
         .catch(() => { polls.current = POLL_LIMIT })

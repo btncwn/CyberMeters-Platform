@@ -7,7 +7,7 @@
 import { customerSafeFailure } from "../lib/errors.js";
 import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { brandWatchlistDnsObservations } from "./brand-dns-enrichment.js";
-import { createAuditEvent, createNotificationsForDomain, scanCompletionAuditStatement } from "../lib/events.js";
+import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, scanCompletionAuditStatement } from "../lib/events.js";
 import { json, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
 import { hashToken } from "../lib/auth-crypto.js";
@@ -36,7 +36,7 @@ import { CLOUD_STORAGE_MAX_PHYSICAL_ATTEMPTS, runCloudStorageModule } from "./cl
 import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
-import { dnsQuery } from "./dns.js";
+import { dnsQuery, domainDefinitelyDoesNotExist } from "./dns.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
 import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishableEmailEvidence, mtaStsAdmission } from "./email-analysis.js";
@@ -792,6 +792,68 @@ function logSwallowedFinalizeFailure(scanId, stage, err) {
   } catch { /* logging must never break finalize */ }
 }
 
+// The scan stopped before assessing anything because the domain does not exist
+// in public DNS (Phase 0). A terminal 'failed' row whose stage names the reason
+// (current_stage = DOMAIN_NOT_FOUND_STAGE, read by scanProgress), a report
+// without a score or findings, and an audit event that is not "scan_failed".
+export const DOMAIN_NOT_FOUND_STAGE = "domain_not_found";
+export const DOMAIN_NOT_FOUND_MESSAGE =
+  "Could not assess: this domain does not exist in public DNS. Previous observations are kept.";
+async function finishDomainNotFound({ env, latch, scanId, domain, domainId, workspaceId, startedAt, evidence, deadline }) {
+  const stoppedAt = new Date().toISOString();
+  try {
+    await env.cybermeters_db.prepare("UPDATE scans SET current_stage = ? WHERE id = ?")
+      .bind(DOMAIN_NOT_FOUND_STAGE, scanId).run();
+  } catch { /* the report below still states the reason */ }
+  await finalizeScanResult(latch, {
+    scanId,
+    report: {
+      scan_id: scanId,
+      domain,
+      status: "failed",
+      outcome: DOMAIN_NOT_FOUND_STAGE,
+      message: DOMAIN_NOT_FOUND_MESSAGE,
+      cyber_metrics_score: null,
+      risk_level: "unknown",
+      findings: [],
+      recommendations: [],
+      dns_evidence: evidence,
+      started_at: startedAt,
+      failed_at: stoppedAt,
+    },
+    score: null, rating: "unknown", status: "failed", env, workspaceId, deadline,
+  });
+  try {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId ?? null,
+      event_type: "scan_not_assessed",
+      entity_type: "scan",
+      entity_id: scanId,
+      description: `Scan for ${domain} could not assess it: the domain does not exist in public DNS`,
+      metadata: { scan_id: scanId, domain, domain_id: domainId, reason: DOMAIN_NOT_FOUND_STAGE, dns_evidence: evidence },
+    });
+  } catch { /* non-fatal */ }
+  // The workspace is told in the same words as the scan page, never "failed".
+  try {
+    let workspaces = workspaceId ? [workspaceId] : [];
+    if (!workspaces.length) {
+      const linked = await env.cybermeters_db
+        .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?").bind(domainId).all();
+      workspaces = (linked.results || []).map((row) => row.workspace_id).filter(Boolean);
+    }
+    for (const id of workspaces) {
+      await createNotificationEvent(env, id, {
+        type: "scan_not_assessed",
+        severity: "medium",
+        title: `Could not assess ${domain}`,
+        message: `${domain} does not exist in public DNS, so CyberMeters could not assess it. Previous observations are kept.`,
+        metadata: { scan_id: scanId, domain, reason: DOMAIN_NOT_FOUND_STAGE },
+      });
+    }
+  } catch { /* non-fatal */ }
+  return { completed: true, ceiling_exceeded: false, outcome: DOMAIN_NOT_FOUND_STAGE };
+}
+
 export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   // Injectable clock (tests drive it deterministically); production uses Date.now.
   const now = typeof opts.now === "function" ? opts.now : Date.now;
@@ -1045,6 +1107,21 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         .bind(scanId)
         .run());
     if (!runningWrite.settled) return runningWrite.ceiling;
+
+    // Phase 0 (item 15 fix D, 23 Oct 2026): a domain that does not exist in
+    // public DNS is not assessed. The full scan used to score it (70) and list
+    // configuration findings for a name that is not there. Only a definitive
+    // NXDOMAIN on two independent resolvers stops here; SERVFAIL, timeouts and
+    // disagreement continue on the ordinary path. Nothing below runs: no
+    // modules, no score, no findings and no inventory or lifecycle write, so a
+    // lapsed domain never marks its assets removed. Previous observations stay.
+    const existence = await runInitialCeilingAwareStep("initial_domain_existence", () =>
+      domainDefinitelyDoesNotExist(domain, { signal: deadline.signal }));
+    if (!existence.settled) return existence.ceiling;
+    if (existence.value?.definitive_nxdomain === true) {
+      return finishDomainNotFound({ env, latch, scanId, domain, domainId, workspaceId, startedAt,
+        evidence: existence.value.evidence, deadline: durableInvocation ? deadline : null });
+    }
 
     // Existing identities are rechecked through the same active DNS + SSRF-safe
     // HTTP paths. This is one bounded read.

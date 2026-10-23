@@ -46,6 +46,9 @@ export function overviewAssessmentLine(scans) {
   const assessment = completed ? lastAssessmentLabel(completed) : 'No completed assessment yet.'
   if (!failedAfter) return completed ? assessment : (list.length ? assessment : lastAssessmentLabel(null))
   const when = formatDate(failedAfter.created_at, '')
+  if (failedAfter.outcome === 'domain_not_found') {
+    return `${assessment} The last attempt${when ? ` (${when})` : ''} could not assess ${failedAfter.domain || 'the domain'}: it does not exist in public DNS.`
+  }
   return `${assessment} The last attempt${when ? ` (${when})` : ''} did not finish.`
 }
 
@@ -71,7 +74,8 @@ function assessedScan(scan) {
 
 export function deriveInsights(scans, report) {
   const completed = scans.filter(s => s.status === 'completed')
-  const failed    = scans.filter(s => s.status === 'failed').length
+  // A scan of a domain that does not exist was not assessed; it is not a failure.
+  const failed    = scans.filter(s => s.status === 'failed' && s.outcome !== 'domain_not_found').length
   const active    = scans.filter(s => ['queued','running','processing'].includes(s.status)).length
   const domains   = [...new Set(scans.map(s => s.domain))]
 

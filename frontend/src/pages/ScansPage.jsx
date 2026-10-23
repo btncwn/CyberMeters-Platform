@@ -150,7 +150,7 @@ export default function ScansPage() {
                       </div>
                     </div>
                   </td>
-                  <td><StatusBadge status={scan.status} quality={scan.scan_quality} /></td>
+                  <td><StatusBadge status={scan.status} quality={scan.scan_quality} outcome={scan.outcome} /></td>
                   <td>
                     <div className="flex items-center gap-1.5 text-xs text-gray-500">
                       {formatDate(scan.created_at)}

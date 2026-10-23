@@ -17,8 +17,8 @@ vi.mock('../../api', () => ({
 vi.mock('../../components/ExecutiveReportV2', () => ({ default: () => <div>Executive report</div> }))
 
 const failed = { id: 'scan_failed_1234567890abcdef', domain: 'sheshire.co.uk', status: 'failed', score: null, rating: null, scan_quality: null, created_at: '2026-10-22T12:37:53Z' }
-function renderFailed(progress) {
-  api.getScan.mockResolvedValue({ scan: failed, progress, report_availability: { status: 'scan_failed', retryable: false } })
+function renderFailed(progress, scan = failed) {
+  api.getScan.mockResolvedValue({ scan, progress, report_availability: { status: 'scan_failed', retryable: false } })
   return render(<MemoryRouter initialEntries={[`/scans/${failed.id}`]}><Routes><Route path="/scans/:id" element={<ScanDetail />} /></Routes></MemoryRouter>)
 }
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); api.getFindingWaivers.mockResolvedValue({ waivers: [] }) })
@@ -47,6 +47,15 @@ describe('interruptedScanCopy', () => {
 })
 
 describe('the failed-scan page', () => {
+  it('a domain that does not exist: could not assess, never a product failure or an interruption', async () => {
+    renderFailed({ terminal: true, stage: 'domain_not_found', completed_modules: null, module_names_recorded: false, completed_module_names: null },
+      { ...failed, domain: 'lapsed.example', outcome: 'domain_not_found' })
+    expect(await screen.findByTestId('scan-domain-not-found')).toHaveTextContent('Could not assess — domain does not exist in public DNS')
+    const block = screen.getByTestId('scan-failed')
+    expect(block).toHaveTextContent('Previous observations are kept')
+    expect(block.textContent).not.toMatch(/didn't finish|interrupted|usually temporary/i)
+    expect(screen.getAllByText('Not assessed — domain not found').length).toBeGreaterThan(0)
+  })
   it('interrupted with recorded checks: heading, stage, plain-word check names, never a raw key, never an assessment', async () => {
     renderFailed({ terminal: true, stage: 'phase5_intelligence', completed_modules: 2, module_names_recorded: true, completed_module_names: ['subdomain_takeover', 'technology_detection'], last_heartbeat_at: '2026-10-22T12:40:00Z', stale: false })
     expect(await screen.findByTestId('scan-interrupted-heading')).toHaveTextContent('Interrupted — 2 checks completed')

@@ -160,6 +160,27 @@ export async function dnsQueryGoogle(name, type, opts = {}) {
   });
 }
 
+// Whether a domain does not exist in public DNS (item 15 fix D, 23 Oct 2026):
+// definitive only when two independent resolvers both answer NXDOMAIN (rcode 3)
+// for the name, untruncated and with no answer. Any other outcome (SERVFAIL, a
+// timeout, an error, a disagreement) is not definitive. Never throws.
+export async function domainDefinitelyDoesNotExist(domain, opts = {}, { primary = dnsQuery, secondary = dnsQueryGoogle } = {}) {
+  const name = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  const nxdomain = (packet) => Boolean(packet && packet.Status === 3 && packet.TC !== true &&
+    !(Array.isArray(packet.Answer) && packet.Answer.length > 0));
+  const ask = async (resolver) => {
+    try { return await resolver(name, "A", { signal: opts.signal }); } catch { return null; }
+  };
+  const [first, second] = await Promise.all([ask(primary), ask(secondary)]);
+  return {
+    definitive_nxdomain: Boolean(name) && nxdomain(first) && nxdomain(second),
+    evidence: [
+      { resolver: "cloudflare", rcode: Number.isInteger(first?.Status) ? first.Status : null },
+      { resolver: "google", rcode: Number.isInteger(second?.Status) ? second.Status : null },
+    ],
+  };
+}
+
 export async function dnsQueryQuad9(name, type, opts = {}) {
   // Quad9 DoH — optional third resolver for A/AAAA agreement checks.
   // Never throws: failure returns null so budget-safe.

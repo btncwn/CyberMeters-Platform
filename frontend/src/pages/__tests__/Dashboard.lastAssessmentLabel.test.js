@@ -29,6 +29,11 @@ describe('the Overview names the last COMPLETED scan, never a failed one', () =>
     expect(overviewAssessmentLine([failed, done]))
       .toBe(`Last assessment of example.com · ${formatDate(done.created_at)} The last attempt (${formatDate(failed.created_at)}) did not finish.`)
   })
+  it('a newer attempt that found the domain does not exist says so, never "did not finish"', () => {
+    const notFound = { ...failed, outcome: 'domain_not_found' }
+    expect(overviewAssessmentLine([notFound, done]))
+      .toBe(`Last assessment of example.com · ${formatDate(done.created_at)} The last attempt (${formatDate(failed.created_at)}) could not assess example.com: it does not exist in public DNS.`)
+  })
   it('a completed scan with partial evidence is still the last assessment', () => {
     expect(overviewAssessmentLine([partial, done])).toBe(`Last assessment of example.com · ${formatDate(partial.created_at)}`)
   })

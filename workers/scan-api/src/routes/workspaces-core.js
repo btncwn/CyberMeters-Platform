@@ -327,6 +327,9 @@ export async function workspacesCoreRoutes(rctx) {
                  s.rating                    AS latest_rating,
                  s.scan_quality              AS latest_scan_quality,
                  s.status                    AS latest_status,
+                 -- item 15 fix D: "not assessed (domain not found)", never a failure.
+                 CASE WHEN s.status = 'failed' AND s.current_stage = 'domain_not_found'
+                      THEN 'domain_not_found' END AS latest_outcome,
                  s.created_at               AS last_scanned_at
                FROM workspace_domains wd
                JOIN   domains d ON d.id = wd.domain_id

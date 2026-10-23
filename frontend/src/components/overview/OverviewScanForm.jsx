@@ -79,7 +79,7 @@ export default function OverviewScanForm({ workspaceId, preferredDomain = null, 
         {started && (
           <p role="status" className="text-gray-700">
             {started.status === 'completed' ? `The scan of ${started.domain} is complete; the results below are up to date.`
-              : started.status === 'failed' ? `The scan of ${started.domain} did not complete.`
+              : started.status === 'failed' ? (started.outcome === 'domain_not_found' ? `Could not assess ${started.domain}: the domain does not exist in public DNS.` : `The scan of ${started.domain} did not complete.`)
                 : `${SCAN_STARTED_TEXT} (${started.domain})`}
             {started.id && <> <Link to={`/scans/${encodeURIComponent(started.id)}`} className="font-semibold text-brand-700 hover:text-brand-800">{running ? 'Follow progress' : 'Open the scan'}</Link></>}
           </p>

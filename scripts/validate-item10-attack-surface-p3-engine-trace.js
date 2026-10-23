@@ -36,6 +36,10 @@ const ok = (name, condition, detail = "") => {
 const eq = (name, actual, expected) =>
   ok(name, actual === expected,
     `got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+// Compound values (arrays, rows) compared by their JSON form.
+const same = (name, actual, expected) =>
+  ok(name, JSON.stringify(actual) === JSON.stringify(expected),
+    `got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
 
 function buildDb() {
   const db = new DatabaseSync(":memory:");
@@ -224,6 +228,12 @@ globalThis.fetch = async (input) => {
   if (url.hostname === "cloudflare-dns.com" || url.hostname === "dns.google") {
     const name = String(url.searchParams.get("name") || "").toLowerCase();
     const type = String(url.searchParams.get("type") || "A").toUpperCase();
+    // Item 15 fix D: the scanned domain does not exist (both resolvers say
+    // NXDOMAIN), or only one resolver says so (not definitive).
+    if (phase === "apex_nxdomain") return json({ Status: 3, Answer: [] });
+    if (phase === "apex_split" && name === "example.com" && type === "A") {
+      return json({ Status: url.hostname === "dns.google" ? 2 : 3, Answer: [] });
+    }
     if (name === "gone.example.com") {
       if (phase === "unavailable") throw new DOMException("provider timeout", "TimeoutError");
       if (phase === "observed") {
@@ -413,6 +423,49 @@ try {
       db.prepare("SELECT last_seen FROM workspace_assets WHERE id='asset-gone'").get().last_seen,
       "2026-08-03T00:00:00.000Z");
     ok("...with the error type only, never the error message", !line.includes("injected trace fault"), line);
+  }
+
+  // Item 15 fix D: a domain that does not exist in public DNS is not assessed.
+  // Two resolvers both answer NXDOMAIN: the scan stops before any module, with
+  // no score, no findings, no lifecycle or inventory write, and says so.
+  {
+    const { scanOutcome, scanProgress } = await import(pathToFileURL(path.join(root, "workers/scan-api/src/routes/scans.js")).href);
+    const before = db.prepare("SELECT lifecycle_state, last_seen, status FROM workspace_assets WHERE id='asset-gone'").get();
+    const lifecycleRowsBefore = db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE workspace_id='ws'").get().n;
+    contactedHosts.clear();
+    phase = "apex_nxdomain";
+    db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, scan_quality, created_at) VALUES ('scan-nx', 'ws', 'dom', 'example.com', 'pending', NULL, '2026-08-04T00:00:00.000Z')").run();
+    let caught = null;
+    try {
+      await runScanEngine("scan-nx", "dom", "ws", "example.com", env, { now: () => Date.parse("2026-08-04T00:00:00.000Z"), executionContext: "queue", trigger: "manual" });
+    } catch (error) { caught = error; }
+    const row = db.prepare("SELECT status, score, scan_quality, current_stage FROM scans WHERE id='scan-nx'").get();
+    const report = JSON.parse(reports.get("reports/scan-nx.json") || "{}");
+    eq("NXDOMAIN on both resolvers: the engine returns normally", caught, null);
+    same("...the scan stops as not assessed (domain not found), never scored",
+      [row.status, row.current_stage, row.score, row.scan_quality], ["failed", "domain_not_found", null, null]);
+    same("...the report states the reason and carries no score or findings",
+      [report.outcome, report.cyber_metrics_score, report.findings?.length, /does not exist in public DNS/.test(report.message || "")],
+      ["domain_not_found", null, 0, true]);
+    eq("...no findings are written", db.prepare("SELECT COUNT(*) AS n FROM findings WHERE scan_id='scan-nx'").get().n, 0);
+    eq("...no lifecycle observation is written", db.prepare("SELECT COUNT(*) AS n FROM asset_lifecycle_observations WHERE workspace_id='ws'").get().n, lifecycleRowsBefore);
+    same("...previous observations are kept (asset row unchanged)",
+      db.prepare("SELECT lifecycle_state, last_seen, status FROM workspace_assets WHERE id='asset-gone'").get(), before);
+    ok("...only the two resolvers were asked; the domain itself was never contacted",
+      [...contactedHosts].every((h) => h === "cloudflare-dns.com" || h === "dns.google"), JSON.stringify([...contactedHosts]));
+    same("...an audit event records it as not assessed, not as a failure",
+      db.prepare("SELECT event_type FROM audit_events WHERE entity_id='scan-nx'").all().map((e) => e.event_type), ["scan_not_assessed"]);
+    const notice = db.prepare("SELECT type, title, message FROM notification_events WHERE metadata_json LIKE '%scan-nx%'").get();
+    same("...the workspace is told in the scan page's words",
+      [notice?.type, notice?.title, /does not exist in public DNS/.test(notice?.message || "")], ["scan_not_assessed", "Could not assess example.com", true]);
+    eq("...customer rows carry outcome domain_not_found", scanOutcome(row), "domain_not_found");
+    eq("...and the scan page's progress names the stop", scanProgress({ ...row, status: "failed" })?.stage, "domain_not_found");
+
+    // One resolver says NXDOMAIN, the other SERVFAIL: not definitive, the scan
+    // runs as before.
+    await run("scan-split", "2026-08-05T00:00:00.000Z", "apex_split");
+    eq("one NXDOMAIN + one SERVFAIL is not definitive: the scan completes normally",
+      db.prepare("SELECT current_stage FROM scans WHERE id='scan-split'").get().current_stage === "domain_not_found", false);
   }
 
   eq("legacy waitUntil executable envelope remains 19,000 ms",
