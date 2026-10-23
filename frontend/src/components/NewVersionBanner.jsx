@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { RUNNING_BUILD_ID, fetchDeployedBuildId, isDifferentBuild } from '../lib/appVersion'
 import { hasUnsavedInput, installUnsavedInputTracker } from '../lib/unsavedInput'
+import { freshReload } from '../lib/freshReload'
 
 // A tab left open across a deploy keeps running the old bundle, which can talk
 // to a changed API and look broken until a hard refresh (seen live 19 Oct 2026
@@ -23,7 +24,7 @@ export default function NewVersionBanner({
   runningBuildId = RUNNING_BUILD_ID,
   fetchBuildId = fetchDeployedBuildId,
   minCheckIntervalMs = MIN_CHECK_INTERVAL_MS,
-  reload = () => window.location.reload(),
+  reload = () => freshReload(),
 }) {
   const { pathname } = useLocation()
   const [available, setAvailable] = useState(false)
