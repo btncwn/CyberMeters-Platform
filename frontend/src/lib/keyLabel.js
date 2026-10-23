@@ -9,7 +9,7 @@
 //                            header missing" instead of "example.org:header_missing_…".
 //   isOpaqueId(value)        an internal id (never used as link text or a name).
 import { CUSTOMER_CODE_COPY } from '../../../shared/customer-labels.js'
-import { customerReasonText } from './customerReasonText'
+import { customerReasonText } from './customerReasonText.js'
 
 const sentence = (text) => {
   const s = String(text).replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim()

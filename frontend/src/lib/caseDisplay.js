@@ -1,5 +1,5 @@
 // Shared canonical-phase presentation for managed cases across all eight
-import { keyLabel } from './keyLabel'
+import { keyLabel } from './keyLabel.js'
 // security domains. This is the ONE place the frontend maps a case's canonical phase
 // to a display label/tone, so cross-domain queues render consistently and no
 // screen re-invents a divergent state map. The frontend NEVER decides legal
