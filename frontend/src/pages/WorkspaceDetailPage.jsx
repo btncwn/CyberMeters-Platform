@@ -13,6 +13,7 @@ import { canonicalDomainInput, isValidDomainSyntax, isAuthoritativeVerified } fr
 import { roleCan, scanAccessFor } from '../lib/workspaceRole'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
 import IncompleteAssessmentNote from '../components/overview/IncompleteAssessmentNote'
+import { setActiveWorkspace } from '../lib/activeWorkspace'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -243,7 +244,12 @@ export default function WorkspaceDetailPage() {
   // Polling ref for active-scan auto-refresh
   const pollRef = useRef(null)
 
+  // A late response for an earlier load (or after leaving the page) must never
+  // overwrite the page or the active workspace (C-45 W03).
+  const loadGeneration = useRef(0)
+  useEffect(() => () => { loadGeneration.current += 1 }, [])
   const load = useCallback(async (silent = false) => {
+    const generation = ++loadGeneration.current
     if (!silent) setLoading(true)
     else setRefreshing(true)
     setError(null)
@@ -252,24 +258,23 @@ export default function WorkspaceDetailPage() {
         api.getWorkspace(id),
         api.getWorkspaceDomains(id),
       ])
+      if (generation !== loadGeneration.current) return
       setWorkspace(wsData.workspace)
       setStats(wsData.stats)
       setDomains(domainsData.domains || [])
 
       // Asset summary — fetch separately so a failure here never blocks the page
       api.getWorkspaceAssetsSummary(id)
-        .then(d => setAssetSummary(d))
+        .then(d => { if (generation === loadGeneration.current) setAssetSummary(d) })
         .catch(() => { /* graceful — section stays hidden */ })
       // Keep workspace name in localStorage in sync
       if (wsData.workspace?.name) {
-        localStorage.setItem('cybermeters_workspace_id', id)
-        localStorage.setItem('cybermeters_workspace_name', wsData.workspace.name)
+        setActiveWorkspace(id, wsData.workspace.name)
       }
     } catch (e) {
-      setError(e.message)
+      if (generation === loadGeneration.current) setError(e.message)
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (generation === loadGeneration.current) { setLoading(false); setRefreshing(false) }
     }
   }, [id])
 
@@ -281,21 +286,28 @@ export default function WorkspaceDetailPage() {
   // The interval is cleared as soon as all domains reach a terminal status.
   const ACTIVE_STATUSES = new Set(['queued', 'running', 'processing'])
 
+  // The poll applies a result only for the LOAD it started under (C-47 F03 /
+  // C-48): a route id alone cannot tell a first visit to A from a later one, so
+  // after A → B → A an old tick must never replace the fresh A list or clear
+  // the current interval. It clears only its own interval.
   useEffect(() => {
     clearInterval(pollRef.current)
+    const startedUnder = loadGeneration.current
     const hasActive = domains.some(d => ACTIVE_STATUSES.has(d.latest_status))
     if (hasActive) {
-      pollRef.current = setInterval(async () => {
+      const handle = setInterval(async () => {
         try {
           const domainsData = await api.getWorkspaceDomains(id)
+          if (loadGeneration.current !== startedUnder) return
           const updated = domainsData.domains || []
           setDomains(updated)
-          // If no more active scans, clear the interval
+          // If no more active scans, clear THIS interval
           if (!updated.some(d => ACTIVE_STATUSES.has(d.latest_status))) {
-            clearInterval(pollRef.current)
+            clearInterval(handle)
           }
         } catch { /* non-fatal — next tick will retry */ }
       }, 8_000)
+      pollRef.current = handle
     }
     return () => clearInterval(pollRef.current)
   }, [domains, id]) // eslint-disable-line react-hooks/exhaustive-deps
