@@ -80,3 +80,36 @@ describe('the queue and takedown tracking', () => {
     expect(await screen.findByText(/No takedown is being tracked yet/)).toBeInTheDocument()
   })
 })
+
+describe('loading and workspace switch (R1 18:55)', () => {
+  const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r }); return { promise, resolve } }
+  it('while the summary loads, no figure reads 0 (the page shows its loading state)', async () => {
+    const summary = deferred()
+    api.getBrandSummary.mockReturnValue(summary.promise)
+    mount()
+    await waitFor(() => expect(api.getBrandSummary).toHaveBeenCalled())
+    for (const id of ['brand-lookalike', 'brand-high-risk', 'brand-suspicious', 'brand-unreviewed']) {
+      const el = fig(id)
+      if (el) expect(el.textContent).not.toMatch(/: 0$/)
+    }
+    expect(document.body.textContent).not.toMatch(/Lookalike candidates: 0/)
+    summary.resolve({ summary: { total_candidates: 120, high_risk: 9, suspicious: 4, unreviewed: 70 } })
+    await waitFor(() => expect(fig('brand-lookalike')).toHaveTextContent('120'))
+  })
+  it('a workspace switch never shows the previous workspace\'s counts: loading, then the new counts', async () => {
+    const view = mount()
+    await waitFor(() => expect(fig('brand-lookalike')).toHaveTextContent('120'))
+    const next = deferred()
+    api.getBrandSummary.mockReturnValue(next.promise)
+    api.getBrandCandidates.mockResolvedValue({ candidates: [candidate('z')], total: 1 })
+    useWorkspace.mockReturnValue({ wsId: 'ws-2', wsName: 'Other', workspaces: [{ id: 'ws-2', role: 'admin' }] })
+    view.rerender(<MemoryRouter><BrandMonitoringPage /></MemoryRouter>)
+    await waitFor(() => expect(api.getBrandSummary).toHaveBeenLastCalledWith('ws-2'))
+    // In flight: ws-1's 120 / 9 / 4 / 70 are gone.
+    expect(document.body.textContent).not.toMatch(/Lookalike candidates: 120/)
+    expect(document.body.textContent).not.toMatch(/Unreviewed: 70/)
+    next.resolve({ summary: { total_candidates: 1, high_risk: 0, suspicious: 0, unreviewed: 1 } })
+    await waitFor(() => expect(fig('brand-lookalike')).toHaveTextContent('Lookalike candidates: 1'))
+    expect(fig('brand-unreviewed')).toHaveTextContent('Unreviewed: 1')
+  })
+})
