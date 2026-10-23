@@ -356,7 +356,12 @@ export const HSTS_POLICY_VERSION = "2026-10-23.1";
 export function buildHstsHostPolicy({ domain, apexObserved, apexValue = null, apexUrl = null, apexStatus = null, finalUrl = null, finalValue = null }) {
   const apexHost = String(domain || "").toLowerCase();
   const finalHost = finalUrl ? safeHostname(finalUrl) : null;
-  const state = apexObserved ? (apexValue ? "present" : "absent") : "not_observed";
+  // E2 (item 15 re-run, corpus-90): a header that is present is the host's
+  // policy whatever the status (browsers honour STS on any secure response),
+  // but ABSENCE is evidence only on a serviceable answer (2xx or a redirect);
+  // a 429, a challenge page or a 5xx without the header says nothing.
+  const serviceable = Number.isInteger(apexStatus) ? apexStatus >= 200 && apexStatus < 400 : true;
+  const state = apexObserved ? (apexValue ? "present" : serviceable ? "absent" : "not_observed") : "not_observed";
   const includeSubDomains = state === "present" && /(^|;)\s*includesubdomains\s*(;|$)/i.test(apexValue);
   return {
     version: HSTS_POLICY_VERSION,
