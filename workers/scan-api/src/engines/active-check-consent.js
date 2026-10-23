@@ -18,6 +18,7 @@ import {
   observedNetworkAddresses,
   evaluateTargetScope,
 } from "./network-ownership.js";
+import { TLS_SPECIAL_CONTROLS_AVAILABLE } from "../../../../shared/tls/catalog.js";
 
 export const ACTIVE_CHECK_AUTHORITY_VERSION = "active-checks-2026-10-22";
 
@@ -35,16 +36,23 @@ export const ACTIVE_CHECK_AUTHORITY_TEXT =
 // address and the #765 ownership rule applies. The two others have no customer
 // address: takeover confirmation targets the provider, and spoof resistance a
 // seed mailbox (host = the mailbox's domain).
+// `available` is whether a released engine runs the check in production today
+// (Executive, 23 Oct 2026): a permission for a check that cannot run is a false
+// offer, so an unavailable check is shown as not available yet and cannot be
+// granted. The three TLS checks have an engine (network-probe tls-engine) that
+// is withheld while TLS_SPECIAL_CONTROLS_AVAILABLE is off; the other five have
+// no engine yet.
 export const ACTIVE_CHECK_CATALOGUE = Object.freeze({
-  tls_intrusive_heartbleed: { per_address: true,  label: "TLS Heartbleed test" },
-  tls_intrusive_robot:      { per_address: true,  label: "TLS ROBOT test" },
-  tls_intrusive_ccs:        { per_address: true,  label: "TLS CCS injection test" },
-  takeover_active_confirm:  { per_address: false, label: "Subdomain takeover confirmation (no claim is made)" },
-  dns_open_resolver:        { per_address: true,  label: "Open DNS resolver" },
-  mail_open_relay:          { per_address: true,  label: "Open mail relay (no message is delivered)" },
-  mail_starttls_strip:      { per_address: true,  label: "Mail accepted without STARTTLS" },
-  mail_spoof_resistance:    { per_address: false, label: "Spoofed message to your designated seed mailbox" },
+  tls_intrusive_heartbleed: { per_address: true,  label: "TLS Heartbleed test", available: TLS_SPECIAL_CONTROLS_AVAILABLE },
+  tls_intrusive_robot:      { per_address: true,  label: "TLS ROBOT test", available: TLS_SPECIAL_CONTROLS_AVAILABLE },
+  tls_intrusive_ccs:        { per_address: true,  label: "TLS CCS injection test", available: TLS_SPECIAL_CONTROLS_AVAILABLE },
+  takeover_active_confirm:  { per_address: false, label: "Subdomain takeover confirmation (no claim is made)", available: false },
+  dns_open_resolver:        { per_address: true,  label: "Open DNS resolver", available: false },
+  mail_open_relay:          { per_address: true,  label: "Open mail relay (no message is delivered)", available: false },
+  mail_starttls_strip:      { per_address: true,  label: "Mail accepted without STARTTLS", available: false },
+  mail_spoof_resistance:    { per_address: false, label: "Spoofed message to your designated seed mailbox", available: false },
 });
+export const activeCheckAvailable = (id) => ACTIVE_CHECK_CATALOGUE[id]?.available === true;
 
 // Stable reason codes; the customer wording is the caller's.
 export const ACTIVE_CHECK_REASONS = Object.freeze({

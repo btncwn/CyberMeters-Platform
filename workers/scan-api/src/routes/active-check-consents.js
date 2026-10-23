@@ -64,7 +64,7 @@ export async function activeCheckConsentRoutes(rctx) {
       const revocations = new Map(rows.filter((r) => r.kind === 'revocation').map((r) => [r.grant_id, r]));
       return json({
         consents: rows.filter((r) => r.kind === 'grant').map((g) => activeCheckConsentProjection(g, revocations.get(g.id), { canManage })),
-        catalogue: Object.entries(ACTIVE_CHECK_CATALOGUE).map(([id, c]) => ({ id, label: c.label })),
+        catalogue: Object.entries(ACTIVE_CHECK_CATALOGUE).map(([id, c]) => ({ id, label: c.label, available: c.available === true })),
         authority: { version: ACTIVE_CHECK_AUTHORITY_VERSION, text: ACTIVE_CHECK_AUTHORITY_TEXT },
         capabilities: { can_manage: canManage },
       });
@@ -140,6 +140,20 @@ export async function activeCheckConsentRoutes(rctx) {
     if (!hosts || hosts.length > ACTIVE_CHECK_LIMITS.hosts
       || hosts.some((h) => !HOSTNAME.test(h) || !hostIsUnderDomain(h, domain.domain))) {
       return json({ error: 'invalid_active_check_hosts' }, 400);
+    }
+    // A check without a released engine cannot be authorised: a permission for
+    // a check that cannot run is a false offer (Executive, 23 Oct 2026). Checked
+    // after every other validation, so those refusals keep their own answer.
+    const isAvailable = typeof rctx.testOnlyActiveCheckAvailable === 'function'
+      ? rctx.testOnlyActiveCheckAvailable
+      : (check) => ACTIVE_CHECK_CATALOGUE[check].available === true;
+    const unavailable = checks.filter((check) => !isAvailable(check));
+    if (unavailable.length) {
+      return json({
+        error: 'active_check_not_available',
+        message: 'This check is not available yet, so it cannot be authorised.',
+        checks: unavailable,
+      }, 422);
     }
 
     const id = createId('acc');
