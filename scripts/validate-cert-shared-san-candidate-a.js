@@ -688,8 +688,13 @@ const parity = states.map(parityOutputs);
 // Stated-limit sentences (22 Oct 2026): the snapshot evidence_completeness gains
 // stated_limits (here []); with ONLY report-snapshot.js reverted both prior hashes
 // (f9fbbfe4… / b8b177e0…) reproduce.
-const GOLDEN_F13 = "c4382a255c8e9ddb10ce11f7cec43fd82dc7eb1c863d4c8cbae84957a6531926";
-const GOLDEN_F14 = "2f7b557f9389fee949637d26362e60f750122cb6e87f9afc00bd6e7826d670cb";
+// Resolver 2026-10-23.1 (23 Oct 2026): Website Security is provisional while its
+// own header checks could not validate. This certificate-only fixture has no
+// header finding, so only the stamped resolver version moves. With ONLY
+// SECURITY_CHECK_RESOLVER_VERSION reverted to 2026-10-18.2 the previous hashes
+// (c4382a25… / 2f7b557f…) reproduce exactly.
+const GOLDEN_F13 = "893866a0f7ddcc17e95b3a8cd8ea3163f9e2b2e1d7dc3ad0913953c8feefef84";
+const GOLDEN_F14 = "b2147cf36bebcbb8bff6d7df27de141ac6bf9f0841be50ba007946e21aed6fc5";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

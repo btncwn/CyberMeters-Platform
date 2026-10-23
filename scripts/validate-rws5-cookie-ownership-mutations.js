@@ -95,7 +95,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "b3-m7-resolver-version-reused",
     file: "workers/scan-api/src/engines/security-check-domains.js",
-    anchor: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-18.2";',
+    anchor: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-23.1";',
     replacement: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-08-30.1";',
     expectedFailures: ["current resolver version preserves the evidence-methodology boundary"],
   },
@@ -453,7 +453,7 @@ const MUTATIONS = Object.freeze([
   {
     id: "comparable-historical-transition",
     file: "workers/scan-api/src/engines/security-check-domains.js",
-    anchor: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-18.2";',
+    anchor: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-23.1";',
     replacement: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-07-24.4";',
     expectedFailures: [
       "current resolver version preserves the evidence-methodology boundary",

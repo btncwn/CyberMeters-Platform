@@ -90,8 +90,15 @@ const res = (status, extra = {}, body = "<html>x</html>") =>
 const origin503   = () => res(503);
 const origin404   = () => res(404);
 const origin403   = () => res(403);
-const originOK    = () => res(200, { "strict-transport-security": "max-age=63072000" },
-  "<html><head></head><body>wp-content</body></html>");
+// A serviceable origin sends the full security-header set. (23 Oct 2026: with
+// only HSTS the other five header checks read "Validation Uncertain" here, and
+// Website Security is never healthy on unvalidated header evidence.)
+const originOK    = () => res(200, {
+  "strict-transport-security": "max-age=63072000",
+  "content-security-policy": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+  "x-frame-options": "DENY", "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin", "permissions-policy": "camera=()",
+}, "<html><head></head><body>wp-content</body></html>");
 const redirect301 = (url) => new Response(null,
   { status: 301, headers: { location: `https://${new URL(String(url)).hostname}/`, "server": "nginx" } });
 const edge522     = () => new Response("edge", { status: 522,

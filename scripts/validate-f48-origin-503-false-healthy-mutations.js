@@ -44,10 +44,13 @@ const MUTANTS = Object.freeze([
     mutateTech: (s) => once(s,
       "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
       "  if (false) {", "F48-M1-tech"),
+    // 23 Oct 2026 (resolver 2026-10-23.1): Website Security is never healthy
+    // while its header checks read "Validation Uncertain", which an origin 503
+    // also produces. That second, independent guard keeps the generic
+    // "never healthy" assertions passing under this mutant, so they are no
+    // longer required kills; the F-48-specific ones below still prove that
+    // F-48's own guard is what declares the origin error.
     requireKilled: [
-      "F48_BAR1_NEVER_COMPLETE_AND_HEALTHY",
-      "F48_BAR1_NOT_ASSESSED_HEALTHY",
-      "F48_BAR1_COVERAGE_NOT_COMPLETE",
       "F48_BAR1_SCAN_NOT_COMPLETE",
       "F48_BAR1_STATE_IS_EVIDENCE_INSUFFICIENT",
       "F48_BAR1_SCAN_QUALITY_IS_PARTIAL",
@@ -87,9 +90,9 @@ const MUTANTS = Object.freeze([
     mutateTech: (s) => once(s,
       "  if (observation.state !== FETCH_OBSERVATION_STATES.ORIGIN_RESPONSE || serviceability.serviceable !== true) {",
       "  if (false) {", "F48-M3-tech"),
+    // The generic "never healthy" assertions are also held by the 2026-10-23.1
+    // unvalidated-header guard (see F48-M1); the specific state still dies.
     requireKilled: [
-      "F48_BAR1_NEVER_COMPLETE_AND_HEALTHY",
-      "F48_BAR1_NOT_ASSESSED_HEALTHY",
       "F48_BAR1_STATE_IS_EVIDENCE_INSUFFICIENT",
       // F-42's own control must also die here, proving the joint mutant really
       // removed both protections rather than only one.

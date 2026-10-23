@@ -1,7 +1,7 @@
 import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 import { isCookieFindingType } from "./cookie-observation.js";
-import { isActionableFinding } from "./findings.js";
+import { isActionableFinding, isUnvalidatedHeaderObservation } from "./findings.js";
 import {
   projectTlsFindingsForCustomer,
   resolveTlsRuntimeState,
@@ -116,7 +116,9 @@ import {
 // Attack Surface or Website Security as healthy without assessable content.
 // `2026-10-18.2`: domains use their own complete evidence when another phase
 // is incomplete; DNS absence is execution coverage, not a web-service verdict.
-export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-18.2";
+// `2026-10-23.1`: Website Security is provisional, never healthy, while its own
+// header checks could not validate ("— Validation Uncertain").
+export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-23.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -797,6 +799,16 @@ export function resolveSecurityCheckDomainStates(report, opts = {}) {
       // A required module simply never ran (absent) → not assessed, never healthy.
       base.state = SECURITY_CHECK_STATES.NOT_YET_ASSESSED;
       base.summary = "Not yet assessed for this domain — required checks did not run.";
+      return base;
+    }
+    if (d.domain_key === "website_security" && findings.some(isUnvalidatedHeaderObservation)) {
+      // Website Security never reads healthy while its own header checks could
+      // not validate (item 15 corpus, 23 Oct 2026: 8 of 22 healthy Website
+      // Security states rested on "Validation Uncertain" header evidence).
+      base.state = SECURITY_CHECK_STATES.PROVISIONAL;
+      base.coverage = "partial";
+      base.summary = "No material issue observed, but the security headers could not be validated this scan " +
+        "(the site may have answered through bot protection, or its headers varied by page).";
       return base;
     }
     if (domainProvisional) {
