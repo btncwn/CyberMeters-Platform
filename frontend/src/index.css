@@ -728,8 +728,10 @@
   /* Name and tabs share one scrolling strip; the tools take one line under it. */
   .cm-arearow-slot, .cm-arearow > .cm-tabs { flex: 1 1 0; }
   .cm-arearow-tools { flex-basis: 100%; margin-left: 0; padding: 0 0 8px; }
-  .cm-module-tools { flex-wrap: nowrap; }
-  .cm-module-tools .cm-area-search { flex: 1 1 auto; width: auto; min-width: 0; }
+  /* Search takes the line's width; actions wrap under it rather than widen the page. */
+  .cm-module-tools { flex-wrap: wrap; min-width: 0; }
+  .cm-module-tools .cm-area-search { flex: 1 1 180px; width: auto; min-width: 0; }
+  .cm-module-tools > div { min-width: 0; flex-wrap: wrap; }
   /* On a phone the header scrolls away rather than holding a third of the screen. */
   .cm-top { position: static; }
   .cm-shell [id] { scroll-margin-top: 12px; }

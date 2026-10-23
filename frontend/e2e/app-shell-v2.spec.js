@@ -133,10 +133,14 @@ test('every sub-topic opens its named section, fully below the sticky header', a
         if (hash) {
           const target = page.locator(hash)
           await expect(target, `${area} › ${label}: ${hash} exists`).toHaveCount(1)
-          await page.waitForTimeout(900)
-          const box = await target.boundingBox()
-          const header = await page.locator('header.cm-top').boundingBox()
-          expect(box && box.y >= header.y + header.height - 1, `${area} › ${label}: ${hash} below the sticky header (top ${box?.y}, header bottom ${header.y + header.height})`).toBe(true)
+          // Content and row-2 tools may still load and shift the page; the page re-settles its
+          // scroll, so poll until the target rests below the sticky header.
+          const clearance = async () => {
+            const box = await target.boundingBox()
+            const header = await page.locator('header.cm-top').boundingBox()
+            return box ? Math.round(box.y - (header.y + header.height)) : -9999
+          }
+          await expect.poll(clearance, { message: `${area} › ${label}: ${hash} below the sticky header`, timeout: 4000 }).toBeGreaterThanOrEqual(-1)
         }
       } catch (error) { failures.push(String(error.message).split('\n')[0]) }
       // Back to the area's own row for the next topic.
