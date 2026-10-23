@@ -21,8 +21,8 @@ const assets = [
   { id: 'a2', hostname: 'ssh.example.com', asset_type: 'exposed_service', status: 'active', lifecycle_state: 'observed', lifecycle_state_label: 'Observed' },
 ]
 
-function renderAt(url) {
-  api.getWorkspaceAssetsSummary.mockResolvedValue({ total_assets: 2, exposed_services: 1, takeover_risks: 3, lifecycle_counts: { observed: 2, confirmed_removed: 0 } })
+function renderAt(url, summary = { total_assets: 2, exposed_services: 1, takeover_risks: 3, lifecycle_counts: { observed: 2, confirmed_removed: 0 } }) {
+  api.getWorkspaceAssetsSummary.mockResolvedValue(summary)
   api.getWorkspaceAssets.mockResolvedValue({ assets })
   api.getWorkspaceAssetsTimeline.mockResolvedValue({ timeline: [] })
   api.getManagedCases.mockResolvedValue({ cases: [] })
@@ -40,6 +40,11 @@ describe('Attack Surface Summary', () => {
     expect(document.getElementById('asm-high-risk')).toHaveTextContent('3')
     expect(screen.queryByText(/Takeover risks|Possible subdomain takeovers/)).toBeNull()
     for (const id of ['asm-seen', 'asm-no-longer-observed', 'asm-exposed-services']) expect(document.getElementById(id)).not.toBeNull()
+  })
+  it('reads high_risk_assets (takeover_risks is only the deprecated alias)', async () => {
+    renderAt('/assets', { total_assets: 2, exposed_services: 1, high_risk_assets: 4, takeover_risks: 4, lifecycle_counts: { observed: 2, confirmed_removed: 0 } })
+    await waitFor(() => expect(document.getElementById('asm-high-risk')).not.toBeNull())
+    expect(document.getElementById('asm-high-risk')).toHaveTextContent('4')
   })
   it('?type=exposed_service opens the inventory filtered to exposed services', async () => {
     renderAt('/assets?type=exposed_service#asset-inventory')

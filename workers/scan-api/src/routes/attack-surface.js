@@ -823,7 +823,7 @@ export async function attackSurfaceRoutes(rctx) {
       // ── GET /api/workspaces/:id/assets/summary ───────────────────────────
       if (sub === "/summary") {
         try {
-          const [all, active, inactive, rootDomains, subdomains, exposedSvcs, cloudStorage, wildcardAssets, takeoverRisks] =
+          const [all, active, inactive, rootDomains, subdomains, exposedSvcs, cloudStorage, wildcardAssets, highRiskAssets] =
             await env.cybermeters_db.batch([
               env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ?`).bind(wsId),
               env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`).bind(wsId),
@@ -866,7 +866,11 @@ export async function attackSurfaceRoutes(rctx) {
             exposed_services:   exposedSvcs.results[0]?.n ?? 0,
             cloud_storage_assets: cloudStorage.results[0]?.n ?? 0,
             wildcard_assets:    wildcardAssets.results[0]?.n ?? 0,
-            takeover_risks:     takeoverRisks.results[0]?.n  ?? 0,
+            // Assets rated high or critical risk (any kind) — not takeovers.
+            high_risk_assets:   highRiskAssets.results[0]?.n ?? 0,
+            // DEPRECATED alias of high_risk_assets (misnamed: it never counted
+            // takeovers). Kept for one release (Executive, 23 Oct 2026).
+            takeover_risks:     highRiskAssets.results[0]?.n ?? 0,
             lifecycle_counts:   lifecycleCounts,
           });
         } catch {
