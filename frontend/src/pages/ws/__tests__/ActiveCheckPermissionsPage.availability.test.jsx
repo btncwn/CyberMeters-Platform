@@ -20,7 +20,8 @@ const NA = 'Not available yet — CyberMeters does not run this check today, so 
 const CATALOGUE = [
   { id: 'tls_intrusive_heartbleed', label: 'TLS Heartbleed test', available: false },
   { id: 'mail_open_relay', label: 'Open mail relay (no message is delivered)', available: true },
-  { id: 'dns_open_resolver', label: 'Open DNS resolver' }, // older catalogue: no field → offered
+  { id: 'dns_open_resolver', label: 'Open DNS resolver' }, // older catalogue payload: no field → NOT offered
+  { id: 'mail_spoof_resistance', label: 'Mail spoofing resistance', available: true },
 ]
 
 beforeEach(() => {
@@ -41,8 +42,14 @@ describe('Active Checks availability (#929)', () => {
     expect(heartbleed).toHaveAccessibleDescription(NA)
     expect(screen.getByTestId('active-check-tls_intrusive_heartbleed')).toHaveTextContent(NA)
     expect(screen.getByRole('checkbox', { name: 'Open mail relay (no message is delivered)' })).toBeEnabled()
-    expect(screen.getByRole('checkbox', { name: 'Open DNS resolver' })).toBeEnabled()
-    expect(screen.getAllByText(NA)).toHaveLength(1)
+    expect(screen.getAllByText(NA)).toHaveLength(2)
+  })
+  it('an older catalogue payload without `available` is not offered (an offer never comes from an absent field)', async () => {
+    render_()
+    await screen.findByRole('form', { name: 'Authorise active checks' })
+    const resolver = screen.getByRole('checkbox', { name: /Open DNS resolver/ })
+    expect(resolver).toBeDisabled()
+    expect(resolver).toHaveAccessibleDescription(NA)
   })
   it('clicking an unavailable check does nothing; only available checks are sent', async () => {
     render_()
@@ -63,7 +70,7 @@ describe('Active Checks availability (#929)', () => {
     render_()
     fireEvent.change(await screen.findByRole('combobox', { name: 'Verified domain' }), { target: { value: 'dom_1' } })
     fireEvent.change(screen.getByRole('textbox', { name: /Hosts/ }), { target: { value: 'mail.blackbullbarbers.co.uk' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Open DNS resolver' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Mail spoofing resistance' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Your name' }), { target: { value: 'Taylor Owner' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Your title' }), { target: { value: 'Director' } })
     fireEvent.click(screen.getByRole('checkbox', { name: AUTHORITY.text }))

@@ -158,8 +158,8 @@ export default function ActiveCheckPermissionsPage() {
       await api.grantActiveCheckConsent(requested, {
         domain_id: domain.domain_id,
         hosts,
-        // Never send a check the catalogue says is not available (#929 refuses it anyway).
-        checks: form.checks.filter((id) => catalogue.find((c) => c.id === id)?.available !== false),
+        // Never send a check the catalogue does not mark available (#929 refuses it anyway).
+        checks: form.checks.filter((id) => catalogue.find((c) => c.id === id)?.available === true),
         signer_name: form.signer_name.trim(),
         signer_title: form.signer_title.trim(),
         authority_confirmed: true,
@@ -255,9 +255,9 @@ export default function ActiveCheckPermissionsPage() {
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {catalogue.map((c) => {
                     // The catalogue says whether a released engine runs the check today
-                    // (#929). One that does not is shown, but cannot be ticked. An older
-                    // catalogue without the field keeps every check offered.
-                    const unavailable = c.available === false
+                    // (#929). Only `available: true` is offered — an offer never comes
+                    // from an absent field (Executive 14:40, as the backend's === true).
+                    const unavailable = c.available !== true
                     return (
                       <label key={c.id} className={`flex items-start gap-2 rounded-lg border p-3 ${unavailable ? 'border-gray-100 bg-gray-50 text-gray-500' : 'border-gray-200'}`} data-testid={`active-check-${c.id}`}>
                         <input type="checkbox" className="mt-0.5" checked={!unavailable && form.checks.includes(c.id)} onChange={() => toggleCheck(c.id)} disabled={busy || unavailable}
