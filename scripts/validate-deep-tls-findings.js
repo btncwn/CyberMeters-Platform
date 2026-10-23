@@ -76,10 +76,16 @@ assert.equal(evaluateTlsCondition(weakSignatureFinding.id,unknown).state,'deferr
   assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,stapled)])).state,'clear','stapling enabled clears');
   assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,absent)])).state,'present','still unstapled stays present');
   assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(null,absent)])).state,'deferred','unknown is inconclusive');
+  // R1: an invalid staple fails Must-Staple; it never reads stapled or clears.
+  const invalidStaple={...stapled,state:'invalid',signature_valid:false};
+  assert.deepEqual(ids(stapleRow(true,invalidStaple)),['tls_must_staple_not_stapled'],'an invalid staple is a finding');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,invalidStaple)])).state,'present','an invalid staple never clears');
+  assert.deepEqual(ids(stapleRow(true,{...stapled,state:'revoked'})),[],'a revoked staple is the tls_ocsp_revoked finding, not a duplicate');
   const { mustStapleState } = await import('../workers/scan-api/src/engines/tls-findings.js');
   const st=(row)=>mustStapleState(module([protocol('tls1_2'),row]))[0]?.state;
   assert.deepEqual([st(stapleRow(true,absent)),st(stapleRow(true,stapled)),st(stapleRow(false,absent)),st(stapleRow(null,absent)),st(stapleRow(true,null))],
     ['required_not_stapled','required_stapled','not_required','not_assessed','not_assessed'],'card states are backend-owned');
+  assert.equal(st(stapleRow(true,invalidStaple)),'required_staple_invalid','an invalid staple reads invalid, never stapled');
 }
 const strong=module([protocol('tls1_2'),certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,strong).state,'clear');

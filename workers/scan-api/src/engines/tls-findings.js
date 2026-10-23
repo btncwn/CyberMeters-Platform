@@ -107,12 +107,18 @@ export function tlsAssessmentFindings(assessment) {
       // response and none was stapled; browsers that enforce it refuse the
       // connection. Only a definite must_staple=true AND an observed 'absent'
       // staple count; null/unknown is not assessed, never a finding.
-      if(leaf?.must_staple===true&&ocsp?.state==='absent')
-        add(make('tls_must_staple_not_stapled',endpoint,row,{title:'Certificate requires OCSP stapling, but none was stapled',
-          description:'The offered leaf certificate carries the TLS Feature (Must-Staple) extension, but this endpoint did not staple an OCSP response, so browsers that enforce Must-Staple refuse the connection.',
+      // An invalid or unknown-status staple fails Must-Staple too (R1, 23 Oct
+      // 2026); a revoked staple is already its own finding (tls_ocsp_revoked).
+      if(leaf?.must_staple===true&&['absent','invalid','unknown'].includes(ocsp?.state))
+        add(make('tls_must_staple_not_stapled',endpoint,row,{title:ocsp.state==='absent'
+            ?'Certificate requires OCSP stapling, but none was stapled'
+            :'Certificate requires OCSP stapling, but the stapled response is not usable',
+          description:ocsp.state==='absent'
+            ?'The offered leaf certificate carries the TLS Feature (Must-Staple) extension, but this endpoint did not staple an OCSP response, so browsers that enforce Must-Staple refuse the connection.'
+            :`The offered leaf certificate carries the TLS Feature (Must-Staple) extension, and this endpoint stapled an OCSP response that is ${ocsp.state==='invalid'?'invalid':'of unknown status'}, so browsers that enforce Must-Staple refuse the connection.`,
           severity:'high',
           recommendation:'Enable OCSP stapling on this endpoint, or reissue the certificate without Must-Staple, then retest.',
-          value:'Must-Staple required; no stapled OCSP response'}));
+          value:ocsp.state==='absent'?'Must-Staple required; no stapled OCSP response':`Must-Staple required; stapled OCSP response ${ocsp.state}`}));
     }
     if(row.control==='compression'&&positive(row)&&row.evidence.extensions?.compression===true)
       add(make('tls_compression_enabled',endpoint,row,{title:'TLS compression accepted',
@@ -174,7 +180,9 @@ export function mustStapleState(assessment) {
     const state=!leaf||typeof leaf.must_staple!=='boolean'?'not_assessed'
       :leaf.must_staple===false?'not_required'
       :!ocsp?'not_assessed'
-      :ocsp.state==='absent'?'required_not_stapled':'required_stapled';
+      :ocsp.state==='absent'?'required_not_stapled'
+      :ocsp.state==='good'?'required_stapled'
+      :'required_staple_invalid';
     out.push({endpoint_identity:endpoint.endpoint_identity||null,hostname:endpoint.endpoint?.hostname||null,state});
   }
   return out;
@@ -234,8 +242,9 @@ export function evaluateTlsCondition(id,assessment) {
         if(!leaf)return {state:'deferred',reason:'certificate_not_observed'};
         if(type==='tls_must_staple_not_stapled'){
           const ocsp=row.evidence?.ocsp;
-          if(leaf.must_staple===true&&ocsp?.state==='absent')return {state:'present',reason:'must_staple_still_unstapled'};
-          if(leaf.must_staple===false||(leaf.must_staple===true&&ocsp&&ocsp.state!=='absent'))return {state:'clear',reason:'must_staple_retested'};
+          if(leaf.must_staple===true&&['absent','invalid','unknown'].includes(ocsp?.state))return {state:'present',reason:'must_staple_still_unstapled'};
+          // Only a good staple (or the extension gone) clears; never an invalid one.
+          if(leaf.must_staple===false||(leaf.must_staple===true&&ocsp?.state==='good'))return {state:'clear',reason:'must_staple_retested'};
           return {state:'deferred',reason:'must_staple_retest_inconclusive'};
         }
         if(type==='tls_weak_certificate_key'){
