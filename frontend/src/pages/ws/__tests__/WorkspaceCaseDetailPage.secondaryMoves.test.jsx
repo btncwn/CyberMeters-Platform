@@ -86,6 +86,6 @@ describe('the case page after a transition', () => {
     expect(screen.queryByRole('button', { name: 'Start remediation' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Not fixed yet — reopen work' })).not.toHaveAttribute('data-primary')
     expect(document.querySelectorAll('[data-primary="true"]')).toHaveLength(0)
-    expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'mc-1', { target_status: 'awaiting_verification' })
+    expect(api.transitionCase).toHaveBeenCalledWith('ws1', 'mc-1', { target_status: 'awaiting_verification', expected_status: 'action_in_progress' })
   })
 })

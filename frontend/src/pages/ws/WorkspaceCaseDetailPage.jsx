@@ -209,14 +209,23 @@ function NextActionSection({ wsId, caseId, caseRecord, events = [], transitions,
         await api.transitionManagedCase(wsId, caseId, { status, ...rest })
       } else {
         const { endpoint: _e, ...rest } = payload
-        await api.transitionCase(wsId, caseId, rest)
+        // Name the status this button was rendered for (#912): if the case has
+        // moved since, the server changes nothing and says so.
+        await api.transitionCase(wsId, caseId, caseRecord?.status ? { ...rest, expected_status: caseRecord.status } : rest)
       }
       setSelected(null); resetForm()
       // Stay busy until the server's state is back on screen: the old buttons
       // can never take a second click while the case reloads.
       await onDone?.()
-    } catch {
-      setActionError('Could not complete this action. Please try again.')
+    } catch (e) {
+      if (e?.code === 'case_status_changed') {
+        // The case moved since this page was loaded: nothing was changed; show where it is now.
+        setSelected(null); resetForm()
+        setActionError('This case changed since the page was loaded, so nothing was changed. It now shows its current status.')
+        await onDone?.()
+      } else {
+        setActionError('Could not complete this action. Please try again.')
+      }
     } finally {
       setBusy(null)
     }
