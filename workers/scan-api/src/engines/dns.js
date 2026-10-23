@@ -169,7 +169,7 @@ export async function domainDefinitelyDoesNotExist(domain, opts = {}, { primary 
   const nxdomain = (packet) => Boolean(packet && packet.Status === 3 && packet.TC !== true &&
     !(Array.isArray(packet.Answer) && packet.Answer.length > 0));
   const ask = async (resolver) => {
-    try { return await resolver(name, "A", { signal: opts.signal }); } catch { return null; }
+    try { return await resolver(name, "A", { signal: opts.signal, accounting: opts.accounting }); } catch { return null; }
   };
   const [first, second] = await Promise.all([ask(primary), ask(secondary)]);
   return {

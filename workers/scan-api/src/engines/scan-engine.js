@@ -1115,9 +1115,17 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // disagreement continue on the ordinary path. Nothing below runs: no
     // modules, no score, no findings and no inventory or lifecycle write, so a
     // lapsed domain never marks its assets removed. Previous observations stay.
+    // The two questions are charged like every other outbound request (physical
+    // counter + accounting), but they are not a scan module, so no module
+    // telemetry row is written for them.
+    const existenceOutbound = outboundContext("domain_existence", deadline.signal);
+    let existenceAttempts = 0;
+    const recordExistenceAttempt = existenceOutbound.recordAttempt;
+    existenceOutbound.recordAttempt = () => { recordExistenceAttempt(); existenceAttempts += 1; };
     const existence = await runInitialCeilingAwareStep("initial_domain_existence", () =>
-      domainDefinitelyDoesNotExist(domain, { signal: deadline.signal }));
+      domainDefinitelyDoesNotExist(domain, { signal: deadline.signal, accounting: existenceOutbound }));
     if (!existence.settled) return existence.ceiling;
+    existenceOutbound.markSettled?.();
     if (existence.value?.definitive_nxdomain === true) {
       return finishDomainNotFound({ env, latch, scanId, domain, domainId, workspaceId, startedAt,
         evidence: existence.value.evidence, deadline: durableInvocation ? deadline : null });
@@ -1173,6 +1181,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           subdomains: SCAN_MODULE_BUDGETS.subdomains,
         },
         now,
+        preIssued: existenceAttempts ? { domain_existence: existenceAttempts } : null,
       });
       const m = reserved.modules;
       dnsResult = m.dns; sslResult = m.ssl; headersResult = m.headers; emailResult = m.email_security;

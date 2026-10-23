@@ -325,12 +325,20 @@ export async function runReservedScan(domain, {
   signal = null,
   moduleBudgets = null,
   now = Date.now,
+  // Physical subrequests this invocation already issued before the reserved
+  // flow (the Phase 0 domain-existence questions), by category. They count
+  // against the same hard limit.
+  preIssued = null,
 } = {}) {
   const budget = new SubrequestBudget({ limit: capacity.limit, safetyMargin: capacity.safetyMargin });
   const physicalCounter = new PhysicalSubrequestCounter({
     limit: capacity.limit,
     safetyMargin: capacity.safetyMargin,
   });
+  for (const [category, count] of Object.entries(preIssued || {})) {
+    const issued = physicalCounter.contextFor(category);
+    for (let i = 0; i < Math.max(0, Math.trunc(Number(count) || 0)); i += 1) issued.recordAttempt();
+  }
   const dnsCache = suppliedDnsCache || makeDnsCache();
   const reservedModuleBudgets = {
     ssl: Math.max(1, Number(moduleBudgets?.ssl) || 9_000),

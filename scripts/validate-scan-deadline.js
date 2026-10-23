@@ -1263,17 +1263,33 @@ const neverTimer = { setTimer: () => ({}), clearTimer: () => { neverCleared++; }
       get() { calls.push({ kind: "r2_get" }); return Promise.resolve(null); },
     },
   };
-  const result = await runScanEngine("stall-identity", "dom", "ws", "example.com", env, {
-    executionContext: "cron",
-    preTerminalCeilingTimers: {
-      setTimer(fn) {
-        timerCall += 1;
-        if (timerCall === 2) queueMicrotask(fn);
-        return { unref() {} };
+  // Item 15 fix D: the Phase 0 domain-existence check (two DoH questions) is
+  // the second ceiling-aware step; it answers here (the domain exists), so the
+  // identity read is the third, and that is the one held.
+  const previousFetch = globalThis.fetch;
+  const dohAsked = [];
+  globalThis.fetch = async (input) => {
+    dohAsked.push(new URL(String(input)).hostname);
+    return new Response(JSON.stringify({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] }), { headers: { "content-type": "application/json" } });
+  };
+  let result;
+  try {
+    result = await runScanEngine("stall-identity", "dom", "ws", "example.com", env, {
+      executionContext: "cron",
+      preTerminalCeilingTimers: {
+        setTimer(fn) {
+          timerCall += 1;
+          if (timerCall === 3) queueMicrotask(fn);
+          return { unref() {} };
+        },
+        clearTimer() {},
       },
-      clearTimer() {},
-    },
-  });
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+  eq("the domain-existence check asks two independent resolvers before the identity read",
+    JSON.stringify([...new Set(dohAsked)].sort()), JSON.stringify(["cloudflare-dns.com", "dns.google"]));
   eq("never-resolving initial identity read returns at the total ceiling",
     result?.outcome, "scan_total_ceiling_exhausted");
   eq("identity stall is attributed to its exact stage", result?.stage, "initial_identity_read");
@@ -1443,8 +1459,9 @@ await withEngineFetchFixture(async (fetchCount) => {
     durableArmIndex > deadlineIndex && durableArmIndex < initialD1Index);
   ok("legacy reserved mode still owns its explicit watchdog without double-arming durable runs",
     /if \(!durableInvocation && reservedMode\) deadline\.arm\(\);/.test(src));
-  ok("durable success and failure finalization receive the total deadline",
-    (src.match(/deadline: durableInvocation \? deadline : null/g) || []).length === 2);
+  // Item 15 fix D adds a third finalization (domain not found), also bounded.
+  ok("durable success, failure and domain-not-found finalization receive the total deadline",
+    (src.match(/deadline: durableInvocation \? deadline : null/g) || []).length === 3);
   ok("every inner total-ceiling path uses the structured invocation result",
     ["success_post_terminal", "finalized_diagnostics", "failure_post_terminal", "whole_invocation"]
       .every((stage) => new RegExp(`raceInvocationCeiling\\(\\s*[\"']${stage}[\"']`).test(src))
