@@ -7,7 +7,7 @@
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
-import { getPaymentGraceState, normalizeBillingInterval, normalizePlan } from "./entitlements.js";
+import { getPaymentGraceState, lineageGraceAnchor, normalizeBillingInterval, normalizePlan } from "./entitlements.js";
 import { expectedCheckoutAmountPence } from "./pricing-registry.js";
 import { isSubscriptionActive } from "./subscription-state.js";
 
@@ -718,21 +718,25 @@ export function lineageEntitlement(lineage, nowMs = Date.now()) {
     return { entitled: periodOk, grace_anchor: null };
   }
   if (status === "past_due") {
-    const unpaid = ["open", "uncollectible"].includes(String(lineage.latest_invoice_status || ""));
-    const anchor = unpaid ? lineage.latest_invoice_created || null : null;
+    const anchor = lineageGraceAnchor(lineage);
     return { entitled: getPaymentGraceState({ subscription_status: "past_due", payment_failed_at: anchor }).active, grace_anchor: anchor };
   }
   return { entitled: false, grace_anchor: null };
 }
 
-// Pure: the lineage an account row reflects — the best ENTITLED one (highest
-// plan, then most recently fetched), else the most recently fetched.
+// Pure: the lineage an account row reflects — the best ENTITLED one, in the
+// entitlement resolver's own order (paid, then trial, then payment grace;
+// within one, the highest plan, then most recently fetched), else the most
+// recently fetched. Same order as resolveCanonicalSubscriptionRow, so the
+// stored row and the read-time answer never disagree.
 export function bestLineage(lineages, nowMs = Date.now()) {
   const list = (lineages || []).filter(Boolean);
   const recent = (a, b) => String(b.fetched_at || "").localeCompare(String(a.fetched_at || ""))
     || String(b.stripe_subscription_id).localeCompare(String(a.stripe_subscription_id));
   const rank = (l) => PLAN_RANK[normalizePlan(l.plan)] ?? 0;
-  const entitled = list.filter((l) => lineageEntitlement(l, nowMs).entitled).sort((a, b) => rank(b) - rank(a) || recent(a, b));
+  const source = (l) => (l.status === "active" ? 2 : l.status === "trialing" ? 1 : 0);
+  const entitled = list.filter((l) => lineageEntitlement(l, nowMs).entitled)
+    .sort((a, b) => source(b) - source(a) || rank(b) - rank(a) || recent(a, b));
   return entitled[0] || [...list].sort(recent)[0] || null;
 }
 
@@ -742,37 +746,69 @@ async function readLineage(env, subscriptionId) {
     .bind(subscriptionId).first();
 }
 
-async function writeLineage(env, l) {
+// Compare-and-swap on `version` (C-49 N01): the write lands only if nobody
+// else wrote this lineage since `expectedVersion` was read. Returns the stored
+// lineage, or null on a lost race (the caller re-reads Stripe and retries).
+async function writeLineage(env, l, expectedVersion) {
   const now = nowIso();
-  await env.cybermeters_db
-    .prepare(`INSERT INTO stripe_subscription_lineages
-        (stripe_subscription_id, stripe_customer_id, owner_user_id, workspace_id, status, plan, stripe_price_id,
-         billing_interval, current_period_start, current_period_end, cancel_at_period_end, latest_invoice_id,
-         latest_invoice_status, latest_invoice_created, latest_invoice_attempts, terminal, fetched_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(stripe_subscription_id) DO UPDATE SET
-        stripe_customer_id = excluded.stripe_customer_id,
-        status = CASE WHEN stripe_subscription_lineages.terminal = 1 THEN 'canceled' ELSE excluded.status END,
-        plan = excluded.plan, stripe_price_id = excluded.stripe_price_id, billing_interval = excluded.billing_interval,
-        current_period_start = excluded.current_period_start, current_period_end = excluded.current_period_end,
-        cancel_at_period_end = excluded.cancel_at_period_end, latest_invoice_id = excluded.latest_invoice_id,
-        latest_invoice_status = excluded.latest_invoice_status, latest_invoice_created = excluded.latest_invoice_created,
-        latest_invoice_attempts = excluded.latest_invoice_attempts,
-        terminal = MAX(stripe_subscription_lineages.terminal, excluded.terminal),
-        fetched_at = excluded.fetched_at, updated_at = excluded.updated_at`)
-    .bind(l.stripe_subscription_id, l.stripe_customer_id, l.owner_user_id, l.workspace_id, l.status, l.plan,
-      l.stripe_price_id, l.billing_interval, l.current_period_start, l.current_period_end, l.cancel_at_period_end,
-      l.latest_invoice_id, l.latest_invoice_status, l.latest_invoice_created, l.latest_invoice_attempts, l.terminal,
-      now, now, now)
-    .run();
-  return readLineage(env, l.stripe_subscription_id);
+  const values = [l.stripe_customer_id, l.status, l.plan, l.stripe_price_id, l.billing_interval,
+    l.current_period_start, l.current_period_end, l.cancel_at_period_end, l.latest_invoice_id,
+    l.latest_invoice_status, l.latest_invoice_created, l.latest_invoice_attempts];
+  let result;
+  if (expectedVersion == null) {
+    result = await env.cybermeters_db
+      .prepare(`INSERT INTO stripe_subscription_lineages
+          (stripe_customer_id, status, plan, stripe_price_id, billing_interval, current_period_start,
+           current_period_end, cancel_at_period_end, latest_invoice_id, latest_invoice_status,
+           latest_invoice_created, latest_invoice_attempts,
+           stripe_subscription_id, owner_user_id, workspace_id, terminal, version, fetched_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+        ON CONFLICT(stripe_subscription_id) DO NOTHING`)
+      .bind(...values, l.stripe_subscription_id, l.owner_user_id, l.workspace_id, l.terminal, now, now, now)
+      .run();
+  } else {
+    result = await env.cybermeters_db
+      .prepare(`UPDATE stripe_subscription_lineages SET
+          stripe_customer_id = ?,
+          status = CASE WHEN terminal = 1 OR ? = 1 THEN 'canceled' ELSE ? END,
+          plan = ?, stripe_price_id = ?, billing_interval = ?, current_period_start = ?,
+          current_period_end = ?, cancel_at_period_end = ?, latest_invoice_id = ?, latest_invoice_status = ?,
+          latest_invoice_created = ?, latest_invoice_attempts = ?,
+          terminal = MAX(terminal, ?), version = version + 1, fetched_at = ?, updated_at = ?
+        WHERE stripe_subscription_id = ? AND version = ?`)
+      .bind(values[0], l.terminal, values[1], ...values.slice(2), l.terminal, now, now, l.stripe_subscription_id, expectedVersion)
+      .run();
+  }
+  if (Number(result?.meta?.changes ?? 0) !== 1) return null;
+  // Exactly what was stored (terminal is monotonic, so a stored terminal stays).
+  return {
+    ...l,
+    status: l.terminal ? "canceled" : l.status,
+    version: expectedVersion == null ? 1 : expectedVersion + 1,
+    fetched_at: now,
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 // Fetch one subscription and store it. null when Stripe does not know it.
+const LINEAGE_WRITE_ATTEMPTS = 4;
+
 async function refreshLineage(env, subscriptionId, hint = {}) {
-  const fetched = await fetchStripeSubscription(env, subscriptionId);
-  if (!fetched) return null;
-  const previous = await readLineage(env, subscriptionId);
+  // Read the stored version BEFORE asking Stripe: a write based on this read
+  // can then only land if no newer read has landed meanwhile.
+  for (let attempt = 0; attempt < LINEAGE_WRITE_ATTEMPTS; attempt++) {
+    const previous = await readLineage(env, subscriptionId);
+    const fetched = await fetchStripeSubscription(env, subscriptionId);
+    if (!fetched) return null;
+    const stored = await writeFetchedLineage(env, subscriptionId, fetched, previous, hint);
+    if (stored) return stored;
+  }
+  // Still contended: let Stripe retry the event rather than guess.
+  throw new Error("stripe_lineage_write_contended");
+}
+
+async function writeFetchedLineage(env, subscriptionId, fetched, previous, hint) {
   const marked = await hasCanceledSubscriptionMarker(env, subscriptionId);
   const lineage = lineageFromStripeSubscription(env, fetched, {
     previous: marked ? { ...(previous || {}), terminal: 1 } : previous, hint,
@@ -789,7 +825,7 @@ async function refreshLineage(env, subscriptionId, hint = {}) {
       metadata: { stripe_price_id: lineage.stripe_price_id, metadata_plan: fetched?.metadata?.plan || null },
     }).catch(() => {});
   }
-  return writeLineage(env, lineage);
+  return writeLineage(env, lineage, previous ? previous.version : null);
 }
 
 /**
@@ -833,43 +869,71 @@ export async function syncStripeSubscription(env, subscriptionId, { hint = {} } 
     rowLineageUnknown = !(await refreshLineage(env, rowSub, {}));
   }
 
-  const siblings = lineage.stripe_customer_id
-    ? ((await env.cybermeters_db.prepare("SELECT * FROM stripe_subscription_lineages WHERE stripe_customer_id = ?")
-        .bind(lineage.stripe_customer_id).all()).results || [])
-    : [lineage];
-  if (rowSub && rowSub !== subscriptionId && !siblings.some((l) => l.stripe_subscription_id === rowSub)) {
-    const rowLineage = await readLineage(env, rowSub);
-    if (rowLineage) siblings.push(rowLineage);
-  }
-  const best = bestLineage(siblings) || lineage;
-  const ent = lineageEntitlement(best);
+  // Derive the account row from the customer's lineages, then confirm none of
+  // them changed while it was written; a concurrent webhook that wrote a newer
+  // lineage meanwhile makes this derivation re-run, so the row is never left
+  // reflecting an older read (C-49 N01).
+  const readSiblings = async () => {
+    const list = lineage.stripe_customer_id
+      ? ((await env.cybermeters_db.prepare("SELECT * FROM stripe_subscription_lineages WHERE stripe_customer_id = ?")
+          .bind(lineage.stripe_customer_id).all()).results || [])
+      : [await readLineage(env, subscriptionId)].filter(Boolean);
+    if (rowSub && rowSub !== subscriptionId && !list.some((l) => l.stripe_subscription_id === rowSub)) {
+      const rowLineage = await readLineage(env, rowSub);
+      if (rowLineage) list.push(rowLineage);
+    }
+    return list;
+  };
+  const versionsOf = (list) => list.map((l) => `${l.stripe_subscription_id}:${l.version}`).sort().join(",");
 
-  // Never create a row for a lineage that grants nothing, and never replace a
-  // row's subscription Stripe could not confirm unless the new one is entitled.
-  if (!rowId && !ent.entitled) return null;
-  if (rowLineageUnknown && !ent.entitled) return rowId;
+  let accountRowId = rowId;
+  let siblings = await readSiblings();
+  for (let attempt = 0; attempt < LINEAGE_WRITE_ATTEMPTS; attempt++) {
+    const best = bestLineage(siblings) || lineage;
+    const ent = lineageEntitlement(best);
 
-  const accountRowId = await upsertStripeSubscriptionState(env, {
-    owner_user_id: best.owner_user_id,
-    workspace_id: best.workspace_id,
-    plan: best.plan,
-    billing_interval: best.billing_interval,
-    subscription_status: best.status,
-    stripe_customer_id: best.stripe_customer_id,
-    stripe_subscription_id: best.stripe_subscription_id,
-    stripe_price_id: best.stripe_price_id,
-    current_period_start: best.current_period_start,
-    current_period_end: best.current_period_end,
-    cancel_at_period_end: best.cancel_at_period_end,
-  });
-  if (accountRowId) {
-    // Grace from Stripe's invoice, not from when an event happened to arrive.
-    await env.cybermeters_db
-      .prepare("UPDATE subscriptions SET payment_failed_at = ?, payment_retry_count = ? WHERE id = ?")
-      .bind(ent.grace_anchor, ent.grace_anchor ? (best.latest_invoice_attempts ?? 1) : 0, accountRowId)
-      .run();
+    // Never create a row for a lineage that grants nothing, and never replace a
+    // row's subscription Stripe could not confirm unless the new one is entitled.
+    if (!accountRowId && !ent.entitled) return null;
+    if (rowLineageUnknown && !ent.entitled) return accountRowId;
+    // A new customer's subscription for a workspace another customer's row
+    // already holds (the production table allows one row per workspace): no
+    // second row. The lineage alone carries the entitlement at read time
+    // (lineageCandidateRows), instead of a failing insert retried forever.
+    if (!accountRowId && best.workspace_id) {
+      const occupied = await env.cybermeters_db
+        .prepare(`SELECT id FROM subscriptions WHERE workspace_id = ?
+                    AND stripe_customer_id IS NOT NULL AND stripe_customer_id <> ? LIMIT 1`)
+        .bind(best.workspace_id, best.stripe_customer_id || "")
+        .first();
+      if (occupied?.id) return null;
+    }
+
+    accountRowId = await upsertStripeSubscriptionState(env, {
+      owner_user_id: best.owner_user_id,
+      workspace_id: best.workspace_id,
+      plan: best.plan,
+      billing_interval: best.billing_interval,
+      subscription_status: best.status,
+      stripe_customer_id: best.stripe_customer_id,
+      stripe_subscription_id: best.stripe_subscription_id,
+      stripe_price_id: best.stripe_price_id,
+      current_period_start: best.current_period_start,
+      current_period_end: best.current_period_end,
+      cancel_at_period_end: best.cancel_at_period_end,
+    });
+    if (accountRowId) {
+      // Grace from Stripe's invoice, not from when an event happened to arrive.
+      await env.cybermeters_db
+        .prepare("UPDATE subscriptions SET payment_failed_at = ?, payment_retry_count = ? WHERE id = ?")
+        .bind(ent.grace_anchor, ent.grace_anchor ? (best.latest_invoice_attempts ?? 1) : 0, accountRowId)
+        .run();
+    }
+    const after = await readSiblings();
+    if (versionsOf(after) === versionsOf(siblings)) return accountRowId;
+    siblings = after;
   }
-  return accountRowId;
+  throw new Error("stripe_account_row_contended");
 }
 
 export async function handleCheckoutSessionCompleted(env, session) {

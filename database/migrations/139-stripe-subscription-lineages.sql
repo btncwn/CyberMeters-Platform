@@ -14,7 +14,8 @@
 -- it): it never becomes entitled again; only a NEW subscription id can.
 -- latest_invoice_* is Stripe's latest invoice for the subscription; the payment
 -- grace window is anchored on its creation time, so a retried webhook never
--- restarts the grace.
+-- restarts the grace. Entitlement reads include the owner's live lineages,
+-- so a paid sibling subscription counts without waiting for a webhook.
 --
 -- Additive: one new table and two indexes. Nothing existing changes. Retained
 -- on workspace purge for accounting, exactly like `subscriptions`.
@@ -44,6 +45,9 @@ CREATE TABLE IF NOT EXISTS stripe_subscription_lineages (
   latest_invoice_created   TEXT,
   latest_invoice_attempts  INTEGER,
   terminal                 INTEGER NOT NULL DEFAULT 0 CHECK (terminal IN (0, 1)),
+  -- Optimistic concurrency: a write lands only on the version it read, so a
+  -- write based on an older Stripe read never lands after a newer one.
+  version                  INTEGER NOT NULL DEFAULT 1,
   fetched_at               TEXT NOT NULL,
   created_at               TEXT NOT NULL,
   updated_at               TEXT NOT NULL

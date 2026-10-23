@@ -308,6 +308,67 @@ export function resolveCanonicalSubscriptionRow(rows) {
   return null;
 }
 
+// ── Stripe subscription lineages at read time (migration 139, C-49 N02) ──────
+// Stripe's view of each subscription is stored per subscription id. The
+// account row is only re-derived when a webhook arrives, so a past_due row can
+// lapse at grace expiry while another subscription of the same owner is still
+// paid. Entitlement therefore reads the owner's live (non-terminal) lineages
+// as candidates beside the rows; a row whose subscription has a lineage is
+// replaced by it (the lineage is Stripe's newer truth for that subscription).
+
+// The grace anchor of a lineage: its latest UNPAID invoice's creation time.
+export function lineageGraceAnchor(lineage) {
+  if (String(lineage?.status || "") !== "past_due") return null;
+  const unpaid = ["open", "uncollectible"].includes(String(lineage?.latest_invoice_status || ""));
+  return unpaid ? lineage.latest_invoice_created || null : null;
+}
+
+export function lineageCandidateRows(rows, lineages) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const live = (Array.isArray(lineages) ? lineages : [])
+    .filter((l) => l && Number(l.terminal) === 0 && l.fetched_at && l.stripe_subscription_id);
+  if (!live.length) return list;
+  const covered = new Set(live.map((l) => l.stripe_subscription_id));
+  const holder = (l) => list.find((r) => r.stripe_subscription_id === l.stripe_subscription_id);
+  return [
+    ...list.filter((r) => !covered.has(r.stripe_subscription_id)),
+    ...live.map((l) => ({
+      id: holder(l)?.id || `lineage:${l.stripe_subscription_id}`,
+      // No workspace: lineages never collapse into each other by workspace.
+      workspace_id: null,
+      plan: l.plan,
+      status: l.status,
+      subscription_status: l.status,
+      billing_interval: l.billing_interval,
+      trial_end: null,
+      expires_at: null,
+      current_period_end: l.current_period_end,
+      payment_failed_at: lineageGraceAnchor(l),
+      stripe_subscription_id: l.stripe_subscription_id,
+      created_at: l.created_at,
+      updated_at: l.fetched_at || l.updated_at,
+    })),
+  ];
+}
+
+// The owner's live lineages; [] when they cannot be read (the rows alone then
+// decide, exactly as before migration 139).
+async function readOwnerLineages(env, userId) {
+  try {
+    const res = await env.cybermeters_db
+      .prepare(`SELECT stripe_subscription_id, status, plan, billing_interval,
+                       current_period_end, latest_invoice_status, latest_invoice_created, terminal,
+                       fetched_at, created_at, updated_at
+                FROM stripe_subscription_lineages
+                WHERE owner_user_id = ? AND terminal = 0`)
+      .bind(userId)
+      .all();
+    return res?.results || [];
+  } catch {
+    return [];
+  }
+}
+
 export async function getEffectivePlanState(userId, env) {
   // Canonical plan resolver for all application billing decisions.
   // Stripe updates the subscriptions table through webhooks; runtime requests
@@ -334,7 +395,7 @@ export async function getEffectivePlanState(userId, env) {
       )
       .bind(userId)
       .all();
-    rows = res?.results || [];
+    rows = lineageCandidateRows(res?.results || [], await readOwnerLineages(env, userId));
   } catch {
     return { plan: "free", is_trial: false, source: "error" };
   }
@@ -441,7 +502,7 @@ export async function loadAccountSubscription(userId, env) {
       )
       .bind(userId)
       .all();
-    return describeAccountSubscription(res?.results || []);
+    return describeAccountSubscription(lineageCandidateRows(res?.results || [], await readOwnerLineages(env, userId)));
   } catch {
     return describeAccountSubscription([], { error: true });
   }

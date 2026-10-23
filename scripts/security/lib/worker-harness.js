@@ -132,7 +132,7 @@ export async function makeSeeder(db, mod) {
 // Any other URL still throws "network disabled".
 export function createStripeProvider() {
   const truth = new Map();
-  let failures = 0, reads = 0;
+  let failures = 0, reads = 0, held = null;
   const idOf = (v) => (v && typeof v === "object" ? v.id : v) || null;
   const subIdOfInvoice = (inv) => idOf(inv?.subscription) ?? idOf(inv?.parent?.subscription_details?.subscription);
   const fetch = async (input) => {
@@ -141,7 +141,15 @@ export function createStripeProvider() {
     if (!m) throw new Error("network disabled");
     reads++;
     if (failures > 0) { failures--; return new Response(JSON.stringify({ error: { type: "api_error" } }), { status: 500 }); }
-    const sub = truth.get(decodeURIComponent(m[1]));
+    let sub = truth.get(decodeURIComponent(m[1]));
+    if (held) {
+      // A held read answers with what Stripe said WHEN it was asked, but only
+      // once released: a slow response that lands after newer state.
+      const gate = held; held = null;
+      const snapshot = sub && JSON.parse(JSON.stringify(sub));
+      await gate;
+      sub = snapshot;
+    }
     if (!sub) return new Response(JSON.stringify({ error: { type: "invalid_request_error" } }), { status: 404 });
     return new Response(JSON.stringify(sub), { status: 200, headers: { "Content-Type": "application/json" } });
   };
@@ -178,6 +186,9 @@ export function createStripeProvider() {
     truth, fetch, mirror,
     set: (sub) => truth.set(sub.id, sub),
     failNext: (n = 1) => { failures = n; },
+    // Hold the next read; returns release(). The read answers with the truth
+    // at the moment it was made, after release() is called.
+    holdNext: () => { let release; held = new Promise((r) => { release = r; }); return release; },
     get reads() { return reads; },
   };
 }

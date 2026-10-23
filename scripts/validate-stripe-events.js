@@ -524,6 +524,8 @@ for (const [table, previous] of [["subscriptions", priorSubscriptions], ["audit_
     cenv.cybermeters_db = { ...base, prepare(sql) {
       const st = base.prepare(sql.replaceAll("datetime('now')", `datetime('${sqlTime()}')`));
       const wrap = (x) => ({ ...x, bind(...a) { return wrap(x.bind(...a)); }, async run() {
+        // holdSql: pause the first matching write until released (a slow D1 write).
+        if (c.holdSql && c.holdSql.pattern.test(sql)) { const h = c.holdSql; c.holdSql = null; h.reached(); await h.gate; }
         if (c.failCompletionOnce && /UPDATE stripe_processed_events SET status = 'completed'/.test(sql)) {
           c.failCompletionOnce = false; throw new Error("injected completion-marker failure");
         }
@@ -747,6 +749,45 @@ for (const [table, previous] of [["subscriptions", priorSubscriptions], ["audit_
       await deliver(c, event("customer.subscription.updated", sub(), 31));
       await expectPlans("(c) a later active read never revives it", c, { u1: "free" });
       ok("(c) the lineage is terminal", c.db.prepare("SELECT terminal, status FROM stripe_subscription_lineages WHERE stripe_subscription_id = 's1'").get()?.terminal === 1);
+    }
+    { // N01 (C-49b) concurrent stale write: a slow, older read never lands last
+      const c = setup(); c.truth(sub(price("price_bm")));
+      await deliver(c, event("customer.subscription.created", sub(price("price_bm")), 0));
+      const release = c.provider.holdNext();
+      const slow = deliver(c, event("customer.subscription.updated", sub(price("price_bm")), 10));
+      await new Promise((r) => setTimeout(r, 0));
+      c.truth(sub(price("price_sm")));
+      await deliver(c, event("customer.subscription.updated", sub(price("price_sm")), 20));
+      release(); await slow;
+      await expectPlans("N01 the held older read never regresses starter to business", c, { u1: "starter" });
+      ok("N01 the lineage holds Stripe's newer plan", c.db.prepare("SELECT plan FROM stripe_subscription_lineages WHERE stripe_subscription_id = 's1'").get()?.plan === "starter");
+    }
+    { // N01b: the account row derived from an older read is redone, never left stale
+      const c = setup(); c.truth(sub(price("price_bm")));
+      await deliver(c, event("customer.subscription.created", sub(price("price_bm")), 0));
+      let release, reached;
+      const atWrite = new Promise((r) => { reached = r; });
+      c.holdSql = { pattern: /UPDATE subscriptions\s+SET plan = COALESCE/, gate: new Promise((r) => { release = r; }), reached };
+      const slow = deliver(c, event("customer.subscription.updated", sub(price("price_bm")), 10));
+      await atWrite;
+      c.truth(sub(price("price_sm")));
+      await deliver(c, event("customer.subscription.updated", sub(price("price_sm")), 20));
+      release(); await slow;
+      ok("N01b the stored row ends on Stripe's newer plan", rows(c)[0].plan === "starter");
+    }
+    { // N02 (C-49b) grace expiry with no webhook never hides a paid sibling:
+      // s2 is a second Stripe customer for the same workspace, so it has no
+      // account row of its own (one row per workspace) — only its lineage.
+      const s2 = sub({ id: "s2", customer: "c2", ...price("price_sm") });
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i1", 10) }), s2);
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.created", s2, 20));
+      ok("N02 the second customer's subscription opened no second row", rows(c).length === 1 && rows(c)[0].stripe_subscription_id === "s1");
+      await expectPlans("N02 inside grace the active paid sibling applies", c, { u1: "starter" });
+      clock += 8 * DAY;
+      await expectPlans("N02 after grace, with no webhook, the paid sibling applies", c, { u1: "starter" });
+      const view = await (await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "entitlements.js")).href)).loadAccountSubscription("u1", c.env);
+      ok("N02 the account view agrees (active starter)", view.status === "active" && view.plan === "starter");
     }
     { // (f) a failed Stripe read is retried, never completed
       const c = setup(); c.truth(sub());
