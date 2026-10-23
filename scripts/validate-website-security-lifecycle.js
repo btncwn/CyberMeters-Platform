@@ -405,6 +405,22 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   eq("E2: an unobserved apex HSTS policy keeps the case open (unknown, not no_longer_observed)", rec.monitoring_status, "unknown");
   eq("E2: ...naming the reason", rec.unknown_reason, "hsts_apex_not_observed");
   ok("E2: ...and writes no recovery event", !allEvents(rec.id).some((e) => e.event_type === WS_EVENT_RESOLVED));
+
+  // R1: a MALFORMED-HSTS case (e.g. max-age=0) under the same apex 429 stays open too.
+  const malformed = { id: "header_malformed_strict_transport_security", module: "headers", severity: "medium", title: "Malformed HSTS Header" };
+  await run("ws9", [malformed], { scan: "e2m1", domainId: "d9", domain: "gamma.example.com" });
+  await run("ws9", [malformed], { scan: "e2m2", domainId: "d9", domain: "gamma.example.com" });
+  await run("ws9", [], { scan: "e2m3", domainId: "d9", domain: "gamma.example.com", modules: notObserved });
+  const mrec = condFor("ws9", "header_malformed_strict_transport_security");
+  eq("E2: an unobserved apex keeps a malformed-HSTS case open (unknown)", mrec.monitoring_status, "unknown");
+  eq("E2: ...naming the reason", mrec.unknown_reason, "hsts_apex_not_observed");
+  ok("E2: ...and writes no recovery event", !allEvents(mrec.id).some((e) => e.event_type === WS_EVENT_RESOLVED));
+  // A genuine fix still clears: the apex answers 200 WITH HSTS and no finding is emitted.
+  const observedOk = { ...MODULES_OK, headers: { ...MODULES_OK.headers,
+    hsts_policy: { ...notObserved.headers.hsts_policy, apex_status: 200, state: "present", value: "max-age=31536000; includeSubDomains", include_subdomains: true, final_covered: true } } };
+  await run("ws9", [], { scan: "e2s4", domainId: "d9", domain: "gamma.example.com", modules: observedOk });
+  eq("E2: apex 200 with HSTS resolves the missing-HSTS case (a genuine fix still clears)", condFor("ws9", "header_missing_strict_transport_security").monitoring_status, "no_longer_observed");
+  eq("E2: ...and the malformed-HSTS case", condFor("ws9", "header_malformed_strict_transport_security").monitoring_status, "no_longer_observed");
 }
 
 // ── 6. Verified recovery, then reappearance ───────────────────────────────
