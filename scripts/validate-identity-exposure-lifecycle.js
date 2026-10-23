@@ -416,5 +416,47 @@ eq("invalid action rejected", (await identityExposureAction(env, "ws1", d1.ident
 ok("list API output is deterministic",
   JSON.stringify(await listIdentityExposure(env, "ws1")) === JSON.stringify(await listIdentityExposure(env, "ws1")));
 
+// ── Workspace-wide claim-kind counts (23 Oct 2026): not bound to a list page ──
+{
+  // This harness's eq is ===; compare objects by their JSON form.
+  const same = (n, a, b) => eq(n, JSON.stringify(a), JSON.stringify(b));
+  const { countIdentityExposureByClaimKind, IDENTITY_CLAIM_COUNT_LIMIT } = il;
+  const cdb = buildDb();
+  const cenv = { cybermeters_db: makeD1(cdb) };
+  const ins = (id, ws, claim, host = "sso.example.com", provider = null) => cdb.prepare(`INSERT INTO identity_exposure
+      (id, workspace_id, domain_id, canonical_identity_key, provider_key, provider_name, surface_type, primary_hostname,
+       source_evidence_json, exposure_status, customer_classification, monitoring_status, first_seen_at, last_seen_at, confidence, created_at, updated_at)
+    VALUES (?,?,'d','k-'||?,'p',?,'login_portal',?,?,'observed','unreviewed','observed',datetime('now'),datetime('now'),'high',datetime('now'),datetime('now'))`)
+    .run(id, ws, id, provider, host, JSON.stringify(claim ? [{ identity_claim: claim }] : []));
+  ins("m1", "wsc", MEASURED_CLAIM);
+  ins("p1", "wsc", { schema_version: "identity_claim.v2", claim_kind: "provider_relationship" }, null, "Okta");
+  ins("p2", "wsc", { schema_version: "identity_claim.v2", claim_kind: "provider_relationship" }, null, "Okta");
+  ins("c1", "wsc", { schema_version: "identity_claim.v2", claim_kind: "surface_candidate" });
+  ins("x1", "wsx", MEASURED_CLAIM);
+  same("claim-kind counts are workspace-wide and per kind",
+    await countIdentityExposureByClaimKind(cenv, "wsc"),
+    { measured_identity_surface: 1, provider_relationship: 2, surface_candidate: 1, complete: true, counted: 4 });
+  eq("another workspace's records are not counted", (await countIdentityExposureByClaimKind(cenv, "wsx")).measured_identity_surface, 1);
+  same("an empty workspace counts zero, complete",
+    await countIdentityExposureByClaimKind(cenv, "wse"), { measured_identity_surface: 0, provider_relationship: 0, surface_candidate: 0, complete: true, counted: 0 });
+  const many = cdb.prepare(`INSERT INTO identity_exposure (id, workspace_id, domain_id, canonical_identity_key, provider_key, surface_type, primary_hostname, source_evidence_json, exposure_status, customer_classification, monitoring_status, first_seen_at, last_seen_at, confidence, created_at, updated_at)
+    VALUES (?, 'wsl', 'd', ?, 'p', 'login_portal', 'h.example.com', '[]', 'observed', 'unreviewed', 'observed', datetime('now'), datetime('now'), 'high', datetime('now'), datetime('now'))`);
+  cdb.exec("BEGIN"); for (let i = 0; i <= IDENTITY_CLAIM_COUNT_LIMIT; i++) many.run(`l${i}`, `k${i}`); cdb.exec("COMMIT");
+  const big = await countIdentityExposureByClaimKind(cenv, "wsl");
+  same("past the bound the counts say incomplete, never a total", [big.complete, big.counted], [false, IDENTITY_CLAIM_COUNT_LIMIT]);
+  const failing = { cybermeters_db: { prepare: () => ({ bind: () => ({ all: async () => { throw new Error("d1 down"); } }) }) } };
+  let threw = false; try { await countIdentityExposureByClaimKind(failing, "wsc"); } catch { threw = true; }
+  ok("a read failure throws (the route turns it into null), never zero counts", threw);
+  // The real route carries it on counts.by_claim_kind.
+  const { identityExposureRoutes } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "identity-exposure.js")).href);
+  cdb.prepare("INSERT OR IGNORE INTO workspaces (id, name, owner_user_id) VALUES ('wsc', 'c', 'u')").run();
+  const url = new URL("https://unit.test/api/workspaces/wsc/identity-surfaces");
+  const res = await identityExposureRoutes({ request: new Request(url), env: cenv, url, json: (b, st = 200) => Response.json(b, { status: st }),
+    requireAuth: async () => ({ id: "u" }), requireWorkspaceRole: async () => ({ role: "owner" }) });
+  const body = await res.json();
+  same("GET identity-surfaces returns workspace-wide counts.by_claim_kind", body.counts?.by_claim_kind,
+    { measured_identity_surface: 1, provider_relationship: 2, surface_candidate: 1, complete: true, counted: 4 });
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

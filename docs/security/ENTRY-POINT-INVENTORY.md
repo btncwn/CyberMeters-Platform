@@ -318,8 +318,8 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `(none)` | 46 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 75 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 88 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 78 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 91 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/identity-public-secrets.js`
 

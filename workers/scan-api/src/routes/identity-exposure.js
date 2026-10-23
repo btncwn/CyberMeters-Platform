@@ -14,7 +14,7 @@
 // managed-record family is deliberately a distinct, non-colliding path.
 import {
   listIdentityExposure, getIdentityExposureRecord, listIdentityExposureEvents,
-  countIdentityExposureByClassification, identityExposureAction,
+  countIdentityExposureByClassification, countIdentityExposureByClaimKind, identityExposureAction,
   IDENTITY_WORKFLOW_ACTIONS, IDENTITY_CLASSIFICATIONS, IDENTITY_OWNERSHIP_STATUSES,
 } from "../engines/identity-lifecycle.js";
 import { SURFACE_TYPES, RISK_STATUSES } from "../engines/identity-policy.js";
@@ -53,6 +53,9 @@ export async function identityExposureRoutes(rctx) {
         limit: parseBoundedInteger(url.searchParams.get("limit"), 100, 1, 500),
       });
       const counts = await countIdentityExposureByClassification(env, wsId);
+      // Workspace-wide, not page-bound; null when it could not be read (the page
+      // then says "Not available", never 0).
+      counts.by_claim_kind = await countIdentityExposureByClaimKind(env, wsId).catch(() => null);
       return json({
         workspace_id: wsId, count: items.length, counts,
         classifications: IDENTITY_CLASSIFICATIONS, ownership_statuses: IDENTITY_OWNERSHIP_STATUSES,
