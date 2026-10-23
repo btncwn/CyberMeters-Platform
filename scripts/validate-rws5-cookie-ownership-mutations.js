@@ -167,6 +167,7 @@ const MUTATIONS = Object.freeze([
       "C-41 Chromium case: style attribute override",
       "C-41 Chromium case: valid hash grammar",
       "C-41 Chromium case: valid nonce",
+      "C-41c: script-src-attr 'unsafe-inline' alone names that directive and the open contexts",
       "CSP 'strict-dynamic' + nonce also neutralises '*' and 'unsafe-inline'",
       "CSP 'unsafe-inline' beside a hash is not a script weakness",
       "CSP 'unsafe-inline' beside a nonce is not a script weakness",

@@ -336,6 +336,19 @@ eq("C-41b: dangerous_directives holds only directives that carry an unsafe token
   JSON.stringify([[], ["inline event handlers", "eval"]]));
 eq("C-41b: the scan finding's evidence names the unrestricted contexts",
   JSON.stringify(cspFinding("script-src-elem 'none'")?.evidence?.strength_unrestricted_contexts), JSON.stringify(["inline event handlers", "eval"]));
+// Codex C-41c: the no-element-directive branch computes the contexts from the
+// chains too; an attribute directive that is present governs handlers.
+eq("C-41c: script-src-attr 'none' alone leaves only script elements and eval open",
+  JSON.stringify([cspClass("script-src-attr 'none'"), headersContract.classifyCspPolicy("script-src-attr 'none'")?.dangerous_directives,
+    headersContract.classifyCspPolicy("script-src-attr 'none'")?.unrestricted_contexts]),
+  JSON.stringify(["no_script_restriction", [], ["script elements", "eval"]]));
+eq("C-41c: script-src-attr 'unsafe-inline' alone names that directive and the open contexts",
+  JSON.stringify([headersContract.classifyCspPolicy("script-src-attr 'unsafe-inline'")?.dangerous_directives,
+    headersContract.classifyCspPolicy("script-src-attr 'unsafe-inline'")?.unrestricted_contexts]),
+  JSON.stringify([["script-src-attr"], ["script elements", "eval"]]));
+eq("C-41c: no script directive at all leaves all three contexts open",
+  JSON.stringify(headersContract.classifyCspPolicy("upgrade-insecure-requests")?.unrestricted_contexts),
+  JSON.stringify(["script elements", "inline event handlers", "eval"]));
 eq("C-41b: elem + attr locked, eval still unrestricted", cspClass("script-src-elem 'none'; script-src-attr 'none'"), "weak_script");
 eq("C-41b control: elem, attr and script-src all locked", cspClass("script-src-elem 'none'; script-src-attr 'none'; script-src 'none'"), "no_admitted_weakness");
 eq("C-41b control: script-src alone governs every script context", cspClass("script-src 'self'"), "no_admitted_weakness");

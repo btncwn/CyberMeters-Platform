@@ -187,10 +187,14 @@ export function classifyCspPolicy(value) {
   // Codex C-41b: a script context with NO governing directive is unrestricted
   // in that context only (e.g. script-src-elem 'none' alone leaves inline event
   // handlers and eval() open). Named per context, never as "all scripts".
+  // Codex C-41c: computed from the three chains everywhere, never hard-coded
+  // (script-src-attr 'none' alone governs handlers; elements and eval stay open).
   const unrestrictedScriptContexts = [
+    !effectiveDirective(["script-src-elem", "script-src", "default-src"]) && "script elements",
     !effectiveDirective(["script-src-attr", "script-src", "default-src"]) && "inline event handlers",
     !effectiveDirective(["script-src", "default-src"]) && "eval",
   ].filter(Boolean);
+  const contextList = unrestrictedScriptContexts.map((c) => c === "eval" ? "eval()" : c).join(" or ");
   const styleDangerEntries = collect([
     // 'unsafe-eval' in a style directive stays a style-only observation, as before.
     { chain: ["style-src-elem", "style-src", "default-src"], relevant: ["'unsafe-inline'", "'unsafe-eval'", "*"] },
@@ -208,9 +212,10 @@ export function classifyCspPolicy(value) {
       parsed: true,
       actionable_weakness: true,
       style_only_weakness: false,
-      dangerous_directives: [],
-      unrestricted_contexts: ["script elements", "inline event handlers", "eval"],
-      details: "CSP is set but has no script-src or default-src, so it does not restrict scripts",
+      dangerous_directives: scriptDanger.map((entry) => entry.directive),
+      unrestricted_contexts: unrestrictedScriptContexts,
+      details: `CSP is set but has no script-src or default-src, so it does not restrict ${contextList}`
+        + (scriptDanger.length ? `; it also allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}` : ""),
     };
   }
 
@@ -225,7 +230,7 @@ export function classifyCspPolicy(value) {
       // directive governs are named separately (Executive R1, 23 Oct 2026).
       dangerous_directives: scriptDanger.map((entry) => entry.directive),
       unrestricted_contexts: unrestrictedScriptContexts,
-      details: `CSP does not restrict ${unrestrictedScriptContexts.map((c) => c === "eval" ? "eval()" : c).join(" or ")} (no directive governs ${unrestrictedScriptContexts.length > 1 ? "them" : "it"})`
+      details: `CSP does not restrict ${contextList} (no directive governs ${unrestrictedScriptContexts.length > 1 ? "them" : "it"})`
         + (scriptDanger.length ? `; it also allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}` : ""),
     };
   }
