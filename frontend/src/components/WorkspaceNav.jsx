@@ -23,7 +23,8 @@ const SERVICE_DEFINITIONS = [
       { label: 'DKIM',                    hash: '#auth-dkim' },
       { label: 'MTA-STS & TLS reporting', hash: '#mta-sts-setup', tab: 'settings' },
       { label: 'Aggregate reports',       hash: '#report-history' },
-      { label: 'Mail transport (DANE)',   hash: '#mail-transport' },
+      // The module checks STARTTLS on each mail server; DANE (TLSA) is not checked, so the label never claims it.
+      { label: 'Mail transport encryption', hash: '#mail-transport' },
     ],
     items: [
       // Configuration lives on the Settings tab of the area template (18 Oct 2026).

@@ -303,7 +303,8 @@ describe('F-47 — server-driven suppression', () => {
     // No empty group scaffolding is left behind either. Queried by ROLE, not by
     // text: "Classification" is also a table header, so a text query would
     // collide with the column heading rather than the action group.
-    expect(screen.queryByRole('group')).toBeNull()
+    // Action groups only (the collapsed Scope & limits is a <details>, also role=group).
+    expect(screen.queryByRole('group', { name: /actions/ })).toBeNull()
   })
 
   it('renders ONLY the actions the server advertised, never the rest', async () => {
@@ -329,7 +330,7 @@ describe('F-47 — server-driven suppression', () => {
     for (const label of ['Onboarding', 'Removal', 'Ownership']) {
       expect(screen.queryByRole('group', { name: new RegExp(`${label} actions`) })).toBeNull()
     }
-    expect(screen.getAllByRole('group')).toHaveLength(1)
+    expect(screen.getAllByRole('group', { name: /actions/ })).toHaveLength(1)
   })
 })
 

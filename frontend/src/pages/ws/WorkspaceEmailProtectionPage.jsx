@@ -6,6 +6,7 @@ import { formatReportDay, formatReportTime } from '../../lib/reportTime'
 export const pageTime = (value) => (value ? `${formatReportTime(value)} UTC` : null)
 import { useAppDialog } from '../../components/AppDialog'
 import { MailTransportCard } from '../../components/MailTransportCard'
+import { dmarcRecordStatus, spfRecordStatus, dkimRecordStatus, mtaStsRecordStatus, tlsRptRecordStatus, mailTransportStatus } from '../../lib/emailRecordStatus'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, RefreshCw, X } from 'lucide-react'
@@ -172,6 +173,54 @@ function statusPill(kind) {
   return map[kind] || map.na
 }
 
+// ── Email Summary (S1-SHELL-V2b, C-38 S19/S21) ─────────────────────────────
+// "What we observed": the four records the founder named, each with the word its
+// record card shows (lib/emailRecordStatus) — not the generic area counts.
+export function emailSummaryFigures(es, totals) {
+  const dmarc = dmarcRecordStatus(es?.dmarc, es?.dmarc_detail)
+  const spf = spfRecordStatus(es?.spf, es?.spf_detail)
+  const dkim = dkimRecordStatus(es?.dkim_detail)
+  const reports = totals?.reports == null ? null : Number(totals.reports)
+  const reportValue = reports == null ? 'Not available' : reports > 0 ? `${reports} report${reports === 1 ? '' : 's'} received` : 'Waiting for first report'
+  return [
+    { key: 'dmarc', label: 'DMARC policy', value: dmarc.label, explanation: 'The published policy, as read from DNS' },
+    { key: 'spf', label: 'SPF', value: spf.label, explanation: 'The sender record, as read from DNS' },
+    { key: 'dkim', label: 'DKIM', value: dkim.label, explanation: 'Common selectors only; a non-match is informational' },
+    { key: 'rua', label: 'Aggregate reports', value: reportValue, explanation: reports == null ? 'Report history could not be read' : 'DMARC reports received for this domain' },
+  ]
+}
+
+const SIGNAL_PILL = { good: 'bg-brand-50 text-brand-800 border-brand-200', warn: 'bg-amber-50 text-amber-800 border-amber-200', bad: 'bg-red-50 text-red-700 border-red-200', info: 'bg-blue-50 text-blue-800 border-blue-200', na: 'bg-gray-50 text-gray-700 border-gray-200' }
+// "Evidence by signal": each check reported on its own, with the same word as
+// its record card; a check that did not run says so and is never shown clean.
+function EmailSignalEvidence({ es, transport }) {
+  const rows = [
+    ['DMARC record', dmarcRecordStatus(es?.dmarc, es?.dmarc_detail)],
+    ['SPF record', spfRecordStatus(es?.spf, es?.spf_detail)],
+    ['DKIM selectors', dkimRecordStatus(es?.dkim_detail)],
+    ['MTA-STS policy', mtaStsRecordStatus(es?.mta_sts_detail)],
+    ['TLS reporting', tlsRptRecordStatus(es?.tls_rpt_detail)],
+    ['Mail transport encryption', mailTransportStatus(transport)],
+  ]
+  return (
+    <section className="card p-5" aria-labelledby="email-signals-heading" data-testid="email-signal-evidence">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="email-signals-heading" className="cm-decision-heading">Evidence by signal</h2>
+        <p className="text-sm text-gray-600">Each check is reported on its own; a check that did not run is never shown as clean.</p>
+      </div>
+      <ul className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+        {rows.map(([name, st]) => (
+          <li key={name} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <span className="text-gray-800">{name}</span>
+            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-sm font-semibold ${SIGNAL_PILL[st.kind] || SIGNAL_PILL.na}`}>{st.label}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-sm text-gray-600">Mail transport encryption is STARTTLS on each tested mail server; DANE (TLSA records) is not checked by CyberMeters.</p>
+    </section>
+  )
+}
+
 // Before any email data exists, each sidebar topic still lands on its own named
 // section, saying honestly that nothing has been read yet (C-38 S26/S29).
 const PENDING_TOPICS = [
@@ -179,7 +228,7 @@ const PENDING_TOPICS = [
   ['auth-spf', 'SPF'],
   ['auth-dkim', 'DKIM'],
   ['report-history', 'Aggregate reports'],
-  ['mail-transport', 'Mail transport (DANE)'],
+  ['mail-transport', 'Mail transport encryption'],
 ]
 function EmailTopicsPending() {
   return (
@@ -251,8 +300,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
   if (!detail && !spf) return <AuthCard title="SPF" status="No data" statusKind="na"><NaNote /></AuthCard>
   const present = spf?.present ?? Boolean(detail?.raw)
   const valid = detail?.valid
-  const status = !present ? 'Not found' : valid ? 'Published' : 'Issues found'
-  const kind = !present ? 'bad' : valid ? 'good' : 'warn'
+  const { label: status, kind } = spfRecordStatus(spf, detail)
 
   async function analyseChain() {
     setChain('loading')
@@ -345,8 +393,7 @@ function DmarcCard({ dmarc, detail }) {
   if (!detail && !dmarc) return <AuthCard title="DMARC" status="No data" statusKind="na"><NaNote /></AuthCard>
   const present = dmarc?.present ?? Boolean(detail?.raw)
   const policy = detail?.policy || dmarc?.policy
-  const status = !present ? 'Not found' : detail?.valid === false ? 'Invalid' : (policy ? `p=${policy}` : 'Published')
-  const kind = !present ? 'bad' : detail?.valid === false ? 'warn' : policy === 'reject' ? 'good' : policy === 'none' ? 'warn' : 'info'
+  const { label: status, kind } = dmarcRecordStatus(dmarc, detail)
   const align = (m) => (m === 's' ? 'Strict' : m === 'r' ? 'Relaxed' : m || '—')
   return (
     <AuthCard title="DMARC" status={status} statusKind={kind}>
@@ -365,8 +412,7 @@ function DmarcCard({ dmarc, detail }) {
 
 function DkimCard({ detail }) {
   const status = detail?.status
-  const label = status === 'detected' ? 'Detected' : status === 'uncertain' ? 'Uncertain' : status === 'not_detected' ? 'Not verified' : 'No data'
-  const kind = status === 'detected' ? 'good' : status === 'uncertain' ? 'warn' : 'na'
+  const { label, kind } = dkimRecordStatus(detail)
   return (
     <AuthCard title="DKIM" status={label} statusKind={kind}>
       {detail?.selector && <KV k="Selector" v={detail.selector} mono />}
@@ -408,9 +454,9 @@ function BimiCard({ readiness }) {
 function MtaStsCard({ detail }) {
   if (!detail) return <AuthCard title="MTA-STS" status="Not available" statusKind="na">
     <NaNote text="MTA-STS transport details were not returned for this scan." /></AuthCard>
-  const enforced = detail.policy_found && detail.mode === 'enforce'
+  const mtaSts = mtaStsRecordStatus(detail)
   return (
-    <AuthCard title="MTA-STS" status={detail.policy_found ? (detail.mode || 'Found') : 'No policy'} statusKind={enforced ? 'good' : detail.policy_found ? 'warn' : 'na'}>
+    <AuthCard title="MTA-STS" status={mtaSts.label} statusKind={mtaSts.kind}>
       <KV k="Policy file" v={detail.policy_found ? 'Confirmed' : 'Not confirmed'} />
       <KV k="Mode" v={<span className="capitalize">{detail.mode || 'unknown'}</span>} />
       <Warnings items={detail.warnings} />
@@ -422,7 +468,7 @@ function TlsRptCard({ detail }) {
   if (!detail) return <AuthCard title="TLS-RPT" status="Not available" statusKind="na">
     <NaNote text="TLS-RPT details were not returned for this scan." /></AuthCard>
   return (
-    <AuthCard title="TLS-RPT" status={detail.record_found ? 'Found' : 'Not found'} statusKind={detail.record_found ? 'good' : 'na'}>
+    <AuthCard title="TLS-RPT" status={tlsRptRecordStatus(detail).label} statusKind={tlsRptRecordStatus(detail).kind}>
       <KV k="Record" v={detail.record_found ? 'Published' : 'None'} />
       {detail.rua?.length > 0 && <KV k="Reporting (rua)" v={detail.rua.join(', ')} mono />}
       <Warnings items={detail.warnings} />
@@ -3712,6 +3758,18 @@ export default function WorkspaceEmailProtectionPage() {
     }
   }
 
+  // Aggregate reports for the Summary figure: the DMARC report history totals
+  // (null while unknown or unreadable — never shown as zero).
+  const [reportTotals, setReportTotals] = useState(null)
+  useEffect(() => {
+    if (!wsId || !selectedDomain) { setReportTotals(null); return undefined }
+    let alive = true
+    setReportTotals(null)
+    Promise.resolve().then(() => api.getDmarcReportHistory(wsId, selectedDomain, 1))
+      .then((h) => { if (alive) setReportTotals(h?.totals || null) })
+      .catch(() => { if (alive) setReportTotals(null) })
+    return () => { alive = false }
+  }, [wsId, selectedDomain])
   if (!wsId) return <NoWorkspaceSelected />
 
   const es = report?.modules?.email_security || null
@@ -3821,6 +3879,7 @@ export default function WorkspaceEmailProtectionPage() {
         // Founder-approved copy (S1-SHELL-V2, 22 Oct 2026).
         description={`Checks the published policies used to authenticate email from ${selectedDomain || 'your domains'} — SPF, DKIM, DMARC, MTA-STS and TLS reporting — as read from your DNS.`}
         actions={headerActions}
+        figures={es && !moduleErrored && !notApplicable ? emailSummaryFigures(es, reportTotals) : null}
         nextAction={domainScans.length === 0 ? {
           title: 'Run a scan to start email protection',
           body: 'This page fills after a scan of a domain in this workspace: DMARC, SPF, DKIM and BIMI guidance.',
@@ -3855,6 +3914,7 @@ export default function WorkspaceEmailProtectionPage() {
                   setup wizard and report import are configuration (Settings tab); the
                   journey, senders, sender validation, report history and records are
                   their own sections on Findings. */}
+              <EmailSignalEvidence es={es} transport={report?.modules?.mail_transport} />
               <BecExposure wsId={wsId} domain={selectedDomain} />
             </>
           )
