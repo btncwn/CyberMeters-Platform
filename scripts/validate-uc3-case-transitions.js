@@ -201,6 +201,23 @@ ok("case load is workspace-scoped (tenant isolation preserved)",
     ok('a malformed expected_status is a 400',(await call('POST',base+'/'+id+'/transition','synthetic-flow-session',{target_status:'false_positive',expected_status:7})).status===400&&events()===before);
     const fresh=await call('POST',base+'/'+id+'/transition','synthetic-flow-session',{target_status:'false_positive',expected_status:'triaged',reason:'synthetic fixture'});
     ok('a matching expected_status transitions normally',fresh.status===200&&db.prepare('SELECT status FROM managed_cases WHERE id=?').get(id).status==='false_positive'&&events()===before+1);
+
+    // A CE case in a two-domain workspace reads 'not assessed since <date>' on
+    // the real list and detail routes (23 Oct 2026).
+    for (const [d,name] of [['flow-d1','one.example.com'],['flow-d2','two.example.com']]) {
+      db.prepare("INSERT INTO domains (id,user_id,domain,created_at) VALUES (?,'flow-owner',?,datetime('now'))").run(d,name);
+      db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id,verification_status) VALUES ('flow-ws',?,'verified')").run(d);
+    }
+    db.prepare(`INSERT INTO cyber_essentials_control_records (id,workspace_id,control_key,control_label,external_coverage,readiness_state,readiness_reason,evidence_json,unknown_json,last_scan_id,last_assessed_at,first_seen_at,last_seen_at,last_changed_at,monitoring_status,lifecycle_state,created_at,updated_at,evaluated_at)
+      VALUES ('cec-flow','flow-ws','secure_configuration','Secure Configuration','partial','not_ready','external_evidence_shows_gaps','[]','[]','scan_x','2026-10-22 11:16:52',datetime('now'),datetime('now'),datetime('now'),'observed','observed',datetime('now'),datetime('now'),datetime('now'))`).run();
+    db.prepare(`INSERT INTO managed_cases (id,workspace_id,case_type,domain_key,finding_id,asset_ref,severity,status,remediation_id,title,summary,created_at,updated_at)
+      VALUES ('mc-ce-flow','flow-ws','cyber_essentials_case','cyber_essentials_readiness','cec-flow','secure_configuration','medium','detected','ce.readiness.control_review','CE case','CE case',datetime('now'),datetime('now'))`).run();
+    const note='Not assessed since 22 Oct 2026 — Cyber Essentials readiness is evaluated for single-domain workspaces only.';
+    const listed=(await call('GET',base,'synthetic-flow-session')).data?.cases?.find(c=>c.case_id==='mc-ce-flow');
+    ok('the case list carries the not-assessed note for a contained CE case',listed?.assessment?.state==='not_assessed'&&listed?.assessment?.message===note);
+    const detail=(await call('GET',base+'/mc-ce-flow','synthetic-flow-session')).data?.case;
+    ok('the case detail carries the same note, and the status is unchanged',detail?.assessment?.message===note&&detail?.status==='detected');
+    ok('a website case carries no assessment note',!('assessment' in ((await call('GET',base+'/'+id,'synthetic-flow-session')).data?.case||{})));
   } finally { db.close(); }
 }
 

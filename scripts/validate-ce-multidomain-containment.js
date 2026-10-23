@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
 const eng = (f) => pathToFileURL(src("engines", f)).href;
-const EXPECTED_ASSERTIONS = 26;
+const EXPECTED_ASSERTIONS = 28;
 const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
 // RESCUE SUCCESSION: the semantic inventory remains unchanged at 27 consumers;
 // no CE consumer was added, removed or reclassified. Exact source anchors still
@@ -596,6 +596,35 @@ const tests = [
     const db = buildDb(); seedWorkspace(db, "wsA", [{ id: "a" }]); seedWorkspace(db, "wsB", [{ id: "b" }]); const foreignId = seedRecord(db, { id: "foreign-ready", ws: "wsB", state: "ready" });
     const { env } = envFor(db); const item = await getCeControlRecord(env, "wsA", foreignId);
     return { ok: item === null, detail: JSON.stringify(item) };
+  }],
+  // 23 Oct 2026: an open CE case in a contained workspace says it is not assessed, with the date.
+  ["contained workspace: the CE case says not assessed since its last assessment", async () => {
+    const db = buildDb(); seedWorkspace(db, "wsM", [{ id: "m1" }, { id: "m2" }]);
+    const recordId = seedRecord(db, { id: "cec-m", ws: "wsM", state: "not_ready" });
+    db.prepare("UPDATE cyber_essentials_control_records SET last_assessed_at='2026-10-22 11:16:52' WHERE id=?").run(recordId);
+    const caseId = seedCase(db, { id: "case-m", ws: "wsM", recordId, status: "detected" });
+    const { env } = envFor(db);
+    const casesMod = await import(pathToFileURL(src("routes", "managed-cases.js")).href);
+    const row = db.prepare("SELECT * FROM managed_cases WHERE id=?").get(caseId);
+    const a = await casesMod.ceCaseAssessment(env, "wsM", row);
+    const before = durableState(db, "wsM");
+    const again = await casesMod.ceCaseAssessment(env, "wsM", row);
+    return {
+      ok: a?.state === "not_assessed" && a?.reason === "workspace_multi_domain_not_aggregatable" && a?.since === "2026-10-22 11:16:52"
+        && a?.message === "Not assessed since 22 Oct 2026 — Cyber Essentials readiness is evaluated for single-domain workspaces only."
+        && JSON.stringify(again) === JSON.stringify(a) && JSON.stringify(durableState(db, "wsM")) === JSON.stringify(before),
+      detail: JSON.stringify(a),
+    };
+  }],
+  ["single-domain workspace: the CE case carries no not-assessed note", async () => {
+    const db = buildDb(); seedWorkspace(db, "wsS", [{ id: "s1" }]);
+    const recordId = seedRecord(db, { id: "cec-s", ws: "wsS", state: "not_ready" });
+    const caseId = seedCase(db, { id: "case-s", ws: "wsS", recordId, status: "detected" });
+    const { env } = envFor(db);
+    const casesMod = await import(pathToFileURL(src("routes", "managed-cases.js")).href);
+    const a = await casesMod.ceCaseAssessment(env, "wsS", db.prepare("SELECT * FROM managed_cases WHERE id=?").get(caseId));
+    const foreign = await casesMod.ceCaseAssessment(env, "wsS", { case_type: "cyber_essentials_case", finding_id: "cec-m" });
+    return { ok: a === null && foreign === null, detail: JSON.stringify({ a, foreign }) };
   }],
   ["frontend neutral not-assessed fixture rejects green zero gaps", async () => runUi("CE-NOT-ASSESSED-GREEN-ZERO-GAPS")],
   ["frontend contained control cards hide current and recorded ready claims", async () => runUi("contained live and durable control cards")],
