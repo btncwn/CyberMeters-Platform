@@ -38,6 +38,7 @@ import { customerEvidenceText } from '../../lib/evidenceStrengthDisplay'
 import { ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL } from '../../lib/caseDisplay'
 import { moduleForDomainKey, moduleTheme, guidePathForDomainKey, casesPathForDomainKey } from '../../lib/moduleRegistry'
 import { domainStatus, caseStatus, summariseCases } from '../../lib/statusVocabulary'
+import { caseChipStatus, caseAssessmentMessage } from '../../lib/caseAssessment'
 import StatusChip from '../StatusChip'
 import { requestDomainStates, requestManagedCases, domainsRequestState } from '../overview/SecurityOverview'
 import { subpagesForDomainKey } from '../WorkspaceNav'
@@ -513,8 +514,9 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
                   <div className="min-w-0">
                     <Link to={`/ws/cases/${encodeURIComponent(c.case_id || c.id)}`} className="block text-sm font-semibold text-gray-900 hover:text-brand-800 wrap-break-word">{c.display_title || c.title || 'Case'}</Link>
                     {c.domain && <p className="text-xs text-gray-500 truncate">{c.domain}</p>}
+                    {caseAssessmentMessage(c) && <p className="text-xs text-gray-600 mt-0.5" data-testid="case-assessment">{caseAssessmentMessage(c)}</p>}
                   </div>
-                  <StatusChip status={caseStatus(c)} className="shrink-0" />
+                  <StatusChip status={caseChipStatus(c)} className="shrink-0" />
                 </li>
               ))}
             </ul>
