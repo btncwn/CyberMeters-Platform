@@ -23,6 +23,7 @@ const ERROR_TEXT = {
   active_check_authority_required: 'Confirm the authority statement before authorising.',
   signer_name_and_title_required: 'Enter your name and your title.',
   invalid_active_checks: 'Choose at least one check.',
+  active_check_not_available: 'A chosen check is not available yet, so it cannot be authorised. Untick it and try again.',
   invalid_active_check_hosts: `Each host must be the domain itself or a name under it, up to ${MAX_HOSTS} hosts.`,
   consent_already_revoked: 'This permission was already revoked.',
   invalid_revocation_reason: 'The reason can be up to 240 characters.',
@@ -157,7 +158,8 @@ export default function ActiveCheckPermissionsPage() {
       await api.grantActiveCheckConsent(requested, {
         domain_id: domain.domain_id,
         hosts,
-        checks: form.checks,
+        // Never send a check the catalogue does not mark available (#929 refuses it anyway).
+        checks: form.checks.filter((id) => catalogue.find((c) => c.id === id)?.available === true),
         signer_name: form.signer_name.trim(),
         signer_title: form.signer_title.trim(),
         authority_confirmed: true,
@@ -251,12 +253,22 @@ export default function ActiveCheckPermissionsPage() {
                 <legend className="font-medium text-gray-800">Checks</legend>
                 <p className="text-xs text-gray-500 mt-0.5">None are selected for you. A permission covers only the checks you tick, never checks added later.</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {catalogue.map((c) => (
-                    <label key={c.id} className="flex items-start gap-2 rounded-lg border border-gray-200 p-3">
-                      <input type="checkbox" className="mt-0.5" checked={form.checks.includes(c.id)} onChange={() => toggleCheck(c.id)} disabled={busy} />
-                      <span>{c.label}</span>
-                    </label>
-                  ))}
+                  {catalogue.map((c) => {
+                    // The catalogue says whether a released engine runs the check today
+                    // (#929). Only `available: true` is offered — an offer never comes
+                    // from an absent field (Executive 14:40, as the backend's === true).
+                    const unavailable = c.available !== true
+                    return (
+                      <label key={c.id} className={`flex items-start gap-2 rounded-lg border p-3 ${unavailable ? 'border-gray-100 bg-gray-50 text-gray-500' : 'border-gray-200'}`} data-testid={`active-check-${c.id}`}>
+                        <input type="checkbox" className="mt-0.5" checked={!unavailable && form.checks.includes(c.id)} onChange={() => toggleCheck(c.id)} disabled={busy || unavailable}
+                          aria-describedby={unavailable ? `active-check-${c.id}-na` : undefined} />
+                        <span>
+                          {c.label}
+                          {unavailable && <span id={`active-check-${c.id}-na`} className="block text-xs text-gray-600 mt-0.5">Not available yet — CyberMeters does not run this check today, so it cannot be authorised.</span>}
+                        </span>
+                      </label>
+                    )
+                  })}
                 </div>
               </fieldset>
 

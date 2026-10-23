@@ -17,8 +17,9 @@ vi.mock('../../../components/AppDialog', () => ({ useAppDialog: () => ({ prompt 
 
 const AUTHORITY = { version: 'active-checks-2026-10-22', text: 'I confirm that I am authorised by the organisation that owns this domain to permit CyberMeters to run the active checks listed here.' }
 const CATALOGUE = [
-  { id: 'tls_intrusive_heartbleed', label: 'TLS Heartbleed test' },
-  { id: 'mail_open_relay', label: 'Open mail relay (no message is delivered)' },
+  // #929: only `available: true` is offered (an absent field is not an offer).
+  { id: 'tls_intrusive_heartbleed', label: 'TLS Heartbleed test', available: true },
+  { id: 'mail_open_relay', label: 'Open mail relay (no message is delivered)', available: true },
 ]
 const grant = (over = {}) => ({
   id: 'acc_1', domain: 'blackbullbarbers.co.uk', hosts: ['mail.blackbullbarbers.co.uk'], checks: ['mail_open_relay'],
