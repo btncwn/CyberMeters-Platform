@@ -88,6 +88,7 @@ const SERVICE_DEFINITIONS = [
     subtopics: [
       { label: 'Provider relationships',    to: '/ws/identity-assets#identity-providers' },
       { label: 'Identity-facing hostnames', to: '/ws/identity-assets#identity-hostnames' },
+      { label: 'Measured endpoints',        hash: '#identity-measured-endpoints' },
     ],
     items: [
       { to: '/ws/identity-assets', label: 'People & evidence', desc: 'Accounts and identity evidence' },
