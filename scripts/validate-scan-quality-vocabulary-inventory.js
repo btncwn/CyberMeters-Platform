@@ -479,7 +479,10 @@ const EXPECTED = Object.freeze({
   // those two snippets (scans.js list, workspaces-core.js domains) and shifts the
   // scans.js detail projection 981 -> 989; the same 24 projections remain and
   // scan_quality is read exactly as before.
-  sql_reads: { projection_occurrences: 24, fingerprint: "72c71271192346bc5de16f586a7925da76abdf8258a865e44d8fcb397a52f80e" },
+  // takeover_risks -> high_risk_assets (23 Oct 2026): comment lines shift
+  // attack-surface.js projection sites; the two-tree diff is identical ignoring
+  // position (24 projections, same snippets).
+  sql_reads: { projection_occurrences: 24, fingerprint: "6e7db7480d48123df76aa343b17e77cf0494262f02bc1ecebe9a0bc630822697" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
