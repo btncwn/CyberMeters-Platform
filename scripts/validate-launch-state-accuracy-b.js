@@ -636,7 +636,7 @@ for (const [name, partial] of [
     `website_trust=${websiteTrust(true)}`);
   check("CM-P1-013 missing HSTS without an observed redirect deducts 20", websiteTrust(false) === 80,
     `website_trust=${websiteTrust(false)}`);
-  check("BRI methodology stamp is current (2026-10-21.2)", BUSINESS_RISK_METHODOLOGY_VERSION === "2026-10-21.2");
+  check("BRI methodology stamp is current (2026-10-23.1)", BUSINESS_RISK_METHODOLOGY_VERSION === "2026-10-23.1");
 
   // Attack Surface reads confirmed exposure findings (21 Oct 2026). With three or
   // more reachable hosts the reachable-host deduction is capped, so before this a

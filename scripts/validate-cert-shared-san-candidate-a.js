@@ -693,8 +693,13 @@ const parity = states.map(parityOutputs);
 // header finding, so only the stamped resolver version moves. With ONLY
 // SECURITY_CHECK_RESOLVER_VERSION reverted to 2026-10-18.2 the previous hashes
 // (c4382a25… / 2f7b557f…) reproduce exactly.
-const GOLDEN_F13 = "893866a0f7ddcc17e95b3a8cd8ea3163f9e2b2e1d7dc3ad0913953c8feefef84";
-const GOLDEN_F14 = "b2147cf36bebcbb8bff6d7df27de141ac6bf9f0841be50ba007946e21aed6fc5";
+// BRI methodology 2026-10-23.1 (23 Oct 2026): a CSP 'unsafe-inline' beside a
+// nonce/hash no longer counts as csp_weak_policy. This certificate-only fixture
+// has no CSP finding, so only the stamped BRI version moves. With ONLY
+// BUSINESS_RISK_METHODOLOGY_VERSION reverted to 2026-10-21.2 the previous hashes
+// (893866a0… / b2147cf3…) reproduce exactly.
+const GOLDEN_F13 = "24dc14cc552eb314fcd9da4c49a4d4a7dab593f5355887f82cc115099902e89f";
+const GOLDEN_F14 = "87194812c7a7f13a8c85af6b70baeabe7a32acccad3eb4aea0a9a920c061d261";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

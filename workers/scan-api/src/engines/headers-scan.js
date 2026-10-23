@@ -107,6 +107,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: false,
       style_only_weakness: false,
       dangerous_directives: [],
+      unrestricted_contexts: [],
       details: "CSP present but value is empty",
     };
   }
@@ -124,6 +125,7 @@ export function classifyCspPolicy(value) {
         actionable_weakness: false,
         style_only_weakness: false,
         dangerous_directives: [],
+        unrestricted_contexts: [],
         details: `CSP directive "${name}" is malformed`,
       };
     }
@@ -139,22 +141,67 @@ export function classifyCspPolicy(value) {
       actionable_weakness: false,
       style_only_weakness: false,
       dangerous_directives: [],
+      unrestricted_contexts: [],
       details: "CSP contains no parseable directives",
     };
   }
 
   const dangerous = new Set(["'unsafe-inline'", "'unsafe-eval'", "*"]);
-  const dangerousTokens = (directive) =>
-    (directives.get(directive) || []).filter((token) => dangerous.has(token));
-  const scriptDanger = ["script-src", "default-src"]
-    .map((directive) => ({ directive, tokens: dangerousTokens(directive) }))
-    .filter((entry) => entry.tokens.length > 0);
-  const styleDanger = dangerousTokens("style-src");
+  // Item 15 fix C (23 Oct 2026; Codex C-41, checked in Chromium), CSP Level 3:
+  //  - each context reads its effective directive (§6.8.2-6.8.3): script
+  //    elements script-src-elem -> script-src -> default-src, event-handler
+  //    attributes script-src-attr -> script-src -> default-src, eval
+  //    script-src -> default-src; styles likewise with style-src-elem /
+  //    style-src-attr -> style-src -> default-src;
+  //  - in that directive 'unsafe-inline' is ignored beside a grammar-valid
+  //    nonce or hash (§2.3.1; a bare prefix is not one) or, for scripts only,
+  //    'strict-dynamic' (§6.7.3.2), which also ignores '*' for scripts;
+  //  - 'unsafe-eval' is never neutralised.
+  const NONCE_OR_HASH = /^'(nonce|sha256|sha384|sha512)-[a-z0-9+/_-]+={0,2}'$/;
+  const effectiveDirective = (chain) => chain.find((name) => directives.has(name)) || null;
+  const dangerousIn = (directive, relevant, { script }) => {
+    if (!directive) return [];
+    const tokens = directives.get(directive) || [];
+    const nonceOrHash = tokens.some((token) => NONCE_OR_HASH.test(token));
+    const strictDynamic = script && tokens.includes("'strict-dynamic'");
+    return [...new Set(tokens.filter((token) => dangerous.has(token) && relevant.includes(token)
+      && !((nonceOrHash || strictDynamic) && token === "'unsafe-inline'")
+      && !(strictDynamic && token === "*")))];
+  };
+  const collect = (contexts, opts) => {
+    const byDirective = new Map();
+    for (const { chain, relevant } of contexts) {
+      const directive = effectiveDirective(chain);
+      for (const token of dangerousIn(directive, relevant, opts)) {
+        if (!byDirective.has(directive)) byDirective.set(directive, []);
+        if (!byDirective.get(directive).includes(token)) byDirective.get(directive).push(token);
+      }
+    }
+    return [...byDirective].map(([directive, tokens]) => ({ directive, tokens }));
+  };
+  const scriptDanger = collect([
+    { chain: ["script-src-elem", "script-src", "default-src"], relevant: ["'unsafe-inline'", "*"] },
+    { chain: ["script-src-attr", "script-src", "default-src"], relevant: ["'unsafe-inline'"] },
+    { chain: ["script-src", "default-src"], relevant: ["'unsafe-eval'"] },
+  ], { script: true });
+  // Codex C-41b: a script context with NO governing directive is unrestricted
+  // in that context only (e.g. script-src-elem 'none' alone leaves inline event
+  // handlers and eval() open). Named per context, never as "all scripts".
+  const unrestrictedScriptContexts = [
+    !effectiveDirective(["script-src-attr", "script-src", "default-src"]) && "inline event handlers",
+    !effectiveDirective(["script-src", "default-src"]) && "eval",
+  ].filter(Boolean);
+  const styleDangerEntries = collect([
+    // 'unsafe-eval' in a style directive stays a style-only observation, as before.
+    { chain: ["style-src-elem", "style-src", "default-src"], relevant: ["'unsafe-inline'", "'unsafe-eval'", "*"] },
+    { chain: ["style-src-attr", "style-src", "default-src"], relevant: ["'unsafe-inline'"] },
+  ], { script: false });
+  const styleDanger = [...new Set(styleDangerEntries.flatMap((entry) => entry.tokens))];
 
   // A policy with neither script-src nor default-src lets the page load any
   // script (e.g. a CSP of only upgrade-insecure-requests): set, but it does
   // nothing against injected scripts, so it is never a pass (20 Oct 2026).
-  if (!directives.has("script-src") && !directives.has("default-src")) {
+  if (!effectiveDirective(["script-src-elem", "script-src", "default-src"])) {
     return {
       status: "weak",
       classification: "no_script_restriction",
@@ -162,10 +209,26 @@ export function classifyCspPolicy(value) {
       actionable_weakness: true,
       style_only_weakness: false,
       dangerous_directives: [],
+      unrestricted_contexts: ["script elements", "inline event handlers", "eval"],
       details: "CSP is set but has no script-src or default-src, so it does not restrict scripts",
     };
   }
 
+  if (unrestrictedScriptContexts.length > 0) {
+    return {
+      status: "weak",
+      classification: "weak_script",
+      parsed: true,
+      actionable_weakness: true,
+      style_only_weakness: false,
+      // Only directives that actually carry an unsafe token; the contexts no
+      // directive governs are named separately (Executive R1, 23 Oct 2026).
+      dangerous_directives: scriptDanger.map((entry) => entry.directive),
+      unrestricted_contexts: unrestrictedScriptContexts,
+      details: `CSP does not restrict ${unrestrictedScriptContexts.map((c) => c === "eval" ? "eval()" : c).join(" or ")} (no directive governs ${unrestrictedScriptContexts.length > 1 ? "them" : "it"})`
+        + (scriptDanger.length ? `; it also allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}` : ""),
+    };
+  }
   if (scriptDanger.length > 0) {
     const dangerousDirectives = scriptDanger.map((entry) => entry.directive);
     return {
@@ -175,6 +238,7 @@ export function classifyCspPolicy(value) {
       actionable_weakness: true,
       style_only_weakness: false,
       dangerous_directives: dangerousDirectives,
+      unrestricted_contexts: [],
       details: `CSP allows ${scriptDanger.map(({ directive, tokens }) => `${tokens.join(" and ")} in ${directive}`).join("; ")}`,
     };
   }
@@ -185,8 +249,11 @@ export function classifyCspPolicy(value) {
       parsed: true,
       actionable_weakness: false,
       style_only_weakness: true,
-      dangerous_directives: ["style-src"],
-      details: `CSP allows ${styleDanger.join(" and ")} in style-src only`,
+      dangerous_directives: styleDangerEntries.map((entry) => entry.directive),
+      unrestricted_contexts: [],
+      details: styleDangerEntries.every((entry) => entry.directive === "style-src")
+        ? `CSP allows ${styleDanger.join(" and ")} in style-src only`
+        : `CSP allows ${styleDanger.join(" and ")} in ${styleDangerEntries.map((entry) => entry.directive).join(" and ")} (styles only)`,
     };
   }
   return {
@@ -196,6 +263,7 @@ export function classifyCspPolicy(value) {
     actionable_weakness: false,
     style_only_weakness: false,
     dangerous_directives: [],
+    unrestricted_contexts: [],
     details: "CSP present with no dangerous script-src or default-src token detected",
   };
 }

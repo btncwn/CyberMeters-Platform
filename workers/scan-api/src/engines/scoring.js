@@ -653,6 +653,7 @@ export function computeScore(modules, domain) {
               expected_value:              "default-src 'self'; no unsafe-inline or wildcard source",
               strength_classification:     csp.classification,
               strength_details:            csp.details,
+              strength_unrestricted_contexts: csp.unrestricted_contexts || [],
               source:                      "cloudflare_workers_fetch",
               checked_at:                  evidenceTime,
               manual_verification_command: `curl -sI https://${domain} | grep -i content-security-policy`,

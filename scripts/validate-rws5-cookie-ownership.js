@@ -284,6 +284,65 @@ eq("CSP uncertain response admits no weak-policy result", cspFinding("script-src
 eq("CSP non-200 response admits no weak-policy result", cspFinding("script-src 'unsafe-inline'", { status: 503 }), undefined);
 eq("shared CSP classifier identifies style-only weakness",
   headersContract.classifyCspPolicy("script-src 'self'; style-src 'unsafe-inline'")?.classification, "weak_style_only");
+// Item 15 fix C (23 Oct 2026), CSP Level 3 effective policy. Corpus shapes:
+// 'unsafe-inline' beside a nonce (and with 'strict-dynamic') is ignored by the
+// browser, so it is not a script weakness; 'unsafe-eval' never is neutralised.
+const cspClass = (policy) => headersContract.classifyCspPolicy(policy)?.classification;
+eq("CSP 'unsafe-inline' beside a nonce is not a script weakness",
+  cspClass("script-src 'report-sample' 'nonce-edco' 'unsafe-inline'; object-src 'none'; base-uri 'self'"), "no_admitted_weakness");
+eq("CSP 'unsafe-inline' beside a hash is not a script weakness",
+  cspClass("script-src 'sha256-abc=' 'unsafe-inline' 'self'"), "no_admitted_weakness");
+eq("CSP 'strict-dynamic' + nonce also neutralises '*' and 'unsafe-inline'",
+  cspClass("script-src 'strict-dynamic' 'nonce-x' 'unsafe-inline' 'self' https: *"), "no_admitted_weakness");
+eq("CSP 'unsafe-eval' beside a nonce is still a script weakness",
+  cspClass("script-src 'nonce-x' 'unsafe-eval'"), "weak_script");
+eq("CSP 'unsafe-inline' without a nonce or hash is still a script weakness",
+  cspClass("script-src 'self' 'unsafe-inline'"), "weak_script");
+eq("CSP default-src is only the script fallback: a strict script-src governs scripts",
+  cspClass("default-src 'unsafe-inline'; script-src 'self'"), "weak_style_only");
+eq("CSP default-src governs scripts when script-src is absent",
+  cspClass("default-src 'self' 'unsafe-inline'"), "weak_script");
+// Codex C-41 (23 Oct 2026): 18 policies applied by real headless Chromium to
+// synthetic pages; the expected class is what the browser actually executed
+// (inline script, event handler, arbitrary external script, eval) or applied
+// (arbitrary stylesheet / style attribute).
+for (const [name, policy, expected] of [
+  ["valid nonce", "script-src 'nonce-YWJj' 'unsafe-inline'", "no_admitted_weakness"],
+  ["valid hash grammar", "script-src 'sha256-YWJj' 'unsafe-inline'", "no_admitted_weakness"],
+  ["empty nonce", "script-src 'nonce-' 'unsafe-inline'", "weak_script"],
+  ["invalid nonce alphabet", "script-src 'nonce-abc!' 'unsafe-inline'", "weak_script"],
+  ["unclosed nonce", "script-src 'nonce-abc 'unsafe-inline'", "weak_script"],
+  ["empty hash", "script-src 'sha256-' 'unsafe-inline'", "weak_script"],
+  ["strict dynamic nonce star", "script-src 'nonce-YWJj' 'strict-dynamic' 'unsafe-inline' *", "no_admitted_weakness"],
+  ["strict dynamic no nonce", "script-src 'strict-dynamic' 'unsafe-inline' *", "no_admitted_weakness"],
+  ["nonce wildcard without strict dynamic", "script-src 'nonce-YWJj' 'unsafe-inline' *", "weak_script"],
+  ["nonce unsafe eval", "script-src 'nonce-YWJj' 'unsafe-inline' 'unsafe-eval'", "weak_script"],
+  ["style strict dynamic star", "script-src 'nonce-YWJj'; style-src 'nonce-YWJj' 'strict-dynamic' *", "weak_style_only"],
+  ["strict dynamic default star", "default-src 'nonce-YWJj' 'strict-dynamic' *", "weak_style_only"],
+  ["element override unsafe inline", "script-src 'nonce-YWJj' 'unsafe-inline'; script-src-elem 'unsafe-inline'", "weak_script"],
+  ["attribute override unsafe inline", "script-src 'nonce-YWJj' 'unsafe-inline'; script-src-attr 'unsafe-inline'", "weak_script"],
+  ["style attribute override", "script-src 'nonce-YWJj'; style-src 'nonce-YWJj' 'unsafe-inline'; style-src-attr 'unsafe-inline'", "weak_style_only"],
+  ["default fallback for styles", "default-src 'unsafe-inline'; script-src 'self'", "weak_style_only"],
+  ["default fallback for scripts", "default-src 'unsafe-inline'; style-src 'self'", "weak_script"],
+  ["first duplicate directive wins", "script-src 'nonce-YWJj' 'unsafe-inline'; script-src 'unsafe-inline'", "no_admitted_weakness"],
+]) eq(`C-41 Chromium case: ${name}`, cspClass(policy), expected);
+// Codex C-41b (Chromium): an element-only policy leaves event handlers and
+// eval() unrestricted; each context with no governing directive is named.
+eq("C-41b: script-src-elem 'none' alone is a script weakness", cspClass("script-src-elem 'none'"), "weak_script");
+eq("C-41b: it names the unrestricted contexts, not all scripts",
+  headersContract.classifyCspPolicy("script-src-elem 'none'")?.details, "CSP does not restrict inline event handlers or eval() (no directive governs them)");
+eq("C-41b: dangerous_directives holds only directives that carry an unsafe token",
+  JSON.stringify([headersContract.classifyCspPolicy("script-src-elem 'none'")?.dangerous_directives, headersContract.classifyCspPolicy("script-src-elem 'none'")?.unrestricted_contexts]),
+  JSON.stringify([[], ["inline event handlers", "eval"]]));
+eq("C-41b: the scan finding's evidence names the unrestricted contexts",
+  JSON.stringify(cspFinding("script-src-elem 'none'")?.evidence?.strength_unrestricted_contexts), JSON.stringify(["inline event handlers", "eval"]));
+eq("C-41b: elem + attr locked, eval still unrestricted", cspClass("script-src-elem 'none'; script-src-attr 'none'"), "weak_script");
+eq("C-41b control: elem, attr and script-src all locked", cspClass("script-src-elem 'none'; script-src-attr 'none'; script-src 'none'"), "no_admitted_weakness");
+eq("C-41b control: script-src alone governs every script context", cspClass("script-src 'self'"), "no_admitted_weakness");
+eq("CSP element override names the overriding directive",
+  headersContract.classifyCspPolicy("script-src 'nonce-YWJj' 'unsafe-inline'; script-src-elem 'unsafe-inline'")?.dangerous_directives, ["script-src-elem"]);
+eq("CSP nonce policy produces no weak-policy finding",
+  cspFinding("default-src 'self'; script-src 'nonce-x' 'unsafe-inline' 'self'"), undefined);
 
 eq("score methodology version records the current deduction rule", scoring.CYBER_METRICS_SCORE_METHODOLOGY_VERSION, "2026-10-21.1");
 eq("score-bearing module order remains frozen", scoring.SCORE_BEARING_MODULES,

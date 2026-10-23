@@ -607,6 +607,20 @@ test("headers: like the full scan, inline styles alone are a note; unsafe script
   assert.match(unsafeScript.next_step.cautions[0], /unsafe script sources in script-src/);
 });
 
+test("headers: an element-only CSP gets 'add a directive', never 'remove' tokens that do not exist", () => {
+  // Executive R1 (23 Oct 2026): script-src-elem 'none' alone leaves inline event
+  // handlers and eval() unrestricted; no directive carries an unsafe token.
+  const elemOnly = buildHeadersToolResult("example.com", seen({ ...ALL_GOOD, "content-security-policy": "script-src-elem 'none'" }));
+  const csp = elemOnly.headers.find((h) => h.key === "content-security-policy");
+  assert.equal(csp.status, "weak");
+  assert.deepEqual(csp.dangerous_directives, [], "no directive carries an unsafe token");
+  assert.deepEqual(csp.unrestricted_contexts, ["inline event handlers", "eval"]);
+  const advice = elemOnly.next_step.cautions.join(" ");
+  assert.match(advice, /does not restrict inline event handlers or eval\(\): no directive governs them\. Add script-src-attr and script-src \(or default-src\)/);
+  assert.doesNotMatch(advice, /Remove/);
+  assert.doesNotMatch(advice, /unsafe script sources in/);
+});
+
 // ── Lookalike domain checker ────────────────────────────────────────────────
 
 // A DNS stub: names in `zones` exist (with optional A/MX), `failing` throw, the rest are NXDOMAIN.

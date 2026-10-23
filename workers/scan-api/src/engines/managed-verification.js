@@ -340,6 +340,7 @@ async function observeCspWeakPolicy(host, fetcher) {
       status: probe.res.status,
       csp_classification: csp.classification,
       dangerous_directives: csp.dangerous_directives,
+      unrestricted_contexts: csp.unrestricted_contexts || [],
       limitations: "External observation of one serviceable response only; per-path policies may differ.",
     },
   };

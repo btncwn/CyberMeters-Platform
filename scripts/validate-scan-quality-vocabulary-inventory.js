@@ -219,9 +219,12 @@ const EXPECTED = Object.freeze({
     // keyed two-tree --dump-current diff changes exactly that one snippet in
     // sql_sites / sql_static_sites / sql_query_sink_sites (same line 113, same
     // single scan_quality = 'complete' predicate); every count is unchanged.
-    fingerprint: "3b09d999b42dc350fb6a61cd5091ff0498d3b8a96e4ec1b72943a0de99e3e6e8",
+    // BRI 2026-10-23.1 (item 15 fix C): three comment lines shift business-risk.js;
+    // the two-tree --dump-current diff, ignoring position, is identical in every
+    // inventory (sql/static/sink sites, comparisons, direct reads).
+    fingerprint: "2531e77bfc9b393a83faea14333660bb2689d641ecc17786792f870a9b097df1",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "9a1354cf2adf8d9d913c831ed92a04b3e5aaa5d8b375312e9ef94ea60e2ef84e",
+    resolved_query_sink_fingerprint: "8e1eb81b76ca05634cbce628a07cbf1b5ad9d53634892ab17a900c11b6609532",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
