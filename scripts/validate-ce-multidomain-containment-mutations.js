@@ -17,7 +17,8 @@ const securityCheck = path.join(root, "workers", "scan-api", "src", "engines", "
 const frontend = path.join(root, "frontend", "src", "pages", "ws", "WorkspaceCyberEssentialsPage.jsx");
 const targets = [readiness, lifecycle, securityCheck, frontend];
 const EXPECTED_MUTANTS = 20;
-const EXPECTED_ASSERTIONS = 26;
+// 28 since #921 (CE case not-assessed note: two added assertions, no mutant change).
+const EXPECTED_ASSERTIONS = 28;
 
 const original = new Map(targets.map((file) => [file, fs.readFileSync(file)]));
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
