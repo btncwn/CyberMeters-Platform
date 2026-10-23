@@ -329,20 +329,32 @@ describe('Layout top bar — shape', () => {
     expect(within(menu).getByRole('menuitem', { name: 'Members & roles' })).toHaveAttribute('href', '/ws/members')
   })
 
-  it('the workspace card letter is the selected domain\'s initial and follows a workspace switch', async () => {
+  // Founder P1 (23 Oct 2026): in She.Shire the card read "B · blackbullbarbers.co.uk"
+  // (the workspace's first verified domain). It names the ACTIVE workspace and
+  // follows every switch: A → B → A.
+  it('the workspace card names the active workspace, never one of its domains, and follows A → B → A', async () => {
     const domainsFor = (id) => ({
       domains: id === 'ws_a'
-        ? [{ domain: 'pending.example', verification_status: 'pending' }, { domain: 'cybermeters.com', verification_status: 'verified' }]
+        ? [{ domain: 'blackbullbarbers.co.uk', verification_status: 'verified' }, { domain: 'sheshire.co.uk', verification_status: 'verified' }]
         : [{ domain: 'blackbullbarbers.co.uk', verification_status: 'verified' }],
     })
-    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Zed Workspace' }, domainsFor })
+    renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'She.Shire' }, domainsFor })
     const dock = screen.getByTestId('workspace-dock')
-    await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('C'))
-    expect(within(dock).getByRole('button', { name: 'Workspace: Zed Workspace' })).toHaveAttribute('title', 'Workspace · cybermeters.com')
-    localStorage.setItem('cybermeters_workspace_id', 'ws_b')
-    localStorage.setItem('cybermeters_workspace_name', 'Black Bull Barbers')
-    window.dispatchEvent(new Event('storage'))
+    const card = () => within(dock).getByTestId('workspace-dock-button')
+    await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('S'))
+    expect(card()).toHaveAttribute('title', 'Workspace · She.Shire')
+    expect(dock.textContent).not.toContain('blackbullbarbers')
+    const switchTo = (id, name) => {
+      localStorage.setItem('cybermeters_workspace_id', id)
+      localStorage.setItem('cybermeters_workspace_name', name)
+      window.dispatchEvent(new Event('storage'))
+    }
+    switchTo('ws_b', 'Black Bull Barbers')
     await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('B'))
+    expect(card()).toHaveAttribute('title', 'Workspace · Black Bull Barbers')
+    switchTo('ws_a', 'She.Shire')
+    await waitFor(() => expect(within(dock).getByTestId('workspace-initial')).toHaveTextContent('S'))
+    expect(card()).toHaveAttribute('title', 'Workspace · She.Shire')
   })
 
   it('the account menu shows the member line for a workspace the user only belongs to', async () => {

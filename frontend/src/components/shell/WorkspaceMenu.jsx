@@ -29,14 +29,15 @@ export function workspaceInitial(name) {
   return source ? source[0].toUpperCase() : '?'
 }
 
-export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 'deck' }) {
+export default function WorkspaceMenu({ wsId, wsName, size = 'deck' }) {
   const mini = size === 'mini'
   // 'compact': the same card at 76px, floating bottom-left below 1024px (S1-SHELL-V2).
   const compact = size === 'compact'
-  // The card's letter is the selected domain's initial (cybermeters.com → C,
-  // blackbullbarbers.co.uk → B), falling back to the workspace name; hover
-  // never changes it. The tooltip names the same thing.
-  const subject = String(domainName || '').trim() || wsName
+  // The card names the ACTIVE workspace — its initial and, in the tooltip, its
+  // name (founder, 23 Oct 2026). It used to show the workspace's first verified
+  // domain, which in a workspace holding several domains read as another
+  // workspace ("B · blackbullbarbers.co.uk" inside She.Shire).
+  const subject = String(wsName || '').trim()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState(null)
