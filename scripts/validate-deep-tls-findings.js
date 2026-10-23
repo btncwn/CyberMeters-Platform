@@ -97,6 +97,9 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   db.prepare("INSERT INTO workspaces (id,name,owner_user_id) VALUES ('ws1','Example','u1')").run();
   db.prepare("INSERT INTO domains (id,user_id,domain) VALUES ('d1','u1','example.org')").run();
   db.prepare("INSERT INTO workspace_domains (workspace_id,domain_id,verification_status) VALUES ('ws1','d1','verified')").run();
+  // Alerting is active for this domain (so the pipeline writes the alert, not baseline-only).
+  db.prepare("INSERT INTO alert_activation (id,workspace_id,domain_key,activated_at,baseline_count,created_at) VALUES ('aa1','ws1','certificates_trust','2026-01-01T00:00:00Z',0,'2026-01-01T00:00:00Z')").run();
+  const certAlerts = () => db.prepare("SELECT type, message FROM notification_events WHERE workspace_id='ws1' AND domain_key='certificates_trust' ORDER BY rowid").all().map(r=>({...r}));
   const { reconcileTlsEndpointCases } = await import('../workers/scan-api/src/engines/tls-endpoint-cases.js');
   const run = assessment => reconcileTlsEndpointCases(env,{workspace_id:'ws1',domain:'example.org',scan_id:'scan_t',tls_assessment:assessment});
   const { tlsCaseKey } = await import('../workers/scan-api/src/engines/tls-findings.js');
@@ -138,6 +141,11 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   assert.deepEqual(await run(baseline), {opened:0,reopened:1,verified:0}, 'the condition measured again after verification reopens the same case');
   const r=kase(); assert.deepEqual([r.id,r.status,r.reopened_count],[c1.id,'reopened',1]);
   assert.deepEqual(transitions(),['tls_condition_observed','tls_condition_returned'],'the reopen is its own alert occurrence');
+  const sent = certAlerts();
+  assert.deepEqual(sent.map(a=>a.type),['certificates_trust.tls_condition_observed','certificates_trust.tls_condition_returned'],'one alert on open, one on reopen');
+  assert.match(sent[0].message,/A TLS measurement of mail\.example\.org observed: TLS1 accepted on this endpoint\./,'the open alert names the endpoint and the observed condition in plain words');
+  assert.match(sent[1].message,/CyberMeters verified this fixed on \d{1,2} [A-Z][a-z]{2} \d{4}; it has been observed again, so the case is reopened\./,'the reopen alert says it was verified, and when');
+  assert(!sent.some(a=>/tls_|tlscase:|condition "/.test(a.message)),'no internal key in alert prose');
   assert.deepEqual(await run({source:'not_tls'}), {opened:0,reopened:0,verified:0,skipped:'no_tls_assessment'});
   db.prepare("UPDATE workspaces SET deleted_at=datetime('now') WHERE id='ws1'").run();
   db.prepare("DELETE FROM managed_cases").run();

@@ -320,6 +320,11 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   eq("severity is INHERITED from the scan's own grade, not invented", n.severity, "high");
   ok("the alert carries the canonical remediation copy, not a fallback",
      !/review required/i.test(n.title), n.title);
+  // 4b (23 Oct 2026, live: 'sheshire.co.uk:header_missing_strict_transport_security:
+  // condition "browser protection missing" was observed.'): the prose names the
+  // domain, never the internal domain:key, and never the recurrence name.
+  ok("the alert text names no internal key or recurrence name",
+     !/:header_|_missing|browser protection missing|condition "/.test(n.message || ""), n.message);
 
   // THE PARITY ASSERTION: the resolver finds what the evaluator itself wrote.
   const occ = await findConditionOccurrence(env, {

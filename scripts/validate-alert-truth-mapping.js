@@ -239,7 +239,11 @@ const notifs = (ws) => db.prepare("SELECT * FROM notification_events WHERE works
   ok("owner_missing copy never implies unauthorised/malicious", !/unauthoris|unapproved|malicious/i.test(wc + act));
   const gwc = describeRecurrenceEvent("certificates_trust", "verification_failed", "www.example.com");
   const gact = recommendationForRecurrence("certificates_trust", "verification_failed", "www.example.com", "Renew the certificate.");
-  ok("generic recurrence: event description names entity + transition", gwc.includes("www.example.com") && gwc.includes("verification failed"));
+  // 4b (23 Oct 2026): every alerting recurrence now has its own copy, and the generic
+  // fallback names the entity but never the internal recurrence name.
+  ok("generic recurrence: event description names entity + transition", gwc.includes("www.example.com") && /could not verify/.test(gwc));
+  const fallback = describeRecurrenceEvent("certificates_trust", "brand_new_thing", "www.example.com");
+  ok("unmapped recurrence: the fallback names the entity, never the recurrence", fallback.includes("www.example.com") && !/brand.new.thing/.test(fallback));
   eq("generic recurrence: recommendation stays the registry action", gact, "Renew the certificate.");
   ok("generic recurrence: the two never collapse", gwc !== gact);
 }

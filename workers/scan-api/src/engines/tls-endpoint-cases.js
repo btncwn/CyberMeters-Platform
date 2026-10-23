@@ -83,6 +83,8 @@ async function alert(env, { workspace_id, kase, finding, recurrence }) {
     record_severity: SEVERITIES.has(finding.severity) ? finding.severity : null,
     finding_type: finding.tls_condition?.type || kase.source_finding_type,
     case_id: kase.id,
+    case_reopened: recurrence === TLS_RECURRENCE_RETURNED,
+    finding_label: finding.title || null,
   }).catch(() => ({ skipped: "alert_failed" }));
 }
 
