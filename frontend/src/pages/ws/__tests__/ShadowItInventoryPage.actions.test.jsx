@@ -110,7 +110,8 @@ function item(overrides = {}) {
 }
 
 function respond({ actions = BACKEND_ACTIONS, items = [item()], can_manage = true } = {}) {
-  api.getShadowItInventory.mockResolvedValue({ items, counts: {}, actions, can_manage })
+  // The backend always returns workspace-wide counts; chips show a number only when it is known.
+  api.getShadowItInventory.mockResolvedValue({ items, counts: { unreviewed: items.length, approved: 0, rejected: 0, exception: 0, retired: 0 }, actions, can_manage })
 }
 
 function mount() {
@@ -392,7 +393,8 @@ describe('F-47 — loading, empty and load-error states', () => {
   it('shows loading, then the list', async () => {
     respond()
     mount()
-    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    // The list, the Summary figures and "Rejected but still seen" each say Loading… while loading.
+    expect(screen.getAllByText('Loading…').length).toBeGreaterThan(0)
     await screen.findByText('Acme CRM')
     await openMore()
     expect(screen.queryByText('Loading…')).toBeNull()
