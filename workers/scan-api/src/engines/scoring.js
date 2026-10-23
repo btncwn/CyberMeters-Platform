@@ -10,7 +10,7 @@ import { runTyposquatModule } from "./brand-typosquat.js";
 import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, inferMxProvider, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
-import { classifyCspPolicy, classifyHeaderStrength } from "./headers-scan.js";
+import { classifyCspPolicy, classifyHeaderStrength, effectiveHstsValue } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
 import { HSTS_MISSING_SEVERITY_POLICY, resolveRemediation } from "./remediation-registry.js";
@@ -557,8 +557,12 @@ export function computeScore(modules, domain) {
     //   - validation_uncertain === false
     // All strength findings are score_impact: 0 (informational).
     if (responseQualityOk) {
+      // Item 15 fix B: HSTS strength is judged on the policy that covers the
+      // domain (the apex's own answer when it sent HSTS), never the redirected
+      // www page's value attributed to the apex.
+      const hstsEffective = effectiveHstsValue(modules.headers, domain);
       for (const h of SECURITY_HEADERS) {
-        const rawValue = modules.headers.values?.[h.name];
+        const rawValue = h.name === "strict-transport-security" ? hstsEffective.value : modules.headers.values?.[h.name];
         if (!rawValue) continue;  // header absent — handled by missing-header loop above
 
         const strength = classifyHeaderStrength(h.name, rawValue);
@@ -574,7 +578,7 @@ export function computeScore(modules, domain) {
             score_impact: 0,
             evidence: {
               evidence_type:               "http_header_probe",
-              probe_target:                modules.headers.response_url ?? `https://${domain}`,
+              probe_target:                hstsEffective.url,
               header_name:                 h.name,
               observed_value:              rawValue,
               expected_value:              "max-age=31536000; includeSubDomains; preload",

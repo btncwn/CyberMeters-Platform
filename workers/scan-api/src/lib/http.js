@@ -77,8 +77,13 @@ export async function safeFetch(url, options = {}) {
   const dnsCache = options.dnsCache || null;
   const fetchImpl = typeof options.fetchImpl === "function" ? options.fetchImpl : fetch;
   const onFailure = typeof options.onFailure === "function" ? options.onFailure : null;
+  // Optional observer of every response, including the redirects followed
+  // here (a caller can read what one hop said, e.g. the apex's HSTS, without
+  // another request). Never fatal and never changes the result.
+  const onHop = typeof options.onHop === "function" ? options.onHop : null;
   const fetchOptions = { ...options };
   delete fetchOptions.onFailure;
+  delete fetchOptions.onHop;
   delete fetchOptions.accounting;
   delete fetchOptions.dnsResolver;
   delete fetchOptions.dnsCache;
@@ -109,6 +114,7 @@ export async function safeFetch(url, options = {}) {
       });
       accounting?.recordCompleted?.();
       attemptInFlight = false;
+      if (onHop) { try { onHop({ url: current, hop, status: res.status, headers: res.headers }); } catch { /* observational only */ } }
       if (!followManually) return res;
       if ([301, 302, 303, 307, 308].includes(res.status)) {
         const loc = res.headers.get("location");
