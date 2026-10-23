@@ -15,7 +15,7 @@ import CaseGuidance from '../../components/CaseGuidance'
 import InternalIdCopyButton from '../../components/InternalIdCopyButton'
 import StatusChip from '../../components/StatusChip'
 import ScanNowButton from '../../components/ScanNowButton'
-import { caseStatus } from '../../lib/statusVocabulary'
+import { caseChipStatus, caseAssessmentMessage } from '../../lib/caseAssessment'
 import {
   domainKeyLabel,
   ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL,
@@ -444,8 +444,9 @@ export default function WorkspaceCaseDetailPage() {
             </span>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <h1 className="text-lg font-semibold text-slate-900 min-w-0 wrap-break-word">{c.display_title || caseDisplayTitle(c)}</h1>
-              <StatusChip status={caseStatus(c)} className="shrink-0" />
+              <StatusChip status={caseChipStatus(c)} className="shrink-0" />
             </div>
+            {caseAssessmentMessage(c) && <p className="text-sm text-slate-700 mt-2" data-testid="case-assessment">{caseAssessmentMessage(c)}</p>}
             <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs text-slate-500">
               <span>Severity: <span className="text-slate-700 capitalize">{c.severity || '—'}</span></span>
               <span>Opened: {fmt(c.created_at)}</span>

@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { phaseMeta, domainKeyLabel, DOMAIN_KEY_LABELS, caseDisplayTitle } from '../../lib/caseDisplay'
 import { caseStatus, statusMeta } from '../../lib/statusVocabulary'
+import { caseChipStatus, caseAssessmentMessage } from '../../lib/caseAssessment'
 import { MODULES } from '../../lib/moduleRegistry'
 import StatusChip from '../StatusChip'
 import { formatDay } from '../../utils/dates'
@@ -63,6 +64,7 @@ function CaseRow({ c }) {
           {c.severity ? ` · ${String(c.severity)[0].toUpperCase()}${String(c.severity).slice(1)}` : ''}
           {' · '}<span className="whitespace-nowrap">Updated {fmtDate(c.updated_at)}</span>
         </p>
+        {caseAssessmentMessage(c) && <p className="text-xs text-gray-600 mt-0.5" data-testid="case-assessment">{caseAssessmentMessage(c)}</p>}
       </div>
       <div className="shrink-0 flex items-center gap-2 flex-wrap">
         {/* One status word per row (founder, 22 Oct 2026: "Action required"
@@ -70,7 +72,7 @@ function CaseRow({ c }) {
             lane's own word; the case's step is on the case page. A concluded
             case keeps one line naming WHO verified it ("Verified by
             CyberMeters"), because "Verified" alone does not say. */}
-        <StatusChip status={caseStatus(c)} title={`${word.label} · ${meta.label}`} />
+        <StatusChip status={caseChipStatus(c)} title={caseAssessmentMessage(c) || `${word.label} · ${meta.label}`} />
         {laneForCase(c) === 'closed' && meta.label !== word.label && <span className="text-xs text-gray-500" data-testid="case-verifier">{meta.label}</span>}
         {c.reopened_count > 0 && (
           <span className="text-xs text-red-700 font-medium">Reopened {c.reopened_count}×</span>
