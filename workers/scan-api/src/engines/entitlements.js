@@ -287,8 +287,12 @@ export function resolveCanonicalSubscriptionRow(rows) {
   const activePaid = list.filter((r) => statusOf(r) === "active" && !isExpiredDate(r.current_period_end ?? r.expires_at ?? null));
   const trialing = list.filter((r) => statusOf(r) === "trialing" && isTrialWindowValid(r));
   const grace = list.filter((r) => statusOf(r) === "past_due" && getPaymentGraceState(r).active);
+  // Several still-entitled subscriptions (e.g. two Stripe customers): the
+  // account gets its BEST plan, never whichever row changed last (C-49 e).
+  const planRank = (r) => Object.keys(PLAN_LIMITS).indexOf(normalizePlan(r.plan));
   const pickDeterministic = (candidates) => {
     const sorted = [...candidates].sort((a, b) => {
+      if (planRank(a) !== planRank(b)) return planRank(b) - planRank(a);
       const aStripe = a.stripe_subscription_id ? 1 : 0;
       const bStripe = b.stripe_subscription_id ? 1 : 0;
       if (aStripe !== bStripe) return bStripe - aStripe;

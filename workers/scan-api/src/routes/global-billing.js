@@ -8,7 +8,7 @@
 import { billingRoutes } from "./billing.js";
 import { getEffectivePlan, loadAccountSubscription, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { extractIngestToken, hashIngestToken } from "../engines/rua-routing.js";
-import { findSubscriptionRowId, isStaleSubscriptionEvent, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeInvoiceSubscriptionId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
+import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripeInvoiceSubscriptionId, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
 import { auditApiTokenSessionRouteDenied, getPublicBillingPlans } from "../engines/subscription-state.js";
 import { ingestDmarcReport, ingestEndpointIsActive } from "../lib/dmarc-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
@@ -19,12 +19,16 @@ import { reconcileMcpOAuthPortfolioSubscription } from "./mcp-oauth-admission.js
 // a converted trial (no later reader may trust it; the value is kept in the
 // append-only subscription event), and tell the owner once per (subscription,
 // plan) that the plan is active. Never fails the webhook.
-async function onPaidPlanActive(env, rowId, obj, plan) {
-  if (!rowId || normalizeStripeSubscriptionStatus(obj?.status) !== "active") return;
+async function onPaidPlanActive(env, rowId, obj, payloadPlan) {
+  if (!rowId) return;
   try {
     const row = await env.cybermeters_db
-      .prepare("SELECT owner_user_id, workspace_id, trial_end FROM subscriptions WHERE id = ? LIMIT 1")
+      .prepare("SELECT owner_user_id, workspace_id, trial_end, plan, subscription_status, stripe_subscription_id FROM subscriptions WHERE id = ? LIMIT 1")
       .bind(rowId).first();
+    // The account row holds Stripe's current state (the payload may be stale):
+    // only a row now active on THIS subscription is a newly active plan.
+    if (row?.subscription_status !== "active" || row?.stripe_subscription_id !== obj?.id) return;
+    const plan = row?.plan ? normalizePlan(row.plan) : payloadPlan;
     if (row?.trial_end) {
       const cleared = await env.cybermeters_db
         .prepare("UPDATE subscriptions SET trial_end = NULL, updated_at = datetime('now') WHERE id = ? AND trial_end IS NOT NULL AND subscription_status = 'active'")
@@ -341,20 +345,7 @@ export async function globalBillingRoutes(rctx) {
           // Stripe status and current_period_end. Upserts the subscriptions row
           // so getEffectivePlan() reads the correct plan and expiry.
           case "customer.subscription.created": {
-            // Stripe does not order events: an older one delivered late changes
-            // nothing and triggers no audit, plan change or email (migration 139).
-            const eventCreated = Number.isInteger(event?.created) ? event.created : null;
-            const staleRowId = await isStaleSubscriptionEvent(env, obj?.id || null, eventCreated);
-            if (staleRowId) {
-              await createAuditEvent(env, {
-                user_id: null, event_type: "stripe_subscription_event_stale_ignored", entity_type: "subscription",
-                entity_id: obj?.id || staleRowId,
-                description: "An older Stripe subscription event arrived after a newer one and was ignored",
-                metadata: { subscription_row_id: staleRowId, stripe_event_type: eventType, event_created: eventCreated },
-              }).catch(() => {});
-              break;
-            }
-            const rowId = await handleStripeSubscriptionUpsert(env, obj, { eventCreated });
+            const rowId = await handleStripeSubscriptionUpsert(env, obj);
             mcpEntitlementRowId = rowId;
             const metadata = obj?.metadata || {};
             const price = getStripeSubscriptionPrice(obj, env);
@@ -405,20 +396,7 @@ export async function globalBillingRoutes(rctx) {
                   .first()
                 : null;
             } catch { /* audit metadata lookup only */ }
-            // Stripe does not order events: an older one delivered late changes
-            // nothing and triggers no audit, plan change or email (migration 139).
-            const eventCreated = Number.isInteger(event?.created) ? event.created : null;
-            const staleRowId = await isStaleSubscriptionEvent(env, obj?.id || null, eventCreated);
-            if (staleRowId) {
-              await createAuditEvent(env, {
-                user_id: null, event_type: "stripe_subscription_event_stale_ignored", entity_type: "subscription",
-                entity_id: obj?.id || staleRowId,
-                description: "An older Stripe subscription event arrived after a newer one and was ignored",
-                metadata: { subscription_row_id: staleRowId, stripe_event_type: eventType, event_created: eventCreated },
-              }).catch(() => {});
-              break;
-            }
-            const rowId = await handleStripeSubscriptionUpsert(env, obj, { eventCreated });
+            const rowId = await handleStripeSubscriptionUpsert(env, obj);
             mcpEntitlementRowId = rowId;
             const price = getStripeSubscriptionPrice(obj, env);
             const newPlan = getPlanFromStripePriceId(env, price?.id || null, metadata.plan);
@@ -524,9 +502,13 @@ export async function globalBillingRoutes(rctx) {
             if (rowId) {
               try {
                 const subOwner = await env.cybermeters_db
-                  .prepare("SELECT owner_user_id, workspace_id FROM subscriptions WHERE id = ? LIMIT 1")
+                  .prepare("SELECT owner_user_id, workspace_id, subscription_status FROM subscriptions WHERE id = ? LIMIT 1")
                   .bind(rowId)
                   .first();
+                // Tell the customer only when Stripe says the account is in
+                // payment trouble now (not for a late event after a recovery
+                // or a cancellation).
+                if (subOwner?.subscription_status !== "past_due") break;
                 if (subOwner?.owner_user_id) {
                   await sendLifecycleEmail(env, {
                     type: "lifecycle_payment_failed",

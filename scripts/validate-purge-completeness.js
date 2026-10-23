@@ -129,6 +129,7 @@ const EXPECTED_NOT_PURGED = {
   // Deliberately retained — see DELETION_PURGE_WINDOW_DAYS in index.js.
   audit_events: "retained: audit history",
   subscriptions: "retained: accounting",
+  stripe_subscription_lineages: "retained: accounting (Stripe's view of each subscription, beside subscriptions — mig 139)",
   deletion_requests: "retained: the record of the deletion request itself",
 };
 {
