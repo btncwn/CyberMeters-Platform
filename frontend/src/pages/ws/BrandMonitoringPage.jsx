@@ -356,8 +356,15 @@ const CASE_CHIP = {
   reappeared: 'bg-red-50 text-red-700 border-red-200',
 }
 
-function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
+function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit, unavailable = false }) {
   // A named section in every state: the sidebar's "Takedown tracking" opens it.
+  // A failed load says so — never "no takedown is being tracked" (S1-SHELL-V2b).
+  if (unavailable) return (
+    <section id="managed-brand-cases" className="card p-5 mb-6" aria-label="Takedown tracking">
+      <h2 className="font-semibold text-gray-900">Brand abuse workflow</h2>
+      <p className="mt-1 text-sm text-gray-600">Not available — the takedown cases could not be loaded.</p>
+    </section>
+  )
   if (!cases?.length) return (
     <section id="managed-brand-cases" className="card p-5 mb-6" aria-label="Takedown tracking">
       <h2 className="font-semibold text-gray-900">Brand abuse workflow</h2>
@@ -469,6 +476,8 @@ export default function BrandMonitoringPage() {
   const [summary, setSummary]       = useState(null)
   const [candidates, setCandidates] = useState([])
   const [cases, setCases]           = useState([])
+  // What each request actually returned: a failure is "Not available", never an empty list or 0.
+  const [loaded, setLoaded]         = useState({ summary: false, candidates: false, cases: false, total: null })
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState(null)
   const [editing, setEditing]       = useState(false)
@@ -494,16 +503,25 @@ export default function BrandMonitoringPage() {
         api.getBrandCases(wsId, {}),
       ])
       setProfile(p.status === 'fulfilled' ? (p.value?.profile ?? p.value ?? null) : null)
-      setSummary(s.status === 'fulfilled' ? (s.value?.summary ?? s.value ?? null) : null)
+      const summaryValue = s.status === 'fulfilled' ? (s.value?.summary ?? s.value ?? null) : null
+      setSummary(summaryValue)
 
       let cands = c.status === 'fulfilled' ? (c.value?.candidates ?? (Array.isArray(c.value) ? c.value : null)) : null
-      if (!Array.isArray(cands)) {
+      let candidatesOk = Array.isArray(cands)
+      if (!candidatesOk) {
         // Graceful fallback to legacy brand-monitoring data.
-        try { const legacy = await api.getWorkspaceBrandMonitoring(wsId, {}); cands = legacy.candidates || [] }
+        try { const legacy = await api.getWorkspaceBrandMonitoring(wsId, {}); cands = legacy.candidates || []; candidatesOk = Array.isArray(legacy.candidates) }
         catch { cands = [] }
       }
       setCandidates((cands || []).map(normCandidate))
-      setCases(mc.status === 'fulfilled' ? (mc.value?.cases || []) : [])
+      const casesOk = mc.status === 'fulfilled' && Array.isArray(mc.value?.cases)
+      setCases(casesOk ? mc.value.cases : [])
+      setLoaded({
+        summary: Boolean(summaryValue && typeof summaryValue === 'object'),
+        candidates: candidatesOk,
+        cases: casesOk,
+        total: c.status === 'fulfilled' && Number.isInteger(c.value?.total) ? c.value.total : null,
+      })
     } catch (e) {
       setError(e.message)
     } finally {
@@ -610,31 +628,18 @@ export default function BrandMonitoringPage() {
   // Whenever candidates are loaded, the displayed summary is computed FROM the
   // candidate list so the cards always match the table. /brand/summary is used
   // only as a fallback before candidate data is available (e.g. transient load).
+  // "What we observed" reads ONLY the backend summary: it counts every candidate
+  // in the workspace, while the candidate list is a bounded page (50 by default),
+  // so a page count must never stand in for a total. Unknown → null, never 0.
   const metrics = useMemo(() => {
-    if (candidates.length > 0) {
-      // Tri-state DNS truth: _dns === true active, === false checked-inactive,
-      // null/undefined not yet checked. Unchecked is NEVER folded into inactive.
-      return {
-        lookalike:   candidates.length,
-        activeDns:   candidates.filter(c => c._dns === true).length,
-        inactiveDns: candidates.filter(c => c._dns === false).length,
-        uncheckedDns: candidates.filter(c => c._dns == null).length,
-        highRisk:    candidates.filter(isHighRisk).length,
-        suspicious:  candidates.filter(c => (c.classification || c.status) === 'suspicious').length,
-        unreviewed:  candidates.filter(isUnreviewed).length,
-      }
-    }
-    const num = v => (typeof v === 'number' ? v : 0)
+    const n = (v) => (loaded.summary && Number.isInteger(v) ? v : null)
     return {
-      lookalike:   num(summary?.total_candidates ?? summary?.candidates ?? summary?.lookalike_candidates),
-      activeDns:   num(summary?.active_dns ?? summary?.dns_active),
-      inactiveDns: num(summary?.inactive_dns),
-      uncheckedDns: num(summary?.unchecked_dns),
-      highRisk:    num(summary?.high_risk),
-      suspicious:  num(summary?.suspicious),
-      unreviewed:  num(summary?.unreviewed ?? summary?.needs_review),
+      lookalike:  n(summary?.total_candidates),
+      highRisk:   n(summary?.high_risk),
+      suspicious: n(summary?.suspicious),
+      unreviewed: n(summary?.unreviewed),
     }
-  }, [summary, candidates])
+  }, [summary, loaded.summary])
 
   const filtered = useMemo(() => candidates.filter(c => {
     if (filter === 'high') return isHighRisk(c)
@@ -669,10 +674,10 @@ export default function BrandMonitoringPage() {
            observed"; the protected-brand editor is configuration, so it lives
            on the Settings tab; the one action is "Do this next". */
         figures={[
-          { key: 'lookalike', label: 'Lookalike candidates', value: metrics.lookalike, explanation: 'Domains resembling your brand' },
-          { key: 'high', label: 'High-risk candidates', value: metrics.highRisk, explanation: 'May need immediate review', tone: metrics.highRisk > 0 ? 'text-red-700' : undefined },
-          { key: 'suspicious', label: 'Suspicious', value: metrics.suspicious, explanation: 'Flagged for impersonation risk', tone: metrics.suspicious > 0 ? 'text-brand-700' : undefined },
-          { key: 'unreviewed', label: 'Unreviewed', value: metrics.unreviewed, explanation: 'Awaiting your classification', tone: metrics.unreviewed > 0 ? 'text-brand-700' : undefined },
+          { key: 'lookalike', id: 'brand-lookalike', label: 'Lookalike candidates', value: metrics.lookalike ?? 'Not available', explanation: 'Domains resembling your brand' },
+          { key: 'high', id: 'brand-high-risk', label: 'High-risk candidates', value: metrics.highRisk ?? 'Not available', explanation: 'May need immediate review', tone: metrics.highRisk > 0 ? 'text-red-700' : undefined },
+          { key: 'suspicious', id: 'brand-suspicious', label: 'Suspicious', value: metrics.suspicious ?? 'Not available', explanation: 'Flagged for impersonation risk', tone: metrics.suspicious > 0 ? 'text-brand-700' : undefined },
+          { key: 'unreviewed', id: 'brand-unreviewed', label: 'Unreviewed', value: metrics.unreviewed ?? 'Not available', explanation: 'Awaiting your classification', tone: metrics.unreviewed > 0 ? 'text-brand-700' : undefined },
         ]}
         nextAction={metrics.unreviewed > 0 ? {
           title: `${metrics.unreviewed} lookalike candidate${metrics.unreviewed === 1 ? '' : 's'} await${metrics.unreviewed === 1 ? 's' : ''} your classification`,
@@ -702,6 +707,7 @@ export default function BrandMonitoringPage() {
       )}
 
       <ManagedBrandCases
+        unavailable={!loaded.cases}
         cases={cases}
         busyId={busyId}
         onReview={handleCaseReview}
@@ -722,7 +728,9 @@ export default function BrandMonitoringPage() {
         <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="section-title">Suspicious domain queue</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{filtered.length} of {candidates.length} shown</p>
+            <p className="text-xs text-gray-400 mt-0.5">{loaded.candidates
+              ? `${filtered.length} of ${candidates.length} shown${loaded.total != null && loaded.total > candidates.length ? ` · the first ${candidates.length} of ${loaded.total} candidates` : ''}`
+              : 'Not available'}</p>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {FILTERS.map(f => (
@@ -736,8 +744,8 @@ export default function BrandMonitoringPage() {
 
         {filtered.length === 0 ? (
           <div className="py-14 text-center">
-            <p className="text-sm font-medium text-gray-600">{candidates.length === 0 ? 'No lookalike domains found yet.' : 'No candidates match this filter.'}</p>
-            <p className="text-xs text-gray-400 mt-1">{candidates.length === 0 ? 'CyberMeters will continue monitoring brand-abuse signals as new scans run.' : 'Try a different filter above.'}</p>
+            <p className="text-sm font-medium text-gray-600">{!loaded.candidates ? 'Not available — the candidate list could not be loaded.' : candidates.length === 0 ? 'No lookalike domains found yet.' : 'No candidates match this filter.'}</p>
+            <p className="text-xs text-gray-400 mt-1">{!loaded.candidates ? 'Try again shortly; this is not an empty list.' : candidates.length === 0 ? 'CyberMeters will continue monitoring brand-abuse signals as new scans run.' : 'Try a different filter above.'}</p>
           </div>
         ) : (
           <>
