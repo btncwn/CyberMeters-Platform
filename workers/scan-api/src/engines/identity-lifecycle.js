@@ -480,6 +480,9 @@ export async function evaluateIdentityExposureMonitoring(env, workspaceId, { see
       await emitLifecycleAlert(env, {
         workspace_id: workspaceId, domain_key: "identity_exposure",
         record_id: rec.id, entity: rec.canonical_identity_key, hostname: rec.primary_hostname || null,
+        // The customer sees the host (or provider), never the canonical identity key.
+        entity_display: rec.primary_hostname || rec.provider_name || null,
+        monitored_domain: rec.primary_hostname || null,
         recurrence: recurrence_type,
         finding_type: (RECURRENCE_CASE[recurrence_type] || {}).finding_type || null,
         case_id: rec.linked_case_id || null,

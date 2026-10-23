@@ -164,9 +164,15 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1
        'observed','expected',NULL,'observed',datetime('now'),
        datetime('now','-40 days'), datetime('now'), 'high', datetime('now','-40 days'), datetime('now'))`).run();
 
+  // Alerting active for Identity, so the real pipeline writes the alert (4b, 23 Oct 2026).
+  db.prepare("INSERT OR IGNORE INTO alert_activation (id,workspace_id,domain_key,activated_at,baseline_count,created_at) VALUES ('aa-ident','ws1','identity_exposure','2026-01-01T00:00:00Z',0,'2026-01-01T00:00:00Z')").run();
   await evaluateIdentityExposureMonitoring(env, "ws1", { seenKeys: new Set(["dom1::okta::login"]) });
 
   const rec = db.prepare("SELECT * FROM identity_exposure WHERE id='ie1'").get();
+  const identAlert = db.prepare("SELECT message FROM notification_events WHERE workspace_id='ws1' AND domain_key='identity_exposure' ORDER BY rowid DESC LIMIT 1").get();
+  ok("identity: the real alert names the host, never the canonical identity key",
+     Boolean(identAlert) && identAlert.message.includes("sso.example.com") && !/okta::login|surface:|provider:/.test(identAlert.message),
+     identAlert?.message || "no alert written");
   ok("identity: evaluator graded the provider-change recurrence", rec.recurrence_type === "provider_change",
      `recurrence_type=${rec.recurrence_type}`);
 

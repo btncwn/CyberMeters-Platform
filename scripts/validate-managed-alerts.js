@@ -657,13 +657,39 @@ await preActivate("ws_dead");
       pairs.map(([d, r]) => [`${d}.${r}`, ac.describeRecurrenceEvent(d, r, "example.org")]).filter(([, t]) => rawKey.test(t.replace(/_dmarc/g, ""))).map(([k]) => k), []);
     const fb = ac.describeRecurrenceEvent("certificates_trust", "brand_new_thing", "example.org");
     ok("the fallback sentence names no recurrence, raw or humanised", !rawKey.test(fb) && !/brand.new.thing/.test(fb) && fb.includes("example.org"));
-    const fake = (row) => ({ cybermeters_db: { prepare: () => ({ bind: () => ({ first: async () => row }) }) } });
-    eq("a reopened, previously verified case says so with the date",
-      await ac.reopenedAfterVerification(fake({ status: "reopened", verified_at: "2026-10-22T23:58:09.125Z" }), "ws", "mc"),
-      "CyberMeters verified this fixed on 22 Oct 2026; it has been observed again, so the case is reopened.");
-    eq("a case that was never verified carries no reopen sentence", await ac.reopenedAfterVerification(fake({ status: "reopened", verified_at: null }), "ws", "mc"), null);
-    eq("an open (not reopened) case carries no reopen sentence", await ac.reopenedAfterVerification(fake({ status: "detected", verified_at: "2026-10-22T23:58:09Z" }), "ws", "mc"), null);
-    eq("no case id, no read", await ac.reopenedAfterVerification(fake(null), "ws", null), null);
+    // The reopen note on REAL case history (managed_case_events), worded by who
+    // concluded the earlier fix, and only for an alert the caller says is the reopen.
+    const { buildDb } = await import(pathToFileURL(path.join(root, "scripts", "security", "lib", "worker-harness.js")).href);
+    const rdb = buildDb();
+    rdb.exec("PRAGMA foreign_keys=OFF");
+    const w = (sql, a = []) => ({ bind: (...b) => w(sql, b), first: async () => rdb.prepare(sql).get(...a) || null });
+    const renv = { cybermeters_db: { prepare: (sql) => w(sql) } };
+    const ev = (id, caseId, actor, to, at) => rdb.prepare("INSERT INTO managed_case_events (id,case_id,workspace_id,actor_type,actor_id,from_status,to_status,action,detail_json,created_at) VALUES (?,?,?,?,NULL,'awaiting_verification',?,'transition_verified','{}',?)").run(id, caseId, "ws", actor, to, at);
+    ev("e1", "mc-sys", "system", "verified", "2026-10-22 23:58:09");
+    ev("e2", "mc-cust", "customer", "verified", "2026-10-21 10:00:00");
+    eq("system-verified reopen: CyberMeters verified it, with the date",
+      await ac.reopenNote(renv, "ws", "mc-sys", true), "CyberMeters verified this fixed on 22 Oct 2026; it has been observed again, so the case is reopened.");
+    eq("customer-attested reopen: the customer marked it, never 'CyberMeters verified'",
+      await ac.reopenNote(renv, "ws", "mc-cust", true), "You marked this fixed on 21 Oct 2026; it has been observed again, so the case is reopened.");
+    eq("a non-reopen alert on a reopened case carries no note", await ac.reopenNote(renv, "ws", "mc-sys", false), null);
+    eq("a case never verified carries no note", await ac.reopenNote(renv, "ws", "mc-none", true), null);
+    eq("another workspace's history is not read", await ac.reopenNote(renv, "ws-other", "mc-sys", true), null);
+    // R1 (17:05): copy claims only what the detector observed.
+    const d = (dom, r) => ac.describeRecurrenceEvent(dom, r, "example.org", {});
+    ok("worsened sender is a band escalation, not 'more mail'", !/more mail/i.test(d("email_protection", "sender_classification_worsened")));
+    ok("unauthorised sender is the observed classification, not the customer's", !/you classified/i.test(d("email_protection", "sender_unauthorised_failures_active")));
+    ok("Website copy covers cookies and weak policies, not only headers", /cookie/i.test(d("website_security", "browser_protection_missing")) && /weak/i.test(d("website_security", "browser_protection_malformed")));
+    ok("coverage_regression claims no prior coverage", !/no longer/i.test(d("certificates_trust", "coverage_regression")));
+    ok("renewal_overdue claims nothing about a replacement", !/replacement/i.test(d("certificates_trust", "renewal_overdue")));
+    ok("investigate_unresolved claims no review date", !/review date/i.test(d("identity_exposure", "investigate_unresolved")));
+    ok("provider_change claims a material change, not a provider swap", /material change/i.test(d("identity_exposure", "provider_change")) && !/provider .* has changed/i.test(d("identity_exposure", "provider_change")));
+    ok("Attack Surface copy does not assume an exposed service", !/exposed service/i.test(d("attack_surface", "case_opened")));
+    // Finding-specific families name the finding, not a blanket phrase.
+    ok("an Attack Surface case names its finding's label",
+      ac.describeRecurrenceEvent("attack_surface", "case_opened", "cdn.example.org", { finding_label: "Subdomain takeover candidate" }).includes("Subdomain takeover candidate"));
+    ok("a TLS case names its finding's label, not 'weak transport setting'",
+      ac.describeRecurrenceEvent("certificates_trust", "tls_condition_observed", "mail.example.org", { finding_label: "Replace the revoked certificate" }).includes("Replace the revoked certificate")
+      && !/weak transport setting/.test(ac.describeRecurrenceEvent("certificates_trust", "tls_condition_observed", "mail.example.org", {})));
   }
   // TLS endpoint conditions inherit the finding's grade; no grade is invented.
   ok("TLS endpoint recurrences inherit the finding's severity",

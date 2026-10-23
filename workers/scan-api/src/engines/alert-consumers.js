@@ -381,11 +381,11 @@ const RECURRENCE_COPY = Object.freeze({
     }),
     sender_classification_worsened: Object.freeze({
       what_changed: (entity) =>
-        `Receiving mail providers reported more mail from ${entity} using your domain since it was last reviewed.`,
+        `Receiving mail providers now report ${entity} using your domain at a higher level than when it was last reviewed.`,
     }),
     sender_unauthorised_failures_active: Object.freeze({
       what_changed: (entity) =>
-        `Receiving mail providers reported mail from ${entity}, a source you classified as unauthorised, using your domain and failing authentication.`,
+        `Receiving mail providers reported mail using your domain from ${entity}, a source CyberMeters observes as unauthorised, and that mail failed authentication.`,
     }),
     hosted_record_disconnected: Object.freeze({
       what_changed: (entity) =>
@@ -423,11 +423,11 @@ const RECURRENCE_COPY = Object.freeze({
   website_security: Object.freeze({
     browser_protection_missing: Object.freeze({
       what_changed: (entity) =>
-        `A completed check of ${entity} found a browser protection header missing (for example HSTS or a content security policy).`,
+        `A completed check of ${entity} found a browser protection (a header or cookie attribute) missing.`,
     }),
     browser_protection_malformed: Object.freeze({
       what_changed: (entity) =>
-        `A completed check of ${entity} found a browser protection header present but not in a form browsers can apply.`,
+        `A completed check of ${entity} found a browser protection present but weak, or not in a form browsers apply.`,
     }),
     transport_not_available: Object.freeze({
       what_changed: (entity) =>
@@ -447,17 +447,22 @@ const RECURRENCE_COPY = Object.freeze({
     }),
   }),
   attack_surface: Object.freeze({
+    // The finding family varies (exposed service, takeover candidate, cloud storage,
+    // canonical URL, DNS security…), so each sentence names the finding's own
+    // registry label rather than assuming an "exposed service".
     case_opened: Object.freeze({
-      what_changed: (entity) => `An exposed service was observed on ${entity}, and a managed case was opened for it.`,
+      what_changed: (entity, ctx) => ctx?.finding_label
+        ? `An attack-surface finding was observed on ${entity}: ${ctx.finding_label}.`
+        : `An attack-surface finding was observed on ${entity}.`,
     }),
     case_reopened: Object.freeze({
-      what_changed: (entity) => `The exposure on ${entity} was observed again after its case was resolved, so the case is reopened.`,
+      what_changed: (entity, ctx) => `${ctx?.finding_label ? `${ctx.finding_label}: the finding` : "The finding"} on ${entity} was observed again after its case was resolved.`,
     }),
     case_verification_failed: Object.freeze({
-      what_changed: (entity) => `CyberMeters re-checked ${entity} and still observed the exposure, so it could not verify the fix.`,
+      what_changed: (entity) => `CyberMeters re-checked ${entity} and still observed the finding, so it could not verify the fix.`,
     }),
     case_resolved: Object.freeze({
-      what_changed: (entity) => `CyberMeters re-checked ${entity} and no longer observed the exposure.`,
+      what_changed: (entity) => `CyberMeters re-checked ${entity} and no longer observed the finding.`,
     }),
   }),
   certificates_trust: Object.freeze({
@@ -465,7 +470,7 @@ const RECURRENCE_COPY = Object.freeze({
       what_changed: (entity) => `The certificate served for ${entity} has expired.`,
     }),
     renewal_overdue: Object.freeze({
-      what_changed: (entity) => `The certificate served for ${entity} expires soon and no replacement has been observed yet.`,
+      what_changed: (entity) => `The certificate served for ${entity} expires soon.`,
     }),
     replacement_contradicted: Object.freeze({
       what_changed: (entity) => `A replacement certificate was recorded for ${entity}, but the previous certificate is still being served.`,
@@ -477,7 +482,7 @@ const RECURRENCE_COPY = Object.freeze({
       what_changed: (entity) => `A new certificate was observed for ${entity}; CyberMeters has not verified it yet.`,
     }),
     coverage_regression: Object.freeze({
-      what_changed: (entity) => `The certificate now served for ${entity} no longer covers every hostname it is expected to cover.`,
+      what_changed: (entity) => `The certificate served for ${entity} does not cover every hostname it is expected to cover.`,
     }),
     unexpected_san: Object.freeze({
       what_changed: (entity) => `The certificate served for ${entity} covers hostnames that are not on its expected list.`,
@@ -488,11 +493,13 @@ const RECURRENCE_COPY = Object.freeze({
     owner_missing: Object.freeze({
       what_changed: (entity) => `The certificate for ${entity} has no assigned owner.`,
     }),
+    // TLS conditions range from a legacy protocol to a revoked certificate or a
+    // confirmed Heartbleed signal: name the finding's own registry label.
     tls_condition_observed: Object.freeze({
-      what_changed: (entity) => `A TLS measurement of ${entity} observed a weak transport setting, and a managed case was opened for it.`,
+      what_changed: (entity, ctx) => `A TLS measurement of ${entity} observed: ${ctx?.finding_label || "a TLS endpoint condition"}.`,
     }),
     tls_condition_returned: Object.freeze({
-      what_changed: (entity) => `A TLS measurement of ${entity} observed the weak transport setting again after it was verified fixed.`,
+      what_changed: (entity, ctx) => `A TLS measurement of ${entity} observed again: ${ctx?.finding_label || "a TLS endpoint condition"}.`,
     }),
   }),
   identity_exposure: Object.freeze({
@@ -512,13 +519,13 @@ const RECURRENCE_COPY = Object.freeze({
       what_changed: (entity) => `${entity}, which you retired, was observed again.`,
     }),
     investigate_unresolved: Object.freeze({
-      what_changed: (entity) => `The investigation you started for ${entity} is still open past its review date.`,
+      what_changed: (entity) => `${entity} is still observed and the investigation you started has not been closed.`,
     }),
     exception_expired: Object.freeze({
       what_changed: (entity) => `The exception you recorded for ${entity} has expired.`,
     }),
     provider_change: Object.freeze({
-      what_changed: (entity) => `The sign-in provider observed for ${entity} has changed.`,
+      what_changed: (entity) => `A material change was observed in the sign-in surface for ${entity}.`,
     }),
     owner_missing: Object.freeze({
       what_changed: (entity) => `${entity} has no assigned owner.`,
@@ -579,16 +586,23 @@ const utcDay = (value) => {
   return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null;
 };
 
-// The sentence a reopen alert carries when its case had been verified: from the
-// case row itself, workspace-scoped. Null for any other case, or when unknown.
-export async function reopenedAfterVerification(env, workspaceId, caseId) {
-  if (!workspaceId || !caseId) return null;
-  const kase = await env.cybermeters_db
-    .prepare("SELECT status, verified_at, last_verified_at FROM managed_cases WHERE id = ? AND workspace_id = ? LIMIT 1")
-    .bind(caseId, workspaceId).first().catch(() => null);
-  const day = utcDay(kase?.verified_at || kase?.last_verified_at);
-  if (kase?.status !== "reopened" || !day) return null;
-  return `CyberMeters verified this fixed on ${day}; it has been observed again, so the case is reopened.`;
+// The sentence a reopen alert carries (23 Oct 2026). Only for an alert the
+// caller says is THE reopen (never inferred from a case that merely sits in a
+// reopened status), and worded by WHO concluded the earlier fix: CyberMeters'
+// own verification, or the customer's attestation — the registry says some
+// conditions CyberMeters cannot observe, and the note must not claim it did.
+export async function reopenNote(env, workspaceId, caseId, caseReopened) {
+  if (!caseReopened || !workspaceId || !caseId) return null;
+  const ev = await env.cybermeters_db
+    .prepare(`SELECT actor_type, created_at FROM managed_case_events
+              WHERE workspace_id = ? AND case_id = ? AND to_status IN ('verified', 'resolved')
+              ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+    .bind(workspaceId, caseId).first().catch(() => null);
+  const day = utcDay(ev?.created_at);
+  if (!day) return null;
+  if (ev.actor_type === "system") return `CyberMeters verified this fixed on ${day}; it has been observed again, so the case is reopened.`;
+  if (ev.actor_type === "customer") return `You marked this fixed on ${day}; it has been observed again, so the case is reopened.`;
+  return null;
 }
 
 // Whether a recurrence has its own customer copy (CI requires one for every
@@ -603,10 +617,10 @@ export function humanizeRecurrence(recurrence) {
 
 // The generic event description: names the entity and the observed transition,
 // asserts nothing beyond them. Deliberately NOT the recommendation.
-export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay) {
+export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay, ctx = {}) {
   const subject = String(entityDisplay || "").trim() || "A monitored item";
   const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
-  if (copy?.what_changed) return copy.what_changed(subject);
+  if (copy?.what_changed) return copy.what_changed(subject, ctx);
   // Never the internal recurrence name: CI requires copy for every alerting
   // recurrence, so this generic sentence is only a last resort.
   return `CyberMeters observed a change for ${subject} that needs your review.`;
@@ -698,6 +712,8 @@ export async function emitCaseLifecycleAlert(env, caseRow, {
       entity_display,
       monitored_domain,
       evidence_source,
+      case_reopened: recurrence === "case_reopened",
+      finding_label: caseRow.title || null,
     });
   } catch (err) {
     // No persisted event => no alert. Never throws: alerting must not break the
@@ -725,6 +741,11 @@ export async function emitLifecycleAlert(env, {
   // summary of HOW it was observed. Callers that pass none of these keep the
   // legacy behaviour exactly.
   entity_type = null, entity_display = null, monitored_domain = null, evidence_source = null,
+  // The caller just reopened this alert's case (a reopen recurrence). Never inferred.
+  case_reopened = false,
+  // The observed finding's own wording ("TLS1 accepted on this endpoint"), when the
+  // caller has one; the registry's (action-phrased) title is only the fallback.
+  finding_label = null,
 } = {}) {
   try {
     if (!workspace_id || !domain_key || !record_id || !recurrence) return { skipped: "incomplete_condition" };
@@ -797,8 +818,8 @@ export async function emitLifecycleAlert(env, {
     const displayName = String(entity_display || "").trim() || entity || record_id;
     // A reopen says what came before (23 Oct 2026): the customer was told it was
     // fixed, so the alert names that verification and why the case is back.
-    const reopenedNote = await reopenedAfterVerification(env, workspace_id, case_id);
-    const eventDescription = describeRecurrenceEvent(domain_key, recurrence, displayName);
+    const reopenedNote = await reopenNote(env, workspace_id, case_id, case_reopened);
+    const eventDescription = describeRecurrenceEvent(domain_key, recurrence, displayName, { finding_label: finding_label || resolved?.customer_title || null });
     const canonicalWhatChanged = reopenedNote ? `${eventDescription} ${reopenedNote}` : eventDescription;
     const canonicalRecommendation = recommendationForRecurrence(
       domain_key, recurrence, displayName, resolved?.recommended_action || null,

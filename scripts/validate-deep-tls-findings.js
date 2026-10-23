@@ -143,7 +143,7 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   assert.deepEqual(transitions(),['tls_condition_observed','tls_condition_returned'],'the reopen is its own alert occurrence');
   const sent = certAlerts();
   assert.deepEqual(sent.map(a=>a.type),['certificates_trust.tls_condition_observed','certificates_trust.tls_condition_returned'],'one alert on open, one on reopen');
-  assert.match(sent[0].message,/TLS measurement of mail\.example\.org observed a weak transport setting/,'the open alert names the endpoint in plain words');
+  assert.match(sent[0].message,/A TLS measurement of mail\.example\.org observed: TLS1 accepted on this endpoint\./,'the open alert names the endpoint and the observed condition in plain words');
   assert.match(sent[1].message,/CyberMeters verified this fixed on \d{1,2} [A-Z][a-z]{2} \d{4}; it has been observed again, so the case is reopened\./,'the reopen alert says it was verified, and when');
   assert(!sent.some(a=>/tls_|tlscase:|condition "/.test(a.message)),'no internal key in alert prose');
   assert.deepEqual(await run({source:'not_tls'}), {opened:0,reopened:0,verified:0,skipped:'no_tls_assessment'});
