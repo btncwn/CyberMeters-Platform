@@ -11,9 +11,9 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 123
-- **classified:** 123
-- **tenant owned tables:** 115
+- **schema tables:** 124
+- **classified:** 124
+- **tenant owned tables:** 116
 - **infra or identity tables:** 8
 - **unclassified:** 0
 - **resource classes:** 43
@@ -70,7 +70,7 @@ data cannot be silently omitted.
 | posture_state | reporting | direct(workspace_id) | 4 | ✓ | — |
 | related_changes | correlation | direct(workspace_id) | 2 | — | — |
 | api_tokens | account | direct(workspace_id) | 1 | — | ✓ |
-| subscriptions | billing | direct(workspace_id), account(owner_user_id), via_subscription(subscription_id) | 4 | ✓ | — |
+| subscriptions | billing | direct(workspace_id), account(owner_user_id), via_subscription(subscription_id) | 5 | ✓ | — |
 | report_branding | reporting | direct(workspace_id), account(owner_user_id) | 2 | — | — |
 | msp_portfolio | portfolio | account(owner_id) | 1 | — | — |
 | audit_log | core | direct(workspace_id) | 1 | ✓ | — |
@@ -208,6 +208,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `shadow_it_inventory` | direct(workspace_id) | shadow_it |
 | `shadow_it_inventory_events` | direct(workspace_id) | shadow_it |
 | `stripe_processed_events` | infra | infrastructure |
+| `stripe_subscription_lineages` | direct(workspace_id) | subscriptions |
 | `subscription_accounts` | account(owner_user_id) | subscriptions |
 | `subscription_events` | via_subscription(subscription_id) | subscriptions |
 | `subscriptions` | direct(workspace_id) | subscriptions |
