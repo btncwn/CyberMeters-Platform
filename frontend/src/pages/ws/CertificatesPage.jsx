@@ -94,6 +94,36 @@ const BUCKETS = [
   { key: 'healthy', label: '>90 days', tone: 'info' },
   { key: 'unknown', label: 'Unknown',  tone: 'na' },
 ]
+// One certificate signal across the workspace's domains, in the backend's own
+// words: its check verdict where it has one (hostname match), else its state,
+// and the presentation engine's customer sentence. Nothing is derived here.
+export function CertificateSignalSection({ id, title, signalKey, certs, loading, intro }) {
+  const rows = (certs || []).map((cert) => ({ domain: cert.domain || 'Hostname not recorded', signal: cert.certificate_assurance?.signals?.[signalKey] || null }))
+  return (
+    <section id={id} className="card p-6 mb-6" aria-labelledby={`${id}-heading`} data-testid={id}>
+      <h2 id={`${id}-heading`} className="font-semibold text-gray-900 mb-1">{title}</h2>
+      <p className="text-sm text-gray-500 leading-relaxed mb-4 max-w-3xl">{intro}</p>
+      {loading && !rows.length ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : !rows.length ? (
+        <p className="text-sm text-gray-600">No certificate has been read yet. This fills after a scan of a domain in this workspace.</p>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {rows.map(({ domain, signal }, index) => (
+            <li key={`${domain}-${index}`} className="py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-4">
+              <span className="text-sm font-medium text-gray-900 break-all">{domain}</span>
+              <span className="text-sm text-gray-700 sm:text-right sm:max-w-xl">
+                <span className="font-semibold">{signal?.check?.outcome && signal.check.outcome !== 'not_checked' ? signal.check.label : (signal?.state_label || 'Unknown')}</span>
+                {signal?.customer_message && <span className="block text-gray-600">{signal.customer_message}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 function bucketCounts(certs) {
   const b = { expired: 0, d0_7: 0, d8_30: 0, d31_90: 0, healthy: 0, unknown: 0 }
   for (const c of certs) {
@@ -540,6 +570,12 @@ export default function CertificatesPage() {
           )}
         </>
       )}
+      {/* S1-SHELL-V2b: the two certificate signals the sidebar names, each its own
+          section in every state (an honest line before any certificate is read). */}
+      <CertificateSignalSection id="cert-hostname-match" title="Hostname match" signalKey="hostname_match" certs={certs} loading={loading}
+        intro="Whether each live certificate covers the name CyberMeters connected to." />
+      <CertificateSignalSection id="cert-caa" title="Issuance policy (CAA)" signalKey="caa" certs={certs} loading={loading}
+        intro="CAA records say which authorities may issue certificates for the domain. They control issuance; they do not describe the live certificate." />
       </ModuleContract>
     </WsPage>
   )

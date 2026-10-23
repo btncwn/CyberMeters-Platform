@@ -117,6 +117,8 @@ const SERVICE_DEFINITIONS = [
     subtopics: [
       { label: 'Expiry',        hash: '#cert-expiry', tab: 'overview' },
       { label: 'Chain & trust', hash: '#cert-trust' },
+      { label: 'Hostname match',        hash: '#cert-hostname-match' },
+      { label: 'Issuance policy (CAA)', hash: '#cert-caa' },
       { label: 'Lifecycle',     to: '/ws/certificates/lifecycle' },
     ],
     items: [

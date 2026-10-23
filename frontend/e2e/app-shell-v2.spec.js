@@ -184,6 +184,8 @@ test('empty states keep every sub-topic target: no certificates, no Email scans,
   }
   await expectTarget('/ws/certificates', '#cert-expiry')
   await expectTarget('/ws/certificates?tab=findings#cert-trust', '#cert-trust')
+  await expectTarget('/ws/certificates?tab=findings#cert-hostname-match', '#cert-hostname-match')
+  await expectTarget('/ws/certificates?tab=findings#cert-caa', '#cert-caa')
   await page.goto('/ws/email-protection?tab=findings', { waitUntil: 'networkidle' })
   await expect(page.getByTestId('email-topics-pending'), 'the no-scan state is the one under test').toBeVisible()
   for (const id of ['#auth-dmarc', '#auth-spf', '#auth-dkim', '#report-history', '#mail-transport']) await expectTarget(`/ws/email-protection${id}`, id)
