@@ -389,6 +389,24 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   eq("...and tells the customer nothing", notifs("ws2").length, before);
 }
 
+// ── 5b. E2 (23 Oct 2026): the apex's HSTS policy was not observed (a 429) ──
+// No finding and a complete headers module must NOT read as a fix.
+{
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('ws9','u1','E2')").run();
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('m9','ws9','u1','owner')").run();
+  activate("ws9", "2026-06-01T00:00:00Z");
+  await run("ws9", [F.hstsMissing()], { scan: "e2s1", domainId: "d9", domain: "gamma.example.com" });
+  await run("ws9", [F.hstsMissing()], { scan: "e2s2", domainId: "d9", domain: "gamma.example.com" });
+  const notObserved = { ...MODULES_OK, headers: { ...MODULES_OK.headers,
+    hsts_policy: { version: "2026-10-23.1", apex_host: "gamma.example.com", apex_url: "https://gamma.example.com", apex_status: 429,
+      state: "not_observed", value: null, include_subdomains: false, final_host: "www.gamma.example.com", final_value: "max-age=7889238", final_covered: false } } };
+  await run("ws9", [], { scan: "e2s3", domainId: "d9", domain: "gamma.example.com", modules: notObserved });
+  const rec = condFor("ws9", "header_missing_strict_transport_security");
+  eq("E2: an unobserved apex HSTS policy keeps the case open (unknown, not no_longer_observed)", rec.monitoring_status, "unknown");
+  eq("E2: ...naming the reason", rec.unknown_reason, "hsts_apex_not_observed");
+  ok("E2: ...and writes no recovery event", !allEvents(rec.id).some((e) => e.event_type === WS_EVENT_RESOLVED));
+}
+
 // ── 6. Verified recovery, then reappearance ───────────────────────────────
 {
   const rec = condFor("ws2", "header_missing_strict_transport_security");

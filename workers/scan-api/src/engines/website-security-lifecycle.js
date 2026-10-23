@@ -199,6 +199,12 @@ function gradeFindings(findings, modules, gate) {
 // Most Website modules predate the shaped serviceability field; preserve their
 // established behaviour until a producer supplies that field, but never admit an
 // explicitly non-serviceable module result (or an ungrounded redirect envelope).
+// Conditions judged on the apex's host-scoped HSTS policy (headers.hsts_policy).
+const HSTS_CONDITION_KEYS = new Set([
+  "header_missing_strict_transport_security", "header_weak_hsts",
+  "dse_hsts_short_maxage", "dse_hsts_not_preload_eligible", "header_hsts_redirect_host_uncovered",
+]);
+
 export function mayIssueFromModule(modules, moduleName) {
   const evidence = modules?.[moduleName];
   if (evidence?.serviceability && !maySupportDefectConclusion(evidence.serviceability)) return false;
@@ -357,6 +363,13 @@ export async function evaluateWebsiteSecurityForScan(env, {
         status = "unknown";
         unknown_reason = "evidence_uncertain";
         reason = "condition_present_but_grade_not_material";
+      } else if (HSTS_CONDITION_KEYS.has(key) && modules?.headers?.hsts_policy?.state === "not_observed") {
+        // E2 R1 (23 Oct 2026): the apex gave no serviceable HTTPS answer (e.g.
+        // a 429), so its HSTS policy was not observed. Absence of the finding
+        // is absence of evidence, never a fix.
+        status = "unknown";
+        unknown_reason = "hsts_apex_not_observed";
+        reason = "hsts_policy_not_observed";
       } else if (gate.canVerify(spec.module) || gate.canVerifyModule(spec.module)) {
         // Absent AND the detecting module provably ran to completion => a real fix,
         // also on a scan that is partial only because of a supplementary module.
