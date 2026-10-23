@@ -267,18 +267,60 @@ export function captureSetCookieRaw(headers) {
 
 const safeHostname = (url) => { try { return new URL(url).hostname.toLowerCase(); } catch { return null; } };
 
+export const HSTS_POLICY_VERSION = "2026-10-23.1";
+
 /**
- * The HSTS policy that covers the domain (item 15 fix B, 23 Oct 2026): the
- * apex's own HTTPS answer when it sent one (preload eligibility is judged on
- * the apex, and its includeSubDomains covers www), otherwise the final page's.
- * Returns { value, source: "apex" | "final", url } or { value: null, ... }.
+ * The domain's own HSTS policy, host-scoped (RFC 6797 §§8.1-8.3; item 15 B2).
+ * An STS policy binds to the host that sent it and covers subdomains only with
+ * includeSubDomains; a www policy never covers its apex, and preload requires
+ * the apex's own HTTPS answer to carry the header.
+ *   state "present"      the apex's own HTTPS answer carried HSTS (value)
+ *   state "absent"       the apex answered HTTPS without HSTS
+ *   state "not_observed" no HTTPS answer from the apex was seen: not assessed
+ * final_covered: the final page's host is the apex, or a subdomain covered by
+ * the apex's includeSubDomains.
  */
-export function effectiveHstsValue(headers, domain) {
+export function buildHstsHostPolicy({ domain, apexObserved, apexValue = null, apexUrl = null, apexStatus = null, finalUrl = null, finalValue = null }) {
+  const apexHost = String(domain || "").toLowerCase();
+  const finalHost = finalUrl ? safeHostname(finalUrl) : null;
+  const state = apexObserved ? (apexValue ? "present" : "absent") : "not_observed";
+  const includeSubDomains = state === "present" && /(^|;)\s*includesubdomains\s*(;|$)/i.test(apexValue);
+  return {
+    version: HSTS_POLICY_VERSION,
+    apex_host: apexHost,
+    apex_url: apexUrl || `https://${apexHost}`,
+    apex_status: Number.isInteger(apexStatus) ? apexStatus : null,
+    state,
+    value: state === "present" ? apexValue : null,
+    include_subdomains: includeSubDomains,
+    final_host: finalHost,
+    final_value: finalValue || null,
+    final_covered: finalHost === apexHost || Boolean(includeSubDomains && finalHost && finalHost.endsWith(`.${apexHost}`)),
+  };
+}
+
+/**
+ * The domain's HSTS policy from a headers-module result. New results carry
+ * hsts_policy. A historical result without it keeps the meaning it was
+ * recorded with (fix B's apex_https_response, else the final page's value).
+ */
+export function hstsPolicyOf(headers, domain) {
+  if (headers?.hsts_policy?.state) return headers.hsts_policy;
   const apex = headers?.apex_https_response;
+  const finalValue = headers?.values?.["strict-transport-security"] || null;
   if (apex?.strict_transport_security) {
-    return { value: apex.strict_transport_security, source: "apex", url: apex.url || `https://${domain}` };
+    return buildHstsHostPolicy({ domain, apexObserved: true, apexValue: apex.strict_transport_security, apexUrl: apex.url,
+      apexStatus: apex.status, finalUrl: headers?.response_url, finalValue });
   }
-  return { value: headers?.values?.["strict-transport-security"] || null, source: "final", url: headers?.response_url || `https://${domain}` };
+  // Legacy: the final page's value stood for the domain.
+  return { ...buildHstsHostPolicy({ domain, apexObserved: true, apexValue: finalValue, finalUrl: `https://${String(domain || "").toLowerCase()}`, finalValue }),
+    legacy: true };
+}
+
+/** Compatibility wrapper: the value the domain's HSTS judgments read. */
+export function effectiveHstsValue(headers, domain) {
+  const policy = hstsPolicyOf(headers, domain);
+  return { value: policy.value, source: policy.legacy ? "final" : "apex", url: policy.apex_url, policy };
 }
 
 export async function runHeadersModule(domain, opts = {}) {
@@ -623,8 +665,22 @@ export async function runHeadersModule(domain, opts = {}) {
   // when we had to fall back to plain HTTP.
   const finalHttps = responseUrl ? responseUrl.startsWith("https://") : false;
 
-  const present = SECURITY_HEADERS.filter((h) => !!headerValues[h.name]).map((h) => h.name);
-  const missing = SECURITY_HEADERS.filter((h) => !headerValues[h.name]).map((h) => h.name);
+  // Item 15 B2: HSTS is the domain's own policy (the apex's HTTPS answer), not
+  // whatever the redirected page sent; "not_observed" is neither present nor
+  // missing (not assessed). Every other header is the final page's.
+  const hstsPolicy = buildHstsHostPolicy({
+    domain,
+    apexObserved: Boolean(apexHop),
+    apexValue: apexHop?.hsts || null,
+    apexUrl: apexHop?.url || null,
+    apexStatus: apexHop?.status ?? null,
+    finalUrl: responseUrl,
+    finalValue: headerValues["strict-transport-security"] || null,
+  });
+  const domainHeaderValue = (name) => name === "strict-transport-security" ? hstsPolicy.value : headerValues[name];
+  const present = SECURITY_HEADERS.filter((h) => !!domainHeaderValue(h.name)).map((h) => h.name);
+  const missing = SECURITY_HEADERS.filter((h) => !domainHeaderValue(h.name)
+    && !(h.name === "strict-transport-security" && hstsPolicy.state === "not_observed")).map((h) => h.name);
 
   // ── Probe execution is EVIDENCE, and its absence must say so ────────────────
   // `accessible` is the existing authority gate consumed by scoring. It is false
@@ -727,15 +783,17 @@ export async function runHeadersModule(domain, opts = {}) {
     values:         headerValues,
     // Item 15 fix B: the apex's own HTTPS answer when the final page is on
     // another host (null when the final page is the apex, or it was not seen).
-    apex_https_response: apexHop && responseUrl && safeHostname(responseUrl) !== String(domain).toLowerCase()
+    apex_https_response: apexHop
       ? { url: apexHop.url, status: apexHop.status, strict_transport_security: apexHop.hsts }
       : null,
+    // Item 15 B2: the domain's own, host-scoped HSTS policy (buildHstsHostPolicy).
+    hsts_policy: hstsPolicy,
     set_cookie_raw: setCookieRaw,
     // v4: Header strength classification per security header
     header_strength: Object.fromEntries(
       SECURITY_HEADERS
-        .filter((h) => headerValues[h.name])
-        .map((h) => [h.name, classifyHeaderStrength(h.name, headerValues[h.name])])
+        .filter((h) => domainHeaderValue(h.name))
+        .map((h) => [h.name, classifyHeaderStrength(h.name, domainHeaderValue(h.name))])
     ),
   };
 }

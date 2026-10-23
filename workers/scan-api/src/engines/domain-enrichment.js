@@ -14,7 +14,7 @@
  * This design avoids consuming additional subrequests on Cloudflare Workers'
  * free-plan 50-subrequest budget.
  */
-import { effectiveHstsValue } from "./headers-scan.js";
+import { hstsPolicyOf } from "./headers-scan.js";
 
 export function runDomainSecurityEnrichmentModule(domain, modules) {
   // ── 1. CAA — read from DNS module ────────────────────────────────────────
@@ -32,10 +32,13 @@ export function runDomainSecurityEnrichmentModule(domain, modules) {
   };
 
   // ── 2. HSTS — read from headers module ───────────────────────────────────
-  // Item 15 fix B: judged on the policy that covers the domain (the apex's own
-  // answer when it sent HSTS), never the redirected www page's alone.
-  const effectiveHsts = effectiveHstsValue(modules?.headers, domain);
-  const hstsRaw = effectiveHsts.value;
+  // Item 15 fix B/B2: the domain's own, host-scoped policy (the apex's HTTPS
+  // answer). A redirected page's HSTS never stands for the domain; an apex that
+  // never answered HTTPS is not assessed (error set, so no presence claim and no
+  // preload claim is derived from it).
+  const hstsPolicy = hstsPolicyOf(modules?.headers, domain);
+  const hstsSource = hstsPolicy.legacy ? "final" : "apex";
+  const hstsRaw = hstsPolicy.value;
   let hsts;
   if (hstsRaw) {
     const parts  = hstsRaw.toLowerCase().split(";").map((p) => p.trim());
@@ -54,14 +57,19 @@ export function runDomainSecurityEnrichmentModule(domain, modules) {
       include_subdomains: inclSub,
       preload_directive:  preDir,
       preload_eligible:   maxAge !== null && maxAge >= 31_536_000 && inclSub && preDir,
-      source:             effectiveHsts.source,
+      source:             hstsSource,
       error:              null,
     };
   } else {
     hsts = {
       present: false, value: null, max_age: null,
       include_subdomains: false, preload_directive: false,
-      preload_eligible: false, error: null,
+      preload_eligible: false,
+      source: hstsSource,
+      // Redirected host's own header, named, so no surface reads it as the domain's.
+      final_host: hstsPolicy.final_host !== hstsPolicy.apex_host ? hstsPolicy.final_host : null,
+      final_host_value: hstsPolicy.final_host !== hstsPolicy.apex_host ? hstsPolicy.final_value : null,
+      error: hstsPolicy.state === "not_observed" ? "apex_https_not_observed" : null,
     };
   }
 

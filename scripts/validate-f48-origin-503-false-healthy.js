@@ -259,48 +259,90 @@ const R_ALL_503 = async () => origin503();
   eq("UNCERTAIN_CONTROL_FULLY_HEADERED_200_STAYS_HEALTHY", healthy.website?.state, "assessed_healthy");
 }
 
-// ── Item 15 fix B (23 Oct 2026): HSTS is judged on the apex ────────────────
-// Corpus shape: the apex answers 301 with max-age >= 1 year; includeSubDomains;
-// preload (eligible, and it covers www), the redirected www page sends a short
-// max-age. The full scan used to judge the www value and attribute it to the
-// apex ("not preload-eligible", "short max-age", "weak HSTS"): 7 false findings.
+// ── Item 15 fix B/B2 (23 Oct 2026): HSTS is the apex's own, host-scoped policy ─
+// RFC 6797 §§8.1-8.3: a policy binds to the host that sent it; includeSubDomains
+// extends it downward; a www policy never covers its apex; preload needs the
+// apex's own HTTPS answer. Rows are Codex C-40's counterexamples plus the
+// corpus-79/-60 summary disagreement.
 {
   const withUrl = (response, url) => { Object.defineProperty(response, "url", { value: url }); return response; };
-  const site = (apexHsts) => async (input) => {
+  const WWW = `www.${DOMAIN}`;
+  const site = ({ apexHsts = null, wwwHsts = null, apexNoHttps = false, direct = false }) => async (input) => {
     const url = new URL(String(input));
-    if (url.protocol === "http:") return withUrl(new Response(null, { status: 301, headers: { location: `https://${url.hostname}/` } }), String(input));
-    if (url.hostname === DOMAIN) {
-      return withUrl(new Response(null, { status: 301, headers: { location: `https://www.${DOMAIN}/uk`, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } }), String(input));
+    if (url.protocol === "http:") {
+      const to = apexNoHttps ? `https://${WWW}/uk` : `https://${url.hostname}/`;
+      return withUrl(new Response(null, { status: 301, headers: { location: to } }), String(input));
     }
+    if (url.hostname === DOMAIN) {
+      if (apexNoHttps) throw new TypeError("fetch failed");
+      if (direct) {
+        const { "strict-transport-security": _ignored, ...rest } = SECURITY_HEADER_SET;
+        return withUrl(new Response("<html><body>shop</body></html>", { status: 200, headers: {
+          "content-type": "text/html", ...rest, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } }), String(input));
+      }
+      return withUrl(new Response(null, { status: 301, headers: { location: `https://${WWW}/uk`, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } }), String(input));
+    }
+    const { "strict-transport-security": _omit, ...others } = SECURITY_HEADER_SET;
     return withUrl(new Response("<html><body>shop</body></html>", { status: 200, headers: {
-      "content-type": "text/html", ...SECURITY_HEADER_SET, "strict-transport-security": "max-age=900" } }), String(input));
+      "content-type": "text/html", ...others, ...(wwwHsts ? { "strict-transport-security": wwwHsts } : {}) } }), String(input));
   };
-  const hstsFindings = async (router) => {
-    globalThis.fetch = router;
+  const run = async (shape) => {
+    globalThis.fetch = site(shape);
     try {
       const headers = await runHeadersModule(DOMAIN);
       const enrich = runDomainSecurityEnrichmentModule(DOMAIN, { headers, dns: {} });
-      const findings = [
-        ...(computeScore({ dns: { resolves: true }, headers, ssl: {}, technology_detection: {}, email_security: {} }, DOMAIN)?.findings || []),
-        ...buildDseFindings(enrich, DOMAIN),
-      ].map((f) => f.id).filter((id) => /hsts/.test(id)).sort();
-      return { headers, enrich, findings };
+      const scored = computeScore({ dns: { resolves: true }, headers, ssl: { http_redirects_to_https: true }, technology_detection: {}, email_security: {} }, DOMAIN)?.findings || [];
+      const all = [...scored, ...buildDseFindings(enrich, DOMAIN)];
+      const hsts = all.filter((f) => /hsts|strict_transport/.test(f.id));
+      return { headers, enrich, hsts, ids: hsts.map((f) => f.id).sort() };
     } finally { globalThis.fetch = realFetch; }
   };
-  const eligibleApex = await hstsFindings(site("max-age=31536000; includeSubdomains; preload"));
-  eq("HSTS_APEX_RECORDED", eligibleApex.headers.apex_https_response?.strict_transport_security, "max-age=31536000; includeSubdomains; preload");
-  eq("HSTS_APEX_POLICY_JUDGED", [eligibleApex.enrich.hsts.source, eligibleApex.enrich.hsts.preload_eligible], ["apex", true]);
-  eq("HSTS_APEX_ELIGIBLE_NO_FALSE_FINDINGS", eligibleApex.findings, []);
-  // Control: the apex sends no HSTS, so the final page's short max-age is the
-  // domain's policy and every true finding still fires.
-  const noApexHsts = await hstsFindings(site(null));
-  eq("HSTS_CONTROL_FINAL_POLICY_JUDGED", noApexHsts.enrich.hsts.source, "final");
-  ok("HSTS_CONTROL_TRUE_FINDINGS_STILL_FIRE",
-    ["dse_hsts_not_preload_eligible", "dse_hsts_short_maxage"].every((id) => noApexHsts.findings.includes(id)), JSON.stringify(noApexHsts.findings));
-  // Control: an apex HSTS without preload is judged as such (still a true finding).
-  const apexNoPreload = await hstsFindings(site("max-age=31536000"));
-  ok("HSTS_APEX_WITHOUT_PRELOAD_STILL_FLAGGED", apexNoPreload.findings.includes("dse_hsts_not_preload_eligible")
-    && !apexNoPreload.findings.includes("dse_hsts_short_maxage"), JSON.stringify(apexNoPreload.findings));
+  const STRONG = "max-age=31536000; includeSubdomains; preload";
+
+  // Corpus-79/-60 (fix B): eligible apex, short www — no finding, summary agrees.
+  const eligible = await run({ apexHsts: STRONG, wwwHsts: "max-age=900" });
+  eq("HSTS_APEX_RECORDED", eligible.headers.apex_https_response?.strict_transport_security, STRONG);
+  eq("HSTS_APEX_POLICY_JUDGED", [eligible.enrich.hsts.source, eligible.enrich.hsts.preload_eligible], ["apex", true]);
+  eq("HSTS_APEX_ELIGIBLE_NO_FALSE_FINDINGS", eligible.ids, []);
+  eq("HSTS_SUMMARY_AGREES_STRONG_APEX", eligible.headers.header_strength?.["strict-transport-security"]?.status, "valid");
+
+  // C-40 row 1: apex answers HTTPS without HSTS; www has strong HSTS.
+  const apexNone = await run({ apexHsts: null, wwwHsts: STRONG });
+  eq("B2_APEX_ABSENT_NOT_PRESENT_NOT_ELIGIBLE", [apexNone.enrich.hsts.present, apexNone.enrich.hsts.preload_eligible, apexNone.headers.hsts_policy?.state], [false, false, "absent"]);
+  const missing = apexNone.hsts.find((f) => f.id === "header_missing_strict_transport_security");
+  ok("B2_APEX_ABSENT_SAYS_EXACTLY_WHAT_IS_TRUE",
+    Boolean(missing) && missing.description.includes(`The apex (${DOMAIN}) sends no HSTS; ${WWW} does.`), missing?.description);
+  ok("B2_APEX_ABSENT_SUMMARY_HAS_NO_HSTS", !apexNone.headers.header_strength?.["strict-transport-security"]
+    && apexNone.headers.missing.includes("strict-transport-security"), JSON.stringify(apexNone.headers.missing));
+
+  // C-40 row 2: apex never answers HTTPS; HTTP redirects to strongly protected www.
+  const noHttps = await run({ apexNoHttps: true, wwwHsts: STRONG });
+  eq("B2_APEX_NO_HTTPS_NOT_ASSESSED", [noHttps.headers.hsts_policy?.state, noHttps.enrich.hsts.present, noHttps.enrich.hsts.preload_eligible, noHttps.enrich.hsts.error],
+    ["not_observed", false, false, "apex_https_not_observed"]);
+  eq("B2_APEX_NO_HTTPS_NO_HSTS_CLAIM_EITHER_WAY", noHttps.ids, []);
+
+  // C-40 row 3: apex strong WITH includeSubDomains; www omits — protected, no missing finding.
+  const covered = await run({ apexHsts: STRONG, wwwHsts: null });
+  eq("B2_APEX_COVERS_WWW_NO_MISSING_FINDING", covered.ids, []);
+  eq("B2_APEX_COVERS_WWW_POLICY", [covered.headers.hsts_policy?.final_covered, covered.headers.missing.includes("strict-transport-security")], [true, false]);
+
+  // C-40 row 4: apex strong WITHOUT includeSubDomains; www omits — a www observation, never an apex absence.
+  const uncovered = await run({ apexHsts: "max-age=31536000", wwwHsts: null });
+  ok("B2_UNCOVERED_WWW_IS_A_WWW_OBSERVATION",
+    uncovered.ids.includes("header_hsts_redirect_host_uncovered") && !uncovered.ids.includes("header_missing_strict_transport_security"), JSON.stringify(uncovered.ids));
+  ok("B2_UNCOVERED_WWW_NAMES_WWW",
+    (uncovered.hsts.find((f) => f.id === "header_hsts_redirect_host_uncovered")?.description || "").startsWith(`${WWW} sends no HSTS`));
+
+  // C-40 row 5 (reverse): short apex, strong www — the apex is what is judged.
+  const shortApex = await run({ apexHsts: "max-age=900", wwwHsts: STRONG });
+  eq("B2_SUMMARY_AGREES_SHORT_APEX", shortApex.headers.header_strength?.["strict-transport-security"]?.status, "weak");
+  ok("B2_SHORT_APEX_FINDINGS_FIRE", ["dse_hsts_short_maxage", "header_weak_hsts"].every((id) => shortApex.ids.includes(id)), JSON.stringify(shortApex.ids));
+
+  // Direct-apex controls.
+  eq("B2_DIRECT_APEX_STRONG_NO_FINDING", (await run({ direct: true, apexHsts: STRONG })).ids, []);
+  const directNone = await run({ direct: true, apexHsts: null });
+  ok("B2_DIRECT_APEX_ABSENT_GENUINE_MISSING", directNone.ids.includes("header_missing_strict_transport_security")
+    && !directNone.hsts.find((f) => f.id === "header_missing_strict_transport_security").description.includes("sends no HSTS;"), JSON.stringify(directNone.ids));
 }
 
 console.log(`\nF-48 origin-503 false-healthy: ${pass}/${pass + fail} assertions passed`);

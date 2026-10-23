@@ -87,7 +87,17 @@ function httpsStatements(ssl) {
 function headerStatements(headers) {
   if (headers?.headers_assessed !== true) return [];
   const out = [];
-  const hsts = headerValue(headers, "strict-transport-security");
+  // Item 15 B2: the domain's own, host-scoped HSTS policy; a redirected page's
+  // header is named as that host's, never as the domain's.
+  const policy = headers?.hsts_policy?.state ? headers.hsts_policy : null;
+  const hsts = policy ? policy.value : headerValue(headers, "strict-transport-security");
+  if (policy?.state === "absent" && policy.final_value && policy.final_host && policy.final_host !== policy.apex_host) {
+    out.push(statement(
+      "hsts_redirected_host_only",
+      `HSTS: ${policy.apex_host} sends none; ${policy.final_host} (where it redirects) sends ${policy.final_value}`,
+      "headers",
+    ));
+  }
   if (hsts && headerValid(headers, "strict-transport-security")) {
     const maxAge = Number((hsts.match(/max-age\s*=\s*(\d+)/i) || [])[1]);
     const flags = [

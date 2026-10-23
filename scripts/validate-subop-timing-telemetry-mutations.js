@@ -337,25 +337,18 @@ runMutant({
   expectedFailures: ["primary GET safeFetch receives the caller signal"],
   mutate: (source) => replaceExactlyOnce(
     source,
-    `    const getRes = await safeFetch(probeUrl, {
-      method:   "GET",
-      redirect: "follow",
-      accounting,
+    // 23 Oct 2026: anchored on the primary GET's own option lines (the
+    // primaryTimedOut handler is unique to it), so an added option such as
+    // fix B's onHop observer does not break the anchor.
+    `      accounting,
       signal: opts.signal,
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
-      onFailure: (reason) => { if (reason === "origin_timeout") primaryTimedOut = true; },
-      ...HEADER_PROBE_INIT,
-    });`,
-    `    const getRes = await safeFetch(probeUrl, {
-      method:   "GET",
-      redirect: "follow",
-      accounting,
+      onFailure: (reason) => { if (reason === "origin_timeout") primaryTimedOut = true; },`,
+    `      accounting,
       dnsResolver: opts.dnsResolver,
       dnsCache: opts.dnsCache,
-      onFailure: (reason) => { if (reason === "origin_timeout") primaryTimedOut = true; },
-      ...HEADER_PROBE_INIT,
-    });`,
+      onFailure: (reason) => { if (reason === "origin_timeout") primaryTimedOut = true; },`,
     "headers primary direct signal",
   ),
 });
