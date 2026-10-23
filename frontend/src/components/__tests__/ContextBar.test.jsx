@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../api'
 import ContextBar, { ScopedDomainProvider, useScopedDomain, useWorkspaceDomains } from '../shell/WorkspaceContext'
+import { act } from '@testing-library/react'
+import { notifyWorkspaceDomainsChanged } from '../../lib/activeWorkspace'
 
 vi.mock('../../api', () => ({ api: { getWorkspaceDomains: vi.fn(), getWorkspaces: vi.fn() } }))
 
@@ -12,9 +14,9 @@ const DOMAINS = {
   ws_she: [{ domain: 'sheshire.co.uk' }, { domain: 'blackbullbarbers.co.uk' }],
   ws_one: [{ domain: 'onlyone.example' }],
 }
-function Harness({ wsId, wsName, scoped = null }) {
+function Harness({ wsId, wsName, scoped = null, scopedWs = null }) {
   const domainsState = useWorkspaceDomains(wsId)
-  function Scoped() { useScopedDomain(scoped); return null }
+  function Scoped() { useScopedDomain(scoped, { workspaceId: scopedWs }); return null }
   return (<><Scoped /><ContextBar wsId={wsId} wsName={wsName} domainsState={domainsState} /></>)
 }
 const mount = (props, path = '/dashboard') => render(
@@ -88,5 +90,36 @@ describe('ContextBar', () => {
     unmount()
     mount({ wsId: 'ws_none', wsName: 'Empty' })
     await waitFor(() => expect(bar()).toHaveTextContent('Empty›No domains yet'))
+  })
+})
+
+describe('C-47 fixes', () => {
+  it('F02: a domain from workspace A is never shown under workspace B (not in B\'s domains)', async () => {
+    mount({ wsId: 'ws_one', wsName: 'One Ltd', scoped: 'sheshire.co.uk' }, '/ws/cases/c1')
+    await waitFor(() => expect(bar()).toHaveTextContent('One Ltd›onlyone.example'))
+    expect(bar()).not.toHaveTextContent('sheshire.co.uk')
+  })
+  it('F02: a record tagged with another workspace is never shown, even if B lists the domain', async () => {
+    mount({ wsId: 'ws_she', wsName: 'She.Shire', scoped: 'sheshire.co.uk', scopedWs: 'ws_other' }, '/ws/cases/c1')
+    await within(bar()).findByRole('button', { name: /All domains \(2\)/ })
+    expect(bar()).not.toHaveTextContent('She.Shire›sheshire.co.uk')
+  })
+  it('F04: a domain added, removed or verified refetches the list and the count', async () => {
+    mount({ wsId: 'ws_one', wsName: 'One Ltd' })
+    await waitFor(() => expect(bar()).toHaveTextContent('One Ltd›onlyone.example'))
+    DOMAINS.ws_one = [{ domain: 'onlyone.example' }, { domain: 'second.example' }]
+    act(() => notifyWorkspaceDomainsChanged())
+    await within(bar()).findByRole('button', { name: /All domains \(2\)/ })
+    DOMAINS.ws_one = [{ domain: 'onlyone.example' }]
+  })
+  it('F05: a failed or malformed Portfolio read says "Workspaces not available", never "No workspaces"', async () => {
+    api.getWorkspaces.mockRejectedValueOnce(new Error('down'))
+    const { unmount } = mount({ wsId: 'ws_she', wsName: 'She.Shire' }, '/portfolio')
+    await waitFor(() => expect(bar()).toHaveTextContent('Portfolio›Workspaces not available'))
+    unmount()
+    api.getWorkspaces.mockResolvedValueOnce({ unexpected: true })
+    mount({ wsId: 'ws_she', wsName: 'She.Shire' }, '/portfolio')
+    await waitFor(() => expect(bar()).toHaveTextContent('Portfolio›Workspaces not available'))
+    expect(bar()).not.toHaveTextContent('No workspaces')
   })
 })

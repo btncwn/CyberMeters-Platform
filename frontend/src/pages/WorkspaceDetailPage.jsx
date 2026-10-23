@@ -265,7 +265,7 @@ export default function WorkspaceDetailPage() {
 
       // Asset summary — fetch separately so a failure here never blocks the page
       api.getWorkspaceAssetsSummary(id)
-        .then(d => setAssetSummary(d))
+        .then(d => { if (generation === loadGeneration.current) setAssetSummary(d) })
         .catch(() => { /* graceful — section stays hidden */ })
       // Keep workspace name in localStorage in sync
       if (wsData.workspace?.name) {
@@ -286,13 +286,19 @@ export default function WorkspaceDetailPage() {
   // The interval is cleared as soon as all domains reach a terminal status.
   const ACTIVE_STATUSES = new Set(['queued', 'running', 'processing'])
 
+  // The poll applies a result only while the page still shows the workspace it
+  // started for (C-47 F03): a tick for A never lands on B.
+  const pollForId = useRef(id)
+  pollForId.current = id
   useEffect(() => {
     clearInterval(pollRef.current)
+    const startedFor = id
     const hasActive = domains.some(d => ACTIVE_STATUSES.has(d.latest_status))
     if (hasActive) {
       pollRef.current = setInterval(async () => {
         try {
           const domainsData = await api.getWorkspaceDomains(id)
+          if (pollForId.current !== startedFor) return
           const updated = domainsData.domains || []
           setDomains(updated)
           // If no more active scans, clear the interval

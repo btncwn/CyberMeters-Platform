@@ -117,3 +117,20 @@ describe('workspace card deck', () => {
     expect(document.activeElement).toBe(b)
   })
 })
+
+describe('C-47 F01: the card face names the workspace at rest', () => {
+  it('a visible label reads "She.Shire · 2 domains" (not only the hidden tooltip)', () => {
+    render(<MemoryRouter><WorkspaceMenu wsId="ws1" wsName="She.Shire" domainsState={{ status: 'ok', domains: ['blackbullbarbers.co.uk', 'sheshire.co.uk'] }} /></MemoryRouter>)
+    const face = screen.getByTestId('workspace-face-label')
+    expect(face).toHaveTextContent('She.Shire · 2 domains')
+    expect(face).not.toHaveAttribute('aria-hidden')
+    expect(face.closest('[aria-hidden="true"]')).toBeNull()
+    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('S')
+  })
+  it('the name alone while the domains are not known; nothing for the mini card', () => {
+    const { rerender } = render(<MemoryRouter><WorkspaceMenu wsId="ws1" wsName="She.Shire" domainsState={{ status: 'loading', domains: [] }} /></MemoryRouter>)
+    expect(screen.getByTestId('workspace-face-label')).toHaveTextContent(/^She\.Shire$/)
+    rerender(<MemoryRouter><WorkspaceMenu wsId="ws1" wsName="She.Shire" size="mini" /></MemoryRouter>)
+    expect(screen.queryByTestId('workspace-face-label')).toBeNull()
+  })
+})

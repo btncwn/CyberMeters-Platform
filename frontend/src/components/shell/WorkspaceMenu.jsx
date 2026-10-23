@@ -109,12 +109,20 @@ export default function WorkspaceMenu({ wsId, wsName, domainsState = null, size 
         {/* The card keeps its WORKSPACE label at every size; on the 76px card it sits at the 13px floor. */}
         {!mini && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
         {!mini && (
-          <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">
+          <span className="cm-tip cm-wsbtn-tip cm-wsbtn-domains" aria-hidden="true">
             {subject ? `Workspace · ${tip}` : tip}
             {domains && domains.length > 0 && domains.map((d) => <span key={d} className="cm-tip-line">{d}</span>)}
           </span>
         )}
       </button>
+      {/* The card's face names the workspace at rest (C-47 F01): "She.Shire · 2 domains".
+          On hover/focus the domain list takes its place. */}
+      {!mini && subject && (
+        <span className="cm-ws-face" data-testid="workspace-face-label">
+          <span className="cm-ws-face-name">{subject}</span>
+          {domains && <span className="cm-ws-face-count"> · {domainCountLabel(domains.length)}</span>}
+        </span>
+      )}
 
       {open && (
         <div id={WORKSPACE_MENU_ID} role="menu" aria-label="Workspace" className={`cm-popover ${mini ? 'right-0 top-full mt-2 w-72' : 'left-0 bottom-full mb-3 w-[300px]'} max-h-[70vh] overflow-y-auto`}>

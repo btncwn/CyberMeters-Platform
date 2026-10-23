@@ -57,3 +57,15 @@ it('the workspace card names the workspace — face, tooltip and menu agree; the
   expect(screen.getByTestId('active-workspace-domains')).toHaveTextContent('beta.example.org')
   await waitFor(() => expect(api.getWorkspaces).toHaveBeenCalledTimes(1))
 })
+
+it('C-47 F03: a late asset summary for A never lands on B', async () => {
+  const sumA = deferred()
+  api.getWorkspace.mockImplementation(async id => data(id, id === 'ws-a' ? 'Workspace A' : 'Workspace B'))
+  api.getWorkspaceAssetsSummary.mockImplementation(id => id === 'ws-a' ? sumA.promise : Promise.resolve({ total_assets: 5, active_assets: 5, inactive_assets: 0, subdomains: 4, exposed_services: 0, cloud_storage_assets: 0, takeover_risks: 0 }))
+  render(<MemoryRouter initialEntries={['/workspaces/ws-a']}><Navigation/><Routes><Route path="/workspaces/:id" element={<WorkspaceDetailPage/>}/></Routes></MemoryRouter>)
+  await waitFor(() => expect(api.getWorkspaceAssetsSummary).toHaveBeenCalledWith('ws-a'))
+  fireEvent.click(screen.getByText('Switch to B'))
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Workspace B', level: 1 })).toBeInTheDocument())
+  await act(async () => { sumA.resolve({ total_assets: 999, active_assets: 999, inactive_assets: 0, subdomains: 998, exposed_services: 0, cloud_storage_assets: 0, takeover_risks: 0 }) })
+  expect(document.body.textContent).not.toContain('999')
+})

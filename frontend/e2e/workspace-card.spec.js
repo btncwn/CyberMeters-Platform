@@ -61,3 +61,23 @@ test('context bar: Overview names the workspace and its domain; a case deep link
   await expect(bar).toContainText('Portfolio')
   await expect(bar).toContainText('2 workspaces')
 })
+
+// C-47 F01: the face names the workspace at rest (visible, not a hidden tooltip).
+test('the card face shows the workspace name and domain count at rest', async ({ page, context }) => {
+  await setup(page, context)
+  await page.goto('/dashboard', { waitUntil: 'networkidle' })
+  const face = page.getByTestId('workspace-face-label')
+  await expect(face).toBeVisible()
+  await expect(face).toHaveText('She.Shire · 1 domain')
+})
+
+// C-47 F06: a domain-settings page names its domain in the bar.
+test('Email settings names its selected domain in the bar; the workspace-wide Summary says All domains (2)', async ({ page, context }) => {
+  await setup(page, context)
+  await page.route(`${API_BASE}/workspaces/${workspace.id}/domains`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ domains: [{ domain: domain.domain, verification_status: 'verified' }, { domain: 'sheshire.co.uk', verification_status: 'verified' }] }) }))
+  const bar = page.getByRole('navigation', { name: 'Workspace context' })
+  await page.goto('/ws/email-protection', { waitUntil: 'networkidle' })
+  await expect(bar).toContainText('All domains (2)')
+  await page.goto('/ws/email-protection?tab=settings', { waitUntil: 'networkidle' })
+  await expect(bar).toHaveText(new RegExp(`She\\.Shire\\s*›\\s*${domain.domain.replace(/\./g, '\\.')}`))
+})

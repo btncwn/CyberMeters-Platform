@@ -14,7 +14,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
-import { setActiveWorkspace } from '../../lib/activeWorkspace'
+import { WORKSPACE_DOMAINS_EVENT, setActiveWorkspace } from '../../lib/activeWorkspace'
 
 const ScopedDomainContext = createContext(null)
 
@@ -24,16 +24,20 @@ export function ScopedDomainProvider({ children }) {
   return <ScopedDomainContext.Provider value={value}>{children}</ScopedDomainContext.Provider>
 }
 
-/** A page about one domain names it; cleared when the page goes. No-op outside the shell. */
-export function useScopedDomain(domain) {
+/**
+ * A page about one domain names it, tagged with the workspace its record belongs
+ * to when the page knows it (C-47 F02); cleared when the page goes or names none.
+ * The bar shows it only while it belongs to the ACTIVE workspace. No-op outside the shell.
+ */
+export function useScopedDomain(domain, { workspaceId = null } = {}) {
   const ctx = useContext(ScopedDomainContext)
   const set = ctx?.setScoped
   const name = String(domain || '').trim().toLowerCase() || null
   useEffect(() => {
     if (!set) return undefined
-    set(name)
+    set(name ? { domain: name, workspaceId: workspaceId || null } : null)
     return () => set(null)
-  }, [set, name])
+  }, [set, name, workspaceId])
 }
 
 export function useScopedDomainValue() {
@@ -45,9 +49,16 @@ const nameOf = (d) => String(d?.domain || d?.name || '').trim().toLowerCase()
 /** { status: 'loading' | 'ok' | 'error', domains: string[] } for the active workspace only. */
 export function useWorkspaceDomains(wsId) {
   const [state, setState] = useState({ wsId: null, status: 'loading', domains: [] })
+  // A domain added, removed or verified in this workspace refetches the list (C-47 F04).
+  const [revision, setRevision] = useState(0)
+  useEffect(() => {
+    const bump = () => setRevision((n) => n + 1)
+    window.addEventListener(WORKSPACE_DOMAINS_EVENT, bump)
+    return () => window.removeEventListener(WORKSPACE_DOMAINS_EVENT, bump)
+  }, [])
   useEffect(() => {
     let alive = true
-    setState({ wsId, status: 'loading', domains: [] })
+    setState((prev) => (prev.wsId === wsId && revision > 0 ? prev : { wsId, status: 'loading', domains: [] }))
     if (!wsId) return undefined
     Promise.resolve()
       .then(() => api.getWorkspaceDomains(wsId))
@@ -58,7 +69,7 @@ export function useWorkspaceDomains(wsId) {
       })
       .catch(() => { if (alive) setState({ wsId, status: 'error', domains: [] }) })
     return () => { alive = false }
-  }, [wsId])
+  }, [wsId, revision])
   // A result for another workspace (the moment of a switch) is never shown.
   return state.wsId === wsId ? state : { wsId, status: 'loading', domains: [] }
 }
@@ -107,13 +118,14 @@ export default function ContextBar({ wsId, wsName, domainsState }) {
   const scoped = useScopedDomainValue()
   const menu = useMenu()
   const portfolio = pathname === '/portfolio' || pathname.startsWith('/portfolio/')
+  // null loading · 'error' a failed or malformed read (C-47 F05: never "No workspaces") · array.
   const [workspaces, setWorkspaces] = useState(null)
   useEffect(() => {
     if (!portfolio) return undefined
     let alive = true
     api.getWorkspaces()
-      .then((d) => { if (alive) setWorkspaces(Array.isArray(d?.workspaces) ? d.workspaces : []) })
-      .catch(() => { if (alive) setWorkspaces([]) })
+      .then((d) => { if (alive) setWorkspaces(Array.isArray(d?.workspaces) ? d.workspaces : 'error') })
+      .catch(() => { if (alive) setWorkspaces('error') })
     return () => { alive = false }
   }, [portfolio])
   useEffect(() => { menu.close(false) }, [pathname, wsId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -123,7 +135,7 @@ export default function ContextBar({ wsId, wsName, domainsState }) {
     return (
       <nav aria-label="Workspace context" className="cm-ctxbar" data-testid="context-bar">
         <span className="cm-ctx-root">Portfolio</span><span aria-hidden="true" className="cm-ctx-sep">›</span>
-        {n == null ? <span>…</span> : n === 0 ? <span>No workspaces</span> : (
+        {workspaces === 'error' ? <span>Workspaces not available</span> : n == null ? <span>…</span> : n === 0 ? <span>No workspaces</span> : (
           <MenuButton menu={menu} id="cm-ctx-workspaces" label={`${n} workspace${n === 1 ? '' : 's'}`}>
             {workspaces.map((w) => (
               <button key={w.id} type="button" role="menuitem" className={`${ITEM} w-full text-left`}
@@ -138,8 +150,16 @@ export default function ContextBar({ wsId, wsName, domainsState }) {
   if (!wsId) return null
   const { status, domains } = domainsState || { status: 'loading', domains: [] }
   const workspace = wsName || 'This workspace'
+  // A page's domain is shown only while it belongs to the ACTIVE workspace (its
+  // record's workspace when known, and the workspace's own domain list) — after a
+  // switch it is never shown under the other workspace's name (C-47 F02).
+  const scopedName = scoped && (!scoped.workspaceId || scoped.workspaceId === wsId) && status === 'ok' && domains.includes(scoped.domain)
+    ? scoped.domain : null
   let scope
-  if (scoped) {
+  if (scoped && status === 'loading') {
+    scope = <span>…</span>
+  } else if (scopedName) {
+    const scoped = scopedName
     const others = domains.filter((d) => d !== scoped)
     scope = status === 'ok' && others.length > 0 ? (
       <MenuButton menu={menu} id="cm-ctx-domains" label={scoped}>

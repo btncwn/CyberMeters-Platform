@@ -419,7 +419,7 @@ export default function WorkspaceCaseDetailPage() {
 
   useEffect(() => { load() }, [load])
   // The context bar names the case's domain (founder, 23 Oct 2026).
-  useScopedDomain(data?.case?.domain)
+  useScopedDomain(data?.case?.domain, { workspaceId: data?.case?.workspace_id })
 
   if (!wsLoading && !wsId) return <NoWorkspaceSelected />
 

@@ -1425,7 +1425,7 @@ export default function ScanDetail() {
   const activeWsId   = typeof window !== 'undefined' ? localStorage.getItem('cybermeters_workspace_id') : null
   const reportDomain = report?.domain || scan?.domain || null
   // The context bar names the scanned domain (founder, 23 Oct 2026).
-  useScopedDomain(reportDomain)
+  useScopedDomain(reportDomain, { workspaceId: report?.workspace_id || scan?.workspace_id || null })
 
   // A completed report records when the run started and finished; remember
   // its duration so the next queued scan can say how long it usually takes.
