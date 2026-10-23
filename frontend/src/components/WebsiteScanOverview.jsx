@@ -42,7 +42,7 @@ export function websiteObservations(report) {
     { key: 'cookies', title: 'Cookie attributes',
       value: cookieData ? (cookies.found ? `${cookies.found} cookies observed` : 'No cookies observed') : 'Not confirmed',
       note: cookieData && cookies.found ? `Without Secure: ${cookies.insecure_count} · HttpOnly: ${cookies.no_httponly} · SameSite: ${cookies.no_samesite}` : 'Checks Secure, HttpOnly and SameSite on observed cookies; absence does not prove a fix.' },
-    headerTile('hsts', 'HSTS', 'strict-transport-security', headers, headerData),
+    hstsTile(headers, headerData),
     headerTile('csp', 'Content Security Policy', 'content-security-policy', headers, headerData),
   ]
 }
@@ -54,9 +54,14 @@ const STRENGTH_WORD = { valid: 'Sent', weak: 'Sent, weak', malformed: 'Sent, mal
 // absence — the same gates scoring.js uses before it scores header_missing_*
 // (HTTPS response, no protection layer, a real 200, and not seen on another
 // checked path). Otherwise absence is not confirmed (Executive 08:08; #911 class).
+const hostOf = (url) => { try { return new URL(url).hostname.toLowerCase() } catch { return null } }
 export function headerAbsenceUncertain(headers, name) {
   if (!headers) return true
-  const variedByPath = (headers.checked_paths || []).some((p) => p?.headers_observed?.[name])
+  // Only a header seen on the SAME host is page variation; another host's header
+  // (www sending HSTS after an apex redirect) says nothing about this response (C-40b).
+  const responseHost = hostOf(headers.response_url)
+  const variedByPath = (headers.checked_paths || []).some((p) => p?.headers_observed?.[name]
+    && (!responseHost || hostOf(p.final_url || p.requested_url) === responseHost))
   return headers.validation_uncertain === true || headers.final_https === false
     // scoring.js reads a missing status code as 0 (not a real 200), so it cannot prove absence either.
     || headers.status_code !== 200 || variedByPath
@@ -69,6 +74,40 @@ function headerTile(key, title, name, headers, headerData) {
   if (headers.missing.includes(name)) return { key, title, value: 'Not sent', note: `The site did not send ${title === 'HSTS' ? 'an HSTS' : 'a Content-Security-Policy'} header.` }
   const strength = headers.header_strength?.[name]
   return { key, title, value: STRENGTH_WORD[strength?.status] || 'Sent', note: strength?.details || 'Sent; strength not recorded.' }
+}
+
+// HSTS from the engine's host-scoped policy (item 15 B2, hsts_policy): an STS
+// policy binds to the host that sent it, so the apex's own HTTPS answer decides,
+// never "not in missing" (C-40b). Results recorded before hsts_policy keep the
+// header-based tile.
+export function hstsTile(headers, headerData) {
+  const key = 'hsts', title = 'HSTS'
+  const policy = headers?.hsts_policy
+  if (!headerData || !policy?.state) return headerTile(key, title, 'strict-transport-security', headers, headerData)
+  const apex = policy.apex_host || 'the apex'
+  const other = policy.final_host && policy.final_host !== policy.apex_host ? policy.final_host : null
+  if (policy.state === 'not_observed') {
+    return { key, title, value: 'Not observed', note: 'The apex did not answer over HTTPS this scan; its HSTS policy was not observed.' }
+  }
+  if (policy.state === 'absent') {
+    // "Not validated" is the module's own uncertainty flag (protection layer, path variation) only.
+    if (headers.validation_uncertain === true) {
+      return { key, title, value: 'Not validated', note: 'The site answered through a protection layer or varied by page; absence is not confirmed.' }
+    }
+    if (other && policy.final_value) {
+      return { key, title, value: 'Not sent by the apex', note: `${apex} answered over HTTPS without HSTS. ${other} sends its own policy, which does not cover ${apex}.` }
+    }
+    return { key, title, value: 'Not sent', note: `${apex} answered over HTTPS without an HSTS header.` }
+  }
+  if (policy.state === 'present') {
+    const strength = headers.header_strength?.['strict-transport-security']
+    const details = strength?.details || 'Sent; strength not recorded.'
+    const scope = other && policy.final_covered === false
+      ? (policy.include_subdomains ? ` Set on ${apex}; it does not cover ${other}.` : ` Set on ${apex} without includeSubDomains, so it does not cover ${other}.`)
+      : ''
+    return { key, title, value: STRENGTH_WORD[strength?.status] || 'Sent', note: `${details}${scope}` }
+  }
+  return { key, title, value: 'Not confirmed', note: 'The HSTS policy was not assessed in this scan.' }
 }
 
 // The tiles the Website Summary lifts into "What we observed".
