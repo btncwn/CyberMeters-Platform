@@ -110,7 +110,8 @@ function item(overrides = {}) {
 }
 
 function respond({ actions = BACKEND_ACTIONS, items = [item()], can_manage = true } = {}) {
-  api.getShadowItInventory.mockResolvedValue({ items, counts: {}, actions, can_manage })
+  // The backend always returns workspace-wide counts; chips show a number only when it is known.
+  api.getShadowItInventory.mockResolvedValue({ items, counts: { unreviewed: items.length, approved: 0, rejected: 0, exception: 0, retired: 0 }, actions, can_manage })
 }
 
 function mount() {

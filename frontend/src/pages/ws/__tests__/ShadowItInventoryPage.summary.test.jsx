@@ -5,7 +5,7 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import ShadowItInventoryPage, { RejectedStillSeen, shadowItSummaryFigures } from '../ShadowItInventoryPage'
+import ShadowItInventoryPage, { RejectedStillSeen, chipLabel, shadowItSummaryFigures } from '../ShadowItInventoryPage'
 import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
@@ -123,5 +123,49 @@ describe('a filtered deep link (the sidebar\'s ?filter=approved)', () => {
     await waitFor(() => expect(api.getShadowItInventory).toHaveBeenCalledWith('ws1', { limit: 500 }))
     await waitFor(() => expect(screen.getByTestId('shadow-it-rejected-still-seen')).toHaveTextContent('chat app'))
     expect(fig('shadow-it-rejected')).toHaveTextContent('2')
+  })
+})
+
+describe('chip labels and the Classify button (R1 17:58)', () => {
+  it('a count only when the backend counts are known; "All" is their sum, never a page length', () => {
+    expect(chipLabel('', { status: 'ok', counts: COUNTS })).toBe('All (3)')
+    expect(chipLabel('rejected', { status: 'ok', counts: COUNTS })).toMatch(/\(2\)$/)
+    for (const state of [{ status: 'loading', counts: null }, { status: 'error', counts: null }]) {
+      expect(chipLabel('', state)).toBe('All')
+      expect(chipLabel('approved', state)).not.toMatch(/\(/)
+    }
+    expect(chipLabel('approved', { status: 'ok', counts: { unreviewed: 1 } })).not.toMatch(/\(/)
+  })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useWorkspace.mockReturnValue({ wsId: 'ws1', wsName: 'WS', loading: false })
+  })
+  it('without counts the Summary button says "Classify all unreviewed", no number', async () => {
+    api.getShadowItInventory.mockResolvedValue({ items: ITEMS, actions: [] })
+    render(<MemoryRouter initialEntries={['/ws/shadow-it']}><Routes><Route path="/ws/shadow-it" element={<ShadowItInventoryPage />} /></Routes></MemoryRouter>)
+    expect(await screen.findByRole('button', { name: 'Classify all unreviewed' })).toBeInTheDocument()
+  })
+  it('a workspace switch with a chip selected: no "(0)" chips, figures Loading → the new counts, the chip still selected', async () => {
+    api.getShadowItInventory.mockImplementation(async (_ws, params) => (params?.classification ? { items: [], counts: COUNTS, actions: [] } : { items: ITEMS, counts: COUNTS, actions: [] }))
+    const tree = () => <MemoryRouter initialEntries={['/ws/shadow-it?tab=findings&filter=approved']}><Routes><Route path="/ws/shadow-it" element={<ShadowItInventoryPage />} /></Routes></MemoryRouter>
+    const view = render(tree())
+    await waitFor(() => expect(fig('shadow-it-rejected')).toHaveTextContent('2'))
+    const chip = (name) => screen.getByRole('button', { name: new RegExp(`^${name}`) })
+    expect(chip('Approved')).toHaveAttribute('aria-pressed', 'true')
+    const pending = []
+    api.getShadowItInventory.mockImplementation((_ws, params) => new Promise((r) => pending.push(() => r(params?.classification
+      ? { items: [], counts: { unreviewed: 4, approved: 1, rejected: 0, exception: 0 }, actions: [] }
+      : { items: [item('other')], counts: { unreviewed: 4, approved: 1, rejected: 0, exception: 0 }, actions: [] }))))
+    useWorkspace.mockReturnValue({ wsId: 'ws2', wsName: 'Other', loading: false })
+    view.rerender(tree())
+    await waitFor(() => expect(api.getShadowItInventory).toHaveBeenCalledWith('ws2', { classification: 'approved' }))
+    expect(fig('shadow-it-rejected')).toHaveTextContent('Loading…')
+    expect(screen.queryByRole('button', { name: /\(0\)/ })).toBeNull()
+    expect(chip('Approved')).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(pending.length).toBeGreaterThan(0))
+    while (pending.length) pending.shift()()
+    await waitFor(() => expect(fig('shadow-it-unreviewed')).toHaveTextContent('4'))
+    expect(fig('shadow-it-rejected')).toHaveTextContent('0')
+    expect(chip('Approved')).toHaveAttribute('aria-pressed', 'true')
   })
 })

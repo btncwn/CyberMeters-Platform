@@ -146,6 +146,19 @@ export function shadowItSummaryFigures({ status, counts }) {
 // The backend's own page maximum (routes/shadow-it.js): a full page bounds any list read from it.
 export const SUMMARY_LIMIT = 500
 
+// Chip labels (R1 17:58): a count only when the backend's counts are known —
+// never "(0)" while loading, after a workspace switch or on error. "All" is the
+// sum of the workspace-wide counts, never a page length.
+export function chipLabel(c, { status, counts }) {
+  const known = status === 'ok' && counts && typeof counts === 'object'
+  if (c === '') {
+    const values = known ? Object.values(counts).filter((n) => Number.isInteger(n)) : []
+    return values.length ? `All (${values.reduce((a, b) => a + b, 0)})` : 'All'
+  }
+  const label = classificationMeta(c).label
+  return known && Number.isInteger(counts[c]) ? `${label} (${counts[c]})` : label
+}
+
 // The sidebar's "Rejected but still seen": items the customer rejected that the
 // backend still observes (monitoring_reason rejected_still_observed). Every state.
 export function RejectedStillSeen({ status, items, atLimit = false }) {
@@ -338,8 +351,6 @@ export default function ShadowItInventoryPage() {
   const items = data?.items || []
   const counts = countsState.counts || {}
   // "All" is every item in the workspace, never the length of the filtered list.
-  const countValues = Object.values(counts).filter((n) => Number.isFinite(n))
-  const allCount = countValues.length ? countValues.reduce((a, b) => a + b, 0) : (filter ? null : items.length)
   const inlineClassify = ['approve', 'reject', 'mark_exception'].filter(can)
   const goToAnchor = useAreaAnchor()
   // Overview lists the unclassified items themselves (founder, 18 Oct 2026): the
@@ -380,7 +391,9 @@ export default function ShadowItInventoryPage() {
           <section className="card p-5" aria-labelledby="shadow-it-unclassified-heading" data-testid="shadow-it-unclassified">
             <div className="flex items-baseline justify-between gap-3">
               <h3 id="shadow-it-unclassified-heading" className="text-sm font-semibold text-gray-900">Not yet classified</h3>
-              {unclassified.length > 0 && <button type="button" onClick={seeAllUnclassified} className="btn-secondary text-sm">Classify all {counts.unreviewed ?? unclassified.length} item{(counts.unreviewed ?? unclassified.length) === 1 ? '' : 's'}</button>}
+              {unclassified.length > 0 && <button type="button" onClick={seeAllUnclassified} className="btn-secondary text-sm">{countsState.status === 'ok' && Number.isInteger(counts.unreviewed)
+                ? `Classify all ${counts.unreviewed} item${counts.unreviewed === 1 ? '' : 's'}`
+                : 'Classify all unreviewed'}</button>}
             </div>
             {summary.status === 'loading' && <p className="text-sm text-gray-600 mt-2">Loading…</p>}
             {summary.status === 'error' && <p className="text-sm text-red-700 mt-2">Could not load the technology inventory.</p>}
@@ -421,7 +434,7 @@ export default function ShadowItInventoryPage() {
             aria-pressed={filter === c}
             className={`text-xs rounded-full border px-3 py-1 ${filter === c ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
           >
-            {c === '' ? (allCount == null ? 'All' : `All (${allCount})`) : `${classificationMeta(c).label} (${counts[c] ?? 0})`}
+            {chipLabel(c, countsState)}
           </button>
         ))}
       </div>

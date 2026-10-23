@@ -4,7 +4,7 @@
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import IdentityExposurePage, { MeasuredEndpoints, identitySummaryFigures, SUMMARY_LIMIT } from '../IdentityExposurePage'
+import IdentityExposurePage, { MeasuredEndpoints, allChipLabel, identitySummaryFigures, SUMMARY_LIMIT } from '../IdentityExposurePage'
 import { api } from '../../../api'
 import { useWorkspace } from '../../../hooks/useWorkspace'
 
@@ -135,14 +135,26 @@ describe('IdentityExposurePage summary', () => {
 })
 
 describe('Identity "All (N)" chip (R1 16:20 follow-up a)', () => {
-  beforeEach(() => { vi.clearAllMocks(); useWorkspace.mockReturnValue({ wsId: 'ws1', wsName: 'WS', loading: false }) })
-  it('reads the unfiltered page; a full page reads "500+"; a filter never shrinks it', async () => {
-    const full = Array.from({ length: SUMMARY_LIMIT }, (_, i) => item(`h${i}`, 'surface_candidate'))
-    api.getIdentitySurfaces.mockImplementation(async (_ws, params) => (params?.customer_classification ? { items: [], counts: { unreviewed: 0 } } : { items: full, counts: { unreviewed: 0 } }))
+  // Pure label: the 500 bound is checked without rendering 500 rows (R1 17:58: the
+  // 500-row render timed out in CI).
+  it('reads the unfiltered page: "All (500+)" at the bound, plain "All" while loading or unavailable', () => {
+    expect(allChipLabel({ status: 'ok', items: ITEMS, atLimit: false })).toBe('All (3)')
+    expect(allChipLabel({ status: 'ok', items: ITEMS, atLimit: true })).toBe('All (500+)')
+    expect(allChipLabel({ status: 'loading', items: [] })).toBe('All')
+    expect(allChipLabel({ status: 'error', items: [] })).toBe('All')
+  })
+  it('a filter never shrinks it, and no chip says "(0)" while loading', async () => {
+    useWorkspace.mockReturnValue({ wsId: 'ws1', wsName: 'WS', loading: false })
+    api.getIdentitySurfaces.mockImplementation(async (_ws, params) => (params?.customer_classification ? { items: [], counts: { unreviewed: 3 } } : { items: ITEMS, counts: { unreviewed: 3 } }))
     mount()
-    expect(await screen.findByRole('button', { name: 'All (500+)' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'All (3)' })).toBeInTheDocument()
+    let release
+    api.getIdentitySurfaces.mockImplementationOnce(() => new Promise((r) => { release = () => r({ items: [], counts: { unreviewed: 3 } }) }))
     fireEvent.click(screen.getByRole('button', { name: /^Expected/ }))
+    expect(screen.getByRole('button', { name: 'All (3)' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /\(0\)/ })).toBeNull()
+    release()
     await waitFor(() => expect(api.getIdentitySurfaces).toHaveBeenLastCalledWith('ws1', { customer_classification: 'expected' }))
-    expect(screen.getByRole('button', { name: 'All (500+)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All (3)' })).toBeInTheDocument()
   })
 })

@@ -26,6 +26,13 @@ const CLASS_FILTERS = ['', 'unreviewed', 'expected', 'unexpected', 'investigate'
 // "What we observed" (S1-SHELL-V2b): counts of the backend's own records by
 // claim kind, from the unfiltered list. Counting is presentation; what each
 // record IS (claim_kind, reachability) is the backend's.
+// The "All" chip from the unfiltered page: "All (500+)" at the bound, plain "All"
+// while it is loading or unavailable, never the filtered list's length.
+export function allChipLabel({ status, items, atLimit = false }) {
+  if (status !== 'ok') return 'All'
+  return `All (${atLimit ? `${SUMMARY_LIMIT}+` : (items || []).length})`
+}
+
 // SUMMARY_LIMIT is the backend's own maximum page (routes/identity-exposure.js):
 // when a page comes back full, the claim-kind counts are lower bounds ("N+").
 export const SUMMARY_LIMIT = 500
@@ -249,7 +256,7 @@ export default function IdentityExposurePage() {
               {CLASS_FILTERS.filter((c) => c !== '').map((c) => (
                 <div key={c} className="card p-4">
                   <p className="text-[15px] font-semibold text-gray-900 leading-snug">{classificationMeta(c).label}</p>
-                  <p className="text-[14px] font-bold mt-2 leading-none tabular-nums text-gray-800">{loading ? '…' : error ? '—' : (counts[c] ?? 0)}</p>
+                  <p className="text-[14px] font-bold mt-2 leading-none tabular-nums text-gray-800">{(() => { const n = (data?.counts ?? summary.counts)?.[c]; return Number.isInteger(n) ? n : summary.status === 'loading' || loading ? '…' : '—' })()}</p>
                 </div>
               ))}
             </div>
@@ -268,7 +275,11 @@ export default function IdentityExposurePage() {
             onClick={() => setFilter(c)}
             className={`text-xs rounded-full border px-3 py-1 ${filter === c ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
           >
-            {c === '' ? (summary.status === 'ok' ? `All (${summary.atLimit ? `${SUMMARY_LIMIT}+` : summary.items.length})` : 'All') : `${classificationMeta(c).label} (${counts[c] ?? 0})`}
+            {c === '' ? allChipLabel(summary) : (() => {
+              // A count only when known (the current response, else the held unfiltered counts); never "(0)" while loading.
+              const n = (data?.counts ?? summary.counts)?.[c]
+              return Number.isInteger(n) ? `${classificationMeta(c).label} (${n})` : classificationMeta(c).label
+            })()}
           </button>
         ))}
       </div>
