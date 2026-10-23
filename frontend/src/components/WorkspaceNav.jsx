@@ -66,10 +66,12 @@ const SERVICE_DEFINITIONS = [
     key: 'website', domainKey: 'website_security', title: 'Website Security', to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
     subtopics: [
-      // HTTPS & HSTS and Content Security Policy return with their own Summary sections (S1-SHELL-V2b).
-      { label: 'Security headers',   hash: '#website-security-headers', tab: 'overview' },
-      { label: 'Signed-in scanning', hash: '#sign-in-settings', tab: 'settings' },
-      { label: 'Pages checked',      hash: '#pages-checked' },
+      // Each opens its own "What we observed" figure (S1-SHELL-V2b).
+      { label: 'HTTPS & HSTS',            hash: '#website-hsts', tab: 'overview' },
+      { label: 'Security headers',        hash: '#website-security-headers', tab: 'overview' },
+      { label: 'Content Security Policy', hash: '#website-csp', tab: 'overview' },
+      { label: 'Signed-in scanning',      hash: '#sign-in-settings', tab: 'settings' },
+      { label: 'Pages checked',           hash: '#pages-checked' },
     ],
     items: [
       { hash: '#website-observations', label: 'Observations', desc: 'HTTPS, headers and cookies from the latest scan', tab: 'overview' },

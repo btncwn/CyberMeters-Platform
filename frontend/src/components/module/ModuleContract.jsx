@@ -400,7 +400,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       {shownFigures.length ? (
         <dl className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3">
           {shownFigures.map((f) => (
-            <div key={f.key || f.label} className="card p-4" data-testid="module-figure">
+            <div key={f.key || f.label} id={f.id || undefined} className="card p-4" data-testid="module-figure">
               <dt className="text-sm font-semibold text-gray-900 leading-snug">{f.label}</dt>
               {f.explanation && <dd className="text-xs text-gray-600 mt-0.5 leading-snug">{f.explanation}</dd>}
               <dd className={`text-lg font-bold mt-1 tabular-nums ${f.tone || 'text-gray-900'}`}>{f.value ?? '—'}</dd>
