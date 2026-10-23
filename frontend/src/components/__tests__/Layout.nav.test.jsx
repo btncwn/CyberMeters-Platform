@@ -286,7 +286,7 @@ describe('Layout top bar — shape', () => {
     expect(email).toHaveAttribute('aria-expanded', 'true')
     expect(within(side).getAllByRole('button', { expanded: true })).toHaveLength(1)
     const topics = within(side).getByRole('list', { name: 'Email Protection topics' })
-    expect(within(topics).getAllByRole('link').map(a => a.textContent)).toEqual(['DMARC policy', 'SPF', 'DKIM', 'MTA-STS & TLS reporting', 'Aggregate reports', 'Mail transport (DANE)'])
+    expect(within(topics).getAllByRole('link').map(a => a.textContent)).toEqual(['DMARC policy', 'SPF', 'DKIM', 'MTA-STS & TLS reporting', 'Aggregate reports', 'Mail transport encryption'])
     expect(within(topics).getByRole('link', { name: 'SPF' })).toHaveAttribute('href', '/ws/email-protection#auth-spf')
     const row = screen.getByTestId('area-row')
     expect(row).toHaveTextContent(/^Email Protection·/)

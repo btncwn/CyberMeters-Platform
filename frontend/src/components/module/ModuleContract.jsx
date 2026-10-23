@@ -376,8 +376,10 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   )
 
   const scopeSection = (
+    // Collapsed fine print (S1-SHELL-V2b, C-38 S21): the same words, one click away.
     <section id="module-scope" aria-labelledby="module-scope-heading" className="border-t border-gray-100 pt-4" data-testid="module-scope">
-      <h2 id="module-scope-heading" className="text-xs font-semibold text-gray-600">Scope &amp; limits</h2>
+      <details className="cm-scope">
+      <summary className="cursor-pointer"><h2 id="module-scope-heading" className="inline text-xs font-semibold text-gray-600">Scope &amp; limits</h2></summary>
       <p className="text-xs text-gray-600 mt-1 leading-relaxed">
         {workspaceName ? `Workspace: ${workspaceName}.` : 'Selected workspace.'}{' '}
         {read && entry.description ? customerEvidenceText(entry.description) : (module?.fallback || '')}
@@ -388,6 +390,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
           {limitations.map((l, i) => <li key={i}>{l}</li>)}
         </ul>
       )}
+      </details>
     </section>
   )
   const shownFigures = (Array.isArray(figures) && figures.length ? figures : (read ? defaultFigures(entry) : [])).slice(0, 4)
