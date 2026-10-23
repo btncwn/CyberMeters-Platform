@@ -299,6 +299,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
   const [chain, setChain]   = useState(null)   // null | 'loading' | analysis result
   if (!detail && !spf) return <AuthCard title="SPF" status="No data" statusKind="na"><NaNote /></AuthCard>
   const present = spf?.present ?? Boolean(detail?.raw)
+  const valid = detail?.valid
   const { label: status, kind } = spfRecordStatus(spf, detail)
 
   async function analyseChain() {
