@@ -8,12 +8,14 @@
  *
  * Reads data already captured by earlier modules:
  *   CAA    ← modules.dns.caa        (added to runDnsModule in Phase 1)
- *   HSTS   ← modules.headers.values["strict-transport-security"]
+ *   HSTS   ← effectiveHstsValue(modules.headers): the apex's own answer, else the final page
  *   Cookies ← modules.headers.set_cookie_raw  (added to runHeadersModule)
  *
  * This design avoids consuming additional subrequests on Cloudflare Workers'
  * free-plan 50-subrequest budget.
  */
+import { effectiveHstsValue } from "./headers-scan.js";
+
 export function runDomainSecurityEnrichmentModule(domain, modules) {
   // ── 1. CAA — read from DNS module ────────────────────────────────────────
   const caa = modules?.dns?.caa ?? {
@@ -30,7 +32,10 @@ export function runDomainSecurityEnrichmentModule(domain, modules) {
   };
 
   // ── 2. HSTS — read from headers module ───────────────────────────────────
-  const hstsRaw = modules?.headers?.values?.["strict-transport-security"] || null;
+  // Item 15 fix B: judged on the policy that covers the domain (the apex's own
+  // answer when it sent HSTS), never the redirected www page's alone.
+  const effectiveHsts = effectiveHstsValue(modules?.headers, domain);
+  const hstsRaw = effectiveHsts.value;
   let hsts;
   if (hstsRaw) {
     const parts  = hstsRaw.toLowerCase().split(";").map((p) => p.trim());
@@ -49,6 +54,7 @@ export function runDomainSecurityEnrichmentModule(domain, modules) {
       include_subdomains: inclSub,
       preload_directive:  preDir,
       preload_eligible:   maxAge !== null && maxAge >= 31_536_000 && inclSub && preDir,
+      source:             effectiveHsts.source,
       error:              null,
     };
   } else {

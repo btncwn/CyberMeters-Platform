@@ -50,6 +50,8 @@ const { runSslModule } = await import(eng("ssl-scan.js"));
 const { computeScore } = await import(eng("scoring.js"));
 const { buildScanQuality } = await import(eng("scan-engine.js"));
 const { resolveSecurityCheckDomainStates } = await import(eng("security-check-domains.js"));
+const { runDomainSecurityEnrichmentModule } = await import(eng("domain-enrichment.js"));
+const { buildDseFindings } = await import(eng("dse-findings.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"} ${n}${!c && d ? " — " + d : ""}`); };
@@ -250,6 +252,50 @@ const R_ALL_503 = async () => origin503();
   }
   const healthy = await observe(allHeaders);
   eq("UNCERTAIN_CONTROL_FULLY_HEADERED_200_STAYS_HEALTHY", healthy.website?.state, "assessed_healthy");
+}
+
+// ── Item 15 fix B (23 Oct 2026): HSTS is judged on the apex ────────────────
+// Corpus shape: the apex answers 301 with max-age >= 1 year; includeSubDomains;
+// preload (eligible, and it covers www), the redirected www page sends a short
+// max-age. The full scan used to judge the www value and attribute it to the
+// apex ("not preload-eligible", "short max-age", "weak HSTS"): 7 false findings.
+{
+  const withUrl = (response, url) => { Object.defineProperty(response, "url", { value: url }); return response; };
+  const site = (apexHsts) => async (input) => {
+    const url = new URL(String(input));
+    if (url.protocol === "http:") return withUrl(new Response(null, { status: 301, headers: { location: `https://${url.hostname}/` } }), String(input));
+    if (url.hostname === DOMAIN) {
+      return withUrl(new Response(null, { status: 301, headers: { location: `https://www.${DOMAIN}/uk`, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } }), String(input));
+    }
+    return withUrl(new Response("<html><body>shop</body></html>", { status: 200, headers: {
+      "content-type": "text/html", ...SECURITY_HEADER_SET, "strict-transport-security": "max-age=900" } }), String(input));
+  };
+  const hstsFindings = async (router) => {
+    globalThis.fetch = router;
+    try {
+      const headers = await runHeadersModule(DOMAIN);
+      const enrich = runDomainSecurityEnrichmentModule(DOMAIN, { headers, dns: {} });
+      const findings = [
+        ...(computeScore({ dns: { resolves: true }, headers, ssl: {}, technology_detection: {}, email_security: {} }, DOMAIN)?.findings || []),
+        ...buildDseFindings(enrich, DOMAIN),
+      ].map((f) => f.id).filter((id) => /hsts/.test(id)).sort();
+      return { headers, enrich, findings };
+    } finally { globalThis.fetch = realFetch; }
+  };
+  const eligibleApex = await hstsFindings(site("max-age=31536000; includeSubdomains; preload"));
+  eq("HSTS_APEX_RECORDED", eligibleApex.headers.apex_https_response?.strict_transport_security, "max-age=31536000; includeSubdomains; preload");
+  eq("HSTS_APEX_POLICY_JUDGED", [eligibleApex.enrich.hsts.source, eligibleApex.enrich.hsts.preload_eligible], ["apex", true]);
+  eq("HSTS_APEX_ELIGIBLE_NO_FALSE_FINDINGS", eligibleApex.findings, []);
+  // Control: the apex sends no HSTS, so the final page's short max-age is the
+  // domain's policy and every true finding still fires.
+  const noApexHsts = await hstsFindings(site(null));
+  eq("HSTS_CONTROL_FINAL_POLICY_JUDGED", noApexHsts.enrich.hsts.source, "final");
+  ok("HSTS_CONTROL_TRUE_FINDINGS_STILL_FIRE",
+    ["dse_hsts_not_preload_eligible", "dse_hsts_short_maxage"].every((id) => noApexHsts.findings.includes(id)), JSON.stringify(noApexHsts.findings));
+  // Control: an apex HSTS without preload is judged as such (still a true finding).
+  const apexNoPreload = await hstsFindings(site("max-age=31536000"));
+  ok("HSTS_APEX_WITHOUT_PRELOAD_STILL_FLAGGED", apexNoPreload.findings.includes("dse_hsts_not_preload_eligible")
+    && !apexNoPreload.findings.includes("dse_hsts_short_maxage"), JSON.stringify(apexNoPreload.findings));
 }
 
 console.log(`\nF-48 origin-503 false-healthy: ${pass}/${pass + fail} assertions passed`);

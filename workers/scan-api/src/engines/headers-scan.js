@@ -265,8 +265,25 @@ export function captureSetCookieRaw(headers) {
   } catch { return []; }
 }
 
+const safeHostname = (url) => { try { return new URL(url).hostname.toLowerCase(); } catch { return null; } };
+
+/**
+ * The HSTS policy that covers the domain (item 15 fix B, 23 Oct 2026): the
+ * apex's own HTTPS answer when it sent one (preload eligibility is judged on
+ * the apex, and its includeSubDomains covers www), otherwise the final page's.
+ * Returns { value, source: "apex" | "final", url } or { value: null, ... }.
+ */
+export function effectiveHstsValue(headers, domain) {
+  const apex = headers?.apex_https_response;
+  if (apex?.strict_transport_security) {
+    return { value: apex.strict_transport_security, source: "apex", url: apex.url || `https://${domain}` };
+  }
+  return { value: headers?.values?.["strict-transport-security"] || null, source: "final", url: headers?.response_url || `https://${domain}` };
+}
+
 export async function runHeadersModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  let apexHop = null;
   // One redirect-following safeFetch may consume five valid 9,999ms attempts.
   // Queue/Cron and the free scan supply a runner-owned remainingMs carrier;
   // callers without it preserve the historical full-probe behaviour. With at
@@ -426,6 +443,13 @@ export async function runHeadersModule(domain, opts = {}) {
     const getRes = await safeFetch(probeUrl, {
       method:   "GET",
       redirect: "follow",
+      // Item 15 fix B: what the apex itself answered over HTTPS, before any
+      // redirect (its HSTS is the policy that covers the domain).
+      onHop: ({ url, status, headers }) => {
+        if (apexHop || proto !== "https") return;
+        try { if (new URL(url).hostname.toLowerCase() !== String(domain).toLowerCase()) return; } catch { return; }
+        apexHop = { url, status, hsts: headers.get("strict-transport-security") || null };
+      },
       accounting,
       signal: opts.signal,
       dnsResolver: opts.dnsResolver,
@@ -701,6 +725,11 @@ export async function runHeadersModule(domain, opts = {}) {
     present,
     missing,
     values:         headerValues,
+    // Item 15 fix B: the apex's own HTTPS answer when the final page is on
+    // another host (null when the final page is the apex, or it was not seen).
+    apex_https_response: apexHop && responseUrl && safeHostname(responseUrl) !== String(domain).toLowerCase()
+      ? { url: apexHop.url, status: apexHop.status, strict_transport_security: apexHop.hsts }
+      : null,
     set_cookie_raw: setCookieRaw,
     // v4: Header strength classification per security header
     header_strength: Object.fromEntries(
