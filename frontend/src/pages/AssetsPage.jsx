@@ -1,7 +1,7 @@
 import { parseServerDate, formatDate, formatDay } from '../utils/dates'
 import CasesQueue from '../components/CasesQueue'
 import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { RefreshCw, Cloud, X } from 'lucide-react'
 import { useDialog } from '../lib/useDialog'
 import { api } from '../api'
@@ -395,6 +395,12 @@ export default function AssetsPage() {
   const [error,        setError]        = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter,   setTypeFilter]   = useState('all')
+  // ?type=exposed_service (the sidebar's "Exposed services") opens the inventory with that filter.
+  const [searchParams] = useSearchParams()
+  const typeParam = searchParams.get('type')
+  useEffect(() => {
+    if (['root_domain', 'subdomain', 'exposed_service', 'cloud_storage'].includes(typeParam)) setTypeFilter(typeParam)
+  }, [typeParam])
   const [selectedId,   setSelectedId]   = useState(null)
   const [refreshTick,  setRefreshTick]  = useState(0)
   const [scanDomain,   setScanDomain]   = useState('')
@@ -466,10 +472,12 @@ export default function AssetsPage() {
         /* The area template (18 Oct 2026): four inventory counts are "What we
            observed" — the backend's lifecycle counts, never the legacy active flag. */
         figures={summary ? [
-          { key: 'observed', label: 'Seen in latest scan', value: summary.lifecycle_counts?.observed ?? '—', explanation: 'Found through DNS or a web service in the latest assessment' },
-          { key: 'removed', label: 'No longer observed', value: summary.lifecycle_counts?.confirmed_removed ?? '—', explanation: 'Not seen for at least 48 hours across repeated scans; not proof it was removed' },
-          { key: 'services', label: 'Exposed services', value: summary.exposed_services ?? '—', explanation: 'Internet-facing services to review', tone: (summary.exposed_services ?? 0) > 0 ? 'text-brand-700' : undefined },
-          { key: 'takeover', label: 'Takeover risks', value: summary.takeover_risks ?? '—', explanation: 'Possible subdomain takeovers', tone: (summary.takeover_risks ?? 0) > 0 ? 'text-red-700' : undefined },
+          { key: 'observed', id: 'asm-seen', label: 'Seen in latest scan', value: summary.lifecycle_counts?.observed ?? '—', explanation: 'Found through DNS or a web service in the latest assessment' },
+          { key: 'removed', id: 'asm-no-longer-observed', label: 'No longer observed', value: summary.lifecycle_counts?.confirmed_removed ?? '—', explanation: 'Not seen for at least 48 hours across repeated scans; not proof it was removed' },
+          { key: 'services', id: 'asm-exposed-services', label: 'Exposed services', value: summary.exposed_services ?? '—', explanation: 'Internet-facing services to review', tone: (summary.exposed_services ?? 0) > 0 ? 'text-brand-700' : undefined },
+          // The backend's takeover_risks counts assets rated high or critical risk
+          // (any reason), not takeovers specifically, so the figure says exactly that.
+          { key: 'takeover', id: 'asm-high-risk', label: 'High or critical risk assets', value: summary.takeover_risks ?? '—', explanation: 'Assets the latest assessments rated high or critical risk', tone: (summary.takeover_risks ?? 0) > 0 ? 'text-red-700' : undefined },
         ] : null}
         description="Your externally reachable hosts and services, tracked across scans: what appeared, what changed and what is exposed."
         /* The "Network assets" page tile (Findings · #network-assets) carries an

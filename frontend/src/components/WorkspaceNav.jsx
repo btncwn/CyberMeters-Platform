@@ -42,6 +42,8 @@ const SERVICE_DEFINITIONS = [
     subtopics: [
       // Each sub-topic opens its OWN named section (C-38 S28: no aliases).
       { label: 'Hostnames',      hash: '#asset-inventory' },
+      // The inventory with the Exposed Service filter selected (its own named view).
+      { label: 'Exposed services', to: '/assets?type=exposed_service#asset-inventory' },
       { label: 'Admin surfaces', to: '/ws/admin-surfaces' },
       { label: 'Cloud assets',   to: '/ws/cloud-assets' },
       { label: 'Network assets', hash: '#network-assets' },

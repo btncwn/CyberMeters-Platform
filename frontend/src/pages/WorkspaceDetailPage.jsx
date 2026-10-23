@@ -561,7 +561,8 @@ export default function WorkspaceDetailPage() {
               { label: 'Subdomains', value: assetSummary.subdomains },
               { label: 'Exposed', value: assetSummary.exposed_services },
               { label: 'Cloud', value: assetSummary.cloud_storage_assets },
-              { label: 'Takeover Risks', value: assetSummary.takeover_risks },
+              // takeover_risks counts high/critical-risk assets of any kind, not takeovers specifically.
+              { label: 'High or critical risk', value: assetSummary.takeover_risks },
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-gray-50">
                 <div className="min-w-0">
