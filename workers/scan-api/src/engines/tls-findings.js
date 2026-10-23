@@ -152,6 +152,24 @@ export function evaluateTlsCase(caseKey,assessment) {
   return {state:'deferred',reason:results.find(r=>r.state!=='clear')?.reason||'tls_retest_inconclusive',...measured};
 }
 
+// PQC readiness per endpoint for the Certificates & Trust card (S3-MODERN 2):
+// what the server chose when offered the hybrid X25519MLKEM768 group beside
+// classical groups. A readiness signal, not a weakness: no finding, no score.
+// Wording on the card is "Post-quantum key exchange: negotiated <group> / not
+// offered by the server / not assessed" - never "quantum safe/ready".
+export function pqcKeyExchangeState(assessment) {
+  const out=[];
+  for(const endpoint of assessment?.endpoints||[]){
+    const rows=(endpoint.checks||[]).filter(r=>r.control==='pqc_key_exchange'&&r.engine?.sandboxed);
+    const row=rows.find(positive);
+    const group=row?.evidence?.negotiated?.group||null;
+    const state=!row||!group?'not_assessed'
+      :/MLKEM|KYBER/i.test(group)?'hybrid_pqc_negotiated':'classical_only';
+    if(rows.length||row)out.push({endpoint_identity:endpoint.endpoint_identity||null,hostname:endpoint.endpoint?.hostname||null,state,
+      group:state==='not_assessed'?null:group});
+  }
+  return out;
+}
 export function evaluateTlsCondition(id,assessment) {
   if(!/^tls_[a-z_]+__[a-f0-9]{64}$/.test(String(id||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded'};
   for(const endpoint of assessment.endpoints||[]){

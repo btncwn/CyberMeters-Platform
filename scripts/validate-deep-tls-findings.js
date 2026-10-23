@@ -58,6 +58,20 @@ assert(weakKeyFinding&&weakSignatureFinding);
 const unknown=module([protocol('tls1_2'),certRow({...leaf,key_type:'UNKNOWN',key_bits:0,signature_algorithm:'unknown'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,unknown).state,'deferred');
 assert.equal(evaluateTlsCondition(weakSignatureFinding.id,unknown).state,'deferred');
+// PQC readiness (S3-MODERN 2): a readiness state per endpoint, never a finding.
+{
+  const { pqcKeyExchangeState } = await import('../workers/scan-api/src/engines/tls-findings.js');
+  const pqcRow=(group,state='accepted')=>{const row=protocol('tls1_3');row.control='pqc_key_exchange';row.state=state;
+    row.evidence={...row.evidence,negotiated:{...(row.evidence?.negotiated||{}),version:'tls1_3',group}};return row;};
+  const st=(row)=>pqcKeyExchangeState(module([protocol('tls1_3'),row]))[0];
+  assert.deepEqual([st(pqcRow('X25519MLKEM768')).state,st(pqcRow('X25519MLKEM768')).group],['hybrid_pqc_negotiated','X25519MLKEM768']);
+  assert.equal(st(pqcRow('X25519Kyber768Draft00')).state,'hybrid_pqc_negotiated','a draft hybrid is still named as negotiated');
+  assert.deepEqual([st(pqcRow('x25519')).state,st(pqcRow('x25519')).group],['classical_only','x25519']);
+  assert.equal(st(pqcRow('X25519MLKEM768','uncertain')).state,'not_assessed','an unfinished handshake is not assessed');
+  assert.equal(pqcKeyExchangeState(module([protocol('tls1_3')])).length,0,'no PQC check planned: nothing to say');
+  const findings=tlsAssessmentFindings(module([protocol('tls1_3'),pqcRow('x25519')]));
+  assert.ok(!findings.some(f=>/pqc|quantum/i.test(f.id+f.title)),'classical-only is never a finding');
+}
 const strong=module([protocol('tls1_2'),certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,strong).state,'clear');
 assert.equal(evaluateTlsCondition(weakSignatureFinding.id,strong).state,'clear');
