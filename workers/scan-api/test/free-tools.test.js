@@ -615,6 +615,15 @@ test("headers: an attribute-only CSP never claims event handlers are unrestricte
   assert.ok(!csp.unrestricted_contexts.includes("inline event handlers"));
 });
 
+test("headers: no script restriction plus script-src-attr 'unsafe-inline' names that token in the advice", () => {
+  const attrUnsafe = buildHeadersToolResult("example.com", seen({ ...ALL_GOOD, "content-security-policy": "script-src-attr 'unsafe-inline'" }));
+  const advice = attrUnsafe.next_step.cautions.join(" ");
+  assert.match(advice, /has no default-src or script-src/);
+  assert.match(advice, /It also allows 'unsafe-inline' in script-src-attr: remove it there/);
+  const attrNone = buildHeadersToolResult("example.com", seen({ ...ALL_GOOD, "content-security-policy": "script-src-attr 'none'" }));
+  assert.doesNotMatch(attrNone.next_step.cautions.join(" "), /remove it there/);
+});
+
 test("headers: an element-only CSP gets 'add a directive', never 'remove' tokens that do not exist", () => {
   // Executive R1 (23 Oct 2026): script-src-elem 'none' alone leaves inline event
   // handlers and eval() unrestricted; no directive carries an unsafe token.

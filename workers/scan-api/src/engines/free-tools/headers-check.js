@@ -199,7 +199,11 @@ export function buildHeadersToolResult(domain, observation, { now = Date.now() }
   const advice = !cspToTighten ? []
     : unrestrictedAdvice && !(cspToTighten.dangerous_directives || []).length ? [unrestrictedAdvice]
     : cspToTighten.no_script_restriction
-      ? ["Your Content-Security-Policy does not restrict scripts: it has no default-src or script-src. Add one, such as default-src 'self', to the policy you already have, testing it first as Content-Security-Policy-Report-Only."]
+      ? ["Your Content-Security-Policy does not restrict scripts: it has no default-src or script-src. Add one, such as default-src 'self', to the policy you already have, testing it first as Content-Security-Policy-Report-Only."
+        // Without script-src/default-src only script-src-attr can carry a token
+        // here, and only 'unsafe-inline' counts for event handlers.
+        + ((cspToTighten.dangerous_directives || []).includes("script-src-attr")
+          ? " It also allows 'unsafe-inline' in script-src-attr: remove it there, so inline event handlers are not allowed." : "")]
       : [...(unrestrictedAdvice ? [unrestrictedAdvice] : []), `Your Content-Security-Policy allows unsafe script sources in ${cspToTighten.dangerous_directives.join(" and ") || "a script directive"}. Remove 'unsafe-inline', 'unsafe-eval' and * there, moving inline scripts into files or allowing them by nonce or hash. Keep the rest of your policy as it is.`];
   const missingHsts = needsWork.some((row) => row.key === "strict-transport-security");
   const missingCount = rows.filter((row) => row.status === "missing").length;
