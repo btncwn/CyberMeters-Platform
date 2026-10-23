@@ -13,10 +13,15 @@ function Field({ label, children }) {
 
 const controlStates = { accepted: 'Accepted', rejected: 'Rejected', uncertain: 'Uncertain', not_applicable: 'Not applicable', not_authorized: 'Not authorized', unexecutable: 'Could not execute' }
 // S3-B: an intrusive check the customer has not authorised is stated plainly.
-const controlState = row => row?.state === 'not_authorized' && row.reason === 'requires_customer_authorisation'
-  ? 'Not tested — requires your authorisation'
-  : row?.state === 'unexecutable' && row.reason === 'authorised_engine_not_released'
-    ? 'Authorised — not yet available' : controlStates[row?.state] || 'Unknown'
+// Seat 3's held reasons (TLS specials go-live, 23 Oct 2026), in plain words.
+const CONTROL_REASONS = Object.freeze({
+  requires_customer_authorisation: 'Not tested — requires your authorisation',
+  authorised_engine_not_released: 'Authorised — not yet available',
+  provider_infrastructure_not_tested: 'Not tested — this address belongs to your hosting or CDN provider, not to you',
+  address_not_verified_not_tested: 'Not tested — this address is not verified as yours',
+  authorised_runs_on_started_check: 'Not tested on this scan — authorised checks run only on scans you start yourself',
+})
+const controlState = row => (row?.reason && CONTROL_REASONS[row.reason]) || controlStates[row?.state] || 'Unknown'
 const number = value => Number.isSafeInteger(value) && value >= 0 ? String(value) : 'Not recorded'
 const yesNo = value => value === true ? 'Yes' : value === false ? 'No' : 'Unknown'
 const controlName = value => typeof value === 'string' ? value.replaceAll('_', ' ').replaceAll('-', ' ') : 'Unnamed check'
