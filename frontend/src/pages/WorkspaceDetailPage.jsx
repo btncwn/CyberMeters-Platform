@@ -286,27 +286,28 @@ export default function WorkspaceDetailPage() {
   // The interval is cleared as soon as all domains reach a terminal status.
   const ACTIVE_STATUSES = new Set(['queued', 'running', 'processing'])
 
-  // The poll applies a result only while the page still shows the workspace it
-  // started for (C-47 F03): a tick for A never lands on B.
-  const pollForId = useRef(id)
-  pollForId.current = id
+  // The poll applies a result only for the LOAD it started under (C-47 F03 /
+  // C-48): a route id alone cannot tell a first visit to A from a later one, so
+  // after A → B → A an old tick must never replace the fresh A list or clear
+  // the current interval. It clears only its own interval.
   useEffect(() => {
     clearInterval(pollRef.current)
-    const startedFor = id
+    const startedUnder = loadGeneration.current
     const hasActive = domains.some(d => ACTIVE_STATUSES.has(d.latest_status))
     if (hasActive) {
-      pollRef.current = setInterval(async () => {
+      const handle = setInterval(async () => {
         try {
           const domainsData = await api.getWorkspaceDomains(id)
-          if (pollForId.current !== startedFor) return
+          if (loadGeneration.current !== startedUnder) return
           const updated = domainsData.domains || []
           setDomains(updated)
-          // If no more active scans, clear the interval
+          // If no more active scans, clear THIS interval
           if (!updated.some(d => ACTIVE_STATUSES.has(d.latest_status))) {
-            clearInterval(pollRef.current)
+            clearInterval(handle)
           }
         } catch { /* non-fatal — next tick will retry */ }
       }, 8_000)
+      pollRef.current = handle
     }
     return () => clearInterval(pollRef.current)
   }, [domains, id]) // eslint-disable-line react-hooks/exhaustive-deps

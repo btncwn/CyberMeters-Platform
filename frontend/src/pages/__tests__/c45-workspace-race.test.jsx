@@ -69,3 +69,34 @@ it('C-47 F03: a late asset summary for A never lands on B', async () => {
   await act(async () => { sumA.resolve({ total_assets: 999, active_assets: 999, inactive_assets: 0, subdomains: 998, exposed_services: 0, cloud_storage_assets: 0, takeover_risks: 0 }) })
   expect(document.body.textContent).not.toContain('999')
 })
+
+// Codex C-48 repro, asserting the correct behaviour: a route id alone cannot tell
+// a first visit to A from a later one.
+it('C-48 F03: an in-flight poll from the first A never replaces the fresh A list after A → B → A', async () => {
+  const callbacks = []
+  vi.spyOn(globalThis, 'setInterval').mockImplementation((fn, ms) => { if (ms === 8000) callbacks.push(fn); return 123 })
+  vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {})
+  let releaseOldA, callsA = 0
+  const wsData = (id) => ({ workspace: { id, name: id === 'wa' ? 'Workspace A' : 'Workspace B', role: 'member' }, stats: { total_domains: 1, total_scans: 0, latest_scan: null } })
+  api.getWorkspace.mockImplementation(async id => wsData(id))
+  api.getWorkspaceAssetsSummary.mockResolvedValue({})
+  api.getWorkspaceDomains.mockImplementation(id => {
+    if (id === 'wa' && ++callsA === 2) return new Promise(resolve => { releaseOldA = resolve })
+    return Promise.resolve({ domains: [{ domain_id: id, domain: id === 'wa' ? 'fresh-alpha.example.org' : 'beta.example.org', latest_status: 'running' }] })
+  })
+  function Nav() { const go = useNavigate(); return <><button onClick={() => go('/workspaces/wb')}>To B</button><button onClick={() => go('/workspaces/wa')}>To A</button></> }
+  render(<MemoryRouter initialEntries={['/workspaces/wa']}><Nav/><Routes><Route path="/workspaces/:id" element={<WorkspaceDetailPage/>}/></Routes></MemoryRouter>)
+  await screen.findByRole('heading', { name: 'Workspace A', level: 1 })
+  await waitFor(() => expect(callbacks.length).toBeGreaterThan(0))
+  let poll
+  act(() => { poll = callbacks[0]() })
+  fireEvent.click(screen.getByRole('button', { name: 'To B' }))
+  await screen.findByRole('heading', { name: 'Workspace B', level: 1 })
+  fireEvent.click(screen.getByRole('button', { name: 'To A' }))
+  await screen.findByRole('heading', { name: 'Workspace A', level: 1 })
+  expect(screen.getByText('fresh-alpha.example.org')).toBeInTheDocument()
+  await act(async () => { releaseOldA({ domains: [{ domain_id: 'old', domain: 'stale-alpha.example.org', latest_status: 'completed' }] }); await poll })
+  expect(screen.queryByText('stale-alpha.example.org')).toBeNull()
+  expect(screen.getByText('fresh-alpha.example.org')).toBeInTheDocument()
+  vi.restoreAllMocks()
+})
