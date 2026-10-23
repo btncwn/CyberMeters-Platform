@@ -23,6 +23,7 @@ import {
 } from '../../lib/caseDisplay'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import { formatDate, formatDay } from '../../utils/dates'
+import { affectedLabel } from '../../lib/keyLabel'
 
 // domain_key → { service-colour key, the area page that handles a case the
 // universal page cannot move (Brand Protection) }.
@@ -461,7 +462,7 @@ export default function WorkspaceCaseDetailPage() {
               {c.summary || 'CyberMeters recorded this condition in a scan of your external posture.'}
             </p>
             <p className="text-sm text-slate-600 mt-2">
-              Affected: <span className="text-slate-800 break-all">{c.resource || c.asset_ref || c.domain || 'not recorded'}</span>
+              Affected: <span className="text-slate-800 break-all">{affectedLabel(c) || 'not recorded'}</span>
             </p>
             {c.traceability && (
               <p className="text-sm text-slate-600 mt-2">

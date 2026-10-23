@@ -18,6 +18,7 @@ import { caseChipStatus, caseAssessmentMessage } from '../../lib/caseAssessment'
 import { MODULES } from '../../lib/moduleRegistry'
 import StatusChip from '../StatusChip'
 import { formatDay } from '../../utils/dates'
+import { isOpaqueId } from '../../lib/keyLabel'
 
 // Lanes in working order. `words` are the vocabulary words a lane collects,
 // and a lane is NAMED by its first word's vocabulary label, so a tab and the
@@ -60,7 +61,7 @@ function CaseRow({ c }) {
           {domainKeyLabel(c.domain_key)}
           {c.domain ? ` · ${c.domain}` : ''}
           {' · '}
-          {c.owner_ref ? `Owner: ${c.owner_ref}` : 'Unassigned'}
+          {c.owner_ref ? `Owner: ${isOpaqueId(c.owner_ref) ? 'a former member' : c.owner_ref}` : 'Unassigned'}
           {c.severity ? ` · ${String(c.severity)[0].toUpperCase()}${String(c.severity).slice(1)}` : ''}
           {' · '}<span className="whitespace-nowrap">Updated {fmtDate(c.updated_at)}</span>
         </p>

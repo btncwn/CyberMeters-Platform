@@ -187,3 +187,13 @@ describe('WorkspaceCaseDetailPage — a case that moved since the page loaded', 
     await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(2))
   })
 })
+
+// Founder P1 #3 (23 Oct 2026): "What we saw" never shows a raw condition key (C-45 R01).
+describe('WorkspaceCaseDetailPage — the affected line in words', () => {
+  it('reads "sheshire.co.uk — HSTS header missing", never "sheshire.co.uk:header_missing_…"', async () => {
+    api.getCase.mockResolvedValue({ case: { ...baseCase, resource: null, asset_ref: 'sheshire.co.uk:header_missing_strict_transport_security' }, events: [], can_manage: true, available_transitions: [] })
+    renderCase()
+    expect(await screen.findByText('sheshire.co.uk — HSTS header missing')).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('header_missing_strict_transport_security')
+  })
+})
