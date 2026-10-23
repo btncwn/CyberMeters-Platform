@@ -19,7 +19,7 @@ import SomethingWrong from './SomethingWrong'
 
 // S1-SHELL-V2 (founder-approved design, 22 Oct 2026) — supersedes the notes
 // below where they differ:
-//   • a LEFT SIDEBAR at ≥1024px (AreaSidebar): the logo (→ Overview, no longer
+//   • a 320px LEFT SIDEBAR at ≥1024px (AreaSidebar): the logo (→ Overview, no longer
 //     a menu), "Your external posture" and the eight areas with their state;
 //     the selected area expands into its sub-topics. Below 1024px the same
 //     sidebar opens as a drawer from a menu button beside the logo.

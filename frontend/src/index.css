@@ -678,7 +678,7 @@
 .cm-frame { display: flex; min-height: 100vh; align-items: stretch; }
 .cm-column { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .cm-sidebar {
-  flex: 0 0 272px; width: 272px; box-sizing: border-box; position: sticky; top: 0; height: 100vh;
+  flex: 0 0 320px; width: 320px; box-sizing: border-box; position: sticky; top: 0; height: 100vh;
   display: flex; flex-direction: column; background: #f7f9fb; border-right: 1px solid #e3e8ee;
 }
 .cm-sidebar > .cm-side { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
@@ -702,8 +702,7 @@
 .cm-side-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .cm-side-name { flex: 1 1 auto; min-width: 0; }
 .cm-side-state { flex: none; display: inline-flex; margin-left: auto; }
-.cm-side-state { max-width: 112px; }
-.cm-side-state > span { padding: 1px 7px; line-height: 17px; text-align: center; }
+.cm-side-state > span { padding: 1px 7px; line-height: 17px; white-space: nowrap; }
 .cm-side-item-stacked .cm-side-state { max-width: none; }
 /* In the drawer (<1024px) the chip always sits under the name. */
 .cm-side-item-stacked .cm-side-text { flex-direction: column; align-items: flex-start; }

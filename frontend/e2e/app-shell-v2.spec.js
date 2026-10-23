@@ -189,3 +189,33 @@ test('empty states keep every sub-topic target: no certificates, no Email scans,
   for (const id of ['#auth-dmarc', '#auth-spf', '#auth-dkim', '#report-history', '#mail-transport']) await expectTarget(`/ws/email-protection${id}`, id)
   await expectTarget('/ws/brand-monitoring#managed-brand-cases', '#managed-brand-cases')
 })
+
+// Founder rule "no overlapping text" (Executive 04:00): inside every sidebar row the name,
+// the chevron and the chip never overlap, and the chip stays on one line, at 1440 and 1024.
+test('sidebar rows: name, chevron and chip never overlap; the chip is one line', async ({ page, context }) => {
+  await seedSession(context)
+  await installAppMock(page)
+  for (const [width, height] of [[1440, 900], [1024, 800]]) {
+    await page.setViewportSize({ width, height })
+    for (const route of ['/dashboard', '/ws/email-protection']) {
+      await page.goto(route, { waitUntil: 'networkidle' })
+      await page.waitForTimeout(400)
+      const problems = await page.evaluate(() => {
+        const hit = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5
+        return [...document.querySelectorAll('.cm-sidebar .cm-side-item')].flatMap((row) => {
+          const name = row.querySelector('.cm-side-name')
+          const textBox = (el) => { const r = document.createRange(); r.selectNodeContents(el); return [...r.getClientRects()] }
+          const nameRects = textBox(name)
+          const chip = row.querySelector('.cm-side-state [data-status]').getBoundingClientRect()
+          const chevron = row.querySelector('.cm-side-chevron').getBoundingClientRect()
+          const out = []
+          if (nameRects.some((r) => hit(r, chip))) out.push(`${name.textContent}: name overlaps chip`)
+          if (nameRects.some((r) => hit(r, chevron))) out.push(`${name.textContent}: name overlaps chevron`)
+          if (chip.height > 26) out.push(`${name.textContent}: chip wraps (${Math.round(chip.height)}px)`)
+          return out
+        })
+      })
+      expect(problems, `${route} @${width}`).toEqual([])
+    }
+  }
+})

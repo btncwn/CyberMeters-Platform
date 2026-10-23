@@ -72,9 +72,9 @@ describe('product typography', () => {
     expect(css).not.toMatch(/\.cm-earthdock\s*\{/)
     expect(css).not.toMatch(/\.cm-bellbtn\s*\{/)
     // S1-SHELL-V2 (founder-approved 22 Oct 2026): from 1024px the workspace card
-    // sits in its own block at the foot of the sticky 272px sidebar, never over
+    // sits over the foot of the sticky 320px sidebar (its list keeps room), never over
     // an area row; below 1024px it floats at 76px and the page keeps room for it.
-    expect(css).toMatch(/\.cm-sidebar\s*\{[^}]*flex:\s*0 0 272px;[^}]*position:\s*sticky;\s*top:\s*0;\s*height:\s*100vh/)
+    expect(css).toMatch(/\.cm-sidebar\s*\{[^}]*flex:\s*0 0 320px;[^}]*position:\s*sticky;\s*top:\s*0;\s*height:\s*100vh/)
     // C-38 S05: the card floats bottom-left outside the sidebar (24px from 1024px, 16px below),
     // and the sidebar's list keeps room at its foot so the card never covers a row.
     expect(css).not.toMatch(/\.cm-sidebar-dock\s*\{/)
