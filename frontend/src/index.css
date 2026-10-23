@@ -680,10 +680,14 @@
 .cm-sidebar {
   flex: 0 0 320px; width: 320px; box-sizing: border-box; position: sticky; top: 0; height: 100vh;
   display: flex; flex-direction: column; background: #f7f9fb; border-right: 1px solid #e3e8ee;
+  /* The card zone (C-38b, founder 11:31): the scrolling list ENDS above the
+     floating workspace card (24px gap + 92px card + 12px deck offset + 8px air),
+     so the card floats over empty sidebar background and never over a row,
+     scrolled or not. A spacer inside the list was not enough: a row below the
+     fold sat under the card until the list was scrolled. */
+  padding-bottom: 136px;
 }
 .cm-sidebar > .cm-side { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-/* Room at the foot of the list for the floating workspace card (it sits over the sidebar, never over a row). */
-.cm-sidebar > .cm-side::after { content: ""; flex: none; height: 132px; }
 .cm-side { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; }
 .cm-side-logo { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; color: #1a1f2b; border-radius: 8px; }
 .cm-side-logo:hover { color: #1a1f2b; background: #eef3f1; }
@@ -722,8 +726,10 @@
 .cm-module-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cm-module-tools .cm-area-search { width: 240px; max-width: 100%; }
 @media (max-width: 1023.98px) {
-  /* Name and tabs share one scrolling strip; the tools take one line under it. */
-  .cm-arearow-slot, .cm-arearow > .cm-tabs { flex: 1 1 0; }
+  /* Name and tabs share ONE scrolling strip (the name scrolls away with the
+     tabs, C-38b S15); the tools take one line under it. */
+  .cm-arearow-strip { display: flex; align-items: center; gap: 12px; flex: 1 1 100%; min-width: 0; overflow-x: auto; position: relative; }
+  .cm-arearow .cm-arearow-strip .cm-arearow-slot, .cm-arearow .cm-arearow-strip .cm-tabs { flex: none; overflow: visible; }
   .cm-arearow-tools { flex-basis: 100%; margin-left: 0; padding: 0 0 8px; }
   /* Search takes the line's width; actions wrap under it rather than widen the page. */
   .cm-module-tools { flex-wrap: wrap; min-width: 0; }
@@ -733,6 +739,7 @@
   .cm-top { position: static; }
   .cm-shell [id] { scroll-margin-top: 12px; }
 }
+@media (min-width: 1024px) { .cm-arearow-strip { display: contents; } }
 .cm-arearow-name { flex: none; font-size: 14px; font-weight: 600; color: #3b4555; padding: 10px 0; white-space: nowrap; }
 .cm-arearow-dot { color: #c0c7d0; margin-left: 8px; }
 .cm-arearow-slot:empty { display: none; }

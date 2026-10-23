@@ -30,6 +30,8 @@
     <meta name="twitter:image" content="https://cybermeters.com/og-image-v3.png" />
     <!-- Only the face the homepage heading is set in. Other weights load when used. -->
     <link rel="preload" href="/fonts/computer-modern/cmunrm.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- Before any module: drop a fresh reload's ?_fresh= even if the app fails to boot (public/strip-fresh.js). -->
+    <script src="/strip-fresh.js"></script>
   </head>
   <body>
     <div id="root"></div>

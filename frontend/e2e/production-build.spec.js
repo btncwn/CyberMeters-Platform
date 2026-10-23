@@ -94,3 +94,15 @@ for (const path of ['/', '/dashboard', '/landing']) {
     expect(htmlAssets).toEqual([])
   })
 }
+
+// Codex C-42: a fresh reload's ?_fresh= leaves the address bar even when the app
+// then fails to boot (public/strip-fresh.js runs before any module).
+test('?_fresh= is stripped even when the entry bundle fails to load', async ({ page }) => {
+  await page.route(/\/assets\/index-[^/]+\.js$/, (route) => route.abort())
+  await page.goto(`${base}/ws/certificates?tab=findings&_fresh=123#cert-caa`)
+  await expect.poll(() => page.url()).not.toContain('_fresh')
+  const u = new URL(page.url())
+  expect(u.pathname).toBe('/ws/certificates')
+  expect(u.searchParams.get('tab')).toBe('findings')
+  expect(u.hash).toBe('#cert-caa')
+})

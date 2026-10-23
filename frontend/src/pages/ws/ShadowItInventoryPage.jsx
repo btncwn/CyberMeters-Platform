@@ -5,7 +5,7 @@
 // frontend never invents classification states or actions.
 import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
 import { useAppDialog } from '../../components/AppDialog'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams, Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
@@ -155,11 +155,23 @@ export default function ShadowItInventoryPage() {
   // a foreign id simply matches nothing.
   const [searchParams] = useSearchParams()
   const focusItemId = searchParams.get('item')
-  // ?filter=approved (the sidebar's "Approved inventory") opens the inventory with that filter selected.
+  // ?filter= is the source of truth both ways (C-38b N01): the sidebar's
+  // "Approved inventory" (?filter=approved) selects Approved, a link without it
+  // ("Observed technology") selects All again.
   const filterParam = searchParams.get('filter')
   useEffect(() => {
-    if (['unreviewed', 'approved', 'rejected', 'exception', 'retired'].includes(filterParam)) setFilter(filterParam)
+    setFilter(['unreviewed', 'approved', 'rejected', 'exception', 'retired'].includes(filterParam) ? filterParam : '')
   }, [filterParam])
+  // A chip writes the URL (hash kept, history replaced); the effect above applies it.
+  const navigate = useNavigate()
+  const location = useLocation()
+  const selectFilter = useCallback((c) => {
+    const next = new URLSearchParams(location.search)
+    if (c) next.set('filter', c); else next.delete('filter')
+    const search = next.toString()
+    setFilter(c)
+    navigate({ pathname: location.pathname, search: search ? `?${search}` : '', hash: location.hash }, { replace: true })
+  }, [location.pathname, location.search, location.hash, navigate])
   const focusRef = useRef(null)
   useEffect(() => {
     if (focusRef.current) focusRef.current.scrollIntoView({ block: 'center' })
@@ -247,7 +259,7 @@ export default function ShadowItInventoryPage() {
   // Overview lists the unclassified items themselves (founder, 18 Oct 2026): the
   // first five, and "See all" opens the inventory filtered to them.
   const unclassified = items.filter((it) => it.classification === 'unreviewed')
-  const seeAllUnclassified = () => { setFilter('unreviewed'); goToAnchor('shadow-it-inventory') }
+  const seeAllUnclassified = () => { selectFilter('unreviewed'); goToAnchor('shadow-it-inventory') }
   const isEmpty = !loading && !error && items.length === 0 && !filter
 
   if (!wsLoading && !workspaceId) return <NoWorkspaceSelected />
@@ -320,7 +332,8 @@ export default function ShadowItInventoryPage() {
         {['', 'unreviewed', 'approved', 'rejected', 'exception', 'retired'].map((c) => (
           <button
             key={c || 'all'}
-            onClick={() => setFilter(c)}
+            onClick={() => selectFilter(c)}
+            aria-pressed={filter === c}
             className={`text-xs rounded-full border px-3 py-1 ${filter === c ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
           >
             {c === '' ? (allCount == null ? 'All' : `All (${allCount})`) : `${classificationMeta(c).label} (${counts[c] ?? 0})`}
