@@ -6,16 +6,18 @@ import ChunkErrorBoundary, {
   clearReloadBudget,
 } from '../ChunkErrorBoundary'
 
+import { freshReload } from '../../lib/freshReload'
+
 const RELOAD_FLAG = 'cybermeters_chunk_reload_at'
 
-// jsdom's location.reload throws "Not implemented" — replace it with a spy.
-let reloadSpy
+// Every reload goes through lib/freshReload (S1-RELOAD: a plain location.reload
+// read a poisoned cached chunk back and looped). Its own behaviour is tested in
+// lib/__tests__/freshReload.test.js; here we pin WHEN the boundary reloads.
+vi.mock('../../lib/freshReload', () => ({ freshReload: vi.fn() }))
+const reloadSpy = freshReload
 beforeEach(() => {
-  reloadSpy = vi.fn()
-  Object.defineProperty(window, 'location', {
-    value: { ...window.location, reload: reloadSpy },
-    writable: true,
-  })
+  freshReload.mockClear()
+  sessionStorage.clear()
 })
 
 function Boom({ message, name }) {
@@ -54,7 +56,8 @@ describe('ChunkErrorBoundary recovery', () => {
     renderWithBoundary(<Boom message="Failed to fetch dynamically imported module: /assets/Page.js" />)
     expect(reloadSpy).toHaveBeenCalledTimes(1)
     expect(sessionStorage.getItem(RELOAD_FLAG)).not.toBeNull()
-    expect(screen.getByText(/loading the latest version/i)).toBeInTheDocument()
+    expect(screen.getByText("We've just updated CyberMeters. Reloading…")).toBeInTheDocument()
+    expect(reloadSpy.mock.calls[0][0]?.message).toMatch(/\/assets\/Page\.js/)
     expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument()
     spy.mockRestore()
   })
@@ -64,10 +67,11 @@ describe('ChunkErrorBoundary recovery', () => {
     sessionStorage.setItem(RELOAD_FLAG, String(Date.now())) // a reload just happened
     renderWithBoundary(<Boom message="Loading chunk 7 failed" />)
     expect(reloadSpy).not.toHaveBeenCalled()
-    expect(screen.getByText(/a new version of cybermeters is available/i)).toBeInTheDocument()
+    expect(screen.getByText("We've just updated CyberMeters")).toBeInTheDocument()
     // A deliberate click must always work — the budget only limits automatic reloads.
     fireEvent.click(screen.getByRole('button', { name: /reload page/i }))
     expect(reloadSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Reloading…' })).toBeDisabled()
     spy.mockRestore()
   })
 

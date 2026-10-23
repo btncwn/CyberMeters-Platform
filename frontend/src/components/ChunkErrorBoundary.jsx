@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import { useLocation } from 'react-router-dom'
+import { freshReload } from '../lib/freshReload'
 
 // ── Stale-deploy recovery ──────────────────────────────────────────────────
 //
@@ -65,13 +66,14 @@ function markReloadAttempt() {
   }
 }
 
-// One guarded hard reload to fetch the latest asset manifest.
+// One guarded reload that really fetches the latest assets (freshReload replaces
+// any poisoned cached chunk first; a plain reload looped — S1-RELOAD).
 // Returns false when the guardrails refused (offline / recently reloaded).
 // Also used by the vite:preloadError listener in main.jsx.
-export function reloadForFreshAssets() {
+export function reloadForFreshAssets(error = null) {
   if (!canAutoReload()) return false
   markReloadAttempt()
-  window.location.reload()
+  freshReload(error)
   return true
 }
 
@@ -92,7 +94,7 @@ export function clearReloadBudget() {
 }
 
 class ChunkBoundaryInner extends Component {
-  state = { error: null, autoReloading: false }
+  state = { error: null, autoReloading: false, manualReloading: false }
 
   static getDerivedStateFromError(error) {
     // Decide here (read-only checks) whether a silent reload is coming, so
@@ -103,7 +105,7 @@ class ChunkBoundaryInner extends Component {
 
   componentDidCatch(error) {
     if (isChunkLoadError(error)) {
-      const reloading = reloadForFreshAssets()
+      const reloading = reloadForFreshAssets(error)
       if (reloading !== this.state.autoReloading) this.setState({ autoReloading: reloading })
     }
   }
@@ -126,7 +128,7 @@ class ChunkBoundaryInner extends Component {
 
   handleOnline = () => {
     if (this.state.error && isChunkLoadError(this.state.error)) {
-      if (reloadForFreshAssets()) this.setState({ autoReloading: true })
+      if (reloadForFreshAssets(this.state.error)) this.setState({ autoReloading: true })
     }
   }
 
@@ -134,7 +136,8 @@ class ChunkBoundaryInner extends Component {
   // automatic reloads.
   handleManualReload = () => {
     markReloadAttempt()
-    window.location.reload()
+    this.setState({ manualReloading: true })
+    freshReload(this.state.error)
   }
 
   render() {
@@ -145,7 +148,7 @@ class ChunkBoundaryInner extends Component {
       return (
         <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 px-6">
           <div className="w-6 h-6 border-2 border-brand-700 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading the latest version of CyberMeters…</p>
+          <p className="text-sm text-gray-500">We've just updated CyberMeters. Reloading…</p>
         </div>
       )
     }
@@ -157,17 +160,17 @@ class ChunkBoundaryInner extends Component {
       <div className="min-h-[60vh] flex items-center justify-center px-6">
         <div className="card max-w-md w-full p-8 text-center">
           <h1 className="text-lg font-bold text-gray-900 mb-2">
-            {staleChunk ? 'A new version of CyberMeters is available' : 'Something went wrong'}
+            {staleChunk ? "We've just updated CyberMeters" : 'Something went wrong'}
           </h1>
           <p className="text-sm text-gray-600 leading-relaxed mb-6">
             {offline
               ? 'You appear to be offline. This page will refresh automatically once your connection returns.'
               : staleChunk
-                ? 'This page could not be opened because the application was updated. Reload to continue with the latest version.'
+                ? 'This page needs the latest version to open. Reload to continue.'
                 : 'An unexpected error occurred while displaying this page. Reloading usually resolves it.'}
           </p>
-          <button onClick={this.handleManualReload} className="btn-primary mx-auto">
-            Reload page
+          <button onClick={this.handleManualReload} className="btn-primary mx-auto" disabled={this.state.manualReloading}>
+            {this.state.manualReloading ? 'Reloading…' : 'Reload page'}
           </button>
         </div>
       </div>
