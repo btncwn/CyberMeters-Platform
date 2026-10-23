@@ -192,7 +192,7 @@ test('empty states keep every sub-topic target: no certificates, no Email scans,
 
 // Founder rule "no overlapping text" (Executive 04:00): inside every sidebar row the name,
 // the chevron and the chip never overlap, and the chip stays on one line, at 1440 and 1024.
-test('sidebar rows: name, chevron and chip never overlap; the chip is one line', async ({ page, context }) => {
+test('sidebar rows: name, chevron and chip never overlap; name and chip one line each; equal heights; rows clear the card', async ({ page, context }) => {
   await seedSession(context)
   await installAppMock(page)
   for (const [width, height] of [[1440, 900], [1024, 800]]) {
@@ -212,10 +212,22 @@ test('sidebar rows: name, chevron and chip never overlap; the chip is one line',
           if (nameRects.some((r) => hit(r, chip))) out.push(`${name.textContent}: name overlaps chip`)
           if (nameRects.some((r) => hit(r, chevron))) out.push(`${name.textContent}: name overlaps chevron`)
           if (chip.height > 26) out.push(`${name.textContent}: chip wraps (${Math.round(chip.height)}px)`)
+          if (nameRects.length > 1) out.push(`${name.textContent}: name wraps (${nameRects.length} lines)`)
           return out
         })
       })
       expect(problems, `${route} @${width}`).toEqual([])
+      // Option B (Executive 05:00): every row the same height.
+      const heights = await page.locator('.cm-sidebar .cm-side-item').evaluateAll((rows) => rows.map((r) => Math.round(r.getBoundingClientRect().height)))
+      expect(new Set(heights).size, `${route} @${width}: row heights ${heights.join(',')}`).toBe(1)
+      // Every row can scroll clear of the floating card.
+      const clear = await page.evaluate(() => {
+        const list = document.querySelector('.cm-sidebar > .cm-side'); list.scrollTop = list.scrollHeight
+        const last = [...document.querySelectorAll('.cm-sidebar .cm-side-item')].pop().getBoundingClientRect()
+        const card = document.querySelector('[data-testid="workspace-dock"] .cm-wsbtn').getBoundingClientRect()
+        return Math.round(card.top - last.bottom)
+      })
+      expect(clear, `${route} @${width}: last row clears the card when scrolled`).toBeGreaterThanOrEqual(0)
     }
   }
 })

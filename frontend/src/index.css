@@ -683,7 +683,7 @@
 }
 .cm-sidebar > .cm-side { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 /* Room at the foot of the list for the floating workspace card (it sits over the sidebar, never over a row). */
-.cm-sidebar > .cm-side::after { content: ""; flex: none; height: 150px; }
+.cm-sidebar > .cm-side::after { content: ""; flex: none; height: 132px; }
 .cm-side { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; }
 .cm-side-logo { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; color: #1a1f2b; border-radius: 8px; }
 .cm-side-logo:hover { color: #1a1f2b; background: #eef3f1; }
@@ -697,16 +697,14 @@
 .cm-side-item:hover { background: #eef3f1; }
 .cm-side-item:focus-visible, .cm-side-sub:focus-visible, .cm-menubtn:focus-visible, .cm-drawer-close:focus-visible { outline: 2px solid #117362; outline-offset: 2px; }
 .cm-side-item-active { background: #e3efe9; color: #174f3f; }
-/* One line per area (C-38 S10): chevron · name · chip side by side; a long name
-   may wrap inside its column, the chip never moves under it. */
-.cm-side-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.cm-side-name { flex: 1 1 auto; min-width: 0; }
-.cm-side-state { flex: none; display: inline-flex; margin-left: auto; }
+/* Every row is two equal lines (Executive 05:00, option B): the name on one
+   line, the chip under it, left-aligned; the chevron centred on the row. No
+   name or chip ever wraps, so every row has the same height. */
+.cm-side-item { align-items: center; }
+.cm-side-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.cm-side-name { white-space: nowrap; }
+.cm-side-state { display: inline-flex; }
 .cm-side-state > span { padding: 1px 7px; line-height: 17px; white-space: nowrap; }
-.cm-side-item-stacked .cm-side-state { max-width: none; }
-/* In the drawer (<1024px) the chip always sits under the name. */
-.cm-side-item-stacked .cm-side-text { flex-direction: column; align-items: flex-start; }
-.cm-side-item-stacked .cm-side-state { margin-left: 0; }
 .cm-side-chevron { flex: 0 0 16px; color: #5b6473; transition: transform 150ms ease; }
 .cm-side-chevron-open { transform: rotate(90deg); }
 .cm-side-subs { list-style: none; margin: 0; padding: 0 0 6px; display: flex; flex-direction: column; gap: 1px; }

@@ -78,7 +78,7 @@ describe('product typography', () => {
     // C-38 S05: the card floats bottom-left outside the sidebar (24px from 1024px, 16px below),
     // and the sidebar's list keeps room at its foot so the card never covers a row.
     expect(css).not.toMatch(/\.cm-sidebar-dock\s*\{/)
-    expect(css).toMatch(/\.cm-sidebar > \.cm-side::after\s*\{[^}]*height:\s*150px/)
+    expect(css).toMatch(/\.cm-sidebar > \.cm-side::after\s*\{[^}]*height:\s*132px/)
     expect(css).toMatch(/\.cm-wsfloat\s*\{[^}]*position:\s*fixed;\s*left:\s*16px;\s*bottom:\s*16px/)
     expect(css).toMatch(/\.cm-wsfloat-wide\s*\{[^}]*left:\s*24px;\s*bottom:\s*24px/)
     expect(css).toMatch(/@media \(max-width: 1023\.98px\)\s*\{\s*\.cm-main\s*\{\s*padding-bottom:\s*108px/)
