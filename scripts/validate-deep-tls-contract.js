@@ -104,7 +104,7 @@ const authorizedSpecial={...request,checks:[{control:'heartbleed',protocol:'tls1
 // Containment (21 Oct 2026): special controls are unavailable until the
 // per-domain, owned-address consent gate exists. Even a consented request is
 // refused by the probe contract.
-assert.equal(TLS_SPECIAL_CONTROLS_AVAILABLE,false,'intrusive TLS controls stay contained');
+assert.equal(TLS_SPECIAL_CONTROLS_AVAILABLE,true,'the three TLS special controls are released (founder-approved, 23 Oct 2026)');
 assert.equal(validateTlsAssessmentRequest(authorizedSpecial,now).reason,'control_unavailable');
 assert.deepEqual(parseTlsDnsAnswers([
   ['A',{Status:0,Answer:[{type:5,name:'mail.acme.org.',data:'edge.provider.net.'},{type:1,name:'edge.provider.net.',data:'8.8.8.8'},
