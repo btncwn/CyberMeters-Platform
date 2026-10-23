@@ -282,7 +282,7 @@ async function createJob(env, scan, now, dispatch) {
     plan.content_state='not_requested';plan.checks=[];plan.omitted_checks=0;
   }
   if(env.TLS_ASSESSMENT_MODE==='evidence-v1'){
-    const endpoints=await loadTlsEndpoints(env,scan);
+    const endpoints=await loadTlsEndpoints(env,scan,{trigger:dispatch?.trigger});
     const observedHttpsHosts=observedHttpsHostsFrom(json(previous?.results_json,[]),hosts);
     const tlsArgs={endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
       previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),observedHttpsHosts,scanId:scan.id};

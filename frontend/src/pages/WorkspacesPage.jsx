@@ -7,7 +7,6 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import DeletedWorkspacesPanel from '../components/DeletedWorkspacesPanel'
-import { setActiveWorkspace } from '../lib/activeWorkspace'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -128,12 +127,14 @@ export default function WorkspacesPage() {
     setWorkspaces(prev => [ws, ...prev])
     setShowCreate(false)
     // Set as active workspace and navigate to detail
-    setActiveWorkspace(ws.id, ws.name)
+    localStorage.setItem('cybermeters_workspace_id', ws.id)
+    localStorage.setItem('cybermeters_workspace_name', ws.name)
     navigate(`/workspaces/${ws.id}`)
   }
 
   function openWorkspace(ws) {
-    setActiveWorkspace(ws.id, ws.name)
+    localStorage.setItem('cybermeters_workspace_id', ws.id)
+    localStorage.setItem('cybermeters_workspace_name', ws.name)
     navigate(`/workspaces/${ws.id}`)
   }
 

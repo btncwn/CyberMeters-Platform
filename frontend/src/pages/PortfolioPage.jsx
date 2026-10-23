@@ -17,7 +17,6 @@ import { assetLifecycleClaimDisplay } from '../lib/assetLifecycleClaimDisplay'
 import { PortfolioExecutiveSummary, PortfolioMaturity } from '../components/PortfolioSummaryCards'
 import { PlanGate } from '../components/PlanUsageCard'
 import CustomerDomainMatrix, { MATRIX_LIMIT } from '../components/portfolio/CustomerDomainMatrix'
-import { setActiveWorkspace } from '../lib/activeWorkspace'
 
 // A plan gate is one fact about the account, not a failure of each section:
 // show a single upgrade card instead of one "Retry" per section.
@@ -33,7 +32,8 @@ const DOMAINS_PARAMS = { limit: MATRIX_LIMIT, offset: 0, sort: 'priority' }
 // The customer the MSP opens becomes the selected workspace, exactly as the
 // Customers page selects one, and the workspace surfaces read it from there.
 function selectWorkspace(navigate, workspaceId, workspaceName) {
-  setActiveWorkspace(workspaceId, workspaceName)
+  localStorage.setItem('cybermeters_workspace_id', workspaceId)
+  localStorage.setItem('cybermeters_workspace_name', workspaceName)
   navigate('/dashboard')
 }
 

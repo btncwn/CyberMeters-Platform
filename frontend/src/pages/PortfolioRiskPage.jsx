@@ -10,7 +10,6 @@ import {
   scoreBandMeta, scoreStateMeta, toneClass, hasRenderableScore, scoreOutOfHundred,
   bandHex, riskBandHex,
 } from '../lib/portfolioScoreDisplay'
-import { setActiveWorkspace } from '../lib/activeWorkspace'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -158,7 +157,7 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
               </td>
               <td className="py-2.5">
                 <button
-                  onClick={() => onWorkspaceClick(r.workspace_id, r.workspace_name)}
+                  onClick={() => onWorkspaceClick(r.workspace_id)}
                   className="text-gray-600 hover:text-brand-800 transition-colors"
                   aria-label={`Open ${r.workspace_name}`}
                 >
@@ -305,10 +304,8 @@ export default function PortfolioRiskPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Id AND name, through the one notifying writer (C-45 W04: the id alone left
-  // the previous workspace's name on screen).
-  const handleWorkspaceClick = (wsId, wsName) => {
-    setActiveWorkspace(wsId, wsName || '')
+  const handleWorkspaceClick = (wsId) => {
+    localStorage.setItem('cybermeters_workspace_id', wsId)
     navigate('/ws/business-risk')
   }
 

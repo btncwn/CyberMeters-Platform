@@ -1,7 +1,7 @@
 // @ts-check
 import { noteErrorCode } from './lib/feedback'
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
-import { clearAccountWorkspaceState, notifyWorkspaceDomainsChanged } from './lib/activeWorkspace'
+import { clearAccountWorkspaceState } from './lib/activeWorkspace'
 import { friendlyHttpError } from './lib/httpErrors'
 import { customerCodeLabel } from './lib/customerReasonText'
 
@@ -387,13 +387,6 @@ async function requestBlob(path, options = {}) {
   return res.blob()
 }
 
-// A successful domain add/remove/verify tells every list of the workspace's
-// domains (the card's count, the context bar) to refetch (C-47 F04).
-function domainsChanged(result) {
-  notifyWorkspaceDomainsChanged()
-  return result
-}
-
 export const api = {
   // ── Public free tools (/tools/*) ──────────────────────────────────────
   // Outcome calls: a used-up allowance or a busy day is an answer the page
@@ -615,11 +608,11 @@ export const api = {
     request(`/workspaces/${workspaceId}/domains`, {
       method: 'POST',
       body: JSON.stringify({ domain }),
-    }).then(domainsChanged),
+    }),
 
   /** DELETE /api/workspaces/:id/domains/:domainId */
   removeDomainFromWorkspace: (workspaceId, domainId) =>
-    request(`/workspaces/${workspaceId}/domains/${domainId}`, { method: 'DELETE' }).then(domainsChanged),
+    request(`/workspaces/${workspaceId}/domains/${domainId}`, { method: 'DELETE' }),
 
   /** GET /api/scans?workspace_id= */
   getWorkspaceScans: (workspaceId) => request(`/scans?workspace_id=${workspaceId}`),
@@ -1334,7 +1327,7 @@ export const api = {
     request(`/domains/${domainId}/verify`, {
       method: 'POST',
       ...(workspaceId ? { body: JSON.stringify({ workspace_id: workspaceId }) } : {}),
-    }).then(domainsChanged),
+    }),
 
   /**
    * POST /api/domains/:id/verification/domain-connect

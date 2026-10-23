@@ -29,9 +29,7 @@ function storageKeys() {
     for (const m of text.matchAll(/(?:local|session)Storage\.setItem\(\s*['"`]([A-Za-z0-9_:-]+)['"`]/g)) keys.add(m[1])
     // Keys written through a named constant: const X_KEY = 'name'
     for (const m of text.matchAll(/const\s+([A-Z_]*KEY|RELOAD_FLAG)\s*=\s*['"`]([A-Za-z0-9_:-]+)['"`]/g)) {
-      // Any receiver: lib/activeWorkspace.js writes WS_ID_KEY / WS_NAME_KEY as s?.setItem(KEY, …),
-      // the one writer every workspace switch now goes through (C-45 W02).
-      if (new RegExp(`\\.setItem\\(\\s*${m[1]}\\b`).test(text) || /storage\(\)\??\.setItem\(/.test(text)) keys.add(m[2])
+      if (new RegExp(`(?:local|session)Storage\\.setItem\\(\\s*${m[1]}\\b`).test(text) || /storage\(\)\??\.setItem\(/.test(text)) keys.add(m[2])
     }
   }
   return [...keys].sort()

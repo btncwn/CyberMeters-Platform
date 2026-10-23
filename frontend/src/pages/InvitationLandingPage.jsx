@@ -40,7 +40,6 @@ import {
   INVITATION_ERRORS, invitationErrorKind, rememberPendingInvite, clearPendingInvite,
 } from '../lib/invitationFlow'
 import CyberMetersLogoMark from '../components/CyberMetersLogo'
-import { setActiveWorkspace } from '../lib/activeWorkspace'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -199,10 +198,10 @@ export default function InvitationLandingPage() {
       const result = await api.acceptWorkspaceInvitation(token)
       // Store workspace context
       if (result.workspace_id) {
-        // Id and name together, through the one notifying writer (C-45 W02): a
-        // missing preview name is left empty for useWorkspace to fill, never the
-        // previous workspace's name.
-        setActiveWorkspace(result.workspace_id, preview?.workspace_name || '')
+        localStorage.setItem('cybermeters_workspace_id', result.workspace_id)
+        if (preview?.workspace_name) {
+          localStorage.setItem('cybermeters_workspace_name', preview.workspace_name)
+        }
         setJoinedWsId(result.workspace_id)
       }
       // Signal to Dashboard that this is a team-joined session → show onboarding card

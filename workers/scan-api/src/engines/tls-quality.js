@@ -24,6 +24,8 @@ export const TLS_CAPABILITY_UNEXECUTABLE_REASONS = Object.freeze([
   'group_unavailable', 'control_unavailable', 'requires_credentials',
   // Authorised by the customer, engine not released (S3-B follow-up): stated.
   'authorised_engine_not_released',
+  // Authorised, held to a started check or refused on a provider edge (F1): stated.
+  'authorised_runs_on_started_check', 'provider_infrastructure_not_tested', 'address_not_verified_not_tested',
 ]);
 export function blockingTlsUnexecutable(checks) {
   return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'unexecutable'

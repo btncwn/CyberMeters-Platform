@@ -8,11 +8,9 @@ import ErrorAlert from '../components/ErrorAlert'
 import EmptyState from '../components/EmptyState'
 import { formatDate } from '../utils/dates'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
-import { useScopedDomain } from '../components/shell/WorkspaceContext'
 
 export default function DomainHistory() {
   const { domain } = useParams()
-  useScopedDomain(domain)
   const navigate   = useNavigate()
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
