@@ -1083,8 +1083,32 @@ export function certificateCaseHost(row) {
   return match ? match[1] : null;
 }
 
+// TLS endpoint conditions (engines/tls-endpoint-cases.js) are certificate cases
+// too, but not about a certificate's lifetime: their read-time title names the
+// endpoint condition, never "Certificate follow-up".
+const TLS_CONDITION_REASON = Object.freeze({
+  tls_legacy_protocol: "legacy TLS version accepted",
+  tls_weak_cipher: "weak cipher accepted",
+  tls_weak_key_exchange: "weak key exchange",
+  tls_no_forward_secrecy: "no forward secrecy",
+  tls_heartbleed_confirmed: "Heartbleed behaviour confirmed",
+  tls_robot_confirmed: "RSA padding oracle signal",
+  tls_ccs_confirmed: "CCS injection behaviour confirmed",
+  tls_certificate_hostname: "certificate does not cover this host",
+  tls_certificate_trust: "certificate trust failure",
+  tls_weak_certificate_key: "weak certificate key",
+  tls_weak_certificate_signature: "weak certificate signature",
+  tls_ocsp_revoked: "revoked certificate",
+  tls_compression_enabled: "TLS compression enabled",
+});
+
 export function certificateCaseDisplay(row) {
   if (row?.case_type !== "certificate_case") return null;
+  if (String(row.source_finding_type || "").startsWith("tls_")) {
+    const host = row.asset_ref || row.domain || null;
+    const reason = TLS_CONDITION_REASON[row.source_finding_type] || "TLS endpoint condition";
+    return { display_title: host ? `TLS endpoint ${host} — ${reason}` : (row.title ?? null), reason_label: reason, resource: host };
+  }
   const host = certificateCaseHost(row) || row.asset_ref || null;
   const reason = CERTIFICATE_CASE_REASON[row.source_finding_type] || null;
   return {

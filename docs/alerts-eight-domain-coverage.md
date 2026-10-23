@@ -62,7 +62,7 @@ whatever this document says.
 
 | Domain | Entity identity | Alerting recurrences | Severity provenance | Recovery / re-entry |
 | --- | --- | --- | --- | --- |
-| `certificates_trust` | `certificate_lifecycle.id` | `expired`, `renewal_overdue` (+7-day band), `replacement_contradicted`, `verification_failed`, `replacement_unverified`, `coverage_regression`, `unexpected_san`, `exception_expired`, `owner_missing` | fixed + INHERIT band | ✅ |
+| `certificates_trust` | `certificate_lifecycle.id`; TLS endpoint conditions: the `certificate_case` id (one per exact condition) | `expired`, `renewal_overdue` (+7-day band), `replacement_contradicted`, `verification_failed`, `replacement_unverified`, `coverage_regression`, `unexpected_san`, `exception_expired`, `owner_missing`; TLS endpoint (`engines/tls-endpoint-cases.js`, 23 Oct 2026): `tls_condition_observed`, `tls_condition_returned` | fixed + INHERIT band; TLS: INHERIT the finding's severity | ✅ (TLS: verified only on an exact-retest clear of a submitted case) |
 | `identity_exposure` | `identity_exposure.canonical_identity_key` | `public_admin_surface`, `removal_contradicted`, `verification_failed`, `unexpected_surface`, `retired_reappeared`, `investigate_unresolved`, `exception_expired`, `provider_change`, `owner_missing` | fixed | ✅ |
 | `shadow_it_unmanaged_technology` | `canonical_technology_key` | `removal_incomplete`, `rejected_reappeared`, `removal_contradicted`, `retired_reappeared`, `exception_expired`, `owner_missing` | fixed | ✅ |
 | `brand_protection` | `managed_cases.id` | `case_opened`, `case_reappeared`, `case_resolved` | INHERIT | ✅ |

@@ -85,6 +85,7 @@ import { createDiscoveryQuestionBudget } from "./discovery-confirmation.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
+import { reconcileTlsEndpointCases } from "./tls-endpoint-cases.js";
 import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
 import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
@@ -3254,6 +3255,21 @@ function buildCanonicalUrlProfile(modules) {
         await correlateCertificateLifecycle(phaseEnv, workspace_id, { now: startedAt });
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+
+    // Phase 8k-ii: TLS endpoint conditions as Certificates & Trust cases
+    // (engines/tls-endpoint-cases.js): open / reopen on an exact measurement,
+    // verify only on an exact-retest "clear" of a case the customer submitted.
+    if (modules.tls_assessment) {
+      try {
+        const tlsWsRows = await phaseEnv.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (tlsWsRows.results || [])) {
+          await reconcileTlsEndpointCases(phaseEnv, { workspace_id, domain, scan_id: scanId, tls_assessment: modules.tls_assessment, now: completedAt });
+        }
+      } catch { /* non-fatal — the next scan reconciles again */ }
+    }
 
     // Phase 8l: Identity Exposure Managed Workflow — correlate the raw
     // identity_assets (mig 030) into the canonical managed identity-exposure
