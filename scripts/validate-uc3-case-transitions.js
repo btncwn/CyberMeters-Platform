@@ -191,6 +191,16 @@ ok("case load is workspace-scoped (tenant isolation preserved)",
     const eventCount=db.prepare('SELECT count(*) AS n FROM managed_case_events WHERE case_id=?').get(id).n;
     ok('later replay remains rejected',(await transition()).status===409);
     ok('replay cannot append history',db.prepare('SELECT count(*) AS n FROM managed_case_events WHERE case_id=?').get(id).n===eventCount);
+
+    // Stale-client guard (23 Oct 2026): the client names the status it rendered.
+    const events=()=>db.prepare('SELECT count(*) AS n FROM managed_case_events WHERE case_id=?').get(id).n;
+    const before=events();
+    const stale=await call('POST',base+'/'+id+'/transition','synthetic-flow-session',{target_status:'false_positive',expected_status:'detected'});
+    ok('a stale expected_status is refused with the current status',stale.status===409&&stale.data?.code==='case_status_changed'&&stale.data?.expected_status==='detected'&&stale.data?.current_status==='triaged');
+    ok('a stale request changes nothing and writes no event',db.prepare('SELECT status FROM managed_cases WHERE id=?').get(id).status==='triaged'&&events()===before);
+    ok('a malformed expected_status is a 400',(await call('POST',base+'/'+id+'/transition','synthetic-flow-session',{target_status:'false_positive',expected_status:7})).status===400&&events()===before);
+    const fresh=await call('POST',base+'/'+id+'/transition','synthetic-flow-session',{target_status:'false_positive',expected_status:'triaged',reason:'synthetic fixture'});
+    ok('a matching expected_status transitions normally',fresh.status===200&&db.prepare('SELECT status FROM managed_cases WHERE id=?').get(id).status==='false_positive'&&events()===before+1);
   } finally { db.close(); }
 }
 

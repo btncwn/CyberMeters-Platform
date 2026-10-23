@@ -334,6 +334,21 @@ export async function managedCasesRoutes(rctx) {
     try { body = await request.json(); } catch { body = {}; }
     const target = String(body.target_status || body.status || "");
     if (!target) return json({ error: "target_status is required" }, 400);
+    // Stale-client guard (23 Oct 2026, live: a page that still showed an old
+    // primary button moved a submitted case back to work). A client may name the
+    // status it rendered; if the case has moved since, nothing changes and the
+    // response says what it is now. Optional, so older clients are unaffected.
+    if (body.expected_status != null) {
+      if (typeof body.expected_status !== "string" || !body.expected_status) {
+        return json({ error: "expected_status must be a status name", code: "invalid_expected_status" }, 400);
+      }
+      if (body.expected_status !== row.status) {
+        return json({
+          error: "This case has changed since the page was loaded. Reload to see its current status.",
+          code: "case_status_changed", expected_status: body.expected_status, current_status: row.status,
+        }, 409);
+      }
+    }
 
     // A transition may carry a platform-user assignee (the `assigned` guard sets
     // owner atomically). Same rule as /assign: the user link must be an ACTIVE
