@@ -42,5 +42,7 @@ describe('record statuses (shared with the record cards)', () => {
     expect(mailTransportStatus({ hosts: [{ state: 'tested' }, { state: 'tested' }] })).toEqual({ label: 'STARTTLS on 2 of 2', kind: 'good' })
     expect(mailTransportStatus({ hosts: [{ state: 'tested' }, { state: 'error' }] })).toEqual({ label: 'Tested 1 of 2', kind: 'warn' })
     expect(mailTransportStatus({ hosts: [{ state: 'tested' }, { state: 'not_offered' }] })).toEqual({ label: 'STARTTLS missing on 1 of 2', kind: 'bad' })
+    // Offered but the upgrade was refused: the module's not_tested + starttls_rejected (Executive 06:05).
+    expect(mailTransportStatus({ hosts: [{ state: 'tested' }, { state: 'not_tested', reason: 'starttls_rejected' }] })).toEqual({ label: 'STARTTLS rejected on 1 of 2', kind: 'bad' })
   })
 })
