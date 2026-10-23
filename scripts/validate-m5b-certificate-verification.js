@@ -86,6 +86,7 @@ const caseFor = (remediation_id) => ({
     "tls.endpoint.weak_certificate_signature": { method: "certificate_recheck", support: "automated" },
     "tls.endpoint.ocsp_revoked": { method: "certificate_recheck", support: "automated" },
     "tls.endpoint.compression_enabled": { method: "certificate_recheck", support: "automated" },
+    "tls.endpoint.must_staple_not_stapled": { method: "certificate_recheck", support: "automated" },
   };
   const active = registry.REMEDIATION_REGISTRY.filter((e) => e.domain_key === "certificates_trust" && e.status === "active");
   eq("every active Certificates & Trust remediation is mapped in this suite",

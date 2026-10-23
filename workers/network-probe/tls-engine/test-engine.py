@@ -336,12 +336,14 @@ class BaselineTests(unittest.TestCase):
                 self.assertNotIn('localhost', json.dumps(result))
 
     def test_must_staple_is_read_from_the_offered_leaf(self):
+        # Production runs the certificate control for TLS 1.2/1.3 on the modern
+        # engine (tls-collector-runtime.js); the helper defaults tls1_2 to legacy.
         with server(self.modern, self.staple_cert, self.staple_key, 'tls1_2') as port:
-            staple = self.assess('tls1_2', port)
+            staple = self.assess('tls1_2', port, family='modern')
         self.assertEqual(staple['state'], 'accepted', staple)
         self.assertIs(staple['certificates']['offered_chain'][0]['must_staple'], True)
         with server(self.modern, self.cert, self.key, 'tls1_2') as port:
-            plain = self.assess('tls1_2', port)
+            plain = self.assess('tls1_2', port, family='modern')
         self.assertIs(plain['certificates']['offered_chain'][0]['must_staple'], False)
         # The legacy build cannot read the extension: null, never a guess.
         with server(self.legacy, self.staple_cert, self.staple_key, 'ssl3') as port:
