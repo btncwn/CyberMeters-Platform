@@ -354,7 +354,8 @@ export default function CertificatesPage() {
         settings={<TlsAuthorizationSettings key={wsId} workspaceId={wsId} />}
         overview={!hasData && !loading ? (
           /* 8 · Empty state — the explanation only; the one button is "Do this next". */
-          <div className="card p-10 text-center">
+          <div id="cert-expiry" className="card p-10 text-center">
+            {/* The expiry section's honest empty state (the sidebar's "Expiry" opens it). */}
             <p className="text-base font-bold text-gray-900 mb-1">No certificate has been read yet</p>
             <p className="text-sm text-gray-600 max-w-md mx-auto">
               CyberMeters reads the certificate your website presents when it connects, checks its name, expiry and trust, and says which checks it could not run. Past certificates and certificates on names it did not connect to are not listed.
@@ -389,7 +390,8 @@ export default function CertificatesPage() {
 
       {!hasData && !loading ? (
         /* 8 · Empty state */
-        <div className="card p-10 text-center mb-6">
+        <div id="cert-trust" className="card p-10 text-center mb-6">
+          {/* The trust section's honest empty state (the sidebar's "Chain & trust" opens it). */}
           <p className="text-base font-bold text-gray-900 mb-1">Run a scan to start certificate and trust monitoring</p>
           <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
             CyberMeters reads the certificate your website presents when it connects, checks its name, expiry and trust, and says which checks it could not run. Past certificates and certificates on names it did not connect to are not listed.

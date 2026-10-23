@@ -67,7 +67,7 @@ describe('ModuleContract — head and tabs', () => {
     expect(screen.getByText('Monitor DMARC alignment.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Review DMARC setup' })).toBeInTheDocument()
     expect(screen.getByRole('searchbox', { name: 'Filter pages and cases in this area' })).toHaveAttribute('placeholder', 'Filter pages and cases')
-    await waitFor(() => expect(within(screen.getByTestId('module-head-status')).getByText('Action required')).toBeInTheDocument())
+    await waitFor(() => expect(within(screen.getByTestId('module-head-chip')).getByText('Action required')).toBeInTheDocument())
     expect(within(screen.getByTestId('module-head-status')).getByText(/Last assessed 3 days ago/)).toBeInTheDocument()
     const tabs = screen.getAllByRole('tab')
     // The Cases tab carries the open-case count (S1-SHELL-V2: "Cases (count)").
@@ -260,7 +260,7 @@ describe('ModuleContract — head and tabs', () => {
         <ModuleContract domainKey="website_security" workspaceId="ws1" workspaceName="Customer A"><p>body</p></ModuleContract>
       </MemoryRouter>,
     )
-    await waitFor(() => expect(within(screen.getByTestId('module-head-status')).getByText('Error')).toBeInTheDocument())
+    await waitFor(() => expect(within(screen.getByTestId('module-head-chip')).getByText('Error')).toBeInTheDocument())
     expect(within(screen.getByTestId('module-head-status')).getByText('The latest assessment could not be read.')).toBeInTheDocument()
     expect(within(screen.getByTestId('module-tiles')).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
       '/ws/website-security?tab=overview#website-observations',

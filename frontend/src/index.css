@@ -682,7 +682,8 @@
   display: flex; flex-direction: column; background: #f7f9fb; border-right: 1px solid #e3e8ee;
 }
 .cm-sidebar > .cm-side { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.cm-sidebar-dock { flex: none; padding: 28px 24px 24px; border-top: 1px solid #e3e8ee; }
+/* Room at the foot of the list for the floating workspace card (it sits over the sidebar, never over a row). */
+.cm-sidebar > .cm-side::after { content: ""; flex: none; height: 150px; }
 .cm-side { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; }
 .cm-side-logo { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; color: #1a1f2b; border-radius: 8px; }
 .cm-side-logo:hover { color: #1a1f2b; background: #eef3f1; }
@@ -690,28 +691,49 @@
 .cm-side-label { margin: 0; padding: 8px 12px 4px; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #5b6473; }
 .cm-side-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .cm-side-item {
-  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; background: transparent; border-radius: 8px;
-  cursor: pointer; text-align: left; color: #1a1f2b; font-size: 15px; font-weight: 500; line-height: 20px;
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; background: transparent; border-radius: 8px;
+  cursor: pointer; text-align: left; color: #1a1f2b; font-size: 14px; font-weight: 500; line-height: 19px;
 }
 .cm-side-item:hover { background: #eef3f1; }
 .cm-side-item:focus-visible, .cm-side-sub:focus-visible, .cm-menubtn:focus-visible, .cm-drawer-close:focus-visible { outline: 2px solid #117362; outline-offset: 2px; }
 .cm-side-item-active { background: #e3efe9; color: #174f3f; }
-.cm-side-item { align-items: flex-start; }
-.cm-side-item > .cm-side-chevron { margin-top: 2px; }
-.cm-side-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.cm-side-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+/* One line per area (C-38 S10): chevron · name · chip side by side; a long name
+   may wrap inside its column, the chip never moves under it. */
+.cm-side-text { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.cm-side-name { flex: 1 1 auto; min-width: 0; }
 .cm-side-state { flex: none; display: inline-flex; margin-left: auto; }
+.cm-side-state { max-width: 112px; }
+.cm-side-state > span { padding: 1px 7px; line-height: 17px; text-align: center; }
+.cm-side-item-stacked .cm-side-state { max-width: none; }
 /* In the drawer (<1024px) the chip always sits under the name. */
 .cm-side-item-stacked .cm-side-text { flex-direction: column; align-items: flex-start; }
 .cm-side-item-stacked .cm-side-state { margin-left: 0; }
 .cm-side-chevron { flex: 0 0 16px; color: #5b6473; transition: transform 150ms ease; }
 .cm-side-chevron-open { transform: rotate(90deg); }
 .cm-side-subs { list-style: none; margin: 0; padding: 0 0 6px; display: flex; flex-direction: column; gap: 1px; }
-.cm-side-sub { display: block; padding: 7px 10px 7px 44px; border-radius: 6px; color: #3b4555; font-size: 14px; line-height: 19px; }
+.cm-side-sub { display: block; padding: 6px 10px 6px 32px; border-radius: 6px; color: #3b4555; font-size: 13px; line-height: 18px; }
 .cm-side-sub:hover { background: #eef3f1; color: #1a1f2b; }
 .cm-side-sub-active { color: #174f3f; font-weight: 600; background: #e3efe9; }
+/* The decision card's heading: compact, still above every h3 on the page (type scale). */
+.cm-app h2.cm-decision-heading { font-size: 20px; line-height: 27px; font-weight: 600; color: #1a1f2b; }
+/* Every in-page anchor clears the sticky header (its measured height, set by Layout). */
+.cm-shell [id] { scroll-margin-top: calc(var(--cm-header-h, 120px) + 12px); }
 /* Row 2 of the top bar: the area's name and its tabs. */
-.cm-arearow { display: flex; align-items: center; gap: 4px 12px; padding: 0 24px; background: #fafbfc; border-top: 1px solid #e3e8ee; min-width: 0; }
+.cm-arearow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 0 24px; background: #fafbfc; border-top: 1px solid #e3e8ee; min-width: 0; }
+.cm-arearow-tools:empty { display: none; }
+.cm-arearow-tools { margin-left: auto; padding: 6px 0; min-width: 0; }
+.cm-module-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cm-module-tools .cm-area-search { width: 240px; max-width: 100%; }
+@media (max-width: 1023.98px) {
+  /* Name and tabs share one scrolling strip; the tools take one line under it. */
+  .cm-arearow-slot, .cm-arearow > .cm-tabs { flex: 1 1 0; }
+  .cm-arearow-tools { flex-basis: 100%; margin-left: 0; padding: 0 0 8px; }
+  .cm-module-tools { flex-wrap: nowrap; }
+  .cm-module-tools .cm-area-search { flex: 1 1 auto; width: auto; min-width: 0; }
+  /* On a phone the header scrolls away rather than holding a third of the screen. */
+  .cm-top { position: static; }
+  .cm-shell [id] { scroll-margin-top: 12px; }
+}
 .cm-arearow-name { flex: none; font-size: 14px; font-weight: 600; color: #3b4555; padding: 10px 0; white-space: nowrap; }
 .cm-arearow-dot { color: #c0c7d0; margin-left: 8px; }
 .cm-arearow-slot:empty { display: none; }
@@ -741,6 +763,7 @@
 }
 .cm-drawer-close { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; }
 .cm-wsfloat { position: fixed; left: 16px; bottom: 16px; z-index: 35; }
+.cm-wsfloat-wide { left: 24px; bottom: 24px; }
 @media (max-width: 1023.98px) {
   .cm-main { padding-bottom: 108px; }
   .cm-arearow { padding: 0 12px; }
@@ -748,7 +771,8 @@
 .cm-wsdock-compact { width: 76px; height: 76px; }
 .cm-wsdock-compact::before, .cm-wsdock-compact::after { border-radius: 22px; }
 .cm-wsbtn-compact { width: 76px; height: 76px; border-radius: 22px; }
-.cm-wsbtn-compact .cm-wsbtn-initial { font-size: 36px; }
+.cm-wsbtn-compact .cm-wsbtn-initial { font-size: 32px; margin-top: -10px; }
+.cm-wsbtn-compact .cm-wsbtn-label { bottom: 8px; font-size: 13px; letter-spacing: -0.07em; white-space: nowrap; }
 /* Top-bar stand-in for the deck below 1280px: the same navy card and white
    letter, the same hover and focus rules. */
 .cm-wsmini {

@@ -184,10 +184,12 @@ export default function WorkspaceIdentityPage() {
         <StatCard icon={Wifi} label="Reachability Evaluated" value={summary?.reachability_evaluated_count ?? 0} />
       </div>
 
-      {/* Provider chips */}
-      {providers.length > 0 && (
-        <div className="card p-4 mb-5">
-          <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-widest">Observed or possible provider relationships</p>
+      {/* Provider relationships: a named section in every state (the sidebar opens it). */}
+      <section id="identity-providers" className="card p-4 mb-5" aria-label="Provider relationships">
+        <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-widest">Observed or possible provider relationships</p>
+        {providers.length === 0 ? (
+          <p className="text-sm text-gray-600">No provider relationship has been observed for this workspace yet.</p>
+        ) : (
           <div className="flex flex-wrap gap-2">
             {providers.map(p => (
               <button
@@ -203,14 +205,15 @@ export default function WorkspaceIdentityPage() {
               </button>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </section>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-5">
+      {/* Identity-facing hostnames: the evidence list starts here (sidebar anchor). */}
+      <div id="identity-hostnames" className="flex flex-wrap gap-3 mb-5">
         <input
           type="text"
           placeholder="Search provider or hostname…"
+          aria-label="Search provider or hostname"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="input-base text-sm flex-1 min-w-[200px]"
@@ -218,6 +221,7 @@ export default function WorkspaceIdentityPage() {
         <select
           value={typeFilter}
           onChange={e => setType(e.target.value)}
+          aria-label="Filter by identity type"
           className="input-base text-sm w-48"
         >
           {TYPE_FILTERS.map(f => (

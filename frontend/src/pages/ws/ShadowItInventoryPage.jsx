@@ -155,6 +155,11 @@ export default function ShadowItInventoryPage() {
   // a foreign id simply matches nothing.
   const [searchParams] = useSearchParams()
   const focusItemId = searchParams.get('item')
+  // ?filter=approved (the sidebar's "Approved inventory") opens the inventory with that filter selected.
+  const filterParam = searchParams.get('filter')
+  useEffect(() => {
+    if (['unreviewed', 'approved', 'rejected', 'exception', 'retired'].includes(filterParam)) setFilter(filterParam)
+  }, [filterParam])
   const focusRef = useRef(null)
   useEffect(() => {
     if (focusRef.current) focusRef.current.scrollIntoView({ block: 'center' })

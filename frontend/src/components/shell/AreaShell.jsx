@@ -14,6 +14,7 @@ const AreaShellContext = createContext(null)
 
 export function AreaShellProvider({ children }) {
   const [slot, setSlot] = useState(null)
+  const [toolbarSlot, setToolbarSlot] = useState(null)
   const [claims, setClaims] = useState(0)
   const [openCases, setOpenCases] = useState({})
   const claim = useCallback(() => {
@@ -23,7 +24,7 @@ export function AreaShellProvider({ children }) {
   const reportOpenCases = useCallback((domainKey, count) => {
     setOpenCases((prev) => (prev[domainKey] === count ? prev : { ...prev, [domainKey]: count }))
   }, [])
-  const value = useMemo(() => ({ slot, setSlot, claimed: claims > 0, claim, openCases, reportOpenCases }), [slot, claims, claim, openCases, reportOpenCases])
+  const value = useMemo(() => ({ slot, setSlot, toolbarSlot, setToolbarSlot, claimed: claims > 0, claim, openCases, reportOpenCases }), [slot, toolbarSlot, claims, claim, openCases, reportOpenCases])
   return <AreaShellContext.Provider value={value}>{children}</AreaShellContext.Provider>
 }
 

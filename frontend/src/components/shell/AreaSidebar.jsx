@@ -63,10 +63,14 @@ export default function AreaSidebar({ wsId, stacked = false, onNavigate = null }
   useEffect(() => { setOpen(current) }, [current])
   const here = `${pathname}${search}${hash}`
 
+  // An area row opens the area's front door and expands it — also from one of
+  // its own sub-pages (C-38 S01). Only on the front door itself does a second
+  // click collapse it. Any navigation closes the phone drawer.
   function selectArea(svc) {
-    if (svc.key === current && open === svc.key) { setOpen(null); return }
+    const atFrontDoor = pathname === svc.to
+    if (atFrontDoor && open === svc.key) { setOpen(null); return }
     setOpen(svc.key)
-    if (svc.key !== current) navigate(svc.to)
+    if (!atFrontDoor) navigate(svc.to)
     onNavigate?.()
   }
 

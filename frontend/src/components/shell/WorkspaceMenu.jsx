@@ -100,8 +100,8 @@ export default function WorkspaceMenu({ wsId, wsName, domainName = null, size = 
             serif initial and a WORKSPACE label, two offset white cards behind.
             The mini card keeps the initial only. */}
         <span className="cm-wsbtn-initial" aria-hidden="true" data-testid="workspace-initial">{workspaceInitial(subject)}</span>
-        {/* The 76px card shows the initial only: its WORKSPACE label would fall under the 13px type floor. */}
-        {!mini && !compact && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
+        {/* The card keeps its WORKSPACE label at every size; on the 76px card it sits at the 13px floor. */}
+        {!mini && <span className="cm-wsbtn-label" aria-hidden="true">Workspace</span>}
         {!mini && <span className="cm-tip cm-wsbtn-tip" aria-hidden="true">{subject ? `Workspace · ${subject}` : 'Select a workspace'}</span>}
       </button>
 

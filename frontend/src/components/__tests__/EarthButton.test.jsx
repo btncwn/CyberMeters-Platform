@@ -4,7 +4,7 @@ import EarthButton, { notificationsLabel } from '../shell/EarthButton'
 import { api } from '../../api'
 
 // The globe in the top bar is the one notifications control: a real button
-// at the account initial's 40px size, "Notifications, N unread" as its name,
+// at the account initial's 44px size (S1-SHELL-V2), "Notifications, N unread" as its name,
 // an aqua unread label that disappears at zero, the existing panel opening
 // beneath it, Escape closing it with focus back on the globe.
 
@@ -46,12 +46,12 @@ describe('notificationsLabel', () => {
 })
 
 describe('<EarthButton>', () => {
-  it('is a 40px button with an aria-hidden canvas; without a workspace it is inert and shows no label', () => {
+  it('is a 44px button with an aria-hidden canvas; without a workspace it is inert and shows no label', () => {
     renderGlobe()
     const globe = screen.getByRole('button', { name: 'Notifications' })
     expect(globe.tagName).toBe('BUTTON')
     expect(globe).toHaveClass('cm-earthbtn')
-    expect(globe).toHaveStyle({ width: '40px', height: '40px' })
+    expect(globe).toHaveStyle({ width: '44px', height: '44px' })
     expect(globe).toHaveAttribute('aria-expanded', 'false')
     expect(globe.querySelector('canvas')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.queryByTestId('earth-unread')).not.toBeInTheDocument()

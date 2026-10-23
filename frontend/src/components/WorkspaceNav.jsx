@@ -39,14 +39,12 @@ const SERVICE_DEFINITIONS = [
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules') || p.startsWith('/intelligence'),
     subtopics: [
-      { label: 'Hostnames',        hash: '#asset-inventory' },
-      { label: 'Exposed services', hash: '#network-assets' },
-      { label: 'Admin surfaces',   to: '/ws/admin-surfaces' },
-      // No takeover section of its own yet: the timeline lists takeover-risk changes.
-      { label: 'Takeover risks',   to: '/exposure' },
-      { label: 'Cloud assets',     to: '/ws/cloud-assets' },
-      { label: 'Network assets',   hash: '#network-assets' },
-      { label: 'Timeline',         to: '/exposure' },
+      // Each sub-topic opens its OWN named section (C-38 S28: no aliases).
+      { label: 'Hostnames',      hash: '#asset-inventory' },
+      { label: 'Admin surfaces', to: '/ws/admin-surfaces' },
+      { label: 'Cloud assets',   to: '/ws/cloud-assets' },
+      { label: 'Network assets', hash: '#network-assets' },
+      { label: 'Timeline',       to: '/exposure' },
     ],
     items: [
       { to: '/exposure',          label: 'Timeline',       desc: 'What appeared, changed or disappeared' },
@@ -67,11 +65,10 @@ const SERVICE_DEFINITIONS = [
     key: 'website', domainKey: 'website_security', title: 'Website Security', to: '/ws/website-security',
     match: p => p.startsWith('/ws/website-security'),
     subtopics: [
-      { label: 'HTTPS & HSTS',            hash: '#website-observations', tab: 'overview' },
-      { label: 'Security headers',        hash: '#website-observations', tab: 'overview' },
-      { label: 'Content Security Policy', hash: '#website-observations', tab: 'overview' },
-      { label: 'Signed-in scanning',      hash: '#sign-in-settings', tab: 'settings' },
-      { label: 'Pages checked',           hash: '#pages-checked' },
+      // HTTPS & HSTS and Content Security Policy return with their own Summary sections (S1-SHELL-V2b).
+      { label: 'Security headers',   hash: '#website-security-headers', tab: 'overview' },
+      { label: 'Signed-in scanning', hash: '#sign-in-settings', tab: 'settings' },
+      { label: 'Pages checked',      hash: '#pages-checked' },
     ],
     items: [
       { hash: '#website-observations', label: 'Observations', desc: 'HTTPS, headers and cookies from the latest scan', tab: 'overview' },
@@ -84,10 +81,8 @@ const SERVICE_DEFINITIONS = [
     key: 'identity', domainKey: 'identity_exposure', title: 'Identity Exposure', to: '/ws/identity-exposure',
     match: p => p.startsWith('/ws/identity-exposure') || p.startsWith('/ws/identity-assets'),
     subtopics: [
-      // No dedicated sections yet: the area summary and the identity evidence page.
-      { label: 'Provider relationships',    to: '/ws/identity-exposure' },
-      { label: 'Identity-facing hostnames', to: '/ws/identity-assets' },
-      { label: 'Measured endpoints',        to: '/ws/identity-assets#public-sources' },
+      { label: 'Provider relationships',    to: '/ws/identity-assets#identity-providers' },
+      { label: 'Identity-facing hostnames', to: '/ws/identity-assets#identity-hostnames' },
     ],
     items: [
       { to: '/ws/identity-assets', label: 'People & evidence', desc: 'Accounts and identity evidence' },
@@ -100,9 +95,9 @@ const SERVICE_DEFINITIONS = [
     match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-parties')
       || p.startsWith('/ws/third-party') || p.startsWith('/ws/vendors') || p.startsWith('/ws/supply-chain'),
     subtopics: [
-      { label: 'Observed technology',  hash: '#shadow-it-inventory' },
-      { label: 'Approved inventory',   hash: '#shadow-it-inventory' },
-      { label: 'Rejected, still seen', hash: '#shadow-it-recurrence' },
+      { label: 'Observed technology', hash: '#shadow-it-inventory' },
+      // The inventory with Approved selected (C-38 S27), not the all-items view.
+      { label: 'Approved inventory',  to: '/ws/shadow-it?filter=approved#shadow-it-inventory' },
     ],
     items: [
       { to: '/ws/saas-exposure',   label: 'SaaS Exposure', desc: 'Portals and tenants observed for your domain' },
@@ -115,12 +110,9 @@ const SERVICE_DEFINITIONS = [
     key: 'certs', domainKey: 'certificates_trust', title: 'Certificates & Trust', to: '/ws/certificates',
     match: p => p.startsWith('/ws/certificates'),
     subtopics: [
-      { label: 'Expiry',                hash: '#cert-expiry', tab: 'overview' },
-      { label: 'Chain & trust',         hash: '#cert-trust' },
-      { label: 'Hostname match',        hash: '#cert-inventory' },
-      // CAA is reported inside the trust posture; no section of its own yet.
-      { label: 'Issuance policy (CAA)', hash: '#cert-trust' },
-      { label: 'Lifecycle',             to: '/ws/certificates/lifecycle' },
+      { label: 'Expiry',        hash: '#cert-expiry', tab: 'overview' },
+      { label: 'Chain & trust', hash: '#cert-trust' },
+      { label: 'Lifecycle',     to: '/ws/certificates/lifecycle' },
     ],
     items: [
       { to: '/ws/certificates/lifecycle', label: 'Managed Lifecycle', desc: 'Renewals, replacements and follow-up' },
@@ -149,8 +141,8 @@ const SERVICE_DEFINITIONS = [
     match: p => p.startsWith('/ws/cyber-essentials'),
     subtopics: [
       { label: 'Questionnaire',      hash: '#questionnaire' },
-      { label: 'External indicator', to: '/ws/cyber-essentials' },
-      { label: 'Controls',           hash: '#questionnaire' },
+      { label: 'External indicator', hash: '#ce-indicator', tab: 'overview' },
+      { label: 'Controls',           hash: '#ce-observed-controls', tab: 'overview' },
     ],
     items: [],
   },

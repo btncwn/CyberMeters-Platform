@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { installAppMock, seedSession } from './fixtures/app-mock.js'
+import { API_BASE, installAppMock, seedSession, workspace } from './fixtures/app-mock.js'
 import { APP_ROUTES } from './fixtures/app-routes.js'
 import { expectNoRawKeys, expectOnePrimaryAction } from './fixtures/design-guards.js'
 
@@ -88,4 +88,100 @@ test('the selected area expands and its sub-topic opens its section; the logo go
   await expect(page.getByRole('tab', { name: 'Findings', selected: true })).toBeVisible()
   await side.getByRole('link', { name: 'CyberMeters — Overview' }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
+})
+
+// C-38 S30: what the first version of this suite missed.
+test('44px globe and account initial; the WORKSPACE card label at 1440 and 390; no primary in row 2', async ({ page, context }) => {
+  await seedSession(context)
+  await installAppMock(page)
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    await page.goto('/ws/email-protection', { waitUntil: 'networkidle' })
+    const globe = await page.locator('header.cm-top .cm-earthbtn').boundingBox()
+    expect(Math.round(globe.width), `globe @${width}`).toBe(44)
+    expect(Math.round(globe.height), `globe @${width}`).toBe(44)
+    const avatar = await page.locator('header.cm-top .cm-avatar').boundingBox()
+    expect(Math.round(avatar.width), `initial @${width}`).toBe(44)
+    const dock = page.getByTestId('workspace-dock')
+    await expect(dock.getByText('Workspace', { exact: true }), `card label @${width}`).toBeVisible()
+    expect(await dock.locator('.cm-wsbtn').evaluate((el) => el.closest('.cm-sidebar')), `card outside the sidebar @${width}`).toBeNull()
+    await expect(page.locator('[data-testid="area-row"] .btn-primary'), `row 2 primary @${width}`).toHaveCount(0)
+  }
+})
+
+test('every sub-topic opens its named section, fully below the sticky header', async ({ page, context }) => {
+  test.setTimeout(600_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await seedSession(context)
+  await installAppMock(page)
+  await page.goto('/dashboard', { waitUntil: 'networkidle' })
+  const side = page.getByRole('navigation', { name: 'Security areas' })
+  const failures = []
+  for (const area of AREAS) {
+    await side.getByRole('button', { name: new RegExp(area.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).click()
+    const links = side.getByRole('list', { name: `${area} topics` }).getByRole('link')
+    const count = await links.count()
+    if (!count) failures.push(`${area}: no sub-topics`)
+    for (let i = 0; i < count; i++) {
+      const link = side.getByRole('list', { name: `${area} topics` }).getByRole('link').nth(i)
+      const [label, href] = [await link.innerText(), await link.getAttribute('href')]
+      await link.click()
+      await page.waitForLoadState('networkidle')
+      const hash = href.includes('#') ? href.slice(href.indexOf('#')) : null
+      try {
+        await expect(page, `${area} › ${label}`).toHaveURL(new RegExp(href.split('#')[0].replace(/[?]/g, '\\?') + '(#|$)'))
+        if (hash) {
+          const target = page.locator(hash)
+          await expect(target, `${area} › ${label}: ${hash} exists`).toHaveCount(1)
+          await page.waitForTimeout(900)
+          const box = await target.boundingBox()
+          const header = await page.locator('header.cm-top').boundingBox()
+          expect(box && box.y >= header.y + header.height - 1, `${area} › ${label}: ${hash} below the sticky header (top ${box?.y}, header bottom ${header.y + header.height})`).toBe(true)
+        }
+      } catch (error) { failures.push(String(error.message).split('\n')[0]) }
+      // Back to the area's own row for the next topic.
+      if (!(await side.getByRole('list', { name: `${area} topics` }).count())) await side.getByRole('button', { name: new RegExp(area.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).click()
+    }
+  }
+  expect(failures, failures.join('\n')).toEqual([])
+})
+
+test('re-clicking the current area from one of its sub-pages opens its front door', async ({ page, context }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await seedSession(context)
+  await installAppMock(page)
+  await page.goto('/ws/admin-surfaces', { waitUntil: 'networkidle' })
+  const side = page.getByRole('navigation', { name: 'Security areas' })
+  await side.getByRole('button', { name: /Attack Surface/ }).click()
+  await expect(page).toHaveURL(/\/assets$/)
+  await expect(side.getByRole('button', { name: /Attack Surface/ })).toHaveAttribute('aria-expanded', 'true')
+  // On a phone the drawer closes as it navigates.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/ws/admin-surfaces', { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: 'Open areas menu' }).click()
+  await page.getByRole('dialog', { name: 'Areas' }).getByRole('button', { name: /Attack Surface/ }).click()
+  await expect(page).toHaveURL(/\/assets$/)
+  await expect(page.getByRole('dialog', { name: 'Areas' })).toHaveCount(0)
+})
+
+// C-38 S26: in legitimate empty states every sub-topic still lands on its own named section.
+test('empty states keep every sub-topic target: no certificates, no Email scans, no Brand cases', async ({ page, context }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await seedSession(context)
+  await installAppMock(page)
+  const ws = `${API_BASE}/workspaces/${workspace.id}`
+  await page.route(`${ws}/certificates`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ certificates: [] }) }))
+  // The Email page reads scans from /scans?workspace_id=… (not under the workspace path).
+  await page.route(new RegExp(`${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/scans\\?workspace_id=`), (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ scans: [] }) }))
+  await page.route(`${ws}/brand/cases*`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ cases: [] }) }))
+  const expectTarget = async (url, id) => {
+    await page.goto(url, { waitUntil: 'networkidle' })
+    await expect(page.locator(id), `${url} → ${id}`).toHaveCount(1)
+  }
+  await expectTarget('/ws/certificates', '#cert-expiry')
+  await expectTarget('/ws/certificates?tab=findings#cert-trust', '#cert-trust')
+  await page.goto('/ws/email-protection?tab=findings', { waitUntil: 'networkidle' })
+  await expect(page.getByTestId('email-topics-pending'), 'the no-scan state is the one under test').toBeVisible()
+  for (const id of ['#auth-dmarc', '#auth-spf', '#auth-dkim', '#report-history', '#mail-transport']) await expectTarget(`/ws/email-protection${id}`, id)
+  await expectTarget('/ws/brand-monitoring#managed-brand-cases', '#managed-brand-cases')
 })

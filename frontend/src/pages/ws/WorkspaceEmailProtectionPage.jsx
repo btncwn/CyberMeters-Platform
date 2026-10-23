@@ -172,6 +172,28 @@ function statusPill(kind) {
   return map[kind] || map.na
 }
 
+// Before any email data exists, each sidebar topic still lands on its own named
+// section, saying honestly that nothing has been read yet (C-38 S26/S29).
+const PENDING_TOPICS = [
+  ['auth-dmarc', 'DMARC policy'],
+  ['auth-spf', 'SPF'],
+  ['auth-dkim', 'DKIM'],
+  ['report-history', 'Aggregate reports'],
+  ['mail-transport', 'Mail transport (DANE)'],
+]
+function EmailTopicsPending() {
+  return (
+    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="email-topics-pending">
+      {PENDING_TOPICS.map(([id, title]) => (
+        <section key={id} id={id} className="card p-5" aria-label={title}>
+          <h3 className="text-sm font-bold text-gray-900">{title}</h3>
+          <p className="mt-1 text-sm text-gray-600">Not read yet — this fills after a completed scan.</p>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 // Each record card is an anchor the sidebar opens (#auth-spf, #auth-dmarc, …).
 function AuthCard({ title, status, statusKind = 'na', children }) {
   return (
@@ -3842,18 +3864,27 @@ export default function WorkspaceEmailProtectionPage() {
 
       {/* No completed scans at all */}
       {domainScans.length === 0 ? (
-        <EmptyCard
-          title="No email authentication guidance yet"
-          body="This page fills after a scan of a domain in this workspace: DMARC, SPF, DKIM and BIMI guidance."
-        />
+        <>
+          <EmptyCard
+            title="No email authentication guidance yet"
+            body="This page fills after a scan of a domain in this workspace: DMARC, SPF, DKIM and BIMI guidance."
+          />
+          <EmailTopicsPending />
+        </>
       ) : reportLoading ? (
         <EmptyCard title="Loading email posture…" body="Fetching the latest scan report for this domain." />
       ) : !es ? (
-        <EmptyCard title="Email guidance unavailable"
-          body="The latest scan for this domain did not return email-security data. Try re-running the scan." />
+        <>
+          <EmptyCard title="Email guidance unavailable"
+            body="The latest scan for this domain did not return email-security data. Try re-running the scan." />
+          <EmailTopicsPending />
+        </>
       ) : moduleErrored ? (
-        <EmptyCard title="Email module did not complete"
-          body="The email-security module reported an error on the last scan. Re-run the scan to try again." />
+        <>
+          <EmptyCard title="Email module did not complete"
+            body="The email-security module reported an error on the last scan. Re-run the scan to try again." />
+          <EmailTopicsPending />
+        </>
       ) : notApplicable ? (
         <EmptyCard title="Email guidance not applicable for this domain"
           body={es.applicability?.reason ? `${es.applicability.reason}. This domain is not expected to send mail, so email-authentication findings are not raised.` : 'This domain is not expected to send mail, so email guidance does not apply.'} />

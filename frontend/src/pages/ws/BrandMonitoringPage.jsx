@@ -357,7 +357,13 @@ const CASE_CHIP = {
 }
 
 function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
-  if (!cases?.length) return null
+  // A named section in every state: the sidebar's "Takedown tracking" opens it.
+  if (!cases?.length) return (
+    <section id="managed-brand-cases" className="card p-5 mb-6" aria-label="Takedown tracking">
+      <h2 className="font-semibold text-gray-900">Brand abuse workflow</h2>
+      <p className="mt-1 text-sm text-gray-600">No takedown is being tracked yet. When a lookalike is confirmed as abuse, its takedown is tracked here.</p>
+    </section>
+  )
   return (
     <section id="managed-brand-cases" className="card p-5 mb-6 scroll-mt-20">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">

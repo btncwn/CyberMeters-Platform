@@ -24,8 +24,8 @@ export const TEXTURE_WIDTH = 1440
 export const TEXTURE_HEIGHT = 720
 // 108px: the founder prototype's 135px less 20% (review of #662). Its only job
 // is the notification control, so it stays well above the 44×44 hit minimum.
-// The globe sits in the top bar at the account initial's diameter (cm-avatar: 40px).
-export const EARTH_SIZE_TOPBAR = 40
+// The globe sits in the top bar at the account initial's diameter (cm-avatar: 44px, S1-SHELL-V2).
+export const EARTH_SIZE_TOPBAR = 44
 
 const SUN = (() => {
   const l = [-0.55, 0.5, 0.67]

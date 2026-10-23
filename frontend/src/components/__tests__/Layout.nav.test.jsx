@@ -254,7 +254,7 @@ describe('Layout top bar — shape', () => {
     expect(await screen.findByTestId('login')).toBeInTheDocument()
   })
 
-  it('≥1024px: the sidebar lists the eight areas with their state; the logo links to Overview; the workspace card sits at its foot', async () => {
+  it('≥1024px: the sidebar lists the eight areas with their state; the logo links to Overview; the workspace card floats outside it', async () => {
     api.getSecurityCheckDomains.mockResolvedValue({ cyber_mot_domains: [{ domain_key: 'email_protection', status: 'assessed_healthy', coverage_state: 'assessed_healthy' }] })
     renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' } })
     const side = screen.getByRole('navigation', { name: 'Security areas' })
@@ -270,7 +270,10 @@ describe('Layout top bar — shape', () => {
     expect(within(side).queryByRole('link', { name: /Billing|Account|Support|Field Guide/ })).not.toBeInTheDocument()
     const dock = screen.getByTestId('workspace-dock')
     expect(within(dock).getByRole('button', { name: 'Workspace: Customer A' })).toHaveClass('cm-wsbtn')
-    expect(dock.closest('.cm-sidebar')).toBeTruthy()
+    // C-38 S05: nothing else in the sidebar — the card floats bottom-left, outside it, with its WORKSPACE label.
+    expect(dock.closest('.cm-sidebar')).toBeNull()
+    expect(dock).toHaveClass('cm-wsfloat-wide')
+    expect(within(dock).getByText('Workspace')).toBeInTheDocument()
     expect(screen.queryByTestId('areas-menu-button')).not.toBeInTheDocument()
     expect(within(header()).getByTestId('shell-earth')).toBeInTheDocument()
     expect(screen.getByText('Skip to content')).toHaveAttribute('href', '#main')
@@ -310,6 +313,8 @@ describe('Layout top bar — shape', () => {
     expect(menu).toHaveFocus()
     const card = within(screen.getByTestId('workspace-dock')).getByRole('button', { name: 'Workspace: Customer A' })
     expect(card).toHaveClass('cm-wsbtn-compact')
+    // C-38 S04: the 76px card keeps its WORKSPACE label.
+    expect(within(card).getByText('Workspace')).toBeInTheDocument()
     fireEvent.click(card)
     expect(await screen.findByRole('menu', { name: 'Workspace' })).toBeInTheDocument()
   })

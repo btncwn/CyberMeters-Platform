@@ -113,7 +113,8 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
                 {domainState?.conclusion_label && <p className="mt-4 text-base font-medium text-gray-700">{domainState.conclusion_label}</p>}
               </>}
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {observations(report).map(({ title, value, note }) => <div key={title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+          {/* Each tile is a named anchor the sidebar can open (#website-security-headers, …). */}
+          {observations(report).map(({ title, value, note }) => <div key={title} id={`website-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
             <h3 className="text-base font-semibold text-gray-900">{title}</h3>
             <p className="mt-3 text-base font-semibold text-gray-800">{loading || reportPending ? 'Loading…' : value}</p>
             <p className="mt-2 text-sm leading-relaxed text-gray-600">{note}</p>

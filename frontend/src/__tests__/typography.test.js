@@ -75,9 +75,12 @@ describe('product typography', () => {
     // sits in its own block at the foot of the sticky 272px sidebar, never over
     // an area row; below 1024px it floats at 76px and the page keeps room for it.
     expect(css).toMatch(/\.cm-sidebar\s*\{[^}]*flex:\s*0 0 272px;[^}]*position:\s*sticky;\s*top:\s*0;\s*height:\s*100vh/)
-    expect(css).toMatch(/\.cm-sidebar-dock\s*\{[^}]*flex:\s*none/)
-    expect(css).not.toMatch(/\.cm-sidebar-dock\s*\{[^}]*position:\s*(fixed|absolute)/)
+    // C-38 S05: the card floats bottom-left outside the sidebar (24px from 1024px, 16px below),
+    // and the sidebar's list keeps room at its foot so the card never covers a row.
+    expect(css).not.toMatch(/\.cm-sidebar-dock\s*\{/)
+    expect(css).toMatch(/\.cm-sidebar > \.cm-side::after\s*\{[^}]*height:\s*150px/)
     expect(css).toMatch(/\.cm-wsfloat\s*\{[^}]*position:\s*fixed;\s*left:\s*16px;\s*bottom:\s*16px/)
+    expect(css).toMatch(/\.cm-wsfloat-wide\s*\{[^}]*left:\s*24px;\s*bottom:\s*24px/)
     expect(css).toMatch(/@media \(max-width: 1023\.98px\)\s*\{\s*\.cm-main\s*\{\s*padding-bottom:\s*108px/)
     // The notification panel hangs under the globe, right-aligned, capped below the bar; the list scrolls inside.
     expect(css).toMatch(/\.cm-notif\s*\{[^}]*position:\s*absolute;\s*right:\s*0;\s*top:\s*calc\(100% \+ 10px\)/)

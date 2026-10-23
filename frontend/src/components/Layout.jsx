@@ -214,6 +214,8 @@ function AreaRow({ svc }) {
     <div className="cm-arearow" data-testid="area-row">
       <span className="cm-arearow-name">{svc.title}<span aria-hidden="true" className="cm-arearow-dot">·</span></span>
       <div ref={shell?.setSlot} className="cm-arearow-slot" />
+      {/* The page's tools (filter + actions) sit with the tabs they act on (C-38 S07). */}
+      <div ref={shell?.setToolbarSlot} className="cm-arearow-tools" />
       {!shell?.claimed && (
         <nav aria-label={`${svc.title} sections`} className="cm-tabs">
           {MODULE_TABS.map((t) => (
@@ -250,6 +252,19 @@ function ShellFrame() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuButtonRef = useRef(null)
   const drawerRef = useRef(null)
+  const headerRef = useRef(null)
+  // The sticky header's real height (row 1 + row 2 + border) is the scroll
+  // offset for every in-page anchor, so a sub-topic never lands under it (C-38 S08).
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return undefined
+    const apply = () => document.documentElement.style.setProperty('--cm-header-h', `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    apply()
+    if (typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(apply)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   useEffect(() => {
     function sync() {
       const active = readActiveWorkspace()
@@ -295,17 +310,11 @@ function ShellFrame() {
             <SafeBoundary>
               <AreaSidebar wsId={wsId} />
             </SafeBoundary>
-            {/* The workspace card at the foot of the sidebar: its own block, so it never covers a row. */}
-            <div className="cm-sidebar-dock" data-testid="workspace-dock">
-              <SafeBoundary>
-                <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} />
-              </SafeBoundary>
-            </div>
           </aside>
         )}
 
         <div className="cm-column">
-          <header className="cm-top sticky top-0 z-40">
+          <header ref={headerRef} className="cm-top sticky top-0 z-40">
             <div className="cm-top-inner">
               {!wide && (
                 <div className="cm-top-brand">
@@ -376,15 +385,14 @@ function ShellFrame() {
         </div>
       </div>
 
-      {/* Below 1024px: the workspace card floats bottom-left at 76px, and the
-          sidebar opens as a drawer over the page. */}
-      {!wide && (
-        <div className="cm-wsfloat" data-testid="workspace-dock">
-          <SafeBoundary>
-            <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} size="compact" />
-          </SafeBoundary>
-        </div>
-      )}
+      {/* The workspace card floats bottom-left, exactly as before (founder rule):
+          from 1024px over the foot of the sidebar (whose list keeps room for it),
+          below that at 76px. It is not part of the sidebar. */}
+      <div className={wide ? 'cm-wsfloat cm-wsfloat-wide' : 'cm-wsfloat'} data-testid="workspace-dock">
+        <SafeBoundary>
+          <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} size={wide ? 'deck' : 'compact'} />
+        </SafeBoundary>
+      </div>
       {!wide && drawerOpen && (
         <div className="cm-drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setDrawerOpen(false) }}>
           <div id="cm-area-drawer" ref={drawerRef} className="cm-drawer" role="dialog" aria-modal="true" aria-label="Areas" data-testid="area-drawer">

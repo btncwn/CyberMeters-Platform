@@ -68,10 +68,32 @@ describe('AreaSidebar', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/ws/certificates')
     expect(within(side).getAllByRole('button', { expanded: true })).toHaveLength(1)
     const topics = within(side).getByRole('list', { name: 'Certificates & Trust topics' })
-    expect(within(topics).getAllByRole('link').map((a) => a.textContent)).toEqual(['Expiry', 'Chain & trust', 'Hostname match', 'Issuance policy (CAA)', 'Lifecycle'])
+    // C-38 S28: each sub-topic opens its own named section; aliases were removed.
+    expect(within(topics).getAllByRole('link').map((a) => a.textContent)).toEqual(['Expiry', 'Chain & trust', 'Lifecycle'])
     expect(within(topics).getByRole('link', { name: 'Lifecycle' })).toHaveAttribute('href', '/ws/certificates/lifecycle')
     fireEvent.click(within(side).getByRole('button', { name: /Brand Protection/ }))
     expect(within(side).getAllByRole('button', { expanded: true }).map((b) => b.dataset.serviceKey)).toEqual(['brand'])
+  })
+
+  it('from a sub-page, the area row opens the front door and expands it; on the front door it collapses (C-38 S01)', () => {
+    api.getSecurityCheckDomains.mockResolvedValue(domains(() => 'assessed_healthy'))
+    renderSidebar({ path: '/ws/admin-surfaces' })
+    const side = screen.getByRole('navigation', { name: 'Security areas' })
+    const row = within(side).getByRole('button', { name: /Attack Surface/ })
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(row)
+    expect(screen.getByTestId('location')).toHaveTextContent('/assets')
+    expect(row).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(row)
+    expect(screen.getByTestId('location')).toHaveTextContent('/assets')
+    expect(row).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('no two sub-topics of one area open the same place (no aliases)', () => {
+    for (const svc of SERVICES) {
+      const targets = svc.subtopics.map((t) => t.to || `${svc.to}${t.hash}`)
+      expect(new Set(targets).size, svc.key).toBe(targets.length)
+    }
   })
 
   it('every area has sub-topics, and every sub-topic resolves to an area route or one of its sub-pages', () => {

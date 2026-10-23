@@ -32,7 +32,8 @@ function show(domainKey = 'website_security', props = {}, tab = null) {
 const headings = () => screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent.trim())
 const section = (id) => document.getElementById(id)
 const chip = (el) => el.querySelector('[data-status]').dataset.status
-const headChip = () => chip(screen.getByTestId('module-head-status'))
+// The chip sits beside the title (S1-SHELL-V2, C-38 S18); the date stays in module-head-status.
+const headChip = () => chip(screen.getByTestId('module-head-chip'))
 const count = (key) => screen.getByTestId(`module-count-${key}`)
 const figure = (label) => screen.getAllByTestId('module-figure').find((f) => f.querySelector('dt')?.textContent === label)
 const FIRST = ['What we observed', 'Do this next']

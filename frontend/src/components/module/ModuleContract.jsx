@@ -358,6 +358,23 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
     </div>
   )
 
+  // The page tools; inside the shell they move up into row 2 beside the tabs.
+  const toolbar = (
+    <div className={shell ? 'cm-module-tools' : 'flex flex-wrap items-center justify-between gap-3 mb-3'} data-testid="module-toolbar">
+      <label className="cm-area-search">
+        <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Filter pages and cases in this area"
+          placeholder="Filter pages and cases"
+        />
+      </label>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  )
+
   const scopeSection = (
     <section id="module-scope" aria-labelledby="module-scope-heading" className="border-t border-gray-100 pt-4" data-testid="module-scope">
       <h2 id="module-scope-heading" className="text-xs font-semibold text-gray-600">Scope &amp; limits</h2>
@@ -394,8 +411,9 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   )
   const next = resolveNextAction({ nextAction, entry, request: domainsRequest === 'ok' && !entry ? 'error' : domainsRequest, guide: guide || '/guide', cases: casesRequest === 'ok' ? cases : [] })
   const nextSection = (
-    <section id="module-next" aria-labelledby="module-next-heading" className="card p-5 border-l-4" style={theme ? { borderLeftColor: theme.icon } : undefined} data-testid="module-next">
-      <h2 id="module-next-heading" className="text-xs font-semibold text-gray-600">Do this next</h2>
+    // The one decision point (C-38 S20): neutral card, compact heading; its words come from backend state.
+    <section id="module-next" aria-labelledby="module-next-heading" className="card p-5" data-testid="module-next">
+      <h2 id="module-next-heading" className="cm-decision-heading">Do this next</h2>
       <div className="mt-1 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[15px] font-semibold text-gray-900" data-testid="module-next-title">{next.title}</p>
@@ -559,10 +577,13 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       <header className="cm-module-head">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="cm-hero-title text-left" style={theme ? { color: theme.text } : undefined}>{module?.title || domainKey}</h1>
+            {/* S1-SHELL-V2 (C-38 S18): the status chip beside the title; the date under the intro. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <h1 className="cm-hero-title text-left" style={theme ? { color: theme.text } : undefined}>{module?.title || domainKey}</h1>
+              <span data-testid="module-head-chip"><StatusChip status={evidenceStatus} size="md" /></span>
+            </div>
             <p className="text-[15px] text-gray-600 mt-2 max-w-2xl leading-relaxed">{description || module?.fallback}</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500" data-testid="module-head-status">
-              <StatusChip status={evidenceStatus} size="md" />
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500" data-testid="module-head-status">
               <span>
                 {domainsRequest === 'loading' ? 'Reading the latest assessment…'
                   : domainsRequest === 'error' || !entry ? 'The latest assessment could not be read.'
@@ -589,19 +610,8 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       <div>
         {/* Page tools sit with the content they act on, not in the header
             (design standard §1: header = title, purpose, one action). */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3" data-testid="module-toolbar">
-          <label className="cm-area-search">
-            <Search className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Filter pages and cases in this area"
-              placeholder="Filter pages and cases"
-            />
-          </label>
-          {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-        </div>
+        {!shell && toolbar}
+        {shell?.toolbarSlot && createPortal(toolbar, shell.toolbarSlot)}
         {!shell && tabStrip}
         {shell?.slot && createPortal(tabStrip, shell.slot)}
       </div>
