@@ -272,6 +272,13 @@ export default function ActiveCheckPermissionsPage() {
                 </span>
               </label>
 
+              {/* Founder, 23 Oct 2026: why a TLS check can read "not tested" for a site on a CDN — answered on the page. */}
+              {catalogue.some((c) => String(c.id).startsWith('tls_')) && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700" data-testid="tls-scope-note">
+                  These checks test servers you run yourself — your origin or web server, mail server, VPN or remote-access gateway, or any service on your own IP address. If your website sits behind a CDN or hosting provider, its HTTPS is the provider&apos;s, and CyberMeters will not test shared provider infrastructure. Add your own servers under{' '}
+                  <Link to="/ws/certificates?tab=settings#additional-tls-services" className="underline text-brand-700">Certificates &amp; Trust → Settings → Additional TLS services</Link> to include them.
+                </div>
+              )}
               <fieldset className="text-sm">
                 <legend className="font-medium text-gray-800">Checks</legend>
                 <p className="text-xs text-gray-500 mt-0.5">None are selected for you. A permission covers only the checks you tick, never checks added later.</p>

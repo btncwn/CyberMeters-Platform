@@ -14,7 +14,6 @@ const assessmentWith = (reason, state = 'unexecutable') => ({
 
 describe('LiveTlsEvidence held reasons', () => {
   it.each([
-    ['provider_infrastructure_not_tested', 'Not tested — this address belongs to your hosting or CDN provider, not to you'],
     ['address_not_verified_not_tested', 'Not tested — this address is not verified as yours'],
     ['authorised_runs_on_started_check', 'Not tested on this scan — authorised checks run only on scans you start yourself'],
   ])('%s', (reason, text) => {
@@ -22,5 +21,21 @@ describe('LiveTlsEvidence held reasons', () => {
     expect(screen.getAllByText(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).length).toBeGreaterThan(0)
     // The check's own line names the reason (the coverage counter above is separate).
     expect(document.body.textContent).not.toContain('heartbleed · tls1_2 — Could not execute')
+  })
+})
+
+// Founder, 23 Oct 2026: a provider-infrastructure refusal names the host (and the
+// provider when known) and links to where the customer adds their own servers.
+describe('provider infrastructure', () => {
+  it('names the host and says what to do, with the settings link', () => {
+    render(<TlsAssessmentEvidence assessment={assessmentWith('provider_infrastructure_not_tested')} />)
+    expect(document.body.textContent).toContain('Not tested — example.com is served by shared provider infrastructure. Add your own servers to test them.')
+    expect(screen.getByRole('link', { name: 'Add your own servers' })).toHaveAttribute('href', '/ws/certificates?tab=settings#additional-tls-services')
+  })
+  it('names the provider when the evidence carries it', () => {
+    const a = assessmentWith('provider_infrastructure_not_tested')
+    a.endpoints[0].checks[0].provider_name = 'Cloudflare'
+    render(<TlsAssessmentEvidence assessment={a} />)
+    expect(document.body.textContent).toContain('example.com is served by shared provider infrastructure (Cloudflare).')
   })
 })
