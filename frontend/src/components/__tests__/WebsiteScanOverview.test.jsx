@@ -40,7 +40,8 @@ describe('Website scan overview — recorded evidence, independent of finding co
     api.getWorkspaceScans.mockResolvedValue({ scans: [] })
     mount()
     await screen.findByText('No website scan available yet')
-    expect(screen.getAllByText('Not confirmed')).toHaveLength(4)
+    // Six tiles now (HSTS and CSP added, S1-SHELL-V2b); none is confirmed in this state.
+    expect(screen.getAllByText('Not confirmed')).toHaveLength(6)
     expect(screen.getByRole('link', { name: 'Run a website scan' })).toHaveAttribute('href', '/scans/new')
     expect(screen.queryByText(/healthy|all clear|100%/i)).toBeNull()
     expect(api.getScanReport).not.toHaveBeenCalled()
@@ -59,7 +60,8 @@ describe('Website scan overview — recorded evidence, independent of finding co
     mount()
     await screen.findByText(/Earlier results have not been substituted/)
     expect(api.getScanReport).not.toHaveBeenCalled()
-    expect(screen.getAllByText('Not confirmed')).toHaveLength(4)
+    // Six tiles now (HSTS and CSP added, S1-SHELL-V2b); none is confirmed in this state.
+    expect(screen.getAllByText('Not confirmed')).toHaveLength(6)
     expect(screen.queryByText('All checks completed')).toBeNull()
     expect(screen.getByRole('link', { name: 'View latest scan evidence' })).toHaveAttribute('href', '/scans/failed-new?view=technical#website-evidence')
   })
@@ -68,7 +70,8 @@ describe('Website scan overview — recorded evidence, independent of finding co
     api.getScanReport.mockResolvedValue({ ...report, scan_quality: { status: 'partial', modules_skipped: ['ssl'], modules_incomplete: [{ module: 'headers' }] } })
     mount()
     await screen.findByText('Some checks incomplete')
-    expect(screen.getAllByText('Not confirmed')).toHaveLength(4)
+    // Six tiles now (HSTS and CSP added, S1-SHELL-V2b); none is confirmed in this state.
+    expect(screen.getAllByText('Not confirmed')).toHaveLength(6)
     expect(screen.queryByText('2 present · 1 missing')).toBeNull()
     expect(screen.queryByText('2 cookies observed')).toBeNull()
   })
@@ -93,7 +96,8 @@ describe('Website scan overview — recorded evidence, independent of finding co
     api.getScanReport.mockRejectedValue(new Error('No report'))
     mount()
     await screen.findByRole('alert')
-    expect(screen.getAllByText('Not confirmed')).toHaveLength(4)
+    // Six tiles now (HSTS and CSP added, S1-SHELL-V2b); none is confirmed in this state.
+    expect(screen.getAllByText('Not confirmed')).toHaveLength(6)
   })
 
   it('discards late report evidence after selecting another website', async () => {

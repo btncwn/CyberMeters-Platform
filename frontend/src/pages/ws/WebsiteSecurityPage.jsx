@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import ModuleContract from '../../components/module/ModuleContract'
-import WebsiteScanOverview from '../../components/WebsiteScanOverview'
+import WebsiteScanOverview, { websiteObservations, WEBSITE_FIGURE_KEYS } from '../../components/WebsiteScanOverview'
 import WebsitePagesChecked from '../../components/WebsitePagesChecked'
 import WebsiteSignInSettings from '../../components/WebsiteSignInSettings'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
@@ -91,6 +91,9 @@ function ConditionRow({ item, expanded, onToggle, detail, detailError }) {
 function WebsiteSecurityContent({ workspaceId, workspaceName }) {
   const [params, setParams] = useSearchParams()
   const expanded = params.get('condition')
+  // S1-SHELL-V2b: the scan overview lifts its headline tiles into "What we observed".
+  const [web, setWeb] = useState({ report: null, pending: true })
+  const onReport = useCallback((next) => setWeb((prev) => (prev.report === next.report && prev.pending === next.pending ? prev : next)), [])
   const [status, setStatus] = useState('')
   const [offset, setOffset] = useState(0)
   const [data, setData] = useState(null)
@@ -148,7 +151,8 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
            the counts open Cases, so the header keeps only Refresh; sign-in
            settings are configuration and live on the Settings tab. */
         actions={<button type="button" className="btn-ghost" aria-label="Refresh website security" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-5 w-5" /></button>}
-        overview={<WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} />}
+        figures={websiteSummaryFigures(web)}
+        overview={<WebsiteScanOverview workspaceId={workspaceId} refresh={refresh} onReport={onReport} />}
         settings={<WebsiteSignInSettings workspaceId={workspaceId} />}
       >
       <WebsitePagesChecked workspaceId={workspaceId} refresh={refresh} />
@@ -176,6 +180,20 @@ function WebsiteSecurityContent({ workspaceId, workspaceName }) {
       </ModuleContract>
     </WsPage>
   )
+}
+
+// "What we observed" for Website Security: HTTPS access, security headers, HSTS
+// and Content Security Policy, from the latest scan's own modules (the same
+// tiles the scan overview computes). Each figure is a named anchor the sidebar
+// opens. While the scan loads they say so; without a scan the template's
+// default figures stand.
+export function websiteSummaryFigures({ report, pending }) {
+  if (!report && !pending) return null
+  const tiles = websiteObservations(report)
+  return WEBSITE_FIGURE_KEYS.map((key) => {
+    const t = tiles.find((x) => x.key === key)
+    return { key, id: `website-${key === 'headers' ? 'security-headers' : key}`, label: t.title, value: pending && !report ? 'Loading…' : t.value, explanation: t.note }
+  })
 }
 
 export default function WebsiteSecurityPage() {

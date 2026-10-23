@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { parseServerDate } from '../utils/dates'
+import { formatDate, parseServerDate } from '../utils/dates'
 import { scanQualityMeta, toneClass } from '../lib/websiteSecurityDisplay'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 import ExternalExposureChecks from './ExternalExposureChecks'
 
 const colors = SERVICE_COLORS.website
 
-const date = (value) => value ? String(value).slice(0, 16).replace('T', ' ') : 'Not recorded'
+// Human dates through the product's one formatter (no raw timestamps on screen).
+const date = (value) => formatDate(value, 'Not recorded')
 const count = (value) => Number.isInteger(value) && value >= 0
 
 function checkModule(report, key) {
@@ -18,7 +19,9 @@ function checkModule(report, key) {
   return module
 }
 
-function observations(report) {
+// Every tile carries a key; the Website Summary shows HTTPS, headers, HSTS and
+// CSP as its figures (S1-SHELL-V2b) and this overview keeps the rest.
+export function websiteObservations(report) {
   const ssl = checkModule(report, 'ssl')
   const headers = checkModule(report, 'headers')
   const cookies = checkModule(report, 'domain_security_enrichment')?.cookies
@@ -27,22 +30,51 @@ function observations(report) {
     && Array.isArray(headers.present) && Array.isArray(headers.missing)
   const cookieData = headers?.accessible === true && cookies && !cookies.error && ['found', 'insecure_count', 'no_httponly', 'no_samesite'].every((key) => count(cookies[key]))
   return [
-    { title: 'HTTPS access',
+    { key: 'https', title: 'HTTPS access',
       value: ssl?.https_probe_executed === false ? 'Not confirmed' : ssl?.https_available === true ? 'Response observed' : ssl?.https_available === false ? 'Not reachable in this scan' : 'Not confirmed',
       note: ssl?.www_fallback_used ? 'Response came from the www host. See the report for the exact endpoint.' : 'HTTPS availability at the time of this scan.' },
-    { title: 'HTTP → HTTPS',
+    { key: 'redirect', title: 'HTTP → HTTPS',
       value: redirect === true ? 'Redirect observed' : redirect === false ? 'No redirect observed' : 'Not confirmed',
       note: 'Whether the HTTP request moved to HTTPS.' },
-    { title: 'Security headers',
+    { key: 'headers', title: 'Security headers',
       value: headerData ? `${headers.present.length} present · ${headers.missing.length} missing` : 'Not confirmed',
       note: 'Presence alone does not prove a strong policy. See the recorded values.' },
-    { title: 'Cookie attributes',
+    { key: 'cookies', title: 'Cookie attributes',
       value: cookieData ? (cookies.found ? `${cookies.found} cookies observed` : 'No cookies observed') : 'Not confirmed',
       note: cookieData && cookies.found ? `Without Secure: ${cookies.insecure_count} · HttpOnly: ${cookies.no_httponly} · SameSite: ${cookies.no_samesite}` : 'Checks Secure, HttpOnly and SameSite on observed cookies; absence does not prove a fix.' },
+    headerTile('hsts', 'HSTS', 'strict-transport-security', headers, headerData),
+    headerTile('csp', 'Content Security Policy', 'content-security-policy', headers, headerData),
   ]
 }
 
-export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
+// One header's tile from the headers module's own result: missing, or its
+// strength class with the module's details sentence. Not assessed → "Not confirmed".
+const STRENGTH_WORD = { valid: 'Sent', weak: 'Sent, weak', malformed: 'Sent, malformed', unknown: 'Sent, not classified' }
+// A header in `missing` is only "Not sent" when the response could prove its
+// absence — the same gates scoring.js uses before it scores header_missing_*
+// (HTTPS response, no protection layer, a real 200, and not seen on another
+// checked path). Otherwise absence is not confirmed (Executive 08:08; #911 class).
+export function headerAbsenceUncertain(headers, name) {
+  if (!headers) return true
+  const variedByPath = (headers.checked_paths || []).some((p) => p?.headers_observed?.[name])
+  return headers.validation_uncertain === true || headers.final_https === false
+    // scoring.js reads a missing status code as 0 (not a real 200), so it cannot prove absence either.
+    || headers.status_code !== 200 || variedByPath
+}
+function headerTile(key, title, name, headers, headerData) {
+  if (!headerData) return { key, title, value: 'Not confirmed', note: 'The headers were not assessed in this scan.' }
+  if (headers.missing.includes(name) && headerAbsenceUncertain(headers, name)) {
+    return { key, title, value: 'Not validated', note: 'The site answered through a protection layer or varied by page; absence is not confirmed.' }
+  }
+  if (headers.missing.includes(name)) return { key, title, value: 'Not sent', note: `The site did not send ${title === 'HSTS' ? 'an HSTS' : 'a Content-Security-Policy'} header.` }
+  const strength = headers.header_strength?.[name]
+  return { key, title, value: STRENGTH_WORD[strength?.status] || 'Sent', note: strength?.details || 'Sent; strength not recorded.' }
+}
+
+// The tiles the Website Summary lifts into "What we observed".
+export const WEBSITE_FIGURE_KEYS = Object.freeze(['https', 'headers', 'hsts', 'csp'])
+
+export default function WebsiteScanOverview({ workspaceId, refresh = 0, onReport = null }) {
   const [scans, setScans] = useState([])
   const [selectedDomain, setSelectedDomain] = useState('')
   const [loading, setLoading] = useState(true)
@@ -87,6 +119,9 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
   const reportPending = scan && ['completed', 'partial'].includes(scan.status) && !current
   const domainState = report?.cyber_mot_domains?.find((entry) => entry.domain_key === 'website_security')
   const evidenceUrl = scan ? `/scans/${encodeURIComponent(scan.id)}?view=technical#website-evidence` : null
+  // The page lifts the headline tiles into "What we observed"; this card keeps the others.
+  useEffect(() => { onReport?.({ report: report || null, pending: Boolean(loading || reportPending) }) }, [report, loading, reportPending, onReport])
+  const observations = websiteObservations(report).filter((o) => !(onReport && WEBSITE_FIGURE_KEYS.includes(o.key)))
 
   return (
     <section id="website-observations" aria-label="Website scan overview" className="card mb-8 overflow-hidden scroll-mt-28">
@@ -114,7 +149,7 @@ export default function WebsiteScanOverview({ workspaceId, refresh = 0 }) {
               </>}
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {/* Each tile is a named anchor the sidebar can open (#website-security-headers, …). */}
-          {observations(report).map(({ title, value, note }) => <div key={title} id={`website-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+          {observations.map(({ title, value, note }) => <div key={title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
             <h3 className="text-base font-semibold text-gray-900">{title}</h3>
             <p className="mt-3 text-base font-semibold text-gray-800">{loading || reportPending ? 'Loading…' : value}</p>
             <p className="mt-2 text-sm leading-relaxed text-gray-600">{note}</p>
