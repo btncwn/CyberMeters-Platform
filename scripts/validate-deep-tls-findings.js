@@ -71,16 +71,10 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
 // ── TLS endpoint conditions as Certificates & Trust cases (23 Oct 2026) ──────
 // Real SQLite (schema + migrations), the real case model and alert pipeline.
 {
-  const { DatabaseSync } = await import('node:sqlite');
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-  const db = new DatabaseSync(':memory:');
-  const apply = p => { try { db.exec(fs.readFileSync(p,'utf8')); } catch { /* ordering no-ops */ } };
-  apply(path.join(root,'database','schema.sql'));
-  for (const f of fs.readdirSync(path.join(root,'database','migrations')).filter(f=>f.endsWith('.sql')).sort()) {
-    for (const stmt of fs.readFileSync(path.join(root,'database','migrations',f),'utf8').split(/;\s*\n/)) { try { db.exec(stmt); } catch { /* tolerated */ } }
-  }
+  // The shared harness DB: schema + migrations applied statement by statement,
+  // a schema error terminal (F-025/F-035), never a blanket catch here.
+  const { buildDb } = await import('./security/lib/worker-harness.js');
+  const db = buildDb();
   db.exec('PRAGMA foreign_keys=OFF');
   const wrap=(sql,args=[])=>({bind:(...a)=>wrap(sql,a),first:async()=>db.prepare(sql).get(...args)||null,
     all:async()=>({results:db.prepare(sql).all(...args)}),run:async()=>{const r=db.prepare(sql).run(...args);return {meta:{changes:r.changes}};}});
