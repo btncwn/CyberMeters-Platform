@@ -50,8 +50,22 @@ export function websiteObservations(report) {
 // One header's tile from the headers module's own result: missing, or its
 // strength class with the module's details sentence. Not assessed → "Not confirmed".
 const STRENGTH_WORD = { valid: 'Sent', weak: 'Sent, weak', malformed: 'Sent, malformed', unknown: 'Sent, not classified' }
+// A header in `missing` is only "Not sent" when the response could prove its
+// absence — the same gates scoring.js uses before it scores header_missing_*
+// (HTTPS response, no protection layer, a real 200, and not seen on another
+// checked path). Otherwise absence is not confirmed (Executive 08:08; #911 class).
+export function headerAbsenceUncertain(headers, name) {
+  if (!headers) return true
+  const variedByPath = (headers.checked_paths || []).some((p) => p?.headers_observed?.[name])
+  return headers.validation_uncertain === true || headers.final_https === false
+    // scoring.js reads a missing status code as 0 (not a real 200), so it cannot prove absence either.
+    || headers.status_code !== 200 || variedByPath
+}
 function headerTile(key, title, name, headers, headerData) {
   if (!headerData) return { key, title, value: 'Not confirmed', note: 'The headers were not assessed in this scan.' }
+  if (headers.missing.includes(name) && headerAbsenceUncertain(headers, name)) {
+    return { key, title, value: 'Not validated', note: 'The site answered through a protection layer or varied by page; absence is not confirmed.' }
+  }
   if (headers.missing.includes(name)) return { key, title, value: 'Not sent', note: `The site did not send ${title === 'HSTS' ? 'an HSTS' : 'a Content-Security-Policy'} header.` }
   const strength = headers.header_strength?.[name]
   return { key, title, value: STRENGTH_WORD[strength?.status] || 'Sent', note: strength?.details || 'Sent; strength not recorded.' }

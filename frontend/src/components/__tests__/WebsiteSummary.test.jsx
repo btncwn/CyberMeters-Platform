@@ -26,8 +26,23 @@ describe('HSTS and CSP tiles', () => {
     expect(tiles.find((t) => t.key === 'hsts')).toMatchObject({ value: 'Sent, weak', note: expect.stringContaining('max-age=300') })
     expect(tiles.find((t) => t.key === 'csp')).toMatchObject({ value: 'Sent', note: expect.stringContaining('no dangerous') })
   })
+  it('a header missing behind a protection layer, a non-200, an HTTP fallback or a per-path variation is Not validated, never Not sent', () => {
+    const base = { present: [], missing: ['strict-transport-security', 'content-security-policy'], status_code: 200, final_https: true }
+    for (const shape of [
+      { validation_uncertain: true },
+      { status_code: 403 },
+      { final_https: false },
+      { status_code: undefined },
+      { checked_paths: [{ path: '/app', headers_observed: { 'content-security-policy': "default-src 'self'" } }] },
+    ]) {
+      const tiles = websiteObservations(report({ ...base, ...shape }))
+      const csp = tiles.find((t) => t.key === 'csp')
+      expect(csp, JSON.stringify(shape)).toMatchObject({ value: 'Not validated', note: 'The site answered through a protection layer or varied by page; absence is not confirmed.' })
+    }
+  })
+
   it('a missing header reads Not sent; unassessed headers read Not confirmed', () => {
-    const missing = websiteObservations(report({ present: [], missing: ['strict-transport-security', 'content-security-policy'] }))
+    const missing = websiteObservations(report({ present: [], missing: ['strict-transport-security', 'content-security-policy'], status_code: 200, final_https: true }))
     expect(missing.find((t) => t.key === 'hsts').value).toBe('Not sent')
     expect(missing.find((t) => t.key === 'csp').value).toBe('Not sent')
     const unassessed = websiteObservations(report({ headers_assessed: false, present: [], missing: [] }))
