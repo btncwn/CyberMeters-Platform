@@ -473,6 +473,39 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   assert.equal(plannedMoved.endpoints.filter(e=>e.scope.kind==='authorized_service').length,0,'DNS mismatch: the service is not planned');
   assert.ok(plannedMoved.gaps.some(g=>g.port===587&&g.reason==='dns_target_mismatch_or_unavailable'),'DNS mismatch: the gap is stated with its reason');
 }
+// F1 end to end through loadTlsEndpoints: an HTTPS (443) authorised service, a
+// scan a person started and a grant for all three specials → the budgeted plan
+// gives that endpoint its normal checks and the three specials with NO previous
+// website observation; the same service with a moved DNS answer is not planned.
+{
+  sql.prepare(`INSERT INTO workspace_tls_service_authorizations
+    (id,workspace_id,domain_id,hostname,sni,port,application_protocol,network_target_id,authorization_status,generation,authorized_by,authorized_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,'active',1,'admin',?,?)`).run('service_f1_https',scopeWorkspace,scopeDomainId,scopeDomain,scopeDomain,443,'https','target_scope',new Date().toISOString(),new Date().toISOString());
+  try {
+    const scan={id:'f1_e2e',workspace_id:scopeWorkspace,domain_id:scopeDomainId,domain:scopeDomain};
+    const at=(address)=>async(host,type)=>type==='A'?{Status:0,Answer:[{name:`${host}.`,type:1,data:address}]}:{Status:0,Answer:[]};
+    const grant=async()=>({authorised:true,consent_id:'acc_f1_e2e'});
+    const loaded=await loadTlsEndpoints(env,scan,{lookup:at('8.8.8.8'),authorise:grant,specialControlsAvailable:TLS_SPECIAL_CONTROLS_AVAILABLE,trigger:'manual'});
+    const index=loaded.endpoints.findIndex(e=>e.scope.kind==='authorized_service'&&e.endpoint.port===443);
+    assert.ok(index>=0,'F1 e2e: the 443 authorised service is loaded');
+    if(TLS_SPECIAL_CONTROLS_AVAILABLE){
+      assert.deepEqual(Object.keys(loaded.endpoints[index].scope.special_checks).sort(),['ccs','heartbleed','robot'],'F1 e2e: a manual scan with a grant makes the three specials runnable');
+    }
+    const plan=buildBudgetedTlsCheckPlan({endpoints:loaded.endpoints,cipherCatalog:[],observedHttpsHosts:[],scanId:'f1_e2e'});
+    const controls=plan.selected.filter(r=>r.endpoint_index===index).map(r=>r.check.control);
+    assert.ok(controls.includes('certificate')&&controls.includes('protocol'),'F1 e2e: normal checks are planned on the 443 service');
+    if(TLS_SPECIAL_CONTROLS_AVAILABLE)for(const c of ['heartbleed','robot','ccs'])assert.ok(controls.includes(c),`F1 e2e: ${c} is planned on the 443 service`);
+    // The domain's own standard HTTPS endpoint (same host:443 here) still waits
+    // for a website observation; the authorised service beside it does not.
+    const standard=loaded.endpoints.findIndex(e=>e.scope.kind==='standard_https'&&e.endpoint.port===443);
+    assert.ok(standard>=0&&!plan.selected.some(r=>r.endpoint_index===standard),'F1 e2e control: the unobserved standard endpoint is not planned');
+    const moved=await loadTlsEndpoints(env,scan,{lookup:at('9.9.9.9'),authorise:grant,specialControlsAvailable:TLS_SPECIAL_CONTROLS_AVAILABLE,trigger:'manual'});
+    assert.ok(!moved.endpoints.some(e=>e.scope.kind==='authorized_service'&&e.endpoint.port===443),'F1 e2e: a 443 service whose DNS moved is not planned');
+    assert.ok(moved.gaps.some(g=>g.port===443&&g.application_protocol==='https'&&g.reason==='dns_target_mismatch_or_unavailable'),'F1 e2e: ...and the 443 gap is stated');
+  } finally {
+    sql.prepare("UPDATE workspace_tls_service_authorizations SET authorization_status='revoked' WHERE id='service_f1_https'").run();
+  }
+}
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no
 // connection is opened.
