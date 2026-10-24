@@ -89,7 +89,7 @@ describe('Active Checks permission (S1-A)', () => {
   })
 
   it('a refused grant says why in words and records nothing', async () => {
-    api.grantActiveCheckConsent.mockRejectedValue(Object.assign(new Error('invalid_active_check_hosts'), { status: 400 }))
+    api.grantActiveCheckConsent.mockRejectedValue(Object.assign(new Error('Something went wrong. Please try again.'), { status: 400, error: 'invalid_active_check_hosts', code: 'invalid_active_check_hosts' }))
     renderPage()
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Authorise' }))
