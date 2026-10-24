@@ -1167,7 +1167,7 @@ function BusinessRiskCard({ businessRisk }) {
 
 // ── Report View ──────────────────────────────────────────────────────────────
 
-function ReportView({ report, canonicalScore = null, signedIn = null, queuedAt = null, waivers = {}, onWaive = null, onUnwaive = null }) {
+function ReportView({ report, canonicalScore = null, canonicalQuality = null, signedIn = null, queuedAt = null, waivers = {}, onWaive = null, onUnwaive = null }) {
   const { cyber_metrics_score: score, risk_level, assessment, findings, recommendations, modules, scan_quality, cyber_mot_domains } = report
 
   // Sprint 10A: split findings into actionable vs informational.
@@ -1187,7 +1187,9 @@ function ReportView({ report, canonicalScore = null, signedIn = null, queuedAt =
   const technicalCompleted = report?.status == null || report.status === 'completed'
   const heroHeadline = canonicalScore
     ? scoreHeadline({ score: canonicalScore.value, rating: canonicalScore.rating, provisional: canonicalScore.provisional,
-      message: canonicalScore.message, scanQuality: canonicalScore.quality ?? scan_quality?.status ?? null })
+      // Same completeness source and order as the Executive Report tab
+      // (ExecutiveReportV2: evidence_completeness.scan_quality ?? cms.quality), R1 11:22.
+      message: canonicalScore.message, scanQuality: canonicalQuality ?? canonicalScore.quality ?? null })
     : scoreHeadline({
       score: !technicalCompleted ? null : Number.isFinite(assessment?.display_score) ? assessment.display_score : (Number.isFinite(score) ? score : null),
       rating: !technicalCompleted ? null : assessment ? (assessment.display_rating ?? null) : (risk_level ?? null),
@@ -1808,10 +1810,10 @@ export default function ScanDetail() {
                     {(reportV2 && report)
                       ? (reportTab === 'executive'
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={reportV2?.evidence_completeness?.scan_quality ?? null} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                       : (reportV2
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={reportV2?.evidence_completeness?.scan_quality ?? null} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                     }
                   </div>
                 ) : null
