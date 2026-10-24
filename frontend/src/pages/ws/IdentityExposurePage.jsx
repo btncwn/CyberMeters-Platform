@@ -30,8 +30,11 @@ const CLASS_FILTERS = ['', 'unreviewed', 'expected', 'unexpected', 'investigate'
 // record IS (claim_kind, reachability) is the backend's.
 // The "All" chip from the unfiltered page: "All (500+)" at the bound, plain "All"
 // while it is loading or unavailable, never the filtered list's length.
-export function allChipLabel({ status, items, atLimit = false }) {
+export function allChipLabel({ status, items, counts = null, atLimit = false }) {
   if (status !== 'ok') return 'All'
+  // The backend's workspace-wide count when present (#942): exact, or "N+" past its bound.
+  const by = counts?.by_claim_kind
+  if (by && Number.isInteger(by.counted)) return `All (${by.counted}${by.complete === false ? '+' : ''})`
   return `All (${atLimit ? `${SUMMARY_LIMIT}+` : (items || []).length})`
 }
 
@@ -39,9 +42,20 @@ export function allChipLabel({ status, items, atLimit = false }) {
 // when a page comes back full, the claim-kind counts are lower bounds ("N+").
 export const SUMMARY_LIMIT = 500
 export function identitySummaryFigures({ status, items, counts, atLimit = false }) {
-  const by = (kind) => (items || []).filter((it) => it?.identity_claim?.claim_kind === kind).length
+  // Workspace-wide counts by claim kind from the backend (#942, Executive 19:55):
+  // exact when complete, "N+" when the backend's bound was reached, "Not available"
+  // when it could not count (null). Only a response without the field (an older
+  // backend) falls back to counting the loaded page, with its own 500 bound.
+  const backend = counts && Object.prototype.hasOwnProperty.call(counts, 'by_claim_kind') ? counts.by_claim_kind : undefined
+  const by = (kind) => {
+    if (backend === null) return null
+    if (backend && Number.isInteger(backend[kind])) return backend.complete === false ? `${backend[kind]}+` : backend[kind]
+    if (backend) return null
+    const n = (items || []).filter((it) => it?.identity_claim?.claim_kind === kind).length
+    return atLimit ? `${n}+` : n
+  }
   // Never 0 for "not known": loading and error say so (R1 15:55).
-  const v = (n) => (status === 'loading' ? 'Loading…' : status !== 'ok' ? 'Not available' : atLimit ? `${n}+` : n)
+  const v = (n) => (status === 'loading' ? 'Loading…' : status !== 'ok' || n === null ? 'Not available' : n)
   // counts.unreviewed is workspace-wide (not page-bound): never "+"; a missing field is "Not available".
   const unreviewed = status === 'loading' ? 'Loading…' : status !== 'ok' || !Number.isInteger(counts?.unreviewed) ? 'Not available' : counts.unreviewed
   return [
