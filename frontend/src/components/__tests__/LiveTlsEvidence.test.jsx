@@ -99,7 +99,7 @@ describe('Live TLS evidence presentation', () => {
       { address: '2001:4860:4860::8888', port: 443, state: 'not_run', tls: null },
     ]
     render(<LiveTlsEvidence evidence={evidence} />)
-    expect(screen.getByText(/Endpoint coverage is incomplete/)).toBeInTheDocument()
+    expect(screen.getByText(/Not every planned endpoint was tested/)).toBeInTheDocument()
     expect(screen.getByText('Endpoint observations (3)')).toBeInTheDocument()
     expect(screen.getByText('8.8.4.4:443 — Timed out')).toBeInTheDocument()
     expect(screen.getByText('[2001:4860:4860::8888]:443 — Not run')).toBeInTheDocument()

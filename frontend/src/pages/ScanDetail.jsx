@@ -1385,6 +1385,8 @@ export default function ScanDetail() {
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError,   setReportError]   = useState(null)
   const [reportV2,      setReportV2]      = useState(null)
+  // The Executive Report's completeness source, shared with the Technical Details hero.
+  const canonicalReportQuality = reportV2?.evidence_completeness?.scan_quality ?? null
   const [reportAvailability, setReportAvailability] = useState(null)
   const [preparationExhausted, setPreparationExhausted] = useState(false)
   const [reportTab,     setReportTab]     = useState(() => requestedView === 'technical' ? 'technical' : 'executive') // 'executive' | 'technical'
@@ -1810,10 +1812,10 @@ export default function ScanDetail() {
                     {(reportV2 && report)
                       ? (reportTab === 'executive'
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={reportV2?.evidence_completeness?.scan_quality ?? null} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={canonicalReportQuality} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                       : (reportV2
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={reportV2?.evidence_completeness?.scan_quality ?? null} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={canonicalReportQuality} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                     }
                   </div>
                 ) : null
