@@ -27,8 +27,19 @@ const controlState = (row, item = null) => {
   if (failed) return failed
   // Heartbleed / ROBOT / CCS: the one shared result string (the PDF prints the same).
   if (isTlsSpecialCheck(row?.control)) return tlsSpecialCheckResult(row, item)
+  // Feature controls (#985, Executive 24 Oct 2026): the engine state names the
+  // connection, not the feature ("compression — Accepted" read as the opposite
+  // of the truth). The backend's customer_outcome.summary is the headline;
+  // without it (an older receipt), a recorded reason or "Unknown" — never the
+  // engine state and never wording invented here.
+  if (OUTCOME_CONTROLS.has(row?.control)) {
+    const summary = typeof row?.customer_outcome?.summary === 'string' && row.customer_outcome.summary.trim() ? row.customer_outcome.summary : null
+    return summary || (row?.reason && CONTROL_REASONS[row.reason]) || 'Unknown'
+  }
   return (row?.reason && CONTROL_REASONS[row.reason]) || controlStates[row?.state] || 'Unknown'
 }
+// The controls scan-api projects a customer_outcome for (tls-quality.js tlsControlOutcome).
+const OUTCOME_CONTROLS = new Set(['compression', 'early_data', 'ocsp', 'secure_renegotiation', 'fallback_scsv', 'pqc_key_exchange'])
 // Why an endpoint has no checks, from the planner's own scope deferrals
 // (assessment.scope_deferrals, founder live run 24 Oct 2026): plain words,
 // never "Not recorded". Not tested is never counted as passed.
