@@ -3,6 +3,7 @@
 // subsequently stores these cleaned observations in R2 with canonical findings.
 import { ACTIVE_CHECK_AUTHORITY_VERSION } from './active-check-consent.js';
 import { exposureIdentity } from '../../../../shared/exposure/redaction.js';
+import { validRemoteAccessEvidence } from '../../../../shared/exposure/remote-access.js';
 import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
@@ -129,7 +130,10 @@ export function unresolvedExposureChecks(previous=[],results=[]) {
   const retained=new Map(previous.map(c=>[c.rule_id+'|'+c.url,c]));
   for(const row of results){
     const key=row.rule_id+'|'+row.url;
-    if(row.state==='finding')retained.set(key,{rule_id:row.rule_id,url:row.url});
+    // Portal vulnerability assessment happens downstream with the cached feed.
+    // Retain its observed address too: a later timeout must not lose the exact
+    // retest preference merely because the collector reports an observation.
+    if(row.state==='finding'||row.rule_id==='remote-access-portal'&&row.state==='observed'&&validRemoteAccessEvidence(row.portal))retained.set(key,{rule_id:row.rule_id,url:row.url});
     else if(row.comparable===true&&['not_found','not_present_soft404','observed'].includes(row.state))retained.delete(key);
   }
   return [...retained.values()];

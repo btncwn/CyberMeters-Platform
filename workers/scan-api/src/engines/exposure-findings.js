@@ -1,3 +1,4 @@
+import { assessRemoteAccess, validRemoteAccessEvidence } from '../../../../shared/exposure/remote-access.js';
 // Canonical projection of bounded exposure receipts. Raw content is never an input
 // to this module. Identity includes the rule and original path, never secret values.
 import { RULES_BY_ID, EXPOSURE_CATALOG_VERSION, exposurePresentation, EXPOSURE_INDICATORS } from '../../../../shared/exposure/catalog.js';
@@ -37,13 +38,19 @@ export function evaluateExposureCondition(key, module) {
   if (!isExposureConditionKey(key) || module?.source !== 'external_exposure') return { state: 'deferred', reason: 'exposure_not_recorded' };
   const matches = (module.checks || []).filter((row) => row.condition_key === key || exposureConditionKey(row) === key);
   if (!matches.length) return { state: 'deferred', reason: 'exact_condition_not_tested' };
+  if (exposureRuleForCondition(key)?.id === 'remote-access-portal') {
+    if (matches.some(r=>r.comparable && r.portal_assessment?.state==='present')) return {state:'present',reason:'remote_access_condition_observed'};
+    if (matches.every(r=>r.comparable && (r.portal_assessment?.state==='clear' || ['not_found','not_present_soft404'].includes(r.state))))
+      return {state:'clear',reason:'exact_remote_access_condition_retested_clear'};
+    return {state:'deferred',reason:'remote_access_retest_inconclusive'};
+  }
   if (matches.some((row) => row.state === 'finding' && row.comparable === true && row.finding)) return { state: 'present', reason: 'content_condition_observed' };
   if (matches.every((row) => row.comparable === true && row.finding === null && (['not_found', 'not_present_soft404'].includes(row.state)
       || row.state === 'observed' && exposurePresentation(row.rule_id, row.observation?.indicators || [])?.observationOnly === true))) return { state: 'clear', reason: 'exact_content_condition_retested_clear' };
   return { state: 'deferred', reason: 'content_retest_inconclusive' };
 }
 
-export function externalExposureModule(receipt) {
+export function externalExposureModule(receipt, { catalogue = null, now = Date.now() } = {}) {
   if (!receipt || receipt.source !== 'external_exposure') return {
     source: 'external_exposure', version: EXPOSURE_CATALOG_VERSION, quality: 'not_recorded',
     job_state: null, phase_state: null, incomplete_reason: null, hosts_not_applicable: [], host_outcomes: [], host_coverage: [],
@@ -59,6 +66,7 @@ export function externalExposureModule(receipt) {
     identity: row.identity, condition_key: exposureConditionKey(row),
     state: ['finding', 'observed', 'not_found', 'blocked', 'uncertain', 'not_applicable', 'queued', 'budget_exhausted', 'authority_lost'].includes(row.state) ? row.state : 'uncertain',
     observed_at: Number.isFinite(Date.parse(row.observed_at)) ? new Date(row.observed_at).toISOString() : null,
+    ...(validRemoteAccessEvidence(row.portal)?{portal:{...row.portal},portal_assessment:assessRemoteAccess(row.portal,catalogue,now)}:{}),
     comparable: row.comparable === true, finding: projectHit(row.finding), observation: projectHit(row.observation),
   }));
   const module = {
@@ -92,6 +100,12 @@ export function externalExposureModule(receipt) {
     observed_at: Number.isFinite(Date.parse(receipt.observed_at)) ? new Date(receipt.observed_at).toISOString() : null,
     hostname_references: { candidates: (receipt.hostname_references?.candidates || []).filter(candidate => typeof candidate?.hostname === 'string' && /^[a-z0-9.-]{1,253}$/i.test(candidate.hostname)).map(candidate => ({hostname: candidate.hostname, sources: ['exposure_content']})) },
   };
+  // Unavailable/stale catalogue or an unsupported stated version is a coverage
+  // limit, never a reassuring absence or a successful vulnerability assessment.
+  if (checks.some(row => row.portal && row.portal_assessment?.state === 'deferred')) {
+    module.quality = 'partial';
+    module.incomplete_reason ||= 'checks_inconclusive';
+  }
   const dedupe = new Map();
   for (const row of checks) {
     const rule = RULES_BY_ID[row.rule_id];
@@ -99,19 +113,21 @@ export function externalExposureModule(receipt) {
     if (!rule || !row.condition_key || !['finding', 'observed'].includes(row.state) || row.comparable !== true || !hit) continue;
     const indicators = Array.isArray(hit.indicators) ? hit.indicators.filter((value) => SAFE_INDICATORS.has(value)).slice(0, 16) : [];
     if (!indicators.length) continue;
-    const presentation = exposurePresentation(rule.id, indicators);
+    const portalAssessment = rule.id==='remote-access-portal' ? row.portal_assessment : null;
+    if(rule.id==='remote-access-portal' && portalAssessment?.state!=='present')continue;
+    const presentation = portalAssessment ? {title:rule.title,severity:portalAssessment.severity,observation:portalAssessment.sentence,risk:portalAssessment.sentence} : exposurePresentation(rule.id, indicators);
     const severity = presentation.severity;
     const address = safeExposureUrl(hit.safe_url || row.url, Object.values(RULES_BY_ID));
     const observedAt = row.observed_at || module.observed_at;
     const finding = {
       id: row.condition_key, module: 'external_exposure',
-      finding_type: row.state === 'observed' || presentation.observationOnly || severity === 'info' ? 'observation' : 'finding',
+      finding_type: !portalAssessment && row.state === 'observed' || presentation.observationOnly || severity === 'info' ? 'observation' : 'finding',
       severity, confidence: 90, score_impact: 0,
       title: presentation.title || `Public ${rule.family} information observed`,
       description: presentation.observation || presentation.risk,
       evidence: [{ type: 'bounded_http_content', label: 'Public content indicators', value: indicators.join('; '),
         source: 'external_exposure', checked_at: observedAt,
-        requested_url: address, rule_id: rule.id, rule_version: rule.version }],
+        requested_url: address, rule_id: rule.id, rule_version: rule.version, ...(portalAssessment?{portal:{...row.portal},assessment:{...portalAssessment}}:{}) }],
     };
     const remediation = findingRemediation(finding);
     finding.recommendation = remediation?.recommended_action || rule.remediation.join(' ');

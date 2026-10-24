@@ -1,7 +1,9 @@
+import { REMOTE_ACCESS_PATHS, REMOTE_ACCESS_SENTENCES } from './remote-access.js';
 // Local, immutable rules. No downloaded templates, executable customer input, or callbacks.
-export const EXPOSURE_CATALOG_VERSION = '2026.10.13.1';
+export const EXPOSURE_CATALOG_VERSION = '2026.10.24.1';
 export const EXPOSURE_FAMILIES = Object.freeze(['configuration', 'development', 'backups', 'debug', 'administration', 'diagnostics', 'javascript', 'api_references', 'product_misconfiguration']);
 const RULE_PRESENTATION = {
+  'remote-access-portal': ['Remote-access portal exposed', 'medium', REMOTE_ACCESS_SENTENCES.hidden],
   'env-config': ['Sensitive environment configuration is public', 'high', 'Credential-shaped values are readable without authentication; validity has not been tested.'],
   'application-config': ['Sensitive application configuration is public', 'high', 'Configuration includes secret-shaped values or internal operational settings.'],
   'package-auth': ['Package authentication material is public', 'high', 'An authentication token or password-hash record can be read without authentication.'],
@@ -36,6 +38,7 @@ const rule = (id, family, paths, positive, remediation, options = {}) => Object.
 const restrict = ['Remove this file or endpoint from the public web root, or require authentication and restrict network access.', 'Review deployment exclusions and access logs, then repeat this exact check.'];
 const rotate = ['Revoke and replace the exposed credential through its owner; this check does not test whether it remains valid.', ...restrict];
 export const EXPOSURE_RULES = Object.freeze([
+  rule('remote-access-portal', 'administration', REMOTE_ACCESS_PATHS, 'A known portal title and same-origin login form; only an explicit server-version label may support an advisory match.', ['Restrict public portal access to authorised networks and review the server version with its administrator.', 'Apply supported security updates and repeat this exact URL check. Hiding a version is not proof of remediation.']),
   rule('env-config', 'configuration', ['/.env', '/.env.local', '/.env.production', '/.env.prod', '/.env.dev', '/.env.stage', '/.env.bak', '/.env.old', '/.env.backup', '/.env.save', '/.env.example', '/.env_sample', '/api/.env', '/config/.env', '/sendgrid.env', '/.aws/credentials'], 'Multiple dotenv/INI assignments and at least one non-placeholder credential-shaped value.', rotate),
   rule('application-config', 'configuration', ['/config.json', '/appsettings.json', '/appsettings.Production.json', '/config.yml', '/config.yaml', '/application.yml', '/application.properties', '/database.yml', '/docker-compose.yml', '/docker-compose.prod.yml', '/web.config', '/nginx.conf', '/apache.conf', '/wp-config.php.bak'], 'Structured application/server configuration plus a credential or private operational configuration indicator.', ['If credential-shaped values were exposed, revoke and replace them through their owner; validity has not been tested.', ...restrict]),
   rule('package-auth', 'configuration', ['/.npmrc', '/.yarnrc', '/auth.json', '/.composer-auth.json', '/.composer/auth.json', '/.htpasswd'], 'Package-manager auth assignment/JSON or a complete supported password-hash record.', rotate),
@@ -73,6 +76,7 @@ export function exposurePresentation(ruleId, indicators = []) {
 }
 
 export const EXPOSURE_INDICATORS = Object.freeze([
+  'known_remote_access_login',
   'private_key_block','credential_shaped_assignment','provider_secret_shaped_value','credential_in_connection_string','aws_credential_pair',
   'environment_assignment_structure','configuration_structure','private_upstream_configuration','password_hash_record','package_auth_record',
   'git_file_structure','svn_working_copy_structure','ds_store_header','package_manifest_structure','editor_project_structure','ide_project_structure',

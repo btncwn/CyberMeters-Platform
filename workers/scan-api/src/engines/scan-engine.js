@@ -1,3 +1,4 @@
+import { readRemoteAccessCatalogue } from './remote-access-catalogue.js';
 // ── Scan pipeline orchestrator ──
 // The main scan engine (runs via ctx.waitUntil): sequences every scan/analysis/persistence
 // module through all phases, computes the score + report, and persists results + fires alerts.
@@ -2384,7 +2385,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // expected durable job can contribute an explicit unavailable coverage gap.
     if (exposureReceipt || (workspaceId && durableInvocation && env.EXPOSURE_SCAN_MODE === "evidence-v1")) {
       modules.external_exposure = reconcileCurrentDnsHostCoverage(
-        externalExposureModule(exposureReceipt), modules.asset_exposure, new Date(now()).toISOString());
+        externalExposureModule(exposureReceipt, { catalogue: exposureReceipt?.checks?.some(r=>r.portal) ? await readRemoteAccessCatalogue(env) : null, now: now() }), modules.asset_exposure, new Date(now()).toISOString());
     }
 
     // Phase 7a-i: hostnames the site's own robots.txt, sitemaps and scripts

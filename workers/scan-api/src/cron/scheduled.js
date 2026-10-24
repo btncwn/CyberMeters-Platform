@@ -1,3 +1,4 @@
+import { refreshRemoteAccessCatalogue } from '../engines/remote-access-catalogue.js';
 // ── Cron orchestration module ─────────────────────────────────────────────────
 // Sprint 9 phase-1 extraction: the scheduled() entry and its timing/telemetry
 // wrapper live here. Task BODIES stay in index.js (their closure reaches the
@@ -339,6 +340,7 @@ export async function runScheduled(event, env, ctx, tasks) {
   // The Worker cron also drives scheduled scans, so keep the hourly trigger
   // and run retention once daily at 02:00 UTC.
   if (new Date(now).getUTCHours() === 2) {
+    ctx.waitUntil(runCronTask(env, "remote_access_catalogue", () => refreshRemoteAccessCatalogue(env)));
     ctx.waitUntil(runCronTask(env, "report_retention", () => tasks.cleanupExpiredReports(now, env)));
     ctx.waitUntil(runCronTask(env, "public_api_rate_limit_retention", () => cleanupExpiredPublicApiRateLimits(env, now)));
     ctx.waitUntil(runCronTask(env, "ops_observability_retention", () => cleanupExpiredObservability(env, now)));
