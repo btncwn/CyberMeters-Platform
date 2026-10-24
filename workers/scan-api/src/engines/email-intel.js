@@ -177,9 +177,13 @@ export async function fetchMtaSts(domain, opts = {}) {
   };
   const fetcher = opts.fetcher || safeFetch;
   try {
+    // The policy host resolves to a public address before any connection, as
+    // for the other probes (hardening, 24 Oct 2026). Covers every caller.
     const res = await fetcher(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
       signal: AbortSignal.timeout(10_000),
       accounting,
+      dnsResolver: typeof opts.dnsResolver === "function" ? opts.dnsResolver : dnsQuery,
+      dnsCache: opts.cache || null,
     });
     const observation = classifyFetchObservation({ response: res });
     const serviceability = classifyServiceability(observation);
@@ -589,7 +593,7 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
   // Step 2: MTA-STS + TLS-RPT in parallel (both are fast, independent)
   const [mtaStsSettled, tlsRptSettled] = await Promise.allSettled([
     // opts.fetcher is a test seam (undefined in production → safeFetch default).
-    fetchMtaSts(domain, { accounting, fetcher: opts.fetcher }),
+    fetchMtaSts(domain, { accounting, cache, fetcher: opts.fetcher }),
     checkTlsRpt(domain, { accounting, cache }),
   ]);
   const mtaSts = mtaStsSettled.status === "fulfilled"

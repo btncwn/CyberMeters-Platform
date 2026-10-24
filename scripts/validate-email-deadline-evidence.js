@@ -231,6 +231,9 @@ function mockFetch(variant, { onLateResolve = null } = {}) {
       }
       const answer = () => {
         if (["example.com", "www.example.com"].includes(name) && type === "A") return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
+        // The MTA-STS policy host resolves publicly: the policy fetch resolves its
+        // host first (hardening, 24 Oct 2026), then behaves per variant as before.
+        if (name === "mta-sts.example.com" && type === "A") return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
         if (variant === "b2-admin" && name === "grafana.example.com" && type === "A") {
           return json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.35" }] });
         }

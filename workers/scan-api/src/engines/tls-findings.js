@@ -62,7 +62,7 @@ export function tlsAssessmentFindings(assessment) {
     if(!row.engine?.sandboxed || !row.observed_at)continue;
     if(row.control==='protocol'&&positive(row)&&row.evidence.negotiated?.version===row.protocol&&tlsProtocolRisk(row.protocol))
       add(make('tls_legacy_protocol',endpoint,row,{title:`${tlsProtocolWords(row.protocol)} accepted on this endpoint`,
-        description:`The measured endpoint completed a ${tlsProtocolWords(row.protocol)} handshake. Certificate validity does not remove the risk of accepting this legacy protocol.`,
+        description:`This endpoint completed a ${tlsProtocolWords(row.protocol)} handshake. A valid certificate does not remove the risk of accepting this outdated protocol.`,
         severity:'high',recommendation:'Disable the observed legacy TLS version on this specific service after checking client compatibility, then repeat the same endpoint test.',
         value:`${row.protocol} authenticated Finished`}));
     if(row.control==='cipher'&&positive(row)&&row.evidence.negotiated?.cipher===row.cipher_id&&isWeakTlsCipher(row.cipher_id))
@@ -113,7 +113,7 @@ export function tlsAssessmentFindings(assessment) {
           value:`${leaf.key_type} ${leaf.key_bits}`}));
       if(leaf&&['rsa_md5','rsa_sha1','ecdsa_sha1','dsa_sha1'].includes(leaf.signature_algorithm))
         add(make('tls_weak_certificate_signature',endpoint,row,{title:'Certificate uses a legacy signature algorithm',
-          description:`The offered leaf certificate is signed with ${SIGNATURE_WORDS[leaf.signature_algorithm]}.`,severity:'medium',
+          description:`The certificate on this endpoint is signed with ${SIGNATURE_WORDS[leaf.signature_algorithm]}.`,severity:'medium',
           recommendation:'Replace the certificate with one signed using a current algorithm and verify the live chain.',
           value:leaf.signature_algorithm}));
       const ocsp=row.evidence.ocsp;
@@ -133,15 +133,15 @@ export function tlsAssessmentFindings(assessment) {
             ?'Certificate requires OCSP stapling, but none was stapled'
             :'Certificate requires OCSP stapling, but the stapled response is not usable',
           description:ocsp.state==='absent'
-            ?'The offered leaf certificate carries the TLS Feature (Must-Staple) extension, but this endpoint did not staple an OCSP response, so browsers that enforce Must-Staple refuse the connection.'
-            :`The offered leaf certificate carries the TLS Feature (Must-Staple) extension, and this endpoint stapled an OCSP response that is ${ocsp.state==='invalid'?'invalid':'of unknown status'}, so browsers that enforce Must-Staple refuse the connection.`,
+            ?'The certificate on this endpoint carries the TLS Feature (Must-Staple) extension, but this endpoint did not staple an OCSP response, so browsers that enforce Must-Staple refuse the connection.'
+            :`The certificate on this endpoint carries the TLS Feature (Must-Staple) extension, and this endpoint stapled an OCSP response that is ${ocsp.state==='invalid'?'invalid':'of unknown status'}, so browsers that enforce Must-Staple refuse the connection.`,
           severity:'high',
           recommendation:'Enable OCSP stapling on this endpoint, or reissue the certificate without Must-Staple, then retest.',
           value:ocsp.state==='absent'?'Must-Staple required; no stapled OCSP response':`Must-Staple required; stapled OCSP response ${ocsp.state}`}));
     }
     if(row.control==='compression'&&positive(row)&&row.evidence.extensions?.compression===true)
       add(make('tls_compression_enabled',endpoint,row,{title:'TLS compression accepted',
-        description:'The measured TLS connection negotiated compression on this endpoint.',severity:'medium',
+        description:'The TLS connection to this endpoint used compression.',severity:'medium',
         recommendation:'Disable TLS-level compression on the affected service, then run the check again.',value:'compression negotiated'}));
   }
   return [...output.values()];
@@ -190,8 +190,9 @@ export function evaluateTlsCase(caseKey,assessment) {
 // PQC readiness per endpoint for the Certificates & Trust card (S3-MODERN 2):
 // what the server chose when offered the hybrid X25519MLKEM768 group beside
 // classical groups. A readiness signal, not a weakness: no finding, no score.
-// Wording on the card is "Post-quantum key exchange: negotiated <group> / not
-// offered by the server / not assessed" - never "quantum safe/ready".
+// The backend owns the card sentence (summary); it never says "quantum
+// safe/ready", and classical_only means the server CHOSE a classical group -
+// not that it offers no post-quantum group at all.
 export function pqcKeyExchangeState(assessment) {
   const out=[];
   for(const endpoint of assessment?.endpoints||[]){
@@ -200,8 +201,11 @@ export function pqcKeyExchangeState(assessment) {
     const group=row?.evidence?.negotiated?.group||null;
     const state=!row||!group?'not_assessed'
       :/MLKEM|KYBER/i.test(group)?'hybrid_pqc_negotiated':'classical_only';
+    const summary=state==='hybrid_pqc_negotiated'?`The server chose the hybrid post-quantum key exchange group ${group}.`
+      :state==='classical_only'?`The server chose a classical key exchange group (${group}).`
+      :'Post-quantum key exchange was not assessed on this endpoint.';
     if(rows.length||row)out.push({endpoint_identity:endpoint.endpoint_identity||null,hostname:endpoint.endpoint?.hostname||null,state,
-      group:state==='not_assessed'?null:group});
+      group:state==='not_assessed'?null:group,summary});
   }
   return out;
 }
