@@ -343,9 +343,12 @@ const R_ALL_503 = async () => origin503();
   // absence is not evidence: not_observed, no missing-HSTS claim.
   const apexLimited = await run({ apexHsts: null, wwwHsts: "max-age=7889238", apexStatus: 429 });
   eq("E2_APEX_429_WITHOUT_HSTS_IS_NOT_ABSENT", [apexLimited.headers.hsts_policy?.state, apexLimited.ids.includes("header_missing_strict_transport_security")], ["not_observed", false]);
-  // A header on a non-serviceable answer is still the host's policy.
+  // R1: a header on a non-serviceable answer (a WAF/CDN 429 page) is not the
+  // origin's policy either: not_observed, no HSTS claim either way.
   const apexLimitedWithHsts = await run({ apexHsts: STRONG, wwwHsts: null, apexStatus: 429 });
-  eq("E2_APEX_429_WITH_HSTS_IS_PRESENT", apexLimitedWithHsts.headers.hsts_policy?.state, "present");
+  eq("E2_APEX_429_WITH_HSTS_IS_NOT_OBSERVED", [apexLimitedWithHsts.headers.hsts_policy?.state, apexLimitedWithHsts.headers.hsts_policy?.value],
+    ["not_observed", null]);
+  ok("E2_APEX_429_WITH_HSTS_CLAIMS_NOTHING", !apexLimitedWithHsts.ids.some((id) => /hsts|strict_transport_security/.test(id)), JSON.stringify(apexLimitedWithHsts.ids));
 
   // C-40 row 5 (reverse): short apex, strong www — the apex is what is judged.
   const shortApex = await run({ apexHsts: "max-age=900", wwwHsts: STRONG });

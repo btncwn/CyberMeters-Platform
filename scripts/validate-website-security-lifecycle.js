@@ -415,6 +415,18 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   eq("E2: an unobserved apex keeps a malformed-HSTS case open (unknown)", mrec.monitoring_status, "unknown");
   eq("E2: ...naming the reason", mrec.unknown_reason, "hsts_apex_not_observed");
   ok("E2: ...and writes no recovery event", !allEvents(mrec.id).some((e) => e.event_type === WS_EVENT_RESOLVED));
+  // R1: a WAF/CDN 429 page that SENDS HSTS is not the origin's fix either:
+  // the policy built from it is not_observed, so the case stays open.
+  const { buildHstsHostPolicy } = await import("../workers/scan-api/src/engines/headers-scan.js");
+  const wafPolicy = buildHstsHostPolicy({ domain: "gamma.example.com", apexObserved: true, apexValue: "max-age=31536000; includeSubDomains",
+    apexUrl: "https://gamma.example.com", apexStatus: 429, finalUrl: "https://www.gamma.example.com", finalValue: null });
+  eq("E2: an apex 429 carrying HSTS builds a not_observed policy", wafPolicy.state, "not_observed");
+  // The malformed-HSTS runs above resolved the missing-HSTS case: observe it again first.
+  await run("ws9", [F.hstsMissing()], { scan: "e2w0", domainId: "d9", domain: "gamma.example.com" });
+  const resolvedBefore = allEvents(rec.id).filter((e) => e.event_type === WS_EVENT_RESOLVED).length;
+  await run("ws9", [], { scan: "e2w1", domainId: "d9", domain: "gamma.example.com", modules: { ...MODULES_OK, headers: { ...MODULES_OK.headers, hsts_policy: wafPolicy } } });
+  eq("E2: ...and the missing-HSTS case stays open (unknown)", condFor("ws9", "header_missing_strict_transport_security").monitoring_status, "unknown");
+  eq("E2: ...with no new recovery event", allEvents(rec.id).filter((e) => e.event_type === WS_EVENT_RESOLVED).length, resolvedBefore);
   // A genuine fix still clears: the apex answers 200 WITH HSTS and no finding is emitted.
   const observedOk = { ...MODULES_OK, headers: { ...MODULES_OK.headers,
     hsts_policy: { ...notObserved.headers.hsts_policy, apex_status: 200, state: "present", value: "max-age=31536000; includeSubDomains", include_subdomains: true, final_covered: true } } };
