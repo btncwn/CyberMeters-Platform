@@ -237,7 +237,13 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
   const groups=new Map(),deferredHosts=[],deferredEndpoints=[];
   for(let index=0;index<endpoints.length;index++){
     const entry=endpoints[index],host=entry?.endpoint?.hostname,port=entry?.endpoint?.port;
-    if(!host||entry.endpoint.application_protocol!=='https'||!observed.has(host)){
+    // A service the customer authorised explicitly (Certificates & Trust →
+    // Additional TLS services) is planned on its own authority: its address
+    // already had to equal the authorised IP target at plan time
+    // (loadTlsEndpoints), so it does not also wait for the website checks to
+    // have seen HTTPS on that host (F1, 24 Oct: a fresh service was deferred).
+    const authorisedService=entry?.scope?.kind==='authorized_service';
+    if(!host||entry.endpoint.application_protocol!=='https'||(!observed.has(host)&&!authorisedService)){
       if(host)deferredHosts.push({hostname:host,port,reason:entry.endpoint.application_protocol==='https'?'https_service_not_observed':'non_https_service'});
       continue;
     }
@@ -247,7 +253,10 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
   }
   const prior=new Set(previousFindings.map(row=>row.endpoint_identity));
   const selected=[],staticResults=[];
-  for(const [key,group] of [...groups].sort(([a],[b])=>a.localeCompare(b))){
+  // Explicitly authorised services are budgeted first, so a tight plan never
+  // drops the one service the customer named in favour of discovered hosts.
+  const authorisedFirst=([,group])=>group.some(({entry})=>entry?.scope?.kind==='authorized_service')?0:1;
+  for(const [key,group] of [...groups].sort((a,b)=>authorisedFirst(a)-authorisedFirst(b)||a[0].localeCompare(b[0]))){
     group.sort((a,b)=>Number(prior.has(b.entry.endpoint_identity))-Number(prior.has(a.entry.endpoint_identity))||
       String(a.entry.endpoint.address).localeCompare(String(b.entry.endpoint.address)));
     const {entry,index}=group[0];
