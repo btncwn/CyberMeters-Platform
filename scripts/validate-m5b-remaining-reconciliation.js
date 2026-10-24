@@ -263,7 +263,7 @@ const shape = (r) => { const c = cat(r, PM); return JSON.stringify({ score: c.sc
 // version MUST have moved or every customer's CE would "improve"/"deteriorate" on deploy day.
 {
   eq("the Domain state resolver version includes the B1 evidence-attribution boundary",
-    motDomains.SECURITY_CHECK_RESOLVER_VERSION, "2026-10-23.1");
+    motDomains.SECURITY_CHECK_RESOLVER_VERSION, "2026-10-24.1");
   const hist = await import(eng("security-check-state-history.js"));
   const mk = (v, state) => ({ resolver_version: v, scan_quality: "complete", state, assessed_at: "2026-07-16T00:00:00Z" });
   const cross = hist.resolveDomainTrend(mk("2026-07-16.2", "assessed_healthy"), mk("2026-07-16.1", "issue_detected"));
@@ -573,7 +573,7 @@ if (!process.argv.includes("--no-mutate")) {
     { file: CE, name: "missing methodology metadata is treated as comparable",
       from: "  if (A.ver == null || B.ver == null || A.rev == null || B.rev == null) return false;", to: "" },
     { file: RESOLVER, name: "the resolver version loses the B1 evidence-attribution boundary",
-      from: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-23.1";',
+      from: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-24.1";',
       to: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-08-09.1";' },
     { file: RESOLVER, name: "D4: Attack Surface drops the exposure and TLS evidence modules",
       from: '    modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns", "external_exposure", "tls_assessment"],',
@@ -588,7 +588,7 @@ if (!process.argv.includes("--no-mutate")) {
       from: '    match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),',
       to: '    match: (f) => /^(asset_|subdomain_|takeover_|exposure_|cve_|kev_|cloud_|dns_|dnssec_|whois_)/.test(f?.id || ""),' },
     { file: RESOLVER, name: "D4: the resolver version is not minted for the evidence declaration",
-      from: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-23.1";',
+      from: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-24.1";',
       to: 'export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-16.1";' },
     { file: MODEL, name: "`external` maps to automated again",
       from: '  if (method === "external") return "external";', to: "" },
