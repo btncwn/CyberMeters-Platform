@@ -5,6 +5,7 @@ import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
+import { keyLabel } from '../../lib/keyLabel'
 
 function ExposureCard({ exp }) {
   const isHigh = exp.risk_level === 'high' || exp.risk_level === 'critical'
@@ -29,7 +30,7 @@ function ExposureCard({ exp }) {
         )}
         {exp.portal_url && (
           <a href={exp.portal_url} target="_blank" rel="noopener noreferrer"
-             className="flex items-center gap-1.5 text-xs text-gray-500 hover:underline truncate">
+             className="cm-rowlink flex items-center gap-1.5 text-xs truncate">
             Portal: {exp.portal_url}
           </a>
         )}
@@ -43,7 +44,7 @@ function ExposureCard({ exp }) {
 
       <div className="mt-3 pt-3 border-t border-gray-50 flex items-center gap-3">
         <span className="text-xs text-gray-400">Confidence: <span className="capitalize font-medium">{exp.confidence}</span></span>
-        <span className="text-xs text-gray-400">Category: <span className="capitalize">{exp.category}</span></span>
+        <span className="text-xs text-gray-400">Category: <span>{keyLabel(exp.category) || 'Not recorded'}</span></span>
       </div>
     </div>
   )

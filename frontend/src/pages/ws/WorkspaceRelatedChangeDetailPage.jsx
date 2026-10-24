@@ -34,6 +34,7 @@ import {
   FEEDBACK_OPTIONS,
   HONESTY_NOTE,
 } from '../../lib/relatedChangesDisplay'
+import { isOpaqueId, keyLabel } from '../../lib/keyLabel'
 
 const CARD = 'rounded-xl border border-slate-200 bg-white p-5'
 
@@ -58,6 +59,19 @@ function Tag({ tone, children }) {
       {children}
     </span>
   )
+}
+
+// The evidence subject in words (C-45 R05): a host/domain without its internal
+// prefix; a campaign, technology or record never as a raw key or opaque id.
+function evidenceSubject(e) {
+  const key = String(e?.entity_key || '')
+  const m = key.match(/^(host|domain|surface|provider|tech|campaign):(.+)$/)
+  if (m && (m[1] === 'host' || m[1] === 'domain' || m[1] === 'surface')) return m[2].split('|')[0]
+  if (m && m[1] === 'provider') return keyLabel(m[2].split('|')[0])
+  if (m && m[1] === 'tech') return keyLabel(m[2])
+  if (m && m[1] === 'campaign') return 'A lookalike-domain campaign'
+  if (key && !isOpaqueId(key) && !key.includes(':')) return key
+  return 'Recorded evidence'
 }
 
 export default function WorkspaceRelatedChangeDetailPage() {
@@ -187,7 +201,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
         <div className="space-y-5">
           <button
             onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"
+            className="cm-backlink inline-flex items-center gap-1.5 text-sm"
           >
             Back to related changes
           </button>
@@ -228,7 +242,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                   to={`/ws/cases/${encodeURIComponent(rc.linked_case_id)}`}
                   className="text-brand-700 hover:underline"
                 >
-                  Linked case: {rc.linked_case_id} →
+                  Open the linked case →
                 </Link>
               )}
             </div>
@@ -301,7 +315,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
                         <p className="text-sm font-medium text-slate-800">{producerFamilyLabel(e.producer_family)}</p>
                       )}
                       <p className="text-xs text-slate-500 mt-0.5 wrap-break-word">
-                        {e.entity_key || e.source_record_id || '—'}
+                        {evidenceSubject(e)}
                         {eventTypeLabel(e.source_event_type) ? ` · ${eventTypeLabel(e.source_event_type)}` : ''}
                       </p>
                       {/* Internal storage names (source_table, raw event enums) are

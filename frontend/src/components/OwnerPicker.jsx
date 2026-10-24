@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { api } from '../api'
+import { isOpaqueId } from '../lib/keyLabel'
 
 function memberLabel(m) {
   return m?.name?.trim() || m?.email || m?.user_id || 'Unknown member'
@@ -73,7 +74,7 @@ export default function OwnerPicker({ wsId, caseId, caseRow, canManage = false, 
         {assignedMember ? (
           <span>{memberLabel(assignedMember)} <span className="text-slate-400 text-xs">· {assignedMember.email}</span></span>
         ) : ownerRef ? (
-          <span>{ownerRef}{assignedUserId ? <span className="text-slate-400 text-xs"> · former member</span> : null}</span>
+          <span>{isOpaqueId(ownerRef) ? 'A former member' : ownerRef}{assignedUserId && !isOpaqueId(ownerRef) ? <span className="text-slate-400 text-xs"> · former member</span> : null}</span>
         ) : (
           <span className="text-slate-500">{closed ? 'No owner was assigned' : 'Unassigned'}</span>
         )}

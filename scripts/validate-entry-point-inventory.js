@@ -108,6 +108,18 @@ if (s.gaps.length !== 0 || review.length !== 0) {
   for (const g of review) fail(`Sensitive-scope handler has NO auth guard and NO public-allowlist reason: ${g.method} ${g.path} @ ${g.file}:${g.line}`);
 }
 
+// ── Prologue guards are inherited (a guard beside a one-line object literal) ─
+// network-assets.js authenticates once, before dispatch:
+//   const user=await requireAuth(request,env);if(!user)return json({error:…},401);
+// The `{error:…}` literal must not hide that guard from the handlers below it.
+{
+  const prologue = extractAll().filter((e) => e.file === "workers/scan-api/src/routes/network-assets.js" && e.method !== "OPTIONS");
+  if (prologue.length < 8) fail(`network-assets.js: expected its 8 handlers in the inventory, found ${prologue.length}`);
+  for (const e of prologue) {
+    if (!e.auth_guards?.includes("requireAuth")) fail(`network-assets.js:${e.line} ${e.method} does not inherit the router's requireAuth prologue`);
+  }
+}
+
 // ── Report ───────────────────────────────────────────────────────────────────
 console.log("Entry-point inventory:");
 console.log(`  entry points: ${fresh.counts.total}   auth-guarded: ${fresh.counts.authed}   public: ${fresh.counts.public_unauthed}`);

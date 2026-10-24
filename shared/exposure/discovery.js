@@ -50,6 +50,7 @@ export function planExposureChecks({origin, observations = {}, previousFindings 
   const checks = new Map();
   const technologies = (Array.isArray(observations.technologies) ? observations.technologies : []).filter(v=>typeof v === 'string').join(' ').toLowerCase();
   const add = (rule, path, source, priority) => {
+    if (rule?.id==='remote-access-portal' && base.protocol!=='https:') return;
     if (!isRulePathAllowed(rule, path)) return;
     const key = rule.id + '\n' + path;
     if (!checks.has(key) || checks.get(key).priority < priority) checks.set(key, {ruleId: rule.id, url: base.origin + path, source, priority, maxCost: rule.maxCost});

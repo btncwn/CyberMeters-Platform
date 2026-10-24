@@ -9,6 +9,7 @@ import SafeBoundary from './SafeBoundary'
 import ProfileMenu from './shell/ProfileMenu'
 import AreaSidebar from './shell/AreaSidebar'
 import { AreaShellProvider, useAreaShell } from './shell/AreaShell'
+import ContextBar, { ScopedDomainProvider, useWorkspaceDomains } from './shell/WorkspaceContext'
 import { MODULE_TABS } from '../lib/areaTabs'
 import CyberMetersLogo from './CyberMetersLogo'
 import WorkspaceMenu from './shell/WorkspaceMenu'
@@ -115,30 +116,6 @@ function useWideLayout() {
   return wide
 }
 
-// The workspace card's letter is the selected domain's initial (founder,
-// 17 Oct 2026): the workspace's first verified domain, else its first domain,
-// else the workspace name. Re-read whenever the workspace changes, so an MSP
-// switching customer sees the letter change at once.
-export function primaryDomainOf(domains) {
-  const rows = Array.isArray(domains) ? domains : []
-  const nameOf = (d) => String(d?.domain || d?.name || '').trim()
-  const verified = rows.find((d) => String(d?.verification_status || d?.status || '').toLowerCase() === 'verified' && nameOf(d))
-  return nameOf(verified || rows.find(nameOf)) || null
-}
-function usePrimaryDomain(wsId) {
-  const [domain, setDomain] = useState(null)
-  useEffect(() => {
-    let alive = true
-    setDomain(null)
-    if (!wsId) return undefined
-    Promise.resolve()
-      .then(() => api.getWorkspaceDomains(wsId))
-      .then((data) => { if (alive) setDomain(primaryDomainOf(data?.domains)) })
-      .catch(() => { if (alive) setDomain(null) })
-    return () => { alive = false }
-  }, [wsId])
-  return domain
-}
 
 const PLAN_LABELS = { free: 'Free plan', starter: 'Starter plan', professional: 'Professional plan', business: 'Business plan', enterprise: 'MSP plan' }
 /**
@@ -199,7 +176,9 @@ export function roleLabelFor(user) {
 export default function Layout() {
   return (
     <AreaShellProvider>
-      <ShellFrame />
+      <ScopedDomainProvider>
+        <ShellFrame />
+      </ScopedDomainProvider>
     </AreaShellProvider>
   )
 }
@@ -243,6 +222,8 @@ function ShellFrame() {
   // bootstrap on every route.
   const [wsId, setWsId]     = useState(() => readActiveWorkspace().id)
   const [wsName, setWsName] = useState(() => readActiveWorkspace().name)
+  // The active workspace's domains: the card and the context bar read the same list.
+  const domainsState = useWorkspaceDomains(wsId)
 
   // Domain identity: the active area's accent travels as CSS variables for
   // pages that want a stronger accent on headers or tabs.
@@ -252,7 +233,6 @@ function ShellFrame() {
   const domainColors = SERVICE_COLORS[areaKey] || null
   const nav = selectNav(useAccountFeatures())
   const wide = useWideLayout()
-  const primaryDomain = usePrimaryDomain(wsId)
   const planLabel = useMembershipPlanLabel(user, wsId)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuButtonRef = useRef(null)
@@ -359,6 +339,8 @@ function ShellFrame() {
                 <ProfileMenu roleLabel={planLabel} />
               </div>
             </div>
+            {/* Which workspace and domain this screen is about (founder, 23 Oct 2026). */}
+            <ContextBar wsId={wsId} wsName={wsName} domainsState={domainsState} />
             {area && <AreaRow svc={area} />}
           </header>
 
@@ -395,7 +377,7 @@ function ShellFrame() {
           below that at 76px. It is not part of the sidebar. */}
       <div className={wide ? 'cm-wsfloat cm-wsfloat-wide' : 'cm-wsfloat'} data-testid="workspace-dock">
         <SafeBoundary>
-          <WorkspaceMenu wsId={wsId} wsName={wsName} domainName={primaryDomain} size={wide ? 'deck' : 'compact'} />
+          <WorkspaceMenu wsId={wsId} wsName={wsName} domainsState={domainsState} size={wide ? 'deck' : 'compact'} />
         </SafeBoundary>
       </div>
       {!wide && drawerOpen && (

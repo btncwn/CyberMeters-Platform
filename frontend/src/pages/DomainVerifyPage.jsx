@@ -6,6 +6,7 @@ import VerificationStatusBadge from '../components/VerificationStatusBadge'
 import OneClickDnsButton from '../components/OneClickDnsButton'
 import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 import { formatDate } from '../utils/dates'
+import { useScopedDomain } from '../components/shell/WorkspaceContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,8 @@ export default function DomainVerifyPage() {
   const [domain,      setDomain]      = useState(location.state?.domain ?? null)
   const [loading,     setLoading]     = useState(!domain)
   const [error,       setError]       = useState(null)
+  // The context bar names the domain being verified (founder, 23 Oct 2026).
+  useScopedDomain(domain?.domain)
 
   // Verification flow state
   const [instructions, setInstructions] = useState(null)
@@ -238,7 +241,7 @@ export default function DomainVerifyPage() {
       {/* Back */}
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors mb-6"
+        className="cm-backlink flex items-center gap-1.5 text-sm mb-6"
       >
         Back
       </button>

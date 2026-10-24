@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { phaseMeta, phaseClass, domainKeyLabel, DOMAIN_KEY_LABELS, caseDisplayTitle } from '../lib/caseDisplay'
+import { isOpaqueId } from '../lib/keyLabel'
 
 export default function CasesQueue({ workspaceId, domainKey, onDomainChange }) {
   const navigate = useNavigate()
@@ -84,10 +85,10 @@ export default function CasesQueue({ workspaceId, domainKey, onDomainChange }) {
                   >
                     <td className="py-2 pr-3 text-slate-600">{domainKeyLabel(c.domain_key)}</td>
                     <td className="py-2 pr-3 text-slate-700">
-                      <span className="font-medium">{caseDisplayTitle(c)}</span>
+                      <span className="cm-rowlink font-medium">{caseDisplayTitle(c)}</span>
                       {c.domain ? <span className="text-slate-400"> · {c.domain}</span> : null}
                     </td>
-                    <td className="py-2 pr-3 text-slate-600">{c.owner_ref || <span className="text-slate-400">Unassigned</span>}</td>
+                    <td className="py-2 pr-3 text-slate-600">{c.owner_ref ? (isOpaqueId(c.owner_ref) ? 'A former member' : c.owner_ref) : <span className="text-slate-400">Unassigned</span>}</td>
                     <td className="py-2 pr-3">
                       <span className={`inline-block rounded-full border px-2 py-0.5 text-sm ${phaseClass(c.canonical_phase, c.verification_support)}`}>
                         {meta.label}

@@ -1,4 +1,4 @@
-import { formatReportDay as formatDay, formatReportTime as formatDate, REPORT_TIME_NOTE, ReportTimeLabelled } from '../lib/reportTime'
+import { formatViewerDay as formatDay, formatViewerTime as formatDate, REPORT_TIME_NOTE } from '../lib/reportTime'
 import { parseServerDate } from '../utils/dates'
 import { customerCodeLabel } from '../lib/customerReasonText'
 import SignedInScanningSummary from '../components/SignedInScanningSummary'
@@ -30,6 +30,8 @@ import {
   nextReportPreparationDelay,
   reportPreparationPresentation,
 } from '../lib/reportAvailability'
+import { keyLabel } from '../lib/keyLabel'
+import { useScopedDomain } from '../components/shell/WorkspaceContext'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
@@ -210,11 +212,11 @@ function EvidencePanel({ evidence }) {
         const mvc    = item.manual_verification_command ?? null
 
         const rows = [
-          type  && ['Type',           String(type)],
+          type  && ['Type',           keyLabel(type)],
           lbl   && ['Target',         String(lbl)],
           hasVal && ['Observed',      String(valRaw ?? 'null (no record found)')],
           exp   && ['Expected',       String(exp)],
-          src   && ['Source',         String(src)],
+          src   && ['Source',         keyLabel(src)],
           chk   && ['Checked at',     formatDate(chk)],
           stat  && ['HTTP status',    String(stat)],
           mhdr  && ['Missing header', String(mhdr)],
@@ -1423,6 +1425,8 @@ export default function ScanDetail() {
   // enhancement — the report renders identically if they cannot be loaded.
   const activeWsId   = typeof window !== 'undefined' ? localStorage.getItem('cybermeters_workspace_id') : null
   const reportDomain = report?.domain || scan?.domain || null
+  // The context bar names the scanned domain (founder, 23 Oct 2026).
+  useScopedDomain(reportDomain, { workspaceId: report?.workspace_id || scan?.workspace_id || null })
 
   // A completed report records when the run started and finished; remember
   // its duration so the next queued scan can say how long it usually takes.
@@ -1667,7 +1671,7 @@ export default function ScanDetail() {
   })
 
   return (
-    <ReportTimeLabelled.Provider value={true}>
+    <>
     <div className="max-w-(--breakpoint-xl) mx-auto px-6 py-8 space-y-6">
       <Link to="/scans" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-800 transition-colors font-medium">
         Back to Scans
@@ -1692,7 +1696,7 @@ export default function ScanDetail() {
                 <h1 className="text-xl font-bold text-gray-900 break-words min-w-0">Scan — {formatDate(scan.created_at)}</h1>
                 <StatusBadge status={scan.status} quality={scan.scan_quality} outcome={scan.outcome} />
               </div>
-              <p className="text-xs text-gray-500">{scan.domain} · <InternalIdCopyButton id={scan.id} label="scan" /> · <span data-testid="report-time-note">{REPORT_TIME_NOTE}</span></p>
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">{scan.domain}<InternalIdCopyButton id={scan.id} label="scan" /><span data-testid="report-time-note">{REPORT_TIME_NOTE}</span></p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button onClick={() => navigate(`/domain/${encodeURIComponent(scan.domain)}/history`)} className="btn-secondary">
@@ -1919,6 +1923,6 @@ export default function ScanDetail() {
         </>
       )}
     </div>
-    </ReportTimeLabelled.Provider>
+    </>
   )
 }

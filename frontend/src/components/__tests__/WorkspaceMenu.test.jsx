@@ -35,22 +35,25 @@ describe('workspace card deck', () => {
     expect(workspaceInitial('')).toBe('?')
   })
 
-  it('the letter is the selected domain\'s initial, upper-cased, and the tooltip names the domain; the workspace name is the fallback', () => {
+  // Founder, 23 Oct 2026: the card names the ACTIVE workspace (its initial and
+  // name), never one of its domains — "B · blackbullbarbers.co.uk" inside
+  // She.Shire read as another workspace.
+  it('the letter is the active workspace\'s initial and the tooltip names the workspace', () => {
     const { rerender } = renderMenu()
+    const b = screen.getByTestId('workspace-dock-button')
+    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('D')
+    expect(b).toHaveAttribute('title', 'Workspace · Deneme')
+    expect(within(b).getByText('Workspace · Deneme')).toHaveClass('cm-tip')
+    expect(b).toHaveAccessibleName('Workspace: Deneme')
+    fireEvent.mouseOver(b)
     expect(screen.getByTestId('workspace-initial')).toHaveTextContent('D')
     rerender(
       <MemoryRouter initialEntries={['/dashboard']}>
-        <Routes><Route path="*" element={<WorkspaceMenu wsId="ws1" wsName="Deneme" domainName="blackbullbarbers.co.uk" />} /></Routes>
+        <Routes><Route path="*" element={<WorkspaceMenu wsId="ws2" wsName="she.shire" />} /></Routes>
       </MemoryRouter>,
     )
-    const b = screen.getByTestId('workspace-dock-button')
-    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('B')
-    expect(b).toHaveAttribute('title', 'Workspace · blackbullbarbers.co.uk')
-    expect(within(b).getByText('Workspace · blackbullbarbers.co.uk')).toHaveClass('cm-tip')
-    // The accessible name still says which workspace this is.
-    expect(b).toHaveAccessibleName('Workspace: Deneme')
-    fireEvent.mouseOver(b)
-    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('B')
+    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('S')
+    expect(screen.getByTestId('workspace-dock-button')).toHaveAttribute('title', 'Workspace · she.shire')
   })
 
   it('the mini card for the top bar keeps the initial, drops the label and opens the same popover downwards', async () => {
@@ -112,5 +115,22 @@ describe('workspace card deck', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu', { name: 'Workspace' })).not.toBeInTheDocument()
     expect(document.activeElement).toBe(b)
+  })
+})
+
+describe('C-47 F01: the card face names the workspace at rest', () => {
+  it('a visible label reads "She.Shire · 2 domains" (not only the hidden tooltip)', () => {
+    render(<MemoryRouter><WorkspaceMenu wsId="ws1" wsName="She.Shire" domainsState={{ status: 'ok', domains: ['blackbullbarbers.co.uk', 'sheshire.co.uk'] }} /></MemoryRouter>)
+    const face = screen.getByTestId('workspace-face-label')
+    expect(face).toHaveTextContent('She.Shire · 2 domains')
+    expect(face).not.toHaveAttribute('aria-hidden')
+    expect(face.closest('[aria-hidden="true"]')).toBeNull()
+    expect(screen.getByTestId('workspace-initial')).toHaveTextContent('S')
+  })
+  it('the name alone while the domains are not known; nothing for the mini card', () => {
+    const { rerender } = render(<MemoryRouter><WorkspaceMenu wsId="ws1" wsName="She.Shire" domainsState={{ status: 'loading', domains: [] }} /></MemoryRouter>)
+    expect(screen.getByTestId('workspace-face-label')).toHaveTextContent(/^She\.Shire$/)
+    rerender(<MemoryRouter><WorkspaceMenu wsId="ws1" wsName="She.Shire" size="mini" /></MemoryRouter>)
+    expect(screen.queryByTestId('workspace-face-label')).toBeNull()
   })
 })

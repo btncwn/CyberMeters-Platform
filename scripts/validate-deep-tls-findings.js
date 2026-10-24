@@ -215,6 +215,49 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   assert.match(sent[0].message,/A TLS measurement of mail\.example\.org observed: TLS 1\.0 accepted on this endpoint\./,'the open alert names the endpoint and the observed condition in plain words');
   assert.match(sent[1].message,/CyberMeters verified this fixed on \d{1,2} [A-Z][a-z]{2} \d{4}; it has been observed again, so the case is reopened\./,'the reopen alert says it was verified, and when');
   assert(!sent.some(a=>/tls_|tlscase:|condition "/.test(a.message)),'no internal key in alert prose');
+  // F1 end to end (23 Oct 2026): an Active Checks grant -> a scan a person
+  // started plans Heartbleed for the owned address -> the finite profile result
+  // -> tls_heartbleed_confirmed -> a Certificates & Trust case -> one alert.
+  // A scheduled scan with the same grant plans nothing intrusive.
+  {
+    const { loadTlsEndpoints, buildBudgetedTlsCheckPlan } = await import('../workers/scan-api/src/engines/tls-planner.js');
+    const { isAuthorised } = await import('../workers/scan-api/src/engines/active-check-consent.js');
+    db.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+        signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_f1','ws1','grant','d1','example.org','[]',?,'u1','owner','Pat','IT','text','v',?)`)
+      .run(JSON.stringify(['tls_intrusive_heartbleed']),new Date().toISOString());
+    // The owned-address gate is the real one; only the DNS ownership read is fixed.
+    const owned = async()=>({roots:['example.org'],owned:new Map([['8.8.8.8',{domain:'example.org'}]]),shared:new Set(),lookups_failed:0});
+    const authorise = (e,q)=>isAuthorised(e,q,{observedNetworkAddresses:owned});
+    const lookup = async(host,type)=>type==='A'?{Status:0,Answer:[{type:1,name:`${host}.`,data:'8.8.8.8'}]}:{Status:0,Answer:[]};
+    const scan={id:'scan_f1',workspace_id:'ws1',domain_id:'d1',domain:'example.org'};
+    const plan = async trigger => {
+      const loaded=await loadTlsEndpoints(env,scan,{lookup,authorise,trigger});
+      return {loaded,planned:buildBudgetedTlsCheckPlan({endpoints:loaded.endpoints,cipherCatalog:[],observedHttpsHosts:['example.org'],scanId:'scan_f1'})};
+    };
+    const scheduled=await plan('scheduled');
+    assert.ok(!scheduled.planned.selected.some(r=>r.check.control==='heartbleed'),'F1: a scheduled scan never plans Heartbleed');
+    const started=await plan('manual');
+    assert.equal(started.loaded.endpoints[0].scope.special_checks.heartbleed,'acc_f1','F1: the started scan carries the grant for the owned address');
+    const selected=started.planned.selected.find(r=>r.check.control==='heartbleed');
+    assert.deepEqual(selected?.check,{control:'heartbleed',protocol:'tls1_2',cipher_id:null},'F1: the started scan plans Heartbleed on TLS 1.2');
+    // The probe's finite profile result for exactly that check.
+    const hb={...protocol('tls1_2'),control:'heartbleed',reason:'active_confirmed',engine:{...engine,family:'active_legacy'},
+      evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'heartbleed-minimal-v1',completed_vectors:1,planned_vectors:1}}};
+    const measured={source:'tls_assessment',quality:'complete',endpoints:[{...endpoint([protocol('tls1_2'),hb]),
+      endpoint_identity:started.loaded.endpoints[0].endpoint_identity,hostname:'example.org',sni:'example.org',port:443,application_protocol:'https'}]};
+    const confirmed=tlsAssessmentFindings(measured).find(f=>f.id.startsWith('tls_heartbleed_confirmed__'));
+    assert.ok(confirmed,'F1: the confirmed profile result is a finding');
+    const alertsBefore=certAlerts().length;
+    assert.deepEqual(await run(measured),{opened:1,reopened:0,verified:0},'F1: it opens one case');
+    const hbCase=db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws1' AND source_finding_type='tls_heartbleed_confirmed'").get();
+    assert.deepEqual([hbCase.case_type,hbCase.domain_key,hbCase.severity],['certificate_case','certificates_trust','high'],'F1: a Certificates & Trust case');
+    const hbAlerts=certAlerts().slice(alertsBefore);
+    assert.deepEqual(hbAlerts.map(a=>a.type),['certificates_trust.tls_condition_observed'],'F1: one alert');
+    assert.match(hbAlerts[0].message,/HEARTBLEED behaviour confirmed|Heartbleed behaviour confirmed/,'F1: the alert names the observed behaviour');
+    // A clean profile result is no finding and opens nothing.
+    const clean={...hb,state:'rejected',reason:'active_not_observed',evidence:{...hb.evidence,vulnerability:{...hb.evidence.vulnerability,status:'not_observed'}}};
+    assert.ok(!tlsAssessmentFindings({...measured,endpoints:[{...measured.endpoints[0],checks:[protocol('tls1_2'),clean]}]}).some(f=>f.id.startsWith('tls_heartbleed_confirmed__')),'F1: a clean result is not a finding');
+  }
   assert.deepEqual(await run({source:'not_tls'}), {opened:0,reopened:0,verified:0,skipped:'no_tls_assessment'});
   db.prepare("UPDATE workspaces SET deleted_at=datetime('now') WHERE id='ws1'").run();
   db.prepare("DELETE FROM managed_cases").run();

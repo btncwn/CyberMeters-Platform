@@ -449,7 +449,7 @@ function DataRetentionSection() {
 function LegalLinksSection() {
   const links = [
     { to: '/privacy', label: 'Privacy Policy',     desc: 'How we collect, use, and protect your data' },
-    { to: '/dpa',     label: 'Data Processing Agreement', desc: 'GDPR-compliant DPA for business customers' },
+    { to: '/dpa',     label: 'Data Processing Agreement', desc: 'Data Processing Agreement under UK GDPR Article 28' },
     { to: '/terms',   label: 'Terms of Service',   desc: 'Platform usage terms and conditions' },
   ]
 

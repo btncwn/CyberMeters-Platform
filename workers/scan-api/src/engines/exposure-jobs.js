@@ -3,6 +3,7 @@
 // subsequently stores these cleaned observations in R2 with canonical findings.
 import { ACTIVE_CHECK_AUTHORITY_VERSION } from './active-check-consent.js';
 import { exposureIdentity } from '../../../../shared/exposure/redaction.js';
+import { validRemoteAccessEvidence } from '../../../../shared/exposure/remote-access.js';
 import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
@@ -129,8 +130,11 @@ export function unresolvedExposureChecks(previous=[],results=[]) {
   const retained=new Map(previous.map(c=>[c.rule_id+'|'+c.url,c]));
   for(const row of results){
     const key=row.rule_id+'|'+row.url;
-    if(row.state==='finding')retained.set(key,{rule_id:row.rule_id,url:row.url});
-    else if(row.comparable===true&&['not_found','not_present_soft404','observed'].includes(row.state))retained.delete(key);
+    // Portal vulnerability assessment happens downstream with the cached feed.
+    // Retain its observed address too: a later timeout must not lose the exact
+    // retest preference merely because the collector reports an observation.
+    if(row.state==='finding'||row.rule_id==='remote-access-portal'&&row.state==='observed'&&validRemoteAccessEvidence(row.portal))retained.set(key,{rule_id:row.rule_id,url:row.url});
+    else if(row.rule_id!=='remote-access-portal'&&row.comparable===true&&['not_found','not_present_soft404','observed'].includes(row.state))retained.delete(key);
   }
   return [...retained.values()];
 }
@@ -219,7 +223,7 @@ export function replanTlsFromOwnResults(plan,results) {
   return true;
 }
 
-async function createJob(env, scan, now, dispatch) {
+async function createJob(env, scan, now, dispatch, deps = {}) {
   const db=env.cybermeters_db;
   // The asset's LATEST lifecycle observation (unique per asset+scan) carries the
   // DNS/HTTP signal states this planner reads for address applicability.
@@ -282,7 +286,7 @@ async function createJob(env, scan, now, dispatch) {
     plan.content_state='not_requested';plan.checks=[];plan.omitted_checks=0;
   }
   if(env.TLS_ASSESSMENT_MODE==='evidence-v1'){
-    const endpoints=await loadTlsEndpoints(env,scan);
+    const endpoints=await (deps.loadTlsEndpoints??loadTlsEndpoints)(env,scan,{trigger:dispatch?.trigger??null});
     const observedHttpsHosts=observedHttpsHostsFrom(json(previous?.results_json,[]),hosts);
     const tlsArgs={endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
       previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),observedHttpsHosts,scanId:scan.id};
@@ -318,11 +322,12 @@ async function createJob(env, scan, now, dispatch) {
 
 // Called before the ordinary scan claim. Free/unverified scans never enter this
 // feature. Configuration is explicit so rollout requires migration 119 first.
-export async function ensureExposureReady(env,scan,body={}) {
+export async function ensureExposureReady(env,scan,body={},deps={}) {
   if((env.EXPOSURE_SCAN_MODE!=='evidence-v1'&&env.TLS_ASSESSMENT_MODE!=='evidence-v1')||!scan.workspace_id||scan.status!=='queued')return true;
   const now=Date.now();
   let row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();
-  if(!row){await createJob(env,scan,now,{trigger:body.trigger==='scheduled'?'scheduled':'manual',...(typeof body.scheduled_scan_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.scheduled_scan_id)?{scheduled_scan_id:body.scheduled_scan_id}:{}),...(typeof body.user_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.user_id)?{user_id:body.user_id}:{})});row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();}
+  // C-52 N02: an absent trigger stays null; only 'manual' runs intrusive checks.
+  if(!row){await createJob(env,scan,now,{trigger:body.trigger==='scheduled'||body.trigger==='manual'?body.trigger:null,...(typeof body.scheduled_scan_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.scheduled_scan_id)?{scheduled_scan_id:body.scheduled_scan_id}:{}),...(typeof body.user_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.user_id)?{user_id:body.user_id}:{})},deps);row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();}
   if(!row)throw new Error('exposure_authority_lost');
   if(terminal(row.state))return true;
   await env.SCAN_QUEUE.send(messageFor(row));
@@ -837,7 +842,12 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   if(plan.content_state==='not_requested')return null;
   const reason=row.state==='cancelled'?'authority_lost':row.state==='budget_exhausted'?'budget_exhausted':'queued';
   const pending=plan.checks.slice(row.cursor).map(c=>({...c,identity:exposureIdentity(c.rule_id,c.url),state:reason,comparable:false,finding:null,reason,observed_at:null}));
-  const checks=[...results,...pending];
+  const priorPortals=new Set((plan.retest_checks||[]).filter(c=>c.rule_id==='remote-access-portal').map(c=>c.url));
+  // Hiding the known portal's browser page is not evidence that the remote
+  // service was removed or patched. Keep the raw receipt, but project this
+  // retest as inconclusive so it cannot verify a case or claim healthy coverage.
+  const checks=[...results,...pending].map(c=>c.rule_id==='remote-access-portal'&&priorPortals.has(c.url)&&['not_found','not_present_soft404'].includes(c.state)
+    ? {...c,state:'uncertain',comparable:false,reason:'remote_access_retest_inconclusive'} : c);
   // The durable job can exhaust after HTTP finished while deep TLS is still
   // pending. Its terminal state must not downgrade already completed HTTP.
   const httpComplete=row.cursor>=plan.checks.length && plan.content_state!=='pending' &&

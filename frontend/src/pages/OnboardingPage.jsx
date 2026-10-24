@@ -10,6 +10,7 @@ import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
 import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 import { onboardingActionError, verifyOutcomeCopy, VERIFY_RECORD_REFRESHED } from '../lib/onboardingCopy'
+import { setActiveWorkspace } from '../lib/activeWorkspace'
 
 function domainIdOf(domain) {
   return domain?.domain_id || domain?.id
@@ -191,8 +192,7 @@ export default function OnboardingPage() {
         return
       }
 
-      localStorage.setItem('cybermeters_workspace_id', ws.id)
-      localStorage.setItem('cybermeters_workspace_name', ws.name)
+      setActiveWorkspace(ws.id, ws.name)
 
       const [domainData, scanData] = await Promise.all([
         api.getWorkspaceDomains(ws.id).catch(() => ({ domains: [] })),
@@ -235,6 +235,29 @@ export default function OnboardingPage() {
   const reportScanId = scanIdOf(completedScan)
   const scanFinished = completedScan?.status === 'completed'
 
+  // C-46 rank 2: setup follows its first scan to completion by itself. While the
+  // scan is queued or running, re-read the workspace's scans every 8 seconds
+  // (bounded to ~20 minutes); the report step then turns into "Open Executive
+  // Report" without the customer leaving or refreshing.
+  const firstScanActive = ['queued', 'running', 'processing'].includes(completedScan?.status)
+  // Set once setup has watched its first scan run in this visit; only then does
+  // a ready report take the customer to it (R1 01:01), exactly once.
+  const followedScanRef = useRef(null)
+  const openedReportRef = useRef(false)
+  if (firstScanActive && scanIdOf(completedScan)) followedScanRef.current = scanIdOf(completedScan)
+  useEffect(() => {
+    if (!firstScanActive || !workspace?.id) return undefined
+    let alive = true
+    let ticks = 0
+    const timer = setInterval(async () => {
+      ticks += 1
+      if (ticks > 150) { clearInterval(timer); return }
+      const refreshed = await api.getWorkspaceScans(workspace.id).catch(() => null)
+      if (alive && Array.isArray(refreshed?.scans)) setScans(refreshed.scans)
+    }, 8_000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [firstScanActive, workspace?.id])
+
   // The scan detail endpoint owns report availability. A completed scan alone
   // cannot mark the report step done while rendering is pending or unavailable.
   useEffect(() => {
@@ -243,7 +266,8 @@ export default function OnboardingPage() {
       return
     }
     let cancelled = false
-    setReportState({ scanId: reportScanId, status: 'checking' })
+    // A re-check keeps the last known status on screen (no flicker to "checking").
+    setReportState(prev => (prev && prev.scanId === reportScanId ? prev : { scanId: reportScanId, status: 'checking' }))
     api.getScan(reportScanId)
       .then(data => {
         if (!cancelled) setReportState({ scanId: reportScanId, status: data.report_availability?.status || 'unknown' })
@@ -256,6 +280,29 @@ export default function OnboardingPage() {
 
   const reportStatus = reportState && reportState.scanId === reportScanId ? reportState.status : 'checking'
   const reportReady = scanFinished && reportStatus === 'report_ready'
+
+  // C-46 rank 2 (R1 01:01): a followed scan that finished keeps checking its
+  // report (8 s, bounded to ~5 minutes) and, once it is ready, opens the results
+  // once; polling then stops. A scan that was already finished on arrival never
+  // navigates by itself.
+  const followed = Boolean(reportScanId) && followedScanRef.current === reportScanId
+  // A failed check ('unknown') keeps polling too, within the same bound.
+  const reportPending = scanFinished && ['report_preparing', 'checking', 'unknown'].includes(reportStatus)
+  useEffect(() => {
+    if (!followed || !reportPending) return undefined
+    let ticks = 0
+    const timer = setInterval(() => {
+      ticks += 1
+      if (ticks > 40) { clearInterval(timer); return }
+      setReportRefresh(value => value + 1)
+    }, 8_000)
+    return () => clearInterval(timer)
+  }, [followed, reportPending])
+  useEffect(() => {
+    if (!followed || !reportReady || openedReportRef.current) return
+    openedReportRef.current = true
+    navigate(`/scans/${reportScanId}`)
+  }, [followed, reportReady, reportScanId, navigate])
 
   const steps = {
     workspace: Boolean(workspace?.id),
@@ -278,8 +325,7 @@ export default function OnboardingPage() {
       const data = await api.createWorkspace(workspaceName.trim())
       const ws = data.workspace || data
       setWorkspace(ws)
-      localStorage.setItem('cybermeters_workspace_id', ws.id)
-      localStorage.setItem('cybermeters_workspace_name', ws.name)
+      setActiveWorkspace(ws.id, ws.name)
     } catch (e) {
       setError(onboardingActionError('workspace', e))
     } finally {
@@ -453,17 +499,22 @@ export default function OnboardingPage() {
             Active workspace: <span className="font-semibold text-gray-900">{workspace.name}</span>
           </p>
         ) : (
+          <>
           <form onSubmit={createWorkspace} className="flex flex-col sm:flex-row gap-3">
             <input
               className="input"
               placeholder="Company or customer name"
+              aria-label="Workspace name"
               value={workspaceName}
               onChange={e => setWorkspaceName(e.target.value)}
             />
-            <button className="btn-primary" disabled={actionLoading === 'workspace'}>
+            {/* C-46 rank 6: never a silent no-op — disabled until named, and says so. */}
+            <button className="btn-primary" disabled={actionLoading === 'workspace' || !workspaceName.trim()} aria-describedby={!workspaceName.trim() ? 'workspace-name-reason' : undefined}>
               {actionLoading === 'workspace' ? 'Creating...' : 'Create Workspace'}
             </button>
           </form>
+          {!workspaceName.trim() && <p id="workspace-name-reason" className="text-sm text-gray-600 mt-2">Enter the business name to create its workspace.</p>}
+          </>
         )}
       </StepCard>
 
@@ -485,13 +536,16 @@ export default function OnboardingPage() {
               <input
                 className="input"
                 placeholder="example.com"
+                aria-label="Domain to add"
                 value={domainName}
                 onChange={e => setDomainName(e.target.value)}
               />
-              <button className="btn-primary" disabled={actionLoading === 'domain'}>
+              {/* C-46 rank 7: disabled until a domain is entered, and says so. */}
+              <button className="btn-primary" disabled={actionLoading === 'domain' || !domainName.trim()} aria-describedby={!domainName.trim() ? 'domain-name-reason' : undefined}>
                 {actionLoading === 'domain' ? 'Adding...' : 'Add Domain'}
               </button>
             </form>
+            {!domainName.trim() && <p id="domain-name-reason" className="text-sm text-gray-600">Enter the domain you want to monitor, for example example.com.</p>}
             <p className="text-xs text-gray-500">
               Enter the root domain you want to assess — no <span className="mono">https://</span> or <span className="mono">www</span>. You'll confirm ownership in the next step.
             </p>

@@ -12,6 +12,7 @@ import RiskBadge from '../../components/RiskBadge'
 import DataTable from '../../components/DataTable'
 import CertificateAssuranceSummary from '../../components/CertificateAssuranceSummary'
 import { OWNER_LABELS } from '../../data/remediation'
+import { keyLabel } from '../../lib/keyLabel'
 
 function expiryStatus(daysLeft) {
   if (daysLeft == null) return { label: 'Unknown', cls: 'text-gray-400' }
@@ -173,7 +174,7 @@ function TrustTile({ label, status, tone, hint, to }) {
   const inner = (
     <div className="card p-4 h-full hover:shadow-card-md transition-shadow">
       <div className="mb-1.5">
-        <span className="text-sm font-semibold text-gray-800">{label}</span>
+        <span className={to ? 'cm-rowlink text-sm font-semibold' : 'text-sm font-semibold text-gray-800'}>{label}</span>
       </div>
       <p className={`text-sm font-medium ${cls}`}>{status}</p>
       {hint && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{hint}</p>}
@@ -192,7 +193,7 @@ function FindingPill({ finding }) {
     <div className="rounded-lg border border-gray-100 bg-white p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-gray-900">{finding.title || finding.type}</p>
+          <p className="text-sm font-semibold text-gray-900">{finding.title || keyLabel(finding.type) || 'Certificate finding'}</p>
           <p className="text-xs text-gray-500 mt-1">{finding.reasons?.[0] || 'Certificate evidence needs review.'}</p>
         </div>
         <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
@@ -271,7 +272,8 @@ export function TlsAuthorizationSettings({ workspaceId }) {
         <p className="text-xs text-gray-500">{current.authorization?.enabled ? 'Special checks are permitted.' : 'Special checks are not permitted.'} Saving this setting does not start a scan.</p>
         {canManage ? <button className="btn-secondary text-sm" disabled={busy || desired === (current.authorization?.enabled === true)}>{busy ? 'Saving…' : 'Save TLS permission'}</button> : <p className="text-xs text-gray-500">A workspace admin can change these permissions.</p>}
       </form>}
-      <details className="border-t border-gray-100 pt-3">
+      {/* Linked from Active Checks and TLS evidence (#additional-tls-services): opens when the link lands here. */}
+      <details id="additional-tls-services" className="border-t border-gray-100 pt-3 scroll-mt-24" open={typeof window !== 'undefined' && window.location.hash === '#additional-tls-services' ? true : undefined}>
         <summary className="cursor-pointer text-sm font-semibold">Additional TLS services ({services.length})</summary>
         <p className="text-sm text-gray-600 mt-3">A verified domain does not authorize other ports or other customers on a shared IP. Add each service explicitly using a verified domain and an IP target you are authorized to test. Before a check, its current DNS address must match that target.</p>
         {services.length > 0 && <ul className="divide-y divide-gray-100 mt-3" aria-label="Authorized TLS services">{services.map(row => <li key={row.id} className="py-2 flex flex-wrap justify-between gap-2 text-sm"><span>{row.hostname}:{row.port} · {SERVICE_LABELS[row.application_protocol] || row.application_protocol}<span className="block text-xs text-gray-500">SNI: {row.sni}</span></span>{canManage && <button className="btn-secondary text-xs" type="button" disabled={busy} onClick={() => mutate(() => api.revokeTlsService(workspaceId, row.id), 'Service permission revoked. Recorded evidence remains available.')} aria-label={`Revoke ${row.hostname}:${row.port}`}>Revoke</button>}</li>)}</ul>}
@@ -559,7 +561,7 @@ export default function CertificatesPage() {
                 <div className="space-y-2">
                   {timeline.flatMap(day => day.events || []).slice(0, 5).map((event, idx) => (
                     <div key={`${event.event_type}-${idx}`} className="text-sm">
-                      <div className="font-medium text-gray-800">{event.hostname || event.event_type}</div>
+                      <div className="font-medium text-gray-800">{event.hostname || keyLabel(event.event_type) || 'Certificate alert'}</div>
                       <div className="text-xs text-gray-400">{event.description}</div>
                     </div>
                   ))}

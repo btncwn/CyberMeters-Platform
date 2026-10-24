@@ -97,8 +97,10 @@ ok("A1 scheduled flag: only the exact string 'queue' enables dispatch (fail-safe
     m.scan_id === "scan_s1" && m.trigger === "scheduled" &&
     m.scheduled_scan_id === "sched_s1");
   const bogus = buildScanDispatchMessage({ scanId: "scan_s2", trigger: "cron-ish" });
-  ok("A3 unrecognised trigger fails safe to manual; no scheduled_scan_id key",
-    bogus.trigger === "manual" && !("scheduled_scan_id" in bogus));
+  // C-52 N02 (23 Oct 2026): an unrecognised trigger is null, never "manual" -
+  // "manual" is what lets an intrusive Active Check run.
+  ok("A3 unrecognised trigger fails safe to null; no scheduled_scan_id key",
+    bogus.trigger === null && !("scheduled_scan_id" in bogus));
 }
 
 // ── Shared real-database fixture ─────────────────────────────────────────────

@@ -51,12 +51,14 @@ describe('IdentityExposurePage — workspace resolution', () => {
     expect(await screen.findByText('First seen: 2026-10-01')).toBeInTheDocument()
     expect(screen.getByText('Last seen: 2026-10-16')).toBeInTheDocument()
     expect(screen.getByText('Measured: https://login.example.test/')).toBeInTheDocument()
-    expect(screen.getByText('Monitoring: reappeared')).toBeInTheDocument()
-    expect(screen.getByText('Reason: retired_surface_reappeared')).toBeInTheDocument()
+    // Lifecycle enums in words (C-45 R09).
+    expect(screen.getByText('Monitoring: Reappeared')).toBeInTheDocument()
+    expect(screen.getByText('Reason: Retired surface reappeared')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'History' }))
     expect(api.getIdentitySurface).toHaveBeenCalledWith(WS_ID, 'surface_1')
     expect(await screen.findByText(/monitoring changed/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'case_1' })).toHaveAttribute('href', '/ws/cases/case_1')
+    // The link names the case, never its id (C-45 R08).
+    expect(screen.getByRole('link', { name: 'Open the linked case' })).toHaveAttribute('href', '/ws/cases/case_1')
   })
 
   it('keeps a failed detail read visible as an error', async () => {

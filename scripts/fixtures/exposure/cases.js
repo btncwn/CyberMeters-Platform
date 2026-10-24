@@ -1,6 +1,7 @@
 // Synthetic values only. These bodies are local acceptance fixtures, never target data.
 const secret = 'CmFixture-7391-SecretValue';
 const positives = {
+  'remote-access-portal': '<html><title>GlobalProtect Portal</title><form action="/global-protect/login.esp"><input name="user"><input type="password" name="passwd"></form><footer>PAN-OS version: 11.1.2-h2</footer></html>',
   'env-config': `APP_ENV=production\nDB_HOST=database.internal\nDB_PASSWORD=${secret}\n`,
   'application-config': JSON.stringify({database:{host:'db.internal',password:secret}}),
   'package-auth': `registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=cmFixture_7391_opaqueToken\n`,
@@ -25,6 +26,7 @@ const positives = {
   'ignition-health': '{"can_execute_commands":true}',
 };
 const negatives = {
+  'remote-access-portal': '<html><title>Welcome</title><p>Ordinary public page.</p></html>',
   'env-config': 'APP_ENV=production\nPUBLIC_API_URL=https://api.example.test\nDB_PASSWORD=changeme\n',
   'application-config': '{"database":{"host":"localhost","password":"********"}}',
   'package-auth': '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n',
@@ -48,7 +50,7 @@ const negatives = {
   'couchdb-databases': '["a public list","another entry"]',
   'ignition-health': '{"can_execute_commands":false}',
 };
-const observed = new Set(['admin-interface','api-schema']);
+const observed = new Set(['admin-interface','api-schema','remote-access-portal']);
 export const EXPOSURE_FIXTURES = Object.freeze(Object.keys(positives).flatMap(ruleId => [
   {id:`${ruleId}-positive`,ruleId,status:200,body:positives[ruleId],expectedState:observed.has(ruleId)?'observed':'finding',polarity:'positive'},
   {id:`${ruleId}-negative`,ruleId,status:200,body:negatives[ruleId],expectedState:'not_found',polarity:'negative'},

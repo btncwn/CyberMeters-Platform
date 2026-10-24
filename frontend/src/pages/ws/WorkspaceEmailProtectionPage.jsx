@@ -8,7 +8,7 @@ import { useAppDialog } from '../../components/AppDialog'
 import { MailTransportCard } from '../../components/MailTransportCard'
 import { dmarcRecordStatus, spfRecordStatus, dkimRecordStatus, mtaStsRecordStatus, tlsRptRecordStatus, mailTransportStatus } from '../../lib/emailRecordStatus'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ChevronDown, RefreshCw, X } from 'lucide-react'
 import DmarcPolicyEvidenceCard from '../../components/DmarcPolicyEvidenceCard'
 import CloudflareDnsChanges from '../../components/CloudflareDnsChanges'
@@ -16,6 +16,7 @@ import { api, BASE } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
+import { useScopedDomain } from '../../components/shell/WorkspaceContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Managed DMARC / Email Protection Experience v1
@@ -759,7 +760,7 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
             {rows.map(r => (
               <tr key={r.domain} onClick={() => onSelect(r.domain)}
                 className={`cursor-pointer transition-colors ${r.domain === selectedDomain ? 'bg-brand-50/50' : 'hover:bg-gray-50/60'}`}>
-                <td><button type="button" onClick={(e) => { e.stopPropagation(); onSelect(r.domain) }} aria-pressed={r.domain === selectedDomain} className="font-semibold text-gray-800 text-sm text-left hover:underline">{r.domain}</button></td>
+                <td><button type="button" onClick={(e) => { e.stopPropagation(); onSelect(r.domain) }} aria-pressed={r.domain === selectedDomain} className="cm-rowlink font-semibold text-sm text-left">{r.domain}</button></td>
                 <td><span className="text-xs font-semibold text-gray-700">{STAGE_LABEL[r.stage] || '—'}</span></td>
                 <td className="text-center">{compCell(r.compliance)}</td>
                 <td>{becCell(r.bec)}</td>
@@ -3604,6 +3605,9 @@ export default function WorkspaceEmailProtectionPage() {
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState(null)
   const [selectedDomain, setSelectedDomain] = useState(null)
+  // The Settings tab configures ONE domain: the context bar names it (C-47 F06).
+  const onSettingsTab = new URLSearchParams(useLocation().search).get('tab') === 'settings'
+  useScopedDomain(onSettingsTab ? selectedDomain : null, { workspaceId: wsId })
   const [report, setReport]     = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
   const goToAnchor = useAreaAnchor()

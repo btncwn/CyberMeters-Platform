@@ -433,6 +433,29 @@ is preserved.
 
 ---
 
+## OV-6 — Miniflare undici forced to 7.30.1 (dev-transitive, CI security)
+
+Introduced and reviewed 2026-10-24; review by 2026-12-31; owner: CyberMeters engineering (founder-owned).
+
+`wrangler@4.148.0 → miniflare@5.20261006.0-alpha → undici@7.29.1` is replaced by
+**7.30.1**. New advisories against undici 7.0.0–7.30.0 (`GHSA-4qv8-2p9j-2685` high,
+`GHSA-f72v-6w45-q472`, `GHSA-xjj6-f33q-929c`) failed the Worker `npm audit
+--audit-level=high` CI step on every PR. `npm ls --omit=dev undici` is empty: the
+package is only in the Wrangler/Miniflare development toolchain, never in the
+deployed Worker bundle. This fixes the development toolchain; it is not a
+production retest. Successor of the closed OV-5 (same path, earlier advisories).
+
+The same `undici` 7.30.1 override is applied in `workers/mcp-server` and
+`workers/network-probe` (24 Oct 2026). Both use the identical Wrangler →
+Miniflare development toolchain, and `npm ls --omit=dev undici` is empty in both.
+These workspaces are outside the machine register (`GOVERNED_WORKSPACES`), like
+mcp-server's existing `sharp` override. Remove them with this record.
+
+Remove when a supported Wrangler/Miniflare release declares undici >=7.30.1:
+delete the override, regenerate the lock, confirm no overridden/invalid marker, a
+clean worker `npm audit --audit-level=high`, and passing Worker, DMARCbis fixture
+and email Worker dry-run bundles.
+
 ## OV-5 — Miniflare undici pinned to 7.29.1 (dev-transitive) — CLOSED
 
 ### Closure evidence — 2026-10-08
