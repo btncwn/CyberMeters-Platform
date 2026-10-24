@@ -35,7 +35,10 @@ export const TLS_SPECIAL_CONTROLS_AVAILABLE = true;
 export const TLS_CONTROLS = Object.freeze([
   'protocol','cipher','key_exchange','certificate','ocsp','compression',
   'secure_renegotiation','fallback_scsv','extended_master_secret',
-  'session_resumption','early_data','sni_alpn',...TLS_SPECIAL_CONTROLS,
+  'session_resumption','early_data','sni_alpn',
+  // PQC readiness (S3-MODERN 2): one TLS 1.3 handshake offering the hybrid
+  // X25519MLKEM768 group beside classical groups; records what was chosen.
+  'pqc_key_exchange',...TLS_SPECIAL_CONTROLS,
 ]);
 // S3-B (22 Oct 2026): the two classes of TLS control. SAFE-ACTIVE controls are
 // ordinary handshakes a client would make (protocol, cipher, forward secrecy,
@@ -69,7 +72,7 @@ export const TLS_SLICE_LIMITS = Object.freeze({
 // verified baseline plus two rounds of five vectors in two message flows.
 export const TLS_SPECIAL_CONNECTION_LIMITS = Object.freeze({heartbleed:1,robot:21,ccs:5});
 
-const tls13Only = new Set(['early_data']);
+const tls13Only = new Set(['early_data','pqc_key_exchange']);
 const legacyOnly = new Set(['compression','secure_renegotiation','fallback_scsv','extended_master_secret']);
 export function applicableTlsControl(control, protocol) {
   if(!TLS_CONTROLS.includes(control)||!TLS_PROTOCOLS.includes(protocol))return false;
@@ -98,7 +101,7 @@ export function isWeakTlsCipher(name) {
 }
 
 export function tlsEngineControl(control) {
-  if (['protocol','cipher','key_exchange','extended_master_secret','sni_alpn'].includes(control)) return 'handshake';
+  if (['protocol','cipher','key_exchange','extended_master_secret','sni_alpn','pqc_key_exchange'].includes(control)) return 'handshake';
   if (['certificate','ocsp'].includes(control)) return 'certificate';
   if (control === 'secure_renegotiation') return 'renegotiation';
   if (control === 'fallback_scsv') return 'fallback';
