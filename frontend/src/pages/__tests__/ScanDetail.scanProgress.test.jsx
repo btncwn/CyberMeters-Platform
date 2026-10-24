@@ -99,8 +99,8 @@ describe('ScanDetail — active scan status block', () => {
       expect(button).toHaveAttribute('title', 'scan_active_1234567890abcdef')
     }
     const heading = screen.getByRole('heading', { level: 1 })
-    expect(heading).toHaveTextContent(/^Scan — \d{1,2} [A-Z][a-z]{2} 20\d{2}, \d{2}:\d{2}$/)
+    expect(heading).toHaveTextContent(/^Scan — \d{1,2} [A-Z][a-z]{2} 20\d{2} at \d{2}:\d{2} \S+$/)
     expect(heading.parentElement).toHaveTextContent('Queued')
-    expect(screen.getByText('cybermeters.com')).toBeInTheDocument()
+    expect(screen.getAllByText('cybermeters.com').length).toBeGreaterThan(0) // header + scan information
   })
 })
