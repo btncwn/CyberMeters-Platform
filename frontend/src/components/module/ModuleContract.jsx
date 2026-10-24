@@ -474,7 +474,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
         ].map((c) => (
           <li key={c.key}>
             <button type="button" onClick={() => selectTab(c.tab)} className="card card-hover w-full p-4 text-left" aria-label={`${c.label}: ${c.value}. ${c.hint}`} data-testid={`module-count-${c.key}`}>
-              <span className="block text-sm font-semibold text-gray-900">{c.label}</span>
+              <span className="cm-rowlink block text-sm font-semibold">{c.label}</span>
               <span className="block text-lg font-bold tabular-nums text-gray-900 mt-0.5">{c.value}</span>
             </button>
           </li>
@@ -541,7 +541,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
               {shown.map((c) => (
                 <li key={c.case_id || c.id} className="flex items-start justify-between gap-3 py-2">
                   <div className="min-w-0">
-                    <Link to={`/ws/cases/${encodeURIComponent(c.case_id || c.id)}`} className="block text-sm font-semibold text-gray-900 hover:text-brand-800 wrap-break-word">{c.display_title || c.title || 'Case'}</Link>
+                    <Link to={`/ws/cases/${encodeURIComponent(c.case_id || c.id)}`} className="cm-rowlink block text-sm font-semibold wrap-break-word">{c.display_title || c.title || 'Case'}</Link>
                     {c.domain && <p className="text-xs text-gray-500 truncate">{c.domain}</p>}
                     {caseAssessmentMessage(c) && <p className="text-xs text-gray-600 mt-0.5" data-testid="case-assessment">{caseAssessmentMessage(c)}</p>}
                   </div>

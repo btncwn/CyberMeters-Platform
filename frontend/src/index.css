@@ -629,6 +629,16 @@
 .cm-wsbtn:focus-visible, .cm-wsmini:focus-visible { outline: 3px solid #a9f2e5; outline-offset: 2px; box-shadow: 0 0 0 2px #081f1c, 0 14px 30px rgba(11, 87, 208, 0.32); }
 .cm-wsbtn-initial { font-family: 'Computer Modern Serif', Georgia, Cambria, serif; font-size: 42px; line-height: 1; }
 .cm-wsbtn-label { position: absolute; left: 0; right: 0; bottom: 9px; font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase; opacity: 0.75; text-align: center; }
+/* Navigation looks like navigation at rest (founder P1, 23 Oct 2026; Codex C-45
+   N01–N24): link colour and a trailing ›, underline on hover/focus, pointer.
+   A row or card that navigates carries it on its title. Buttons stay buttons. */
+.cm-rowlink { color: #117362; cursor: pointer; text-decoration: none; }
+.cm-rowlink::after { content: "\00a0›"; text-decoration: none; display: inline-block; }
+.cm-rowlink:hover, .cm-rowlink:focus-visible, a:hover > .cm-rowlink, button:hover > .cm-rowlink, li:hover .cm-rowlink, tr:hover .cm-rowlink { color: #0d5c4f; text-decoration: underline; text-underline-offset: 3px; }
+/* Back: the same link colour with a leading ‹. */
+.cm-backlink { color: #117362; cursor: pointer; }
+.cm-backlink::before { content: "‹\00a0"; }
+.cm-backlink:hover, .cm-backlink:focus-visible { color: #0d5c4f; text-decoration: underline; text-underline-offset: 3px; }
 .cm-tip {
   position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
   padding: 6px 10px; border-radius: 8px; white-space: nowrap;

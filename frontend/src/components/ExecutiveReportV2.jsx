@@ -1,3 +1,4 @@
+import { Link, useInRouterContext } from 'react-router-dom'
 import { formatViewerTime } from '../lib/reportTime'
 import SecurityCheckDomains from './SecurityCheckDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
@@ -206,6 +207,16 @@ function ItemList({ items, muted = false, emptyLabel }) {
   )
 }
 
+// A router link inside the app (no full reload); a plain link when the report is
+// rendered on its own, outside a router.
+function CaseLink({ caseId }) {
+  const inRouter = useInRouterContext()
+  const to = `/ws/cases/${encodeURIComponent(caseId)}`
+  const props = { className: 'text-sm font-semibold text-brand-700 underline underline-offset-2', 'data-testid': 'report-action-case' }
+  const text = 'Open the case for this action ›'
+  return inRouter ? <Link to={to} {...props}>{text}</Link> : <a href={to} {...props}>{text}</a>
+}
+
 function ActionList({ items }) {
   if (!items?.length) {
     return (
@@ -234,6 +245,12 @@ function ActionList({ items }) {
             {item.verification_ceiling && (
               <p className="text-xs text-gray-400 mt-1 inline-flex items-center gap-1">
                 {item.verification_ceiling}
+              </p>
+            )}
+            {/* C-46 rank 3: an action with a managed case leads to it (never its id as text). */}
+            {item.case_id && (
+              <p className="mt-1.5">
+                <CaseLink caseId={item.case_id} />
               </p>
             )}
           </div>

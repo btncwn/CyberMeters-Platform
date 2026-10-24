@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 import { API_BASE, installAppMock, scan, seedSession } from './fixtures/app-mock.js'
 
 const ID_SURFACES = [
-  { name: 'Scans list row', path: '/scans', text: (p) => p.locator('tbody td a').first() },
+  { name: 'Scans list row', path: '/scans', text: (p) => p.locator('tbody .cm-rowlink').first() },
   { name: 'Scan page header', path: '/scans/scan_e2e', text: (p) => p.locator('h1').first().locator('xpath=../following-sibling::p[1]') },
 ]
 for (const width of [1440, 390]) {
