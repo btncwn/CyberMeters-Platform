@@ -174,9 +174,24 @@ async function main() {
   ok("unverified domain: analyst's request still created no scan row", scanRows() === scans0);
 
   sec("Role downgrade and route removal take effect on the same session");
+  // A role change needs a fresh MCP consent, on both routes that change a role.
+  const mcpConn = (id, uid, ws) => db.prepare(`INSERT INTO mcp_oauth_connections
+    (id,user_id,client_id,resource,workspace_id,portfolio_read,granted_scopes)
+    VALUES (?,?,'test-client','https://mcp.cybermeters.com/mcp',?,0,'["mcp:read"]')`).run(id, uid, ws);
+  const mcpStatus = (id) => db.prepare("SELECT status FROM mcp_oauth_connections WHERE id = ?").get(id)?.status;
+  for (const [id, uid, ws] of [["mcpconn_00000000-0000-4000-8000-0000000000d1", "uDown", "wsA"],
+    ["mcpconn_00000000-0000-4000-8000-0000000000a1", "uAna", "wsA"],
+    ["mcpconn_00000000-0000-4000-8000-0000000000a2", "uView", "wsA"]]) mcpConn(id, uid, ws);
   ok("before downgrade: analyst passes the role gate", pastRoleGate(await scanInA(T.down)));
   const downgrade = await call("PATCH", "/api/workspaces/wsA/members/mDown", T.A, { role: "viewer" });
   ok("owner downgrades analyst → viewer (200)", downgrade.status === 200 && downgrade.data?.role === "viewer");
+  ok("PATCH downgrade revokes the member's MCP connection for wsA", mcpStatus("mcpconn_00000000-0000-4000-8000-0000000000d1") === "revoked");
+  const sameRole = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "view@a.co", role: "viewer" });
+  ok("POST re-adding a member with the SAME role keeps their MCP connection", sameRole.status < 300 && mcpStatus("mcpconn_00000000-0000-4000-8000-0000000000a2") === "active");
+  const postDown = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "ana@a.co", role: "viewer" });
+  ok("POST re-adding an analyst as viewer changes the role", postDown.status < 300 && db.prepare("SELECT role FROM workspace_members WHERE id = 'mAna'").get()?.role === "viewer");
+  ok("POST role change revokes the member's MCP connection for wsA", mcpStatus("mcpconn_00000000-0000-4000-8000-0000000000a1") === "revoked");
+  db.prepare("UPDATE workspace_members SET role = 'analyst' WHERE id = 'mAna'").run();
   const afterDown = await scanInA(T.down);
   ok("downgraded member's existing session → 403 role refusal", afterDown.status === 403 && afterDown.data?.error === ROLE_DENIED);
   ok("downgraded member can still read wsA (viewer)", leaks(await call("GET", "/api/workspaces/wsA", T.down), "AlphaWS-SECRET"));
