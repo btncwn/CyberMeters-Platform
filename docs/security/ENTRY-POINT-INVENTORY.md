@@ -508,10 +508,10 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/api/validation/benchmark` | 46 | public-or-global | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/^\/api\/workspaces\/([^/` | 182 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 278 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 382 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/api/validation/benchmark` | 48 | public-or-global | ✓ | isPlatformAdmin, requireAuth |
+| GET | `/^\/api\/workspaces\/([^/` | 187 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 283 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 387 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/workspace-intel.js`
 
