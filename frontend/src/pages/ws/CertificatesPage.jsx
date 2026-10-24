@@ -174,7 +174,7 @@ function TrustTile({ label, status, tone, hint, to }) {
   const inner = (
     <div className="card p-4 h-full hover:shadow-card-md transition-shadow">
       <div className="mb-1.5">
-        <span className="text-sm font-semibold text-gray-800">{label}</span>
+        <span className={to ? 'cm-rowlink text-sm font-semibold' : 'text-sm font-semibold text-gray-800'}>{label}</span>
       </div>
       <p className={`text-sm font-medium ${cls}`}>{status}</p>
       {hint && <p className="text-xs text-gray-400 mt-1 leading-relaxed">{hint}</p>}

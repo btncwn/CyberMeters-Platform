@@ -434,7 +434,7 @@ export default function WorkspaceCaseDetailPage() {
     <WsPage wsId={wsId} wsName={wsName} loading={loading || wsLoading} error={error} onRetry={load}>
       {c && (
         <div className="space-y-5" data-testid="case-detail">
-          <button type="button" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+          <button type="button" onClick={() => navigate(-1)} className="cm-backlink inline-flex items-center gap-1.5 text-sm">
             Back
           </button>
 
