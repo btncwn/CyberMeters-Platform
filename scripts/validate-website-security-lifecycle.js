@@ -243,8 +243,8 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
       return await runTechModule('php.example.com');
     } finally { globalThis.fetch = original; }
   };
-  const correlate = async (tech, scan) => {
-    const modules = { ...MODULES_OK, technology_detection: tech };
+  const correlate = async (tech, scan, moduleOverrides = {}) => {
+    const modules = { ...MODULES_OK, ...moduleOverrides, technology_detection: tech };
     return run(ws, tech.info_findings.map(f => ({ module: 'technology_detection', ...f })), {
       modules, scanQuality: buildScanQuality(modules), scan, domainId: 'd_php', domain: 'php.example.com',
     });
@@ -274,7 +274,13 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
     eq('PHP ' + label + ' never verifies/rewrites the case', JSON.stringify(caseRow()), before);
     ok('PHP ' + label + ' never records recovery', !allEvents(condition.id).some(e => e.event_type === WS_EVENT_RESOLVED));
   }
-  await correlate(await response('PHP/8.2.35'), 'php_fixed_same_path');
+  const fixed = await response('PHP/8.2.35');
+  const waiting = JSON.stringify(caseRow());
+  await correlate(fixed, 'php_fixed_core_incomplete', { headers: { error: 'timed out', incomplete: true } });
+  eq('PHP fixed response with missing core proof cannot verify', JSON.stringify(caseRow()), waiting);
+  const supplementary = { page_discovery: { incomplete: true, incomplete_reason: 'check_window_expired' } };
+  eq('PHP fixture uses a real partial quality from an unrelated module', buildScanQuality({ ...MODULES_OK, ...supplementary, technology_detection: fixed }).status, 'partial');
+  await correlate(fixed, 'php_fixed_same_path_supplementary_partial', supplementary);
   condition = condFor(ws, key);
   eq('PHP exact fixed upstream release resolves the condition', condition.monitoring_status, 'no_longer_observed');
   eq('PHP exact fixed upstream release verifies the submitted case', caseRow()?.status, 'verified');

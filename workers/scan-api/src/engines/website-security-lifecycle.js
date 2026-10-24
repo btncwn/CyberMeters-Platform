@@ -333,7 +333,8 @@ export async function evaluateWebsiteSecurityForScan(env, {
         status = "unknown";
         unknown_reason = "evidence_insufficient";
         reason = "condition_observation_not_serviceable";
-      } else if (runtimeObservation?.state === "clear" && gate.canVerify("technology_detection") && !gate.scanPartial) {
+      } else if (runtimeObservation?.state === "clear"
+          && (gate.canVerify("technology_detection") || gate.canVerifyModule("technology_detection"))) {
         status = "no_longer_observed";
         reason = "exact_runtime_response_retested_clear";
       } else if (runtimeObservation) {
