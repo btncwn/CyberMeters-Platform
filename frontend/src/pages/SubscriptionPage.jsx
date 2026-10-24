@@ -826,7 +826,7 @@ export default function SubscriptionPage() {
       <div className="text-center">
         <Link
           to="/pricing"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-gray-700 transition-colors"
+          className="cm-rowlink inline-flex items-center gap-1.5 text-xs font-semibold"
         >
           Compare all plans and pricing
         </Link>

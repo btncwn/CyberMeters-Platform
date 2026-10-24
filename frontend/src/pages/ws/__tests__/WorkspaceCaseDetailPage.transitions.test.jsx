@@ -159,7 +159,9 @@ describe('WorkspaceCaseDetailPage — input-required transitions still open a fo
     })
     renderCase()
     fireEvent.click(await screen.findByRole('button', { name: 'Move to Assigned' }))
-    expect(await screen.findByText(/Assign an owner in the Owner section/i)).toBeInTheDocument()
+    // C-46 rank 4: the owner is chosen right in the Next action panel.
+    expect(await screen.findByText(/This step needs an accountable owner/i)).toBeInTheDocument()
+    expect(screen.getByTestId('next-action-owner')).toBeInTheDocument()
     // No direct transition fired (owner missing).
     expect(api.transitionCase).not.toHaveBeenCalled()
   })

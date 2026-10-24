@@ -55,7 +55,7 @@ export default function ToolsIndexPage() {
           {TOOLS.map((tool) => (
             <li key={tool.to} className="rounded-2xl border border-gray-100 bg-white shadow-xs p-6 flex flex-col gap-4">
               <div className="space-y-2">
-                <h2 className="text-xl font-bold"><Link to={tool.to} className="hover:text-brand-700">{tool.name}</Link></h2>
+                <h2 className="text-xl font-bold"><Link to={tool.to} className="cm-rowlink">{tool.name}</Link></h2>
                 <p className="text-sm text-gray-600 leading-relaxed">{tool.summary}</p>
               </div>
               <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">{tool.checks.map((c) => <li key={c}>{c}</li>)}</ul>
