@@ -1,4 +1,5 @@
 import { TLS_AUTHORISATION_REQUIRED_REASON, TLS_SPECIAL_CONTROLS } from '../../../../shared/tls/catalog.js';
+import { pqcRowState } from './tls-findings.js';
 // The deep TLS profile includes static states for controls the engine cannot
 // execute (notably the unreleased special checks). Those states remain visible
 // in the TLS receipt, but do not make every supported-profile scan incomplete.
@@ -110,12 +111,13 @@ export function tlsControlOutcome(row, endpointChecks = []) {
         return { value: 'not_blocked', summary: 'Protocol downgrade is not blocked.' };
       return unknownOutcome;
     case 'pqc_key_exchange': {
-      // Offered the hybrid group beside classical ones, which did the server choose?
-      const group = row?.evidence?.negotiated?.group;
-      if (row.protocol !== 'tls1_3' || row.state !== 'accepted' || typeof group !== 'string' || !group) return unknownOutcome;
-      return /MLKEM|KYBER/i.test(group)
-        ? { value: 'offered', summary: `Post-quantum hybrid key exchange offered (${group}).` }
-        : { value: 'not_offered', summary: `Post-quantum hybrid key exchange not offered (the server chose ${group}).` };
+      // Same gates as the card (pqcRowState is the single source). Offered the
+      // hybrid group beside classical ones, the server CHOSE one: 'not
+      // negotiated' never claims the server lacks post-quantum support.
+      const { state, group } = pqcRowState(row);
+      if (state === 'hybrid_pqc_negotiated') return { value: 'negotiated', summary: `Post-quantum hybrid key exchange negotiated (${group}).` };
+      if (state === 'classical_only') return { value: 'not_negotiated', summary: `Post-quantum hybrid key exchange not negotiated (the server chose ${group}).` };
+      return unknownOutcome;
     }
     default:
       return null;

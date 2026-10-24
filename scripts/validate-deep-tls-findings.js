@@ -157,12 +157,24 @@ const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).fin
   assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','transport_timeout',{extensions:ext({renegotiation_completed:false})}))[0],'unknown','a timeout is not a refusal');
   assert.equal(out(row('fallback_scsv','tls1_2','uncertain','peer_alert',{extensions:ext({fallback_scsv:false})}))[0],'unknown');
   assert.equal(tlsControlOutcome(row('protocol','tls1_2','accepted','handshake_completed',{})),null,'controls without a feature outcome carry none');
-  // PQC (Executive 18:10): the live probe row negotiated X25519MLKEM768.
-  const pqc=(group,state='accepted')=>row('pqc_key_exchange','tls1_3',state,'handshake_completed',{negotiated:{version:'tls1_3',group}});
-  assert.deepEqual(out(pqc('X25519MLKEM768')),['offered','Post-quantum hybrid key exchange offered (X25519MLKEM768).']);
-  assert.deepEqual(out(pqc('x25519')),['not_offered','Post-quantum hybrid key exchange not offered (the server chose x25519).']);
-  assert.equal(out(pqc('X25519MLKEM768','uncertain'))[0],'unknown','an unfinished handshake is unknown');
-  assert.equal(out(pqc(null))[0],'unknown');
+  // PQC (Executive 18:10, R1 19:05): one source with the card (pqcRowState).
+  const { pqcKeyExchangeState } = await import('../workers/scan-api/src/engines/tls-findings.js');
+  const pqc=(group,over={})=>({...row('pqc_key_exchange','tls1_3','accepted','handshake_completed',{negotiated:{version:'tls1_3',group}}),engine,physical_telemetry:good,...over});
+  assert.deepEqual(out(pqc('X25519MLKEM768')),['negotiated','Post-quantum hybrid key exchange negotiated (X25519MLKEM768).']);
+  assert.deepEqual(out(pqc('x25519')),['not_negotiated','Post-quantum hybrid key exchange not negotiated (the server chose x25519).']);
+  // The card's gates, each one: a non-sandboxed engine, an unauthenticated or
+  // unfinished handshake, a missing group -> unknown (the card says not_assessed).
+  assert.equal(out(pqc('X25519MLKEM768',{engine:{...engine,sandboxed:false}}))[0],'unknown','not sandboxed');
+  const unauth=pqc('X25519MLKEM768');unauth.evidence={...unauth.evidence,authenticated_finished:false};
+  assert.equal(out(unauth)[0],'unknown','not authenticated');
+  assert.equal(out(pqc('X25519MLKEM768',{state:'uncertain'}))[0],'unknown','not finished');
+  assert.equal(out(pqc(null))[0],'unknown','no group');
+  // The outcome and the card never disagree on the same row.
+  for(const r of [pqc('X25519MLKEM768'),pqc('x25519'),pqc('X25519MLKEM768',{engine:{...engine,sandboxed:false}}),unauth]){
+    const card=pqcKeyExchangeState(module([protocol('tls1_3'),r]))[0]?.state||'not_assessed';
+    const value=tlsControlOutcome(r).value;
+    assert.equal({hybrid_pqc_negotiated:'negotiated',classical_only:'not_negotiated',not_assessed:'unknown'}[card],value,`card ${card} vs outcome ${value}`);
+  }
 }
 // C-45: no internal identifier (snake_case enum or profile id) in customer prose.
 {

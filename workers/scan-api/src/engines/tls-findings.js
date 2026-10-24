@@ -256,14 +256,21 @@ export function evaluateTlsCase(caseKey,assessment,condition=null) {
 // The backend owns the card sentence (summary); it never says "quantum
 // safe/ready", and classical_only means the server CHOSE a classical group -
 // not that it offers no post-quantum group at all.
+// One PQC row's state - the single source for the card (pqcKeyExchangeState)
+// and the per-control customer outcome (tls-quality.js tlsControlOutcome).
+// Assessed only from a sandboxed engine's positive (authenticated) handshake
+// that named its group.
+export function pqcRowState(row) {
+  const group=row?.evidence?.negotiated?.group||null;
+  if(row?.control!=='pqc_key_exchange'||!row.engine?.sandboxed||!positive(row)||!group)return {state:'not_assessed',group:null};
+  return {state:/MLKEM|KYBER/i.test(group)?'hybrid_pqc_negotiated':'classical_only',group};
+}
 export function pqcKeyExchangeState(assessment) {
   const out=[];
   for(const endpoint of assessment?.endpoints||[]){
     const rows=(endpoint.checks||[]).filter(r=>r.control==='pqc_key_exchange'&&r.engine?.sandboxed);
     const row=rows.find(positive);
-    const group=row?.evidence?.negotiated?.group||null;
-    const state=!row||!group?'not_assessed'
-      :/MLKEM|KYBER/i.test(group)?'hybrid_pqc_negotiated':'classical_only';
+    const {state,group}=pqcRowState(row);
     const summary=state==='hybrid_pqc_negotiated'?`The server chose the hybrid post-quantum key exchange group ${group}.`
       :state==='classical_only'?`The server chose a classical key exchange group (${group}).`
       :'Post-quantum key exchange was not assessed on this endpoint.';
