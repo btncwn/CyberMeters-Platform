@@ -12,6 +12,7 @@ const MAX_STARTTLS_BYTES = 8192;
 const CONNECT_TIMEOUT_MS = 4000;
 const DNS_TIMEOUT_MS = 4000;
 const CHECK_TIMEOUT_MS = 25000;
+const ENGINE_RESULT_GRACE_MS = 3000;
 const MAX_WIRE_OVERREAD = 65536;
 const CONNECTION_BINARY = Object.freeze({
   legacy: '/opt/cybermeters/tls-baseline-legacy',
@@ -151,6 +152,9 @@ async function starttls(socket, application, budget, signal) {
   } catch (error) { try { reader.detach(); } catch {} throw error; }
 }
 function engineCommand(input, check, maxConnections) {
+  // One engine budget: passed to the engine (--timeout-ms) and used by the
+  // parent's abort timer.
+  const engineMs = input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000;
   const activeAllowed = SPECIAL_CONTROLS_ENABLED && input.scope.special_consent === true && activeControls.has(check.control);
   const binary = activeAllowed ? CONNECTION_BINARY.active_legacy
     : activeControls.has(check.control) ? CONNECTION_BINARY.legacy
@@ -159,22 +163,29 @@ function engineCommand(input, check, maxConnections) {
     : check.control === 'cipher' || ['ssl2','ssl3','tls1','tls1_1'].includes(check.protocol) ? CONNECTION_BINARY.legacy : CONNECTION_BINARY.modern;
   const args = ['--control',productControl[check.control],'--protocol',check.protocol,'--max-connections',String(maxConnections),
     '--hostname',input.endpoint.sni,'--alpn',input.endpoint.application_protocol === 'https' ? 'h2-http1' : 'none',
-    '--trust-bundle','/opt/cybermeters/trust/ca-bundle.pem','--timeout-ms',String(input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000)];
+    '--trust-bundle','/opt/cybermeters/trust/ca-bundle.pem','--timeout-ms',String(engineMs)];
   if (check.cipher_id !== null) args.push('--cipher',check.cipher_id);
   // PQC readiness: offer the hybrid ML-KEM group beside classical groups (modern engine).
   if (check.control === 'pqc_key_exchange') args.push('--group','pqc_hybrid');
   if (input.scope.kind === 'mail_mx') args.push('--mail-probe','true');
-  return { binary, args };
+  return { binary, args, engineMs };
 }
 
 export async function runTlsEngineCheck(input, check, budget, signal) {
-  const { binary, args } = engineCommand(input, check, budget.max_connections - budget.connections);
+  const { binary, args, engineMs } = engineCommand(input, check, budget.max_connections - budget.connections);
   const child = spawn(binary, args, { stdio: ['pipe','pipe','ignore'], env: { PATH: '/usr/bin:/bin' }, shell: false });
+  // An ABORT written after the engine has already exited raises EPIPE
+  // asynchronously; that is expected (the result is judged by its frames and
+  // exit status), never a crash of the parent.
+  child.stdin.on('error', () => {});
   const parser = { pending: Buffer.alloc(0) };
   let phase = 'idle', socket = null, result = null, childError = null, lastClosed = false;
   const done = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, killed) => resolve({ code, killed })); });
   const write = (type, payload) => { if (child.stdin.destroyed) throw new Error('engine_stdin_closed'); child.stdin.write(frame(type, payload)); };
-  const abort = () => { try { write(FRAME.ABORT); } catch {} socket?.destroy(); child.kill('SIGKILL'); };
+  // Two timers (the slice deadline and the engine's own budget) can fire
+  // together; abort once.
+  let aborting = false;
+  const abort = () => { if (aborting) return; aborting = true; try { write(FRAME.ABORT); } catch {} socket?.destroy(); child.kill('SIGKILL'); };
   signal?.addEventListener('abort', abort, { once: true });
   const onClosed = reason => {
     if (phase !== 'connected' && phase !== 'closing') return;
@@ -230,7 +241,10 @@ export async function runTlsEngineCheck(input, check, budget, signal) {
       result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(payload));
     } else throw new Error('engine_frame_invalid');
   };
-  const timeout = setTimeout(abort, input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000);
+  // The engine stops at its own --timeout-ms; the parent waits a little longer
+  // so the result frame is never cut, but never past the slice deadline.
+  const untilDeadline = Date.parse(input.deadline_at) - Date.now();
+  const timeout = setTimeout(abort, Math.max(1, Math.min(engineMs + ENGINE_RESULT_GRACE_MS, Number.isFinite(untilDeadline) ? untilDeadline : engineMs)));
   try {
     for await (const chunk of child.stdout) {
       for (const f of parseFrames(parser, chunk)) await onFrame(f);

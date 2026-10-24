@@ -1348,7 +1348,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
 }
 
 export async function reassessExpiredRiskAcceptedCases(env, workspaceId = null, now = new Date().toISOString()) {
-  const where = ["status = 'risk_accepted'", "risk_accepted_until IS NOT NULL", "risk_accepted_until <= ?"];
+  const where = ["status = 'risk_accepted'", "risk_accepted_until IS NOT NULL", "julianday(risk_accepted_until) <= julianday(?)"];
   const binds = [now];
   if (workspaceId) { where.push("workspace_id = ?"); binds.push(workspaceId); }
   const rows = await env.cybermeters_db

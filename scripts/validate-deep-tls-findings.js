@@ -1,3 +1,4 @@
+import './security/tls-chain-trust.js';
 import assert from 'node:assert/strict';
 import { tlsAssessmentFindings, evaluateTlsCondition } from '../workers/scan-api/src/engines/tls-findings.js';
 import { resolveRemediation } from '../workers/scan-api/src/engines/remediation-registry.js';

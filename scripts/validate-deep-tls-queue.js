@@ -8,7 +8,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS_AVAILABLE, tlsEndpointIdentity } from '../shared/tls/catalog.js';
+import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_SLICE_DURATION_MS, tlsSliceDurationMs, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan, tlsProbeScope } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
@@ -351,6 +351,7 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
   const reservations=[];
+  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
   const specialCollector=async(_env,input)=>{
     const verdict = validateTlsAssessmentRequest(input);
     if (!verdict.ok) console.error('PROBE_CONTRACT', verdict.reason);
@@ -358,6 +359,18 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
     const control=input.checks[0].control;
     assert.equal(input.checks.length,1);
     reservations.push([control,input.max_connections]);
+    if(control==='robot'){
+      // R1 on #981: the lease outlives the 50 s ROBOT slice, and a second
+      // delivery arriving mid-run cannot claim the job (no second intrusive run).
+      const lease=sql.prepare('SELECT lease_until FROM external_exposure_jobs WHERE scan_id=?').get(scanId).lease_until;
+      assert.ok(lease-Date.now()>=50000,`the ROBOT slice's lease covers its 50 s slice (left ${lease-Date.now()} ms)`);
+      let secondRuns=0;
+      // The second delivery's clock is 40 s on: past the old 30 s job lease, inside
+      // the ROBOT slice's 55 s lease - with the old lease this claim succeeds.
+      await processExposureMessage(message,env,{lookupTlsDns,authoriseActiveCheck,now:()=>Date.now()+40000,
+        collectTlsAssessment:async()=>{secondRuns++;throw new Error('second run');}});
+      assert.equal(secondRuns,0,'no second claim while the ROBOT slice runs');
+    }
     const physical={connections:control==='robot'?21:control==='ccs'?5:1,bytes_sent:1000,bytes_received:2000,duration_ms:10};
     const special=control!=='protocol';
     const engine={schema:'tls-engine-result-v1',engine:{family:special?'active_legacy':'modern',
@@ -374,7 +387,6 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
       telemetry:physical};
     return projectTlsCollectorReceipt(input,raw);
   };
-  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'complete');
@@ -434,10 +446,26 @@ await test('a special slice that always throws is recorded and the job still com
       results:[{check:input.checks[0],engine_result:engine,reason:null,observed_at:timestamp,physical_telemetry:physical}],telemetry:physical});
   };
   const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
+  // Force the gap (R1 follow-up, 16:40): the moment the giving-up attempt's
+  // lease is released, a competing delivery runs. If the slice were recorded
+  // only AFTER that release, the competitor would claim and re-run ROBOT.
+  let competed=false;
+  const raced={...env,cybermeters_db:{...env.cybermeters_db,prepare(sql){
+    const statement=env.cybermeters_db.prepare(sql);
+    if(!/lease_token=NULL,lease_until=0/.test(sql)||!/failure_count=CASE/.test(sql))return statement;
+    const wrap=(st)=>({...st,bind(...a){return wrap(st.bind(...a));},async run(){
+      const out=await st.run();
+      if(!competed&&robotCalls===TLS_SLICE_FAILURE_CAP){competed=true;
+        await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck});}
+      return out;
+    }});
+    return wrap(statement);
+  }}};
   const outcomes=[];
   for(let i=0;i<10&&!outcomes.includes('complete');i++){
-    outcomes.push((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck})).outcome);
+    outcomes.push((await processExposureMessage(message,raced,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck})).outcome);
   }
+  assert.equal(competed,true,'the forced gap was exercised');
   const job=sql.prepare('SELECT state,failure_count,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
   const tls=JSON.parse(job.plan_json).tls;
   assert.equal(job.state,'complete','the job completes; it never ends as budget_exhausted');
@@ -638,6 +666,32 @@ await test('a special slice that always throws is recorded and the job still com
   assert.deepEqual(rows.find(r=>r.control==='compression').customer_outcome,{value:'no',summary:'TLS compression is not used.'},'the read model carries the customer outcome');
   assert.equal(rows.find(r=>r.control==='compression').state,'accepted','the raw engine state is kept');
   assert.equal(Object.hasOwn(rows.find(r=>r.control==='protocol'),'customer_outcome'),false,'controls without a feature outcome carry none');
+}
+// F1 rerun (24 Oct 2026): one slice duration per special, shared by scan-api and
+// the probe contract. ROBOT's slice holds its 25 s engine run plus overhead.
+{
+  assert.deepEqual(TLS_SPECIAL_SLICE_DURATION_MS,{heartbleed:25000,robot:50000,ccs:25000});
+  assert.equal(tlsSliceDurationMs([{control:'robot',protocol:'tls1_2',cipher_id:null}]),50000);
+  assert.equal(tlsSliceDurationMs([{control:'protocol',protocol:'tls1_2',cipher_id:null}]),TLS_SLICE_LIMITS.durationMs,'normal slices keep 25 s');
+  assert.equal(tlsSliceDurationMs([]),TLS_SLICE_LIMITS.durationMs);
+  const { tlsLeaseMs } = await import('../workers/scan-api/src/engines/exposure-jobs.js');
+  assert.equal(tlsLeaseMs([{check:{control:'robot',protocol:'tls1_2',cipher_id:null}}]),55000,'a ROBOT lease is its slice plus 5 s');
+  assert.equal(tlsLeaseMs([{check:{control:'protocol',protocol:'tls1_2',cipher_id:null}}]),30000,'a normal slice keeps the job lease');
+  const t=Date.now(), iso=ms=>new Date(t+ms).toISOString();
+  const base={schema_version:'tls-assessment-request-v1',request_id:'r_dur',workspace_id:'w1',scan_id:'s1',domain_id:'d1',domain:'acme.org',
+    endpoint:{hostname:'probe.acme.org',sni:'probe.acme.org',address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+      dns_addresses:['8.8.8.8'],dns_observed_at:iso(-1000)},
+    scope:{kind:'authorized_service',service_authorization_id:'svc1',generation:2,special_consent:true,consent_version:TLS_SPECIAL_CONSENT_VERSION},
+    max_bytes:20000};
+  const robot={...base,checks:[{control:'robot',protocol:'tls1_2',cipher_id:null}],max_connections:21};
+  const normal={...base,scope:{...base.scope,special_consent:false,consent_version:null},checks:[{control:'protocol',protocol:'tls1_2',cipher_id:null}],max_connections:4};
+  assert.equal(validateTlsAssessmentRequest({...robot,deadline_at:iso(45000)},t).ok,true,'a ROBOT slice may run 45 s');
+  assert.equal(validateTlsAssessmentRequest({...robot,deadline_at:iso(51000)},t).reason,'invalid_deadline','but never past its 50 s slice');
+  assert.equal(validateTlsAssessmentRequest({...normal,deadline_at:iso(30000)},t).reason,'invalid_deadline','a normal slice stays capped at 25 s');
+  assert.equal(validateTlsAssessmentRequest({...normal,deadline_at:iso(20000)},t).ok,true);
+  // scan-api sizes the slice from the same helper (the 25 s cut was the F1 defect).
+  const src=readFileSync(new URL('../workers/scan-api/src/engines/exposure-jobs.js',import.meta.url),'utf8');
+  assert.ok(src.includes('const remaining=Math.min(tlsSliceDurationMs(items.map(item=>item.check)),row.deadline_ms-now);'),'the TLS slice timer uses the shared per-special duration');
 }
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no

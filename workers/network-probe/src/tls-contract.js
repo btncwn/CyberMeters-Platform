@@ -1,5 +1,5 @@
 import { isProbeHostname, isPublicProbeAddress } from './contract.js';
-import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
+import { TLS_CONTROLS, TLS_PROTOCOLS, TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, tlsSliceDurationMs, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, applicableTlsControl, isTlsService, tlsEndpointIdentity, tlsEngineControl } from '../../../shared/tls/catalog.js';
 
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value);
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
@@ -36,7 +36,7 @@ export function validateTlsAssessmentRequest(input, now = Date.now()) {
           input.scope.special_consent || input.scope.generation !== 0)
         : !id(input.scope.service_authorization_id))) return fail('invalid_scope');
   if (!isoTime(input.deadline_at) || Date.parse(input.deadline_at) <= now ||
-      Date.parse(input.deadline_at) > now + TLS_SLICE_LIMITS.durationMs) return fail('invalid_deadline');
+      Date.parse(input.deadline_at) > now + tlsSliceDurationMs(input.checks)) return fail('invalid_deadline');
   const specialControl=input.checks?.length===1?input.checks[0]?.control:null;
   const connectionLimit=TLS_SPECIAL_CONNECTION_LIMITS[specialControl]||TLS_SLICE_LIMITS.connections;
   if (!Number.isSafeInteger(input.max_connections) || input.max_connections < 1 || input.max_connections > connectionLimit ||
@@ -173,7 +173,7 @@ function projectTlsResult(check, raw, { requireSandbox, mailMx }) {
       !integer(pt.connections,TLS_SPECIAL_CONNECTION_LIMITS[check.control]||TLS_SLICE_LIMITS.connections) ||
       !integer(pt.bytes_sent,TLS_SLICE_LIMITS.bytes + TLS_SLICE_LIMITS.overreadBytes) ||
       !integer(pt.bytes_received,TLS_SLICE_LIMITS.bytes + TLS_SLICE_LIMITS.overreadBytes) ||
-      !integer(pt.duration_ms,TLS_SLICE_LIMITS.durationMs + 1000)) throw new Error('result_shape');
+      !integer(pt.duration_ms,tlsSliceDurationMs([check]) + 1000)) throw new Error('result_shape');
   if (raw.engine_result === null) {
     if (!choice(raw.reason,['budget_exhausted','deadline_exhausted','engine_unavailable','dns_authority_changed',
       ...(mailMx ? ['starttls_unavailable','starttls_rejected','starttls_greeting'] : [])])) throw new Error('unrun_reason');
@@ -207,7 +207,7 @@ export function projectTlsCollectorReceipt(request, raw, { now = Date.now(), req
       raw.schema_version !== 'tls-collector-raw-v1' || raw.request_id !== request.request_id ||
       !isoTime(raw.started_at) || !isoTime(raw.finished_at) ||
       Date.parse(raw.started_at) > Date.parse(raw.finished_at) ||
-      Date.parse(raw.started_at) < Date.parse(request.deadline_at) - TLS_SLICE_LIMITS.durationMs - 1000 ||
+      Date.parse(raw.started_at) < Date.parse(request.deadline_at) - tlsSliceDurationMs(request.checks) - 1000 ||
       Date.parse(raw.finished_at) > Date.parse(request.deadline_at) + 1000 ||
       Date.parse(raw.finished_at) > now + 1000 || !Array.isArray(raw.results) || raw.results.length !== request.checks.length)
     throw new Error('collector_shape');
@@ -216,7 +216,7 @@ export function projectTlsCollectorReceipt(request, raw, { now = Date.now(), req
       !integer(telemetry.connections,request.max_connections) ||
       !integer(telemetry.bytes_sent,request.max_bytes + TLS_SLICE_LIMITS.overreadBytes) ||
       !integer(telemetry.bytes_received,request.max_bytes + TLS_SLICE_LIMITS.overreadBytes) ||
-      !integer(telemetry.duration_ms,TLS_SLICE_LIMITS.durationMs + 1000) ||
+      !integer(telemetry.duration_ms,tlsSliceDurationMs(request.checks) + 1000) ||
       Math.abs(telemetry.duration_ms - (Date.parse(raw.finished_at) - Date.parse(raw.started_at))) > 1000 ||
       telemetry.bytes_sent + telemetry.bytes_received > request.max_bytes + TLS_SLICE_LIMITS.overreadBytes)
     throw new Error('collector_cost');

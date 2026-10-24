@@ -4,6 +4,15 @@ import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, isWeakTlsCipher, tlsProtocolRi
 const positive = row => row.state === 'accepted' && row.evidence?.authenticated_finished === true &&
   row.physical_telemetry?.connections > 0 && row.physical_telemetry?.bytes_sent > 0 && row.physical_telemetry?.bytes_received > 0;
 const endpointReachable = endpoint => endpoint.checks?.some(row => positive(row) && row.control === 'protocol');
+const trustEndpoints = assessment => {
+  const endpoints=new Map();
+  for(const endpoint of assessment.endpoints||[]){
+    const prior=endpoints.get(endpoint.endpoint_identity);
+    if(prior)prior.checks.push(...(endpoint.checks||[]));
+    else endpoints.set(endpoint.endpoint_identity,{...endpoint,checks:[...(endpoint.checks||[])]});
+  }
+  return [...endpoints.values()];
+};
 const weakKeyExchange = negotiated => {
   const bits=negotiated?.group_bits,group=negotiated?.group||'';
   if(!Number.isInteger(bits)||bits<1||!group)return false;
@@ -15,9 +24,17 @@ const strongCertificateKey = leaf => (leaf.key_type==='RSA'&&leaf.key_bits>=2048
   || (leaf.key_type==='ED448'&&leaf.key_bits>=456);
 const strongCertificateSignature = leaf => ['rsa_sha256','rsa_sha384','rsa_sha512',
   'ecdsa_sha256','ecdsa_sha384','ecdsa_sha512','ed25519','ed448'].includes(leaf.signature_algorithm);
+export const tlsTrustLeaf = row => {
+  const value = row?.evidence?.certificates?.offered_chain?.[0]?.sha256;
+  return /^[a-f0-9]{64}$/i.test(String(value || '')) ? value.toLowerCase() : null;
+};
 const conditionKey = (type,endpoint,row,detail='') => {
   const engine=row.engine;
   if(!engine?.build_id)return null;
+  if(type==='tls_certificate_trust'){
+    const leaf=tlsTrustLeaf(row);
+    return leaf ? `${type}__${sha256Text(['tls-chain-trust-v2',endpoint.endpoint_identity,leaf].join('\n'))}` : null;
+  }
   return `${type}__${sha256Text([TLS_PROFILE_VERSION,TLS_POLICY_VERSION,endpoint.endpoint_identity,row.control,row.protocol,
     row.cipher_id||'',detail,engine.family,engine.version,engine.build_id].join('\n'))}`;
 };
@@ -36,6 +53,7 @@ const TRUST_REASON_WORDS={issuer_missing:'the issuing certificate could not be f
   expired:'the certificate has expired',not_yet_valid:'the certificate is not yet valid',signature_invalid:'a certificate signature is invalid',
   invalid_purpose:'the certificate is not valid for this purpose',trust_unknown:'the chain could not be validated'};
 const trustReasonWords=reason=>TRUST_REASON_WORDS[reason]||'the chain could not be validated';
+const trustDescription=reasons=>`The certificate chain on this endpoint could not be validated against trusted certificate authorities: ${[...new Set(reasons.map(trustReasonWords))].sort().join('; ')}. Revocation is checked separately.`;
 const SIGNATURE_WORDS={rsa_md5:'RSA with MD5',rsa_sha1:'RSA with SHA-1',ecdsa_sha1:'ECDSA with SHA-1',dsa_sha1:'DSA with SHA-1'};
 const ACTIVE_CONTROL_WORDS={heartbleed:'Heartbleed',ccs:'CCS injection',robot:'ROBOT'};
 // Key exchange groups in words (C-45 follow-up); an unknown one is not guessed.
@@ -49,15 +67,27 @@ const make = (type,endpoint,row,{title,description,severity,recommendation,value
   if(!id)return null;
   return {id,module:'tls_assessment',finding_type:'finding',severity,confidence,score_impact:0,title,description,recommendation,
     evidence:[evidence(endpoint,row,value)],tls_condition:{type,endpoint_identity:endpoint.endpoint_identity,
-      control:row.control,protocol:row.protocol,cipher_id:row.cipher_id||null,detail,
+      control:row.control,protocol:type==='tls_certificate_trust'?null:row.protocol,cipher_id:type==='tls_certificate_trust'?null:row.cipher_id||null,detail,
+      ...(type==='tls_certificate_trust'?{leaf_sha256:tlsTrustLeaf(row)}:{}),
       engine_build_id:row.engine.build_id,profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
-      retest_requirement:'Repeat this control on the same reachable endpoint with the same engine build and profile. Missing, blocked, partial or changed-tool results cannot verify remediation.'}};
+      retest_requirement:type==='tls_certificate_trust'
+        ? 'Validate the chain on the exact endpoint across the current certificate measurements; retain each protocol and tool build as evidence. Missing, blocked or inconclusive evidence cannot verify remediation.'
+        : 'Repeat this control on the same reachable endpoint with the same engine build and profile. Missing, blocked, partial or changed-tool results cannot verify remediation.'}};
 };
 
 export function tlsAssessmentFindings(assessment) {
   if(assessment?.source!=='tls_assessment')return [];
   const output=new Map();
-  const add = finding => {if(finding)output.set(finding.id,finding);};
+  const add = finding => {
+    if(!finding)return;
+    const prior=output.get(finding.id);
+    if(prior && finding.tls_condition.type==='tls_certificate_trust'){
+      prior.evidence.push(...finding.evidence);
+      prior.description=trustDescription(prior.evidence.map(item=>item.value));
+      return;
+    }
+    output.set(finding.id,finding);
+  };
   for(const endpoint of assessment.endpoints||[])for(const row of endpoint.checks||[]){
     if(!row.engine?.sandboxed || !row.observed_at)continue;
     if(row.control==='protocol'&&positive(row)&&row.evidence.negotiated?.version===row.protocol&&tlsProtocolRisk(row.protocol))
@@ -102,9 +132,9 @@ export function tlsAssessmentFindings(assessment) {
         recommendation:'Deploy a certificate covering this hostname on this exact service and retest the endpoint.',
         value:leaf?.sha256||'hostname mismatch'}));
       if(cert?.trust==='invalid')add(make('tls_certificate_trust',endpoint,row,{title:'Certificate chain did not validate',
-        description:`The certificate chain on this endpoint could not be validated against trusted certificate authorities: ${trustReasonWords(cert.reason)}. Revocation is checked separately.`,severity:'high',
+        description:trustDescription([cert.reason]),severity:'high',
         recommendation:'Fix the certificate chain on this endpoint (install the correct intermediate certificates, or replace the certificate), then check again.',
-        value:cert.reason}));
+        value:cert.reason,detail:tlsTrustLeaf(row)||''}));
       if(leaf && ((leaf.key_type==='RSA'||leaf.key_type==='DSA')&&leaf.key_bits>0&&leaf.key_bits<2048 ||
         leaf.key_type==='EC'&&leaf.key_bits>0&&leaf.key_bits<224))
         add(make('tls_weak_certificate_key',endpoint,row,{title:'Certificate public key is below the policy minimum',
@@ -154,6 +184,17 @@ export function tlsAssessmentFindings(assessment) {
 // The build stays on the finding, the occurrence and the verification evidence.
 export function tlsCaseKey(condition) {
   const c=condition||{};
+  if(c.type==='tls_certificate_trust'){
+    const leaf=c.leaf_sha256||c.detail;
+    return c.endpoint_identity && c.control==='certificate' && /^[a-f0-9]{64}$/i.test(String(leaf||''))
+      ? `tlscase:${c.type}:${sha256Text(['tls-chain-trust-case-v2',c.endpoint_identity,leaf.toLowerCase()].join('\n'))}` : null;
+  }
+  return legacyTlsCaseKey(c);
+}
+
+// Read compatibility only: pre-C-57 identities were endpoint/control/protocol.
+export function legacyTlsCaseKey(condition) {
+  const c=condition||{};
   if(!/^tls_[a-z_]+$/.test(String(c.type||''))||!c.endpoint_identity||!c.control)return null;
   // A _confirmed type's detail is the VERSIONED probe profile (heartbleed-minimal-v1,
   // robot-finite-v1, ccs-early-record-v1): a profile bump must not change the case,
@@ -167,9 +208,31 @@ export function tlsCaseKey(condition) {
 // the current measurement(s) of the same build-less condition and evaluate each
 // exactly. 'clear' only when every match clears; any 'present' wins; nothing
 // measured is deferred.
-export function evaluateTlsCase(caseKey,assessment) {
+export function evaluateTlsCase(caseKey,assessment,condition=null) {
   if(!/^tlscase:tls_[a-z_]+:[a-f0-9]{64}$/.test(String(caseKey||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded',condition_ids:[]};
   const type=String(caseKey).split(':')[1];
+  if(type==='tls_certificate_trust'){
+    const matched=[];
+    for(const endpoint of trustEndpoints(assessment))for(const row of endpoint.checks||[]){
+      if(row.control!=='certificate'||!row.engine?.sandboxed||!row.observed_at)continue;
+      const c={type,endpoint_identity:endpoint.endpoint_identity,control:'certificate',protocol:row.protocol,cipher_id:row.cipher_id||null,leaf_sha256:tlsTrustLeaf(row)};
+      if(tlsCaseKey(c)===caseKey || legacyTlsCaseKey(c)===caseKey)matched.push({endpoint,row});
+    }
+    // A completely valid replacement chain on the exact endpoint also fixes a
+    // prior leaf's trust failure. Invalid/unknown replacement evidence never does.
+    if(!matched.length && tlsCaseKey(condition)===caseKey){
+      const endpoint=trustEndpoints(assessment).find(e=>e.endpoint_identity===condition.endpoint_identity);
+      const rows=(endpoint?.checks||[]).filter(r=>r.control==='certificate');
+      if(endpointReachable(endpoint||{}) && rows.length && rows.every(r=>r.engine?.sandboxed&&r.engine?.build_id&&r.observed_at&&positive(r)&&tlsTrustLeaf(r)&&r.evidence.certificates.trust==='valid')){
+        return {state:'clear',reason:'replacement_chain_retested',condition_ids:[...new Set(rows.map(r=>conditionKey(type,endpoint,r)))],engine_build_ids:[...new Set(rows.map(r=>r.engine.build_id))]};
+      }
+    }
+    if(!matched.length)return {state:'deferred',reason:'tls_condition_not_measured',condition_ids:[],engine_build_ids:[]};
+    const ids=[...new Set(matched.map(({endpoint,row})=>conditionKey(type,endpoint,row)).filter(Boolean))];
+    const results=ids.map(id=>evaluateTlsCondition(id,assessment));
+    return {state:results.some(r=>r.state==='present')?'present':results.length&&results.every(r=>r.state==='clear')?'clear':'deferred',
+      reason:'certificate_chain_retested',condition_ids:ids,engine_build_ids:[...new Set(matched.map(({row})=>row.engine.build_id))]};
+  }
   const ids=new Set(),builds=new Set();
   for(const endpoint of assessment.endpoints||[])for(const row of endpoint.checks||[]){
     if(!row.engine?.sandboxed||!row.observed_at)continue;
@@ -230,6 +293,19 @@ export function mustStapleState(assessment) {
 }
 export function evaluateTlsCondition(id,assessment) {
   if(!/^tls_[a-z_]+__[a-f0-9]{64}$/.test(String(id||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded'};
+  if(id.startsWith('tls_certificate_trust__')){
+    for(const endpoint of trustEndpoints(assessment)){
+      const rows=(endpoint.checks||[]).filter(r=>r.control==='certificate');
+      const matching=rows.filter(r=>r.engine?.sandboxed&&r.observed_at&&conditionKey('tls_certificate_trust',endpoint,r)===id);
+      if(!matching.length)continue;
+      if(!endpointReachable(endpoint))return {state:'deferred',reason:'endpoint_not_reachable'};
+      if(matching.some(r=>positive(r)&&r.evidence?.certificates?.trust==='invalid'))return {state:'present',reason:'tls_condition_still_observed'};
+      const unassigned=rows.some(r=>!tlsTrustLeaf(r)||!r.engine?.sandboxed||!r.engine?.build_id||!r.observed_at);
+      return !unassigned&&matching.every(r=>positive(r)&&r.evidence?.certificates?.trust==='valid')
+        ? {state:'clear',reason:'trust_retested'} : {state:'deferred',reason:'trust_retest_inconclusive'};
+    }
+    return {state:'deferred',reason:'exact_tls_check_not_run'};
+  }
   for(const endpoint of assessment.endpoints||[]){
     const reachable=endpointReachable(endpoint);
     for(const row of endpoint.checks||[]){
