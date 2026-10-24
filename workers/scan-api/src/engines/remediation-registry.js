@@ -1230,7 +1230,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     finding_types: ["tech_php2shell_version_hidden"],
     customer_title: PHP_RUNTIME_HIDDEN_TITLE,
     technical_explanation: PHP_RUNTIME_HIDDEN_SENTENCE,
-    business_impact: PHP_RUNTIME_HIDDEN_SENTENCE,
+    business_impact: "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.",
     recommended_action: PHP_RUNTIME_HIDDEN_SENTENCE,
     effort: "low",
     owner_type: "customer_it",

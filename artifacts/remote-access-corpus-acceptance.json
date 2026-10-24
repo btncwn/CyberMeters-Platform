@@ -1,15 +1,15 @@
 {
   "schema": "remote-access-corpus-v1",
-  "observed_at": "2026-10-24T01:24:47.494Z",
+  "observed_at": "2026-10-24T12:08:25.649Z",
   "corpus_sha256": "df14ecce667c9e9481434f0b815008aa686988dbe66f621fba31f4d2e26d13bc",
-  "table_version": "2026-10-24.1",
+  "table_version": "2026-10-24.2",
   "scope": "Existing accuracy corpus; HTTPS homepage only, capped32KiB, no login paths or credentials; no production scan.",
   "counts": {
     "total": 105,
     "tp": 0,
     "fp": 0,
-    "unknown": 95,
-    "not_detected": 10,
+    "unknown": 98,
+    "not_detected": 7,
     "review_required": 0
   },
   "limitation": "No real positive portal is assumed in this public-page corpus; positive and negative product truth comes from controlled local fixtures. Every positive here needs independent triage before READY.",
@@ -33,15 +33,14 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 49152
+      "bytes_observed": 33713
     },
     {
       "corpus_id": "entry-04",
-      "classification": "not_detected",
-      "reason": "no_supported_signature",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 8514,
-      "body_sha256": "688905bad312d23c31dd821368fa9593a9c732593c9d361e29027090aa8f6a34"
+      "bytes_observed": 41185
     },
     {
       "corpus_id": "entry-05",
@@ -69,7 +68,7 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 38802
+      "bytes_observed": 33295
     },
     {
       "corpus_id": "entry-09",
@@ -91,7 +90,7 @@
       "reason": "no_supported_signature",
       "status": 200,
       "bytes_observed": 6183,
-      "body_sha256": "c1a45d065d02a947766fb3d0e4a374fcc7ce73005c14318d0d74a217b8ddf5cc"
+      "body_sha256": "b8c08683e3ff15f36ef7af2f222920d1effc79ee2171dcfd8c546820e521e006"
     },
     {
       "corpus_id": "entry-12",
@@ -105,7 +104,7 @@
       "classification": "unknown",
       "reason": "non_serviceable_response",
       "status": 403,
-      "bytes_observed": 13202
+      "bytes_observed": 13201
     },
     {
       "corpus_id": "entry-14",
@@ -131,7 +130,7 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 38720
+      "bytes_observed": 38668
     },
     {
       "corpus_id": "entry-18",
@@ -152,35 +151,35 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 38643
+      "bytes_observed": 39765
     },
     {
       "corpus_id": "entry-21",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 34724
+      "bytes_observed": 33687
     },
     {
       "corpus_id": "entry-22",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 49152
+      "bytes_observed": 37636
     },
     {
       "corpus_id": "entry-23",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 37365
+      "bytes_observed": 35328
     },
     {
       "corpus_id": "entry-24",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 48353
+      "bytes_observed": 48360
     },
     {
       "corpus_id": "entry-25",
@@ -201,7 +200,7 @@
       "classification": "unknown",
       "reason": "non_serviceable_response",
       "status": 403,
-      "bytes_observed": 371
+      "bytes_observed": 369
     },
     {
       "corpus_id": "entry-28",
@@ -216,7 +215,7 @@
       "reason": "no_supported_signature",
       "status": 200,
       "bytes_observed": 8997,
-      "body_sha256": "03cc5a6496dce0650aab867f507f0191702bfa48809c6828032878bc1cad5781"
+      "body_sha256": "3bec07a9f3cd95f79db2b71ce7119ad01cde318633e72cd98033424ca7de8b06"
     },
     {
       "corpus_id": "entry-30",
@@ -230,21 +229,21 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 47094
+      "bytes_observed": 39635
     },
     {
       "corpus_id": "entry-32",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 43797
+      "bytes_observed": 42336
     },
     {
       "corpus_id": "entry-33",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 40663
+      "bytes_observed": 40706
     },
     {
       "corpus_id": "entry-34",
@@ -252,21 +251,21 @@
       "reason": "no_supported_signature",
       "status": 200,
       "bytes_observed": 31453,
-      "body_sha256": "3fcb43c1b1ff399325bdba1ca4eaabebf5fb4aa497d52817f9cc1d1ec56db84f"
+      "body_sha256": "87bcc605f66cde0369bda6d4d6a848ef0e9a825e2488a8789892b79d0e212111"
     },
     {
       "corpus_id": "entry-35",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 35730
+      "bytes_observed": 35586
     },
     {
       "corpus_id": "entry-36",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 35745
+      "bytes_observed": 35842
     },
     {
       "corpus_id": "entry-37",
@@ -287,14 +286,14 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 35702
+      "bytes_observed": 35095
     },
     {
       "corpus_id": "entry-40",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 36292
+      "bytes_observed": 36030
     },
     {
       "corpus_id": "entry-41",
@@ -312,18 +311,17 @@
     },
     {
       "corpus_id": "entry-43",
-      "classification": "not_detected",
-      "reason": "no_supported_signature",
-      "status": 200,
-      "bytes_observed": 2185,
-      "body_sha256": "d0a24232b432dde849c99857ecbf4c8625fdfd6e68daa8559bc04616f4315eed"
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 202,
+      "bytes_observed": 2007
     },
     {
       "corpus_id": "entry-44",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 34424
+      "bytes_observed": 34394
     },
     {
       "corpus_id": "entry-45",
@@ -365,14 +363,14 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 37932
+      "bytes_observed": 37934
     },
     {
       "corpus_id": "entry-51",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 35652
+      "bytes_observed": 35694
     },
     {
       "corpus_id": "entry-52",
@@ -435,7 +433,7 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 40689
+      "bytes_observed": 40693
     },
     {
       "corpus_id": "entry-61",
@@ -450,7 +448,7 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 42990
+      "bytes_observed": 43154
     },
     {
       "corpus_id": "entry-63",
@@ -486,7 +484,7 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 36798
+      "bytes_observed": 49152
     },
     {
       "corpus_id": "entry-68",
@@ -500,28 +498,28 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 43770
+      "bytes_observed": 43771
     },
     {
       "corpus_id": "entry-70",
       "classification": "unknown",
       "reason": "non_serviceable_response",
       "status": 403,
-      "bytes_observed": 5877
+      "bytes_observed": 5876
     },
     {
       "corpus_id": "entry-71",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 33220
+      "bytes_observed": 33230
     },
     {
       "corpus_id": "entry-72",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 33167
+      "bytes_observed": 33154
     },
     {
       "corpus_id": "entry-73",
@@ -539,32 +537,31 @@
     },
     {
       "corpus_id": "entry-75",
-      "classification": "not_detected",
-      "reason": "no_supported_signature",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 9306,
-      "body_sha256": "931da6631e608801b7626938afffbe4ebc56d2f16917cb5b9da3ae0f1c4c452d"
+      "bytes_observed": 36190
     },
     {
       "corpus_id": "entry-76",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 45626
+      "bytes_observed": 44398
     },
     {
       "corpus_id": "entry-77",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 35229
+      "bytes_observed": 34568
     },
     {
       "corpus_id": "entry-78",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 37330
+      "bytes_observed": 37208
     },
     {
       "corpus_id": "entry-79",
@@ -585,14 +582,14 @@
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 35741
+      "bytes_observed": 35916
     },
     {
       "corpus_id": "entry-82",
       "classification": "unknown",
       "reason": "bounded_body_incomplete",
       "status": 200,
-      "bytes_observed": 42863
+      "bytes_observed": 41349
     },
     {
       "corpus_id": "entry-83",
@@ -658,9 +655,9 @@
     {
       "corpus_id": "entry-92",
       "classification": "unknown",
-      "reason": "bounded_body_incomplete",
-      "status": 200,
-      "bytes_observed": 37378
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
     },
     {
       "corpus_id": "entry-93",
@@ -681,7 +678,7 @@
       "classification": "unknown",
       "reason": "non_serviceable_response",
       "status": 403,
-      "bytes_observed": 4858
+      "bytes_observed": 4857
     },
     {
       "corpus_id": "entry-96",
@@ -716,7 +713,7 @@
       "reason": "no_supported_signature",
       "status": 200,
       "bytes_observed": 14275,
-      "body_sha256": "a955583b232bc8a878077d7a8d295c8eb7f151b3ca7f80e1691b1b88843550ae"
+      "body_sha256": "8e7d4b4a6b20df2d203bc98accdb003fd953713625299ca8aa30d3d7fae8e934"
     },
     {
       "corpus_id": "entry-102",
@@ -743,5 +740,87 @@
       "classification": "unknown",
       "reason": "transport_unavailable"
     }
-  ]
+  ],
+  "catalogue_review": {
+    "reviewed_at": "2026-10-24T12:08:25.771Z",
+    "source": "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json",
+    "catalogue_version": "2026.10.23",
+    "released_at": "2026-10-23T19:30:18.9209Z",
+    "feed_sha256": "97a6e54bc74c651ab3c55657191db9adec6c63b05ca54e4205327cfd97a8fb70",
+    "profiles": 5,
+    "comparison_rows": 60,
+    "conditional_rows": 2,
+    "cves": [
+      {
+        "cve": "CVE-2024-3400",
+        "date_added": "2024-04-12",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2024-21762",
+        "date_added": "2024-02-09",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2023-27997",
+        "date_added": "2023-06-13",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2023-3519",
+        "date_added": "2023-07-19",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2023-4966",
+        "date_added": "2023-10-18",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2023-6549",
+        "date_added": "2024-01-17",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2025-5777",
+        "date_added": "2025-07-10",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2025-6543",
+        "date_added": "2025-06-30",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2025-7775",
+        "date_added": "2025-08-26",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2026-8452",
+        "date_added": "2026-08-26",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2026-88771",
+        "date_added": "2026-09-27",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2025-0282",
+        "date_added": "2025-01-08",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2025-22457",
+        "date_added": "2025-04-04",
+        "automatic": true
+      },
+      {
+        "cve": "CVE-2026-88772",
+        "date_added": "2026-09-27",
+        "automatic": false
+      }
+    ]
+  }
 }

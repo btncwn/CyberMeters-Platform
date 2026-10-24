@@ -14,7 +14,7 @@ import { buildDb, makeEnv } from './lib/worker-harness.js';
 
 const url = 'https://vpn.example.test/global-protect/login.esp', rule_id = 'remote-access-portal';
 const now = Date.parse('2026-10-24T02:00:00Z');
-const cache = { fetched_at:new Date(now).toISOString(),catalogue_version:'2026.10.23',cves:['CVE-2024-3400'] };
+const cache = { fetched_at:new Date(now).toISOString(),released_at:new Date(now).toISOString(),catalogue_version:'2026.10.23',cves:['CVE-2024-3400'] };
 const page = (label='') => `<html><head><title>GlobalProtect Portal</title></head><body><form action="/global-protect/login.esp" method="post"><input name="user"><input type="password" name="passwd"></form><footer>${label}</footer></body></html>`;
 const stated = 'PAN-OS version: 11.1.2-h2';
 const positive = remoteAccessFingerprint(page(stated),url);
@@ -32,7 +32,7 @@ assert.equal(assessRemoteAccess(remoteAccessFingerprint(page('PAN-OS version: un
 for(const prose of ['Supported PAN-OS version: 11.1.2-h2','PAN-OS version: 11.1.2-h2 is required by the client'])
   assert.equal(assessRemoteAccess(remoteAccessFingerprint(page(prose),url),cache,now).state,'deferred','a version mentioned in compatibility prose is not the running server version');
 assert.equal(assessRemoteAccess(remoteAccessFingerprint(page(stated+' PAN-OS version: 11.1.2-h3'),url),cache,now).state,'deferred');
-for(const row of REMOTE_ACCESS_ADVISORIES){
+for(const row of REMOTE_ACCESS_ADVISORIES.filter(row=>row.product_id==='panos_globalprotect')){
   const portal={...positive,version:row.affectedFrom};
   assert.equal(assessRemoteAccess(portal,cache,now).state,'present');
   assert.equal(assessRemoteAccess({...portal,version:row.fixed},cache,now).state,'clear');
@@ -49,7 +49,7 @@ assert.equal(evaluateExposure({rule:rule_id,response:{url,status:403,body:page(s
 const generated=vm.runInNewContext(exposureEvaluatorProgramSource()+';evaluateExposure',{URL,TextEncoder,TextDecoder,Uint8Array,DataView,Set,Map});
 assert.equal(generated({rule:rule_id,response:{url,status:200,body:page(stated)},controls}).portal.version,positive.version,'the shipped collector program carries the fingerprint');
 const portalChecks=planExposureChecks({origin:new URL(url).origin}).checks.filter(r=>r.ruleId===rule_id);
-assert.equal(portalChecks.length,2);assert.ok(portalChecks.every(r=>r.url.startsWith('https://vpn.example.test/')));
+assert.equal(portalChecks.length,5);assert.ok(portalChecks.every(r=>r.url.startsWith('https://vpn.example.test/')));
 function wire(portal=positive, target=url){
   return {rule_id,url:target,identity:exposureIdentity(rule_id,target),state:'observed',comparable:true,portal,
     finding:null,observation:{rule_id,severity:'info',indicators:['known_remote_access_login'],identity:exposureIdentity(rule_id,target),safe_url:target},observed_at:new Date(now).toISOString()};
@@ -95,8 +95,8 @@ assert.equal(remoteAccessFingerprint(page(stated+' Portal does not exist'),url),
 // unassessable shapes. These counts are not public-corpus or live-target claims.
 const calibration={tp:0,fp:0,tn:0,fn:0,unknown:0};
 const examples=[
-  ...REMOTE_ACCESS_ADVISORIES.map(r=>({body:page(`PAN-OS version: ${r.affectedFrom}`),expected:'present'})),
-  ...REMOTE_ACCESS_ADVISORIES.map(r=>({body:page(`PAN-OS version: ${r.fixed}`),expected:'clear'})),
+  ...REMOTE_ACCESS_ADVISORIES.filter(r=>r.product_id==='panos_globalprotect').map(r=>({body:page(`PAN-OS version: ${r.affectedFrom}`),expected:'present'})),
+  ...REMOTE_ACCESS_ADVISORIES.filter(r=>r.product_id==='panos_globalprotect').map(r=>({body:page(`PAN-OS version: ${r.fixed}`),expected:'clear'})),
   {body:page(),expected:'present'}, {body:page('Client version: 11.1.2-h2'),expected:'present'},
   {body:'<html><title>Welcome</title>Ordinary page</html>',expected:'none'},
   {body:`<article>${page(stated)}</article>`,expected:'none'},
