@@ -30,6 +30,8 @@ import { PHP_RUNTIME_TITLE, PHP_RUNTIME_HIDDEN_TITLE, PHP_RUNTIME_HIDDEN_SENTENC
 import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
+const PHP_RUNTIME_NCSC_FACTS = "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.";
+
 // The eight canonical domain keys are DERIVED from the security domain model so
 // they can never drift from it. Every registry entry must use one of these.
 export const CANONICAL_DOMAIN_KEYS = Object.freeze(
@@ -1211,7 +1213,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     finding_types: ["tech_php2shell_outdated"],
     customer_title: PHP_RUNTIME_TITLE,
     technical_explanation: PHP_RUNTIME_TITLE,
-    business_impact: "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.",
+    business_impact: PHP_RUNTIME_NCSC_FACTS,
     recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed.",
     effort: "medium",
     owner_type: "customer_it",
@@ -1230,7 +1232,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     finding_types: ["tech_php2shell_version_hidden"],
     customer_title: PHP_RUNTIME_HIDDEN_TITLE,
     technical_explanation: PHP_RUNTIME_HIDDEN_SENTENCE,
-    business_impact: "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.",
+    business_impact: PHP_RUNTIME_NCSC_FACTS,
     recommended_action: PHP_RUNTIME_HIDDEN_SENTENCE,
     effort: "low",
     owner_type: "customer_it",
