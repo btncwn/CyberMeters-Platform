@@ -527,15 +527,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `/^\/api\/workspaces\/([^/` | 72 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 108 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 357 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^/` | 389 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 451 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 516 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/api/invitations/preview` | 721 | public-or-global | public | — |
-| POST | `/api/invitations/accept` | 726 | public-or-global | ✓ | requireAuth |
-| GET | `/^\/api\/invitations\/([^/` | 734 | public-or-global | public | — |
-| POST | `/^\/api\/invitations\/([^/` | 740 | public-or-global | ✓ | requireAuth |
+| POST | `/^\/api\/workspaces\/([^/` | 106 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 355 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^/` | 387 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 449 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 514 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/api/invitations/preview` | 719 | public-or-global | public | — |
+| POST | `/api/invitations/accept` | 724 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/invitations\/([^/` | 732 | public-or-global | public | — |
+| POST | `/^\/api\/invitations\/([^/` | 738 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/workspace-reports.js`
 

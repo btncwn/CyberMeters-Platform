@@ -197,19 +197,35 @@ async function main() {
     const realFetch = globalThis.fetch;
     env.RESEND_API_KEY = "re_local_fixture";
     env.HELLO_EMAIL_FROM = "hello@cybermeters.com";
+    const sentMail = [];
     globalThis.fetch = async (input, init) => {
       const u = typeof input === "string" ? input : input.url;
-      if (u.startsWith("https://api.resend.com/")) return new Response(JSON.stringify({ id: "local-email" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.startsWith("https://api.resend.com/")) { try { sentMail.push(JSON.parse(init?.body || "{}")); } catch { /* */ }
+        return new Response(JSON.stringify({ id: "local-email" }), { status: 200, headers: { "Content-Type": "application/json" } }); }
       return realFetch(input, init);
     };
     try {
       const shape = (r) => JSON.stringify({ status: r.status, data: JSON.parse(JSON.stringify(r.data || {}), (k, v) =>
         ["id", "token", "expires_at", "email"].includes(k) ? "<varies>" : v) });
+      // The member limit is decided before any account is looked up.
+      const order = [];
+      const realDb = env.cybermeters_db;
+      env.cybermeters_db = { ...realDb, prepare(sql) {
+        if (/FROM workspace_members WHERE workspace_id = \?$/.test(sql.trim()) && /COUNT/.test(sql)) order.push("limit");
+        if (/FROM users WHERE email = \?/.test(sql)) order.push("lookup");
+        return realDb.prepare(sql);
+      } };
       const existing = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "b@b.co", role: "viewer" });
+      env.cybermeters_db = realDb;
+      ok("the plan limit is checked before the account lookup", order.indexOf("limit") > -1 && order.indexOf("limit") < order.indexOf("lookup"));
       const missing = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "nobody-here@example.invalid", role: "viewer" });
       ok("direct add of an existing account → 201 invitation", existing.status === 201 && existing.data?.invitation?.status === "pending");
       ok("direct add: existing vs nonexistent account → identical response (ids, token, time, address aside)", shape(existing) === shape(missing));
       ok("direct add response names no account (no name, no user id)", !/OwnerB|"user_id"|"name"/.test(existing.text) && !existing.text.includes("uB"));
+      ok("the response carries no invite token (the email delivers it)", !("token" in (existing.data || {})) && !("token" in (missing.data || {})));
+      const mailed = sentMail.map((m) => JSON.stringify(m)).find((m) => m.includes("b@b.co")) || "";
+      const mailedToken = (mailed.match(/#t=([A-Za-z0-9_-]+)/) || [])[1];
+      ok("the invitation email carries the accept link", Boolean(mailedToken));
       ok("direct add inserts no membership before acceptance",
         db.prepare("SELECT COUNT(*) n FROM workspace_members WHERE workspace_id = 'wsA' AND user_id = 'uB'").get().n === 0);
       ok("direct add leaves a pending invitation for the address",
@@ -218,7 +234,7 @@ async function main() {
       ok("direct add still needs the manage-members role (viewer → 403)", asAdmin.status === 403);
 
       // The invited person accepts: only then are they a member, with the invited role.
-      const accepted = await call("POST", "/api/invitations/accept", "raw-B", { token: existing.data?.token });
+      const accepted = await call("POST", "/api/invitations/accept", "raw-B", { token: mailedToken });
       ok("the invited account accepts → member with the invited role", accepted.status === 200 &&
         db.prepare("SELECT role FROM workspace_members WHERE workspace_id = 'wsA' AND user_id = 'uB'").get()?.role === "viewer");
       db.prepare("DELETE FROM workspace_members WHERE workspace_id = 'wsA' AND user_id = 'uB'").run();

@@ -100,10 +100,8 @@ export async function workspaceMembersRoutes(rctx) {
     // Adding a member IS inviting them: both routes create the same pending
     // invitation the person must accept, with one response whether or not an
     // account exists for the address (no name, no user id, no 404), and the
-    // plan limit checked before any account lookup. A direct add used to look
-    // the account up by email (an account-existence oracle), return its name
-    // and id, and insert the membership with no acceptance. Changing an
-    // existing member's role is PATCH /members/:id only.
+    // plan limit checked before any account lookup. Changing an existing
+    // member's role is PATCH /members/:id only.
     const membersListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
     if ((invitationsMatch || membersListMatch) && request.method === "POST") {
       const viaMembers = !invitationsMatch;
@@ -346,7 +344,7 @@ export async function workspaceMembersRoutes(rctx) {
             id: inviteId, workspace_id: workspaceId, email, role,
             status: "pending", expires_at: expiresAt,
           },
-          token,
+          // The accept link travels only in the email to the invited address.
         }, 201);
       } catch (e) {
         return serverError("api", e);
