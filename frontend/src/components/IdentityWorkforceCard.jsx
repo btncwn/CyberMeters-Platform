@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { formatDate } from '../utils/dates'
+import { isOpaqueId } from '../lib/keyLabel'
 
 const when = value => value ? formatDate(value, 'Not available') : 'Not available'
 const statusLabel = {
@@ -99,7 +100,7 @@ export default function IdentityWorkforceCard({ workspaceId }) {
         {actions.map(item => <article key={item.id} className="mt-4 rounded-lg bg-gray-50 p-3 border border-gray-200">
           <p className="font-medium text-sm">{statusLabel[item.status] || 'Unknown outcome'}</p>
           <p className="text-xs text-gray-600 mt-1">Customer-reported concern: {item.concern}</p>
-          <p className="text-xs text-gray-500 mt-1">{when(item.created_at)} · Requested by {item.requested_by}</p>
+          <p className="text-xs text-gray-500 mt-1">{when(item.created_at)} · Requested by {item.requested_by && !isOpaqueId(item.requested_by) ? item.requested_by : 'a workspace member'}</p>
           <p className="text-xs break-all mt-2">Target: {item.preview.upn} · User ID: {item.preview.id}</p>
           {item.status === 'previewed' && <div className="mt-2">
             <p className="text-xs text-gray-500">This asks Microsoft to revoke sign-in sessions. Existing access tokens and sessions managed by individual apps may persist. Preview expires {when(item.expires_at)}.</p>

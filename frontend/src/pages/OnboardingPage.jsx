@@ -10,6 +10,7 @@ import PendingInvitationBanner from '../components/PendingInvitationBanner'
 import { pendingInviteToken } from '../lib/invitationFlow'
 import { useDomainConnectOffer } from '../hooks/useDomainConnectOffer'
 import { onboardingActionError, verifyOutcomeCopy, VERIFY_RECORD_REFRESHED } from '../lib/onboardingCopy'
+import { setActiveWorkspace } from '../lib/activeWorkspace'
 
 function domainIdOf(domain) {
   return domain?.domain_id || domain?.id
@@ -191,8 +192,7 @@ export default function OnboardingPage() {
         return
       }
 
-      localStorage.setItem('cybermeters_workspace_id', ws.id)
-      localStorage.setItem('cybermeters_workspace_name', ws.name)
+      setActiveWorkspace(ws.id, ws.name)
 
       const [domainData, scanData] = await Promise.all([
         api.getWorkspaceDomains(ws.id).catch(() => ({ domains: [] })),
@@ -278,8 +278,7 @@ export default function OnboardingPage() {
       const data = await api.createWorkspace(workspaceName.trim())
       const ws = data.workspace || data
       setWorkspace(ws)
-      localStorage.setItem('cybermeters_workspace_id', ws.id)
-      localStorage.setItem('cybermeters_workspace_name', ws.name)
+      setActiveWorkspace(ws.id, ws.name)
     } catch (e) {
       setError(onboardingActionError('workspace', e))
     } finally {

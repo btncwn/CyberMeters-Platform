@@ -281,6 +281,9 @@
   background-color: #a9f2e5;
   &:hover { background-color: #8fe9d9; }
   &:active { background-color: #7aebd7; }
+  /* A disabled primary must LOOK disabled (founder, 23 Oct 2026: an enabled-looking
+     disabled Authorise read as a button that does nothing). */
+  &:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; transform: none; background-color: #a9f2e5; }
 }
 
 @utility btn-secondary {
@@ -635,6 +638,25 @@
 .cm-wsbtn-tip { left: calc(100% + 16px); }
 .cm-wsbtn:hover > .cm-tip, .cm-wsbtn:focus-visible > .cm-tip { opacity: 1; }
 .cm-wsbtn[aria-expanded="true"] > .cm-tip { opacity: 0; }
+.cm-ws-face { position: absolute; left: calc(100% + 16px); top: 50%; transform: translateY(-50%); max-width: 190px; font-size: 14px; line-height: 1.3; color: #1a1f2b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.cm-ws-face-name { font-weight: 600; }
+.cm-ws-face-count { color: #4b5563; }
+/* Below 1024px the 76px card floats over the page: the face label sits on a white pill. */
+.cm-wsdock-compact .cm-ws-face { background: #fff; border: 1px solid #e3e8ee; border-radius: 999px; padding: 4px 10px; box-shadow: 0 2px 6px rgba(16, 24, 40, 0.08); }
+/* While the domain list shows (hover/focus), it replaces the face label. */
+.cm-wsdock:has(.cm-wsbtn:hover) .cm-ws-face, .cm-wsdock:has(.cm-wsbtn:focus-visible) .cm-ws-face, .cm-wsdock:has(.cm-wsbtn[aria-expanded="true"]) .cm-ws-face { opacity: 0; }
+.cm-tip-line { display: block; font-weight: 400; font-size: 14px; opacity: 0.85; margin-top: 2px; }
+/* The context bar: which workspace and domain this screen is about (founder, 23 Oct 2026). */
+.cm-ctxbar { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 24px; border-top: 1px solid #e3e8ee; background: #fff; font-size: 14px; color: #3b4555; min-width: 0; flex-wrap: wrap; }
+.cm-ctx-root { font-weight: 600; color: #1a1f2b; }
+.cm-ctx-sep { color: #8a94a3; }
+.cm-ctx-current { color: #1a1f2b; }
+.cm-ctx-menu { position: relative; }
+.cm-ctx-trigger { font: inherit; color: #117362; font-weight: 600; background: none; border: 0; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+.cm-ctx-trigger:hover, .cm-ctx-trigger:focus-visible { text-decoration: underline; }
+.cm-ctx-trigger:focus-visible { outline: 3px solid #a9f2e5; outline-offset: 1px; }
+.cm-ctx-popover { position: absolute; left: 0; top: calc(100% + 6px); min-width: 240px; max-height: 60vh; overflow-y: auto; z-index: 60; padding: 4px 0; }
+@media (max-width: 1023.98px) { .cm-ctxbar { padding: 4px 12px; } }
 
 /* The globe button in the top bar: the account initial's 40px diameter; the
    hit area is widened to 44px with an inset pseudo-element so the visual size

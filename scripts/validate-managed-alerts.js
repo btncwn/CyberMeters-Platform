@@ -677,6 +677,10 @@ await preActivate("ws_dead");
     // R1 (17:05): copy claims only what the detector observed.
     const d = (dom, r) => ac.describeRecurrenceEvent(dom, r, "example.org", {});
     ok("worsened sender is a band escalation, not 'more mail'", !/more mail/i.test(d("email_protection", "sender_classification_worsened")));
+    // The rise can be the customer's own threat escalation: the sentence names no cause.
+    ok("worsened sender attributes the rise to no one (receivers or the customer)",
+      /sender band for example\.org is now higher/.test(d("email_protection", "sender_classification_worsened"))
+        && !/receiving mail providers/i.test(d("email_protection", "sender_classification_worsened")));
     ok("unauthorised sender is the observed classification, not the customer's", !/you classified/i.test(d("email_protection", "sender_unauthorised_failures_active")));
     ok("Website copy covers cookies and weak policies, not only headers", /cookie/i.test(d("website_security", "browser_protection_missing")) && /weak/i.test(d("website_security", "browser_protection_malformed")));
     ok("coverage_regression claims no prior coverage", !/no longer/i.test(d("certificates_trust", "coverage_regression")));

@@ -14,6 +14,7 @@ import { webcrypto } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { getStripeInvoiceSubscriptionId } from "../workers/scan-api/src/engines/stripe.js";
+import { createStripeProvider } from "./security/lib/worker-harness.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerPath = path.join(root, "workers", "scan-api", "src", "index.js");
@@ -21,7 +22,10 @@ const workerPath = path.join(root, "workers", "scan-api", "src", "index.js");
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
 
-globalThis.fetch = async () => { throw new Error("network disabled"); };
+// The Worker re-reads every subscription from Stripe (migration 139); this
+// local stand-in answers with provider truth and never touches the network.
+const stripe = createStripeProvider();
+globalThis.fetch = stripe.fetch;
 AbortSignal.timeout = () => undefined;
 const worker = await import(pathToFileURL(workerPath).href);
 
@@ -61,7 +65,10 @@ async function hmacHex(secret, message) {
   const sig = await webcrypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-async function postWebhook(event, { secret = WHSEC } = {}) {
+// mirror: keep provider truth equal to an in-order history of the delivered
+// events. A test that delivers an OLDER event late passes mirror: false.
+async function postWebhook(event, { secret = WHSEC, mirror = true } = {}) {
+  if (mirror && secret === WHSEC) stripe.mirror(event);
   const raw = JSON.stringify(event);
   const ts = Math.floor(Date.now() / 1000); // near-current — Stripe verifies the ts is within tolerance
   const sig = await hmacHex(secret, `${ts}.${raw}`);
@@ -175,6 +182,36 @@ ok("late paid checkout after deletion accepted", lateCanceledCheckout.status ===
 ok("late paid checkout cannot reactivate deleted subscription or change its plan",
   JSON.stringify(rowStatus()) === JSON.stringify(canceledBeforeCheckout));
 
+// P1 (23 Oct 2026): late invoice events after cancellation never re-grant paid access.
+{
+  const { getEffectivePlanState } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "entitlements.js")).href);
+  const grace = () => db.prepare("SELECT payment_failed_at, payment_retry_count FROM subscriptions WHERE stripe_subscription_id = ?").get(SUB);
+  const lateFailed = await postWebhook(evt("evt_5_late_invoice_failed", "invoice.payment_failed", { id: "in_late_1", subscription: SUB, customer: CUS, attempt_count: 2 }));
+  ok("late invoice.payment_failed after deletion is accepted (200)", lateFailed.status === 200);
+  ok("late invoice.payment_failed leaves the deleted subscription canceled", rowStatus()?.subscription_status === "canceled" && rowStatus()?.status === "canceled");
+  ok("...and opens no payment-grace window", grace()?.payment_failed_at === null);
+  const plan = await getEffectivePlanState(UID, env);
+  ok("...so no paid plan is granted", !plan?.entitled || plan?.plan === "free");
+  const lateSucceeded = await postWebhook(evt("evt_5_late_invoice_succeeded", "invoice.payment_succeeded", { id: "in_late_2", subscription: SUB, customer: CUS }));
+  ok("late invoice.payment_succeeded after deletion is accepted (200)", lateSucceeded.status === 200);
+  ok("late invoice.payment_succeeded leaves the deleted subscription canceled", rowStatus()?.subscription_status === "canceled");
+  ok("no failure email or notification is written for a cancelled subscription",
+    db.prepare("SELECT COUNT(*) n FROM lifecycle_email_events WHERE type = 'lifecycle_payment_failed' AND dedupe_key LIKE '%in_late_1%'").get().n === 0);
+  // A cancel-marked subscription whose row was left past_due (a failure processed
+  // before the deletion landed) is not revived by a late payment_succeeded.
+  db.prepare("UPDATE subscriptions SET subscription_status = 'past_due', status = 'past_due' WHERE stripe_subscription_id = ?").run(SUB);
+  await postWebhook(evt("evt_5_late_invoice_succeeded_2", "invoice.payment_succeeded", { id: "in_late_3", subscription: SUB, customer: CUS }));
+  ok("a cancel-marked subscription left past_due is not revived to active", rowStatus()?.subscription_status !== "active");
+  db.prepare("UPDATE subscriptions SET subscription_status = 'canceled', status = 'canceled' WHERE stripe_subscription_id = ?").run(SUB);
+  // Row-level guard too: a cancelled row without a marker is never revived.
+  db.prepare(`INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_subscription_id, stripe_customer_id, created_at, updated_at)
+    VALUES ('row_cancel_nomark', 'usr_cancel_nomark', 'ws_cancel_nomark', 'business', 'canceled', 'canceled', 'sub_cancel_nomark', 'cus_cancel_nomark', datetime('now'), datetime('now'))`).run();
+  stripe.set({ id: "sub_cancel_nomark", customer: "cus_cancel_nomark", status: "canceled", metadata: {} });
+  await postWebhook(evt("evt_nomark_failed", "invoice.payment_failed", { id: "in_nomark", subscription: "sub_cancel_nomark", customer: "cus_cancel_nomark" }));
+  ok("a cancelled row without a marker is not moved to past_due",
+    db.prepare("SELECT subscription_status FROM subscriptions WHERE id = 'row_cancel_nomark'").get().subscription_status === "canceled");
+}
+
 // Provider deliveries can arrive out of order: a deletion may be processed
 // before any local subscription row exists. Its durable marker must still keep
 // the later, paid checkout and subscription.created from granting access.
@@ -195,7 +232,7 @@ ok("late paid checkout after deleted-first grants no subscription row",
 const lateDeletedFirstCreated = await postWebhook(evt("evt_deleted_first_created", "customer.subscription.created", {
   id: "sub_deleted_first", customer: "cus_deleted_first", metadata: deletedFirstMeta, status: "active",
   items: { data: [{ price: { id: "price_bm" } }] },
-}));
+}), { mirror: false });
 ok("late subscription.created after deleted-first accepted", lateDeletedFirstCreated.status === 200);
 ok("late subscription.created after deleted-first grants no subscription row",
   db.prepare("SELECT COUNT(*) AS n FROM subscriptions WHERE owner_user_id = ?").get(deletedFirstMeta.user_id).n === 0);
@@ -224,17 +261,22 @@ ok("cancellation marker failure does not mark webhook complete",
 // The same customer may pay for a replacement subscription. An old deletion
 // must not use the customer/owner fallback to cancel that newer active row.
 db.prepare(`INSERT INTO subscriptions
-  (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_customer_id, stripe_subscription_id)
-  VALUES ('row_replacement', 'usr_replacement', 'ws_replacement', 'starter', 'active', 'active', 'cus_replacement', 'sub_replacement_new')`).run();
+  (id, owner_user_id, workspace_id, plan, status, subscription_status, stripe_customer_id, stripe_subscription_id, stripe_price_id)
+  VALUES ('row_replacement', 'usr_replacement', 'ws_replacement', 'starter', 'active', 'active', 'cus_replacement', 'sub_replacement_new', 'price_sm')`).run();
+stripe.set({ id: "sub_replacement_new", customer: "cus_replacement", status: "active",
+  metadata: { user_id: "usr_replacement", workspace_id: "ws_replacement" }, items: { data: [{ price: { id: "price_sm" } }] } });
+// The account row is re-derived from Stripe on every event, so updated_at moves;
+// everything else about the newer subscription must stay exactly as it was.
+const entitlementShape = (row) => { const { updated_at, ...rest } = row || {}; return JSON.stringify(rest); };
 const replacementBeforeOldDeletion = db.prepare("SELECT * FROM subscriptions WHERE id = 'row_replacement'").get();
 const oldDeletion = await postWebhook(evt("evt_old_subscription_deleted", "customer.subscription.deleted", {
   id: "sub_replacement_old", customer: "cus_replacement", status: "canceled",
   metadata: { user_id: "usr_replacement", workspace_id: "ws_replacement" },
 }));
 ok("old subscription deletion accepted", oldDeletion.status === 200);
-ok("old subscription deletion leaves newer subscription byte-equivalent",
-  JSON.stringify(db.prepare("SELECT * FROM subscriptions WHERE id = 'row_replacement'").get())
-    === JSON.stringify(replacementBeforeOldDeletion));
+ok("old subscription deletion leaves newer subscription unchanged (beyond updated_at)",
+  entitlementShape(db.prepare("SELECT * FROM subscriptions WHERE id = 'row_replacement'").get())
+    === entitlementShape(replacementBeforeOldDeletion));
 
 // A completed checkout with pending or unknown payment must not turn an
 // existing trial row into paid access. Subscription events set its later state.
@@ -252,6 +294,9 @@ for (const [eventId, paymentStatus] of [["evt_unpaid", "unpaid"], ["evt_unknown_
   ok(`${eventId} does not grant paid access`, row?.plan === "free" && row?.status === "trialing"
     && row?.subscription_status === "trialing" && row?.stripe_subscription_id === null);
 }
+stripe.set({ id: "sub_no_payment_required", customer: "cus_no_payment_required", status: "active",
+  metadata: { user_id: "usr_no_payment_required", workspace_id: "ws_no_payment_required", plan: "starter", interval: "monthly" },
+  items: { data: [{ price: { id: "price_sm" } }] } });
 const noPaymentRequired = await postWebhook(evt("evt_no_payment_required", "checkout.session.completed", {
   id: "cs_no_payment_required", customer: "cus_no_payment_required", subscription: "sub_no_payment_required",
   metadata: { user_id: "usr_no_payment_required", workspace_id: "ws_no_payment_required", plan: "starter", interval: "monthly" },
@@ -289,7 +334,7 @@ ok("multi-item: plan resolved from the mapped base item (professional)", rowStat
 const laterUnix = futureUnix + 30 * 86400;
 await postWebhook(evt("evt_9", "customer.subscription.updated", { ...subObj2("active", "price_pm"), current_period_end: laterUnix }));
 const advanced = rowStatus2()?.current_period_end;
-await postWebhook(evt("evt_10", "customer.subscription.updated", { ...subObj2("active", "price_pm"), current_period_end: futureUnix }));
+await postWebhook(evt("evt_10", "customer.subscription.updated", { ...subObj2("active", "price_pm"), current_period_end: futureUnix }), { mirror: false });
 ok("stale event cannot shorten the entitlement window", rowStatus2()?.current_period_end === advanced);
 
 // ── Basil-era payload (Stripe API 2025-03-31+): current_period_* lives on the
@@ -367,6 +412,8 @@ for (const [id, ws, stripeId, status] of invoiceRows) {
     VALUES (?, ?, 'usr_invoice_parent', 'starter', ?, ?, ?, ?, '2025-01-01', 3)`)
     .run(id, ws, status, status, id === "row_invoice_current" ? "cus_invoice_current" : "cus_invoice_old", stripeId);
 }
+stripe.set({ id: "sub_invoice_current", customer: "cus_invoice_current", status: "active",
+  metadata: { user_id: "usr_invoice_parent", workspace_id: "ws_invoice_current" }, items: { data: [{ price: { id: "price_sm" } }] } });
 const invoiceRow = (id) => db.prepare("SELECT * FROM subscriptions WHERE id = ?").get(id);
 const oldInvoiceRow = invoiceRow("row_invoice_old");
 const parentInvoice = (id, subscription) => ({ id, customer: "cus_invoice_current",
@@ -430,6 +477,349 @@ for (const type of ["invoice.payment_failed", "invoice.payment_succeeded"]) {
 for (const [table, previous] of [["subscriptions", priorSubscriptions], ["audit_events", priorAudit], ["subscription_events", priorBillingEvents]]) {
   ok(`parent invoices preserve all pre-existing ${table} rows`, previous.every(row =>
     JSON.stringify(db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(row.id)) === JSON.stringify(row)));
+}
+
+// ── Event-sequence adversarial review (Codex C-49, 23 Oct 2026) ──────────────
+// Ported F01–F20 + D01–D06. Each scenario: a fresh strict-schema DB, the real
+// webhook route and engine, a controlled clock (JS and SQLite together), and a
+// provider-truth fixture: what Stripe says NOW about each subscription. Every
+// event's creation precedes its delivery, so truth is the newest state; the
+// delivery order is the adversary. C = created, U = updated, D = deleted,
+// F/P = invoice failed/succeeded, X = checkout; numbers = creation order.
+{
+  const { buildDb: strictDb, makeEnv } = await import("./security/lib/worker-harness.js");
+  const { globalBillingRoutes } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "routes", "global-billing.js")).href);
+  const { getEffectivePlanState } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "entitlements.js")).href);
+  const realNow = Date.now;
+  const T0 = Math.floor(realNow() / 1000) * 1000, DAY = 86400000;
+  let clock = T0, serial = 0;
+  Date.now = () => clock;
+  const sqlTime = () => new Date(clock).toISOString().replace("T", " ").slice(0, 19);
+  const epoch = (n) => Math.floor(T0 / 1000) + n;
+  const m = (over = {}) => ({ user_id: "u1", workspace_id: "w1", plan: "professional", interval: "monthly", ...over });
+  const price = (id) => ({ items: { data: [{ price: { id, recurring: { interval: "month" } } }] } });
+  const sub = (over = {}) => ({ id: "s1", customer: "c1", status: "active", metadata: m(), ...price("price_pm"),
+    current_period_start: epoch(-100), current_period_end: epoch(30 * 86400), cancel_at_period_end: false, ...over });
+  const inv = (over = {}) => ({ id: "i1", customer: "c1", subscription: "s1", attempt_count: 1, ...over });
+  const open = (id, at) => ({ id, status: "open", created: epoch(at - 3600), attempt_count: 1 });
+  const paid = (id, at) => ({ id, status: "paid", created: epoch(at - 3600), attempt_count: 1 });
+  const event = (type, object, created = 0, id = `c49e${++serial}`) => ({ id, type, created: epoch(created - 3600), livemode: false, data: { object } });
+
+  function setup() {
+    clock = T0;
+    const sdb = strictDb();
+    // The hand-made production table's one-row-per-workspace index.
+    sdb.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_c49_workspace ON subscriptions(workspace_id) WHERE workspace_id IS NOT NULL");
+    for (const id of ["u1", "u2"]) sdb.prepare("INSERT INTO users(id,email,password_hash,name,plan,status,email_verified,mfa_enabled) VALUES(?,?,?,?,'free','active',1,0)").run(id, `${id}@example.invalid`, "local-fixture", id);
+    for (const [id, owner] of [["w1", "u1"], ["w2", "u1"]]) {
+      sdb.prepare("INSERT INTO workspaces(id,owner_user_id,name) VALUES(?,?,?)").run(id, owner, id);
+      sdb.prepare("INSERT INTO workspace_members(id,workspace_id,user_id,role) VALUES(?,?,?,'owner')").run(`wm-${id}`, id, owner);
+    }
+    const cenv = makeEnv(sdb);
+    cenv.STRIPE_PRICE_MAP = JSON.stringify({ starter_monthly: "price_sm", professional_monthly: "price_pm", business_monthly: "price_bm" });
+    const provider = createStripeProvider();
+    globalThis.fetch = provider.fetch;
+    const base = cenv.cybermeters_db;
+    const c = { db: sdb, env: cenv, provider, failCompletionOnce: false, truth: (...subs) => subs.forEach(provider.set) };
+    cenv.cybermeters_db = { ...base, prepare(sql) {
+      const st = base.prepare(sql.replaceAll("datetime('now')", `datetime('${sqlTime()}')`));
+      const wrap = (x) => ({ ...x, bind(...a) { return wrap(x.bind(...a)); }, async run() {
+        // holdSql: pause the first matching write until released (a slow D1 write).
+        if (c.holdSql && c.holdSql.pattern.test(sql)) { const h = c.holdSql; c.holdSql = null; h.reached(); await h.gate; }
+        if (c.failCompletionOnce && /UPDATE stripe_processed_events SET status = 'completed'/.test(sql)) {
+          c.failCompletionOnce = false; throw new Error("injected completion-marker failure");
+        }
+        return x.run();
+      } });
+      return wrap(st);
+    } };
+    return c;
+  }
+  async function deliver(c, e, expected = 200) {
+    const raw = JSON.stringify(e), t = Math.floor(clock / 1000);
+    const sig = await hmacHex(c.env.STRIPE_WEBHOOK_SECRET, `${t}.${raw}`);
+    const request = new Request("https://api.cybermeters.com/api/billing/webhook", { method: "POST", headers: { "Stripe-Signature": `t=${t},v1=${sig}` }, body: raw });
+    const response = await globalBillingRoutes({ request, env: c.env, url: new URL(request.url),
+      json: (d, status = 200) => Response.json(d, { status }), serverError: () => Response.json({ error: "server" }, { status: 500 }) });
+    const data = await response.json();
+    ok(`C-49 ${e.type} ${e.id} → ${expected}`, response.status === expected);
+    return data;
+  }
+  const rows = (c) => c.db.prepare("SELECT * FROM subscriptions ORDER BY id").all();
+  async function expectPlans(name, c, expected) {
+    const actual = {};
+    for (const id of Object.keys(expected)) actual[id] = (await getEffectivePlanState(id, c.env)).plan;
+    ok(`${name}: ${JSON.stringify(expected)} (got ${JSON.stringify(actual)})`, JSON.stringify(actual) === JSON.stringify(expected));
+  }
+
+  try {
+    { // D01 same event-id duplicates before and after recovery
+      const c = setup();
+      c.truth(sub({ status: "past_due", latest_invoice: open("i1", 10) }));
+      const e = event("customer.subscription.created", sub(), 0); await deliver(c, e);
+      ok("D01 duplicate created is deduped", (await deliver(c, e)).deduped === true);
+      const f = event("invoice.payment_failed", inv(), 10); await deliver(c, f);
+      ok("D01 duplicate failure is deduped", (await deliver(c, f)).deduped === true);
+      ok("D01 one failure attempt recorded", rows(c)[0].payment_retry_count === 1);
+      c.truth(sub({ latest_invoice: paid("i1", 20) }));
+      await deliver(c, event("invoice.payment_succeeded", inv(), 20));
+      ok("D01 replay after recovery deduped", (await deliver(c, f)).deduped === true);
+      await expectPlans("D01", c, { u1: "professional" });
+    }
+    { // F01/F02 deletion then late failure (then success)
+      const c = setup(); c.truth(sub({ status: "canceled", latest_invoice: open("i1", 10) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.deleted", sub({ status: "canceled" }), 30));
+      await deliver(c, event("invoice.payment_failed", inv(), 10));
+      await expectPlans("F01 deletion then late failure grants no grace", c, { u1: "free" });
+      ok("F01 no grace anchor on the cancelled row", rows(c).every((r) => r.payment_failed_at === null));
+      await deliver(c, event("invoice.payment_succeeded", inv(), 20));
+      await expectPlans("F02 ...then a late success does not reactivate", c, { u1: "free" });
+    }
+    { // D02/D03 deletion then success alone; late checkout + update after deletion
+      const c = setup(); c.truth(sub({ status: "canceled" }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.deleted", sub({ status: "canceled" }), 30));
+      await deliver(c, event("invoice.payment_succeeded", inv(), 20));
+      await expectPlans("D02 deletion then success stays cancelled", c, { u1: "free" });
+      await deliver(c, event("checkout.session.completed", { id: "cs1", customer: "c1", subscription: "s1", metadata: m(), payment_status: "paid" }, 5));
+      await deliver(c, event("customer.subscription.updated", sub(), 10));
+      await expectPlans("D03 late checkout and update after deletion", c, { u1: "free" });
+    }
+    { // D04 deletion before any row; late paid checkout and create
+      const c = setup(); c.truth(sub({ status: "canceled" }));
+      await deliver(c, event("customer.subscription.deleted", sub({ status: "canceled" }), 30));
+      await deliver(c, event("checkout.session.completed", { id: "cs1", customer: "c1", subscription: "s1", metadata: m(), payment_status: "paid" }, 5));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      ok("D04 no account row is created", rows(c).length === 0);
+      await expectPlans("D04", c, { u1: "free" });
+    }
+    for (const [name, latest, older, expected] of [
+      ["F03 latest downgrade survives an older upgrade", "price_sm", "price_bm", "starter"],
+      ["F04 latest upgrade survives an older downgrade", "price_bm", "price_sm", "business"],
+    ]) {
+      const c = setup(); c.truth(sub(price(latest)));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.updated", sub(price(latest)), 30));
+      await deliver(c, event("customer.subscription.updated", sub(price(older)), 20));
+      await expectPlans(name, c, { u1: expected });
+    }
+    { // F05 latest unpaid survives an older active update
+      const c = setup(); c.truth(sub({ status: "unpaid", latest_invoice: open("i1", 25) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.updated", sub({ status: "unpaid" }), 30));
+      await deliver(c, event("customer.subscription.updated", sub(), 20));
+      await expectPlans("F05", c, { u1: "free" });
+    }
+    { // F06 newer renewal survives an older unpaid update
+      const c = setup(); c.truth(sub({ current_period_end: epoch(60 * 86400), latest_invoice: paid("i2", 29) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.updated", sub({ current_period_end: epoch(60 * 86400) }), 30));
+      await deliver(c, event("customer.subscription.updated", sub({ status: "unpaid" }), 20));
+      ok("F06 renewed period kept", rows(c)[0].current_period_end === new Date(epoch(60 * 86400) * 1000).toISOString());
+      await expectPlans("F06", c, { u1: "professional" });
+    }
+    { // F07 fail → succeed → older failure (distinct id), day 8
+      const c = setup(); c.truth(sub({ latest_invoice: paid("i1", 20) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("invoice.payment_failed", inv(), 10));
+      await deliver(c, event("invoice.payment_succeeded", inv(), 20));
+      await deliver(c, event("invoice.payment_failed", inv(), 11));
+      clock += 8 * DAY;
+      await expectPlans("F07 an older failure never expires a paid account", c, { u1: "professional" });
+    }
+    { // F08 an older invoice's success never settles a newer open invoice
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i-current", 30) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("invoice.payment_failed", inv({ id: "i-old" }), 10));
+      await deliver(c, event("invoice.payment_succeeded", inv({ id: "i-old" }), 20));
+      await deliver(c, event("invoice.payment_failed", inv({ id: "i-current" }), 30));
+      await deliver(c, event("invoice.payment_succeeded", inv({ id: "i-old" }), 21));
+      clock += 8 * DAY;
+      await expectPlans("F08", c, { u1: "free" });
+    }
+    { // F09 a NEWER event for an OLDER invoice still leaves current debt open
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i-current", 30) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("invoice.payment_failed", inv({ id: "i-current" }), 30));
+      await deliver(c, event("invoice.payment_succeeded", inv({ id: "i-older" }), 40));
+      clock += 8 * DAY;
+      await expectPlans("F09", c, { u1: "free" });
+    }
+    { // F10 a webhook retry never restarts the grace window
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i1", 10) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      const f = event("invoice.payment_failed", inv(), 10);
+      c.failCompletionOnce = true;
+      await deliver(c, f, 503);
+      const anchor = rows(c)[0].payment_failed_at;
+      clock += 6 * DAY; await deliver(c, f);
+      ok("F10 grace anchor unchanged by the retry (Stripe invoice time)", rows(c)[0].payment_failed_at === anchor && anchor !== null);
+      clock += 2 * DAY;
+      await expectPlans("F10", c, { u1: "free" });
+    }
+    { // F11 deleting a second subscription keeps the first, still-paid one
+      const c = setup(); c.truth(sub(), sub({ id: "s2", ...price("price_sm"), status: "canceled" }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.created", sub({ id: "s2", ...price("price_sm") }), 20));
+      await deliver(c, event("customer.subscription.deleted", sub({ id: "s2", status: "canceled" }), 30));
+      await expectPlans("F11", c, { u1: "professional" });
+    }
+    { // D05 + F12 an old subscription's events never replace the active one
+      const c = setup(); c.truth(sub({ status: "unpaid" }), sub({ id: "s2", ...price("price_sm") }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.created", sub({ id: "s2", ...price("price_sm") }), 20));
+      await deliver(c, event("invoice.payment_failed", inv({ subscription: "s1" }), 30));
+      await expectPlans("D05 old subscription's invoice leaves the current one", c, { u1: "starter" });
+      await deliver(c, event("customer.subscription.updated", sub({ status: "unpaid" }), 40));
+      await expectPlans("F12", c, { u1: "starter" });
+    }
+    { // F13 a different customer's deletion never collapses the first lineage
+      const c = setup(); c.truth(sub(), sub({ id: "s2", customer: "c2", metadata: m({ workspace_id: "w2" }), ...price("price_sm"), status: "canceled" }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.created", sub({ id: "s2", customer: "c2", metadata: m({ workspace_id: "w2" }), ...price("price_sm") }), 20));
+      await deliver(c, event("customer.subscription.deleted", sub({ id: "s2", customer: "c2", status: "canceled", metadata: m({ workspace_id: "w2" }) }), 30));
+      await expectPlans("F13", c, { u1: "professional" });
+      ok("F13 the first lineage keeps its row", rows(c).some((r) => r.stripe_subscription_id === "s1" && r.workspace_id === "w1"));
+    }
+    { // D06 + F14 workspace ownership change does not transfer billing (Executive: F14 excluded)
+      const c = setup(); c.truth(sub());
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      c.db.prepare("UPDATE workspaces SET owner_user_id='u2' WHERE id='w1'").run();
+      c.db.prepare("UPDATE workspace_members SET role='member' WHERE workspace_id='w1' AND user_id='u1'").run();
+      c.db.prepare("INSERT INTO workspace_members(id,workspace_id,user_id,role) VALUES('wm-new','w1','u2','owner')").run();
+      await deliver(c, event("customer.subscription.updated", sub(), 20));
+      await expectPlans("D06 the billing account keeps its plan", c, { u1: "professional", u2: "free" });
+      c.truth(sub({ metadata: m({ user_id: "u2" }) }));
+      await deliver(c, event("customer.subscription.updated", sub({ metadata: m({ user_id: "u2" }) }), 30));
+      await expectPlans("F14 metadata never moves billing to another account", c, { u1: "professional", u2: "free" });
+    }
+    { // F15/F16 a one-off invoice (no subscription id) changes no subscription
+      const c = setup(); c.truth(sub());
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      const readsBefore = c.provider.reads;
+      await deliver(c, event("invoice.payment_failed", inv({ subscription: undefined, billing_reason: "manual" }), 20));
+      ok("F15 a one-off invoice reads no subscription and moves nothing", c.provider.reads === readsBefore && rows(c)[0].subscription_status === "active");
+      clock += 8 * DAY;
+      await expectPlans("F15b", c, { u1: "professional" });
+    }
+    {
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i1", 20) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("invoice.payment_failed", inv(), 20));
+      await deliver(c, event("invoice.payment_succeeded", inv({ id: "i-manual", subscription: undefined, billing_reason: "manual" }), 30));
+      clock += 8 * DAY;
+      await expectPlans("F16 a one-off payment never settles subscription debt", c, { u1: "free" });
+    }
+    { // F17 a late failure never turns terminal unpaid into grace
+      const c = setup(); c.truth(sub({ status: "unpaid", latest_invoice: open("i1", 20) }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.updated", sub({ status: "unpaid" }), 30));
+      await deliver(c, event("invoice.payment_failed", inv(), 20));
+      await expectPlans("F17", c, { u1: "free" });
+    }
+    { // F18 an invoice failure before any row is never lost
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i1", 20) }));
+      await deliver(c, event("invoice.payment_failed", inv(), 20));
+      await deliver(c, event("customer.subscription.created", sub(), 10));
+      clock += 8 * DAY;
+      await expectPlans("F18", c, { u1: "free" });
+    }
+    { // F19 an early success is never lost to an older past_due update
+      const c = setup(); c.truth(sub({ latest_invoice: paid("i1", 20) }));
+      await deliver(c, event("invoice.payment_succeeded", inv(), 20));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.updated", sub({ status: "past_due" }), 10));
+      await expectPlans("F19", c, { u1: "professional" });
+    }
+    { // F20 an early failure keeps its grace anchor
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i1", 20) }));
+      await deliver(c, event("invoice.payment_failed", inv(), 20));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.updated", sub({ status: "past_due" }), 21));
+      await expectPlans("F20 day zero of a legitimate failure keeps paid access", c, { u1: "professional" });
+      ok("F20 grace anchored on Stripe's invoice", rows(c)[0].payment_failed_at === new Date(epoch(20 - 3600) * 1000).toISOString());
+    }
+    { // (c) terminal: a deleted subscription never leaves cancelled, even when a
+      // Stripe read lags the deletion or later contradicts it
+      const c = setup(); c.truth(sub());
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.deleted", sub({ status: "canceled" }), 30));
+      await expectPlans("(c) a deletion read back as active still cancels", c, { u1: "free" });
+      await deliver(c, event("customer.subscription.updated", sub(), 31));
+      await expectPlans("(c) a later active read never revives it", c, { u1: "free" });
+      ok("(c) the lineage is terminal", c.db.prepare("SELECT terminal, status FROM stripe_subscription_lineages WHERE stripe_subscription_id = 's1'").get()?.terminal === 1);
+    }
+    { // N01 (C-49b) concurrent stale write: a slow, older read never lands last
+      const c = setup(); c.truth(sub(price("price_bm")));
+      await deliver(c, event("customer.subscription.created", sub(price("price_bm")), 0));
+      const release = c.provider.holdNext();
+      const slow = deliver(c, event("customer.subscription.updated", sub(price("price_bm")), 10));
+      await new Promise((r) => setTimeout(r, 0));
+      c.truth(sub(price("price_sm")));
+      await deliver(c, event("customer.subscription.updated", sub(price("price_sm")), 20));
+      release(); await slow;
+      await expectPlans("N01 the held older read never regresses starter to business", c, { u1: "starter" });
+      ok("N01 the lineage holds Stripe's newer plan", c.db.prepare("SELECT plan FROM stripe_subscription_lineages WHERE stripe_subscription_id = 's1'").get()?.plan === "starter");
+    }
+    { // N01b: the account row derived from an older read is redone, never left stale
+      const c = setup(); c.truth(sub(price("price_bm")));
+      await deliver(c, event("customer.subscription.created", sub(price("price_bm")), 0));
+      let release, reached;
+      const atWrite = new Promise((r) => { reached = r; });
+      c.holdSql = { pattern: /UPDATE subscriptions\s+SET plan = COALESCE/, gate: new Promise((r) => { release = r; }), reached };
+      const slow = deliver(c, event("customer.subscription.updated", sub(price("price_bm")), 10));
+      await atWrite;
+      c.truth(sub(price("price_sm")));
+      await deliver(c, event("customer.subscription.updated", sub(price("price_sm")), 20));
+      release(); await slow;
+      ok("N01b the stored row ends on Stripe's newer plan", rows(c)[0].plan === "starter");
+    }
+    { // N02 (C-49b) grace expiry with no webhook never hides a paid sibling:
+      // s2 is a second Stripe customer for the same workspace, so it has no
+      // account row of its own (one row per workspace) — only its lineage.
+      const s2 = sub({ id: "s2", customer: "c2", ...price("price_sm") });
+      const c = setup(); c.truth(sub({ status: "past_due", latest_invoice: open("i1", 10) }), s2);
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      await deliver(c, event("customer.subscription.created", s2, 20));
+      ok("N02 the second customer's subscription opened no second row", rows(c).length === 1 && rows(c)[0].stripe_subscription_id === "s1");
+      await expectPlans("N02 inside grace the active paid sibling applies", c, { u1: "starter" });
+      clock += 8 * DAY;
+      await expectPlans("N02 after grace, with no webhook, the paid sibling applies", c, { u1: "starter" });
+      const view = await (await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "entitlements.js")).href)).loadAccountSubscription("u1", c.env);
+      ok("N02 the account view agrees (active starter)", view.status === "active" && view.plan === "starter");
+    }
+    { // (f) a failed Stripe read is retried, never completed
+      const c = setup(); c.truth(sub());
+      c.provider.failNext(1);
+      const e = event("customer.subscription.created", sub(), 0);
+      await deliver(c, e, 500);
+      ok("(f) failed read leaves no row and a retryable marker",
+        rows(c).length === 0 && c.db.prepare("SELECT status FROM stripe_processed_events WHERE id = ?").get(e.id)?.status === "failed");
+      await deliver(c, e);
+      await expectPlans("(f) the retry applies Stripe's state", c, { u1: "professional" });
+    }
+    { // (b) a subscription Stripe does not know changes nothing
+      const c = setup(); c.truth(sub());
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      const before = JSON.stringify(rows(c));
+      await deliver(c, event("customer.subscription.deleted", sub({ id: "s-unknown", status: "canceled" }), 30));
+      await deliver(c, event("invoice.payment_failed", inv({ subscription: "s-unknown" }), 31));
+      ok("(b) unknown subscription id touches no row", JSON.stringify(rows(c)) === before);
+      await expectPlans("(b)", c, { u1: "professional" });
+    }
+    { // (e) two still-paid subscriptions on two customers: the better plan wins
+      const c = setup(); c.truth(sub(), sub({ id: "s2", customer: "c2", metadata: m({ workspace_id: "w2" }), ...price("price_sm") }));
+      await deliver(c, event("customer.subscription.created", sub(), 0));
+      clock += 1000;
+      await deliver(c, event("customer.subscription.created", sub({ id: "s2", customer: "c2", metadata: m({ workspace_id: "w2" }), ...price("price_sm") }), 20));
+      ok("(e) both lineages have a row", rows(c).length === 2);
+      await expectPlans("(e) the newer, lower plan never wins", c, { u1: "professional" });
+    }
+  } finally {
+    Date.now = realNow;
+    globalThis.fetch = stripe.fetch;
+  }
 }
 
 // ── Global lockstep guard: NO row in the whole run diverges ──────────────────

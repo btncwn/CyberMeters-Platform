@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../api'
+import { keyLabel } from '../lib/keyLabel'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ function LoginHistory() {
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <span className="text-sm font-medium text-gray-900">
-                    {EVENT_LABELS[ev.event_type] || ev.event_type}
+                    {EVENT_LABELS[ev.event_type] || keyLabel(ev.event_type)}
                   </span>
                   <span className="text-xs text-gray-400">{formatDate(ev.timestamp)}</span>
                 </div>

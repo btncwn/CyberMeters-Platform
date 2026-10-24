@@ -16,6 +16,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Bell, X } from 'lucide-react'
 import { api } from '../api'
 import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
+import { keysInText } from '../lib/keyLabel'
 
 // ── Severity / type helpers ────────────────────────────────────────────────────
 
@@ -348,8 +349,8 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
                         <div className="flex items-start justify-between gap-2">
                           <p className={`text-xs font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
                             {link
-                              ? <button type="button" onClick={(e) => { e.stopPropagation(); handleNotifClick() }} className="text-left hover:underline">{n.title}</button>
-                              : n.title}
+                              ? <button type="button" onClick={(e) => { e.stopPropagation(); handleNotifClick() }} className="text-left hover:underline">{keysInText(n.title)}</button>
+                              : keysInText(n.title)}
                           </p>
                           <div className="flex items-center gap-1 shrink-0">
                             {link && (
@@ -368,7 +369,7 @@ export default function NotificationBell({ trigger = null, variant = 'bell' } = 
                           </div>
                         </div>
                         {n.message && (
-                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{presentNotificationMessage(n.message)}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{keysInText(presentNotificationMessage(n.message))}</p>
                         )}
                         <div className="flex items-center gap-2 mt-1.5">
                           <span className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider ${cfg.text}`}>

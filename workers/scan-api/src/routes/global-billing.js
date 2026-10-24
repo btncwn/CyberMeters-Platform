@@ -19,12 +19,16 @@ import { reconcileMcpOAuthPortfolioSubscription } from "./mcp-oauth-admission.js
 // a converted trial (no later reader may trust it; the value is kept in the
 // append-only subscription event), and tell the owner once per (subscription,
 // plan) that the plan is active. Never fails the webhook.
-async function onPaidPlanActive(env, rowId, obj, plan) {
-  if (!rowId || normalizeStripeSubscriptionStatus(obj?.status) !== "active") return;
+async function onPaidPlanActive(env, rowId, obj, payloadPlan) {
+  if (!rowId) return;
   try {
     const row = await env.cybermeters_db
-      .prepare("SELECT owner_user_id, workspace_id, trial_end FROM subscriptions WHERE id = ? LIMIT 1")
+      .prepare("SELECT owner_user_id, workspace_id, trial_end, plan, subscription_status, stripe_subscription_id FROM subscriptions WHERE id = ? LIMIT 1")
       .bind(rowId).first();
+    // The account row holds Stripe's current state (the payload may be stale):
+    // only a row now active on THIS subscription is a newly active plan.
+    if (row?.subscription_status !== "active" || row?.stripe_subscription_id !== obj?.id) return;
+    const plan = row?.plan ? normalizePlan(row.plan) : payloadPlan;
     if (row?.trial_end) {
       const cleared = await env.cybermeters_db
         .prepare("UPDATE subscriptions SET trial_end = NULL, updated_at = datetime('now') WHERE id = ? AND trial_end IS NOT NULL AND subscription_status = 'active'")
@@ -498,9 +502,13 @@ export async function globalBillingRoutes(rctx) {
             if (rowId) {
               try {
                 const subOwner = await env.cybermeters_db
-                  .prepare("SELECT owner_user_id, workspace_id FROM subscriptions WHERE id = ? LIMIT 1")
+                  .prepare("SELECT owner_user_id, workspace_id, subscription_status FROM subscriptions WHERE id = ? LIMIT 1")
                   .bind(rowId)
                   .first();
+                // Tell the customer only when Stripe says the account is in
+                // payment trouble now (not for a late event after a recovery
+                // or a cancellation).
+                if (subOwner?.subscription_status !== "past_due") break;
                 if (subOwner?.owner_user_id) {
                   await sendLifecycleEmail(env, {
                     type: "lifecycle_payment_failed",

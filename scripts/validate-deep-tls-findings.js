@@ -144,7 +144,28 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
     ['certificate_case','certificates_trust','detected','tls_legacy_protocol','high','tls.endpoint.legacy_protocol'], 'the case is a Certificates & Trust case with the canonical remediation');
   assert.deepEqual(transitions(),['tls_condition_observed'],'the opening is recorded as an alert occurrence');
   const { certificateCaseDisplay } = await import('../workers/scan-api/src/engines/certificate-lifecycle.js');
-  assert.equal(certificateCaseDisplay(c1).display_title,'TLS endpoint mail.example.org — legacy TLS version accepted','a TLS case names the endpoint condition, never "Certificate follow-up"');
+  assert.equal(certificateCaseDisplay(c1).display_title,'TLS endpoint mail.example.org — TLS 1.0 accepted','a TLS case names its protocol, never "Certificate follow-up" or a shared phrase');
+  // Two cases on one endpoint never read the same (Executive, 23 Oct 19:42).
+  {
+    const notifMark = db.prepare("SELECT COALESCE(MAX(rowid),0) m FROM notification_events").get().m;
+    const both = module([protocol('tls1'),protocol('tls1_1'),protocol('tls1_3')]);
+    await run(both);
+    const titles = db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws1' AND source_finding_type='tls_legacy_protocol'").all().map(r=>certificateCaseDisplay({...r}).display_title).sort();
+    assert.deepEqual(titles,['TLS endpoint mail.example.org — TLS 1.0 accepted','TLS endpoint mail.example.org — TLS 1.1 accepted'],'TLS 1.0 and TLS 1.1 cases are told apart');
+    // An older case without the recorded condition gets it on the next re-measure, once, no duplicate.
+    const t11 = db.prepare("SELECT id FROM managed_cases WHERE workspace_id='ws1' AND title LIKE 'TLS1.1%'").get().id;
+    db.prepare("UPDATE managed_cases SET evidence_json=NULL WHERE id=?").run(t11);
+    assert.equal(certificateCaseDisplay({...db.prepare("SELECT * FROM managed_cases WHERE id=?").get(t11)}).display_title,'TLS endpoint mail.example.org — legacy TLS version accepted');
+    const before = db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n;
+    await run(both);
+    assert.equal(certificateCaseDisplay({...db.prepare("SELECT * FROM managed_cases WHERE id=?").get(t11)}).display_title,'TLS endpoint mail.example.org — TLS 1.1 accepted','an older case is retitled on the next re-measure');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n,before,'no duplicate case');
+    assert.equal(certificateCaseDisplay({case_type:'certificate_case',source_finding_type:'tls_weak_cipher',asset_ref:'mail.example.org',evidence_json:JSON.stringify({tls_condition:{protocol:'tls1_2',cipher_id:'RC4-MD5'}})}).display_title,'TLS endpoint mail.example.org — weak cipher RC4-MD5 accepted','a weak cipher case names its cipher');
+    assert.equal(certificateCaseDisplay({case_type:'certificate_case',source_finding_type:'tls_robot_confirmed',asset_ref:'mail.example.org'}).display_title,'TLS endpoint mail.example.org — ROBOT (RSA padding oracle) signal','a _confirmed case names its vulnerability');
+    db.prepare("DELETE FROM managed_cases WHERE workspace_id='ws1' AND id<>?").run(c1.id);
+    // This block's own side effects stay inside it (the alert assertions below count from the open).
+    db.prepare("DELETE FROM notification_events WHERE rowid > ?").run(notifMark);
+  }
   assert.deepEqual(await run(baseline), {opened:0,reopened:0,verified:0}, 'the same measurement again opens nothing new');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n,1,'one case per exact condition');
   const fixed=module([protocol('tls1','rejected'),protocol('tls1_3')]);

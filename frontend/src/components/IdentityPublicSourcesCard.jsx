@@ -1,6 +1,7 @@
 import { formatDate } from '../utils/dates'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { keyLabel } from '../lib/keyLabel'
 
 export default function IdentityPublicSourcesCard({ workspaceId }) {
   const [data, setData] = useState(null)
@@ -55,7 +56,7 @@ export default function IdentityPublicSourcesCard({ workspaceId }) {
         <p className="text-xs text-gray-600 mt-1">Key validity and account compromise have not been tested.</p>
       </div>)}
       <details className="mt-2 text-xs text-gray-500"><summary>Files checked</summary>
-        <ul className="mt-2 space-y-1">{check.result.checked_sources.map((s, i) => <li key={i} className="break-all">{s.source_url}: {s.status}{s.http_status ? ` (HTTP ${s.http_status})` : ''}</li>)}</ul>
+        <ul className="mt-2 space-y-1">{check.result.checked_sources.map((s, i) => <li key={i} className="break-all">{s.source_url}: {keyLabel(s.status) || 'Not recorded'}{s.http_status ? ` (HTTP ${s.http_status})` : ''}</li>)}</ul>
       </details>
     </article>)}
     <p className="text-xs text-gray-500 mt-3">{data?.scope_note || 'One public page and directly linked same-origin JavaScript. This is not employee breach monitoring.'}</p>
