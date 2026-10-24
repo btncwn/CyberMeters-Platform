@@ -456,6 +456,10 @@ ok("list API output is deterministic",
   const body = await res.json();
   same("GET identity-surfaces returns workspace-wide counts.by_claim_kind", body.counts?.by_claim_kind,
     { measured_identity_surface: 1, provider_relationship: 2, surface_candidate: 1, complete: true, counted: 4 });
+  const furl = new URL("https://unit.test/api/workspaces/wsc/identity-surfaces?customer_classification=expected");
+  const fbody = await (await identityExposureRoutes({ request: new Request(furl), env: cenv, url: furl, json: (b, st = 200) => Response.json(b, { status: st }),
+    requireAuth: async () => ({ id: "u" }), requireWorkspaceRole: async () => ({ role: "owner" }) })).json();
+  ok("a filtered list call does not pay for the claim-kind read", fbody.counts && !("by_claim_kind" in fbody.counts));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

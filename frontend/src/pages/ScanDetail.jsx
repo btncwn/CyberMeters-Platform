@@ -30,6 +30,8 @@ import {
   nextReportPreparationDelay,
   reportPreparationPresentation,
 } from '../lib/reportAvailability'
+import { keyLabel } from '../lib/keyLabel'
+import { useScopedDomain } from '../components/shell/WorkspaceContext'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
@@ -210,11 +212,11 @@ function EvidencePanel({ evidence }) {
         const mvc    = item.manual_verification_command ?? null
 
         const rows = [
-          type  && ['Type',           String(type)],
+          type  && ['Type',           keyLabel(type)],
           lbl   && ['Target',         String(lbl)],
           hasVal && ['Observed',      String(valRaw ?? 'null (no record found)')],
           exp   && ['Expected',       String(exp)],
-          src   && ['Source',         String(src)],
+          src   && ['Source',         keyLabel(src)],
           chk   && ['Checked at',     formatDate(chk)],
           stat  && ['HTTP status',    String(stat)],
           mhdr  && ['Missing header', String(mhdr)],
@@ -1423,6 +1425,8 @@ export default function ScanDetail() {
   // enhancement — the report renders identically if they cannot be loaded.
   const activeWsId   = typeof window !== 'undefined' ? localStorage.getItem('cybermeters_workspace_id') : null
   const reportDomain = report?.domain || scan?.domain || null
+  // The context bar names the scanned domain (founder, 23 Oct 2026).
+  useScopedDomain(reportDomain, { workspaceId: report?.workspace_id || scan?.workspace_id || null })
 
   // A completed report records when the run started and finished; remember
   // its duration so the next queued scan can say how long it usually takes.

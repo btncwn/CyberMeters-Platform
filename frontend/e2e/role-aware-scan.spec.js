@@ -68,7 +68,8 @@ test('analyst: no add-domain box or verify; rescans a domain the workspace alrea
   await expect(panel).toContainText('Only workspace admins can add new domains. You can rescan domains this workspace has already verified.')
   // Only the verified domain is offered; the pending one is not.
   await expect(page.getByTestId('rescan-domains').getByRole('listitem')).toHaveCount(1)
-  await expect(page.getByText('bbb-bookings.co.uk')).toHaveCount(0)
+  // Not offered for rescan (the workspace card's domain list may still name it).
+  await expect(panel.getByText('bbb-bookings.co.uk')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'See all domains in this workspace' })).toHaveAttribute('href', `/workspaces/${ws.id}`)
   await expect(page.getByRole('textbox')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Verify domain ownership/ })).toHaveCount(0)

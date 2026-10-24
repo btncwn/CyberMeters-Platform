@@ -224,7 +224,13 @@ async function main() {
     plansResp.status === 200 && plansResp.data?.checkout_enabled === true && plansResp.data?.stripe?.configured === true);
 
   const secret = env.STRIPE_WEBHOOK_SECRET;
+  // Webhooks re-read the subscription from Stripe (migration 139); a local
+  // stand-in answers, kept in step with the correctly-signed events delivered.
+  const { createStripeProvider } = await import(pathToFileURL(path.join(__dirname, "security", "lib", "worker-harness.js")).href);
+  const stripe = createStripeProvider();
+  globalThis.fetch = stripe.fetch;
   const postWebhook = async (payload, { sign = true, ts = Math.floor(Date.now() / 1000) } = {}) => {
+    if (sign) stripe.mirror(payload);
     const raw = JSON.stringify(payload);
     const headers = { "Content-Type": "application/json" };
     if (sign) headers["Stripe-Signature"] = `t=${ts},v1=${await hmacHex(secret, `${ts}.${raw}`)}`;

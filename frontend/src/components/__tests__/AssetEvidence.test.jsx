@@ -80,7 +80,9 @@ describe('AssetEvidence', () => {
     const findings = screen.getByRole('region', { name: 'Findings' })
     expect(findings).toHaveTextContent('Sensitive Management Tool Exposed')
     expect(findings).toHaveTextContent('Measured: HTTPS port 443 answered with HTTP 200 and the page title "phpMyAdmin"')
-    expect(findings).toHaveTextContent('Check exposure.sensitive_tool, version 2026.10.1: A request to the host returns the interface')
+    // The rule in words; the internal check id/version are not customer text (C-45 R19).
+    expect(findings).toHaveTextContent('A request to the host returns the interface')
+    expect(findings).not.toHaveTextContent('exposure.sensitive_tool')
     const gaps = screen.getByRole('region', { name: 'Not checked' })
     expect(within(gaps).getAllByRole('listitem')).toHaveLength(2)
     expect(gaps).toHaveTextContent('an answer is not proof the service works over IPv6')
