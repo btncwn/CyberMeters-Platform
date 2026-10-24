@@ -41,3 +41,21 @@ for (const width of [1440, 390]) {
     })
   }
 }
+
+// The row link's › stays on the domain's last word at 390 (never alone on a line).
+test('Scans list row @390: the link arrow never wraps alone', async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 900 })
+  await seedSession(context)
+  await installAppMock(page)
+  await page.route(`${API_BASE}/scans`, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ scans: [scan] }) }))
+  await page.goto('/scans', { waitUntil: 'networkidle' })
+  const link = page.locator('tbody .cm-rowlink').first()
+  await expect(link).toBeVisible()
+  const lines = await link.evaluate((el) => {
+    const r = document.createRange(); r.selectNodeContents(el)
+    return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size
+  })
+  const after = await link.evaluate((el) => getComputedStyle(el, '::after').display)
+  expect(after).toBe('inline')
+  expect(lines).toBe(1)
+})
