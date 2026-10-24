@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   api.authSignup.mockResolvedValue({})
-  api.authLogin.mockRejectedValue(new Error('email_verification_required'))
+  api.authLogin.mockRejectedValue(Object.assign(new Error('Something went wrong. Please try again.'), { status: 403, error: 'email_verification_required', code: 'email_verification_required' }))
   api.resendVerification.mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValue({})
 })
 

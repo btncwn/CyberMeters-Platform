@@ -66,7 +66,7 @@ describe('Active Checks availability (#929)', () => {
     expect(api.grantActiveCheckConsent.mock.calls[0][1].checks).toEqual(['mail_open_relay'])
   })
   it('the server refusal active_check_not_available reads in plain words', async () => {
-    api.grantActiveCheckConsent.mockRejectedValue(Object.assign(new Error('active_check_not_available'), { status: 422 }))
+    api.grantActiveCheckConsent.mockRejectedValue(Object.assign(new Error('Something went wrong. Please try again.'), { status: 422, error: 'active_check_not_available', code: 'active_check_not_available' }))
     render_()
     fireEvent.change(await screen.findByRole('combobox', { name: 'Verified domain' }), { target: { value: 'dom_1' } })
     fireEvent.change(screen.getByRole('textbox', { name: /Hosts/ }), { target: { value: 'mail.blackbullbarbers.co.uk' } })

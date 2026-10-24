@@ -1,0 +1,747 @@
+{
+  "schema": "remote-access-corpus-v1",
+  "observed_at": "2026-10-24T01:24:47.494Z",
+  "corpus_sha256": "df14ecce667c9e9481434f0b815008aa686988dbe66f621fba31f4d2e26d13bc",
+  "table_version": "2026-10-24.1",
+  "scope": "Existing accuracy corpus; HTTPS homepage only, capped32KiB, no login paths or credentials; no production scan.",
+  "counts": {
+    "total": 105,
+    "tp": 0,
+    "fp": 0,
+    "unknown": 95,
+    "not_detected": 10,
+    "review_required": 0
+  },
+  "limitation": "No real positive portal is assumed in this public-page corpus; positive and negative product truth comes from controlled local fixtures. Every positive here needs independent triage before READY.",
+  "records": [
+    {
+      "corpus_id": "entry-01",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 359
+    },
+    {
+      "corpus_id": "entry-02",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 370
+    },
+    {
+      "corpus_id": "entry-03",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-04",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 8514,
+      "body_sha256": "688905bad312d23c31dd821368fa9593a9c732593c9d361e29027090aa8f6a34"
+    },
+    {
+      "corpus_id": "entry-05",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 48853
+    },
+    {
+      "corpus_id": "entry-06",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-07",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-08",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 38802
+    },
+    {
+      "corpus_id": "entry-09",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-10",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-11",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 6183,
+      "body_sha256": "c1a45d065d02a947766fb3d0e4a374fcc7ce73005c14318d0d74a217b8ddf5cc"
+    },
+    {
+      "corpus_id": "entry-12",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 363
+    },
+    {
+      "corpus_id": "entry-13",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 13202
+    },
+    {
+      "corpus_id": "entry-14",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    },
+    {
+      "corpus_id": "entry-15",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-16",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-17",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 38720
+    },
+    {
+      "corpus_id": "entry-18",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-19",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-20",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 38643
+    },
+    {
+      "corpus_id": "entry-21",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 34724
+    },
+    {
+      "corpus_id": "entry-22",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-23",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 37365
+    },
+    {
+      "corpus_id": "entry-24",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 48353
+    },
+    {
+      "corpus_id": "entry-25",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 4317
+    },
+    {
+      "corpus_id": "entry-26",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5845
+    },
+    {
+      "corpus_id": "entry-27",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 371
+    },
+    {
+      "corpus_id": "entry-28",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 373
+    },
+    {
+      "corpus_id": "entry-29",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 8997,
+      "body_sha256": "03cc5a6496dce0650aab867f507f0191702bfa48809c6828032878bc1cad5781"
+    },
+    {
+      "corpus_id": "entry-30",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 359
+    },
+    {
+      "corpus_id": "entry-31",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 47094
+    },
+    {
+      "corpus_id": "entry-32",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 43797
+    },
+    {
+      "corpus_id": "entry-33",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 40663
+    },
+    {
+      "corpus_id": "entry-34",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 31453,
+      "body_sha256": "3fcb43c1b1ff399325bdba1ca4eaabebf5fb4aa497d52817f9cc1d1ec56db84f"
+    },
+    {
+      "corpus_id": "entry-35",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35730
+    },
+    {
+      "corpus_id": "entry-36",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35745
+    },
+    {
+      "corpus_id": "entry-37",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5674
+    },
+    {
+      "corpus_id": "entry-38",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5626
+    },
+    {
+      "corpus_id": "entry-39",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35702
+    },
+    {
+      "corpus_id": "entry-40",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 36292
+    },
+    {
+      "corpus_id": "entry-41",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-42",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-43",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 2185,
+      "body_sha256": "d0a24232b432dde849c99857ecbf4c8625fdfd6e68daa8559bc04616f4315eed"
+    },
+    {
+      "corpus_id": "entry-44",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 34424
+    },
+    {
+      "corpus_id": "entry-45",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35985
+    },
+    {
+      "corpus_id": "entry-46",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-47",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35604
+    },
+    {
+      "corpus_id": "entry-48",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 40987
+    },
+    {
+      "corpus_id": "entry-49",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-50",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 37932
+    },
+    {
+      "corpus_id": "entry-51",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35652
+    },
+    {
+      "corpus_id": "entry-52",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-53",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 36958
+    },
+    {
+      "corpus_id": "entry-54",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 40960
+    },
+    {
+      "corpus_id": "entry-55",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5673
+    },
+    {
+      "corpus_id": "entry-56",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-57",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 40141
+    },
+    {
+      "corpus_id": "entry-58",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 37092
+    },
+    {
+      "corpus_id": "entry-59",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5668
+    },
+    {
+      "corpus_id": "entry-60",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 40689
+    },
+    {
+      "corpus_id": "entry-61",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 23827,
+      "body_sha256": "9e9e8441d557cbf5f46274af67703afe7c441c9908c6a61ce8dbe9f8620bd723"
+    },
+    {
+      "corpus_id": "entry-62",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 42990
+    },
+    {
+      "corpus_id": "entry-63",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-64",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 38798
+    },
+    {
+      "corpus_id": "entry-65",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 212,
+      "body_sha256": "d02032286070b4dd9d8fbd985a7bdca8af8edf52b89ff177db3bfcb2c8a9c43d"
+    },
+    {
+      "corpus_id": "entry-66",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
+    },
+    {
+      "corpus_id": "entry-67",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 36798
+    },
+    {
+      "corpus_id": "entry-68",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
+    },
+    {
+      "corpus_id": "entry-69",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 43770
+    },
+    {
+      "corpus_id": "entry-70",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5877
+    },
+    {
+      "corpus_id": "entry-71",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 33220
+    },
+    {
+      "corpus_id": "entry-72",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 33167
+    },
+    {
+      "corpus_id": "entry-73",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
+    },
+    {
+      "corpus_id": "entry-74",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
+    },
+    {
+      "corpus_id": "entry-75",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 9306,
+      "body_sha256": "931da6631e608801b7626938afffbe4ebc56d2f16917cb5b9da3ae0f1c4c452d"
+    },
+    {
+      "corpus_id": "entry-76",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 45626
+    },
+    {
+      "corpus_id": "entry-77",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35229
+    },
+    {
+      "corpus_id": "entry-78",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 37330
+    },
+    {
+      "corpus_id": "entry-79",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 33826
+    },
+    {
+      "corpus_id": "entry-80",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 38223
+    },
+    {
+      "corpus_id": "entry-81",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 35741
+    },
+    {
+      "corpus_id": "entry-82",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 42863
+    },
+    {
+      "corpus_id": "entry-83",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5673
+    },
+    {
+      "corpus_id": "entry-84",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-85",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-86",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    },
+    {
+      "corpus_id": "entry-87",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 33140
+    },
+    {
+      "corpus_id": "entry-88",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
+    },
+    {
+      "corpus_id": "entry-89",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-90",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5674
+    },
+    {
+      "corpus_id": "entry-91",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 5632
+    },
+    {
+      "corpus_id": "entry-92",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 37378
+    },
+    {
+      "corpus_id": "entry-93",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
+    },
+    {
+      "corpus_id": "entry-94",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 429,
+      "bytes_observed": 1568
+    },
+    {
+      "corpus_id": "entry-95",
+      "classification": "unknown",
+      "reason": "non_serviceable_response",
+      "status": 403,
+      "bytes_observed": 4858
+    },
+    {
+      "corpus_id": "entry-96",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 49152
+    },
+    {
+      "corpus_id": "entry-97",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    },
+    {
+      "corpus_id": "entry-98",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    },
+    {
+      "corpus_id": "entry-99",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    },
+    {
+      "corpus_id": "entry-100",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    },
+    {
+      "corpus_id": "entry-101",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 14275,
+      "body_sha256": "a955583b232bc8a878077d7a8d295c8eb7f151b3ca7f80e1691b1b88843550ae"
+    },
+    {
+      "corpus_id": "entry-102",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    },
+    {
+      "corpus_id": "entry-103",
+      "classification": "unknown",
+      "reason": "bounded_body_incomplete",
+      "status": 200,
+      "bytes_observed": 33239
+    },
+    {
+      "corpus_id": "entry-104",
+      "classification": "not_detected",
+      "reason": "no_supported_signature",
+      "status": 200,
+      "bytes_observed": 577,
+      "body_sha256": "25ddf2c883e0d1958ea971d279a7e4f0fd446724ee3db7db19dadabd4a62e484"
+    },
+    {
+      "corpus_id": "entry-105",
+      "classification": "unknown",
+      "reason": "transport_unavailable"
+    }
+  ]
+}

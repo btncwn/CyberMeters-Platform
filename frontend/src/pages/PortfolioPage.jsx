@@ -216,7 +216,7 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
                 className="hover:bg-gray-50/60 cursor-pointer transition-colors"
                 onClick={() => openWorkspace(ws)}
               >
-                <td className="font-medium text-gray-900"><button type="button" onClick={(e) => { e.stopPropagation(); openWorkspace(ws) }} className="text-left hover:underline">{ws.workspace_name}</button></td>
+                <td className="font-medium text-gray-900"><button type="button" onClick={(e) => { e.stopPropagation(); openWorkspace(ws) }} className="cm-rowlink text-left">{ws.workspace_name}</button></td>
                 <td className="text-center text-gray-600">{ws.domains}</td>
                 <td className="text-center text-gray-600">{ws.active_assets}</td>
                 <td className="text-center"><ScorePill score={ws.latest_score} /></td>

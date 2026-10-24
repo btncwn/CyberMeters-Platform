@@ -154,7 +154,9 @@ test('all active rule fixtures traverse real HTTP sockets and preserve expected 
     const rule=EXPOSURE_RULES.find(rule=>rule.id===f.ruleId);assert.ok(rule,f.id);
     const path=f.path||rule.paths[0];
     await fixture(handlerFor(f.body,f.status??200,f.headers||{}),async deps=>{
-      const receipt=await collect(deps,input(f.ruleId,path));assert.equal(receipt.results[0].state,f.expectedState,f.id);covered.add(f.ruleId);
+      const receipt=await collect(deps,input(f.ruleId,path));// The new portal rule is HTTPS-only; its positive HTTPS transport is proved below.
+      const expected=f.ruleId==='remote-access-portal'&&f.polarity==='positive'?'blocked':f.expectedState;
+      assert.equal(receipt.results[0].state,expected,f.id);covered.add(f.ruleId);
     });
   }
   assert.deepEqual([...covered].sort(),EXPOSURE_RULES.filter(rule=>rule.active).map(rule=>rule.id).sort());
@@ -289,4 +291,29 @@ test('actual HTTPS verifies trusted hostname before any request; wrong, expired 
       assert.equal(receipt.results[0].state,scenario.expected);assert.equal(observed,scenario.expected==='finding'?3:0);
     }finally{for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));}
   }}finally{fixtures.cleanup();}
+});
+
+test('remote-access portal receipt uses bounded credential-free HTTPS and retains only explicit version evidence',async()=>{
+  const fixtures=createTlsFixtures(),seen=[];
+  const body='<html><title>GlobalProtect Portal</title><form action="/global-protect/login.esp"><input name="user"><input type="password" name="passwd"></form><p>PAN-OS version: 11.1.2-h2</p></html>';
+  // The real portal may be the default page on the two negative-control paths.
+  // Its strict login signature is an observation, not a file-disclosure claim.
+  const sockets=new Set();
+  const server=https.createServer({key:fixtures.read('valid.key'),cert:fixtures.read('valid.pem')},(req,res)=>{
+    seen.push({method:req.method,path:req.url,headers:req.headers});res.writeHead(200,{'content-type':'text/html'});res.end(body);
+  });
+  server.on('connection',s=>{sockets.add(s);s.once('close',()=>sockets.delete(s));});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const request=input('remote-access-portal','/global-protect/login.esp',{origin:'https://owned.example.com',checks:[{rule_id:'remote-access-portal',url:'https://owned.example.com/global-protect/login.esp'}]});
+    const receipt=await collect({resolve:async(_host,family)=>family===4?[address]:[],connectTarget:()=>({hostname:'127.0.0.1',port:server.address().port}),peerAddress:()=>address,trustedRoots:[fixtures.read('ca.pem')]},request);
+    assert.equal(receipt.results[0].state,'observed');assert.equal(receipt.results[0].portal.version,'11.1.2-h2');
+    assert.equal(seen.length,3);assert.equal(receipt.telemetry.requests,3);
+    assert.ok(seen.every(r=>r.method==='GET'&&!r.headers.cookie&&!r.headers.authorization));
+    assert.ok(!JSON.stringify(receipt).includes('<form'));
+    for(const portal of [{...receipt.results[0].portal,raw:body},{...receipt.results[0].portal,product_id:'unknown'},{...receipt.results[0].portal,version:'<script>'}]){
+      const forged=structuredClone(receipt);forged.results[0].portal=portal;assert.equal(validateExposureReceipt(request,forged).ok,false);
+    }
+    const missing=structuredClone(receipt);delete missing.results[0].portal;assert.equal(validateExposureReceipt(request,missing).ok,false);
+  }finally{for(const s of sockets)s.destroy();await new Promise(resolve=>server.close(resolve));fixtures.cleanup();}
 });

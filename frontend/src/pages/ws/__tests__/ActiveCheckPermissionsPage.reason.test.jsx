@@ -45,7 +45,7 @@ describe('Authorise says why it is unavailable', () => {
   })
   it('a ready form has no reason; a refused submit shows an inline message', async () => {
     api.getActiveCheckConsents.mockResolvedValue(payload([{ id: 'mail_open_relay', label: 'Open mail relay (no message is delivered)', available: true }]))
-    api.grantActiveCheckConsent.mockRejectedValue(Object.assign(new Error('active_check_not_available'), { status: 422 }))
+    api.grantActiveCheckConsent.mockRejectedValue(Object.assign(new Error('Something went wrong. Please try again.'), { status: 422, error: 'active_check_not_available', code: 'active_check_not_available' }))
     mount()
     fireEvent.change(await screen.findByRole('combobox', { name: 'Verified domain' }), { target: { value: 'dom_1' } })
     fireEvent.change(screen.getByRole('textbox', { name: /Hosts/ }), { target: { value: 'mail.blackbullbarbers.co.uk' } })

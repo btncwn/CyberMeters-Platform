@@ -30,7 +30,7 @@ function ExposureCard({ exp }) {
         )}
         {exp.portal_url && (
           <a href={exp.portal_url} target="_blank" rel="noopener noreferrer"
-             className="flex items-center gap-1.5 text-xs text-gray-500 hover:underline truncate">
+             className="cm-rowlink flex items-center gap-1.5 text-xs truncate">
             Portal: {exp.portal_url}
           </a>
         )}

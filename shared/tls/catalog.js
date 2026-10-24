@@ -27,7 +27,11 @@ export const TLS_SPECIAL_CONTROLS = Object.freeze(['heartbleed','robot','ccs']);
 // controls as unexecutable, the probe contract refuses them and the consent
 // route will not enable them. Re-enable only with the per-domain, owned-address
 // gate in place.
-export const TLS_SPECIAL_CONTROLS_AVAILABLE = false;
+// Founder decision (23 Oct 2026): available at launch. The per-domain grant
+// AND the customer-owned-address gate (isAuthorised -> evaluateTargetScope;
+// provider/CDN edges are 'provider_infrastructure' and refused) now hold, which
+// was the condition for lifting the 21 Oct containment above.
+export const TLS_SPECIAL_CONTROLS_AVAILABLE = true;
 export const TLS_CONTROLS = Object.freeze([
   'protocol','cipher','key_exchange','certificate','ocsp','compression',
   'secure_renegotiation','fallback_scsv','extended_master_secret',
@@ -46,6 +50,16 @@ export const TLS_SAFE_ACTIVE_CONTROLS = Object.freeze(TLS_CONTROLS.filter(contro
 export const TLS_AUTHORISATION_REQUIRED_REASON = 'requires_customer_authorisation';
 // The customer authorised an intrusive control, but the engine is not released.
 export const TLS_AUTHORISED_NOT_RELEASED_REASON = 'authorised_engine_not_released';
+// Authorised, but this scan was not started by a person, or its origin is not
+// known: the signed consent is "on demand", so only a scan whose trigger is
+// exactly 'manual' runs an intrusive control (F1; C-52 N02).
+export const TLS_AUTHORISED_ON_DEMAND_REASON = 'scheduled_or_unknown_origin';
+// Authorised for the host, but this address is shared provider infrastructure
+// (a CDN or hosting edge): never tested, whatever the grant says (F1).
+export const TLS_PROVIDER_EDGE_REASON = 'provider_infrastructure_not_tested';
+// Authorised for the host, but this address is not observed in the DNS of a
+// verified domain: never tested (F1).
+export const TLS_ADDRESS_NOT_OWNED_REASON = 'address_not_verified_not_tested';
 export const TLS_SLICE_LIMITS = Object.freeze({
   checks:8, connections:16, bytes:1048576, overreadBytes:65536,
   durationMs:25000, requestBytes:16384, responseBytes:524288,

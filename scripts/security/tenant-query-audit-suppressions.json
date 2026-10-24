@@ -207,13 +207,6 @@
       "contract": "Assignable role is validated against the actor's own role ceiling; a member can never assign a role above their permission."
     },
     {
-      "fingerprint": "2d50ead73e84",
-      "file": "workers/scan-api/src/routes/workspace-members.js",
-      "detector": "body_workspace_trust",
-      "reason": "body.role on member-add, validated against the actor's role ceiling allowlist.",
-      "contract": "Role validated against actor ceiling; no privilege escalation via body."
-    },
-    {
       "fingerprint": "23e65c2199de",
       "file": "workers/scan-api/src/routes/workspace-members.js",
       "detector": "body_workspace_trust",
@@ -254,6 +247,20 @@
       "detector": "global_latest_fallback",
       "reason": "Reviewed 2026-10-16: MCP grant cleanup intentionally selects one revoked connection from the durable global backlog. It is internal maintenance and returns no customer data.",
       "contract": "Only rows with status revoked and kv_cleanup_pending = 1 qualify; D1 admission already rejects their tokens. The selected id and user_id are used solely for a bounded provider grant revocation, then that same id is marked clean. Cron and lifecycle callers receive only processed/pending counts, never the selected identity or another tenant's data. Hard purge keeps the D1 row until provider cleanup succeeds."
+    },
+    {
+      "fingerprint": "f21b4e9b4a99",
+      "file": "workers/scan-api/src/engines/remote-access-catalogue.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "Reviewed 2026-10-24: a system cron stores one global public reference catalogue, not customer data. A workspace prefix would falsely imply ownership of shared public CVE identifiers.",
+      "contract": "The key is the fixed literal public-feeds/remote-access-kev-v1.json. Only fixed public feed URLs can be fetched; the writer projects six closed public metadata fields and CVE identifiers, discarding every other feed field. No request, workspace, host, server version or customer content can select this key or enter the object. The CI-blocking exposure-catalog validator asserts the literal read/write key, exact feed URLs and removal of synthetic private metadata."
+    },
+    {
+      "fingerprint": "51555befeaf1",
+      "file": "workers/scan-api/src/engines/remote-access-catalogue.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "Reviewed 2026-10-24: scans read the same public reference catalogue; there is no customer-owned object at this fixed key and no public read endpoint.",
+      "contract": "No caller-supplied key or workspace identity is accepted. The reader fetches only public-feeds/remote-access-kev-v1.json, caps the body, validates schema/source/CVE identifiers and returns no customer content. The scanner copies only curated assessment metadata into its already workspace-scoped report. Key provenance and public-only writer projection are covered by the CI-blocking exposure-catalog tests."
     }
   ]
 }
