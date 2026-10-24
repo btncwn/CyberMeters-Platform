@@ -69,6 +69,11 @@ assert.equal(evaluateTlsCondition(weakSignatureFinding.id,unknown).state,'deferr
   assert.deepEqual([st(pqcRow('x25519')).state,st(pqcRow('x25519')).group],['classical_only','x25519']);
   assert.equal(st(pqcRow('X25519MLKEM768','uncertain')).state,'not_assessed','an unfinished handshake is not assessed');
   assert.equal(pqcKeyExchangeState(module([protocol('tls1_3')])).length,0,'no PQC check planned: nothing to say');
+  // The backend owns the card sentence; classical means the server CHOSE a classical group.
+  assert.equal(st(pqcRow('x25519')).summary,'The server chose a classical key exchange group (x25519).');
+  assert.equal(st(pqcRow('X25519MLKEM768')).summary,'The server chose the hybrid post-quantum key exchange group X25519MLKEM768.');
+  for(const row of [pqcRow('x25519'),pqcRow('X25519MLKEM768'),pqcRow('X25519MLKEM768','uncertain')])
+    assert.doesNotMatch(st(row).summary,/not offered|quantum[- ](?:safe|ready)/i,'never "not offered" or "quantum safe/ready"');
   const findings=tlsAssessmentFindings(module([protocol('tls1_3'),pqcRow('x25519')]));
   assert.ok(!findings.some(f=>/pqc|quantum/i.test(f.id+f.title)),'classical-only is never a finding');
 }
@@ -111,7 +116,7 @@ const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).fin
 // C-45: no internal identifier (snake_case enum or profile id) in customer prose.
 {
   // Case-insensitive, and plain-English jargon too (C-45 follow-up, 24 Oct 2026).
-  const prose=/[a-z]+_[a-z_]+|-v\d|snapshot|bounded|\bcontrol\b|oracle|CDN edge|key material|\bSNI\b/i;
+  const prose=/[a-z]+_[a-z_]+|-v\d|snapshot|bounded|\bcontrol\b|oracle|CDN edge|key material|\bSNI\b|\bmeasured\b|offered leaf/i;
   const active=(control,profile,planned)=>({...robot,control,evidence:{...robot.evidence,vulnerability:{status:'confirmed',profile,completed_vectors:planned,planned_vectors:planned}}});
   const rows=[...['ssl2','ssl3','tls1','tls1_1'].map(v=>protocol(v)),cipher,robot,active('heartbleed','heartbleed-minimal-v1',1),active('ccs','ccs-early-record-v1',4),
     ...['rsa_md5','rsa_sha1','ecdsa_sha1','dsa_sha1'].map(sig=>certRow({...leaf,signature_algorithm:sig})),

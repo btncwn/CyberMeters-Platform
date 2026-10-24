@@ -39,6 +39,10 @@ async function fakeDnsQuery(name, type) {
   if (type === "MX" && name === "acme.co.uk") {
     return { Status: 0, Answer: mxHosts.map((host, idx) => ({ type: 15, data: `${10 + idx} ${host}.` })) };
   }
+  // The policy host resolves publicly (the policy fetch resolves it first).
+  if (name === "mta-sts.acme.co.uk" && (type === "A" || type === "AAAA")) {
+    return { Status: 0, Answer: type === "A" ? [{ name: "mta-sts.acme.co.uk.", type: 1, TTL: 300, data: "93.184.216.40" }] : [] };
+  }
   if (!row) return { Status: 3, Answer: [] };
   if (type === "TXT" && name === row.target_name) {
     return { Status: 0, Answer: [{ type: 16, data: row.target_value }] };

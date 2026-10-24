@@ -178,6 +178,31 @@ ok("orchestrator mta_sts outcome is unavailable, not absence",
   orchestratorResult.mta_sts.observation_state === "unavailable" &&
   orchestratorResult.email_score_breakdown.mta_sts === 0);
 
+// Hardening (24 Oct 2026): the built-in fetcher resolves the policy host first.
+// A policy host resolving to a private address gets DNS lookups only, never an
+// HTTP request, and is never read as an enforced policy.
+{
+  let dns = 0, http = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const u = String(input?.url || input);
+    if (/dns-query|resolve\?name=|cloudflare-dns|dns\.google|quad9/.test(u)) {
+      dns++;
+      const params = new URL(u).searchParams;
+      const name = params.get("name") || "x", type = params.get("type") || "A";
+      const Answer = type === "A" ? [{ name, type: 1, TTL: 60, data: "10.0.0.7" }] : [];
+      return new Response(JSON.stringify({ Status: 0, Answer }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    }
+    http++;
+    return new Response("version: STSv1\nmode: enforce\nmx: mail.example.com\nmax_age: 86400\n", { status: 200 });
+  };
+  let r;
+  try { r = await fetchMtaSts("private-policy.com"); } finally { globalThis.fetch = originalFetch; }
+  ok("MTA-STS private-resolving policy host: DNS consulted", dns > 0);
+  ok("MTA-STS private-resolving policy host: no HTTP request", http === 0);
+  ok("MTA-STS private-resolving policy host: never an enforced policy", r?.enabled === false && r?.policy_mode !== "enforce");
+}
+
 if (failures.length > 0) {
   console.error(`mta-sts-tristate: ${failures.length} assertions FAILED, ${passed} passed`);
   process.exit(1);
