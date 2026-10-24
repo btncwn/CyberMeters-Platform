@@ -107,6 +107,14 @@ export function externalExposureModule(receipt, { catalogue = null, now = Date.n
   if (checks.some(row => row.portal && row.portal_assessment?.state === 'deferred')) {
     module.quality = 'partial';
     module.incomplete_reason ||= 'checks_inconclusive';
+    // Collection succeeded, but its version comparison did not. Report counts
+    // and per-check state must not call that a conclusive completed check.
+    const deferred = checks.filter(row => row.comparable && row.portal_assessment?.state === 'deferred');
+    for (const row of deferred) { row.comparable = false; row.state = 'uncertain'; }
+    if (module.coverage) {
+      if (Number.isInteger(module.coverage.completed)) module.coverage.completed = Math.max(0,module.coverage.completed-deferred.length);
+      if (Number.isInteger(module.coverage.uncertain)) module.coverage.uncertain += deferred.length;
+    }
   }
   const dedupe = new Map();
   for (const row of checks) {

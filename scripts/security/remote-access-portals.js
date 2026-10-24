@@ -82,6 +82,11 @@ assert.equal(fixed.findings.length,0);assert.equal(evaluateExposureCondition(fin
 assert.equal(evaluateExposureCondition(finding.id,moduleFor([wire()],null)).state,'deferred','stale feed never verifies a listed condition');
 assert.equal(moduleFor([wire()],null).quality,'partial','stale feed never becomes a healthy coverage claim');
 assert.equal(moduleFor([wire()],null).incomplete_reason,'checks_inconclusive');
+assert.equal(moduleFor([wire()],null).coverage.completed,0);
+assert.equal(moduleFor([wire()],null).coverage.uncertain,1);
+assert.equal(moduleFor([wire()],null).checks[0].comparable,false);
+assert.equal(moduleFor([wire()],null).checks[0].state,'uncertain');
+assert.equal(fixed.coverage.completed,1);assert.equal(fixed.coverage.uncertain,0);
 assert.equal(evaluateExposureCondition(finding.id,moduleFor([wire({...positive,version:'11.1.2-h3'},'https://vpn.example.test/')])).state,'deferred','a different path cannot verify');
 assert.equal(evaluateExposureCondition(finding.id,moduleFor([{...wire(),state:'blocked',comparable:false}])).state,'deferred');
 assert.equal(evaluateExposure({rule:rule_id,response:{url,status:404,body:'Missing'},controls:controls.map(c=>({...c,status:200,body:page()}))}).comparable,false,'a portal login wall on controls cannot verify absence');
