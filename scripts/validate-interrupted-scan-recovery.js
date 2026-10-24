@@ -915,6 +915,26 @@ for (const inherited of [{ status: "complete" }, { status: "partial" }]) {
   ok("S13 a live scan is terminal: false and carries no module-name fields",
     scanProgress({ status: "running", current_stage: "finalizing", last_heartbeat_at: iso(60_000) }, NOW).terminal === false
     && !("completed_module_names" in scanProgress({ status: "running" }, NOW)));
+
+  // F1 (D): a queued scan whose exposure job is live says so; never forever.
+  const job = (over) => ({ state: "running", created_ms: NOW - 6 * 60_000, deadline_ms: NOW + 20 * 60_000, lease_until: NOW + 60_000, ...over });
+  const qp = (j) => scanProgress({ status: "queued" }, NOW, { exposureJob: j });
+  ok("S14 a queued scan with a live running job reports exposure_checks 'running', its start time, not stale",
+    qp(job()).exposure_checks === "running" && qp(job()).exposure_started_at === new Date(NOW - 6 * 60_000).toISOString() && qp(job()).stale === false, JSON.stringify(qp(job())));
+  ok("S15 a pending job reports 'pending'", qp(job({ state: "pending", lease_until: 0 })).exposure_checks === "pending" && qp(job({ state: "pending", lease_until: 0 })).stale === false);
+  ok("S16 past the job's deadline: no 'pending/running', and the queued scan is stale",
+    qp(job({ deadline_ms: NOW - 1 })).exposure_checks === null && qp(job({ deadline_ms: NOW - 1 })).stale === true);
+  ok("S17 a running job whose lease expired over 10 minutes ago makes the queued scan stale",
+    qp(job({ lease_until: NOW - 11 * 60_000 })).stale === true && qp(job({ lease_until: NOW - 60_000 })).stale === false);
+  ok("S18 a finished job, no job, or a missing deadline never reads as preparing",
+    ["complete", "cancelled", "budget_exhausted"].every((state) => qp(job({ state })).exposure_checks === null && qp(job({ state })).stale === false)
+    && qp(null).exposure_checks === null && qp(job({ deadline_ms: null })).exposure_checks === null);
+  ok("S19 a running scan never carries exposure fields from a job",
+    scanProgress({ status: "running", last_heartbeat_at: iso(60_000) }, NOW, { exposureJob: job() }).exposure_checks === null);
+  // The route reads the job by scan AND workspace (tenant scope), only for a queued scan.
+  const scansSource = (await import("node:fs")).readFileSync(new URL("../workers/scan-api/src/routes/scans.js", import.meta.url), "utf8");
+  ok("S20 the exposure-job read is bound to the scan's own workspace and only for queued scans",
+    /if \(scan\.status === "queued" && scan\.workspace_id\)[\s\S]{0,200}FROM external_exposure_jobs WHERE scan_id = \? AND workspace_id = \?[\s\S]{0,80}\.bind\(scan\.id, scan\.workspace_id\)/.test(scansSource));
 }
 
 console.log(`\ninterrupted-scan-recovery: ${passed} passed, ${failed} failed`);

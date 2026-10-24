@@ -140,16 +140,35 @@ export function scanOutcome(scan) {
 }
 const withOutcome = ({ current_stage, ...row }) => ({ ...row, outcome: scanOutcome({ ...row, current_stage }) });
 
-export function scanProgress(scan, now = Date.now(), { completedModuleNames = null } = {}) {
+// F1 (D, 24 Oct 2026): a scan stays 'queued' while its exposure job (services and
+// TLS checks) runs first. The job row says whether that work is live:
+// pending/running is reported only before the job's deadline; past the deadline,
+// or a running job whose lease expired long ago, the queued scan is stale — so
+// the page never says "Preparing checks" forever.
+export function exposureProgress(job, now = Date.now()) {
+  const none = { exposure_checks: null, exposure_started_at: null, stale: false };
+  if (!job || (job.state !== "pending" && job.state !== "running")) return none;
+  const started = Number.isFinite(job.created_ms) ? new Date(job.created_ms).toISOString() : null;
+  if (!Number.isFinite(job.deadline_ms) || now >= job.deadline_ms) return { ...none, exposure_started_at: started, stale: true };
+  const leaseLost = job.state === "running" && Number.isFinite(job.lease_until) && job.lease_until > 0
+    && now - job.lease_until >= SCAN_PROGRESS_STALE_MS;
+  return { exposure_checks: job.state, exposure_started_at: started, stale: leaseLost };
+}
+
+export function scanProgress(scan, now = Date.now(), { completedModuleNames = null, exposureJob = null } = {}) {
   const live = scan && (scan.status === "running" || scan.status === "queued");
   if (!scan || (!live && scan.status !== "failed")) return null;
   const beat = scan.last_heartbeat_at ? Date.parse(scan.last_heartbeat_at) : NaN;
+  const exposure = scan.status === "queued" ? exposureProgress(exposureJob, now) : null;
   const base = {
     terminal: !live,
     stage: SCAN_PROGRESS_STAGES.has(scan.current_stage) ? scan.current_stage : null,
     completed_modules: Number.isInteger(scan.completed_modules) ? scan.completed_modules : null,
     last_heartbeat_at: Number.isFinite(beat) ? new Date(beat).toISOString() : null,
-    stale: scan.status === "running" && Number.isFinite(beat) && now - beat >= SCAN_PROGRESS_STALE_MS,
+    stale: (scan.status === "running" && Number.isFinite(beat) && now - beat >= SCAN_PROGRESS_STALE_MS)
+      || Boolean(exposure?.stale),
+    exposure_checks: exposure?.exposure_checks ?? null,
+    exposure_started_at: exposure?.exposure_started_at ?? null,
   };
   if (live) return base;
   const names = Array.isArray(completedModuleNames)
@@ -1053,9 +1072,19 @@ export async function scanRoutes(rctx) {
             .bind(scan.id).all())?.results || []).map((r) => r.module);
         } catch { completedModuleNames = null; }
       }
+      // F1 (D): a queued scan's exposure job, one workspace-scoped primary-key
+      // read; a read failure reads as no job (never a false "Preparing").
+      let exposureJob = null;
+      if (scan.status === "queued" && scan.workspace_id) {
+        try {
+          exposureJob = await env.cybermeters_db
+            .prepare(`SELECT state, created_ms, deadline_ms, lease_until FROM external_exposure_jobs WHERE scan_id = ? AND workspace_id = ? LIMIT 1`)
+            .bind(scan.id, scan.workspace_id).first();
+        } catch { exposureJob = null; }
+      }
       return json({
         scan: { ...customerScan, outcome: scanOutcome(scan) },
-        progress: scanProgress(scan, Date.now(), { completedModuleNames }),
+        progress: scanProgress(scan, Date.now(), { completedModuleNames, exposureJob }),
         report_key: `reports/${scan.id}.json`,
         report_availability: resolved.availability,
         phase5_evidence_coverage:

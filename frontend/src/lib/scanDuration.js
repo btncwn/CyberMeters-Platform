@@ -151,7 +151,9 @@ export function scanProgressCopy({ status, elapsedMs, estimate, progress = null 
       ? 'Waiting for a scanner to pick it up. Results appear here automatically.'
       : 'Checks are running against the domain. Results appear here automatically.'
   const stage = !queued ? STAGE_TEXT[progress?.stage] || null : null
-  const stale = !queued && progress?.stale === true ? STALE_TEXT : null
+  // The backend marks a queued scan stale when its exposure job is past its
+  // deadline or lost its lease (F1 D) — said, never "Queued" forever.
+  const stale = progress?.stale === true ? STALE_TEXT : null
   const running = !queued && Number.isFinite(elapsedMs)
   const longRunningText = !running ? null
     : elapsedMs >= VERY_LONG_MS ? 'This check has been running for over 30 minutes. It is still running; if it cannot finish, we will mark what could not be completed rather than guess.'

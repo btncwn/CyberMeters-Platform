@@ -488,7 +488,10 @@ const EXPECTED = Object.freeze({
   // takeover_risks -> high_risk_assets (23 Oct 2026): comment lines shift
   // attack-surface.js projection sites; the two-tree diff is identical ignoring
   // position (24 projections, same snippets).
-  sql_reads: { projection_occurrences: 24, fingerprint: "6e7db7480d48123df76aa343b17e77cf0494262f02bc1ecebe9a0bc630822697" },
+  // F1 (D, 24 Oct 2026): scans.js gains the exposure-job read above the scan read
+  // handlers; a two-tree --dump-current diff shows all 24 projection sites identical
+  // apart from line numbers. Only the fingerprint moves.
+  sql_reads: { projection_occurrences: 24, fingerprint: "0f34cd4e332b786d7dcc3ddf60bd95b18365b0bbc96adedb175a9f1c04ec68c9" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
