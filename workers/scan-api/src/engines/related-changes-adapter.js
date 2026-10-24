@@ -151,7 +151,7 @@ export async function collectChangeEvents(env, { workspaceId, windowStart, windo
         `SELECT id, event_type, hostname, created_at
            FROM asset_events
           WHERE workspace_id = ?
-            AND created_at >= ? AND created_at <= ?`
+            AND julianday(created_at) >= julianday(?) AND julianday(created_at) <= julianday(?)`
       )
       .bind(workspaceId, start, end)
       .all();
@@ -187,7 +187,7 @@ export async function collectChangeEvents(env, { workspaceId, windowStart, windo
         `SELECT id, event_type, detail_json, created_at
          FROM email_protection_events
          WHERE workspace_id = ? AND record_type = ?
-           AND created_at >= ? AND created_at <= ?`,
+           AND julianday(created_at) >= julianday(?) AND julianday(created_at) <= julianday(?)`,
       )
       .bind(
         workspaceId,
@@ -328,7 +328,7 @@ export async function collectChangeEvents(env, { workspaceId, windowStart, windo
         `SELECT id, brand_profile_id, linked_domains, first_seen_at, last_seen_at
            FROM brand_abuse_campaigns
           WHERE workspace_id = ?
-            AND (first_seen_at >= ? AND first_seen_at <= ?)`
+            AND (julianday(first_seen_at) >= julianday(?) AND julianday(first_seen_at) <= julianday(?))`
       )
       .bind(workspaceId, start, end)
       .all();
@@ -363,8 +363,8 @@ export async function collectChangeEvents(env, { workspaceId, windowStart, windo
                 first_seen_at, last_changed_at
            FROM shadow_it_inventory
           WHERE workspace_id = ?
-            AND ((first_seen_at >= ? AND first_seen_at <= ?)
-              OR (last_changed_at >= ? AND last_changed_at <= ?))`
+            AND ((julianday(first_seen_at) >= julianday(?) AND julianday(first_seen_at) <= julianday(?))
+              OR (julianday(last_changed_at) >= julianday(?) AND julianday(last_changed_at) <= julianday(?)))`
       )
       .bind(workspaceId, start, end, start, end)
       .all();

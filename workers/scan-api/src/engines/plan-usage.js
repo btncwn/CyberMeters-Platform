@@ -841,7 +841,7 @@ export async function countScansThisMonth(ownerUserId, env) {
   const row = await env.cybermeters_db
     .prepare(`SELECT COUNT(s.id) AS cnt FROM scans s
       JOIN workspaces w ON w.id = s.workspace_id
-      WHERE w.owner_user_id = ? AND s.created_at >= ?`)
+      WHERE w.owner_user_id = ? AND julianday(s.created_at) >= julianday(?)`)
     .bind(ownerUserId, getMonthStart()).first();
   const domainCount = Number(row?.cnt);
   if (!Number.isSafeInteger(domainCount) || domainCount < 0) throw new Error("scan_usage_unavailable");
@@ -850,7 +850,7 @@ export async function countScansThisMonth(ownerUserId, env) {
     network = await env.cybermeters_db
       .prepare(`SELECT COUNT(n.id) AS cnt FROM network_scans n
         JOIN workspaces w ON w.id = n.workspace_id
-        WHERE w.owner_user_id = ? AND n.created_at >= ?`)
+        WHERE w.owner_user_id = ? AND julianday(n.created_at) >= julianday(?)`)
       .bind(ownerUserId, getMonthStart()).first();
   } catch (error) {
     // Before additive migration 109 there cannot be network scan usage.
