@@ -454,5 +454,46 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
      === JSON.stringify(["Signed-in scanning is not set up for this domain, so only public pages were checked.", LIMIT]));
 }
 
+// ── Authorised active checks section (Executive 24 Oct 2026) ─────────────────
+// Rows in the F1 receipt shape: modules.tls_assessment endpoints with special
+// checks (evidence.vulnerability), a not-applicable Heartbleed, a provider-edge
+// refusal, and a not-authorised row that never counts as run.
+{
+  const vuln = (status, profile, n) => ({ status, profile, completed_vectors: n, planned_vectors: n });
+  const row = (control, state, reason, vulnerability) => ({ control, protocol: "tls1_2", cipher_id: null, state, reason,
+    observed_at: "2026-10-24T17:40:12.000Z", evidence: { vulnerability } });
+  const f1 = { source: "tls_assessment", quality: "complete", endpoints: [
+    { hostname: "probe.example.com", address: "203.0.113.10", port: 443, application_protocol: "https", checks: [
+      row("robot", "rejected", null, vuln("not_observed", "robot-finite-v1", 20)),
+      row("ccs", "rejected", null, vuln("not_observed", "ccs-finished-v1", 5)),
+      row("heartbleed", "unexecutable", "heartbeat_unavailable", null),
+      { control: "protocol", protocol: "tls1_2", state: "accepted", reason: null, evidence: {} },
+    ] },
+    { hostname: "example.com", address: "198.51.100.7", port: 443, application_protocol: "https", checks: [
+      row("robot", "unexecutable", "provider_infrastructure_not_tested", null),
+      row("ccs", "not_authorized", "requires_customer_authorisation", null),
+    ] },
+  ] };
+  const snap = mkSnap({ complete: true });
+  const withChecks = pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap), null, null, null, f1)).map(norm).join(" ");
+  ok("ACT-1 a scan that ran authorised checks gets one 'Authorised active checks' section and its contents line",
+     withChecks.split("Authorised active checks").length - 1 === 2, withChecks.split("Authorised active checks").length - 1);
+  ok("ACT-2 the authority line is printed once",
+     withChecks.split("Run only on hosts you authorised, on a scan you started.").length === 2);
+  ok("ACT-3 each run check reads in the scan page's words, with host:port and UTC time",
+     withChecks.includes("probe.example.com:443 - ROBOT") && withChecks.includes("probe.example.com:443 - CCS injection") &&
+     withChecks.includes("Not observed in this test. Observed 24 October 2026, 17:40 UTC.") &&
+     withChecks.includes("probe.example.com:443 - Heartbleed") && withChecks.includes("Not applicable - this server did not offer the TLS heartbeat extension") &&
+     withChecks.includes("example.com:443 - ROBOT") && withChecks.includes("Not tested - shared provider infrastructure") &&
+     true, withChecks.slice(withChecks.indexOf("Authorised active checks", withChecks.indexOf("Authorised active checks") + 1), withChecks.indexOf("Authorised active checks", withChecks.indexOf("Authorised active checks") + 1) + 700));
+  ok("ACT-4 no engine state, vectors or not-authorised rows are printed",
+     !/Rejected|Accepted|20\/20|robot-finite-v1|(?<!probe\.)example\.com:443 - CCS/.test(withChecks.slice(withChecks.indexOf("Run only on hosts"), withChecks.indexOf("Methodology & Limitations"))));
+  const without = latin1(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap)));
+  const nothingRan = latin1(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap), null, null, null,
+    { source: "tls_assessment", endpoints: [{ hostname: "example.com", port: 443, checks: [row("robot", "not_authorized", "requires_customer_authorisation", null)] }] }));
+  ok("ACT-5 no section when nothing ran (no assessment, or only not-authorised rows) — bytes unchanged",
+     !without.includes("Authorised active checks") && nothingRan === without);
+}
+
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

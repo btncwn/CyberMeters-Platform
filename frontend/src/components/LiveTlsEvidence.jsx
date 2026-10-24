@@ -1,6 +1,6 @@
 import { useEvidenceTime } from '../lib/reportTime'
 import { keyLabel } from '../lib/keyLabel'
-import { isTlsSpecialCheck, tlsVulnerabilityWords, TLS_VULNERABILITY_STATUS_WORDS } from '../../../shared/tls/special-check-words.js'
+import { isTlsSpecialCheck, tlsVulnerabilityWords, TLS_VULNERABILITY_STATUS_WORDS, TLS_HEARTBEAT_NOT_APPLICABLE } from '../../../shared/tls/special-check-words.js'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
@@ -26,7 +26,7 @@ const CONTROL_REASONS = Object.freeze({
   authorised_runs_on_started_check: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
   // The TLS engine's reason when the server offers no heartbeat extension
   // (network-probe tls-engine; a server-feature limit, not a failed check).
-  heartbeat_unavailable: 'Not applicable — this server did not offer the TLS heartbeat extension that Heartbleed relies on.',
+  heartbeat_unavailable: TLS_HEARTBEAT_NOT_APPLICABLE,
   // scan-api records a TLS check whose run kept failing (twice) and moves on;
   // the other checks are not affected (F1, 24 Oct 2026).
   slice_failed: 'Could not complete — this check did not finish on this server after repeated attempts. The other checks were not affected.',

@@ -30,3 +30,53 @@ export function tlsVulnerabilityWords(row) {
     ? TLS_VULNERABILITY_STATUS_WORDS[status]
     : null;
 }
+
+export const TLS_HEARTBEAT_NOT_APPLICABLE =
+  "Not applicable — this server did not offer the TLS heartbeat extension that Heartbleed relies on.";
+
+/**
+ * One special-check row's result in customer words, for a check that was run
+ * (or attempted) on an authorised host. The vulnerability status decides;
+ * otherwise the recorded reason; never the engine's Accepted/Rejected.
+ */
+export function tlsSpecialCheckResult(row) {
+  const vulnerability = tlsVulnerabilityWords(row);
+  if (vulnerability) return vulnerability;
+  if (row?.reason === "heartbeat_unavailable") return TLS_HEARTBEAT_NOT_APPLICABLE;
+  if (row?.reason === "provider_infrastructure_not_tested") return "Not tested — shared provider infrastructure";
+  if (row?.reason === "slice_failed" || row?.state === "uncertain" || row?.state === "unexecutable") return "Could not complete";
+  return "Unknown";
+}
+
+// Reasons that mean the check was NOT run on this scan (no authorisation,
+// engine withheld, scheduled scan, unverified address): not an "authorised
+// active check" result.
+const TLS_SPECIAL_NOT_RUN_REASONS = new Set([
+  "requires_customer_authorisation", "authorised_engine_not_released",
+  "scheduled_or_unknown_origin", "authorised_runs_on_started_check", "address_not_verified_not_tested",
+]);
+
+/**
+ * The authorised active checks a scan ran, from its TLS assessment
+ * (modules.tls_assessment / readTlsAssessmentForScan): one row per
+ * host:port and check, with its result words and observation time.
+ * Empty when none ran.
+ */
+export function authorisedActiveCheckRows(assessment) {
+  const endpoints = Array.isArray(assessment?.endpoints) ? assessment.endpoints : [];
+  const rows = [];
+  for (const endpoint of endpoints) {
+    for (const row of Array.isArray(endpoint?.checks) ? endpoint.checks : []) {
+      if (!isTlsSpecialCheck(row?.control)) continue;
+      if (row.state === "not_authorized" || row.state === "pending" || TLS_SPECIAL_NOT_RUN_REASONS.has(row.reason)) continue;
+      rows.push({
+        host: typeof endpoint.hostname === "string" ? endpoint.hostname : null,
+        port: Number.isInteger(endpoint.port) ? endpoint.port : null,
+        check: TLS_SPECIAL_CHECK_NAMES[row.control],
+        result: tlsSpecialCheckResult(row),
+        observed_at: typeof row.observed_at === "string" ? row.observed_at : null,
+      });
+    }
+  }
+  return rows;
+}
