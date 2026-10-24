@@ -6,7 +6,7 @@ import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
-import { formatLocalDateTime } from '../utils/dates'
+import { formatDate } from '../utils/dates'
 import { useWorkspaceRole } from '../hooks/useWorkspaceRole'
 import { scanNotPermittedMessage, RESCAN_ONLY_MESSAGE } from '../lib/workspaceRole'
 
@@ -144,7 +144,7 @@ export default function ScansPage() {
                 >
                   <td>
                     <div className="flex items-center gap-2.5">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <div>
                         <Link to={`/scans/${scan.id}`} onClick={(e) => e.stopPropagation()} className="cm-rowlink font-semibold">{scan.domain}</Link>
                         <InternalIdCopyButton id={scan.id} label="scan" />
                       </div>
@@ -153,14 +153,14 @@ export default function ScansPage() {
                   <td><StatusBadge status={scan.status} quality={scan.scan_quality} outcome={scan.outcome} /></td>
                   <td>
                     <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                      {formatLocalDateTime(scan.created_at)}
+                      {formatDate(scan.created_at)}
                     </div>
                   </td>
                   <td>
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/domain/${encodeURIComponent(scan.domain)}/history`) }}
-                        className="btn-secondary text-xs px-2.5 py-1"
+                        className="btn-ghost text-xs"
                       >
                         History
                       </button>

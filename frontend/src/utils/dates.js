@@ -39,20 +39,6 @@ export function formatDate(value, fallback = '—', options = {}) {
   return DATE_TIME.format(date)
 }
 
-// The viewer's local time with its zone named: "24 Oct 2026 at 01:34 BST".
-// One app-wide rule for customer-facing times (Executive 24 Oct 2026); UTC stays
-// only in technical evidence, which labels each time " UTC".
-export function formatLocalDateTime(value, fallback = '—', options = {}) {
-  const date = parseServerDate(value)
-  if (!date || !Number.isFinite(date.getTime())) return fallback
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-    hourCycle: 'h23', timeZoneName: 'short', ...(options.timeZone ? { timeZone: options.timeZone } : {}),
-  }).formatToParts(date)
-  const get = (type) => parts.find((p) => p.type === type)?.value || ''
-  return `${get('day')} ${get('month')} ${get('year')} at ${get('hour')}:${get('minute')} ${get('timeZoneName')}`.trim()
-}
-
 export function formatDay(value, fallback = '—', options = {}) {
   const date = parseServerDate(value)
   if (!date || !Number.isFinite(date.getTime())) return fallback

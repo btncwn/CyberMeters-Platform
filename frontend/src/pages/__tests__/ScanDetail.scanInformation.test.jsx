@@ -3,8 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ScanDetail from '../ScanDetail'
 import { api } from '../../api'
-import { formatViewerTime as formatDate, REPORT_TIME_NOTE } from '../../lib/reportTime'
-import { formatLocalDateTime } from '../../utils/dates'
+import { formatReportTime as formatDate, REPORT_TIME_NOTE } from '../../lib/reportTime'
 
 // Scan Information panel (founder, 17 Oct 2026): label | value grid whose value
 // column has min-width 0 and wraps anywhere, so nothing is clipped at the right
@@ -52,16 +51,14 @@ describe('Scan Information panel', () => {
     expect(screen.getByText('6m 31s')).toBeInTheDocument()
   })
 
-  it('shows customer times in the viewer\'s local zone, zone named — the same rule as the scan list', async () => {
+  it('renders every time in UTC, the same convention as the PDF, and says so once', async () => {
     const panel = await renderPage()
-    // Executive 24 Oct 2026: one rule app-wide; the scan list uses formatLocalDateTime too.
-    const queued = formatLocalDateTime(scan.created_at)
-    expect(queued).toMatch(/^\d{1,2} [A-Z][a-z]{2} 20\d{2} at \d{2}:\d{2} \S+/)
-    expect(within(panel).getByText(queued)).toBeInTheDocument()
-    expect(within(panel).getByText(formatLocalDateTime(report.completed_at))).toBeInTheDocument()
+    // 08:55Z queued, 09:01:31Z assessed — shown in UTC whatever the viewer's clock.
+    expect(within(panel).getByText('16 Oct 2026, 08:55')).toBeInTheDocument()
+    expect(within(panel).getByText('16 Oct 2026, 09:01')).toBeInTheDocument()
     expect(screen.getAllByTestId('report-time-note')).toHaveLength(1)
-    expect(screen.getByTestId('report-time-note')).toHaveTextContent('Times are in your local time zone; technical evidence is in UTC.')
-    expect(REPORT_TIME_NOTE).not.toBe('All times are in UTC.')
+    expect(screen.getByTestId('report-time-note')).toHaveTextContent(REPORT_TIME_NOTE)
+    expect(document.body.textContent.match(/UTC/g)).toHaveLength(1)
   })
 
   it('never breaks a domain mid-word: one line, ellipsis, the full name on hover', async () => {
