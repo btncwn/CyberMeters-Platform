@@ -745,7 +745,7 @@ export async function emitLifecycleAlert(env, {
   entity_type = null, entity_display = null, monitored_domain = null, evidence_source = null,
   // The caller just reopened this alert's case (a reopen recurrence). Never inferred.
   case_reopened = false,
-  // The observed finding's own wording ("TLS1 accepted on this endpoint"), when the
+  // The observed finding's own wording ("TLS 1.0 accepted on this endpoint"), when the
   // caller has one; the registry's (action-phrased) title is only the fallback.
   finding_label = null,
 } = {}) {
