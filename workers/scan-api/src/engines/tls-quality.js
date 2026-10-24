@@ -1,4 +1,4 @@
-import { TLS_AUTHORISATION_REQUIRED_REASON } from '../../../../shared/tls/catalog.js';
+import { TLS_AUTHORISATION_REQUIRED_REASON, TLS_SPECIAL_CONTROLS } from '../../../../shared/tls/catalog.js';
 // The deep TLS profile includes static states for controls the engine cannot
 // execute (notably the unreleased special checks). Those states remain visible
 // in the TLS receipt, but do not make every supported-profile scan incomplete.
@@ -27,9 +27,14 @@ export const TLS_CAPABILITY_UNEXECUTABLE_REASONS = Object.freeze([
   // Authorised, held to a started check or refused on a provider edge (F1): stated.
   'scheduled_or_unknown_origin', 'provider_infrastructure_not_tested', 'address_not_verified_not_tested',
 ]);
+// A special (intrusive) check whose slice could not complete (F1: it kept
+// failing and was recorded instead of ending the job) is stated as
+// "could not complete": an optional authorised extra, like an unauthorised one,
+// it never keeps the assessment partial. A normal check that failed still does.
 export function blockingTlsUnexecutable(checks) {
   return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'unexecutable'
-    && !TLS_CAPABILITY_UNEXECUTABLE_REASONS.includes(row.reason)).length;
+    && !TLS_CAPABILITY_UNEXECUTABLE_REASONS.includes(row.reason)
+    && !(row.reason === 'slice_failed' && TLS_SPECIAL_CONTROLS.includes(row.control))).length;
 }
 
 // An intrusive control the customer has not authorised (S3-B) is stated, not
