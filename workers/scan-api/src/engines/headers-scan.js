@@ -356,7 +356,13 @@ export const HSTS_POLICY_VERSION = "2026-10-23.1";
 export function buildHstsHostPolicy({ domain, apexObserved, apexValue = null, apexUrl = null, apexStatus = null, finalUrl = null, finalValue = null }) {
   const apexHost = String(domain || "").toLowerCase();
   const finalHost = finalUrl ? safeHostname(finalUrl) : null;
-  const state = apexObserved ? (apexValue ? "present" : "absent") : "not_observed";
+  // E2 (item 15 re-run, corpus-90; R1 23-24 Oct 2026): the apex's HSTS counts
+  // only on a serviceable answer (2xx or a redirect), BOTH ways. A 429, a
+  // challenge page or a 5xx says nothing about the origin's policy: without the
+  // header it is not absence, and WITH it (a WAF/CDN error page) it is not the
+  // origin's fix either - so it can never clear a missing-HSTS case.
+  const serviceable = Number.isInteger(apexStatus) ? apexStatus >= 200 && apexStatus < 400 : true;
+  const state = apexObserved && serviceable ? (apexValue ? "present" : "absent") : "not_observed";
   const includeSubDomains = state === "present" && /(^|;)\s*includesubdomains\s*(;|$)/i.test(apexValue);
   return {
     version: HSTS_POLICY_VERSION,
