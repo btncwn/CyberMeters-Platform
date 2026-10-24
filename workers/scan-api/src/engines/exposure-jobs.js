@@ -594,12 +594,20 @@ export function tlsSliceFailureReason(error,aborted) {
   return TLS_SLICE_FAILURE_REASONS.has(message)?message:'collector_error';
 }
 
-async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now,detail={}) {
-  const tls=plan.tls,oldCursor=tls.cursor;
+// Record a slice's checks as not run (in memory) and advance the cursor.
+// Returns whether the TLS plan is now complete.
+function recordUnrunTlsRows(plan,items,state,reason,now,detail={}) {
+  const tls=plan.tls;
   for(const item of items)tls.results.push({endpoint_index:item.endpoint_index,...item.check,state,reason,...detail,observed_at:new Date(now).toISOString(),engine:null,evidence:null,physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}});
   tls.cursor+=items.length;
   const complete=tls.cursor>=tls.selected.length;
   tls.state=complete?'complete':'pending';
+  return complete;
+}
+
+async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now,detail={}) {
+  const oldCursor=plan.tls.cursor;
+  const complete=recordUnrunTlsRows(plan,items,state,reason,now,detail);
   const result=await env.cybermeters_db.prepare(`UPDATE external_exposure_jobs SET plan_json=?,state=?,updated_at=?
     WHERE scan_id=? AND workspace_id=? AND state IN ('pending','running') AND lease_until<=?
       AND CAST(json_extract(plan_json,'$.tls.cursor') AS INTEGER)=? AND ${AUTHORITY}`)
@@ -730,13 +738,22 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     // charges an attempt (budget.attempts), the job has a deadline, and the
     // request/byte budgets keep their unrefunded reservations.
     const giveUp=active&&failures>=TLS_SLICE_FAILURE_CAP;
-    await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=CASE WHEN ?=1 THEN 0 ELSE failure_count+1 END,
+    // A given-up slice is recorded in the SAME write that releases this
+    // attempt's lease (fenced on its lease_token): there is no moment where the
+    // lease is free while the cursor still points at that slice, so no other
+    // delivery can claim and re-run it (it may be intrusive).
+    const complete=giveUp?recordUnrunTlsRows(plan,items,'unexecutable','slice_failed',at.getTime(),
+      {failure_reason:tls.last_slice_failure.reason,failure_attempts:failures}):false;
+    const released=await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=CASE WHEN ?=1 THEN 0 ELSE failure_count+1 END,
       unknown_attempts=unknown_attempts+1,plan_json=?,lease_token=NULL,lease_until=0,updated_at=?
       WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
-      .bind(active?'pending':'cancelled',giveUp?1:0,JSON.stringify(plan),at.toISOString(),row.scan_id,row.workspace_id,token).run();
+      .bind(!active?'cancelled':complete?'complete':'pending',giveUp?1:0,JSON.stringify(plan),at.toISOString(),row.scan_id,row.workspace_id,token).run();
     if(!active){await resumeDomain(env,row);return {action:'ack',outcome:'cancelled'};}
-    if(giveUp)return storeUnrunTlsSlice(env,row,plan,items,'unexecutable','slice_failed',at.getTime(),
-      {failure_reason:tls.last_slice_failure.reason,failure_attempts:failures});
+    if(giveUp){
+      if(!changed(released))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
+      if(complete)await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
+      return {action:'ack',outcome:'slice_failed'};
+    }
     return {action:'retry',delaySeconds:5,outcome:'tls_uncertain_attempt_charged'};
   }finally{clearTimeout(timer);clearInterval(watchdog);}
 }
