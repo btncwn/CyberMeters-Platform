@@ -446,10 +446,26 @@ await test('a special slice that always throws is recorded and the job still com
       results:[{check:input.checks[0],engine_result:engine,reason:null,observed_at:timestamp,physical_telemetry:physical}],telemetry:physical});
   };
   const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
+  // Force the gap (R1 follow-up, 16:40): the moment the giving-up attempt's
+  // lease is released, a competing delivery runs. If the slice were recorded
+  // only AFTER that release, the competitor would claim and re-run ROBOT.
+  let competed=false;
+  const raced={...env,cybermeters_db:{...env.cybermeters_db,prepare(sql){
+    const statement=env.cybermeters_db.prepare(sql);
+    if(!/lease_token=NULL,lease_until=0/.test(sql)||!/failure_count=CASE/.test(sql))return statement;
+    const wrap=(st)=>({...st,bind(...a){return wrap(st.bind(...a));},async run(){
+      const out=await st.run();
+      if(!competed&&robotCalls===TLS_SLICE_FAILURE_CAP){competed=true;
+        await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck});}
+      return out;
+    }});
+    return wrap(statement);
+  }}};
   const outcomes=[];
   for(let i=0;i<10&&!outcomes.includes('complete');i++){
-    outcomes.push((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck})).outcome);
+    outcomes.push((await processExposureMessage(message,raced,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck})).outcome);
   }
+  assert.equal(competed,true,'the forced gap was exercised');
   const job=sql.prepare('SELECT state,failure_count,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
   const tls=JSON.parse(job.plan_json).tls;
   assert.equal(job.state,'complete','the job completes; it never ends as budget_exhausted');
