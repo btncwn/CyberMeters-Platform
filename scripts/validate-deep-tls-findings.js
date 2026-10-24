@@ -157,6 +157,12 @@ const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).fin
   assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','transport_timeout',{extensions:ext({renegotiation_completed:false})}))[0],'unknown','a timeout is not a refusal');
   assert.equal(out(row('fallback_scsv','tls1_2','uncertain','peer_alert',{extensions:ext({fallback_scsv:false})}))[0],'unknown');
   assert.equal(tlsControlOutcome(row('protocol','tls1_2','accepted','handshake_completed',{})),null,'controls without a feature outcome carry none');
+  // PQC (Executive 18:10): the live probe row negotiated X25519MLKEM768.
+  const pqc=(group,state='accepted')=>row('pqc_key_exchange','tls1_3',state,'handshake_completed',{negotiated:{version:'tls1_3',group}});
+  assert.deepEqual(out(pqc('X25519MLKEM768')),['offered','Post-quantum hybrid key exchange offered (X25519MLKEM768).']);
+  assert.deepEqual(out(pqc('x25519')),['not_offered','Post-quantum hybrid key exchange not offered (the server chose x25519).']);
+  assert.equal(out(pqc('X25519MLKEM768','uncertain'))[0],'unknown','an unfinished handshake is unknown');
+  assert.equal(out(pqc(null))[0],'unknown');
 }
 // C-45: no internal identifier (snake_case enum or profile id) in customer prose.
 {

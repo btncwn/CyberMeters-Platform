@@ -109,6 +109,14 @@ export function tlsControlOutcome(row, endpointChecks = []) {
           && (Array.isArray(endpointChecks) ? endpointChecks : []).some(r => r?.control === 'protocol' && r.protocol === 'tls1_3' && r.state === 'accepted'))
         return { value: 'not_blocked', summary: 'Protocol downgrade is not blocked.' };
       return unknownOutcome;
+    case 'pqc_key_exchange': {
+      // Offered the hybrid group beside classical ones, which did the server choose?
+      const group = row?.evidence?.negotiated?.group;
+      if (row.protocol !== 'tls1_3' || row.state !== 'accepted' || typeof group !== 'string' || !group) return unknownOutcome;
+      return /MLKEM|KYBER/i.test(group)
+        ? { value: 'offered', summary: `Post-quantum hybrid key exchange offered (${group}).` }
+        : { value: 'not_offered', summary: `Post-quantum hybrid key exchange not offered (the server chose ${group}).` };
+    }
     default:
       return null;
   }
