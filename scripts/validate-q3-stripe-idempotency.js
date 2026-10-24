@@ -18,6 +18,11 @@ const imp = (rel) => import(pathToFileURL(path.join(root, "workers", "scan-api",
 const read = (rel) => fs.readFileSync(path.join(root, "workers", "scan-api", "src", rel), "utf8");
 
 const { globalBillingRoutes } = await imp("routes/global-billing.js");
+const { createStripeProvider } = await import(pathToFileURL(path.join(root, "scripts", "security", "lib", "worker-harness.js")).href);
+// Webhooks re-read the subscription from Stripe; a local stand-in answers.
+const stripe = createStripeProvider();
+for (const id of ["sub_1", "sub"]) stripe.set({ id, customer: "cus", status: "active", metadata: { user_id: "u1", workspace_id: "w1", plan: "starter" } });
+globalThis.fetch = stripe.fetch;
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -183,10 +188,12 @@ guard("signature verified before processing", gbSrc,
 guard("environment (livemode) boundary enforced", gbSrc,
   (s) => /keyMode && \(\(keyMode === "live"\) !== \(event\?\.livemode === true\)\)/.test(s),
   (s) => s.replace('keyMode && ((keyMode === "live") !== (event?.livemode === true))', "false"));
-// stale event allowed to overwrite newer state (monotonic period_end guard removed)
-guard("current_period_end never moves backward (stale guard)", stSrc,
-  (s) => /current_period_end = CASE\s*\n\s*WHEN \? IS NOT NULL AND \(current_period_end IS NULL OR \? >= current_period_end\) THEN \?/.test(s),
-  (s) => s.replace(/current_period_end = CASE[\s\S]*?ELSE current_period_end END,/, "current_period_end = COALESCE(?, current_period_end),"));
+// stale event allowed to overwrite newer state: subscription events must apply
+// Stripe's re-read state (C-49), never the delivered payload.
+guard("subscription events apply Stripe's current state, not the payload (stale guard)", stSrc,
+  (s) => { const body = s.slice(s.indexOf("export async function handleStripeSubscriptionUpsert"), s.indexOf("export async function handleStripeSubscriptionDeleted"));
+    return body.includes("syncStripeSubscription(env, subscription.id") && !body.includes("upsertStripeSubscriptionState("); },
+  (s) => s.replace("return syncStripeSubscription(env, subscription.id, {", "return upsertStripeSubscriptionState(env, subscription, {"));
 
 console.log(`\nQ3 Stripe idempotency: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("q3-stripe-idempotency validation FAILED"); process.exit(1); }

@@ -122,3 +122,73 @@ export async function makeSeeder(db, mod) {
     raw: (sql, ...a) => { try { db.prepare(sql).run(...a); } catch (e) { if (process.env.HARNESS_DEBUG) console.error("seed skip:", e.message, sql.slice(0, 60)); } },
   };
 }
+
+// Local stand-in for Stripe's API — never the network. The Worker reads every
+// subscription it is told about (GET /v1/subscriptions/:id, latest invoice
+// expanded); this answers from `truth`, Stripe's current view per subscription.
+// A test sets truth directly (out-of-order histories: truth is the newest state)
+// or calls mirror(event) before each delivery, which keeps truth equal to an
+// in-order history of those events. failNext(n) answers the next n reads 500.
+// Any other URL still throws "network disabled".
+export function createStripeProvider() {
+  const truth = new Map();
+  let failures = 0, reads = 0, held = null;
+  const idOf = (v) => (v && typeof v === "object" ? v.id : v) || null;
+  const subIdOfInvoice = (inv) => idOf(inv?.subscription) ?? idOf(inv?.parent?.subscription_details?.subscription);
+  const fetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    const m = url.hostname === "api.stripe.com" && url.pathname.match(/^\/v1\/subscriptions\/([^/]+)$/);
+    if (!m) throw new Error("network disabled");
+    reads++;
+    if (failures > 0) { failures--; return new Response(JSON.stringify({ error: { type: "api_error" } }), { status: 500 }); }
+    let sub = truth.get(decodeURIComponent(m[1]));
+    if (held) {
+      // A held read answers with what Stripe said WHEN it was asked, but only
+      // once released: a slow response that lands after newer state.
+      const gate = held; held = null;
+      const snapshot = sub && JSON.parse(JSON.stringify(sub));
+      await gate;
+      sub = snapshot;
+    }
+    if (!sub) return new Response(JSON.stringify({ error: { type: "invalid_request_error" } }), { status: 404 });
+    return new Response(JSON.stringify(sub), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const mirror = (event) => {
+    const obj = event?.data?.object || {};
+    const created = event?.created ?? Math.floor(Date.now() / 1000);
+    const type = event?.type || "";
+    if (type === "customer.subscription.created" || type === "customer.subscription.updated") {
+      const prev = truth.get(obj.id) || {};
+      truth.set(obj.id, { ...prev, ...obj, latest_invoice: obj.latest_invoice ?? prev.latest_invoice ?? null });
+    } else if (type === "checkout.session.completed") {
+      // A settled subscription checkout means Stripe now holds an active
+      // subscription for what was bought (plan from metadata: no price yet).
+      const id = idOf(obj.subscription);
+      if (id && !truth.has(id) && ["paid", "no_payment_required"].includes(obj.payment_status)) {
+        truth.set(id, { id, customer: idOf(obj.customer), status: "active", metadata: obj.metadata || {}, latest_invoice: null });
+      }
+    } else if (type === "customer.subscription.deleted") {
+      truth.set(obj.id, { ...(truth.get(obj.id) || {}), ...obj, status: "canceled" });
+    } else if (type === "invoice.payment_failed" || type === "invoice.payment_succeeded") {
+      const id = subIdOfInvoice(obj);
+      const prev = id && truth.get(id);
+      if (!prev) return;
+      const failed = type === "invoice.payment_failed";
+      const status = prev.status === "canceled" || prev.status === "unpaid" ? prev.status
+        : failed ? "past_due" : (prev.status === "past_due" ? "active" : prev.status);
+      truth.set(id, { ...prev, status, latest_invoice: {
+        id: obj.id || `in_${created}`, status: failed ? "open" : "paid", created,
+        attempt_count: obj.attempt_count ?? 1,
+      } });
+    }
+  };
+  return {
+    truth, fetch, mirror,
+    set: (sub) => truth.set(sub.id, sub),
+    failNext: (n = 1) => { failures = n; },
+    // Hold the next read; returns release(). The read answers with the truth
+    // at the moment it was made, after release() is called.
+    holdNext: () => { let release; held = new Promise((r) => { release = r; }); return release; },
+    get reads() { return reads; },
+  };
+}
