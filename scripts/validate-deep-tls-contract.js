@@ -105,7 +105,7 @@ const authorizedSpecial={...request,checks:[{control:'heartbleed',protocol:'tls1
 // per-domain, owned-address consent gate exists. Even a consented request is
 // refused by the probe contract.
 assert.equal(TLS_SPECIAL_CONTROLS_AVAILABLE,true,'the three TLS special controls are released (founder-approved, 23 Oct 2026)');
-assert.equal(validateTlsAssessmentRequest(authorizedSpecial,now).reason,'control_unavailable');
+assert.equal(validateTlsAssessmentRequest(authorizedSpecial,now).ok,true,'a consented special request is accepted');
 assert.deepEqual(parseTlsDnsAnswers([
   ['A',{Status:0,Answer:[{type:5,name:'mail.acme.org.',data:'edge.provider.net.'},{type:1,name:'edge.provider.net.',data:'8.8.8.8'},
     {type:1,name:'evilmail.acme.org.',data:'1.1.1.1'},{type:1,name:'mail.acme.org.',data:'127.0.0.1'}]}],
