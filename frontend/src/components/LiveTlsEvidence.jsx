@@ -1,5 +1,6 @@
 import { useEvidenceTime } from '../lib/reportTime'
 import { keyLabel } from '../lib/keyLabel'
+import { isTlsSpecialCheck, tlsVulnerabilityWords, TLS_VULNERABILITY_STATUS_WORDS } from '../../../shared/tls/special-check-words.js'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
@@ -43,6 +44,14 @@ const controlState = (row, item = null) => {
   // The number of attempts comes from the row itself (scan-api records it).
   if (row?.reason === 'slice_failed' && Number.isSafeInteger(row.failure_attempts) && row.failure_attempts > 0) {
     return `Could not complete — this check did not finish on this server after ${row.failure_attempts} attempt${row.failure_attempts === 1 ? '' : 's'}. The other checks were not affected.`
+  }
+  // Heartbleed / ROBOT / CCS (F1, Executive 24 Oct 2026): the headline is the
+  // recorded vulnerability status, never the engine's Accepted/Rejected.
+  if (isTlsSpecialCheck(row?.control)) {
+    const vulnerability = tlsVulnerabilityWords(row)
+    if (vulnerability) return vulnerability
+    if (row?.reason && CONTROL_REASONS[row.reason]) return CONTROL_REASONS[row.reason]
+    return row?.state === 'accepted' || row?.state === 'rejected' ? 'Unknown' : (controlStates[row?.state] || 'Unknown')
   }
   return (row?.reason && CONTROL_REASONS[row.reason]) || controlStates[row?.state] || 'Unknown'
 }
@@ -104,7 +113,7 @@ function TlsControlDetail({ row }) {
     </div>}
     {evidence.ocsp && <StapledOcsp value={evidence.ocsp} />}
     {extensions && <dl className="grid gap-2 sm:grid-cols-2">{[['ems','Extended master secret'],['compression','Compression'],['secure_renegotiation','Secure renegotiation'],['fallback_scsv','Fallback protection'],['session_reused','Session resumed'],['renegotiation_completed','Bounded renegotiation completed']].filter(([key]) => Object.hasOwn(extensions,key)).map(([key,label]) => <Field key={key} label={label}>{yesNo(extensions[key])}</Field>)}{Number.isSafeInteger(extensions.early_data_max) && <Field label="Advertised early-data limit">{number(extensions.early_data_max)} bytes</Field>}</dl>}
-    {vulnerability && <div className="text-xs space-y-1"><p className="font-medium">Vulnerability test: {{confirmed:'Confirmed by the recorded test',not_observed:'Not observed in this test',unknown:'Unknown'}[vulnerability.status] || 'Unknown'}</p><p>Profile: {text(vulnerability.profile)} · Vectors completed: {number(vulnerability.completed_vectors)} / {number(vulnerability.planned_vectors)}</p></div>}
+    {vulnerability && <div className="text-xs space-y-1"><p className="font-medium">Vulnerability test: {TLS_VULNERABILITY_STATUS_WORDS[vulnerability.status] || 'Unknown'}</p><p>Profile: {text(vulnerability.profile)} · Vectors completed: {number(vulnerability.completed_vectors)} / {number(vulnerability.planned_vectors)}</p></div>}
   </div>
 }
 
