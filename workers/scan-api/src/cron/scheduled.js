@@ -1,4 +1,4 @@
-import { refreshRemoteAccessCatalogue } from '../engines/remote-access-catalogue.js';
+import { refreshRemoteAccessCatalogue } from "../engines/remote-access-catalogue.js";
 // ── Cron orchestration module ─────────────────────────────────────────────────
 // Sprint 9 phase-1 extraction: the scheduled() entry and its timing/telemetry
 // wrapper live here. Task BODIES stay in index.js (their closure reaches the

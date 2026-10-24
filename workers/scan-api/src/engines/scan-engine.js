@@ -1,4 +1,4 @@
-import { readRemoteAccessCatalogue } from './remote-access-catalogue.js';
+import { readRemoteAccessCatalogue } from "./remote-access-catalogue.js";
 // ── Scan pipeline orchestrator ──
 // The main scan engine (runs via ctx.waitUntil): sequences every scan/analysis/persistence
 // module through all phases, computes the score + report, and persists results + fires alerts.
