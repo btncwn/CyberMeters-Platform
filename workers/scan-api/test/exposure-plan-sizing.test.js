@@ -13,7 +13,7 @@ function representativePlan(hostCount) {
   const checks = hosts.flatMap(host => planExposureChecks({origin: `https://${host}`,
     observations: {rotationKey: 'scan_fixture'}}).checks.map(check => ({rule_id: check.ruleId, url: check.url})));
   // The latest four-host job added 17 safe content/reference checks after its
-  // base 544-check catalog. Preserve that workload in both comparisons.
+  // base 556-check catalog. Preserve that workload in both comparisons.
   checks.push(...Array.from({length: 17}, (_, index) => ({rule_id: 'env-config',
     url: `https://example.org/reference-${index}`})));
   const selected = hosts.flatMap((_, endpoint_index) => Array.from({length: 28}, () => ({
@@ -23,14 +23,14 @@ function representativePlan(hostCount) {
 
 test('four selected hosts admit their complete catalog and content references', () => {
   const plan = representativePlan(4);
-  assert.equal(plan.checks.length, 561);
+  assert.equal(plan.checks.length, 573);
   assert.equal(budgetedExposurePrefix(plan, plan.checks), plan.checks.length);
   const estimate = estimateExposureJobBudget(plan);
   assert.ok(estimate.requests < EXPOSURE_JOB_LIMITS.workspaceRequests);
   assert.ok(estimate.bytes < EXPOSURE_JOB_LIMITS.workspaceBytes);
   assert.ok(estimate.attempts < EXPOSURE_JOB_LIMITS.maxPlannedAttempts);
   assert.ok(estimate.durationMs < 30 * 60_000);
-  // The old hard cap is a live mutant: it must omit 160 of the base catalog
+  // The old hard cap is a live mutant: it must omit 172 of the base catalog
   // and also the 17 new references, which this assertion rejects.
   assert.equal(budgetedExposurePrefix(plan, plan.checks, 384), 384);
   assert.notEqual(budgetedExposurePrefix(plan, plan.checks, 384), plan.checks.length);
@@ -38,7 +38,7 @@ test('four selected hosts admit their complete catalog and content references', 
 
 test('nine HTTPS hosts exceed the hourly byte ceiling with TLS and retain rotation', () => {
   const plan = representativePlan(9);
-  assert.equal(plan.checks.length, 1241);
+  assert.equal(plan.checks.length, 1268);
   const estimate = estimateExposureJobBudget(plan);
   assert.ok(estimate.bytes > EXPOSURE_JOB_LIMITS.workspaceBytes);
   assert.ok(estimate.requests < EXPOSURE_JOB_LIMITS.workspaceRequests);

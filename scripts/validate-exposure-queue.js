@@ -154,7 +154,7 @@ for(const outcome of [
  const plan=JSON.parse(first.plan_json);
  const original=plan.checks[0];
  plan.checks=EXPOSURE_RULES.flatMap(rule=>rule.paths.map(path=>({rule_id:rule.id,url:`https://${scan.domain}${path}`})));
- check(plan.checks.length===136);
+ check(plan.checks.length===139);
  plan.retest_checks=[original];
  h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(plan),scan.id);
  const terminalReceipt=async(_env,input)=>{
@@ -173,7 +173,7 @@ for(const outcome of [
  const result=await processExposureMessage(body,h.env,{collect:terminalReceipt});
  const stored=h.sql.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=?').get(scan.id),next=JSON.parse(stored.plan_json);
  check(result.outcome==='complete'&&stored.cursor===0&&next.checks.length===0);
- check(next.host_outcomes.length===1&&next.host_outcomes[0].skipped_checks===136);
+ check(next.host_outcomes.length===1&&next.host_outcomes[0].skipped_checks===139);
  check(JSON.stringify(next.retest_checks)===JSON.stringify([original]));
  check(stored.charged_requests===outcome.requests);
  const report=await readExposureForScan(h.env,{workspaceId:scan.workspace_id,scanId:scan.id});

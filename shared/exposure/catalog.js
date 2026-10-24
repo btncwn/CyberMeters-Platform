@@ -1,6 +1,6 @@
 import { REMOTE_ACCESS_PATHS, REMOTE_ACCESS_SENTENCES } from './remote-access.js';
 // Local, immutable rules. No downloaded templates, executable customer input, or callbacks.
-export const EXPOSURE_CATALOG_VERSION = '2026.10.24.1';
+export const EXPOSURE_CATALOG_VERSION = '2026.10.24.2';
 export const EXPOSURE_FAMILIES = Object.freeze(['configuration', 'development', 'backups', 'debug', 'administration', 'diagnostics', 'javascript', 'api_references', 'product_misconfiguration']);
 const RULE_PRESENTATION = {
   'remote-access-portal': ['Remote-access portal exposed', 'medium', REMOTE_ACCESS_SENTENCES.hidden],
@@ -40,6 +40,7 @@ const rotate = ['Revoke and replace the exposed credential through its owner; th
 export const EXPOSURE_RULES = Object.freeze([
   rule('remote-access-portal', 'administration', REMOTE_ACCESS_PATHS, 'A known portal title and same-origin login form; only an explicit server-version label may support an advisory match.', ['Restrict public portal access to authorised networks and review the server version with its administrator.', 'Apply supported security updates and repeat this exact URL check. Hiding the version or browser login page is not proof that the remote service was removed or updated.'], {
     introducedAt: '2026-10-24',
+    version: 2,
     verificationEvidence: 'A later bounded HTTPS check of this exact original URL must state a server version in the curated fixed range. A hidden version, disabled browser login, 404, blocked response or missing evidence cannot prove that the remote service was removed or updated.',
   }),
   rule('env-config', 'configuration', ['/.env', '/.env.local', '/.env.production', '/.env.prod', '/.env.dev', '/.env.stage', '/.env.bak', '/.env.old', '/.env.backup', '/.env.save', '/.env.example', '/.env_sample', '/api/.env', '/config/.env', '/sendgrid.env', '/.aws/credentials'], 'Multiple dotenv/INI assignments and at least one non-placeholder credential-shaped value.', rotate),
