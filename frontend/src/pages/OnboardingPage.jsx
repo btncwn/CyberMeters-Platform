@@ -266,7 +266,8 @@ export default function OnboardingPage() {
       return
     }
     let cancelled = false
-    setReportState({ scanId: reportScanId, status: 'checking' })
+    // A re-check keeps the last known status on screen (no flicker to "checking").
+    setReportState(prev => (prev && prev.scanId === reportScanId ? prev : { scanId: reportScanId, status: 'checking' }))
     api.getScan(reportScanId)
       .then(data => {
         if (!cancelled) setReportState({ scanId: reportScanId, status: data.report_availability?.status || 'unknown' })
@@ -285,7 +286,8 @@ export default function OnboardingPage() {
   // once; polling then stops. A scan that was already finished on arrival never
   // navigates by itself.
   const followed = Boolean(reportScanId) && followedScanRef.current === reportScanId
-  const reportPending = scanFinished && (reportStatus === 'report_preparing' || reportStatus === 'checking')
+  // A failed check ('unknown') keeps polling too, within the same bound.
+  const reportPending = scanFinished && ['report_preparing', 'checking', 'unknown'].includes(reportStatus)
   useEffect(() => {
     if (!followed || !reportPending) return undefined
     let ticks = 0

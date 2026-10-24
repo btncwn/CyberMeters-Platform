@@ -53,6 +53,28 @@ it('rank 2: setup follows its first scan and opens the results once the report i
   expect(api.getScan.mock.calls.length).toBe(scanCalls)
 })
 
+it('rank 2: a failed report check keeps polling (bounded), without flicker, then opens the results', async () => {
+  let started = false, finished = false, attempt = 0
+  api.getWorkspaceScans.mockImplementation(async () => ({ scans: started ? [{ id: 's1', domain: 'example.org', status: finished ? 'completed' : 'queued' }] : [] }))
+  api.createScan.mockImplementation(async () => { started = true; return { id: 's1', domain: 'example.org', status: 'queued' } })
+  api.getScan.mockImplementation(async () => {
+    attempt += 1
+    if (attempt === 1) throw new Error('network')
+    return { scan: { id: 's1', status: 'completed' }, report_availability: { status: attempt >= 3 ? 'report_ready' : 'report_preparing' } }
+  })
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  render(withResults())
+  fireEvent.click(await screen.findByRole('button', { name: 'Run First Security Check' }))
+  await screen.findByText('Your first check has started.')
+  finished = true
+  await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+  await waitFor(() => expect(api.getScan).toHaveBeenCalledTimes(1))
+  await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+  expect(await screen.findByText('Results page')).toBeInTheDocument()
+  expect(api.getScan.mock.calls.length).toBeGreaterThanOrEqual(3)
+})
+
 it('rank 2: a scan that was already finished on arrival never navigates by itself', async () => {
   api.getWorkspaceScans.mockResolvedValue({ scans: [{ id: 's1', domain: 'example.org', status: 'completed' }] })
   api.getScan.mockResolvedValue({ scan: { id: 's1', status: 'completed' }, report_availability: { status: 'report_ready' } })
