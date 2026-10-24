@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './security/php-runtime.js';
 import { runTechModule } from "../workers/scan-api/src/engines/tech-scan.js";
 import { deriveAttackSurfaceSignalCompleteness } from "../workers/scan-api/src/engines/attack-surface-signal-completeness.js";
 import { isResolverVersionAtLeast, SECURITY_CHECK_RESOLVER_VERSION, FIRST_HONEST_RESOLVER_VERSION } from "../workers/scan-api/src/engines/security-check-domains.js";

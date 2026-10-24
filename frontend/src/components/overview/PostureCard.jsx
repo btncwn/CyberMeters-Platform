@@ -30,7 +30,7 @@ export default function PostureCard({ domains, request = 'ok', workspaceName }) 
               <span className="inline-flex items-center justify-center w-8 h-8 rounded-full shrink-0" style={theme ? { backgroundColor: theme.chip, color: theme.text } : undefined}>
                 <Icon className="w-4 h-4" aria-hidden="true" />
               </span>
-              <Link to={m.to} className="flex-1 min-w-0 text-[15px] font-semibold text-gray-900 hover:text-brand-800 truncate">{m.title}</Link>
+              <Link to={m.to} className="cm-rowlink flex-1 min-w-0 text-[15px] font-semibold truncate">{m.title}</Link>
               <StatusChip status={domainStatus(byKey.get(m.domainKey) || null, state)} className="shrink-0" />
             </li>
           )

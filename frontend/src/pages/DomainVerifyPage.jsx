@@ -241,7 +241,7 @@ export default function DomainVerifyPage() {
       {/* Back */}
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors mb-6"
+        className="cm-backlink flex items-center gap-1.5 text-sm mb-6"
       >
         Back
       </button>

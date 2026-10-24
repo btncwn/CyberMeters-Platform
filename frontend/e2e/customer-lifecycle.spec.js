@@ -326,7 +326,7 @@ test('customer lifecycle: signup, onboarding, scan, email protection, billing, d
 
   await page.getByRole('link', { name: /open executive report/i }).click()
   await expect(page).toHaveURL(/\/scans\/scan_e2e$/)
-  await expect(page.getByRole('heading', { name: /^Scan — 8 Jul 2026, \d{2}:10$/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^Scan — 8 Jul 2026 at \d{2}:10 \S+$/ })).toBeVisible()
   await expect(page.getByText(domain.domain, { exact: true }).first()).toBeVisible()
   await expect(page.getByText(/Observed Findings/i).first()).toBeVisible()
   await page.getByRole('button', { name: /technical details/i }).click()

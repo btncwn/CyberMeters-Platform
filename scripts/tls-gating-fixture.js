@@ -28,8 +28,10 @@ assert.ok(none.selected.length > 0, 'safe-active controls still planned');
 const stated = none.static_results.filter((row) => TLS_INTRUSIVE_CONTROLS.includes(row.check.control));
 assert.equal(stated.length, 3);
 assert.ok(stated.every((row) => row.state === 'not_authorized' && row.reason === TLS_AUTHORISATION_REQUIRED_REASON));
-// Even a recorded grant cannot plan them while the engine is not released.
-assert.equal(intrusiveSelected(plan({ heartbleed: 'acc_1', robot: 'acc_2', ccs: 'acc_3' })).length, 0, 'unreleased engine: never planned');
+// Released (F1, 23 Oct 2026): the exact per-control grant plans exactly the
+// granted controls, one each, and nothing else.
+assert.deepEqual(intrusiveSelected(plan({ heartbleed: 'acc_1', robot: 'acc_2', ccs: 'acc_3' })).map((row) => row.check.control).sort(), ['ccs', 'heartbleed', 'robot'], 'released: every granted control is planned once');
+assert.deepEqual(intrusiveSelected(plan({ robot: 'acc_2' })).map((row) => row.check.control), ['robot'], 'released: only the granted control');
 
 // A grant with the engine withheld reads "Authorised — not yet available".
 const grantedEndpoint = { ...endpoint(), scope: { ...endpoint().scope, granted_checks: { heartbleed: 'acc_1' } } };
@@ -50,9 +52,9 @@ const plannerSource = readFileSync(new URL('../workers/scan-api/src/engines/tls-
 const qualitySource = readFileSync(new URL('../workers/scan-api/src/engines/tls-quality.js', import.meta.url), 'utf8');
 const relink = (text, from) => text.replace(/from '(\.{1,2}\/[^']+)'/g, (_m, spec) => `from '${new URL(spec, from)}'`);
 const MUTANTS = [
-  { name: 'engine release no longer required', file: 'tls-planner.js', source: plannerSource,
-    from: "if(TLS_SPECIAL_CONTROLS_AVAILABLE&&entry.scope?.special_checks?.[control])", to: "if(entry.scope?.special_checks?.[control])",
-    caught: (m) => m.buildBudgetedTlsCheckPlan({ endpoints: [endpoint({ heartbleed: 'acc_1' })], observedHttpsHosts: ['example.com'], scanId: 'scan_t' })
+  { name: 'per-control grant no longer required', file: 'tls-planner.js', source: plannerSource,
+    from: "if(TLS_SPECIAL_CONTROLS_AVAILABLE&&entry.scope?.special_checks?.[control])", to: "if(TLS_SPECIAL_CONTROLS_AVAILABLE)",
+    caught: (m) => m.buildBudgetedTlsCheckPlan({ endpoints: [endpoint({})], observedHttpsHosts: ['example.com'], scanId: 'scan_t' })
       .selected.some((row) => row.check.control === 'heartbleed') },
   { name: 'a recorded grant ignored while the engine is withheld', file: 'tls-planner.js', source: plannerSource,
     from: "else if(entry.scope?.granted_checks?.[control]||entry.scope?.special_checks?.[control])", to: "else if(false)",

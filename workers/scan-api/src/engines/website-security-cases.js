@@ -44,6 +44,8 @@ import { RULES_BY_ID } from "../../../../shared/exposure/catalog.js";
 // Imports NOTHING from website-security-lifecycle.js, deliberately — the lifecycle calls
 // into here, so importing back would make a cycle. The caller knows its own condition key
 // and record identity and passes them in, and owns its own append-only event log.
+import { isPhpRuntimeConditionKey, PHP_RUNTIME_TITLE } from "./php-runtime.js";
+
 export const WEBSITE_CASE_TYPE = "website_case";
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
@@ -55,6 +57,7 @@ export const WEBSITE_CASE_RECURRENCES = Object.freeze(new Set([
   "browser_protection_missing",    // header_missing_* / cookies → https_recheck → automated
   "browser_protection_malformed",  // header_malformed_*         → https_recheck → automated
   "external_content_exposed",      // exact content condition → bounded rescan
+  "reported_runtime_outdated",     // exact reported runtime response → bounded rescan
   "credential_form_exposed",       // https_signin_form_*        → https_recheck → automated
 ]));
 
@@ -64,6 +67,7 @@ export const WEBSITE_CASE_RECURRENCES = Object.freeze(new Set([
 export const WEBSITE_RECOVERY_EVENT = "condition_resolved";
 
 const caseTitle = (conditionKey, entity) => {
+  if (isPhpRuntimeConditionKey(conditionKey)) return `Website Security: ${PHP_RUNTIME_TITLE} (${entity})`;
   const ruleId = /^external_exposure_([a-z][a-z0-9-]+)__[a-f0-9]{64}$/.exec(String(conditionKey))?.[1];
   const label = RULES_BY_ID[ruleId]?.title || String(conditionKey).replace(/_/g, " ");
   return `Website Security: ${label} (${entity})`;

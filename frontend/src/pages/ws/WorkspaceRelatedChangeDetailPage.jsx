@@ -201,7 +201,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
         <div className="space-y-5">
           <button
             onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"
+            className="cm-backlink inline-flex items-center gap-1.5 text-sm"
           >
             Back to related changes
           </button>

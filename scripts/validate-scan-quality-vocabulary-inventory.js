@@ -542,8 +542,10 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
   // 248 -> 249: the shared date import follows the score-honesty import from main.
   // 249 -> 251: the shared customer-code import and a comment line above it.
   // 251 -> 252: the SignedInScanningSummary import above it (22 Oct 2026).
+  // 252 -> 269: the report action's case link (C-46 rank 3) and its router-aware
+  // CaseLink above it (24 Oct 2026).
   // The unchanged blank-coverage check still makes no security verdict.
-  ["frontend/src/components/ExecutiveReportV2.jsx:252:value !== ''",
+  ["frontend/src/components/ExecutiveReportV2.jsx:269:value !== ''",
     "omit a blank coverage fact after the adjacent null guard"],
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;
@@ -562,7 +564,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-network-assets.js:413:mixed.quality==='partial'",
   "scripts/validate-network-assets.js:425:mutant.networkReceiptCoverage({coverage:{planned:4},observations:[o(22,'open'),o(80,'timeout'),o(443,'timeout'),o(3389,'timeout')]}).quality==='partial'",
   // against origin/main 16a4ae0b shows no other unresolved-site change.
-  "scripts/validate-exposure-queue.js:180:report.quality==='partial'",
+  "scripts/validate-exposure-queue.js:181:report.quality==='partial'", // F1 C-52b: one import line added above; keyed diff shows only this shift
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",

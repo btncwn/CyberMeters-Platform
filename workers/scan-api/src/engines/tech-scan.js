@@ -6,6 +6,7 @@ import { safeFetch, SCANNER_PAGE_HEADERS } from "../lib/http.js";
 import { classifyFetchObservation, FETCH_OBSERVATION_STATES } from "../lib/fetch-observation.js";
 import { classifyServiceability } from "../lib/serviceability.js";
 import { observeWebsiteScripts } from "./website-script-observations.js";
+import { phpRuntimeObservation, phpRuntimeFindings } from "./php-runtime.js";
 
 // ── Module 5: Technology Detection ───────────────────────────────────────────
 // Ported from tech_fingerprint.py — collects response headers and infers the
@@ -277,7 +278,18 @@ export async function runTechModule(domain, opts = {}) {
     });
   }
 
+  let phpResponseInScope = false;
+  try {
+    const host = new URL(finalUrl).hostname.toLowerCase();
+    const root = String(domain).toLowerCase().replace(/\.$/, '');
+    phpResponseInScope = host === root || host.endsWith(`.${root}`);
+  } catch { /* malformed final URL cannot support an observation */ }
+  const phpRuntime = phpRuntimeObservation({ poweredBy, server,
+    url: phpResponseInScope && statusCode >= 200 && statusCode < 300 ? finalUrl : null });
+  infoFindings.push(...phpRuntimeFindings(phpRuntime));
+
   return {
+    php_runtime:               phpRuntime,
     final_url:                 finalUrl,
     status_code:               statusCode,
     server,

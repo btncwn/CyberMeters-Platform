@@ -46,6 +46,7 @@ const { findConditionOccurrence, LIFECYCLE_EVENT_SOURCES, MONITORING_CHANGED } =
 const { severityForRecurrence, INHERIT_SEVERITY } = await import(eng("alert-consumers.js"));
 const { resolveRemediation } = await import(eng("remediation-registry.js"));
 const { buildScanQuality } = await import(eng("scan-engine.js"));
+const { runTechModule } = await import(eng("tech-scan.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -220,6 +221,78 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   eq("csp_weak_policy has the browser protection recurrence", rec?.recurrence_type, "browser_protection_malformed");
   ok("csp_weak_policy opens a managed case", Boolean(rec?.linked_case_id &&
     db.prepare("SELECT id FROM managed_cases WHERE id = ? AND workspace_id = ?").get(rec.linked_case_id, "wsCsp")));
+}
+
+// The real response → finding → durable case → exact retest path. No new
+// case framework, mock detector, external host or customer data is involved.
+{
+  const ws = 'wsPhp';
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES (?, 'u1', 'Runtime test')").run(ws);
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('mPhp', ?, 'u1', 'owner')").run(ws);
+  db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('d_php','u1','php.example.com')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, 'd_php')").run(ws);
+  activate(ws, '2026-01-01 00:00:00');
+  const response = async (poweredBy, url = 'https://php.example.com/shop/', status = 200) => {
+    const original = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => {
+        const res = new Response('<html>ok</html>', { status, headers: poweredBy ? { 'x-powered-by': poweredBy } : {} });
+        Object.defineProperty(res, 'url', { value: url });
+        return res;
+      };
+      return await runTechModule('php.example.com');
+    } finally { globalThis.fetch = original; }
+  };
+  const correlate = async (tech, scan, moduleOverrides = {}) => {
+    const modules = { ...MODULES_OK, ...moduleOverrides, technology_detection: tech };
+    return run(ws, tech.info_findings.map(f => ({ module: 'technology_detection', ...f })), {
+      modules, scanQuality: buildScanQuality(modules), scan, domainId: 'd_php', domain: 'php.example.com',
+    });
+  };
+  await correlate(await response(null), 'php_baseline');
+  const detected = await response('PHP/8.2.34-1+deb12u1');
+  await correlate(detected, 'php_reported_old');
+  const key = detected.php_runtime.condition_key;
+  let condition = condFor(ws, key);
+  const caseId = condition?.linked_case_id;
+  ok('PHP reported old release opens the canonical case', Boolean(caseId));
+  const caseRow = () => db.prepare('SELECT * FROM managed_cases WHERE id=? AND workspace_id=?').get(caseId, ws);
+  ok('PHP case title describes the observation without a hash/key', caseRow()?.title.includes('Review the reported PHP release') && !caseRow()?.title.includes(key));
+  db.prepare("UPDATE managed_cases SET status='awaiting_verification' WHERE id=?").run(caseId);
+  for (const [label, tech] of [
+    ['hidden', await response('PHP')],
+    ['runtime-alias-hidden', await response('PHP-FPM')],
+    ['malformed', await response('PHP/8.2')],
+    ['other-path', await response('PHP/8.2.35', 'https://php.example.com/other/')],
+    ['other-host', await response('PHP/8.2.35', 'https://other.example.com/shop/')],
+    ['access-denied', await response(null, 'https://php.example.com/shop/', 403)],
+    ['not-found', await response(null, 'https://php.example.com/shop/', 404)],
+    ['server-error', await response(null, 'https://php.example.com/shop/', 503)],
+  ]) {
+    const before = JSON.stringify(caseRow());
+    await correlate(tech, 'php_' + label);
+    eq('PHP ' + label + ' never verifies/rewrites the case', JSON.stringify(caseRow()), before);
+    ok('PHP ' + label + ' never records recovery', !allEvents(condition.id).some(e => e.event_type === WS_EVENT_RESOLVED));
+  }
+  const fixed = await response('PHP/8.2.35');
+  const waiting = JSON.stringify(caseRow());
+  await correlate(fixed, 'php_fixed_core_incomplete', { headers: { error: 'timed out', incomplete: true } });
+  eq('PHP fixed response with missing core proof cannot verify', JSON.stringify(caseRow()), waiting);
+  const supplementary = { page_discovery: { incomplete: true, incomplete_reason: 'check_window_expired' } };
+  eq('PHP fixture uses a real partial quality from an unrelated module', buildScanQuality({ ...MODULES_OK, ...supplementary, technology_detection: fixed }).status, 'partial');
+  await correlate(fixed, 'php_fixed_same_path_supplementary_partial', supplementary);
+  condition = condFor(ws, key);
+  eq('PHP exact fixed upstream release resolves the condition', condition.monitoring_status, 'no_longer_observed');
+  eq('PHP exact fixed upstream release verifies the submitted case', caseRow()?.status, 'verified');
+  ok('PHP system verification has a recovery event', allEvents(condition.id).some(e => e.event_type === WS_EVENT_RESOLVED));
+  await correlate(await response('PHP/8.2.34'), 'php_returned');
+  eq('PHP recurrence retains the same canonical case', condFor(ws, key)?.linked_case_id, caseId);
+  ok('PHP recurrence reopens that case', !['verified', 'closed'].includes(caseRow()?.status));
+  db.prepare("UPDATE managed_cases SET status='awaiting_verification' WHERE id=?").run(caseId);
+  await correlate(await response(null), 'php_no_longer_reported');
+  eq('PHP no longer reported at the exact URL verifies the case', caseRow()?.status, 'verified');
+  eq('PHP hidden-version observation never gets a lifecycle condition', condFor(ws, 'tech_php2shell_version_hidden'), undefined);
+  eq('PHP lifecycle creates only one managed case', db.prepare('SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id=?').get(ws).n, 1);
 }
 
 // ── 2. THE FLOOD GUARD — a 14-month backlog stays silent on day one ─────────
