@@ -683,7 +683,7 @@ export async function emitManagedAlert(env, {
       deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "webhook", outcome: "suppressed", reason: "channel_disabled" }));
     } else {
       try {
-        await deliverWorkspaceAlert(env, workspace_id, { kind, severity, title, message, link, domain_key });
+        await deliverWorkspaceAlert(env, workspace_id, { kind, severity, title, message, summary: message, link, domain_key });
         deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "webhook", outcome: "delivered" }));
       } catch (err) {
         deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "webhook", outcome: "failed", reason: "provider_unavailable" }));
