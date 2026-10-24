@@ -44,7 +44,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href;
 
-const { runHeadersModule } = await import(eng("headers-scan.js"));
+const { runHeadersModule, hstsPolicyOf, buildHstsHostPolicy } = await import(eng("headers-scan.js"));
 const { runTechModule } = await import(eng("tech-scan.js"));
 const { runSslModule } = await import(eng("ssl-scan.js"));
 const { computeScore } = await import(eng("scoring.js"));
@@ -349,6 +349,17 @@ const R_ALL_503 = async () => origin503();
   eq("E2_APEX_429_WITH_HSTS_IS_NOT_OBSERVED", [apexLimitedWithHsts.headers.hsts_policy?.state, apexLimitedWithHsts.headers.hsts_policy?.value],
     ["not_observed", null]);
   ok("E2_APEX_429_WITH_HSTS_CLAIMS_NOTHING", !apexLimitedWithHsts.ids.some((id) => /hsts|strict_transport_security/.test(id)), JSON.stringify(apexLimitedWithHsts.ids));
+
+  // R1 follow-up (24 Oct 2026): a legacy result without hsts_policy and without a
+  // recorded apex answer, or an apex answer without a status, is not_observed:
+  // neither the final page's value nor its absence stands for the apex.
+  const legacyMissing = hstsPolicyOf({ values: { "strict-transport-security": null }, response_url: "https://example.org/" }, "example.org");
+  const legacyPresent = hstsPolicyOf({ values: { "strict-transport-security": STRONG }, response_url: "https://example.org/" }, "example.org");
+  eq("LEGACY_RESULT_WITHOUT_APEX_IS_NOT_OBSERVED", [legacyMissing.state, legacyPresent.state, legacyPresent.value, legacyPresent.final_value, legacyMissing.legacy],
+    ["not_observed", "not_observed", null, STRONG, true]);
+  const noStatus = hstsPolicyOf({ apex_https_response: { url: "https://example.org", strict_transport_security: STRONG }, values: {} }, "example.org");
+  eq("APEX_ANSWER_WITHOUT_STATUS_IS_NOT_OBSERVED", noStatus.state, "not_observed");
+  eq("APEX_200_STILL_PRESENT", buildHstsHostPolicy({ domain: "example.org", apexObserved: true, apexValue: STRONG, apexStatus: 200 }).state, "present");
 
   // C-40 row 5 (reverse): short apex, strong www — the apex is what is judged.
   const shortApex = await run({ apexHsts: "max-age=900", wwwHsts: STRONG });
