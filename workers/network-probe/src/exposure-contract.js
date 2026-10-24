@@ -1,3 +1,4 @@
+import { validRemoteAccessEvidence } from '../../../shared/exposure/remote-access.js';
 import { isProbeHostname } from './contract.js';
 import { EXPOSURE_RULES, RULES_BY_ID, EXPOSURE_INDICATORS } from '../../../shared/exposure/catalog.js';
 import { isRulePathAllowed, exposureIdentity, safeExposureUrl } from '../../../shared/exposure/redaction.js';
@@ -77,7 +78,7 @@ export function validateExposureReceipt(request,receipt,{now=Date.now()}={}) {
   if((t.bytes_wire>request.max_bytes||t.bytes_decoded>request.max_bytes)&&!t.byte_limit_exceeded)return fail('unreported_overread');
   for(let i=0;i<receipt.results.length;i++){
     const row=receipt.results[i],expected=request.checks[i];
-    if(!exact(row,['rule_id','url','identity','indicators','state','comparable','finding','observation','reason','response_summary'])||row.rule_id!==expected.rule_id||row.url!==expected.url||row.identity!==exposureIdentity(expected.rule_id,expected.url))return fail('result_identity');
+    if(!exact(row,['rule_id','url','identity','indicators','state','comparable','finding','observation','reason','response_summary','portal'])||row.rule_id!==expected.rule_id||row.url!==expected.url||row.identity!==exposureIdentity(expected.rule_id,expected.url))return fail('result_identity');
     if(!['finding','observed','not_found','not_present_soft404','blocked','uncertain','not_applicable'].includes(row.state)||typeof row.comparable!=='boolean'||(row.reason!==null&&!/^[a-z0-9_]{1,80}$/.test(row.reason)))return fail('invalid_result');
     if(row.state==='not_present_soft404'){
       const [first,second]=receipt.baseline||[];
@@ -90,6 +91,8 @@ export function validateExposureReceipt(request,receipt,{now=Date.now()}={}) {
           !near(first.normalized_length,second.normalized_length)||!near(first.normalized_length,observed.normalized_length)||
           !near(second.normalized_length,observed.normalized_length))return fail('unproved_soft404');
     }else if(row.response_summary!==undefined)return fail('unexpected_response_summary');
+    if(row.rule_id==='remote-access-portal' && row.state==='observed' && !validRemoteAccessEvidence(row.portal))return fail('portal_evidence_missing');
+    if(row.portal !== undefined && (row.rule_id !== 'remote-access-portal' || row.state !== 'observed' || !validRemoteAccessEvidence(row.portal)))return fail('unsafe_portal_evidence');
     if(!Array.isArray(row.indicators)||row.indicators.length>12||row.indicators.some(value=>typeof value!=='string'||value.length>120||!EXPOSURE_INDICATORS.includes(value)))return fail('unsafe_indicators');
     if(['blocked','uncertain','not_applicable'].includes(row.state)&&row.comparable)return fail('false_comparability');
     if(row.state==='finding'||row.state==='observed'){

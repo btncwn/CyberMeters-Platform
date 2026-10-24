@@ -73,7 +73,7 @@ export async function runExposureCollector(input, dependencies={}) {
       // same-status/content-type controls and an exact normalized body match
       // establish a path-specific soft-404 absence.
       const observed=summary(response);
-      if(!response.error&&!response.truncated&&telemetry.controls_completed===2&&matchesSoft404Baseline(baseline,observed))
+      if(check.rule_id!=='remote-access-portal'&&!response.error&&!response.truncated&&telemetry.controls_completed===2&&matchesSoft404Baseline(baseline,observed))
         evaluated={state:'not_present_soft404',comparable:true,finding:null,observation:null,reason:'matches_two_negative_controls'};
       for(const path of evaluated.discoveries?.paths||[])if(discoveredPaths.size<32&&EXPOSURE_RULES.some(rule=>isRulePathAllowed(rule,path)))discoveredPaths.add(path);
       for(const host of evaluated.discoveries?.hosts||[])if(discoveredHosts.size<32&&isProbeHostname(host)&&host.endsWith('.'+origin.hostname))discoveredHosts.add(host);
@@ -82,7 +82,7 @@ export async function runExposureCollector(input, dependencies={}) {
         indicators:evaluated.finding.evidence?.indicators||[],identity:exposureIdentity(check.rule_id,check.url),safe_url:safeExposureUrl(check.url,EXPOSURE_RULES),
       }:null;
       const observation=evaluated.state==='observed'&&evaluated.observation?{rule_id:check.rule_id,family:RULES_BY_ID[check.rule_id].family,severity:'info',indicators:evaluated.observation.evidence?.indicators||[],identity:exposureIdentity(check.rule_id,check.url),safe_url:safeExposureUrl(check.url,EXPOSURE_RULES)}:null;
-      results.push({rule_id:check.rule_id,url:check.url,identity:exposureIdentity(check.rule_id,check.url),indicators:evaluated.finding?.evidence?.indicators||evaluated.observation?.evidence?.indicators||[],state:evaluated.state,comparable:evaluated.comparable===true,finding,observation,reason:/^[a-z0-9_]{1,80}$/.test(evaluated.reason||'')?evaluated.reason:null,
+      results.push({rule_id:check.rule_id,url:check.url,identity:exposureIdentity(check.rule_id,check.url),indicators:evaluated.finding?.evidence?.indicators||evaluated.observation?.evidence?.indicators||[],state:evaluated.state,comparable:evaluated.comparable===true,finding,observation,...(evaluated.portal?{portal:evaluated.portal}:{}),reason:/^[a-z0-9_]{1,80}$/.test(evaluated.reason||'')?evaluated.reason:null,
         ...(evaluated.state==='not_present_soft404'?{response_summary:observed}:{})});
     }
     const finished=Date.now();telemetry.duration_ms=finished-started;

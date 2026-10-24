@@ -152,14 +152,16 @@ ok("all other remediation identities remain version 1",
 // S3-0 (22 Oct 2026): + asm.network.remote_admin_reachable and asm.network.ftp_reachable.
 // S3-C (22 Oct 2026): + email.dane.tlsa_ineffective and cert.dane.web_tlsa_not_validated.
 // S3-MODERN 1 (23 Oct 2026): + tls.endpoint.must_staple_not_stapled.
-ok("registry has exactly 121 entries including reported runtime guidance", REMEDIATION_REGISTRY.length === 121);
+// C-53: + web.exposure.remote_access_portal; all historical entries retained.
+// C-54: + web.php.runtime_release and web.php.runtime_observation.
+ok("registry has exactly 122 entries including portal and reported runtime guidance", REMEDIATION_REGISTRY.length === 122);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
-// The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including reported runtime guidance is exact", remediationRegistryFingerprint() === "r121-8ee8b225", remediationRegistryFingerprint());
+// The23 local public-content rules add canonical remediations; legacy entries stay unchanged.
+ok("registry fingerprint including portal and reported runtime guidance is exact", remediationRegistryFingerprint() === "r122-87a173b3", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",

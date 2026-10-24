@@ -26,11 +26,11 @@ is never proof of tenant scope.
 
 - **body_workspace_trust:** 10
 - **global_latest_fallback:** 3
-- **r2_key_not_workspace_bound:** 12
+- **r2_key_not_workspace_bound:** 14
 - **unscoped_tenant_query:** 307
 - **workspace_domain_scope_missing:** 29
 
-Blocking findings are all covered by 36 documented suppressions
+Blocking findings are all covered by 38 documented suppressions
 (each a manually-verified out-of-band guard with a security contract) — see
 `scripts/security/tenant-query-audit-suppressions.json`. Zero unsuppressed.
 
