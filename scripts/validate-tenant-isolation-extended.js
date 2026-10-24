@@ -186,12 +186,71 @@ async function main() {
   const downgrade = await call("PATCH", "/api/workspaces/wsA/members/mDown", T.A, { role: "viewer" });
   ok("owner downgrades analyst → viewer (200)", downgrade.status === 200 && downgrade.data?.role === "viewer");
   ok("PATCH downgrade revokes the member's MCP connection for wsA", mcpStatus("mcpconn_00000000-0000-4000-8000-0000000000d1") === "revoked");
-  const sameRole = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "view@a.co", role: "viewer" });
-  ok("POST re-adding a member with the SAME role keeps their MCP connection", sameRole.status < 300 && mcpStatus("mcpconn_00000000-0000-4000-8000-0000000000a2") === "active");
-  const postDown = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "ana@a.co", role: "viewer" });
-  ok("POST re-adding an analyst as viewer changes the role", postDown.status < 300 && db.prepare("SELECT role FROM workspace_members WHERE id = 'mAna'").get()?.role === "viewer");
-  ok("POST role change revokes the member's MCP connection for wsA", mcpStatus("mcpconn_00000000-0000-4000-8000-0000000000a1") === "revoked");
-  db.prepare("UPDATE workspace_members SET role = 'analyst' WHERE id = 'mAna'").run();
+  // POST /members never changes an existing member's role (only PATCH does).
+  const reAdd = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "ana@a.co", role: "viewer" });
+  ok("POST /members for an existing member changes no role", reAdd.status === 409 && db.prepare("SELECT role FROM workspace_members WHERE id = 'mAna'").get()?.role === "analyst");
+  ok("...and keeps their MCP connection", mcpStatus("mcpconn_00000000-0000-4000-8000-0000000000a1") === "active");
+
+  sec("Direct add is an invitation: no account oracle, no forced membership");
+  {
+    // A local email stand-in (never the network) so invitations really send.
+    const realFetch = globalThis.fetch;
+    env.RESEND_API_KEY = "re_local_fixture";
+    env.HELLO_EMAIL_FROM = "hello@cybermeters.com";
+    globalThis.fetch = async (input, init) => {
+      const u = typeof input === "string" ? input : input.url;
+      if (u.startsWith("https://api.resend.com/")) return new Response(JSON.stringify({ id: "local-email" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return realFetch(input, init);
+    };
+    try {
+      const shape = (r) => JSON.stringify({ status: r.status, data: JSON.parse(JSON.stringify(r.data || {}), (k, v) =>
+        ["id", "token", "expires_at", "email"].includes(k) ? "<varies>" : v) });
+      const existing = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "b@b.co", role: "viewer" });
+      const missing = await call("POST", "/api/workspaces/wsA/members", T.A, { email: "nobody-here@example.invalid", role: "viewer" });
+      ok("direct add of an existing account → 201 invitation", existing.status === 201 && existing.data?.invitation?.status === "pending");
+      ok("direct add: existing vs nonexistent account → identical response (ids, token, time, address aside)", shape(existing) === shape(missing));
+      ok("direct add response names no account (no name, no user id)", !/OwnerB|"user_id"|"name"/.test(existing.text) && !existing.text.includes("uB"));
+      ok("direct add inserts no membership before acceptance",
+        db.prepare("SELECT COUNT(*) n FROM workspace_members WHERE workspace_id = 'wsA' AND user_id = 'uB'").get().n === 0);
+      ok("direct add leaves a pending invitation for the address",
+        db.prepare("SELECT COUNT(*) n FROM workspace_invitations WHERE workspace_id = 'wsA' AND email = 'b@b.co' AND status = 'pending'").get().n === 1);
+      const asAdmin = await call("POST", "/api/workspaces/wsA/members", T.view, { email: "c@c.co", role: "viewer" });
+      ok("direct add still needs the manage-members role (viewer → 403)", asAdmin.status === 403);
+
+      // The invited person accepts: only then are they a member, with the invited role.
+      const accepted = await call("POST", "/api/invitations/accept", "raw-B", { token: existing.data?.token });
+      ok("the invited account accepts → member with the invited role", accepted.status === 200 &&
+        db.prepare("SELECT role FROM workspace_members WHERE workspace_id = 'wsA' AND user_id = 'uB'").get()?.role === "viewer");
+      db.prepare("DELETE FROM workspace_members WHERE workspace_id = 'wsA' AND user_id = 'uB'").run();
+    } finally {
+      globalThis.fetch = realFetch;
+      env.RESEND_API_KEY = "";
+    }
+  }
+
+  sec("A stale invitation never changes an existing member's role");
+  {
+    const raw = "stale-invite-token-for-viewer";
+    db.prepare(`INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at)
+      VALUES ('wsi_stale', 'wsA', 'view@a.co', 'admin', ?, 'uA', 'pending', ?, datetime('now'))`)
+      .run(await mod.hashToken(raw), new Date(Date.now() + 86400000).toISOString());
+    const r = await call("POST", "/api/invitations/accept", T.view, { token: raw });
+    ok("accepting a stale admin invite as an existing viewer → 200, role reported unchanged", r.status === 200 && r.data?.role === "viewer" && r.data?.already_member === true);
+    ok("...the member is still a viewer", db.prepare("SELECT role FROM workspace_members WHERE id = 'mView'").get()?.role === "viewer");
+    ok("...and the invitation is consumed", db.prepare("SELECT status FROM workspace_invitations WHERE id = 'wsi_stale'").get()?.status === "accepted");
+  }
+
+  sec("The legacy domain verification token is for verifiers only");
+  {
+    db.prepare("UPDATE domains SET verification_token = 'legacy-token-dA-0123456789' WHERE id = 'dA'").run();
+    const asViewer = await call("GET", "/api/domains/dA", T.view);
+    ok("a viewer of a linked workspace reads the domain (200)", asViewer.status === 200 && asViewer.data?.domain?.domain === "shared.example");
+    ok("...without any token material", !asViewer.text.includes("legacy-token-dA") && asViewer.data?.domain?.verification_token === null
+      && asViewer.data?.domain?.dns === null && asViewer.data?.domain?.html === null);
+    const asOwner = await call("GET", "/api/domains/dA", T.A);
+    ok("the owner (domain:verify) still gets the token and instructions", asOwner.status === 200 && asOwner.data?.domain?.verification_token === "legacy-token-dA-0123456789"
+      && String(asOwner.data?.domain?.dns?.value || "").includes("legacy-token-dA"));
+  }
   const afterDown = await scanInA(T.down);
   ok("downgraded member's existing session → 403 role refusal", afterDown.status === 403 && afterDown.data?.error === ROLE_DENIED);
   ok("downgraded member can still read wsA (viewer)", leaks(await call("GET", "/api/workspaces/wsA", T.down), "AlphaWS-SECRET"));

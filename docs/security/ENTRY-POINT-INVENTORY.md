@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 312
-- **Auth-guarded:** 266
+- **Total entry points:** 311
+- **Auth-guarded:** 265
 - **Unauthenticated (public by design):** 46
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -28,7 +28,7 @@ guard without an explicit, documented public-allowlist reason.
 | public-or-global | 47 | 21 |
 | unknown | 83 | 68 |
 | webhook | 2 | 0 |
-| workspace | 139 | 139 |
+| workspace | 138 | 138 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -237,7 +237,7 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/^\/api\/domains\/([^/` | 299 | public-or-global | ✓ | requireAuth |
 | POST | `/^\/api\/domains\/([^/` | 346 | public-or-global | ✓ | requireAuth |
 | GET | `/^\/api\/domains\/([^/` | 721 | public-or-global | ✓ | requireAuth, requireDomainRole |
-| POST | `/^\/api\/domains\/([^/` | 761 | public-or-global | ✓ | requireAuth, requireDomainRole |
+| POST | `/^\/api\/domains\/([^/` | 767 | public-or-global | ✓ | requireAuth, requireDomainRole |
 
 ### `workers/scan-api/src/routes/email-protection.js`
 
@@ -527,16 +527,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `/^\/api\/workspaces\/([^/` | 72 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 99 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 344 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 375 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| DELETE | `/^\/api\/workspaces\/([^/` | 470 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 532 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 597 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/api/invitations/preview` | 791 | public-or-global | public | — |
-| POST | `/api/invitations/accept` | 796 | public-or-global | ✓ | requireAuth |
-| GET | `/^\/api\/invitations\/([^/` | 804 | public-or-global | public | — |
-| POST | `/^\/api\/invitations\/([^/` | 810 | public-or-global | ✓ | requireAuth |
+| POST | `/^\/api\/workspaces\/([^/` | 108 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 357 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^/` | 389 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 451 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 516 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/api/invitations/preview` | 721 | public-or-global | public | — |
+| POST | `/api/invitations/accept` | 726 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/invitations\/([^/` | 734 | public-or-global | public | — |
+| POST | `/^\/api\/invitations\/([^/` | 740 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/workspace-reports.js`
 

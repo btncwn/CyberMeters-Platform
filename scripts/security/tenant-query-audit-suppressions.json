@@ -207,13 +207,6 @@
       "contract": "Assignable role is validated against the actor's own role ceiling; a member can never assign a role above their permission."
     },
     {
-      "fingerprint": "2d50ead73e84",
-      "file": "workers/scan-api/src/routes/workspace-members.js",
-      "detector": "body_workspace_trust",
-      "reason": "body.role on member-add, validated against the actor's role ceiling allowlist.",
-      "contract": "Role validated against actor ceiling; no privilege escalation via body."
-    },
-    {
       "fingerprint": "23e65c2199de",
       "file": "workers/scan-api/src/routes/workspace-members.js",
       "detector": "body_workspace_trust",

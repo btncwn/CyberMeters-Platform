@@ -96,12 +96,26 @@ export async function workspaceMembersRoutes(rctx) {
     }
 
     // ── POST /api/workspaces/:id/invitations ────────────────────────────────
-    if (invitationsMatch && request.method === "POST") {
-      const workspaceId = invitationsMatch[1];
+    // ── POST /api/workspaces/:id/members — "add member" ────────────────────
+    // Adding a member IS inviting them: both routes create the same pending
+    // invitation the person must accept, with one response whether or not an
+    // account exists for the address (no name, no user id, no 404), and the
+    // plan limit checked before any account lookup. A direct add used to look
+    // the account up by email (an account-existence oracle), return its name
+    // and id, and insert the membership with no acceptance. Changing an
+    // existing member's role is PATCH /members/:id only.
+    const membersListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
+    if ((invitationsMatch || membersListMatch) && request.method === "POST") {
+      const viaMembers = !invitationsMatch;
+      const workspaceId = (invitationsMatch || membersListMatch)[1];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-      const access = await requireWorkspaceRole(user, workspaceId, "workspace:invite", env);
-      if (!access) return json({ error: "Forbidden — admin role required to invite members" }, 403);
+      const access = await requireWorkspaceRole(user, workspaceId, viaMembers ? "workspace:manage_members" : "workspace:invite", env);
+      if (!access) {
+        return json({ error: viaMembers
+          ? "Forbidden — owner role required to manage members"
+          : "Forbidden — admin role required to invite members" }, 403);
+      }
 
       // ── Task 1: Rate limiting — 10/hour, 25/day per workspace ────────────
       // Uses the shared D1-backed consumeApiRateLimit helper. Fail-CLOSED: each
@@ -340,7 +354,6 @@ export async function workspaceMembersRoutes(rctx) {
     }
 
     // ── GET /api/workspaces/:id/members ──────────────────────────────────────
-    const membersListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
     if (membersListMatch && request.method === "GET") {
       const workspaceId = membersListMatch[1];
       const user = await requireAuth(request, env);
@@ -366,100 +379,6 @@ export async function workspaceMembersRoutes(rctx) {
           caller_role:  access.role,
           members:      result.results || [],
         });
-      } catch (e) {
-        return serverError("api", e);
-      }
-    }
-
-    // ── POST /api/workspaces/:id/members — add member ─────────────────────────
-    if (membersListMatch && request.method === "POST") {
-      const workspaceId = membersListMatch[1];
-      const user = await requireAuth(request, env);
-      if (!user) return json({ error: "Unauthorized" }, 401);
-      const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage_members", env);
-      if (!access) return json({ error: "Forbidden — owner role required to manage members" }, 403);
-
-      let body;
-      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
-
-      const email   = (body.email || "").trim().toLowerCase();
-      const rawRole = (body.role  || "viewer").trim().toLowerCase();
-
-      if (!email)                          return json({ error: "email is required" }, 400);
-      if (!ROLE_RANK.hasOwnProperty(rawRole)) return json({ error: `role must be one of: ${Object.keys(ROLE_RANK).join(", ")}` }, 400);
-      if (rawRole === "owner")             return json({ error: "Cannot assign owner role via invite. Ownership and billing ownership can't be transferred yet — contact support." }, 400);
-
-      try {
-        // Resolve target user by email
-        const target = await env.cybermeters_db
-          .prepare("SELECT id, email, name FROM users WHERE email = ? LIMIT 1")
-          .bind(email)
-          .first();
-        if (!target) return json({ error: `No account found for ${email}. The user must sign up first.` }, 404);
-
-        // Prevent demoting an owner via this route
-        const existing = await env.cybermeters_db
-          .prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1")
-          .bind(workspaceId, target.id)
-          .first();
-        if (existing?.role === "owner") return json({ error: "Cannot change the owner's role via this endpoint." }, 409);
-
-        if (!existing) {
-          const billingUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
-          const memberPlan = await getEffectivePlan(billingUserId, env);
-          const memberLimits = getPlanLimits(memberPlan);
-          const memberCount = await env.cybermeters_db
-            .prepare("SELECT COUNT(*) AS cnt FROM workspace_members WHERE workspace_id = ?")
-            .bind(workspaceId)
-            .first();
-          if ((memberCount?.cnt ?? 0) >= memberLimits.users) {
-            return json(planLimitExceeded("users", memberLimits.users, memberCount?.cnt ?? 0), 403);
-          }
-        }
-
-        // Re-adding an existing member with another role is a role change: like
-        // PATCH, it requires a fresh MCP consent (connections are revoked first).
-        if (existing && existing.role !== rawRole) {
-          await revokeMcpOAuthUserWorkspaceConnections(env, target.id, workspaceId);
-        }
-
-        const memberId = createId("wm");
-        await env.cybermeters_db
-          .prepare(
-            `INSERT INTO workspace_members (id, workspace_id, user_id, role, invited_by, created_at)
-             VALUES (?, ?, ?, ?, ?, datetime('now'))
-             ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role`
-          )
-          .bind(memberId, workspaceId, target.id, rawRole, user.id)
-          .run();
-
-        const memberAuditType = existing ? "workspace_member_role_changed" : "workspace_member_added";
-        await createAuditEvent(env, {
-          workspace_id: workspaceId,
-          user_id:      user.id,
-          event_type:   memberAuditType,
-          entity_type:  "member",
-          entity_id:    target.id,
-          description:  existing
-            ? `${user.email} changed ${target.email} role from ${existing.role} to ${rawRole}`
-            : `${user.email} added ${target.email} as ${rawRole}`,
-          metadata:     {
-            user_id: target.id,
-            email: target.email,
-            role: rawRole,
-            previous_role: existing?.role ?? null,
-          },
-        });
-
-        return json({
-          member: {
-            workspace_id: workspaceId,
-            user_id:      target.id,
-            email:        target.email,
-            name:         target.name,
-            role:         rawRole,
-          },
-        }, 201);
       } catch (e) {
         return serverError("api", e);
       }
@@ -753,10 +672,18 @@ export async function workspaceMembersRoutes(rctx) {
           .prepare(
             `INSERT INTO workspace_members (id, workspace_id, user_id, role, invited_by, created_at)
              VALUES (?, ?, ?, ?, ?, datetime('now'))
-             ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role`
+             ON CONFLICT(workspace_id, user_id) DO NOTHING`
           )
           .bind(createId("wm"), invite.workspace_id, user.id, invite.role, invite.invited_by)
           .run();
+        // A stale invitation never changes an existing member's role (that is
+        // PATCH /members/:id, which also requires a fresh MCP consent): it is
+        // consumed, and the member keeps the role they have.
+        const memberRole = existingMember
+          ? (await env.cybermeters_db
+              .prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1")
+              .bind(invite.workspace_id, user.id).first())?.role ?? null
+          : invite.role;
 
         await env.cybermeters_db
           .prepare(
@@ -773,14 +700,17 @@ export async function workspaceMembersRoutes(rctx) {
           event_type:   "workspace_invitation_accepted",
           entity_type:  "workspace_invitation",
           entity_id:    invite.id,
-          description:  `${user.email} accepted workspace invitation as ${invite.role}`,
-          metadata:     { invitation_id: invite.id, invited_email: invite.email, role: invite.role },
+          description:  existingMember
+            ? `${user.email} accepted a workspace invitation as an existing member; role unchanged (${memberRole})`
+            : `${user.email} accepted workspace invitation as ${invite.role}`,
+          metadata:     { invitation_id: invite.id, invited_email: invite.email, role: memberRole, invited_role: invite.role, already_member: Boolean(existingMember) },
         });
 
         return json({
           success: true,
           workspace_id: invite.workspace_id,
-          role: invite.role,
+          role: memberRole,
+          ...(existingMember ? { already_member: true } : {}),
         });
       } catch (e) {
         return serverError("api", e);
