@@ -262,8 +262,8 @@ async function mutantOf(dir, file, from, to) {
 // M6 — all event descriptions collapse into one generic sentence.
 {
   const m = await mutantOf(engDir, "alert-consumers.js",
-    "if (copy?.what_changed) return copy.what_changed(subject, ctx);",
-    'if (copy?.what_changed) return "Review this item in CyberMeters.";');
+    "const sentence = copy.what_changed(subject, ctx);",
+    'const sentence = "Review this item in CyberMeters.";');
   let caught = false;
   if (m.anchor) {
     const set = new Set(RECURRENCES.map((r) => m.mod.describeRecurrenceEvent(DOMAIN, r, "Stripe")));
