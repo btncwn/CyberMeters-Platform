@@ -224,7 +224,7 @@ export default function AcademyArticlePage() {
           <div className="mt-10 pt-6 border-t border-gray-100">
             <Link
               to={area ? `/guide/${area.key}` : '/guide'}
-              className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-brand-800 transition-colors"
+              className="cm-backlink inline-flex items-center gap-2 text-sm"
             >
               {area ? `Back to ${area.title}` : 'Back to Field Guide'}
             </Link>

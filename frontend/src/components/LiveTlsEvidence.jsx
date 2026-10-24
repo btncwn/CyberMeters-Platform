@@ -14,10 +14,28 @@ function Field({ label, children }) {
 
 const controlStates = { accepted: 'Accepted', rejected: 'Rejected', uncertain: 'Uncertain', not_applicable: 'Not applicable', not_authorized: 'Not authorized', unexecutable: 'Could not execute' }
 // S3-B: an intrusive check the customer has not authorised is stated plainly.
-const controlState = row => row?.state === 'not_authorized' && row.reason === 'requires_customer_authorisation'
-  ? 'Not tested — requires your authorisation'
-  : row?.state === 'unexecutable' && row.reason === 'authorised_engine_not_released'
-    ? 'Authorised — not yet available' : controlStates[row?.state] || 'Unknown'
+// Seat 3's held reasons (TLS specials go-live, 23 Oct 2026), in plain words.
+const CONTROL_REASONS = Object.freeze({
+  requires_customer_authorisation: 'Not tested — requires your authorisation',
+  authorised_engine_not_released: 'Authorised — not yet available',
+  address_not_verified_not_tested: 'Not tested — this address is not verified as yours',
+  // The producer's reason (shared/tls/catalog.js TLS_AUTHORISED_ON_DEMAND_REASON);
+  // the older key stays as an alias.
+  scheduled_or_unknown_origin: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
+  authorised_runs_on_started_check: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
+})
+// Where a customer adds their OWN servers so the TLS checks can test them.
+export const ADDITIONAL_TLS_SERVICES_HREF = '/ws/certificates?tab=settings#additional-tls-services'
+const controlState = (row, item = null) => {
+  // Founder, 23 Oct 2026: a provider-infrastructure refusal names the host and,
+  // when known, the provider, and says what to do — never just "not tested".
+  if (row?.reason === 'provider_infrastructure_not_tested') {
+    const host = typeof item?.hostname === 'string' && item.hostname ? item.hostname : 'This host'
+    const provider = row.provider_name || item?.provider_name || item?.provider || null
+    return `Not tested — ${host} is served by shared provider infrastructure${provider ? ` (${provider})` : ''}. Add your own servers to test them.`
+  }
+  return (row?.reason && CONTROL_REASONS[row.reason]) || controlStates[row?.state] || 'Unknown'
+}
 const number = value => Number.isSafeInteger(value) && value >= 0 ? String(value) : 'Not recorded'
 const yesNo = value => value === true ? 'Yes' : value === false ? 'No' : 'Unknown'
 const controlName = value => typeof value === 'string' ? value.replaceAll('_', ' ').replaceAll('-', ' ') : 'Unnamed check'
@@ -70,7 +88,7 @@ export function TlsAssessmentEvidence({ assessment }) {
     <p className="text-xs text-gray-500">Trust store: {store ? `${text(store.name)} · ${text(store.version)} · ${text(store.sha256)}` : 'Not recorded for this assessment'}{store?.observed_at ? ` · ${time(store.observed_at)}` : ''}</p>
     {costs && <p className="text-xs text-gray-500">Recorded cost: {number(costs.connections)} connections · {number(costs.bytes_sent)} bytes sent · {number(costs.bytes_received)} bytes received · {number(costs.duration_ms)} ms · {number(costs.unknown_attempts)} attempts with unknown cost. Budget charged: {number(costs.charged_connections)} connections / {number(costs.charged_bytes)} bytes.</p>}
     {!endpoints.length && <p className="text-sm text-gray-600">No endpoint checks recorded. Their TLS status remains unknown.</p>}
-    {endpoints.map((item,index) => <details key={`${item.hostname}:${item.address}:${item.port}:${index}`} className="rounded-sm border border-gray-200 p-3"><summary className="cursor-pointer text-sm font-medium break-all">{text(item.hostname)} · {endpoint(item)} · {text(item.application_protocol)}</summary><div className="mt-2 space-y-3"><p className="text-xs text-gray-500">SNI: {text(item.sni)} · Transport: {text(item.transport)} · DNS observed {time(item.dns_observed_at)} · Assessed {time(item.observed_at)}</p>{Array.isArray(item.checks) && item.checks.length ? item.checks.map((row,checkIndex) => <details key={`${row.control}:${row.protocol}:${row.cipher_id}:${checkIndex}`} className="border-t border-gray-100 pt-2"><summary className="cursor-pointer text-sm">{controlName(row.control)}{row.protocol ? ` · ${text(row.protocol)}` : ''}{row.cipher_id ? ` · ${text(row.cipher_id)}` : ''} — {controlState(row)}</summary><TlsControlDetail row={row} /></details>) : <p className="text-sm text-gray-600">No controls recorded for this endpoint.</p>}</div></details>)}
+    {endpoints.map((item,index) => <details key={`${item.hostname}:${item.address}:${item.port}:${index}`} className="rounded-sm border border-gray-200 p-3"><summary className="cursor-pointer text-sm font-medium break-all">{text(item.hostname)} · {endpoint(item)} · {text(item.application_protocol)}</summary><div className="mt-2 space-y-3"><p className="text-xs text-gray-500">SNI: {text(item.sni)} · Transport: {text(item.transport)} · DNS observed {time(item.dns_observed_at)} · Assessed {time(item.observed_at)}</p>{Array.isArray(item.checks) && item.checks.length ? item.checks.map((row,checkIndex) => <details key={`${row.control}:${row.protocol}:${row.cipher_id}:${checkIndex}`} className="border-t border-gray-100 pt-2"><summary className="cursor-pointer text-sm">{controlName(row.control)}{row.protocol ? ` · ${text(row.protocol)}` : ''}{row.cipher_id ? ` · ${text(row.cipher_id)}` : ''} — {controlState(row, item)}{row.reason === 'provider_infrastructure_not_tested' && <> <a href={ADDITIONAL_TLS_SERVICES_HREF} className="underline text-brand-700">Add your own servers</a></>}</summary><TlsControlDetail row={row} /></details>) : <p className="text-sm text-gray-600">No controls recorded for this endpoint.</p>}</div></details>)}
     <p className="text-xs text-gray-500">Protocol, cipher, resumption and early-data support alone do not establish a vulnerability. QUIC is not measured by these TCP checks.</p>
     {Array.isArray(assessment.limitations) && assessment.limitations.length > 0 && <ul className="list-disc pl-4 text-xs text-gray-500" aria-label="TLS assessment limitations">{assessment.limitations.filter(value => typeof value === 'string').map((value,index) => <li key={index}>{controlName(value)}</li>)}</ul>}
   </section>

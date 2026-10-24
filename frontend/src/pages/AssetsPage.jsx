@@ -607,7 +607,7 @@ export default function AssetsPage() {
                         onClick={() => setSelectedId(asset.id)}
                       >
                         <td>
-                          <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(asset.id) }} className="mono text-xs font-medium text-gray-800 text-left hover:underline">{asset.hostname}</button>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(asset.id) }} className="cm-rowlink mono text-xs font-medium text-left">{asset.hostname}</button>
                           {asset.wildcard_dns === 1 && (
                             <span className="ml-2 text-xs text-brand-700 font-semibold">WILDCARD</span>
                           )}

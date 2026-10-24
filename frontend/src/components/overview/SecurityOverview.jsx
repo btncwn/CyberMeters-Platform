@@ -140,12 +140,12 @@ function ModuleCard({ module, entry, request, caseSummary, casesRequest, observa
           : 'Findings not read'}
         {' · '}
         {casesRequest === 'ok'
-          ? <Link to={casesPathForDomainKey(module.domainKey)} className="font-semibold text-gray-700 hover:text-brand-800">{openCases} open case{openCases === 1 ? '' : 's'}</Link>
+          ? <Link to={casesPathForDomainKey(module.domainKey)} className="cm-rowlink font-semibold">{openCases} open case{openCases === 1 ? '' : 's'}</Link>
           : casesRequest === 'loading' ? 'cases loading' : 'cases not read'}
       </p>
       <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">
         <Link to={module.to} className="text-sm font-semibold text-brand-700 hover:text-brand-800">{module.cta}</Link>
-        {guide && <Link to={guide} className="text-sm font-semibold text-gray-500 hover:text-gray-800">Field Guide</Link>}
+        {guide && <Link to={guide} className="cm-rowlink text-sm font-semibold">Field Guide</Link>}
       </div>
     </article>
   )

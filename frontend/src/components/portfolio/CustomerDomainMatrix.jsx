@@ -82,7 +82,7 @@ export function CustomerRow({ row, onOpenCustomer }) {
         </div>
         <div className="flex items-center gap-3 shrink-0 text-sm">
           {scanId && (
-            <Link to={`/scans/${encodeURIComponent(scanId)}`} className="font-semibold text-gray-500 hover:text-gray-800">Assessment</Link>
+            <Link to={`/scans/${encodeURIComponent(scanId)}`} className="cm-rowlink font-semibold">Assessment</Link>
           )}
           <button type="button" onClick={() => onOpenCustomer?.(row)} className="font-semibold text-brand-700 hover:text-brand-800">
             Open customer
