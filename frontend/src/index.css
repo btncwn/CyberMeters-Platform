@@ -632,8 +632,11 @@
 /* Navigation looks like navigation at rest (founder P1, 23 Oct 2026; Codex C-45
    N01–N24): link colour and a trailing ›, underline on hover/focus, pointer.
    A row or card that navigates carries it on its title. Buttons stay buttons. */
-.cm-rowlink { color: #117362; cursor: pointer; text-decoration: none; }
-.cm-rowlink::after { content: "\00a0›"; text-decoration: none; display: inline-block; }
+/* The › sits in reserved right padding at its static position (absolute, no
+   offsets): it follows the last word on the same line, never wraps alone, and
+   takes no part in the hover underline (an inline ::after would inherit it). */
+.cm-rowlink { color: #117362; cursor: pointer; text-decoration: none; position: relative; padding-right: 0.8em; }
+.cm-rowlink::after { content: "›"; position: absolute; margin-left: 0.3em; text-decoration: none; }
 .cm-rowlink:hover, .cm-rowlink:focus-visible, a:hover > .cm-rowlink, button:hover > .cm-rowlink, li:hover .cm-rowlink, tr:hover .cm-rowlink { color: #0d5c4f; text-decoration: underline; text-underline-offset: 3px; }
 /* Back: the same link colour with a leading ‹. */
 .cm-backlink { color: #117362; cursor: pointer; }

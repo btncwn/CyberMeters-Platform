@@ -71,6 +71,18 @@
           "status_code": 200,
           "values": {
             "strict-transport-security": null
+          },
+          "hsts_policy": {
+            "version": "2026-10-23.1",
+            "apex_host": "fixture.cybermeters.test",
+            "apex_url": "https://fixture.cybermeters.test",
+            "apex_status": 200,
+            "state": "absent",
+            "value": null,
+            "include_subdomains": false,
+            "final_host": "fixture.cybermeters.test",
+            "final_value": null,
+            "final_covered": true
           }
         },
         "email_security": {
@@ -113,6 +125,18 @@
           "status_code": 200,
           "values": {
             "strict-transport-security": null
+          },
+          "hsts_policy": {
+            "version": "2026-10-23.1",
+            "apex_host": "fixture.cybermeters.test",
+            "apex_url": "https://fixture.cybermeters.test",
+            "apex_status": 200,
+            "state": "absent",
+            "value": null,
+            "include_subdomains": false,
+            "final_host": "fixture.cybermeters.test",
+            "final_value": null,
+            "final_covered": true
           }
         },
         "email_security": {
@@ -565,6 +589,18 @@
             "x-frame-options": "DENY",
             "x-content-type-options": "nosniff",
             "referrer-policy": "no-referrer"
+          },
+          "hsts_policy": {
+            "version": "2026-10-23.1",
+            "apex_host": "fixture.cybermeters.test",
+            "apex_url": "https://fixture.cybermeters.test",
+            "apex_status": 200,
+            "state": "present",
+            "value": "max-age=3600",
+            "include_subdomains": false,
+            "final_host": "fixture.cybermeters.test",
+            "final_value": "max-age=3600",
+            "final_covered": true
           }
         },
         "email_security": {
@@ -915,6 +951,18 @@
             "x-frame-options": "DENY",
             "x-content-type-options": "nosniff",
             "referrer-policy": "no-referrer"
+          },
+          "hsts_policy": {
+            "version": "2026-10-23.1",
+            "apex_host": "fixture.cybermeters.test",
+            "apex_url": "https://fixture.cybermeters.test",
+            "apex_status": 200,
+            "state": "present",
+            "value": "includeSubDomains; preload",
+            "include_subdomains": true,
+            "final_host": "fixture.cybermeters.test",
+            "final_value": "includeSubDomains; preload",
+            "final_covered": true
           }
         },
         "email_security": {

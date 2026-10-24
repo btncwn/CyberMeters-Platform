@@ -23,6 +23,9 @@ const CONTROL_REASONS = Object.freeze({
   // the older key stays as an alias.
   scheduled_or_unknown_origin: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
   authorised_runs_on_started_check: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
+  // The TLS engine's reason when the server offers no heartbeat extension
+  // (network-probe tls-engine; a server-feature limit, not a failed check).
+  heartbeat_unavailable: 'Not applicable — this server did not offer the TLS heartbeat extension that Heartbleed relies on.',
 })
 // Where a customer adds their OWN servers so the TLS checks can test them.
 export const ADDITIONAL_TLS_SERVICES_HREF = '/ws/certificates?tab=settings#additional-tls-services'

@@ -41,3 +41,23 @@ for (const width of [1440, 390]) {
     })
   }
 }
+
+// The row link's › stays on the domain's last word at 390 (never alone on a line).
+test('Scans list row @390: the link arrow never wraps alone', async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 900 })
+  await seedSession(context)
+  await installAppMock(page)
+  await page.route(`${API_BASE}/scans`, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ scans: [scan] }) }))
+  await page.goto('/scans', { waitUntil: 'networkidle' })
+  const link = page.locator('tbody .cm-rowlink').first()
+  await expect(link).toBeVisible()
+  // The link's own fragments (including the padding that holds the ›): one line.
+  const lines = await link.evaluate((el) => new Set([...el.getClientRects()].map((x) => Math.round(x.top))).size)
+  expect(lines).toBe(1)
+  // The › is out of the line-breaking and underline flow, and still shown.
+  const after = await link.evaluate((el) => { const c = getComputedStyle(el, '::after'); return { content: c.content, position: c.position, decoration: c.textDecorationLine } })
+  expect(after).toEqual({ content: '"›"', position: 'absolute', decoration: 'none' })
+  // Even a long domain keeps the › on its last line: the link fits the cell.
+  await link.hover()
+  await page.screenshot({ path: 'test-results/rowlink-arrow-390.png' })
+})
