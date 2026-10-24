@@ -236,6 +236,12 @@ function ActionList({ items }) {
                 {item.verification_ceiling}
               </p>
             )}
+            {/* C-46 rank 3: an action with a managed case leads to it (never its id as text). */}
+            {item.case_id && (
+              <p className="mt-1.5">
+                <a href={`/ws/cases/${encodeURIComponent(item.case_id)}`} className="text-sm font-semibold text-brand-700 underline underline-offset-2" data-testid="report-action-case">Open the case for this action ›</a>
+              </p>
+            )}
           </div>
         </li>
       ))}

@@ -235,6 +235,24 @@ export default function OnboardingPage() {
   const reportScanId = scanIdOf(completedScan)
   const scanFinished = completedScan?.status === 'completed'
 
+  // C-46 rank 2: setup follows its first scan to completion by itself. While the
+  // scan is queued or running, re-read the workspace's scans every 8 seconds
+  // (bounded to ~20 minutes); the report step then turns into "Open Executive
+  // Report" without the customer leaving or refreshing.
+  const firstScanActive = ['queued', 'running', 'processing'].includes(completedScan?.status)
+  useEffect(() => {
+    if (!firstScanActive || !workspace?.id) return undefined
+    let alive = true
+    let ticks = 0
+    const timer = setInterval(async () => {
+      ticks += 1
+      if (ticks > 150) { clearInterval(timer); return }
+      const refreshed = await api.getWorkspaceScans(workspace.id).catch(() => null)
+      if (alive && Array.isArray(refreshed?.scans)) setScans(refreshed.scans)
+    }, 8_000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [firstScanActive, workspace?.id])
+
   // The scan detail endpoint owns report availability. A completed scan alone
   // cannot mark the report step done while rendering is pending or unavailable.
   useEffect(() => {
@@ -452,17 +470,22 @@ export default function OnboardingPage() {
             Active workspace: <span className="font-semibold text-gray-900">{workspace.name}</span>
           </p>
         ) : (
+          <>
           <form onSubmit={createWorkspace} className="flex flex-col sm:flex-row gap-3">
             <input
               className="input"
               placeholder="Company or customer name"
+              aria-label="Workspace name"
               value={workspaceName}
               onChange={e => setWorkspaceName(e.target.value)}
             />
-            <button className="btn-primary" disabled={actionLoading === 'workspace'}>
+            {/* C-46 rank 6: never a silent no-op — disabled until named, and says so. */}
+            <button className="btn-primary" disabled={actionLoading === 'workspace' || !workspaceName.trim()} aria-describedby={!workspaceName.trim() ? 'workspace-name-reason' : undefined}>
               {actionLoading === 'workspace' ? 'Creating...' : 'Create Workspace'}
             </button>
           </form>
+          {!workspaceName.trim() && <p id="workspace-name-reason" className="text-sm text-gray-600 mt-2">Enter the business name to create its workspace.</p>}
+          </>
         )}
       </StepCard>
 
@@ -484,13 +507,16 @@ export default function OnboardingPage() {
               <input
                 className="input"
                 placeholder="example.com"
+                aria-label="Domain to add"
                 value={domainName}
                 onChange={e => setDomainName(e.target.value)}
               />
-              <button className="btn-primary" disabled={actionLoading === 'domain'}>
+              {/* C-46 rank 7: disabled until a domain is entered, and says so. */}
+              <button className="btn-primary" disabled={actionLoading === 'domain' || !domainName.trim()} aria-describedby={!domainName.trim() ? 'domain-name-reason' : undefined}>
                 {actionLoading === 'domain' ? 'Adding...' : 'Add Domain'}
               </button>
             </form>
+            {!domainName.trim() && <p id="domain-name-reason" className="text-sm text-gray-600">Enter the domain you want to monitor, for example example.com.</p>}
             <p className="text-xs text-gray-500">
               Enter the root domain you want to assess — no <span className="mono">https://</span> or <span className="mono">www</span>. You'll confirm ownership in the next step.
             </p>
