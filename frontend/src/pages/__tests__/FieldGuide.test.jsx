@@ -103,8 +103,8 @@ describe('Field Guide pages', () => {
     renderAt('/guide')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('CyberMeters Field Guide')
     const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent).filter(t => t !== 'The areas')
-    // The eight areas in order, then the product section after them.
-    expect(headings).toEqual([...FOUNDER_ORDER.map(([, , title]) => title), 'Using CyberMeters'])
+    // The eight areas in order, then the product section, then what the status words mean (10d).
+    expect(headings).toEqual([...FOUNDER_ORDER.map(([, , title]) => title), 'Using CyberMeters', 'What the status words mean'])
     expect(screen.getByRole('link', { name: /Email Protection/ })).toHaveAttribute('href', '/guide/email-protection')
     expect(screen.getByRole('link', { name: /Connect your AI assistant \(MCP\)/ })).toHaveAttribute('href', '/guide/connect-your-ai-assistant')
   })
