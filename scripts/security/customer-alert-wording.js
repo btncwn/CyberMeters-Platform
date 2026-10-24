@@ -34,8 +34,11 @@ try{
   const first=await emit();assert.equal(first.emitted,true,'the real emitter must reach delivery');
   const rows=()=>db.prepare("SELECT * FROM notification_events WHERE workspace_id='cw' ORDER BY rowid").all();
   const [row]=rows();assert.equal(emails.length,1);assert.equal(webhooks.length,1,'a real signed webhook body must be captured');
-  const safe=prose=>assert.doesNotMatch(prose,/header_missing_|surface:|provider:|condition ['"]/i);
-  check('raw-key guard rejects the old leaking sentence',()=>assert.throws(()=>safe(`${domain}:${key}: condition 'browser protection missing' was observed`)));
+  const safe=prose=>assert.doesNotMatch(prose,/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|surface:|provider:|condition ['"]/i);
+  check('raw-key guard rejects old prose and generic finding keys',()=>{
+    for(const raw of [key,'tls_certificate_trust','tech_php2shell_outdated','external_exposure_remote-access-portal__abc']) assert.throws(()=>safe(`${domain}:${raw}: condition 'browser protection missing' was observed`));
+    for(const raw of ['tls_certificate_trust','tech_php2shell_outdated']) assert.throws(()=>safe(`The finding ${raw} was observed.`));
+  });
   check('canonical finding title plus existing plain sentence',()=>assert.equal(row.message,`${title}: ${sentence}`));
   check('email and in-app use the same safe prose',()=>{safe(row.title+' '+row.message+' '+emails[0].text+' '+emails[0].html);assert.ok(emails[0].text.includes(row.message));assert.equal(emails[0].subject,row.title);});
   check('webhook prose matches the in-app message',()=>assert.equal(webhooks[0].body.summary,row.message));
@@ -43,7 +46,7 @@ try{
   occurrence('cw-returned','2026-10-24 18:04:00');
   db.exec("INSERT INTO managed_case_events(id,case_id,workspace_id,actor_type,from_status,to_status,action,created_at) VALUES('cw-verified','cw-case','cw','system','awaiting_verification','verified','transition_verified','2026-10-23 12:00:00')");
   assert.equal((await emit({case_id:'cw-case',case_reopened:true})).emitted,true);
-  const returned=rows().at(-1),note='This case was verified on 23 Oct 2026 and has reopened — the condition was observed again.';
+  const returned=rows().at(-1),note='This case was verified on 23 Oct 2026 (UTC) and has reopened — the condition was observed again.';
   check('reopen prose names prior verification date and recurrence',()=>assert.ok(returned.message.endsWith(note)));
   check('reopen prose has email/in-app/webhook parity',()=>{assert.ok(emails.at(-1).text.includes(returned.message));assert.equal(webhooks.at(-1).body.summary,returned.message);safe(returned.message);});
   check('other channel prose uses the same shared summary',()=>{
@@ -54,7 +57,7 @@ try{
   check('non-reopen alerts do not borrow a reopened case note',()=>assert.ok(!row.message.includes('reopened')));
   db.exec("UPDATE managed_case_events SET actor_type='customer' WHERE id='cw-verified'");
   const customerNote=await reopenNote(env,'cw','cw-case',true);
-  check('customer attestation is not claimed as system verification',()=>assert.equal(customerNote,'You marked this fixed on 23 Oct 2026; it has been observed again, so the case is reopened.'));
+  check('customer attestation is not claimed as system verification',()=>assert.equal(customerNote,'You marked this fixed on 23 Oct 2026 (UTC); it has been observed again, so the case is reopened.'));
   assert.equal(await reopenNote(env,'foreign','cw-case',true),null);
   assert.equal(await reopenNote(env,'cw','cw-case',false),null);
 }finally{globalThis.fetch=originalFetch;db.close();}

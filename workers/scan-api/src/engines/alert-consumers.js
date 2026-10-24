@@ -607,8 +607,8 @@ export async function reopenNote(env, workspaceId, caseId, caseReopened) {
     .bind(workspaceId, caseId).first().catch(() => null);
   const day = utcDay(ev?.created_at);
   if (!day) return null;
-  if (ev.actor_type === "system") return `This case was verified on ${day} and has reopened — the condition was observed again.`;
-  if (ev.actor_type === "customer") return `You marked this fixed on ${day}; it has been observed again, so the case is reopened.`;
+  if (ev.actor_type === "system") return `This case was verified on ${day} (UTC) and has reopened — the condition was observed again.`;
+  if (ev.actor_type === "customer") return `You marked this fixed on ${day} (UTC); it has been observed again, so the case is reopened.`;
   return null;
 }
 

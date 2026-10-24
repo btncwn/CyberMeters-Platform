@@ -669,9 +669,9 @@ await preActivate("ws_dead");
     ev("e1", "mc-sys", "system", "verified", "2026-10-22 23:58:09");
     ev("e2", "mc-cust", "customer", "verified", "2026-10-21 10:00:00");
     eq("system-verified reopen: CyberMeters verified it, with the date",
-      await ac.reopenNote(renv, "ws", "mc-sys", true), "This case was verified on 22 Oct 2026 and has reopened — the condition was observed again.");
+      await ac.reopenNote(renv, "ws", "mc-sys", true), "This case was verified on 22 Oct 2026 (UTC) and has reopened — the condition was observed again.");
     eq("customer-attested reopen: the customer marked it, never 'CyberMeters verified'",
-      await ac.reopenNote(renv, "ws", "mc-cust", true), "You marked this fixed on 21 Oct 2026; it has been observed again, so the case is reopened.");
+      await ac.reopenNote(renv, "ws", "mc-cust", true), "You marked this fixed on 21 Oct 2026 (UTC); it has been observed again, so the case is reopened.");
     eq("a non-reopen alert on a reopened case carries no note", await ac.reopenNote(renv, "ws", "mc-sys", false), null);
     eq("a case never verified carries no note", await ac.reopenNote(renv, "ws", "mc-none", true), null);
     eq("another workspace's history is not read", await ac.reopenNote(renv, "ws-other", "mc-sys", true), null);
