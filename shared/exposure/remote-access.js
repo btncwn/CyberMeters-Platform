@@ -44,10 +44,13 @@ export function remoteAccessFingerprint(body, value) {
     if (!login) continue;
     // Only an explicit server-product label in page text; client downloads and
     // JavaScript/configuration values never establish the server version.
-    const visible = html.replace(/<[^>]*>/g, ' ').replace(/&(?:nbsp|#160);/g, ' ');
+    const visible = html.replace(/<[^>]*>/g, '\n').replace(/&(?:nbsp|#160);/g, ' ');
     const labels = [...visible.matchAll(new RegExp(signature.versionLabel, 'gi'))].map(m => m[1]);
     const versions = [...new Set(labels)];
-    const explicit = versions.length === 1 && /^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-h\d{1,3})?$/.test(versions[0]);
+    // Require a standalone product/version field, not prose about a supported,
+    // recommended or required release. Ambiguous mentions remain unreadable.
+    const field = visible.split('\n').some(line => new RegExp(`^\\s*${signature.versionLabel}\\s*$`, 'i').test(line));
+    const explicit = field && versions.length === 1 && /^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-h\d{1,3})?$/.test(versions[0]);
     return { product_id: signature.id, version: explicit ? versions[0] : null,
       version_state: explicit ? 'explicit' : labels.length ? 'unreadable' : 'absent' };
   }

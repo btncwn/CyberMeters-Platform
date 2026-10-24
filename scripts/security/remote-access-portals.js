@@ -28,6 +28,8 @@ assert.equal(remoteAccessFingerprint(page(stated),url.replace('login.esp','logou
 assert.equal(remoteAccessFingerprint(page('<script>const version="11.1.2-h2"</script>'),url).version_state,'absent');
 assert.equal(remoteAccessFingerprint(page('Client version: 11.1.2-h2'),url).version_state,'absent');
 assert.equal(assessRemoteAccess(remoteAccessFingerprint(page('PAN-OS version: unknown'),url),cache,now).state,'deferred');
+for(const prose of ['Supported PAN-OS version: 11.1.2-h2','PAN-OS version: 11.1.2-h2 is required by the client'])
+  assert.equal(assessRemoteAccess(remoteAccessFingerprint(page(prose),url),cache,now).state,'deferred','a version mentioned in compatibility prose is not the running server version');
 assert.equal(assessRemoteAccess(remoteAccessFingerprint(page(stated+' PAN-OS version: 11.1.2-h3'),url),cache,now).state,'deferred');
 for(const row of REMOTE_ACCESS_ADVISORIES){
   const portal={...positive,version:row.affectedFrom};
