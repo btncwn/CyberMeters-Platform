@@ -39,6 +39,31 @@ const controlState = (row, item = null) => {
   }
   return (row?.reason && CONTROL_REASONS[row.reason]) || controlStates[row?.state] || 'Unknown'
 }
+// Why an endpoint has no checks, from the planner's own scope deferrals
+// (assessment.scope_deferrals, founder live run 24 Oct 2026): plain words,
+// never "Not recorded". Not tested is never counted as passed.
+const DEFERRAL_REASONS = Object.freeze({
+  representative_address_scope: (h, p) => `Not tested in this scan — CyberMeters tests one address per host and port, and another address for ${h}:${p} was tested.`,
+  tls_plan_budget: () => 'Not tested in this scan — the scan\u2019s TLS check limit was reached before this service. It is not counted as passed.',
+  https_service_not_observed: () => 'Not tested in this scan — no HTTPS service was observed on this host in this scan.',
+  non_https_service: () => 'Not tested in this scan — these checks test HTTPS services, and this service is not HTTPS.',
+})
+export function endpointNotTestedReason(item, deferrals) {
+  const host = typeof item?.hostname === 'string' ? item.hostname : null
+  const port = item?.port
+  const byEndpoint = (Array.isArray(deferrals?.endpoints) ? deferrals.endpoints : [])
+    .find((row) => row?.hostname === host && row?.port === port && (!row.address || row.address === item?.address))
+  const byHost = (Array.isArray(deferrals?.hosts) ? deferrals.hosts : []).find((row) => row?.hostname === host && row?.port === port)
+  const reason = (byEndpoint || byHost)?.reason
+  const say = DEFERRAL_REASONS[reason]
+  if (say) return say(host || 'this host', port ?? '?')
+  return 'Not tested in this scan — no TLS checks were planned for this address. Its TLS status remains unknown.'
+}
+// When the endpoint was assessed: its own checks' latest observation time.
+const endpointAssessedAt = (item) => {
+  const times = (Array.isArray(item?.checks) ? item.checks : []).map((row) => row?.observed_at).filter((v) => typeof v === 'string' && v)
+  return item?.observed_at || (times.length ? times.sort().at(-1) : null)
+}
 const number = value => Number.isSafeInteger(value) && value >= 0 ? String(value) : 'Not recorded'
 const yesNo = value => value === true ? 'Yes' : value === false ? 'No' : 'Unknown'
 const controlName = value => typeof value === 'string' ? value.replaceAll('_', ' ').replaceAll('-', ' ') : 'Unnamed check'
@@ -91,7 +116,7 @@ export function TlsAssessmentEvidence({ assessment }) {
     <p className="text-xs text-gray-500">Trust store: {store ? `${text(store.name)} · ${text(store.version)} · ${text(store.sha256)}` : 'Not recorded for this assessment'}{store?.observed_at ? ` · ${time(store.observed_at)}` : ''}</p>
     {costs && <p className="text-xs text-gray-500">Recorded cost: {number(costs.connections)} connections · {number(costs.bytes_sent)} bytes sent · {number(costs.bytes_received)} bytes received · {number(costs.duration_ms)} ms · {number(costs.unknown_attempts)} attempts with unknown cost. Budget charged: {number(costs.charged_connections)} connections / {number(costs.charged_bytes)} bytes.</p>}
     {!endpoints.length && <p className="text-sm text-gray-600">No endpoint checks recorded. Their TLS status remains unknown.</p>}
-    {endpoints.map((item,index) => <details key={`${item.hostname}:${item.address}:${item.port}:${index}`} className="rounded-sm border border-gray-200 p-3"><summary className="cursor-pointer text-sm font-medium break-all">{text(item.hostname)} · {endpoint(item)} · {text(item.application_protocol)}</summary><div className="mt-2 space-y-3"><p className="text-xs text-gray-500">SNI: {text(item.sni)} · Transport: {text(item.transport)} · DNS observed {time(item.dns_observed_at)} · Assessed {time(item.observed_at)}</p>{Array.isArray(item.checks) && item.checks.length ? item.checks.map((row,checkIndex) => <details key={`${row.control}:${row.protocol}:${row.cipher_id}:${checkIndex}`} className="border-t border-gray-100 pt-2"><summary className="cursor-pointer text-sm">{controlName(row.control)}{row.protocol ? ` · ${text(row.protocol)}` : ''}{row.cipher_id ? ` · ${text(row.cipher_id)}` : ''} — {controlState(row, item)}{row.reason === 'provider_infrastructure_not_tested' && <> <a href={ADDITIONAL_TLS_SERVICES_HREF} className="underline text-brand-700">Add your own servers</a></>}</summary><TlsControlDetail row={row} /></details>) : <p className="text-sm text-gray-600">No controls recorded for this endpoint.</p>}</div></details>)}
+    {endpoints.map((item,index) => <details key={`${item.hostname}:${item.address}:${item.port}:${index}`} className="rounded-sm border border-gray-200 p-3"><summary className="cursor-pointer text-sm font-medium break-all">{text(item.hostname)} · {endpoint(item)} · {text(item.application_protocol)}</summary><div className="mt-2 space-y-3"><p className="text-xs text-gray-500">SNI: {text(item.sni)} · Transport: {text(item.transport)} · DNS observed {time(item.dns_observed_at)} · Assessed {endpointAssessedAt(item) ? time(endpointAssessedAt(item)) : 'Not tested in this scan'}</p>{Array.isArray(item.checks) && item.checks.length ? item.checks.map((row,checkIndex) => <details key={`${row.control}:${row.protocol}:${row.cipher_id}:${checkIndex}`} className="border-t border-gray-100 pt-2"><summary className="cursor-pointer text-sm">{controlName(row.control)}{row.protocol ? ` · ${text(row.protocol)}` : ''}{row.cipher_id ? ` · ${text(row.cipher_id)}` : ''} — {controlState(row, item)}{row.reason === 'provider_infrastructure_not_tested' && <> <a href={ADDITIONAL_TLS_SERVICES_HREF} className="underline text-brand-700">Add your own servers</a></>}</summary><TlsControlDetail row={row} /></details>) : <p className="text-sm text-gray-600" data-testid="tls-endpoint-not-tested">{endpointNotTestedReason(item, assessment.scope_deferrals)}</p>}</div></details>)}
     <p className="text-xs text-gray-500">Protocol, cipher, resumption and early-data support alone do not establish a vulnerability. QUIC is not measured by these TCP checks.</p>
     {Array.isArray(assessment.limitations) && assessment.limitations.length > 0 && <ul className="list-disc pl-4 text-xs text-gray-500" aria-label="TLS assessment limitations">{assessment.limitations.filter(value => typeof value === 'string').map((value,index) => <li key={index}>{controlName(value)}</li>)}</ul>}
   </section>

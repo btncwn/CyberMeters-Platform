@@ -33,7 +33,8 @@ describe('TLS assessment evidence', () => {
     expect(screen.getByText(/SNI: mail.example.com · Transport: tcp/)).toHaveTextContent('13 Oct 2026, 10:00 UTC')
     expect(screen.getByText(/Partial — some checks remain unresolved/)).toBeInTheDocument()
     for (const value of ['Planned: 6', 'Completed: 2', 'Uncertain: 1', 'Could not execute: 1', 'Not authorized: 1', 'Not applicable: 1']) expect(screen.getByText(value)).toBeInTheDocument()
-    expect(screen.getByText(/No controls recorded for this endpoint/)).toBeInTheDocument()
+    // No checks and no recorded deferral: said in plain words, never "Not recorded" (founder live run, 24 Oct 2026).
+    expect(screen.getByTestId('tls-endpoint-not-tested')).toHaveTextContent('Not tested in this scan — no TLS checks were planned for this address. Its TLS status remains unknown.')
   })
 
   it('preserves rejected, uncertain, unauthorized and unexecutable checks without converting them to findings', () => {

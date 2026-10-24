@@ -37,7 +37,7 @@ function hostsFromText(text) {
   return [...new Set(String(text || '').split(/[\s,]+/).map((h) => h.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean))]
 }
 
-function Receipt({ consent, labels, authority, canManage, busy, onRevoke, nextStep = false }) {
+function Receipt({ consent, labels, availability = {}, authority, canManage, busy, onRevoke, nextStep = false }) {
   const revoked = consent.status === 'revoked'
   return (
     <li className="card p-5 space-y-3" data-testid="consent-receipt">
@@ -56,7 +56,11 @@ function Receipt({ consent, labels, authority, canManage, busy, onRevoke, nextSt
         <dt className="text-gray-500">Hosts</dt>
         <dd className="text-gray-800 break-words">{consent.hosts?.length ? consent.hosts.join(', ') : `${consent.domain} only`}</dd>
         <dt className="text-gray-500">Checks</dt>
-        <dd className="text-gray-800"><ul className="space-y-0.5">{(consent.checks || []).map((id) => <li key={id}>{labels[id] || 'A check no longer offered'}</li>)}</ul></dd>
+        <dd className="text-gray-800"><ul className="space-y-0.5">{(consent.checks || []).map((id) => (
+          // An older permission can list a check CyberMeters never ran (founder live
+          // run, 24 Oct 2026): the catalogue's availability says so, in words.
+          <li key={id}>{labels[id] || 'A check no longer offered'}{labels[id] && availability[id] !== true && <span className="text-gray-500" data-testid="receipt-check-unavailable"> — Not available — never run</span>}</li>
+        ))}</ul></dd>
         <dt className="text-gray-500">Authorised by</dt>
         <dd className="text-gray-800">{consent.signer?.name}, {consent.signer?.title}{consent.signer?.workspace_role ? ` (workspace ${consent.signer.workspace_role})` : ''}</dd>
         <dt className="text-gray-500">Authorised at</dt>
@@ -148,6 +152,7 @@ export default function ActiveCheckPermissionsPage() {
   const canManage = data?.capabilities?.can_manage === true
   const catalogue = data?.catalogue || []
   const labels = Object.fromEntries(catalogue.map((c) => [c.id, c.label]))
+  const availability = Object.fromEntries(catalogue.map((c) => [c.id, c.available === true]))
   const authority = data?.authority || null
   const consents = data?.consents || []
   const domain = (domains || []).find((d) => d.domain_id === form.domain_id) || null
@@ -343,7 +348,7 @@ export default function ActiveCheckPermissionsPage() {
             <h2 id="consents-heading" className="font-semibold text-gray-900">Permissions on record</h2>
             {consents.length === 0
               ? <p className="text-sm text-gray-500">No permission has been recorded for this workspace. No active check runs.</p>
-              : <ul className="space-y-3">{consents.map((c) => <Receipt key={c.id} consent={c} labels={labels} authority={authority} canManage={canManage} busy={busy} onRevoke={revoke}
+              : <ul className="space-y-3">{consents.map((c) => <Receipt key={c.id} consent={c} labels={labels} availability={availability} authority={authority} canManage={canManage} busy={busy} onRevoke={revoke}
                 nextStep={c.id === consents.find((x) => x.status !== 'revoked')?.id} />)}</ul>}
           </section>
 
