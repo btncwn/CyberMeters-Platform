@@ -430,6 +430,31 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   const atUnowned=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise:unowned,specialControlsAvailable:true,trigger:'manual'});
   assert.deepEqual(atUnowned.endpoints[0].scope.held_checks,{robot:'address_not_verified_not_tested'});
 }
+// F1 proof regression (24 Oct 2026, scan_39d8e057): a declared TLS service on a
+// host that is not one of the scan's web assets was deferred as
+// https_service_not_observed, so nothing - normal or special - ran on it.
+{
+  const { replanTlsFromOwnResults } = await import('../workers/scan-api/src/engines/exposure-jobs.js');
+  const ep=(hostname,address,scope)=>({endpoint:{hostname,sni:hostname,address,port:443,transport:'tcp',application_protocol:'https'},
+    endpoint_identity:`${hostname}|${hostname}|${address}|443|tcp|https`,scope});
+  const apex=ep('shop.example.org','192.0.2.40',{kind:'standard_https',special_consent:false,special_checks:{}});
+  const probe=ep('probe.shop.example.org','192.0.2.41',{kind:'authorized_service',service_authorization_id:'tlsservice_x',special_consent:true,
+    special_checks:{heartbleed:'acc_f1',robot:'acc_f1',ccs:'acc_f1'}});
+  const endpoints=[apex,probe];
+  const tls=buildBudgetedTlsCheckPlan({endpoints,cipherCatalog:[],observedHttpsHosts:[],scanId:'scan_f1_declared'});
+  const onProbe=tls.selected.filter(r=>r.endpoint_index===1);
+  assert.ok(onProbe.some(r=>r.check.control==='certificate'),'F1: normal checks are planned on the declared service');
+  assert.deepEqual([...new Set(onProbe.map(r=>r.check.control).filter(c=>['heartbleed','robot','ccs'].includes(c)))].sort(),['ccs','heartbleed','robot'],
+    'F1: the granted specials are planned on the declared service');
+  assert.ok(!tls.deferred_hosts.some(h=>h.hostname==='probe.shop.example.org'),'F1: the declared service is not deferred');
+  assert.ok(tls.deferred_hosts.some(h=>h.hostname==='shop.example.org'&&h.reason==='https_service_not_observed'),'an unobserved web asset still waits for its HTTPS observation');
+  // The post-HTTP re-plan still picks up the web asset and keeps the declared service.
+  const plan={checks:[],hosts:['shop.example.org'],tls:{...tls,endpoints,results:[],state:'pending'}};
+  const own=[{rule_id:'client-secret',url:'https://shop.example.org/',state:'not_found',comparable:true,reason:'explicit_absence'}];
+  assert.equal(replanTlsFromOwnResults(plan,own),true,'F1: the re-plan runs although the declared service is already selected');
+  assert.ok(plan.tls.selected.some(r=>r.endpoint_index===0),'the web asset is planned after its HTTPS observation');
+  assert.ok(plan.tls.selected.some(r=>r.endpoint_index===1&&r.check.control==='heartbleed'),'the declared service stays planned');
+}
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no
 // connection is opened.

@@ -210,7 +210,11 @@ function sizeTlsPlan(plan,tlsArgs,referenceAllowance=[]) {
 // changed; only hosts deferred for lack of an HTTPS observation are reconsidered.
 export function replanTlsFromOwnResults(plan,results) {
   const tls=plan?.tls;
-  if(!tls||tls.replanned_from_job||(tls.cursor||0)>0||(tls.selected||[]).length>0)return false;
+  // A plan that already selected checks is untouched, except when every
+  // selected check belongs to a declared TLS service (F1: planned without an
+  // HTTP observation) and none has run yet; the re-plan keeps them selected.
+  if(!tls||tls.replanned_from_job||(tls.cursor||0)>0)return false;
+  if(!(tls.selected||[]).every(r=>(tls.endpoints||[])[r.endpoint_index]?.scope?.kind==='authorized_service'))return false;
   const deferred=(tls.deferred_hosts||[]).filter(h=>h?.reason==='https_service_not_observed');
   if(!deferred.length)return false;
   const observed=observedHttpsHostsFrom(results,plan.hosts||[]);

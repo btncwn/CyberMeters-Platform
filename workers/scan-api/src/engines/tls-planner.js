@@ -237,7 +237,12 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
   const groups=new Map(),deferredHosts=[],deferredEndpoints=[];
   for(let index=0;index<endpoints.length;index++){
     const entry=endpoints[index],host=entry?.endpoint?.hostname,port=entry?.endpoint?.port;
-    if(!host||entry.endpoint.application_protocol!=='https'||!observed.has(host)){
+    // F1 (24 Oct 2026): a declared TLS service (authorized_service: the customer
+    // declared and attested it, and its address matched DNS) is planned on that
+    // declaration; it need not be one of the scan's web assets observed by the
+    // HTTP checks. Other endpoints still need an observed HTTPS service.
+    const declared=entry?.scope?.kind==='authorized_service';
+    if(!host||entry.endpoint.application_protocol!=='https'||(!declared&&!observed.has(host))){
       if(host)deferredHosts.push({hostname:host,port,reason:entry.endpoint.application_protocol==='https'?'https_service_not_observed':'non_https_service'});
       continue;
     }
