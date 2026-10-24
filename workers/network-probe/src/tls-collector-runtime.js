@@ -171,11 +171,18 @@ function engineCommand(input, check, maxConnections) {
 export async function runTlsEngineCheck(input, check, budget, signal) {
   const { binary, args } = engineCommand(input, check, budget.max_connections - budget.connections);
   const child = spawn(binary, args, { stdio: ['pipe','pipe','ignore'], env: { PATH: '/usr/bin:/bin' }, shell: false });
+  // An ABORT written after the engine has already exited raises EPIPE
+  // asynchronously; that is expected (the result is judged by its frames and
+  // exit status), never a crash of the parent.
+  child.stdin.on('error', () => {});
   const parser = { pending: Buffer.alloc(0) };
   let phase = 'idle', socket = null, result = null, childError = null, lastClosed = false;
   const done = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, killed) => resolve({ code, killed })); });
   const write = (type, payload) => { if (child.stdin.destroyed) throw new Error('engine_stdin_closed'); child.stdin.write(frame(type, payload)); };
-  const abort = () => { try { write(FRAME.ABORT); } catch {} socket?.destroy(); child.kill('SIGKILL'); };
+  // Two timers (the slice deadline and the engine's own budget) can fire
+  // together; abort once.
+  let aborting = false;
+  const abort = () => { if (aborting) return; aborting = true; try { write(FRAME.ABORT); } catch {} socket?.destroy(); child.kill('SIGKILL'); };
   signal?.addEventListener('abort', abort, { once: true });
   const onClosed = reason => {
     if (phase !== 'connected' && phase !== 'closing') return;
