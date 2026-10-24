@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { getArticle, searchArticles } from '../data/academy'
 import { GUIDE_AREAS, GUIDE_PRODUCT_ARTICLES, getGuideAreaForArticle } from '../data/fieldGuide'
+import StatusChip from '../components/StatusChip'
+import { statusExplanationRows } from '../lib/statusExplanations'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 
 // The Field Guide home: the eight areas in the order the product shows them,
@@ -85,6 +87,16 @@ export default function AcademyPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {GUIDE_PRODUCT_ARTICLES.map(getArticle).filter(Boolean).map(a => <ArticleResult key={a.slug} article={a} />)}
           </div>
+          {/* 10d: what each status word means — the same sentences as every chip's tooltip. */}
+          <h2 id="status-words" className="text-[19px] font-bold text-black mt-10 mb-4">What the status words mean</h2>
+          <dl className="card divide-y divide-gray-100" data-testid="status-words">
+            {statusExplanationRows().map(([key, , sentence]) => (
+              <div key={key} className="grid gap-1 px-5 py-3 sm:grid-cols-[14rem_1fr] sm:gap-4">
+                <dt><StatusChip status={key} /></dt>
+                <dd className="text-sm text-gray-700">{sentence}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
       )}
     </div>
