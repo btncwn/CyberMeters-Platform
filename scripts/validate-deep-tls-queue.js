@@ -365,7 +365,10 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
       const lease=sql.prepare('SELECT lease_until FROM external_exposure_jobs WHERE scan_id=?').get(scanId).lease_until;
       assert.ok(lease-Date.now()>=50000,`the ROBOT slice's lease covers its 50 s slice (left ${lease-Date.now()} ms)`);
       let secondRuns=0;
-      await processExposureMessage(message,env,{lookupTlsDns,authoriseActiveCheck,collectTlsAssessment:async()=>{secondRuns++;throw new Error('second run');}});
+      // The second delivery's clock is 40 s on: past the old 30 s job lease, inside
+      // the ROBOT slice's 55 s lease - with the old lease this claim succeeds.
+      await processExposureMessage(message,env,{lookupTlsDns,authoriseActiveCheck,now:()=>Date.now()+40000,
+        collectTlsAssessment:async()=>{secondRuns++;throw new Error('second run');}});
       assert.equal(secondRuns,0,'no second claim while the ROBOT slice runs');
     }
     const physical={connections:control==='robot'?21:control==='ccs'?5:1,bytes_sent:1000,bytes_received:2000,duration_ms:10};
