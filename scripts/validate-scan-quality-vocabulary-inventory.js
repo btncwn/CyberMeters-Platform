@@ -375,7 +375,10 @@ const EXPECTED = Object.freeze({
     // `row.scan_quality` to the remembered sample. Two-tree diff: these two only.
     // WORKSPACE-TILE (22 Oct 2026): 143 -> 144 — one read, `latestScan?.scan_quality`,
     // in WorkspaceDetailPage.jsx (same file set). Two-tree diff: this read only.
-    runtime: { occurrence_count: 144, source_file_count: 49, fingerprint: "7fa6b7962cc78a37a1699cb8813eb6c8c3985d67d7004b282a5494cf885ca43f" },
+    // ONE-SCORE (24 Oct 2026): 144 -> 145 — one read in ScanDetail.jsx,
+    // `reportV2?.evidence_completeness?.scan_quality`, so the Technical Details hero
+    // judges completeness from the Executive Report's own source (same file set).
+    runtime: { occurrence_count: 145, source_file_count: 49, fingerprint: "10bfb16667148b3377a4a2611ba1c594c3b9cbf06182ec8614ea26b20df2048b" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

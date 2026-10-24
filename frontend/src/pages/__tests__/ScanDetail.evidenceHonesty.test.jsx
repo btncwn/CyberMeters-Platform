@@ -200,7 +200,7 @@ describe('ScanDetail evidence honesty', () => {
     const ssl = cardForHeading('SSL / HTTPS')
     expect(within(ssl).getByText('HTTP measurement incomplete')).toBeInTheDocument()
     expect(within(ssl).getByText('sha256:synthetic-leaf')).toBeInTheDocument()
-    expect(within(ssl).getByText(/Endpoint coverage is incomplete/)).toBeInTheDocument()
+    expect(within(ssl).getByText(/Not every planned endpoint was tested/)).toBeInTheDocument()
     expect(within(ssl).queryByText('Valid against the recorded trust store')).not.toBeInTheDocument()
   })
 
