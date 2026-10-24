@@ -1027,7 +1027,8 @@
         "subscriptions",
         "subscription_accounts",
         "subscription_events",
-        "customer_profiles"
+        "customer_profiles",
+        "stripe_subscription_lineages"
       ],
       "ownership": {
         "subscriptions": {
@@ -1045,6 +1046,10 @@
         "customer_profiles": {
           "model": "account",
           "column": "owner_user_id"
+        },
+        "stripe_subscription_lineages": {
+          "model": "direct",
+          "column": "workspace_id"
         }
       },
       "non_tenant": false,
@@ -1380,6 +1385,7 @@
     "shadow_it_inventory": "shadow_it",
     "shadow_it_inventory_events": "shadow_it",
     "stripe_processed_events": "infrastructure",
+    "stripe_subscription_lineages": "subscriptions",
     "subscription_accounts": "subscriptions",
     "subscription_events": "subscriptions",
     "subscriptions": "subscriptions",
@@ -1416,9 +1422,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 123,
-    "classified": 123,
-    "tenant_owned_tables": 115,
+    "schema_tables": 124,
+    "classified": 124,
+    "tenant_owned_tables": 116,
     "infra_or_identity_tables": 8,
     "unclassified": 0,
     "resource_classes": 43,

@@ -16,6 +16,8 @@ import {
   classificationMeta, riskMeta, ownershipMeta, verificationMeta, surfaceLabel, toneClass,
   isAwaitingVerification, IDENTITY_SCOPE_NOTE, identityClaimMeta, confidenceDetailLabel,
 } from '../../lib/identityExposureDisplay'
+import { keyLabel } from '../../lib/keyLabel'
+import { phaseMeta } from '../../lib/caseDisplay'
 
 function Pill({ meta }) {
   return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${toneClass(meta.tone)}`}>{meta.label}</span>
@@ -104,17 +106,17 @@ function IdentitySurfaceDetail({ workspaceId, recordId }) {
         <ol className="space-y-2 text-sm text-slate-600">
           {events.map((event) => <li key={event.id}>
             <span className="font-medium text-slate-800">{event.event_type?.replaceAll('_', ' ') || 'Recorded event'}</span>
-            {event.actor_type && ` · ${event.actor_type}`}
+            {event.actor_type && ` · ${keyLabel(event.actor_type)}`}
             {event.created_at && ` · ${event.created_at}`}
           </li>)}
         </ol>
       )}
       {detail.linked_case && (
         <p className="text-sm">
-          Linked case: <Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>
-            {detail.linked_case.id}
+          <Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>
+            Open the linked case
           </Link>
-          {detail.linked_case.status && ` · ${detail.linked_case.status}`}
+          {detail.linked_case.status && ` · ${phaseMeta(detail.linked_case.status).label}`}
         </p>
       )}
     </div>
@@ -325,8 +327,8 @@ export default function IdentityExposurePage() {
                     {Array.isArray(it.measured_endpoints) && it.measured_endpoints.length > 0 && (
                       <div className="mt-1 break-all">Measured: {it.measured_endpoints.join(', ')}</div>
                     )}
-                    <div className="mt-1">Monitoring: {it.monitoring_status || 'Not available'}</div>
-                    {it.monitoring_reason && <div>Reason: {it.monitoring_reason}</div>}
+                    <div className="mt-1">Monitoring: {keyLabel(it.monitoring_status) || 'Not available'}</div>
+                    {it.monitoring_reason && <div>Reason: {keyLabel(it.monitoring_reason)}</div>}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={riskMeta(it.risk_status)} />

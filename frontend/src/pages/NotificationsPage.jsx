@@ -17,6 +17,7 @@ import { presentNotificationMessage } from '../lib/scoreHonesty'
 import { useNavigate, Link } from 'react-router-dom'
 import { api } from '../api'
 import { DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
+import { keysInText } from '../lib/keyLabel'
 
 // ── Shared severity config ────────────────────────────────────────────────────
 
@@ -158,18 +159,18 @@ function NotificationCard({ n, onMarkRead }) {
             )}
             <p className={`text-sm font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
               {link
-                ? <button type="button" onClick={(e) => { e.stopPropagation(); handleClick() }} className="text-left hover:underline">{n.title}</button>
-                : n.title}
+                ? <button type="button" onClick={(e) => { e.stopPropagation(); handleClick() }} className="text-left hover:underline">{keysInText(n.title)}</button>
+                : keysInText(n.title)}
             </p>
             {n.message && (
-              <p className="text-sm text-gray-400 mt-0.5 leading-relaxed">{presentNotificationMessage(n.message)}</p>
+              <p className="text-sm text-gray-400 mt-0.5 leading-relaxed">{keysInText(presentNotificationMessage(n.message))}</p>
             )}
             {/* Parity with the alert email: the recommendation is a separate,
                 backend-owned sentence — never re-derived or re-worded here. */}
             {meta?.recommended_action && meta.recommended_action !== n.message && (
               <p className="text-sm text-gray-500 mt-1 leading-relaxed">
                 <span className="font-medium text-gray-600">Recommended next action:</span>{' '}
-                {meta.recommended_action}
+                {keysInText(meta.recommended_action)}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-2 mt-2">

@@ -387,7 +387,7 @@ export async function workspaceMembersRoutes(rctx) {
 
       if (!email)                          return json({ error: "email is required" }, 400);
       if (!ROLE_RANK.hasOwnProperty(rawRole)) return json({ error: `role must be one of: ${Object.keys(ROLE_RANK).join(", ")}` }, 400);
-      if (rawRole === "owner")             return json({ error: "Cannot assign owner role via invite. Transfer ownership instead." }, 400);
+      if (rawRole === "owner")             return json({ error: "Cannot assign owner role via invite. Ownership and billing ownership can't be transferred yet — contact support." }, 400);
 
       try {
         // Resolve target user by email
@@ -484,7 +484,7 @@ export async function workspaceMembersRoutes(rctx) {
         }
         // Owner cannot remove themselves
         if (row.role === "owner" && row.user_id === user.id) {
-          return json({ error: "Owner cannot remove themselves. Transfer ownership first." }, 409);
+          return json({ error: "Owner cannot remove themselves. Ownership and billing ownership can't be transferred yet — contact support." }, 409);
         }
         // Cannot remove the last owner
         if (row.role === "owner") {
@@ -555,7 +555,7 @@ export async function workspaceMembersRoutes(rctx) {
           .bind(targetMemberId, workspaceId)
           .first();
         if (!row) return json({ error: "Member not found" }, 404);
-        if (row.role === "owner") return json({ error: "Cannot change the owner's role. Transfer ownership instead." }, 409);
+        if (row.role === "owner") return json({ error: "Cannot change the owner's role. Ownership and billing ownership can't be transferred yet — contact support." }, 409);
         if (row.user_id === user.id) return json({ error: "Cannot change your own role." }, 409);
         // Admin ceiling: cannot change roles of other admins.
         if (access.role === "admin" && row.role === "admin") {

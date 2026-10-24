@@ -35,7 +35,7 @@
 // not a test bug — STOP and report, do not patch. Requires Node 24+.
 // ─────────────────────────────────────────────────────────────────────────────
 import { webcrypto } from "node:crypto";
-import { loadWorker, buildDb, makeEnv, ctx } from "./security/lib/worker-harness.js";
+import { loadWorker, buildDb, makeEnv, ctx, createStripeProvider } from "./security/lib/worker-harness.js";
 import {
   getEffectivePlanState, hasFeatureEntitlement, getEffectiveDomainLimit,
   resolveCanonicalSubscriptionRow, normalizePlan,
@@ -72,8 +72,13 @@ async function main() {
   });
   env.STRIPE_WEBHOOK_SECRET = WHSEC;
   env.STRIPE_SECRET_KEY = "sk_test_x";
+  // Webhooks re-read the subscription from Stripe; a local stand-in answers,
+  // kept in step with an in-order history of the delivered events.
+  const stripe = createStripeProvider();
+  globalThis.fetch = stripe.fetch;
 
-  async function postWebhook(event) {
+  async function postWebhook(event, { mirror = true } = {}) {
+    if (mirror) stripe.mirror(event);
     const raw = JSON.stringify(event);
     const ts = nowUnix();
     const sig = await hmacHex(WHSEC, `${ts}.${raw}`);
@@ -191,7 +196,7 @@ async function main() {
   const advanced = futureUnix() + 60 * 86400;
   await postWebhook(evt("d3_adv", "customer.subscription.updated", subObj("sub_d3", "cus_d3", metaD3("starter"), "price_sm", "active", advanced)));
   const advIso = subRow("uD3").current_period_end;
-  await postWebhook(evt("d3_stale", "customer.subscription.updated", subObj("sub_d3", "cus_d3", metaD3("starter"), "price_sm", "active", nowUnix() + 5 * 86400)));
+  await postWebhook(evt("d3_stale", "customer.subscription.updated", subObj("sub_d3", "cus_d3", metaD3("starter"), "price_sm", "active", nowUnix() + 5 * 86400)), { mirror: false });
   ok("stale out-of-order event does NOT rewind current_period_end", subRow("uD3").current_period_end === advIso);
 
   // ── D4: checkout fail-closed (verifyStripePriceMatchesPolicy) ──────────────
@@ -225,7 +230,7 @@ async function main() {
   // Non-checkout-eligible plan is refused before any lookup.
   setPrice(GOOD_PRO);
   ok("enterprise/free plan is not checkout-eligible", (await verifyStripePriceMatchesPolicy(env, "enterprise", "monthly", "price_pm")).error === "plan_not_checkout_eligible");
-  globalThis.fetch = async () => { throw new Error("network disabled"); };
+  globalThis.fetch = stripe.fetch;
 
   // ── Coverage delta ─────────────────────────────────────────────────────────
   sec("Coverage");

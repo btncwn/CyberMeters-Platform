@@ -83,7 +83,7 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
     expect(screen.queryByText('100')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Complete the questionnaire' })).toHaveAttribute('href', '/ws/cyber-essentials?tab=findings#questionnaire')
   })
-  it('shows the customer title as the evidence headline and the remediation id as a helper', async () => {
+  it('shows the customer title as the evidence headline and never the registry id (C-45 R04)', async () => {
     api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness())
     api.getCyberEssentialsControls.mockResolvedValue(controls([{
       id: 'cec-customer-copy',
@@ -95,9 +95,8 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
     mountOverview()
 
     const title = await screen.findByText('Strengthen the website content policy')
-    const helper = screen.getByText('web.header.csp')
     expect(title).toBeInTheDocument()
-    expect(helper).toHaveClass('font-mono')
+    expect(screen.queryByText('web.header.csp')).toBeNull()
     expect(title.parentElement.firstElementChild).toBe(title)
     expect(screen.queryByText(/undefined/)).not.toBeInTheDocument()
   })

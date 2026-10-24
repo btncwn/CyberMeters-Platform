@@ -30,6 +30,7 @@ import {
   nextReportPreparationDelay,
   reportPreparationPresentation,
 } from '../lib/reportAvailability'
+import { keyLabel } from '../lib/keyLabel'
 import { useScopedDomain } from '../components/shell/WorkspaceContext'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
@@ -211,11 +212,11 @@ function EvidencePanel({ evidence }) {
         const mvc    = item.manual_verification_command ?? null
 
         const rows = [
-          type  && ['Type',           String(type)],
+          type  && ['Type',           keyLabel(type)],
           lbl   && ['Target',         String(lbl)],
           hasVal && ['Observed',      String(valRaw ?? 'null (no record found)')],
           exp   && ['Expected',       String(exp)],
-          src   && ['Source',         String(src)],
+          src   && ['Source',         keyLabel(src)],
           chk   && ['Checked at',     formatDate(chk)],
           stat  && ['HTTP status',    String(stat)],
           mhdr  && ['Missing header', String(mhdr)],

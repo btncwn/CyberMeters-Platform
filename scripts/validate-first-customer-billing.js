@@ -4,7 +4,7 @@
 // webhook storage failures acknowledged as success, and Starter CE access.
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { loadWorker, buildDb, makeEnv, makeSeeder, makeCaller, ctx } from "./security/lib/worker-harness.js";
+import { loadWorker, buildDb, makeEnv, makeSeeder, makeCaller, ctx, createStripeProvider } from "./security/lib/worker-harness.js";
 import { getEffectivePlanState } from "../workers/scan-api/src/engines/entitlements.js";
 
 let passed = 0;
@@ -37,8 +37,12 @@ const providerRequests = [];
 // a subscription, because our row cannot know when a webhook never landed.
 const stripeCustomers = [];
 let stripeLookupDown = false;
+// Webhooks re-read each subscription from Stripe (migration 139); a local
+// stand-in serves provider truth, kept in step with the delivered events.
+const stripe = createStripeProvider();
 globalThis.fetch = async (url, opts = {}) => {
   providerRequests.push(url);
+  if (/^https:\/\/api\.stripe\.com\/v1\/subscriptions\/[^/?]+/.test(url)) return stripe.fetch(url);
   if (url.startsWith("https://api.stripe.com/v1/customers?") || url.startsWith("https://api.stripe.com/v1/subscriptions?")) {
     if (stripeLookupDown) return Response.json({ error: { type: "api_error" } }, { status: 500 });
     const q = new URL(url).searchParams;
@@ -100,6 +104,7 @@ check("explicit selection is preserved", requests.at(-1).params["metadata[worksp
 
 let eventNumber = 0;
 async function deliver(event, { badSignature = false } = {}) {
+  if (!badSignature) stripe.mirror(event);
   const raw = JSON.stringify({ livemode: false, ...event });
   const timestamp = Math.floor(Date.now() / 1000);
   const key = await webcrypto.subtle.importKey("raw", new TextEncoder().encode(env.STRIPE_WEBHOOK_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);

@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { parseServerDate, formatDate, formatDay } from '../utils/dates'
 import { assetSourceLabel } from '../lib/assetSourceLabel'
+import { keyLabel } from '../lib/keyLabel'
 
 // Why a name is in the inventory and what was measured for it. Every sentence
 // is the backend's (engines/asset-evidence.js); this component only lays the
@@ -152,13 +153,13 @@ function Findings({ findings }) {
         <li key={`${finding.finding_type}-${index}`} className="rounded-xl bg-gray-50 px-3 py-2.5 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             {finding.severity && <span className={SEVERITY_CLASS[finding.severity] || 'badge-unknown'}>{finding.severity}</span>}
-            <span className="text-xs font-semibold text-gray-800">{finding.title || finding.finding_type}</span>
+            <span className="text-xs font-semibold text-gray-800">{finding.title || keyLabel(finding.finding_type) || 'Measured finding'}</span>
           </div>
           <p className="text-xs text-gray-700"><span className="font-medium">Measured: </span>{finding.measured_label}</p>
           {finding.check_id && (
             <p className="text-xs text-gray-500">
-              {`Check ${finding.check_id}${finding.check_version ? `, version ${finding.check_version}` : ''}`}
-              {finding.rule ? `: ${finding.rule}` : ''}
+              {/* The internal check id/version stay in the data, not in the customer's words (C-45 R19). */}
+              {finding.rule || 'Checked by an automated rule.'}
             </p>
           )}
         </li>

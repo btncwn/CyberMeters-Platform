@@ -44,7 +44,9 @@ describe('ShadowItInventoryPage — workspace resolution', () => {
     fireEvent.click(screen.getByRole('button', { name: 'History' }))
     expect(api.getShadowItItem).toHaveBeenCalledWith(WS_ID, 'item_1')
     expect(await screen.findByText('material change')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'case_1' })).toHaveAttribute('href', '/ws/cases/case_1')
+    // The link names the case, never its id (C-45 R10).
+    expect(screen.getByRole('link', { name: 'Open the linked case' })).toHaveAttribute('href', '/ws/cases/case_1')
+    expect(screen.queryByText('case_1')).toBeNull()
   })
 
   it('shows a failed detail read as an error', async () => {
