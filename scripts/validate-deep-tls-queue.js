@@ -464,6 +464,29 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   assert.deepEqual(held.static_results.map(r=>[r.check.control,r.state,r.reason]).sort(),
     [['ccs','unexecutable','scheduled_or_unknown_origin'],['heartbleed','unexecutable','scheduled_or_unknown_origin'],['robot','unexecutable','scheduled_or_unknown_origin']]);
 }
+// R0 P1 on #974 (Seat 3, fix ported from #973): with the declared service
+// selected at job creation, the first-scan re-plan must still pick up the
+// domain's own web host once this job saw HTTPS on it, keeping the service.
+{
+  const { replanTlsFromOwnResults } = await import('../workers/scan-api/src/engines/exposure-jobs.js');
+  const ep=(hostname,address,scope)=>({endpoint:{hostname,sni:hostname,address,port:443,transport:'tcp',application_protocol:'https'},
+    endpoint_identity:`${hostname}|${hostname}|${address}|443|tcp|https`,scope});
+  const apex=ep('shop.example.org','192.0.2.40',{kind:'standard_https',special_consent:false,special_checks:{}});
+  const probe=ep('probe.shop.example.org','192.0.2.41',{kind:'authorized_service',service_authorization_id:'tlsservice_x',special_consent:true,
+    special_checks:{heartbleed:'acc_f1',robot:'acc_f1',ccs:'acc_f1'}});
+  const endpoints=[apex,probe];
+  const tls=buildBudgetedTlsCheckPlan({endpoints,cipherCatalog:[],observedHttpsHosts:[],scanId:'scan_f1_declared'});
+  assert.ok(tls.selected.length>0&&tls.selected.every(r=>r.endpoint_index===1),'precondition: only the declared service is selected at creation');
+  assert.ok(tls.deferred_hosts.some(h=>h.hostname==='shop.example.org'&&h.reason==='https_service_not_observed'),'precondition: the web host waits');
+  const plan={checks:[],hosts:['shop.example.org'],tls:{...tls,endpoints,results:[],state:'pending'}};
+  const own=[{rule_id:'client-secret',url:'https://shop.example.org/',state:'not_found',comparable:true,reason:'explicit_absence'}];
+  assert.equal(replanTlsFromOwnResults(plan,own),true,'F1: the re-plan runs although the declared service is already selected');
+  assert.ok(plan.tls.selected.some(r=>r.endpoint_index===0),'F1: the web host is planned after this job\'s own HTTPS observation');
+  if(TLS_SPECIAL_CONTROLS_AVAILABLE)assert.ok(plan.tls.selected.some(r=>r.endpoint_index===1&&r.check.control==='heartbleed'),'F1: the declared service stays planned');
+  // A standard plan that already selected checks is still untouched.
+  const std={checks:[],hosts:['shop.example.org'],tls:{...buildBudgetedTlsCheckPlan({endpoints:[apex],cipherCatalog:[],observedHttpsHosts:['shop.example.org'],scanId:'std'}),endpoints:[apex],results:[],state:'pending'}};
+  assert.equal(replanTlsFromOwnResults(std,own),false,'a plan with standard checks already selected is not re-planned');
+}
 // F1: the authorised service is planned only while its current DNS answer equals
 // the authorised IP target; otherwise it is not planned and the gap says why.
 {
