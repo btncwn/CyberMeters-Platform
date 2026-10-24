@@ -1203,6 +1203,44 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     supporting_evidence_types: ["http_header_probe"],
   }),
 
+  entry({
+    remediation_id: "web.php.runtime_release",
+    introduced_at: "2026-10-24",
+    domain_key: "website_security",
+    finding_types: ["tech_php2shell_outdated"],
+    customer_title: "Review the reported PHP release",
+    technical_explanation: "The website reports a PHP release older than the upstream release for CVE-2026-109618 and CVE-2026-109619. A distribution may have backported the fixes without changing that number.",
+    business_impact: "The response alone cannot establish whether the installed build contains the security fixes.",
+    recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "https_recheck",
+    case_type: "website_case",
+    managed_workflow_compatible: true,
+    verification_evidence_requirements: "A serviceable response at the exact original HTTPS host and path reports a fixed upstream release, or no longer reports PHP. A hidden, ambiguous or unsupported version is inconclusive.",
+    supporting_evidence_types: ["http_header_probe"],
+    limitations: ["Only the reported version is compared. Backported fixes and the actual installed build cannot be verified remotely. This is not a claim of vulnerability or exploitability."],
+    references: ["https://www.php.net/archive/2026.php#2026-10-21-5"],
+  }),
+  entry({
+    remediation_id: "web.php.runtime_observation",
+    introduced_at: "2026-10-24",
+    domain_key: "website_security",
+    finding_types: ["tech_php2shell_version_hidden"],
+    customer_title: "Confirm the PHP update with your hosting provider",
+    technical_explanation: "The response reports PHP without a readable version.",
+    business_impact: "An external header cannot establish whether PHP has been updated.",
+    recommended_action: "Confirm with your hosting provider that PHP has been updated for the PHP2Shell vulnerabilities.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "unsupported",
+    managed_workflow_compatible: false,
+    case_type: null,
+    verification_evidence_requirements: "Observation only; no system-verified case or recovery is inferred.",
+    supporting_evidence_types: ["http_header_probe"],
+    references: ["https://www.php.net/archive/2026.php#2026-10-21-5"],
+  }),
+
   // ─────────────────────── CYBER ESSENTIALS READINESS ────────────────────────
   entry({
     remediation_id: "ce.certification.external",
@@ -1586,6 +1624,7 @@ function normalizeFindingType(rawType) {
   if (!ft) return "";
   const exposure = /^(external_exposure_[a-z][a-z0-9-]+)__[a-f0-9]{64}$/.exec(ft);
   if (exposure) return exposure[1];
+  if (/^tech_php2shell_outdated__[a-f0-9]{64}$/.test(ft)) return "tech_php2shell_outdated";
   const tls = /^(tls_[a-z_]+)__[a-f0-9]{64}$/.exec(ft);
   if (tls) return tls[1];
   if (ft.startsWith("subdomain_sensitive_")) return "subdomain_sensitive";

@@ -51,6 +51,7 @@ const ACTIONABLE = [
   "dse_hsts_short_maxage",
   "dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite",
   // website sign-in pages — signin-page-findings.js
+  "tech_php2shell_outdated",
   "https_signin_form_cross_origin", "https_signin_form_insecure", "https_signin_no_hsts", "https_signin_cookie_no_secure",
   "certificate_expiring_critical", "certificate_expiring_soon",
   // live TLS — network-probe.js literal add(...) calls
@@ -91,7 +92,7 @@ const REMEDIATION_NOT_REQUIRED = new Set([
   // dnssec info variants (score 0) — registry-mapped but not scored/forced
   "dnssec_not_enabled", "dnssec_misconfigured",
   // tech version disclosure (low, score 0) — registry-mapped, advisory
-  "tech_server_version_disclosure", "tech_xpoweredby_version_disclosure",
+  "tech_server_version_disclosure", "tech_xpoweredby_version_disclosure", "tech_php2shell_version_hidden",
   // AS-B2 Stage 1: version-blind catalogue correlation is observation-only.
   "cve_high_severity_detected",
   // Reported-version NVD correlation (KEV/EPSS ordered) is observation-only
@@ -151,14 +152,14 @@ ok("all other remediation identities remain version 1",
 // S3-0 (22 Oct 2026): + asm.network.remote_admin_reachable and asm.network.ftp_reachable.
 // S3-C (22 Oct 2026): + email.dane.tlsa_ineffective and cert.dane.web_tlsa_not_validated.
 // S3-MODERN 1 (23 Oct 2026): + tls.endpoint.must_staple_not_stapled.
-ok("registry has exactly 119 entries including script metadata guidance", REMEDIATION_REGISTRY.length === 119);
+ok("registry has exactly 121 entries including reported runtime guidance", REMEDIATION_REGISTRY.length === 121);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including script metadata guidance is exact", remediationRegistryFingerprint() === "r119-f330cb8e", remediationRegistryFingerprint());
+ok("registry fingerprint including reported runtime guidance is exact", remediationRegistryFingerprint() === "r121-8ee8b225", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",

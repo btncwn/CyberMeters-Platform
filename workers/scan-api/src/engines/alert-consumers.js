@@ -22,6 +22,7 @@ import { buildMonitoringTransitionDetail, findConditionOccurrence, MONITORING_CH
 import { emitManagedAlert, buildAlertDedupeKey } from "./managed-alerts.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { resolveCustomerAlertPresentation } from "./customer-alert-presentation.js";
+import { phpRuntimeSentence, PHP_RUNTIME_TITLE } from "./php-runtime.js";
 
 // Declares that this recurrence takes the RECORD's own assigned severity rather
 // than a fixed grade. Not a loophole in the "never invent a severity" rule — the
@@ -221,6 +222,7 @@ const RECURRENCE_SEVERITY = Object.freeze({
     browser_protection_malformed:  INHERIT_SEVERITY,
     credential_form_exposed:       INHERIT_SEVERITY,
     external_content_exposed:      INHERIT_SEVERITY,
+    reported_runtime_outdated:     INHERIT_SEVERITY,
   }),
   // ── Cyber Essentials Readiness (corrective phase) ─────────────────────────
   // FIXED at medium, and deliberately NOT inherited — the opposite reasoning to
@@ -423,6 +425,9 @@ const RECURRENCE_COPY = Object.freeze({
     }),
   }),
   website_security: Object.freeze({
+    reported_runtime_outdated: Object.freeze({
+      what_changed: (_, ctx) => phpRuntimeSentence(ctx?.php_runtime) || PHP_RUNTIME_TITLE,
+    }),
     browser_protection_missing: Object.freeze({
       what_changed: (entity) =>
         `A completed check of ${entity} found a browser protection (a header or cookie attribute) missing.`,
@@ -821,7 +826,10 @@ export async function emitLifecycleAlert(env, {
     // A reopen says what came before (23 Oct 2026): the customer was told it was
     // fixed, so the alert names that verification and why the case is back.
     const reopenedNote = await reopenNote(env, workspace_id, case_id, case_reopened);
-    const eventDescription = describeRecurrenceEvent(domain_key, recurrence, displayName, { finding_label: finding_label || resolved?.customer_title || null });
+    const eventDescription = describeRecurrenceEvent(domain_key, recurrence, displayName, {
+      finding_label: finding_label || resolved?.customer_title || null,
+      php_runtime: recurrence === "reported_runtime_outdated" ? module_evidence?.php_runtime : null,
+    });
     const canonicalWhatChanged = reopenedNote ? `${eventDescription} ${reopenedNote}` : eventDescription;
     const canonicalRecommendation = recommendationForRecurrence(
       domain_key, recurrence, displayName, resolved?.recommended_action || null,
