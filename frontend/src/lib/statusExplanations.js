@@ -11,7 +11,10 @@ export const STATUS_EXPLANATIONS = Object.freeze({
   not_assessed: 'Not evaluated for this workspace yet.',
   evidence_insufficient: 'Required evidence could not be collected, so this is not assessed. It is never treated as healthy.',
   provisional: 'No issue was observed, but coverage was incomplete.',
-  established: 'Checks completed and no material issue was observed.',
+  // The vocabulary's own meaning (statusVocabulary.js): an authoritative
+  // assessment exists — not "healthy". Shadow IT's monitoring_only maps here
+  // too, and the backend defines that as monitoring only, never a verdict (R1 21:00).
+  established: 'An authoritative assessment exists for this area; the summary beside it says what was concluded.',
   stale: 'The evidence is older than expected. The next complete scan refreshes it.',
   action_required: 'An issue was observed and needs action.',
   customer_input: 'Needs information only you can give.',

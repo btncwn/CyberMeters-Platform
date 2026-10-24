@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import StatusChip from '../../components/StatusChip'
 import AcademyPage from '../../pages/AcademyPage'
 import { STATUS_EXPLANATIONS, statusExplanation, statusExplanationRows } from '../statusExplanations'
-import { STATUS_KEYS } from '../statusVocabulary'
+import { STATUS_KEYS, domainStatus } from '../statusVocabulary'
 
 // 10d (founder 23 Oct 2026): every status chip says what its word means — one
 // sentence, the same in the chip's tooltip, its accessible description and the
@@ -15,7 +15,7 @@ describe('status explanations', () => {
     for (const key of STATUS_KEYS) expect(STATUS_EXPLANATIONS[key]).toMatch(/^[A-Z].+\.$/)
   })
   it('the founder\'s three words read as asked', () => {
-    expect(statusExplanation('established')).toBe('Checks completed and no material issue was observed.')
+    expect(statusExplanation('established')).toBe('An authoritative assessment exists for this area; the summary beside it says what was concluded.')
     expect(statusExplanation('provisional')).toBe('No issue was observed, but coverage was incomplete.')
     expect(statusExplanation('evidence_insufficient')).toMatch(/could not be collected.*never treated as healthy/)
   })
@@ -31,6 +31,14 @@ describe('status explanations', () => {
     const chip = screen.getByText('Action required')
     expect(chip).toHaveAttribute('title', 'HSTS header missing on www')
     expect(chip).toHaveAccessibleDescription('An issue was observed and needs action.')
+  })
+  it('Shadow IT monitoring only (→ Established) is never described as a verdict', () => {
+    const word = domainStatus({ domain_key: 'shadow_it', state: 'monitoring_only', coverage: 'complete' })
+    expect(word).toBe('established')
+    render(<StatusChip status={word} />)
+    const description = screen.getByText('Established').getAttribute('title')
+    expect(description).not.toMatch(/no (material )?issue|healthy|secure|protected/i)
+    expect(screen.getByText('Established')).toHaveAccessibleDescription(description)
   })
   it('an unknown word reads as Error with Error\'s sentence', () => {
     render(<StatusChip status="made_up" />)
