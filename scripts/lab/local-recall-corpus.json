@@ -1,0 +1,281 @@
+{
+  "schema": "local-recall-input-v1",
+  "scope": "Local reconstructions of public fingerprint elements; explicit version labels and response headers are controlled ground truth. Not full appliance images, production captures, exploit tests or population recall. No external URLs are requested by the runner.",
+  "kev_snapshot": {
+    "source": "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json",
+    "source_sha256": "97a6e54bc74c651ab3c55657191db9adec6c63b05ca54e4205327cfd97a8fb70",
+    "catalogue_version": "2026.10.23",
+    "released_at": "2026-10-23T19:30:18.9209Z",
+    "captured_at": "2026-10-24",
+    "cves": [
+      "CVE-2026-88771",
+      "CVE-2026-8452",
+      "CVE-2025-7775",
+      "CVE-2025-5777",
+      "CVE-2025-6543",
+      "CVE-2025-22457",
+      "CVE-2025-0282",
+      "CVE-2024-3400",
+      "CVE-2024-21762",
+      "CVE-2023-6549",
+      "CVE-2023-4966",
+      "CVE-2023-3519",
+      "CVE-2023-27997"
+    ],
+    "date_added": {
+      "CVE-2026-88771": "2026-09-27",
+      "CVE-2026-8452": "2026-08-26",
+      "CVE-2025-7775": "2025-08-26",
+      "CVE-2025-5777": "2025-07-10",
+      "CVE-2025-6543": "2025-06-30",
+      "CVE-2025-22457": "2025-04-04",
+      "CVE-2025-0282": "2025-01-08",
+      "CVE-2024-3400": "2024-04-12",
+      "CVE-2024-21762": "2024-02-09",
+      "CVE-2023-6549": "2024-01-17",
+      "CVE-2023-4966": "2023-10-18",
+      "CVE-2023-3519": "2023-07-19",
+      "CVE-2023-27997": "2023-06-13"
+    }
+  },
+  "portal_profiles": [
+    {
+      "id": "panos_globalprotect",
+      "path": "/global-protect/login.esp",
+      "label": "PAN-OS",
+      "fixed": "11.1.2-h3",
+      "source": "https://knowledgebase.paloaltonetworks.com/KCSArticleDetail?id=kA10g000000ClErCAK",
+      "public_basis": "Published factory title and response template; pan_form is a server-expanded placeholder. Form controls and explicit version field here are a local reconstruction, not a captured response.",
+      "html": "<!doctype html><html><head><title>Palo Alto Networks - GlobalProtect Portal</title></head><body>\n<h1>Palo Alto Networks - GlobalProtect Portal</h1>\n<form name=\"frmLogin\" method=\"post\" action=\"/global-protect/login.esp\">\n<label>User <input name=\"user\" autocomplete=\"username\"></label>\n<label>Password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label>\n<button type=\"submit\">Sign in</button>\n</form>\n<footer>{{VERSION_FIELD}}</footer>\n</body></html>\n"
+    },
+    {
+      "id": "fortios_sslvpn",
+      "path": "/remote/login",
+      "label": "FortiOS",
+      "fixed": "7.4.3",
+      "source": "https://community.fortinet.com/fortigate-3/technical-tip-ssl-vpn-authentication-order-for-remote-user-group-using-ldap-199773",
+      "public_basis": "Vendor staff trace documents /remote/logincheck. The title, product marker, form and explicit version field are reconstructed supported profile inputs, not a complete vendor page.",
+      "html": "<!doctype html><html><head><title>SSL VPN Service</title></head><body>\n<h1>FortiGate</h1>\n<form name=\"frmLogin\" method=\"post\" action=\"/remote/logincheck\">\n<label>User <input name=\"username\" autocomplete=\"username\"></label>\n<label>Password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label>\n<button type=\"submit\">Sign in</button>\n</form>\n<footer>{{VERSION_FIELD}}</footer>\n</body></html>\n"
+    },
+    {
+      "id": "fortiproxy_sslvpn",
+      "path": "/remote/login",
+      "label": "FortiProxy",
+      "fixed": "7.4.3",
+      "source": "https://docs.fortinet.com/document/fortiproxy/7.2.9/administration-guide/423180/create-or-edit-an-ssl-vpn-realm",
+      "public_basis": "Vendor guide documents custom HTML login pages. This sibling SSL-VPN form, product marker and explicit version field are reconstructed supported profile inputs, not a captured response.",
+      "html": "<!doctype html><html><head><title>SSL VPN Service</title></head><body>\n<h1>FortiProxy</h1>\n<form name=\"frmLogin\" method=\"post\" action=\"/remote/logincheck\">\n<label>User <input name=\"username\" autocomplete=\"username\"></label>\n<label>Password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label>\n<button type=\"submit\">Sign in</button>\n</form>\n<footer>{{VERSION_FIELD}}</footer>\n</body></html>\n"
+    },
+    {
+      "id": "netscaler_gateway",
+      "path": "/vpn/index.html",
+      "label": "NetScaler Gateway",
+      "fixed": "14.1-73.37",
+      "source": "https://docs.netscaler.com/us/en/netscaler-gateway/13-1/microsoft-intune-integration/configuring-network-access-control-device-check-fo.html",
+      "public_basis": "Vendor guide documents /cgi/login; nFactor pages can be dynamic. Static form, title and explicit version field here are a local reconstruction, not proof that every stock theme exposes this shape.",
+      "html": "<!doctype html><html><head><title>NetScaler Gateway</title></head><body>\n<h1>NetScaler Gateway</h1>\n<form name=\"frmLogin\" method=\"post\" action=\"/cgi/login\">\n<label>User <input name=\"login\" autocomplete=\"username\"></label>\n<label>Password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label>\n<button type=\"submit\">Sign in</button>\n</form>\n<footer>{{VERSION_FIELD}}</footer>\n</body></html>\n"
+    },
+    {
+      "id": "ivanti_connect_secure",
+      "path": "/dana-na/auth/url_default/welcome.cgi",
+      "label": "Ivanti Connect Secure",
+      "fixed": "22.7R2.6",
+      "source": "https://help.ivanti.com/ps/legacy/PCS/9.1Rx/9.1R9/pcs-pps-custom-sign-in-pages-developer-reference-9.1R4.pdf",
+      "public_basis": "Developer reference documents the relative login.cgi action, frmLogin and username/password parameters. Title and explicit running-version field are reconstructed; legacy template is not a modern appliance capture.",
+      "html": "<!doctype html><html><head><title>Pulse Secure</title></head><body>\n<h1>Pulse Secure</h1>\n<form name=\"frmLogin\" method=\"post\" action=\"login.cgi\">\n<label>User <input name=\"username\" autocomplete=\"username\"></label>\n<label>Password <input name=\"password\" type=\"password\" autocomplete=\"current-password\"></label>\n<button type=\"submit\">Sign in</button>\n</form>\n<footer>{{VERSION_FIELD}}</footer>\n</body></html>\n"
+    }
+  ],
+  "portal_boundaries": [
+    {
+      "profile": "panos_globalprotect",
+      "cve": "CVE-2024-3400",
+      "affected": "11.1.2-h2",
+      "fixed": "11.1.2-h3",
+      "advisory": "https://security.paloaltonetworks.com/CVE-2024-3400"
+    },
+    {
+      "profile": "fortios_sslvpn",
+      "cve": "CVE-2023-27997",
+      "affected": "7.2.4",
+      "fixed": "7.2.5",
+      "advisory": "https://www.fortiguard.com/psirt/FG-IR-23-097"
+    },
+    {
+      "profile": "fortios_sslvpn",
+      "cve": "CVE-2024-21762",
+      "affected": "7.2.6",
+      "fixed": "7.2.7",
+      "advisory": "https://www.fortiguard.com/psirt/FG-IR-24-015"
+    },
+    {
+      "profile": "fortiproxy_sslvpn",
+      "cve": "CVE-2023-27997",
+      "affected": "7.2.3",
+      "fixed": "7.2.4",
+      "advisory": "https://www.fortiguard.com/psirt/FG-IR-23-097"
+    },
+    {
+      "profile": "fortiproxy_sslvpn",
+      "cve": "CVE-2024-21762",
+      "affected": "7.2.8",
+      "fixed": "7.2.9",
+      "advisory": "https://www.fortiguard.com/psirt/FG-IR-24-015"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2023-3519",
+      "affected": "13.1-49.12",
+      "fixed": "13.1-49.13",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX561482"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2023-4966",
+      "affected": "13.1-49.14",
+      "fixed": "13.1-49.15",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX579459"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2023-6549",
+      "affected": "14.1-12.34",
+      "fixed": "14.1-12.35",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX584986"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2025-5777",
+      "affected": "14.1-43.55",
+      "fixed": "14.1-43.56",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX693420"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2025-6543",
+      "affected": "14.1-47.45",
+      "fixed": "14.1-47.46",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX694788"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2025-7775",
+      "affected": "14.1-47.47",
+      "fixed": "14.1-47.48",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX694938"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2026-8452",
+      "affected": "14.1-72.60",
+      "fixed": "14.1-72.61",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX696604"
+    },
+    {
+      "profile": "netscaler_gateway",
+      "cve": "CVE-2026-88771",
+      "affected": "14.1-73.36",
+      "fixed": "14.1-73.37",
+      "advisory": "https://support.citrix.com/support-home/kbsearch/article?articleNumber=CTX697096"
+    },
+    {
+      "profile": "ivanti_connect_secure",
+      "cve": "CVE-2025-0282",
+      "affected": "22.7R2.4",
+      "fixed": "22.7R2.5",
+      "advisory": "https://forums.ivanti.com/s/article/Security-Advisory-Ivanti-Connect-Secure-Policy-Secure-ZTA-Gateways-CVE-2025-0282-CVE-2025-0283"
+    },
+    {
+      "profile": "ivanti_connect_secure",
+      "cve": "CVE-2025-22457",
+      "affected": "22.7R2.5",
+      "fixed": "22.7R2.6",
+      "advisory": "https://forums.ivanti.com/s/article/April-Security-Advisory-Ivanti-Connect-Secure-Policy-Secure-ZTA-Gateways-CVE-2025-22457"
+    }
+  ],
+  "conditional_excluded": [
+    "CVE-2026-88772: anonymous page does not establish DTLS enabled"
+  ],
+  "php_sources": {
+    "header": "https://www.php.net/manual/en/ini.core.php#ini.expose-php",
+    "server_header_example": "https://httpd.apache.org/docs/2.4/mod/core.html#servertokens",
+    "fixes": "https://www.php.net/archive/2026.php#2026-10-21-5"
+  },
+  "php_cases": [
+    {
+      "id": "php-8.5.11",
+      "server": "Apache/2.4.63 (Unix) PHP/8.5.11",
+      "expected": "outdated"
+    },
+    {
+      "id": "php-8.5.12",
+      "server": "Apache/2.4.63 (Unix) PHP/8.5.12",
+      "expected": "fixed"
+    },
+    {
+      "id": "php-8.4.26",
+      "server": "Apache/2.4.63 (Unix) PHP/8.4.26",
+      "expected": "outdated"
+    },
+    {
+      "id": "php-8.4.27",
+      "server": "Apache/2.4.63 (Unix) PHP/8.4.27",
+      "expected": "fixed"
+    },
+    {
+      "id": "php-8.3.35",
+      "server": "Apache/2.4.63 (Unix) PHP/8.3.35",
+      "expected": "outdated"
+    },
+    {
+      "id": "php-8.3.36",
+      "server": "Apache/2.4.63 (Unix) PHP/8.3.36",
+      "expected": "fixed"
+    },
+    {
+      "id": "php-8.2.34",
+      "server": "Apache/2.4.63 (Unix) PHP/8.2.34",
+      "expected": "outdated"
+    },
+    {
+      "id": "php-8.2.35",
+      "server": "Apache/2.4.63 (Unix) PHP/8.2.35",
+      "expected": "fixed"
+    },
+    {
+      "id": "php-8.1.33",
+      "server": "Apache/2.4.63 (Unix) PHP/8.1.33",
+      "expected": "outdated"
+    },
+    {
+      "id": "php-8.2.34-1+deb12u1",
+      "server": "Apache/2.4.63 (Unix) PHP/8.2.34-1+deb12u1",
+      "expected": "outdated"
+    },
+    {
+      "id": "php-hidden",
+      "server": "Apache/2.4.63 PHP",
+      "expected": "hidden"
+    },
+    {
+      "id": "php-benign",
+      "server": "Apache/2.4.63",
+      "expected": "absent"
+    },
+    {
+      "id": "php-ambiguous",
+      "server": "PHP/8.2.34 PHP/8.4.27",
+      "expected": "unreadable"
+    }
+  ],
+  "public_template_variants": [
+    {
+      "id": "public-relative-unquoted-form",
+      "profile": "ivanti_connect_secure",
+      "expected": "hidden",
+      "source": "https://help.ivanti.com/ps/legacy/PCS/9.1Rx/9.1R9/pcs-pps-custom-sign-in-pages-developer-reference-9.1R4.pdf",
+      "page": 159,
+      "form_start": "<form name=\"frmLogin\" action=login.cgi method=\"POST\" autocomplete=off>",
+      "public_basis": "Retains the unquoted relative action in the published template example; no running server version is added. A known portal with no version should take the medium path."
+    }
+  ]
+}
