@@ -1,6 +1,7 @@
 // C-57: reconcile old protocol identities into endpoint + observed leaf identity.
 // No schema/backfill/deletion. Original scan proof is required, not a guessed
-// fingerprint. Missing history holds creation; old keys still support retests.
+// fingerprint. Missing history holds only a matching open protocol condition;
+// verified/monitoring history cannot suppress a newly observed failure.
 import { TLS_PROTOCOLS } from '../../../../shared/tls/catalog.js';
 import { readTlsAssessmentForScan } from './exposure-jobs.js';
 import { tlsAssessmentFindings, tlsCaseKey, legacyTlsCaseKey } from './tls-findings.js';
@@ -8,7 +9,7 @@ import { canTransitionCase } from './managed-case-model.js';
 import { newCaseEventId } from './case-workflow.js';
 
 const parse = value => { try { return JSON.parse(value || '{}') || {}; } catch { return {}; } };
-const priority = ['awaiting_verification','action_in_progress','approved','assigned','reopened','accepted_risk','triaged','detected','monitoring','verified'];
+const priority = ['awaiting_verification','action_in_progress','approved','assigned','reopened','triaged','detected','accepted_risk','monitoring','verified'];
 const historical = new Set(['verified','monitoring']);
 const legacyKey = (endpoint,row) => legacyTlsCaseKey({ type:'tls_certificate_trust',
   endpoint_identity:endpoint.endpoint_identity,control:'certificate',protocol:row.protocol,cipher_id:row.cipher_id||null });
@@ -44,15 +45,16 @@ export async function reconcileTlsTrustIdentities(env,{workspace_id,domain,tls_a
         }
       }
     }
-    if(!condition){unknown.push(kase);continue;}
+    if(!condition){if(!historical.has(kase.status))unknown.push(kase);continue;}
     const key=tlsCaseKey(condition);
-    if(!key){unknown.push(kase);continue;}
+    if(!key){if(!historical.has(kase.status))unknown.push(kase);continue;}
     const group=groups.get(key)||{condition,cases:[]};group.cases.push(kase);groups.set(key,group);
   }
-  // A v1 key encodes no leaf. Without original evidence, do not manufacture a
-  // second case under a new leaf identity on this same endpoint/protocol.
+  // A v1 key encodes no leaf. Hold only the currently measured protocol which
+  // already has an unproven OPEN case. Other protocols can present a distinct
+  // leaf; historical verified/monitoring cases must not swallow recurrence.
   for(const endpoint of tls_assessment.endpoints||[])for(const row of endpoint.checks||[]){
-    if(row.control!=='certificate'||!unknown.some(k=>TLS_PROTOCOLS.some(protocol=>k.finding_id===legacyKey(endpoint,{...row,protocol}))))continue;
+    if(row.control!=='certificate'||!unknown.some(k=>k.finding_id===legacyKey(endpoint,row)))continue;
     const finding=tlsAssessmentFindings({source:'tls_assessment',endpoints:[{...endpoint,checks:[row]}]})
       .find(f=>f.tls_condition.type==='tls_certificate_trust');
     if(finding)blocked.add(tlsCaseKey(finding.tls_condition));

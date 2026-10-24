@@ -24,6 +24,12 @@ assert.equal(finding.tls_condition.protocol,null);
 assert.equal(finding.tls_condition.leaf_sha256,leaf);
 assert.equal(finding.score_impact,0);
 assert.equal(finding.severity,'high');
+const expired=cert('tls1_3');expired.evidence.certificates.reason='expired';
+const differentReasons=findings(assessment(cert('tls1_2'),expired))[0];
+assert.match(differentReasons.description,/the issuing certificate could not be found/);
+assert.match(differentReasons.description,/the certificate has expired/);
+assert.equal(differentReasons.description,findings(assessment(expired,cert('tls1_2')))[0].description,'different trust reasons are all listed, independent of row order');
+assert.equal((finding.description.match(/the issuing certificate could not be found/g)||[]).length,1,'identical trust reasons are not repeated');
 assert.equal(findings(assessment(cert('tls1_3'),cert('tls1_2')))[0].id,finding.id,'row order does not change identity');
 const otherBuild=cert('tls1_3');otherBuild.engine={...otherBuild.engine,family:'modern',build_id:'c'.repeat(64)};
 assert.equal(findings(assessment(cert('tls1_2'),otherBuild)).length,1,'two engines still measure one endpoint/leaf issue');
@@ -127,6 +133,45 @@ async function fixture({history=true,original=old}={}){
   const {db,run,rows}=await fixture({original:distinct});
   assert.equal((await run(distinct)).opened,0);
   assert.equal(rows().filter(r=>r.status!=='superseded').length,2,'different original leaves are never merged');
+  db.close();
+}
+// R1: unreadable historical proof cannot suppress a real returning failure.
+for(const status of ['verified','monitoring']){
+  const {db,cases,run,rows}=await fixture({history:false});
+  db.prepare('UPDATE managed_cases SET status=? WHERE id=?').run(status,cases[0].id);
+  db.prepare("UPDATE managed_cases SET status='closed_no_action' WHERE id=?").run(cases[1].id);
+  const historicalBefore=JSON.stringify(rows().find(r=>r.id===cases[0].id));
+  assert.deepEqual(await run(old),{opened:1,reopened:0,verified:0},`${status} old case with unreadable source allows one current endpoint/leaf case`);
+  const active=rows().filter(r=>['detected','triaged','assigned','approved','action_in_progress','awaiting_verification','reopened'].includes(r.status));
+  assert.equal(active.length,1,'exactly one active case despite two protocol measurements');
+  assert.equal(active[0].finding_id,key);
+  assert.equal(JSON.stringify(rows().find(r=>r.id===cases[0].id)),historicalBefore,'unproven historical identity is not guessed or rewritten');
+  assert.deepEqual(await run(old),{opened:0,reopened:0,verified:0},'a repeat does not duplicate the current case');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM certificate_lifecycle_events').get().n,1,'the returning failure produces one occurrence');
+  db.close();
+}
+{
+  const {db,cases,run,rows}=await fixture({history:false});
+  db.prepare("UPDATE managed_cases SET status='closed_no_action' WHERE id=?").run(cases[1].id);
+  const differentLeaf='c'.repeat(64),distinct=assessment(cert('tls1_2'),cert('tls1_3','invalid',differentLeaf));
+  const secondKey=tlsCaseKey(findings(distinct).find(f=>f.tls_condition.leaf_sha256===differentLeaf).tls_condition);
+  assert.deepEqual(await run(distinct),{opened:1,reopened:0,verified:0,identity_deferred:1},'unreadable open protocol case holds its own leaf only');
+  assert.equal(rows().filter(r=>r.finding_id===secondKey&&r.status==='detected').length,1,'a different second leaf is not suppressed');
+  assert.equal(rows().find(r=>r.id===cases[0].id).finding_id,legacy('tls1_2'),'the unknown open case retains its old identity');
+  assert.deepEqual(await run(distinct),{opened:0,reopened:0,verified:0,identity_deferred:1});
+  db.close();
+}
+for(const acceptedIndex of [0,1]){
+  const {db,cases,run,rows}=await fixture();
+  db.prepare("UPDATE managed_cases SET status='detected',reason=NULL WHERE workspace_id='ws'").run();
+  db.prepare("UPDATE managed_cases SET status='accepted_risk',reason='Protocol-specific acceptance',risk_accepted_until='2026-11-01T00:00:00Z' WHERE id=?").run(cases[acceptedIndex].id);
+  assert.deepEqual(await run(old),{opened:0,reopened:0,verified:0});
+  const survivor=rows().find(r=>r.finding_id===key);
+  assert.equal(survivor.id,cases[1-acceptedIndex].id,'the still-failing detected workflow outranks a sibling risk acceptance');
+  assert.equal(survivor.status,'detected');
+  const migration=db.prepare("SELECT detail_json FROM managed_case_events WHERE action='evidence_added' AND json_extract(detail_json,'$.evidence_type')='tls_trust_identity_compatibility'").get();
+  assert.ok(JSON.parse(migration.detail_json).sources.some(s=>s.case_id===cases[acceptedIndex].id&&s.status==='accepted_risk'&&s.reason==='Protocol-specific acceptance'),'acceptance remains in append-only history');
+  assert.equal(rows().find(r=>r.id===cases[acceptedIndex].id).status,'superseded');
   db.close();
 }
 // Legacy raw case keys can still re-test before original evidence is available.

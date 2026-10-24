@@ -53,6 +53,7 @@ const TRUST_REASON_WORDS={issuer_missing:'the issuing certificate could not be f
   expired:'the certificate has expired',not_yet_valid:'the certificate is not yet valid',signature_invalid:'a certificate signature is invalid',
   invalid_purpose:'the certificate is not valid for this purpose',trust_unknown:'the chain could not be validated'};
 const trustReasonWords=reason=>TRUST_REASON_WORDS[reason]||'the chain could not be validated';
+const trustDescription=reasons=>`The certificate chain on this endpoint could not be validated against trusted certificate authorities: ${[...new Set(reasons.map(trustReasonWords))].sort().join('; ')}. Revocation is checked separately.`;
 const SIGNATURE_WORDS={rsa_md5:'RSA with MD5',rsa_sha1:'RSA with SHA-1',ecdsa_sha1:'ECDSA with SHA-1',dsa_sha1:'DSA with SHA-1'};
 const ACTIVE_CONTROL_WORDS={heartbleed:'Heartbleed',ccs:'CCS injection',robot:'ROBOT'};
 // Key exchange groups in words (C-45 follow-up); an unknown one is not guessed.
@@ -82,6 +83,7 @@ export function tlsAssessmentFindings(assessment) {
     const prior=output.get(finding.id);
     if(prior && finding.tls_condition.type==='tls_certificate_trust'){
       prior.evidence.push(...finding.evidence);
+      prior.description=trustDescription(prior.evidence.map(item=>item.value));
       return;
     }
     output.set(finding.id,finding);
@@ -130,7 +132,7 @@ export function tlsAssessmentFindings(assessment) {
         recommendation:'Deploy a certificate covering this hostname on this exact service and retest the endpoint.',
         value:leaf?.sha256||'hostname mismatch'}));
       if(cert?.trust==='invalid')add(make('tls_certificate_trust',endpoint,row,{title:'Certificate chain did not validate',
-        description:`The certificate chain on this endpoint could not be validated against trusted certificate authorities: ${trustReasonWords(cert.reason)}. Revocation is checked separately.`,severity:'high',
+        description:trustDescription([cert.reason]),severity:'high',
         recommendation:'Fix the certificate chain on this endpoint (install the correct intermediate certificates, or replace the certificate), then check again.',
         value:cert.reason,detail:tlsTrustLeaf(row)||''}));
       if(leaf && ((leaf.key_type==='RSA'||leaf.key_type==='DSA')&&leaf.key_bits>0&&leaf.key_bits<2048 ||
