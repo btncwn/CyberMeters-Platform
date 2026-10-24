@@ -34,12 +34,27 @@ for (const [header, expected] of [
   assert.equal(actionable, truth, header);
   if (truth) {
     assert.equal(findings[0].description, `Your website reports PHP version ${observation.reported_version}, which is older than the release that fixes the critical PHP2Shell vulnerabilities (CVE-2026-109618, CVE-2026-109619). Update PHP, or confirm with your hosting provider that their patched build is installed.`);
+    assert.equal(findings[0].title, 'Website reports a PHP version older than the PHP2Shell fix');
+    assert.equal(findings[0].severity, 'high');
     assert.equal(findings[0].score_impact, 0);
+    const remediation = resolveRemediation({ finding_type: findings[0].id });
+    assert.equal(remediation.customer_title, findings[0].title);
+    assert.equal(remediation.technical_explanation, findings[0].title);
+    assert.equal(remediation.business_impact, 'The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.');
+    assert.equal(remediation.recommended_action, 'Update PHP, or confirm with your hosting provider that their patched build is installed.');
     assert.equal(resolveRemediation({ finding_type: findings[0].id }).case_type, 'website_case');
   }
   if (expected === 'hidden') {
     assert.equal(findings[0].description, 'Your website appears to run on PHP. Its version is not visible from outside, so confirm with your hosting provider that PHP has been updated for the PHP2Shell vulnerabilities.');
     const remediation = resolveRemediation({ finding_type: findings[0].id });
+    assert.equal(findings[0].title, 'Website runs on PHP; version not visible');
+    assert.equal(findings[0].severity, 'info');
+    assert.equal(findings[0].score_impact, 0);
+    assert.equal(findings[0].finding_type, 'observation');
+    assert.equal(remediation.customer_title, findings[0].title);
+    for (const field of ['technical_explanation', 'business_impact', 'recommended_action']) {
+      assert.equal(remediation[field], findings[0].description, field);
+    }
     assert.equal(remediation.case_type, null);
     assert.equal(remediation.managed_workflow_compatible, false);
   }

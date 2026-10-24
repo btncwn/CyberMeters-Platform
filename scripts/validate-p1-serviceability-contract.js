@@ -334,6 +334,24 @@ const GENUINE_RECOVERY = async (url) =>
      (out451?.unconfirmed || []).length === 1 && /origin_access_restricted/.test(unconf451), unconf451);
   eq("P11_G6_PROVIDER_451_RAISES_NO_TAKEOVER_RISK", (out451?.risks || []).length, 0);
 
+  // Hardening (24 Oct 2026): the built-in probe resolves the host first. A
+  // takeover candidate whose address is private gets no HTTP request at all and
+  // is recorded unconfirmed - never "no risk", never a fetch to 10.x.
+  {
+    const privateDns = async (name, type) => type === "CNAME" || type === 5
+      ? { Status: 0, Answer: [{ name, type: 5, data: "acme-org.github.io." }] }
+      : type === "A" || type === 1 ? { Status: 0, Answer: [{ name, type: 1, data: "10.0.0.5" }] } : { Status: 0, Answer: [] };
+    let httpCalls = 0;
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => { httpCalls++; return new Response("x", { status: 200 }); };
+    let out;
+    try { out = await runTakeoverModule(DOMAIN, subs, { dnsQueryImpl: privateDns }); }
+    finally { globalThis.fetch = original; }
+    eq("P11_G6_PRIVATE_RESOLVING_CANDIDATE_GETS_NO_HTTP_REQUEST", httpCalls, 0);
+    ok("P11_G6_PRIVATE_RESOLVING_CANDIDATE_IS_UNCONFIRMED", (out?.unconfirmed || []).length === 1 && (out?.risks || []).length === 0,
+       JSON.stringify({ unconfirmed: out?.unconfirmed, risks: out?.risks }));
+  }
+
   // POSITIVE CONTROL: a genuine dangling surface still confirms.
   const outFP = await run(async () => res(404, {}, `<html>${GH_FP}</html>`));
   ok("P11_G6_POSITIVE_GENUINE_TAKEOVER_STILL_CONFIRMS",

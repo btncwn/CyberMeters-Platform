@@ -585,12 +585,17 @@ for (const [name, partial] of [
     result.relationship.inputs_complete === false && result.status === "active");
 }
 
+// An observed apex answer (200) without HSTS: a missing policy, not a legacy
+// result (a legacy result without an apex answer is not_observed, 24 Oct 2026).
+const { buildHstsHostPolicy } = await import(engine("headers-scan.js"));
+const apexAnsweredWithoutHsts = (domain) => buildHstsHostPolicy({ domain, apexObserved: true, apexValue: null,
+  apexUrl: `https://${domain}`, apexStatus: 200, finalUrl: `https://${domain}/`, finalValue: null });
 // ── CM-P1-011: missing HSTS is medium once an HTTP→HTTPS redirect was observed ──
 {
   const hstsModules = (redirect) => ({
     dns: { resolves: true }, ssl: { https_available: true, http_redirects_to_https: redirect },
     headers: { accessible: true, final_https: true, validation_uncertain: false, status_code: 200,
-      values: { "strict-transport-security": null } },
+      values: { "strict-transport-security": null }, hsts_policy: apexAnsweredWithoutHsts("hsts.example.com") },
     email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
   });
   const hsts = (redirect) => computeScore(hstsModules(redirect), "hsts.example.com").findings
@@ -626,7 +631,8 @@ for (const [name, partial] of [
       dns: { resolves: true }, ssl: { https_available: true, http_redirects_to_https: redirect },
       headers: { accessible: true, final_https: true, validation_uncertain: false, status_code: 200, values: {
         "strict-transport-security": null, "content-security-policy": "default-src 'self'", "x-frame-options": "DENY",
-        "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "permissions-policy": "geolocation=()" } },
+        "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "permissions-policy": "geolocation=()" },
+        hsts_policy: apexAnsweredWithoutHsts("bri-hsts.example.com") },
       email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
     };
     const findings = computeScore(modules, "bri-hsts.example.com").findings;

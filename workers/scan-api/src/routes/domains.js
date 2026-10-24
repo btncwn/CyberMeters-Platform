@@ -734,10 +734,16 @@ export async function domainRoutes(rctx) {
           .bind(domainId)
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
-        const token = domRow.verification_token;
+        // The legacy verification token is a credential for proving ownership of
+        // the domain: only someone who may verify it (domain:verify, the same
+        // gate as the verification routes) sees it. A viewer of a linked
+        // workspace gets the domain without any token material.
+        const canVerify = Boolean(await requireDomainRole(domGetUser, domainId, "domain:verify", env));
+        const token = canVerify ? domRow.verification_token : null;
         return json({
           domain: {
             ...domRow,
+            verification_token: token,
             dns: token ? {
               host:  `_cybermeters.${domRow.domain}`,
               value: `cybermeters-verification=${token}`,

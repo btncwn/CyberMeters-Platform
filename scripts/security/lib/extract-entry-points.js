@@ -115,21 +115,27 @@ function computeBlocks(src) {
     if (c === '"') { modes.push("dq"); continue; }
     if (c === "`") { modes.push("tmpl"); continue; }
     if (c === "/" && /[=(,:[!&|?{;\n]|return|=>/.test(prev || "(")) { modes.push("regex"); continue; }
-    if (c === "{") { stack.push(line); }
+    // A `{` right after `( , : = [ ? & | !` opens an object literal (e.g. the
+    // `json({ error: … })` on a guard's own line), not a statement block: it
+    // never defines scope, so it must not become a guard's innermost block.
+    if (c === "{") { stack.push({ line, literal: /[(,:=[?&|!]/.test(prev || "") }); }
     else if (c === "}") {
       // Closing the current ${…} template expression?
       if (tmplDepth.length && stack.length === tmplDepth[tmplDepth.length - 1]) {
         tmplDepth.pop(); modes.pop(); continue;
       }
       const open = stack.pop();
-      if (open != null) blocks.push({ open, close: line });
+      if (open != null) blocks.push({ open: open.line, close: line, literal: open.literal });
     }
     if (!/\s/.test(c)) prev = c;
   }
   blocks.sort((a, b) => a.open - b.open || b.close - a.close);
-  const innermost = (ln) => {
+  const innermost = (ln, { structural = false } = {}) => {
     let best = null;
-    for (const b of blocks) if (b.open <= ln && b.close >= ln) { if (!best || (b.open >= best.open && b.close <= best.close)) best = b; }
+    for (const b of blocks) {
+      if (structural && b.literal) continue;
+      if (b.open <= ln && b.close >= ln) { if (!best || (b.open >= best.open && b.close <= best.close)) best = b; }
+    }
     return best;
   };
   return { blocks, innermost };
@@ -220,6 +226,9 @@ export function extractFile(relPath) {
       guards: AUTH_GUARDS.filter((g) => new RegExp(`\\b${g}\\(`).test(code)),
       scopeHelpers: SCOPE_HELPERS.filter((g) => new RegExp(`\\b${g}\\(`).test(code)),
       block: innermost(i + 1),  // innermost brace-block containing this line
+      // The statement block a guard on this line belongs to (object literals
+      // such as the `json({ error })` beside it never define scope).
+      scopeBlock: innermost(i + 1, { structural: true }),
     };
   });
 
@@ -265,7 +274,7 @@ export function extractFile(relPath) {
     for (const l of model) {
       if (l.blank || (l.guards.length === 0 && l.scopeHelpers.length === 0)) continue;
       const insideHandler = Bh && Bh.open <= l.n && l.n <= Bh.close;
-      const enclosingBefore = isAncestor(l.block, Bh) && l.n < h.n;
+      const enclosingBefore = isAncestor(l.scopeBlock, Bh) && l.n < h.n;
       if (!insideHandler && !enclosingBefore) continue;
       l.guards.forEach((g) => authGuards.add(g));
       l.scopeHelpers.forEach((g) => scopeHelpers.add(g));

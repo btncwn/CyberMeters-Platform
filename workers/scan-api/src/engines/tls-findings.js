@@ -27,6 +27,23 @@ const evidence = (endpoint,row,value) => ({type:'tls_endpoint_measurement',label
   endpoint_identity:endpoint.endpoint_identity,control:row.control,protocol:row.protocol,cipher:row.evidence?.negotiated?.cipher||null,
   engine:{family:row.engine.family,version:row.engine.version,build_id:row.engine.build_id},
   profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION});
+// Customer prose names things in words (C-45, 23 Oct 2026): protocol enums,
+// trust reasons, signature enums and active-profile ids stay in evidence
+// fields only, never in a title or description.
+const PROTOCOL_WORDS={ssl2:'SSL 2.0',ssl3:'SSL 3.0',tls1:'TLS 1.0',tls1_1:'TLS 1.1',tls1_2:'TLS 1.2',tls1_3:'TLS 1.3'};
+export const tlsProtocolWords=protocol=>PROTOCOL_WORDS[protocol]||'an unrecognised TLS version';
+const TRUST_REASON_WORDS={issuer_missing:'the issuing certificate could not be found',self_signed:'the certificate is self-signed',
+  expired:'the certificate has expired',not_yet_valid:'the certificate is not yet valid',signature_invalid:'a certificate signature is invalid',
+  invalid_purpose:'the certificate is not valid for this purpose',trust_unknown:'the chain could not be validated'};
+const trustReasonWords=reason=>TRUST_REASON_WORDS[reason]||'the chain could not be validated';
+const SIGNATURE_WORDS={rsa_md5:'RSA with MD5',rsa_sha1:'RSA with SHA-1',ecdsa_sha1:'ECDSA with SHA-1',dsa_sha1:'DSA with SHA-1'};
+const ACTIVE_CONTROL_WORDS={heartbleed:'Heartbleed',ccs:'CCS injection',robot:'ROBOT'};
+// Key exchange groups in words (C-45 follow-up); an unknown one is not guessed.
+const GROUP_WORDS={x25519:'X25519',x448:'X448',prime256v1:'NIST P-256',secp256r1:'NIST P-256','p-256':'NIST P-256',
+  secp384r1:'NIST P-384','p-384':'NIST P-384',secp521r1:'NIST P-521','p-521':'NIST P-521',
+  ffdhe2048:'finite-field Diffie-Hellman',ffdhe3072:'finite-field Diffie-Hellman',ffdhe4096:'finite-field Diffie-Hellman',dh:'Diffie-Hellman'};
+const groupWords=group=>GROUP_WORDS[String(group||'').toLowerCase()]||'an unrecognised key exchange group';
+
 const make = (type,endpoint,row,{title,description,severity,recommendation,value,detail='',confidence=95}) => {
   const id=conditionKey(type,endpoint,row,detail);
   if(!id)return null;
@@ -44,8 +61,8 @@ export function tlsAssessmentFindings(assessment) {
   for(const endpoint of assessment.endpoints||[])for(const row of endpoint.checks||[]){
     if(!row.engine?.sandboxed || !row.observed_at)continue;
     if(row.control==='protocol'&&positive(row)&&row.evidence.negotiated?.version===row.protocol&&tlsProtocolRisk(row.protocol))
-      add(make('tls_legacy_protocol',endpoint,row,{title:`${row.protocol.toUpperCase().replace('_','.') } accepted on this endpoint`,
-        description:`The measured endpoint completed a ${row.protocol} TLS handshake. Certificate validity does not remove the risk of accepting this legacy protocol.`,
+      add(make('tls_legacy_protocol',endpoint,row,{title:`${tlsProtocolWords(row.protocol)} accepted on this endpoint`,
+        description:`This endpoint completed a ${tlsProtocolWords(row.protocol)} handshake. A valid certificate does not remove the risk of accepting this outdated protocol.`,
         severity:'high',recommendation:'Disable the observed legacy TLS version on this specific service after checking client compatibility, then repeat the same endpoint test.',
         value:`${row.protocol} authenticated Finished`}));
     if(row.control==='cipher'&&positive(row)&&row.evidence.negotiated?.cipher===row.cipher_id&&isWeakTlsCipher(row.cipher_id))
@@ -55,46 +72,48 @@ export function tlsAssessmentFindings(assessment) {
         value:row.cipher_id,detail:row.cipher_id}));
     if(row.control==='key_exchange'&&positive(row)&&weakKeyExchange(row.evidence.negotiated))
       add(make('tls_weak_key_exchange',endpoint,row,{title:'Weak TLS key exchange accepted',
-        description:`The measured key exchange used ${row.evidence.negotiated.group} with ${row.evidence.negotiated.group_bits} bits.`,
+        description:`The key exchange on this endpoint used ${groupWords(row.evidence.negotiated.group)} at ${row.evidence.negotiated.group_bits}-bit strength, below the recommended minimum.`,
         severity:'high',recommendation:'Configure a current key exchange group on this service and retest the same endpoint.',
         value:`${row.evidence.negotiated.group} ${row.evidence.negotiated.group_bits}`}));
     if(row.control==='key_exchange'&&positive(row)&&row.evidence.negotiated?.pfs===false)
       add(make('tls_no_forward_secrecy',endpoint,row,{title:'Key exchange did not provide forward secrecy',
         description:'The completed handshake did not negotiate a forward-secret key exchange on this endpoint.',
-        severity:'medium',recommendation:'Offer and prefer a forward-secret key exchange on this service, then repeat this control.',
+        severity:'medium',recommendation:'Offer and prefer a forward-secret key exchange on this service, then run the check again.',
         value:'forward secrecy false'}));
     if(['heartbleed','robot','ccs'].includes(row.control)&&row.evidence?.vulnerability?.status==='confirmed'&&
       row.evidence.vulnerability.completed_vectors===row.evidence.vulnerability.planned_vectors&&
       row.evidence.vulnerability.completed_vectors>0&&row.physical_telemetry?.connections>0)
-      add(make(`tls_${row.control}_confirmed`,endpoint,row,{title:row.control==='robot'?'RSA padding oracle signal observed':`${row.control.toUpperCase()} behaviour confirmed`,
+      add(make(`tls_${row.control}_confirmed`,endpoint,row,{title:row.control==='robot'?'Server reveals RSA decryption errors (ROBOT)':`${ACTIVE_CONTROL_WORDS[row.control]} behaviour confirmed`,
         description:row.control==='robot'
-          ? `The bounded ${row.evidence.vulnerability.profile} profile observed repeatable different TLS alerts for RSA padding classes on this measured endpoint. No decryption was attempted. A CDN edge result does not establish an origin vulnerability; confirm the edge behaviour with its operator.`
-          : `The bounded ${row.evidence.vulnerability.profile} profile confirmed the behaviour on this measured endpoint. No memory collection or decryption was performed.`,
+          // Active checks run only on addresses the customer owns (F1), never on a
+          // shared provider edge, so no edge caveat is stated.
+          ? `The ROBOT test saw this server answer correctly and incorrectly padded RSA messages differently, repeatedly. No decryption was attempted.`
+          : `The ${ACTIVE_CONTROL_WORDS[row.control]} test confirmed this behaviour on this endpoint. No memory was read and no traffic was decrypted.`,
         severity:'high',confidence:row.control==='robot'?80:95,
         recommendation:row.control==='robot'
-          ? 'Ask the measured edge or service operator to investigate the RSA padding oracle signal, update or reconfigure its TLS implementation where confirmed, then repeat this bounded control.'
-          : 'Update or reconfigure the affected TLS implementation for this service, then repeat the same bounded control.',
+          ? 'Update or reconfigure the TLS software on this server, or turn off RSA key exchange, then run the check again.'
+          : 'Update or reconfigure the TLS software on this service, then run the check again.',
         value:`${row.evidence.vulnerability.completed_vectors}/${row.evidence.vulnerability.planned_vectors} bounded vectors`,
         detail:row.evidence.vulnerability.profile}));
     if(row.control==='certificate'&&positive(row)){
       const cert=row.evidence.certificates,leaf=cert?.offered_chain?.[0];
       if(cert?.hostname===false)add(make('tls_certificate_hostname',endpoint,row,{title:'Certificate does not cover this hostname',
-        description:'The offered certificate did not match the SNI hostname tested on this endpoint.',severity:'high',
+        description:'The certificate presented does not cover the hostname that was tested on this endpoint.',severity:'high',
         recommendation:'Deploy a certificate covering this hostname on this exact service and retest the endpoint.',
         value:leaf?.sha256||'hostname mismatch'}));
       if(cert?.trust==='invalid')add(make('tls_certificate_trust',endpoint,row,{title:'Certificate chain did not validate',
-        description:`The local trust snapshot rejected the offered certificate chain (${cert.reason}). Revocation status is separate.`,severity:'high',
-        recommendation:'Correct the certificate chain or trust configuration for this endpoint and retest against the recorded trust snapshot.',
+        description:`The certificate chain on this endpoint could not be validated against trusted certificate authorities: ${trustReasonWords(cert.reason)}. Revocation is checked separately.`,severity:'high',
+        recommendation:'Fix the certificate chain on this endpoint (install the correct intermediate certificates, or replace the certificate), then check again.',
         value:cert.reason}));
       if(leaf && ((leaf.key_type==='RSA'||leaf.key_type==='DSA')&&leaf.key_bits>0&&leaf.key_bits<2048 ||
         leaf.key_type==='EC'&&leaf.key_bits>0&&leaf.key_bits<224))
         add(make('tls_weak_certificate_key',endpoint,row,{title:'Certificate public key is below the policy minimum',
-          description:`The offered leaf certificate uses ${leaf.key_type} ${leaf.key_bits}-bit key material.`,severity:'high',
+          description:`The certificate on this endpoint uses a ${leaf.key_type} ${leaf.key_bits}-bit key, below the recommended minimum.`,severity:'high',
           recommendation:'Replace the endpoint certificate with a suitable key and chain, then verify the live deployment.',
           value:`${leaf.key_type} ${leaf.key_bits}`}));
       if(leaf&&['rsa_md5','rsa_sha1','ecdsa_sha1','dsa_sha1'].includes(leaf.signature_algorithm))
         add(make('tls_weak_certificate_signature',endpoint,row,{title:'Certificate uses a legacy signature algorithm',
-          description:`The offered leaf certificate uses ${leaf.signature_algorithm}.`,severity:'medium',
+          description:`The certificate on this endpoint is signed with ${SIGNATURE_WORDS[leaf.signature_algorithm]}.`,severity:'medium',
           recommendation:'Replace the certificate with one signed using a current algorithm and verify the live chain.',
           value:leaf.signature_algorithm}));
       const ocsp=row.evidence.ocsp;
@@ -114,16 +133,16 @@ export function tlsAssessmentFindings(assessment) {
             ?'Certificate requires OCSP stapling, but none was stapled'
             :'Certificate requires OCSP stapling, but the stapled response is not usable',
           description:ocsp.state==='absent'
-            ?'The offered leaf certificate carries the TLS Feature (Must-Staple) extension, but this endpoint did not staple an OCSP response, so browsers that enforce Must-Staple refuse the connection.'
-            :`The offered leaf certificate carries the TLS Feature (Must-Staple) extension, and this endpoint stapled an OCSP response that is ${ocsp.state==='invalid'?'invalid':'of unknown status'}, so browsers that enforce Must-Staple refuse the connection.`,
+            ?'The certificate on this endpoint carries the TLS Feature (Must-Staple) extension, but this endpoint did not staple an OCSP response, so browsers that enforce Must-Staple refuse the connection.'
+            :`The certificate on this endpoint carries the TLS Feature (Must-Staple) extension, and this endpoint stapled an OCSP response that is ${ocsp.state==='invalid'?'invalid':'of unknown status'}, so browsers that enforce Must-Staple refuse the connection.`,
           severity:'high',
           recommendation:'Enable OCSP stapling on this endpoint, or reissue the certificate without Must-Staple, then retest.',
           value:ocsp.state==='absent'?'Must-Staple required; no stapled OCSP response':`Must-Staple required; stapled OCSP response ${ocsp.state}`}));
     }
     if(row.control==='compression'&&positive(row)&&row.evidence.extensions?.compression===true)
       add(make('tls_compression_enabled',endpoint,row,{title:'TLS compression accepted',
-        description:'The measured TLS connection negotiated compression on this endpoint.',severity:'medium',
-        recommendation:'Disable TLS-level compression on the affected service and repeat this control.',value:'compression negotiated'}));
+        description:'The TLS connection to this endpoint used compression.',severity:'medium',
+        recommendation:'Disable TLS-level compression on the affected service, then run the check again.',value:'compression negotiated'}));
   }
   return [...output.values()];
 }
@@ -168,6 +187,28 @@ export function evaluateTlsCase(caseKey,assessment) {
   return {state:'deferred',reason:results.find(r=>r.state!=='clear')?.reason||'tls_retest_inconclusive',...measured};
 }
 
+// PQC readiness per endpoint for the Certificates & Trust card (S3-MODERN 2):
+// what the server chose when offered the hybrid X25519MLKEM768 group beside
+// classical groups. A readiness signal, not a weakness: no finding, no score.
+// The backend owns the card sentence (summary); it never says "quantum
+// safe/ready", and classical_only means the server CHOSE a classical group -
+// not that it offers no post-quantum group at all.
+export function pqcKeyExchangeState(assessment) {
+  const out=[];
+  for(const endpoint of assessment?.endpoints||[]){
+    const rows=(endpoint.checks||[]).filter(r=>r.control==='pqc_key_exchange'&&r.engine?.sandboxed);
+    const row=rows.find(positive);
+    const group=row?.evidence?.negotiated?.group||null;
+    const state=!row||!group?'not_assessed'
+      :/MLKEM|KYBER/i.test(group)?'hybrid_pqc_negotiated':'classical_only';
+    const summary=state==='hybrid_pqc_negotiated'?`The server chose the hybrid post-quantum key exchange group ${group}.`
+      :state==='classical_only'?`The server chose a classical key exchange group (${group}).`
+      :'Post-quantum key exchange was not assessed on this endpoint.';
+    if(rows.length||row)out.push({endpoint_identity:endpoint.endpoint_identity||null,hostname:endpoint.endpoint?.hostname||null,state,
+      group:state==='not_assessed'?null:group,summary});
+  }
+  return out;
+}
 // Must-Staple state per endpoint for the Certificates & Trust card (S3-MODERN 1),
 // from the latest positive certificate observation: required_stapled /
 // required_not_stapled / not_required / not_assessed. Backend-owned; the card

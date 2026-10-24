@@ -250,14 +250,24 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
     });
   };
   await correlate(await response(null), 'php_baseline');
+  const beforeHidden = notifs(ws).length;
+  for (const scan of ['php_hidden_first', 'php_hidden_repeat']) {
+    const result = await correlate(await response('PHP'), scan);
+    eq('PHP hidden-version observation emits no alert: ' + scan, result.alerts, 0);
+    eq('PHP hidden-version observation writes no notification: ' + scan, notifs(ws).length, beforeHidden);
+  }
+  eq('PHP hidden-version observation creates no condition', condFor(ws, 'tech_php2shell_version_hidden'), undefined);
+  eq('PHP hidden-version observation creates no case', db.prepare('SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id=?').get(ws).n, 0);
   const detected = await response('PHP/8.2.34-1+deb12u1');
-  await correlate(detected, 'php_reported_old');
+  const reportedOld = await correlate(detected, 'php_reported_old');
+  eq('PHP reported old release alerts through the same enabled pipeline', reportedOld.alerts, 1);
+  eq('PHP reported old release writes one notification', notifs(ws).length, beforeHidden + 1);
   const key = detected.php_runtime.condition_key;
   let condition = condFor(ws, key);
   const caseId = condition?.linked_case_id;
   ok('PHP reported old release opens the canonical case', Boolean(caseId));
   const caseRow = () => db.prepare('SELECT * FROM managed_cases WHERE id=? AND workspace_id=?').get(caseId, ws);
-  ok('PHP case title describes the observation without a hash/key', caseRow()?.title.includes('Review the reported PHP release') && !caseRow()?.title.includes(key));
+  ok('PHP case title describes the observation without a hash/key', caseRow()?.title.includes('Website reports a PHP version older than the PHP2Shell fix') && !caseRow()?.title.includes(key));
   db.prepare("UPDATE managed_cases SET status='awaiting_verification' WHERE id=?").run(caseId);
   for (const [label, tech] of [
     ['hidden', await response('PHP')],
@@ -460,6 +470,52 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   eq("...and names the reason honestly", rec.unknown_reason, "evidence_uncertain");
   ok("...and writes no recovery event", !allEvents(rec.id).some((e) => e.event_type === WS_EVENT_RESOLVED));
   eq("...and tells the customer nothing", notifs("ws2").length, before);
+}
+
+// ── 5b. E2 (23 Oct 2026): the apex's HSTS policy was not observed (a 429) ──
+// No finding and a complete headers module must NOT read as a fix.
+{
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('ws9','u1','E2')").run();
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('m9','ws9','u1','owner')").run();
+  activate("ws9", "2026-06-01T00:00:00Z");
+  await run("ws9", [F.hstsMissing()], { scan: "e2s1", domainId: "d9", domain: "gamma.example.com" });
+  await run("ws9", [F.hstsMissing()], { scan: "e2s2", domainId: "d9", domain: "gamma.example.com" });
+  const notObserved = { ...MODULES_OK, headers: { ...MODULES_OK.headers,
+    hsts_policy: { version: "2026-10-23.1", apex_host: "gamma.example.com", apex_url: "https://gamma.example.com", apex_status: 429,
+      state: "not_observed", value: null, include_subdomains: false, final_host: "www.gamma.example.com", final_value: "max-age=7889238", final_covered: false } } };
+  await run("ws9", [], { scan: "e2s3", domainId: "d9", domain: "gamma.example.com", modules: notObserved });
+  const rec = condFor("ws9", "header_missing_strict_transport_security");
+  eq("E2: an unobserved apex HSTS policy keeps the case open (unknown, not no_longer_observed)", rec.monitoring_status, "unknown");
+  eq("E2: ...naming the reason", rec.unknown_reason, "hsts_apex_not_observed");
+  ok("E2: ...and writes no recovery event", !allEvents(rec.id).some((e) => e.event_type === WS_EVENT_RESOLVED));
+
+  // R1: a MALFORMED-HSTS case (e.g. max-age=0) under the same apex 429 stays open too.
+  const malformed = { id: "header_malformed_strict_transport_security", module: "headers", severity: "medium", title: "Malformed HSTS Header" };
+  await run("ws9", [malformed], { scan: "e2m1", domainId: "d9", domain: "gamma.example.com" });
+  await run("ws9", [malformed], { scan: "e2m2", domainId: "d9", domain: "gamma.example.com" });
+  await run("ws9", [], { scan: "e2m3", domainId: "d9", domain: "gamma.example.com", modules: notObserved });
+  const mrec = condFor("ws9", "header_malformed_strict_transport_security");
+  eq("E2: an unobserved apex keeps a malformed-HSTS case open (unknown)", mrec.monitoring_status, "unknown");
+  eq("E2: ...naming the reason", mrec.unknown_reason, "hsts_apex_not_observed");
+  ok("E2: ...and writes no recovery event", !allEvents(mrec.id).some((e) => e.event_type === WS_EVENT_RESOLVED));
+  // R1: a WAF/CDN 429 page that SENDS HSTS is not the origin's fix either:
+  // the policy built from it is not_observed, so the case stays open.
+  const { buildHstsHostPolicy } = await import("../workers/scan-api/src/engines/headers-scan.js");
+  const wafPolicy = buildHstsHostPolicy({ domain: "gamma.example.com", apexObserved: true, apexValue: "max-age=31536000; includeSubDomains",
+    apexUrl: "https://gamma.example.com", apexStatus: 429, finalUrl: "https://www.gamma.example.com", finalValue: null });
+  eq("E2: an apex 429 carrying HSTS builds a not_observed policy", wafPolicy.state, "not_observed");
+  // The malformed-HSTS runs above resolved the missing-HSTS case: observe it again first.
+  await run("ws9", [F.hstsMissing()], { scan: "e2w0", domainId: "d9", domain: "gamma.example.com" });
+  const resolvedBefore = allEvents(rec.id).filter((e) => e.event_type === WS_EVENT_RESOLVED).length;
+  await run("ws9", [], { scan: "e2w1", domainId: "d9", domain: "gamma.example.com", modules: { ...MODULES_OK, headers: { ...MODULES_OK.headers, hsts_policy: wafPolicy } } });
+  eq("E2: ...and the missing-HSTS case stays open (unknown)", condFor("ws9", "header_missing_strict_transport_security").monitoring_status, "unknown");
+  eq("E2: ...with no new recovery event", allEvents(rec.id).filter((e) => e.event_type === WS_EVENT_RESOLVED).length, resolvedBefore);
+  // A genuine fix still clears: the apex answers 200 WITH HSTS and no finding is emitted.
+  const observedOk = { ...MODULES_OK, headers: { ...MODULES_OK.headers,
+    hsts_policy: { ...notObserved.headers.hsts_policy, apex_status: 200, state: "present", value: "max-age=31536000; includeSubDomains", include_subdomains: true, final_covered: true } } };
+  await run("ws9", [], { scan: "e2s4", domainId: "d9", domain: "gamma.example.com", modules: observedOk });
+  eq("E2: apex 200 with HSTS resolves the missing-HSTS case (a genuine fix still clears)", condFor("ws9", "header_missing_strict_transport_security").monitoring_status, "no_longer_observed");
+  eq("E2: ...and the malformed-HSTS case", condFor("ws9", "header_malformed_strict_transport_security").monitoring_status, "no_longer_observed");
 }
 
 // ── 6. Verified recovery, then reappearance ───────────────────────────────

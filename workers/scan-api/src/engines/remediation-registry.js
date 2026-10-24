@@ -26,6 +26,7 @@
 // This registry is CODE-BACKED (compute-on-read). It stores no rows and adds no
 // schema. resolveRemediation is pure and deterministic.
 
+import { PHP_RUNTIME_TITLE, PHP_RUNTIME_HIDDEN_TITLE, PHP_RUNTIME_HIDDEN_SENTENCE } from "./php-runtime.js";
 import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
@@ -115,19 +116,19 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     introduced_at: rule.introducedAt || "2026-10-13",
   })),
   ...[
-    ["tls_legacy_protocol", "Disable the observed legacy TLS version", "Remove this protocol version from the measured service after checking client compatibility."],
+    ["tls_legacy_protocol", "Disable the observed legacy TLS version", "Remove this protocol version from this service after checking client compatibility."],
     ["tls_weak_cipher", "Remove the accepted weak cipher", "Remove the observed cipher from this service while retaining a current interoperable suite."],
-    ["tls_weak_key_exchange", "Strengthen the measured key exchange", "Configure a current key exchange group on this service."],
+    ["tls_weak_key_exchange", "Strengthen the key exchange", "Configure a current key exchange group on this service."],
     ["tls_no_forward_secrecy", "Enable forward-secret key exchange", "Offer and prefer a forward-secret key exchange on this service."],
-    ["tls_heartbleed_confirmed", "Correct the confirmed Heartbleed behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
-    ["tls_robot_confirmed", "Investigate the observed RSA padding oracle signal", "Confirm the measured edge behaviour with its operator, correct the TLS implementation where needed, and repeat the bounded control."],
-    ["tls_ccs_confirmed", "Correct the confirmed CCS behaviour", "Update or reconfigure the affected TLS implementation and repeat the bounded control."],
-    ["tls_certificate_hostname", "Correct the measured TLS service hostname", "Deploy a certificate whose names cover the measured service hostname."],
+    ["tls_heartbleed_confirmed", "Correct the confirmed Heartbleed behaviour", "Update or reconfigure the TLS software on this service, then run the check again."],
+    ["tls_robot_confirmed", "Stop the server revealing RSA decryption errors (ROBOT)", "Update or reconfigure the TLS software on this server, or turn off RSA key exchange, then run the check again."],
+    ["tls_ccs_confirmed", "Correct the confirmed CCS injection behaviour", "Update or reconfigure the TLS software on this service, then run the check again."],
+    ["tls_certificate_hostname", "Fix the certificate hostname", "Deploy a certificate whose names cover this service's hostname."],
     ["tls_certificate_trust", "Correct the observed certificate trust failure", "Correct the offered chain or certificate configuration for this service."],
     ["tls_weak_certificate_key", "Replace the certificate with a suitable key", "Replace the certificate with one using a current key size and verify the deployed chain."],
     ["tls_weak_certificate_signature", "Replace the certificate with a current signature", "Replace the certificate with one signed using a current algorithm and verify the deployed chain."],
     ["tls_ocsp_revoked", "Replace the revoked certificate", "Replace the affected certificate and correct its stapled OCSP response on this service."],
-    ["tls_compression_enabled", "Disable TLS compression", "Disable TLS-level compression on the measured service."],
+    ["tls_compression_enabled", "Disable TLS compression", "Disable TLS-level compression on this service."],
     ["tls_must_staple_not_stapled", "Staple OCSP for the Must-Staple certificate", "Enable OCSP stapling on this service, or reissue the certificate without the Must-Staple extension."],
   ].map(([findingType, title, action]) => entry({
     remediation_id: `tls.endpoint.${findingType.slice(4)}`,
@@ -1208,9 +1209,9 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     introduced_at: "2026-10-24",
     domain_key: "website_security",
     finding_types: ["tech_php2shell_outdated"],
-    customer_title: "Review the reported PHP release",
-    technical_explanation: "The website reports a PHP release older than the upstream release for CVE-2026-109618 and CVE-2026-109619. A distribution may have backported the fixes without changing that number.",
-    business_impact: "The response alone cannot establish whether the installed build contains the security fixes.",
+    customer_title: PHP_RUNTIME_TITLE,
+    technical_explanation: PHP_RUNTIME_TITLE,
+    business_impact: "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.",
     recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed.",
     effort: "medium",
     owner_type: "customer_it",
@@ -1227,10 +1228,10 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     introduced_at: "2026-10-24",
     domain_key: "website_security",
     finding_types: ["tech_php2shell_version_hidden"],
-    customer_title: "Confirm the PHP update with your hosting provider",
-    technical_explanation: "The response reports PHP without a readable version.",
-    business_impact: "An external header cannot establish whether PHP has been updated.",
-    recommended_action: "Confirm with your hosting provider that PHP has been updated for the PHP2Shell vulnerabilities.",
+    customer_title: PHP_RUNTIME_HIDDEN_TITLE,
+    technical_explanation: PHP_RUNTIME_HIDDEN_SENTENCE,
+    business_impact: PHP_RUNTIME_HIDDEN_SENTENCE,
+    recommended_action: PHP_RUNTIME_HIDDEN_SENTENCE,
     effort: "low",
     owner_type: "customer_it",
     verification_method: "unsupported",

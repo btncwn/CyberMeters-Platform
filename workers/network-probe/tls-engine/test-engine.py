@@ -335,6 +335,18 @@ class BaselineTests(unittest.TestCase):
                 self.assertEqual(result['ocsp']['state'], 'absent')
                 self.assertNotIn('localhost', json.dumps(result))
 
+    def test_pqc_hybrid_group_is_named_exactly(self):
+        # A default OpenSSL 3.5 server prefers the hybrid ML-KEM group; the PQC
+        # control offers it beside classical groups and reports it by name.
+        with server(self.modern, self.cert, self.key, 'tls1_3') as port:
+            result = self.assess('tls1_3', port, extra=('--group', 'pqc_hybrid'))
+        self.assertEqual(result['state'], 'accepted', result)
+        self.assertIn('MLKEM', result['negotiated']['group'].upper())
+        # The legacy build cannot offer it: unexecutable, never a guess.
+        legacy = self.assess('tls1_2', None, family='legacy', extra=('--group', 'pqc_hybrid'))
+        self.assertEqual(legacy['state'], 'unexecutable')
+        self.assertEqual(legacy['reason'], 'group_unavailable')
+
     def test_must_staple_is_read_from_the_offered_leaf(self):
         # Production runs the certificate control for TLS 1.2/1.3 on the modern
         # engine (tls-collector-runtime.js); the helper defaults tls1_2 to legacy.

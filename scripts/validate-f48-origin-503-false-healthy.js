@@ -44,7 +44,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href;
 
-const { runHeadersModule } = await import(eng("headers-scan.js"));
+const { runHeadersModule, hstsPolicyOf, buildHstsHostPolicy } = await import(eng("headers-scan.js"));
 const { runTechModule } = await import(eng("tech-scan.js"));
 const { runSslModule } = await import(eng("ssl-scan.js"));
 const { computeScore } = await import(eng("scoring.js"));
@@ -267,7 +267,7 @@ const R_ALL_503 = async () => origin503();
 {
   const withUrl = (response, url) => { Object.defineProperty(response, "url", { value: url }); return response; };
   const WWW = `www.${DOMAIN}`;
-  const site = ({ apexHsts = null, wwwHsts = null, apexNoHttps = false, direct = false, wwwStatus = 200 }) => async (input) => {
+  const site = ({ apexHsts = null, wwwHsts = null, apexNoHttps = false, direct = false, wwwStatus = 200, apexStatus = 301 }) => async (input) => {
     const url = new URL(String(input));
     if (url.protocol === "http:") {
       const to = apexNoHttps ? `https://${WWW}/uk` : `https://${url.hostname}/`;
@@ -280,6 +280,7 @@ const R_ALL_503 = async () => origin503();
         return withUrl(new Response("<html><body>shop</body></html>", { status: 200, headers: {
           "content-type": "text/html", ...rest, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } }), String(input));
       }
+      if (apexStatus !== 301) return withUrl(new Response("slow down", { status: apexStatus, headers: apexHsts ? { "strict-transport-security": apexHsts } : {} }), String(input));
       return withUrl(new Response(null, { status: 301, headers: { location: `https://${WWW}/uk`, ...(apexHsts ? { "strict-transport-security": apexHsts } : {}) } }), String(input));
     }
     const { "strict-transport-security": _omit, ...others } = SECURITY_HEADER_SET;
@@ -337,6 +338,28 @@ const R_ALL_503 = async () => origin503();
   // absence on a non-serviceable response is not evidence of an uncovered host.
   const rateLimited = await run({ apexHsts: "max-age=31536000", wwwHsts: null, wwwStatus: 429 });
   ok("B3_UNCOVERED_NEEDS_SERVICEABLE_FINAL_RESPONSE", !rateLimited.ids.includes("header_hsts_redirect_host_uncovered"), JSON.stringify(rateLimited.ids));
+
+  // E2 (item 15 re-run, corpus-90): the apex answered 429 without HSTS. That
+  // absence is not evidence: not_observed, no missing-HSTS claim.
+  const apexLimited = await run({ apexHsts: null, wwwHsts: "max-age=7889238", apexStatus: 429 });
+  eq("E2_APEX_429_WITHOUT_HSTS_IS_NOT_ABSENT", [apexLimited.headers.hsts_policy?.state, apexLimited.ids.includes("header_missing_strict_transport_security")], ["not_observed", false]);
+  // R1: a header on a non-serviceable answer (a WAF/CDN 429 page) is not the
+  // origin's policy either: not_observed, no HSTS claim either way.
+  const apexLimitedWithHsts = await run({ apexHsts: STRONG, wwwHsts: null, apexStatus: 429 });
+  eq("E2_APEX_429_WITH_HSTS_IS_NOT_OBSERVED", [apexLimitedWithHsts.headers.hsts_policy?.state, apexLimitedWithHsts.headers.hsts_policy?.value],
+    ["not_observed", null]);
+  ok("E2_APEX_429_WITH_HSTS_CLAIMS_NOTHING", !apexLimitedWithHsts.ids.some((id) => /hsts|strict_transport_security/.test(id)), JSON.stringify(apexLimitedWithHsts.ids));
+
+  // R1 follow-up (24 Oct 2026): a legacy result without hsts_policy and without a
+  // recorded apex answer, or an apex answer without a status, is not_observed:
+  // neither the final page's value nor its absence stands for the apex.
+  const legacyMissing = hstsPolicyOf({ values: { "strict-transport-security": null }, response_url: "https://example.org/" }, "example.org");
+  const legacyPresent = hstsPolicyOf({ values: { "strict-transport-security": STRONG }, response_url: "https://example.org/" }, "example.org");
+  eq("LEGACY_RESULT_WITHOUT_APEX_IS_NOT_OBSERVED", [legacyMissing.state, legacyPresent.state, legacyPresent.value, legacyPresent.final_value, legacyMissing.legacy],
+    ["not_observed", "not_observed", null, STRONG, true]);
+  const noStatus = hstsPolicyOf({ apex_https_response: { url: "https://example.org", strict_transport_security: STRONG }, values: {} }, "example.org");
+  eq("APEX_ANSWER_WITHOUT_STATUS_IS_NOT_OBSERVED", noStatus.state, "not_observed");
+  eq("APEX_200_STILL_PRESENT", buildHstsHostPolicy({ domain: "example.org", apexObserved: true, apexValue: STRONG, apexStatus: 200 }).state, "present");
 
   // C-40 row 5 (reverse): short apex, strong www — the apex is what is judged.
   const shortApex = await run({ apexHsts: "max-age=900", wwwHsts: STRONG });
