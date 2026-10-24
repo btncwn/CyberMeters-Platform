@@ -702,8 +702,12 @@ const parity = states.map(parityOutputs);
 // moves only the stamped registry fingerprint (r118 -> r119). With ONLY
 // remediation-registry.js reverted the previous hashes (24dc14cc… / 87194812…)
 // reproduce exactly.
-const GOLDEN_F13 = "7087ba3399a8a7ceae23212925928c11869568ed4cb5f79997d45ae5372de4d4";
-const GOLDEN_F14 = "cbd13c22092cf64a072ce9d7a5c3ea53854b03008d47bbea9765e50f5582d5f1";
+// Remote-access guidance (24 Oct 2026) moves only the registry stamp here
+// (r119-f330cb8e -> r120-3a49bcc0). Substituting only the predecessor stamp
+// reproduces both prior report hashes across all five SAN states (30/30);
+// the certificate evidence hash above is unchanged.
+const GOLDEN_F13 = "4e2aaf34e348b995c6ce51a2b19d4a17deaff4a983dcb76dadaf012319e91d78";
+const GOLDEN_F14 = "cbf2234362e1c1d836dc722d299bd7527a57943120f3229b26350d78d73fb442";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

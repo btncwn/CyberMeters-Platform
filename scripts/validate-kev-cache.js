@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
-// Outside vulnerability data is not part of a scan.
+// Generic vulnerability-data matching stays retired. The separately bounded
+// remote-access feature may read its scheduled, public catalogue cache.
 //
 // This validator used to prove the CISA KEV catalogue cache. Scans no longer
 // read outside vulnerability databases, exploited-vulnerability catalogues or
@@ -47,13 +48,13 @@ const OUTSIDE_VULNERABILITY_DATA = [
   /api\.osv\.dev/i,
   /cache\/cisa-kev\.json/i,
 ];
-const hits = files.flatMap((file) => {
+const hits = files.filter(file => path.relative(src,file) !== "engines/remote-access-catalogue.js").flatMap((file) => {
   const text = fs.readFileSync(file, "utf8");
   return OUTSIDE_VULNERABILITY_DATA
     .filter((pattern) => pattern.test(text))
     .map((pattern) => `${path.relative(root, file)} ~ ${pattern}`);
 });
-eq("no Worker source names an outside vulnerability-data service or the retired catalogue cache", hits.join("; "), "");
+eq("no other Worker source names an outside vulnerability-data service or the retired catalogue cache", hits.join("; "), "");
 ok("the module that fetched outside vulnerability data is gone",
   !fs.existsSync(path.join(src, "engines", "vuln-intel.js")));
 const engineSrc = fs.readFileSync(path.join(src, "engines", "scan-engine.js"), "utf8");
