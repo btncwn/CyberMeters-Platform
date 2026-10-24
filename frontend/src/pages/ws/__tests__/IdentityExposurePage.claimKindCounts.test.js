@@ -22,6 +22,11 @@ describe('Identity figures from counts.by_claim_kind', () => {
     expect(f['identity-unreviewed']).toBe(9)
     expect(allChipLabel({ status: 'ok', items: [], counts })).toBe('All (5000+)')
   })
+  it('a count without complete: true is never presented as exact', () => {
+    const counts = { unreviewed: 0, by_claim_kind: { provider_relationship: 2, surface_candidate: 3, measured_identity_surface: 1, counted: 6 } }
+    expect(values(identitySummaryFigures({ status: 'ok', items: [], counts }))['identity-providers-observed']).toBe('2+')
+    expect(allChipLabel({ status: 'ok', items: [], counts })).toBe('All (6+)')
+  })
   it('by_claim_kind null (the backend could not count) → "Not available", never a page count', () => {
     const f = values(identitySummaryFigures({ status: 'ok', items: [item('provider_relationship')], counts: { unreviewed: 1, by_claim_kind: null } }))
     expect(f['identity-providers-observed']).toBe('Not available')

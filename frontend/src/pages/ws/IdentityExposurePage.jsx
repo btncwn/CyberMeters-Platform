@@ -34,7 +34,7 @@ export function allChipLabel({ status, items, counts = null, atLimit = false }) 
   if (status !== 'ok') return 'All'
   // The backend's workspace-wide count when present (#942): exact, or "N+" past its bound.
   const by = counts?.by_claim_kind
-  if (by && Number.isInteger(by.counted)) return `All (${by.counted}${by.complete === false ? '+' : ''})`
+  if (by && Number.isInteger(by.counted)) return `All (${by.counted}${by.complete !== true ? '+' : ''})`
   return `All (${atLimit ? `${SUMMARY_LIMIT}+` : (items || []).length})`
 }
 
@@ -49,7 +49,7 @@ export function identitySummaryFigures({ status, items, counts, atLimit = false 
   const backend = counts && Object.prototype.hasOwnProperty.call(counts, 'by_claim_kind') ? counts.by_claim_kind : undefined
   const by = (kind) => {
     if (backend === null) return null
-    if (backend && Number.isInteger(backend[kind])) return backend.complete === false ? `${backend[kind]}+` : backend[kind]
+    if (backend && Number.isInteger(backend[kind])) return backend.complete !== true ? `${backend[kind]}+` : backend[kind]
     if (backend) return null
     const n = (items || []).filter((it) => it?.identity_claim?.claim_kind === kind).length
     return atLimit ? `${n}+` : n
