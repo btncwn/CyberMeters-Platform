@@ -90,7 +90,7 @@ describe('Live TLS evidence presentation', () => {
     expect(screen.queryByText('Valid against the recorded trust store')).not.toBeInTheDocument()
   })
 
-  it('shows partial endpoint coverage and retains every unmeasured endpoint', () => {
+  it('shows partial endpoint coverage and retains every unchecked endpoint', () => {
     const evidence = fixture()
     evidence.all_planned_endpoints_observed = false
     evidence.endpoint_observations = [
@@ -99,7 +99,7 @@ describe('Live TLS evidence presentation', () => {
       { address: '2001:4860:4860::8888', port: 443, state: 'not_run', tls: null },
     ]
     render(<LiveTlsEvidence evidence={evidence} />)
-    expect(screen.getByText(/Endpoint coverage is incomplete/)).toBeInTheDocument()
+    expect(screen.getByText(/Not every endpoint could be checked/)).toBeInTheDocument()
     expect(screen.getByText('Endpoint observations (3)')).toBeInTheDocument()
     expect(screen.getByText('8.8.4.4:443 — Timed out')).toBeInTheDocument()
     expect(screen.getByText('[2001:4860:4860::8888]:443 — Not run')).toBeInTheDocument()
