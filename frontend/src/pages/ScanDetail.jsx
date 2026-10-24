@@ -1378,6 +1378,9 @@ export default function ScanDetail() {
   // The API's live progress for a scan in flight (stage, heartbeat, quiet).
   const [scanLiveProgress, setScanLiveProgress] = useState(null)
   const interrupted = scan?.status === 'failed' ? interruptedScanCopy(scanLiveProgress) : null
+  // F1 (D): a queued scan whose exposure job is already running reads as running
+  // in its badge, matching the "Preparing checks" block (lib/scanDuration.js).
+  const badgeStatus = scan?.status === 'queued' && ['pending', 'running'].includes(scanLiveProgress?.exposure_checks) ? 'running' : scan?.status
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
   const [refreshing,    setRefreshing]    = useState(false)
@@ -1706,7 +1709,7 @@ export default function ScanDetail() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-bold text-gray-900 break-words min-w-0">Scan — {formatDate(scan.created_at)}</h1>
-                <StatusBadge status={scan.status} quality={scan.scan_quality} outcome={scan.outcome} />
+                <StatusBadge status={badgeStatus} quality={scan.scan_quality} outcome={scan.outcome} />
               </div>
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">{scan.domain}<InternalIdCopyButton id={scan.id} label="scan" /><span data-testid="report-time-note">{REPORT_TIME_NOTE}</span></p>
             </div>
@@ -1875,7 +1878,7 @@ export default function ScanDetail() {
                   {/* A domain never breaks mid-word: one line, ellipsis, full name on hover. */}
                   <KV label="Domain"    value={<span className="block truncate" title={scan.domain} data-testid="scan-info-domain">{scan.domain}</span>} />
                   {/* The run finishing and its checks all completing are two facts. */}
-                  <KV label="Status"    value={<StatusBadge status={scan.status} quality={scan.scan_quality} outcome={scan.outcome} />} />
+                  <KV label="Status"    value={<StatusBadge status={badgeStatus} quality={scan.scan_quality} outcome={scan.outcome} />} />
                   {scan.status === 'completed' && <KV label="Checks" value={<ChecksCompletion quality={scan.scan_quality} assessment={assessment} scanQuality={report?.scan_quality} />} />}
                   {/* The backend decides finality; an incomplete assessment has no customer-facing number. */}
                   {headline.mode === 'established' && (

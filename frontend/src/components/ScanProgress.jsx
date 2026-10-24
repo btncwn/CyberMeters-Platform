@@ -60,10 +60,16 @@ export default function ScanProgress({ scan, workspaceId, pollSeconds, progress 
 
   // When the page itself watched the scan move from queued to running, the
   // running clock starts there; otherwise it starts at the request time.
+  // F1 (D): while the exposure job prepares checks the scan is already working,
+  // so the clock starts at the job's start and keeps running across
+  // queued → running ("Running for 6 min" never drops to 0 s).
+  const preparing = status === 'queued' && ['pending', 'running'].includes(progress?.exposure_checks)
+  const preparingSince = preparing ? (startMs(progress?.exposure_started_at) || startMs(scan?.created_at)) : null
   useEffect(() => {
-    if (status === 'queued') { sawQueuedRef.current = true; runningSinceRef.current = null }
+    if (preparing) { sawQueuedRef.current = false; if (runningSinceRef.current === null) runningSinceRef.current = preparingSince }
+    else if (status === 'queued') { sawQueuedRef.current = true; runningSinceRef.current = null }
     else if (sawQueuedRef.current && runningSinceRef.current === null) runningSinceRef.current = Date.now()
-  }, [status])
+  }, [status, preparing, preparingSince])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -74,7 +80,7 @@ export default function ScanProgress({ scan, workspaceId, pollSeconds, progress 
     return () => controller.abort()
   }, [workspaceId, scan?.domain, scan?.id])
 
-  const base = (status !== 'queued' && runningSinceRef.current) || startMs(scan?.created_at) || now
+  const base = ((status !== 'queued' || preparing) && (runningSinceRef.current || preparingSince)) || startMs(scan?.created_at) || now
   const elapsedMs = Math.max(0, now - base)
   const copy = scanProgressCopy({ status, elapsedMs, estimate: estimate.value, domain: scan?.domain, progress })
 
