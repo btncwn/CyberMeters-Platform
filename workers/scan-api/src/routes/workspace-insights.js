@@ -16,6 +16,8 @@ import { computeScore, isEmailApplicable } from "../engines/scoring.js";
 import { runSslModule } from "../engines/ssl-scan.js";
 import { isHttpRedirectPositivelyAbsent } from "../engines/tls-evidence.js";
 import { createAuditEvent } from "../lib/events.js";
+import { isValidDomain } from "../lib/util.js";
+import { dnsQuery } from "../engines/dns.js";
 import {
   projectPhase5ScanRowsForCustomer,
   resolvePhase5CustomerAggregate,
@@ -71,14 +73,17 @@ export async function workspaceInsightRoutes(rctx) {
           return json({ benchmark_domains: ENTERPRISE_BENCHMARK, note: "Use ?domain=X to test a specific domain." });
         }
 
-        const targetDomain = url.searchParams.get("domain") ?? "google.com";
+        // Hardening (24 Oct 2026): a syntactically valid public domain only, and
+        // the HTTP modules resolve every hop to a public address first.
+        const targetDomain = (url.searchParams.get("domain") ?? "google.com").trim().toLowerCase();
+        if (!isValidDomain(targetDomain)) return json({ error: "Enter a valid public domain name." }, 400);
         const baseline     = ENTERPRISE_BENCHMARK.find(b => b.domain === targetDomain) ?? null;
 
         // Run core modules — parallel, within subrequest budget
         const [dnsR, sslR, headersR, emailR] = await Promise.allSettled([
           runDnsModule(targetDomain),
-          runSslModule(targetDomain),
-          runHeadersModule(targetDomain),
+          runSslModule(targetDomain, { dnsResolver: dnsQuery }),
+          runHeadersModule(targetDomain, { dnsResolver: dnsQuery }),
           runEmailModule(targetDomain),
         ]);
 

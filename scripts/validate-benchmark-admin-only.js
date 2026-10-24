@@ -75,9 +75,40 @@ for (const [label, opts, want] of refused) {
   ok("admin request is rate limited", r.counters.rateLimit === 1);
 }
 {
-  const r = await run("admin scan", { user: ADMIN, isPlatformAdmin: realAdmin });
+  const r = await run("admin scan", { user: ADMIN, isPlatformAdmin: realAdmin, query: "?domain=victim-site.com" });
   ok("admin session runs the benchmark modules", r.counters.fetch > 0, `fetches=${r.counters.fetch}`);
   ok("admin scan returns a response", typeof r.status === "number" && r.status !== 401 && r.status !== 403, `got ${r.status}`);
+}
+
+// Hardening (24 Oct 2026): ?domain= must be a valid public domain; nothing runs otherwise.
+for (const bad of ["169.254.169.254", "metadata.google.internal", "localhost", "a%20b.com", "-bad-.com", "x".repeat(250) + ".com"]) {
+  const r = await run(`admin scan ${bad.slice(0, 30)}`, { user: ADMIN, isPlatformAdmin: realAdmin, query: `?domain=${bad}` });
+  ok(`invalid ?domain=${bad.slice(0, 30)} → 400`, r.status === 400, `got ${r.status}`);
+  ok(`invalid ?domain=${bad.slice(0, 30)}: no scan module ran`, r.counters.fetch === 0, `fetches=${r.counters.fetch}`);
+}
+// The HTTP modules resolve every hop first: a domain whose DNS points at a
+// private address gets DNS lookups only, never an HTTP request.
+{
+  const counters = { dns: 0, http: 0, rateLimit: 0 };
+  const original = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const u = String(input?.url || input);
+    if (/dns-query|resolve\?name=|cloudflare-dns|dns\.google|quad9/.test(u)) {
+      counters.dns++;
+      const name = new URL(u).searchParams.get("name") || "x";
+      const type = new URL(u).searchParams.get("type") || "A";
+      const Answer = type === "A" ? [{ name, type: 1, TTL: 60, data: "10.0.0.5" }] : [];
+      return new Response(JSON.stringify({ Status: 0, Answer }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    }
+    counters.http++;
+    return new Response("ok", { status: 200 });
+  };
+  let res;
+  try { res = await workspaceInsightRoutes(ctx({ user: ADMIN, isPlatformAdmin: realAdmin, query: "?domain=private-target.com", counters })); }
+  finally { globalThis.fetch = original; }
+  ok("private-resolving target: DNS was consulted", counters.dns > 0, `dns=${counters.dns}`);
+  ok("private-resolving target: no HTTP request was made", counters.http === 0, `http=${counters.http}`);
+  ok("private-resolving target: the route still answers", typeof res?.status === "number");
 }
 
 console.log(`validate-benchmark-admin-only: ${pass} passed, ${fail} failed`);

@@ -448,7 +448,11 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const bodyResults = await Promise.allSettled(
     probeHosts.map((host) => (fetchImpl
       ? fetchImpl(`https://${host}`)
-      : safeFetch(`https://${host}`, { method: "GET", redirect: "follow", headers: SCANNER_PAGE_HEADERS, accounting })))
+      // Every hop's hostname must resolve to a public address before any
+      // connection, as for the other probes (hardening, 24 Oct 2026): without
+      // a resolver only literal IP targets were refused.
+      : safeFetch(`https://${host}`, { method: "GET", redirect: "follow", headers: SCANNER_PAGE_HEADERS, accounting,
+          dnsResolver: typeof opts.dnsQueryImpl === "function" ? opts.dnsQueryImpl : dnsQuery, dnsCache: cache, signal: opts.signal })))
   );
 
   const risks = [];
