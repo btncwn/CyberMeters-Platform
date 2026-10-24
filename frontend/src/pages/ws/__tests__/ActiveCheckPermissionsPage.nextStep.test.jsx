@@ -16,12 +16,12 @@ vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ user: { email
 vi.mock('../../../components/AppDialog', () => ({ useAppDialog: () => ({ prompt: vi.fn() }) }))
 
 const AUTHORITY = { version: 'active-checks-2026-10-22', text: 'I confirm that I am authorised.' }
-const grant = (over) => ({ id: 'acc_1', domain: 'blackbullbarbers.co.uk', hosts: [], checks: ['tls_intrusive_heartbleed'], granted_at: '2026-10-23T08:00:00.000Z',
+const grant = (over) => ({ id: 'acc_1', domain: 'example.co.uk', hosts: [], checks: ['tls_intrusive_heartbleed'], granted_at: '2026-10-23T08:00:00.000Z',
   signer: { name: 'Taylor Owner', title: 'Director', workspace_role: 'owner' }, authority_version: AUTHORITY.version, status: 'active', ...over })
 
 beforeEach(() => {
   vi.clearAllMocks()
-  api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'blackbullbarbers.co.uk', domain_id: 'dom_1', verification_status: 'verified', verified_at: '2026-10-01T00:00:00Z' }] })
+  api.getWorkspaceDomains.mockResolvedValue({ domains: [{ domain: 'example.co.uk', domain_id: 'dom_1', verification_status: 'verified', verified_at: '2026-10-01T00:00:00Z' }] })
 })
 const mount = () => render(<MemoryRouter><ActiveCheckPermissionsPage /></MemoryRouter>)
 
@@ -33,7 +33,7 @@ describe('after a grant', () => {
     const steps = await screen.findAllByTestId('consent-next-step')
     expect(steps).toHaveLength(1)
     expect(steps[0]).toHaveTextContent('Authorised checks run only on scans you start yourself, never on scheduled scans.')
-    expect(within(steps[0]).getByRole('link', { name: 'Start a scan now' })).toHaveAttribute('href', '/scans/new?domain=blackbullbarbers.co.uk')
+    expect(within(steps[0]).getByRole('link', { name: 'Start a scan now' })).toHaveAttribute('href', '/scans/new?domain=example.co.uk')
   })
   it('no active grant, no next step; the hosts help names the TLS services condition', async () => {
     api.getActiveCheckConsents.mockResolvedValue({ consents: [], catalogue: [{ id: 'tls_intrusive_heartbleed', label: 'TLS Heartbleed test', available: true }], authority: AUTHORITY, capabilities: { can_manage: true } })

@@ -7,7 +7,7 @@ import { TlsAssessmentEvidence } from '../LiveTlsEvidence'
 const assessmentWith = (reason, state = 'unexecutable') => ({
   source: 'tls_assessment', quality: 'complete', phase_state: 'complete',
   coverage: { planned: 1, completed: 0, uncertain: 0, unexecutable: 1, not_authorized: 0, not_applicable: 0 },
-  endpoints: [{ hostname: 'example.com', address: '81.2.69.160', port: 443, application_protocol: 'https', checks: [
+  endpoints: [{ hostname: 'example.com', address: '203.0.113.10', port: 443, application_protocol: 'https', checks: [
     { control: 'heartbleed', protocol: 'tls1_2', state, reason },
   ] }],
 })
