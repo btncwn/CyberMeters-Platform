@@ -13,20 +13,21 @@ export const REMOTE_ACCESS_SIGNATURES = Object.freeze([{
   // Factory title documented in the primary response-page template.
   // https://knowledgebase.paloaltonetworks.com/KCSArticleDetail?id=kA10g000000ClErCAK
   title: '^\\s*(?:Palo Alto Networks\\s*-\\s*)?GlobalProtect(?:\\s+(?:Portal|Gateway))?\\s*$',
-  loginPath: '/global-protect/login.esp',
+  loginPath: '/global-protect/login.esp', versionContext: '\\bPAN-OS\\b',
   paths: ['/', '/global-protect/login.esp'], userField: 'user|username', format: 'panos',
   versionPattern: `^${number}\\.${number}\\.(?:0|[1-9]\\d?)(?:-h${number})?$`,
   versionLabel: '\\bPAN-OS\\s+(?:[Vv]ersion\\s*[:=]?\\s*)?([^\\s<>;,]{1,48})',
 }, ...['fortios_sslvpn', 'fortiproxy_sslvpn'].map(id => ({
   id, title: '^\\s*(?:SSL[ -]?VPN Service|FortiGate(?: SSL[ -]?VPN)?|FortiProxy(?: SSL[ -]?VPN)?)\\s*$',
   productMarker: id === 'fortios_sslvpn' ? '\\b(?:FortiGate|FortiOS)\\b' : '\\bFortiProxy\\b',
+  versionContext: id === 'fortios_sslvpn' ? '\\b(?:FortiGate|FortiOS)\\b' : '\\bFortiProxy\\b',
   // Primary SSL-VPN request paths: vendor KB technical tip163518.
   // https://community.fortinet.com/fortigate-3/troubleshooting-tip-ssl-vpn-user-not-able-to-connect-web-blocklist-check-error-163518
   paths: ['/', '/remote/login'], loginPath: '/remote/logincheck', userField: 'username', format: 'semver',
   versionPattern: `^${number}\\.${number}\\.${number}$`,
   versionLabel: `\\b${id === 'fortios_sslvpn' ? 'FortiOS' : 'FortiProxy'}\\s+(?:[Vv]ersion\\s*[:=]?\\s*|[vV](?=\\d))([^\\s<>;,]{1,48})`,
 })), {
-  id: 'netscaler_gateway', title: '^\\s*(?:Citrix|NetScaler) Gateway\\s*$',
+  id: 'netscaler_gateway', versionContext: '\\b(?:Citrix|NetScaler)(?: ADC| Gateway)?\\b', title: '^\\s*(?:Citrix|NetScaler) Gateway\\s*$',
   // Primary Gateway documentation: /vpn/index.html is the login front door.
   // https://docs.netscaler.com/en-us/netscaler-gateway/current-release/authentication-authorization/nfactor-for-gateway-authentication.html
   paths: ['/', '/vpn/index.html'], loginPath: '/cgi/login', userField: 'login|username', format: 'netscaler',
@@ -36,7 +37,7 @@ export const REMOTE_ACCESS_SIGNATURES = Object.freeze([{
   unsupportedMarker: '\\b(?:FIPS|NDcPP)\\b',
   versionLabel: '\\b(?:Citrix|NetScaler)(?: ADC| Gateway)?\\s+[Vv]ersion\\s*[:=]?\\s*([^\\s<>;,]{1,48})',
 }, {
-  id: 'ivanti_connect_secure', title: '^\\s*(?:Ivanti Connect Secure|Pulse(?: Connect)? Secure)(?: - Sign In)?\\s*$',
+  id: 'ivanti_connect_secure', versionContext: '\\b(?:Ivanti Connect Secure|Pulse(?: Connect)? Secure)\\b', title: '^\\s*(?:Ivanti Connect Secure|Pulse(?: Connect)? Secure)(?: - Sign In)?\\s*$',
   paths: ['/', '/dana-na/auth/url_default/welcome.cgi'], loginPath: '/dana-na/auth/url_default/login.cgi',
   userField: 'username', format: 'ivanti', versionPattern: `^${number}\\.${number}R${number}(?:\\.${number})?$`,
   versionLabel: '\\b(?:Ivanti Connect Secure|Pulse(?: Connect)? Secure)\\s+[Vv]ersion\\s*[:=]?\\s*([^\\s<>;,]{1,48})',
@@ -139,8 +140,11 @@ export function remoteAccessFingerprint(body, value) {
       const value = line.match(/^\s*(?:(?:server|software|firmware)\s+)?(?:version|release)\s*[:=]?\s*([^\s]{1,48})/i)?.[1];
       return value && /\d/.test(value);
     });
+    const unparsedProductVersion = !labels.length && lines.some(line => /\d/.test(line) &&
+      new RegExp(signature.versionContext, 'i').test(line) &&
+      !/\b(?:client|app|agent)\s+(?:version|release)\b/i.test(line));
     return { product_id: signature.id, version: explicit ? versions[0] : null,
-      version_state: explicit ? 'explicit' : unsupported || labels.length || unattributed || unparsedField ? 'unreadable' : 'absent' };
+      version_state: explicit ? 'explicit' : unsupported || labels.length || unattributed || unparsedField || unparsedProductVersion ? 'unreadable' : 'absent' };
   }
   return null;
 }

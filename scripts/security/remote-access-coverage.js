@@ -125,6 +125,16 @@ for(const id of Object.keys(profiles)){
     assert.equal(remoteAccessFingerprint(body,root).version_state,'unreadable','unattributed version-like text is not hidden');
     assert.equal(generated({rule:'remote-access-portal',response:{url:root,status:200,body},controls}).portal.version_state,'unreadable');
   }
+  for(const spelling of ['release: v12R1','build 12345','v7_4_2']){
+    const body=html(id).replace('</footer>',`${profiles[id][3]} ${spelling}</footer>`);
+    assert.equal(remoteAccessFingerprint(body,root).version_state,'unreadable','unrecognised product-adjacent number is not hidden');
+    assert.equal(generated({rule:'remote-access-portal',response:{url:root,status:200,body},controls}).portal.version_state,'unreadable');
+    assert.equal(externalExposureModule({source:'external_exposure',quality:'complete',checks:[{
+      rule_id:'remote-access-portal',url:root,identity:exposureIdentity('remote-access-portal',root),state:'observed',comparable:true,
+      portal:remoteAccessFingerprint(body,root),observed_at:new Date(now).toISOString(),finding:null,
+      observation:{rule_id:'remote-access-portal',severity:'info',indicators:['known_remote_access_login'],safe_url:root,identity:exposureIdentity('remote-access-portal',root)},
+    }],coverage:{completed:1,pending:0,blocked:0,not_applicable:0,budget_exhausted:0,uncertain:0},observed_at:new Date(now).toISOString()},{catalogue,now}).findings.length,0);
+  }
   const client=html(id).replace('</footer>','Client version: v12R1</footer>');
   assert.equal(remoteAccessFingerprint(client,root).version_state,'absent','a clearly identified client version does not establish a server version');
 }

@@ -52,7 +52,8 @@ for (const [header, expected] of [
     assert.equal(findings[0].score_impact, 0);
     assert.equal(findings[0].finding_type, 'observation');
     assert.equal(remediation.customer_title, findings[0].title);
-    for (const field of ['technical_explanation', 'business_impact', 'recommended_action']) {
+    assert.equal(remediation.business_impact, 'The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.');
+    for (const field of ['technical_explanation', 'recommended_action']) {
       assert.equal(remediation[field], findings[0].description, field);
     }
     assert.equal(remediation.case_type, null);
