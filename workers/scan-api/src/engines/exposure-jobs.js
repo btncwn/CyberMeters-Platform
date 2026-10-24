@@ -523,12 +523,13 @@ export function estimateExposureJobBudget(plan) {
     httpSlices++;
   }
   const selected=Array.isArray(plan?.tls?.selected)?plan.tls.selected:[];
-  let tlsSlices=0,tlsRequests=0;
+  let tlsSlices=0,tlsRequests=0,tlsDurationMs=0;
   for(let i=0;i<selected.length;){
     const slice=tlsSliceAt(selected,i);
     if(!slice.length)break;
     tlsSlices++;
     tlsRequests+=TLS_SPECIAL_CONNECTION_LIMITS[slice[0].check.control]||TLS_SLICE_LIMITS.connections;
+    tlsDurationMs+=tlsSliceDurationMs(slice.map(row=>row.check));
     i+=slice.length;
   }
   const content=plan?.content_state==='not_requested'?0:1;
@@ -540,7 +541,7 @@ export function estimateExposureJobBudget(plan) {
   // Slices run serially. Reserve deadline margin against every collector's
   // maximum wait, not just the median observed on a small workspace.
   const durationMs=content*WEBSITE_CONTENT_LIMITS.durationMs+
-    httpSlices*EXPOSURE_LIMITS.durationMs+tlsSlices*TLS_SLICE_LIMITS.durationMs;
+    httpSlices*EXPOSURE_LIMITS.durationMs+tlsDurationMs;
   const headroom=value=>Math.ceil(value*6/5);
   return {requests:headroom(requests),bytes:headroom(bytes),attempts:headroom(slices),
     durationMs:headroom(durationMs)};
@@ -597,6 +598,13 @@ async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now) {
   return {action:'ack',outcome:reason};
 }
 
+// A TLS slice's lease: at least the job lease, and always longer than the slice
+// itself (its duration plus a 5 s margin), so no second claim can start while it runs.
+export const TLS_LEASE_MARGIN_MS = 5000;
+export function tlsLeaseMs(items) {
+  return Math.max(EXPOSURE_JOB_LIMITS.leaseMs, tlsSliceDurationMs((items||[]).map(item=>item.check))+TLS_LEASE_MARGIN_MS);
+}
+
 async function processTlsSlice(env,row,plan,now,deps={}) {
   const tls=plan.tls,items=nextTlsChecks(plan),entry=tls.endpoints[items[0]?.endpoint_index];
   if(!items.length||!entry)return finishWithoutProbe(env,row,'complete','tls_complete',now);
@@ -630,7 +638,10 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
       AND (SELECT COALESCE(SUM(j.charged_bytes),0) FROM external_exposure_jobs j
         WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
       AND ${TLS_SCOPE_FENCE}`)
-    .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,now+runMsFor(plan),new Date(now).toISOString(),
+    // The lease must outlive the slice (a 50 s ROBOT slice exceeded the 30 s
+    // lease: its result was fenced out and another delivery could claim the job
+    // and start a second intrusive run). R1 on #981.
+    .bind(token,now+tlsLeaseMs(items),reservationRequests,reservationBytes,now+runMsFor(plan),new Date(now).toISOString(),
       row.scan_id,row.workspace_id,row.cursor,now,tls.cursor,reservationRequests,budget.requests,
       reservationBytes,budget.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
       window.requests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,window.bytes,

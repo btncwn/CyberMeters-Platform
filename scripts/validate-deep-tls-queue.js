@@ -351,6 +351,7 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
   const reservations=[];
+  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
   const specialCollector=async(_env,input)=>{
     const verdict = validateTlsAssessmentRequest(input);
     if (!verdict.ok) console.error('PROBE_CONTRACT', verdict.reason);
@@ -358,6 +359,15 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
     const control=input.checks[0].control;
     assert.equal(input.checks.length,1);
     reservations.push([control,input.max_connections]);
+    if(control==='robot'){
+      // R1 on #981: the lease outlives the 50 s ROBOT slice, and a second
+      // delivery arriving mid-run cannot claim the job (no second intrusive run).
+      const lease=sql.prepare('SELECT lease_until FROM external_exposure_jobs WHERE scan_id=?').get(scanId).lease_until;
+      assert.ok(lease-Date.now()>=50000,`the ROBOT slice's lease covers its 50 s slice (left ${lease-Date.now()} ms)`);
+      let secondRuns=0;
+      await processExposureMessage(message,env,{lookupTlsDns,authoriseActiveCheck,collectTlsAssessment:async()=>{secondRuns++;throw new Error('second run');}});
+      assert.equal(secondRuns,0,'no second claim while the ROBOT slice runs');
+    }
     const physical={connections:control==='robot'?21:control==='ccs'?5:1,bytes_sent:1000,bytes_received:2000,duration_ms:10};
     const special=control!=='protocol';
     const engine={schema:'tls-engine-result-v1',engine:{family:special?'active_legacy':'modern',
@@ -374,7 +384,6 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
       telemetry:physical};
     return projectTlsCollectorReceipt(input,raw);
   };
-  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'complete');
@@ -536,6 +545,9 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   assert.equal(tlsSliceDurationMs([{control:'robot',protocol:'tls1_2',cipher_id:null}]),50000);
   assert.equal(tlsSliceDurationMs([{control:'protocol',protocol:'tls1_2',cipher_id:null}]),TLS_SLICE_LIMITS.durationMs,'normal slices keep 25 s');
   assert.equal(tlsSliceDurationMs([]),TLS_SLICE_LIMITS.durationMs);
+  const { tlsLeaseMs } = await import('../workers/scan-api/src/engines/exposure-jobs.js');
+  assert.equal(tlsLeaseMs([{check:{control:'robot',protocol:'tls1_2',cipher_id:null}}]),55000,'a ROBOT lease is its slice plus 5 s');
+  assert.equal(tlsLeaseMs([{check:{control:'protocol',protocol:'tls1_2',cipher_id:null}}]),30000,'a normal slice keeps the job lease');
   const t=Date.now(), iso=ms=>new Date(t+ms).toISOString();
   const base={schema_version:'tls-assessment-request-v1',request_id:'r_dur',workspace_id:'w1',scan_id:'s1',domain_id:'d1',domain:'acme.org',
     endpoint:{hostname:'probe.acme.org',sni:'probe.acme.org',address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
