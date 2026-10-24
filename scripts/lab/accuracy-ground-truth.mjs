@@ -34,7 +34,7 @@ const arg = (name, fallback = null) => {
 };
 const RESOLVERS = ["1.1.1.1", "8.8.8.8"];
 
-async function dig(name, type) {
+export async function dig(name, type) {
   const answers = [];
   for (const resolver of RESOLVERS) {
     try {
@@ -51,7 +51,7 @@ async function dig(name, type) {
 }
 const txt = (records) => records.map((r) => r.replace(/^"|"$/g, "").replace(/"\s+"/g, ""));
 // dig +short TXT follows CNAMEs and prints the target name first; keep TXT only.
-const txtOnly = (records) => txt(records.filter((r) => r.startsWith('"')));
+export const txtOnly = (records) => txt(records.filter((r) => r.startsWith('"')));
 
 async function curlOnce(url) {
   try {
@@ -98,7 +98,7 @@ async function tlsHandshake(host) {
 }
 
 // Header value from both curl runs; null when they disagree (edge variance).
-function stableHeader(pair, name) {
+export function stableHeader(pair, name) {
   const values = [pair.first, pair.second].map((r) => (r?.final ? r.final.headers[name] ?? "" : undefined));
   if (values.some((v) => v === undefined)) return undefined;
   // A CSP nonce is fresh on every response; it is not variance in the policy.

@@ -424,7 +424,11 @@ const EXPECTED = Object.freeze({
     // domain that does not exist claims no quality (row.scan_quality is null).
     // The keyed two-tree diff by (file, slot, snippet) adds exactly that one read
     // in validate-item10-attack-surface-p3-engine-trace.js; nothing removed.
-    governance: { occurrence_count: 141, source_file_count: 45, fingerprint: "74e8a230f632009579c5782248e4b6f431910dd25163d3d85354dc0e64c538c3" },
+    // Item 15 lab harness committed (24 Oct 2026): scripts/lab/full-scan-corpus.mjs
+    // reads scan.scan_quality and report?.scan_quality once each to record the
+    // run's quality beside its findings. Keyed two-tree diff (with vs without the
+    // file) adds exactly those two reads in one new file; nothing removed.
+    governance: { occurrence_count: 143, source_file_count: 46, fingerprint: "f92389874768c95297847b2d6b93f4148f3da3e2bf92b9f6fa2ee40f5cecb0b0" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
