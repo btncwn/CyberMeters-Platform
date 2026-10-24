@@ -51,11 +51,13 @@ test('Scans list row @390: the link arrow never wraps alone', async ({ page, con
   await page.goto('/scans', { waitUntil: 'networkidle' })
   const link = page.locator('tbody .cm-rowlink').first()
   await expect(link).toBeVisible()
-  const lines = await link.evaluate((el) => {
-    const r = document.createRange(); r.selectNodeContents(el)
-    return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size
-  })
-  const after = await link.evaluate((el) => getComputedStyle(el, '::after').display)
-  expect(after).toBe('inline')
+  // The link's own fragments (including the padding that holds the ›): one line.
+  const lines = await link.evaluate((el) => new Set([...el.getClientRects()].map((x) => Math.round(x.top))).size)
   expect(lines).toBe(1)
+  // The › is out of the line-breaking and underline flow, and still shown.
+  const after = await link.evaluate((el) => { const c = getComputedStyle(el, '::after'); return { content: c.content, position: c.position, decoration: c.textDecorationLine } })
+  expect(after).toEqual({ content: '"›"', position: 'absolute', decoration: 'none' })
+  // Even a long domain keeps the › on its last line: the link fits the cell.
+  await link.hover()
+  await page.screenshot({ path: 'test-results/rowlink-arrow-390.png' })
 })
