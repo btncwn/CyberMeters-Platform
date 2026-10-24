@@ -31,6 +31,34 @@
       "reviewed_on": "2026-10-08",
       "review_by": "2026-11-30",
       "record": "docs/DEPENDENCY-OVERRIDES.md#ov-1"
+    },
+    {
+      "id": "OV-6",
+      "workspace": "workers/scan-api",
+      "package": "undici",
+      "declared_spec": "7.30.1",
+      "resolved_version": "7.30.1",
+      "dependency_root": "wrangler",
+      "dependency_path": [
+        "wrangler",
+        "miniflare",
+        "undici"
+      ],
+      "reachability": "dev_only",
+      "production_closure_evidence": "npm ls --omit=dev undici",
+      "advisory_basis": "current",
+      "advisories_cleared": [
+        "GHSA-4qv8-2p9j-2685",
+        "GHSA-f72v-6w45-q472",
+        "GHSA-xjj6-f33q-929c"
+      ],
+      "reason": "Wrangler 4.148.0 uses Miniflare 5.20261006.0-alpha, which declares undici 7.29.1 exact. GHSA-4qv8-2p9j-2685 (high), GHSA-f72v-6w45-q472 and GHSA-xjj6-f33q-929c affect undici 7.0.0-7.30.0; this override installs 7.30.1. undici remains absent from the production closure and belongs to the Wrangler/Miniflare development toolchain (successor of the closed OV-5).",
+      "removal_criterion": "Remove when a supported Wrangler/Miniflare release declares undici >=7.30.1. Delete the override and confirm npm ls undici resolves >=7.30.1 without overridden/invalid markers, npm audit --audit-level=high has no undici advisory, and the Worker, DMARCbis fixture and email Worker dry-run bundles pass.",
+      "owner": "CyberMeters engineering (founder-owned)",
+      "introduced_on": "2026-10-24",
+      "reviewed_on": "2026-10-24",
+      "review_by": "2026-12-31",
+      "record": "docs/DEPENDENCY-OVERRIDES.md#ov-6"
     }
   ]
 }

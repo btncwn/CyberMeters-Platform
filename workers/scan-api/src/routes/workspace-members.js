@@ -417,6 +417,12 @@ export async function workspaceMembersRoutes(rctx) {
           }
         }
 
+        // Re-adding an existing member with another role is a role change: like
+        // PATCH, it requires a fresh MCP consent (connections are revoked first).
+        if (existing && existing.role !== rawRole) {
+          await revokeMcpOAuthUserWorkspaceConnections(env, target.id, workspaceId);
+        }
+
         const memberId = createId("wm");
         await env.cybermeters_db
           .prepare(
