@@ -93,7 +93,9 @@ export function buildScanDispatchMessage({ scanId, workspaceId, domainId, domain
     domain: domain ?? null,
     domain_id: domainId ?? null,
     user_id: userId ?? null,
-    trigger: trigger === "scheduled" ? "scheduled" : "manual",
+    // An absent or unknown trigger stays null end to end (C-52 N02): only an
+    // explicit "manual" may later run an intrusive Active Check.
+    trigger: trigger === "scheduled" || trigger === "manual" ? trigger : null,
     ...(typeof scheduledScanId === "string" && scheduledScanId.length > 0
       ? { scheduled_scan_id: scheduledScanId }
       : {}),

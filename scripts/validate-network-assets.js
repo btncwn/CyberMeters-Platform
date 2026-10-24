@@ -306,7 +306,7 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   eq('consent: the refusal names the unavailable checks',notAvailable.body.checks,['takeover_active_confirm','mail_spoof_resistance']);
   eq('consent: an unavailable-check refusal writes nothing',rows().length,0);
   const catalogue=(await consent('',{user:'viewer'})).body.catalogue||[];
-  eq('consent: the catalogue lists all eight checks, each with availability',[catalogue.length,catalogue.every(c=>c.available===false)],[8,true]);
+  eq('consent: the catalogue lists all eight checks, each with availability (exactly the three TLS specials available)',[catalogue.length,catalogue.filter(c=>c.available===true).map(c=>c.id).sort(),catalogue.filter(c=>c.available===false).length],[8,['tls_intrusive_ccs','tls_intrusive_heartbleed','tls_intrusive_robot'],5]);
   eq('consent: a viewer can read',(await consent('',{user:'viewer'})).status,200);
 
   const created=await consent('',{method:'POST',body:grant,user:'admin'});

@@ -1,3 +1,4 @@
+import { remoteAccessFingerprint, remoteAccessProgramSource } from './remote-access.js';
 import { EXPOSURE_CATALOG_VERSION, EXPOSURE_RULES, RULES_BY_ID, exposurePresentation } from './catalog.js';
 import { discoverExposureReferences } from './discovery.js';
 import { sha256Text, safeExposureUrl, exposureIdentity, isSafeExposurePath, isRulePathAllowed } from './redaction.js';
@@ -204,9 +205,24 @@ export function evaluateExposure({rule, response, controls = []} = {}) {
   if (!response || response.error && !locallyCapped || response.blocked) return result('uncertain', false, 'transport_or_scope_failure');
   const text = exposureText(response); const status = Number(response.status);
   if (exposureBlocked(response, text)) return result('blocked', false, 'authentication_rate_limit_or_challenge');
-  if (rule.id !== 'admin-interface' && exposureLoginForm(text)) return result('blocked', false, 'authentication_login_form');
+  if (!['admin-interface','remote-access-portal'].includes(rule.id) && exposureLoginForm(text)) return result('blocked', false, 'authentication_login_form');
   if (rule.id !== 'api-schema' && exposureDocumentedExample(exposureJson(text))) return result('uncertain', false, 'documentation_example_content');
   if (status >= 500 || status < 200 || status >= 300 && status < 400) return result('uncertain', false, 'server_or_redirect_failure');
+  // A real, explicitly named login page may be the site's default answer to
+  // every path. That is not a file-disclosure soft404; only this narrow rule
+  // observes it, and no authentication request is made.
+  if (rule.id === 'remote-access-portal') {
+    if (response.truncated || !controls.slice(0,2).every(c=>c&&!c.error&&!c.truncated&&[200,404,410].includes(Number(c.status))&&!exposureBlocked(c,exposureText(c))) || controls.length < 2)
+      return result('uncertain', false, 'bounded_read_inconclusive');
+    if (controls.some(c=>exposureLoginForm(exposureText(c))) && status!==200) return result('uncertain',false,'negative_controls_unavailable');
+    if ([404,410].includes(status)) return result('not_found', true, 'explicit_absence');
+    if (status !== 200) return result('uncertain', false, 'unexpected_status');
+    const portal = remoteAccessFingerprint(text, response.url);
+    if (portal) return result('observed', true, 'observation_only', { portal,
+      observation:{ evidence:{indicators:['known_remote_access_login']} } });
+    if (exposureLoginForm(text)) return result('blocked', false, 'authentication_login_form');
+    if (controls.some(c=>exposureLoginForm(exposureText(c)))) return result('uncertain',false,'negative_controls_unavailable');
+  }
   const validControls = controls.length >= 2 && controls.slice(0,2).every(c=>c && !c.error && !c.truncated && [200,404,410].includes(Number(c.status)) && !exposureBlocked(c, exposureText(c)) && !exposureLoginForm(exposureText(c)));
   if (!validControls) return result('uncertain', false, 'negative_controls_unavailable');
   if ([404,410].includes(status)) return result('not_found', true, 'explicit_absence');
@@ -226,6 +242,6 @@ export function evaluateExposure({rule, response, controls = []} = {}) {
 // The trusted collector embeds only these reviewed functions and immutable catalog data.
 // No response text, discovered string or customer-provided program is interpolated here.
 export function exposureEvaluatorProgramSource() {
-  return `const EXPOSURE_CATALOG_VERSION=${JSON.stringify(EXPOSURE_CATALOG_VERSION)};\nconst EXPOSURE_RULES=${JSON.stringify(EXPOSURE_RULES)};\nconst RULES_BY_ID=Object.fromEntries(EXPOSURE_RULES.map(r=>[r.id,r]));\n` + [discoverExposureReferences, exposurePresentation, sha256Text, safeExposureUrl, exposureIdentity, isSafeExposurePath, isRulePathAllowed, exposureText, exposureJson, exposurePlaceholder, exposureSecrets, exposureLoginForm, exposureDocumentedExample, exposureIsHtml, exposureExample, exposureBlocked, exposureShape, exposureLooksLikeControl, exposureKnownData, evaluateExposure].map(fn=>fn.toString()).join('\n');
+  return remoteAccessProgramSource() + `const EXPOSURE_CATALOG_VERSION=${JSON.stringify(EXPOSURE_CATALOG_VERSION)};\nconst EXPOSURE_RULES=${JSON.stringify(EXPOSURE_RULES)};\nconst RULES_BY_ID=Object.fromEntries(EXPOSURE_RULES.map(r=>[r.id,r]));\n` + [discoverExposureReferences, exposurePresentation, sha256Text, safeExposureUrl, exposureIdentity, isSafeExposurePath, isRulePathAllowed, exposureText, exposureJson, exposurePlaceholder, exposureSecrets, exposureLoginForm, exposureDocumentedExample, exposureIsHtml, exposureExample, exposureBlocked, exposureShape, exposureLooksLikeControl, exposureKnownData, evaluateExposure].map(fn=>fn.toString()).join('\n');
 }
 export { isRulePathAllowed, isSafeExposurePath } from './redaction.js';

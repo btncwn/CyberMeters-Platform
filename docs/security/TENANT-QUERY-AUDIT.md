@@ -24,13 +24,13 @@ is never proof of tenant scope.
 
 ## Current results
 
-- **body_workspace_trust:** 8
-- **global_latest_fallback:** 2
-- **r2_key_not_workspace_bound:** 15
-- **unscoped_tenant_query:** 265
+- **body_workspace_trust:** 10
+- **global_latest_fallback:** 3
+- **r2_key_not_workspace_bound:** 14
+- **unscoped_tenant_query:** 307
 - **workspace_domain_scope_missing:** 29
 
-Blocking findings are all covered by 39 documented suppressions
+Blocking findings are all covered by 38 documented suppressions
 (each a manually-verified out-of-band guard with a security contract) — see
 `scripts/security/tenant-query-audit-suppressions.json`. Zero unsuppressed.
 
@@ -50,48 +50,55 @@ They are listed for the record, not as defects.
 
 | Table | Unscoped queries |
 |---|---:|
-| `workspaces` | 72 |
-| `scans` | 27 |
+| `workspaces` | 85 |
+| `scans` | 34 |
 | `hosted_dns_entries` | 23 |
 | `dmarc_ingest_endpoints` | 14 |
-| `workspace_reports` | 10 |
-| `subscriptions` | 10 |
-| `scan_report_snapshots` | 9 |
-| `scheduled_scans` | 8 |
-| `workspace_brand_assets` | 6 |
-| `managed_cases` | 5 |
-| `domains` | 5 |
+| `workspace_reports` | 14 |
+| `scan_report_snapshots` | 11 |
+| `subscriptions` | 11 |
+| `mcp_oauth_connections` | 8 |
+| `scheduled_scans` | 6 |
+| `managed_cases` | 6 |
+| `mcp_oauth_browser_sessions` | 6 |
 | `aggregate_report_ingest_claims` | 5 |
 | `workspace_invitations` | 5 |
+| `domains` | 5 |
 | `asset_alert_records` | 4 |
 | `audit_events` | 4 |
-| `lifecycle_email_events` | 4 |
 | `user_sessions` | 4 |
-| `deletion_requests` | 4 |
-| `mfa_challenges` | 4 |
+| `scheduled_reports` | 4 |
 | `asset_events` | 3 |
 | `findings` | 3 |
 | `cyber_essentials_control_records` | 3 |
+| `stripe_subscription_lineages` | 3 |
 | `website_security_conditions` | 3 |
+| `api_tokens` | 3 |
 | `report_schedules` | 3 |
-| `scheduled_reports` | 3 |
+| `deletion_requests` | 3 |
+| `mfa_challenges` | 3 |
+| `workspace_brand_assets` | 3 |
+| `mcp_oauth_refresh_uses` | 3 |
 | `workspace_alert_channels` | 2 |
 | `email_protection_events` | 2 |
+| `external_exposure_jobs` | 2 |
 | `alert_deliveries` | 2 |
+| `network_scans` | 2 |
 | `related_changes` | 2 |
-| `api_tokens` | 2 |
+| `lifecycle_email_events` | 2 |
 | `report_schedule_runs` | 2 |
 | `workspace_assets` | 2 |
 | `workspace_vendors` | 2 |
-| `password_reset_tokens` | 2 |
 | `workspace_members` | 2 |
 | `identity_exposure` | 1 |
 | `remediation_items` | 1 |
-| `shadow_it_inventory` | 1 |
 | `dmarc_aggregate_reports` | 1 |
 | `dmarc_aggregate_records` | 1 |
+| `operational_events` | 1 |
 | `tlsrpt_aggregate_reports` | 1 |
 | `tlsrpt_failure_details` | 1 |
+| `password_reset_tokens` | 1 |
 | `dmarc_change_requests` | 1 |
 | `email_sender_sources` | 1 |
+| `scan_module_telemetry` | 1 |
 | `notification_events` | 1 |
