@@ -183,7 +183,7 @@ export function submittedForVerificationText(caseRecord, events = []) {
 // attestation opens an inline form that collects ONLY those fields (no native
 // prompt/confirm). Manual verification is recorded honestly as a customer
 // attestation, never as "Verified by CyberMeters".
-function NextActionSection({ wsId, caseId, caseRecord, events = [], transitions, onDone, phase, domainRoute, domainLabel }) {
+function NextActionSection({ wsId, caseId, caseRecord, events = [], transitions, onDone, phase, domainRoute, domainLabel, canManage = false }) {
   const [selected, setSelected] = useState(null)   // the transition whose input form is open
   const [note, setNote] = useState('')
   const [expiry, setExpiry] = useState('')
@@ -243,7 +243,8 @@ function NextActionSection({ wsId, caseId, caseRecord, events = [], transitions,
   const noteOk        = !selected?.requires_note        || note.trim().length > 0
   const expiryOk      = !selected?.requires_expiry      || Boolean(expiry)
   const attestationOk = !selected?.requires_attestation || attestation.trim().length > 0
-  const ownerOk       = !selected?.requires_owner // owner is set separately, in the Owner section
+  // An owner can be assigned right here (C-46 rank 4); once the case has one, the move may go ahead.
+  const ownerOk       = !selected?.requires_owner || Boolean(caseRecord?.owner_ref)
   const canSubmit = Boolean(selected) && noteOk && expiryOk && attestationOk && ownerOk && !busy
   const presented = presentTransitions(caseRecord, transitions)
   const waitingText = submittedForVerificationText(caseRecord, events)
@@ -273,6 +274,14 @@ function NextActionSection({ wsId, caseId, caseRecord, events = [], transitions,
       </div>
 
       {waitingText && <p className="mb-3 text-base text-slate-700" data-testid="case-waiting-verification">{waitingText}</p>}
+      {/* C-46 rank 1: an automated verification waits for the next complete scan —
+          so the next step is to run it, visibly, not a hunt for the Scan control. */}
+      {waitingText && caseRecord?.verification_support === 'automated' && caseRecord?.domain && (
+        <div className="mb-3" data-testid="case-run-next-scan">
+          <Link to={`/scans/new?domain=${encodeURIComponent(caseRecord.domain)}`} className="btn-primary min-h-[40px]">Run the next scan</Link>
+          <p className="mt-1.5 text-sm text-slate-600">After you apply the fix, a complete scan of {caseRecord.domain} checks it.</p>
+        </div>
+      )}
       {transitions.length === 0 ? (
         // Never "no further actions" on a case that still needs action: a closed
         // case says it is closed; an open one says where it is handled.
@@ -308,9 +317,11 @@ function NextActionSection({ wsId, caseId, caseRecord, events = [], transitions,
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
           <p className="text-base font-medium text-slate-800">{selected.label}</p>
 
-          {selected.requires_owner && (
-            <div className="flex items-start gap-2 rounded-md border border-[1.5px] border-brand-700 bg-transparent p-3">
-              <p className="text-sm text-brand-700">Assign an owner in the Owner section above before moving this case to Assigned.</p>
+          {selected.requires_owner && !caseRecord?.owner_ref && (
+            // C-46 rank 4: the owner is chosen right here, not in another section.
+            <div className="rounded-md border border-[1.5px] border-brand-700 bg-white p-3 space-y-2" data-testid="next-action-owner">
+              <p className="text-sm text-brand-700">This step needs an accountable owner. Choose one, then confirm.</p>
+              <OwnerPicker wsId={wsId} caseId={caseId} caseRow={caseRecord} canManage={canManage} onAssigned={() => onDone?.()} closed={false} />
             </div>
           )}
 
@@ -489,6 +500,7 @@ export default function WorkspaceCaseDetailPage() {
           <CaseGuidance guidance={c.guidance} />
           {data?.can_manage && (
             <NextActionSection
+              canManage={canManage}
               wsId={wsId}
               caseId={c.case_id}
               transitions={data?.available_transitions || []}
