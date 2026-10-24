@@ -19,15 +19,20 @@ export function classifyPhpRuntime({ poweredBy = null, server = null } = {}) {
   for (const header of [poweredBy, server]) {
     if (header == null) continue;
     if (typeof header !== 'string' || header.length > 2048 || /[^\x20-\x7e]/.test(header)) return { state: 'unreadable' };
-    for (const match of header.matchAll(/(?:^|[\s,;(])PHP(?=$|[\/\s,;)])([^,;]*)/gi)) {
-      const rest = match[1].trim();
-      if (!rest || /^\([^\d]*\)$/.test(rest)) { tokens.push(null); continue; }
+    let recognized = false;
+    for (const match of header.matchAll(/(?:^|[\s,;(])(PHP(?:[-_]FPM|-CGI)?|mod_php)(?=$|[\/\s,;)])([^,;]*)/gi)) {
+      recognized = true;
+      const rest = match[2].trim();
+      if (!rest || /^\)+$/.test(rest) || /^\([^\d]*\)$/.test(rest)) { tokens.push(null); continue; }
+      if (match[1].toLowerCase() !== 'php') return { state: 'unreadable' };
       if (/(?:^|[\s;(])PHP(?=$|[\/\s;)])/i.test(rest)) return { state: 'unreadable' };
       // A client/pre-release/malformed number is not a stable server release.
       const version = /^\/([1-9]\d?\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d{0,3})(?:[-+][0-9A-Za-z][0-9A-Za-z.+~_-]{0,63})?)(?:\s|\)|$)/.exec(rest)?.[1];
       if (!version || /(?:alpha|beta|rc|dev|snapshot|preview|pre-)/i.test(version)) return { state: 'unreadable' };
       tokens.push(version);
     }
+    // A runtime alias or unfamiliar version spelling is not absence of PHP.
+    if (!recognized && /\b(?:PHP|mod_php)/i.test(header)) return { state: 'unreadable' };
   }
   if (!tokens.length) return { state: 'absent' };
   const versions = [...new Set(tokens.filter(Boolean))];

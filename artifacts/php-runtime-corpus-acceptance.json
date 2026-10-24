@@ -1,6 +1,6 @@
 {
   "schema": "php-runtime-corpus-v1",
-  "observed_at": "2026-10-24T01:55:57.938Z",
+  "observed_at": "2026-10-24T02:12:44.297Z",
   "corpus_sha256": "df14ecce667c9e9481434f0b815008aa686988dbe66f621fba31f4d2e26d13bc",
   "table_version": "2026-10-24.1",
   "scope": "Existing accuracy corpus, existing bounded HTTPS homepage technology observation only. No exploit testing or production scan.",
@@ -8,8 +8,8 @@
     "total": 105,
     "tp": 0,
     "fp": 0,
-    "unknown": 37,
-    "not_detected": 68,
+    "unknown": 39,
+    "not_detected": 66,
     "review_required": 0
   },
   "limitation": "Positive reported-release observations require independent header/version triage. No true vulnerable/exploitable installation is assumed; controlled fixtures carry detection truth.",
@@ -241,12 +241,9 @@
     },
     {
       "corpus_id": "entry-029",
-      "classification": "not_detected",
-      "status": 200,
-      "reason": "absent",
-      "state": "absent",
-      "table_version": "2026-10-24.1",
-      "header_sha256": "3808e43a24645dfe139da4b3f5e002dafce5394165e05b656726e632fc653647"
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_timeout"
     },
     {
       "corpus_id": "entry-030",
@@ -359,11 +356,11 @@
     {
       "corpus_id": "entry-043",
       "classification": "not_detected",
-      "status": 202,
+      "status": 200,
       "reason": "absent",
       "state": "absent",
       "table_version": "2026-10-24.1",
-      "header_sha256": "2c3de969b4600e4fe590ffd248d18427559c8236002873c9b6eeb9ee024a2c61"
+      "header_sha256": "3808e43a24645dfe139da4b3f5e002dafce5394165e05b656726e632fc653647"
     },
     {
       "corpus_id": "entry-044",
@@ -763,12 +760,9 @@
     },
     {
       "corpus_id": "entry-092",
-      "classification": "not_detected",
-      "status": 200,
-      "reason": "absent",
-      "state": "absent",
-      "table_version": "2026-10-24.1",
-      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
     },
     {
       "corpus_id": "entry-093",
@@ -864,9 +858,9 @@
   "controlled_truth": {
     "tp": 9,
     "fp": 0,
-    "tn": 14,
+    "tn": 17,
     "fn": 0,
-    "unknown": 11
+    "unknown": 16
   },
   "sources": [
     "https://www.php.net/archive/2026.php#2026-10-21-5",

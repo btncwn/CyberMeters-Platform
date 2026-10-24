@@ -13,12 +13,15 @@ for (const [header, expected] of [
   ['PHP/8.1.99', 'outdated'], ['PHP/8.0.30', 'outdated'], ['PHP/7.4.33', 'outdated'],
   ['PHP/5.6.40', 'outdated'], ['PHP/8.2.34-1+deb12u1', 'outdated'],
   ['PHP/8.2.35-1+deb12u1', 'fixed'], ['PHP', 'hidden'], ['PHP; Express', 'hidden'],
+  ['PHP-FPM', 'hidden'], ['PHP-CGI', 'hidden'], ['mod_php', 'hidden'],
+  ['(PHP)', 'hidden'],
   ['PHP/8.2', 'unreadable'], ['PHP 8.2.34', 'unreadable'], ['PHP/8.2.35garbage', 'unreadable'],
   ['PHP/8.5.12RC1', 'unreadable'], ['PHP/8.5.12-dev', 'unreadable'],
   ['PHP (8.2.34)', 'unreadable'], ['PHP/08.2.35', 'unreadable'],
   ['PHP/8.6.0', 'unreadable'], ['PHP/9.0.0', 'unreadable'], ['PHP/8.4.27, PHP/8.2.34', 'unreadable'],
   ['PHP/8.4.27 PHP/8.2.34', 'unreadable'],
-  ['NotPHP/8.2.34', 'absent'], ['X-PHP/8.2.34', 'absent'], ['Apache/2.4.63', 'absent'],
+  ['PHP8.2.34', 'unreadable'], ['PHP:8.2.34', 'unreadable'], ['PHP-FPM/8.2.34', 'unreadable'],
+  ['NotPHP/8.2.34', 'absent'], ['X-PHP/8.2.34', 'unreadable'], ['Apache/mod_php', 'unreadable'], ['Apache/2.4.63', 'absent'],
 ]) {
   const observation = phpRuntimeObservation({ poweredBy: header, url: 'https://example.com/shop/' });
   assert.equal(observation.state, expected, header);
@@ -53,6 +56,7 @@ for (const [poweredBy, url, expected] of [
   ['PHP/8.2.35', 'https://example.com/shop/', 'clear'],
   [null, 'https://example.com/shop/', 'clear'],
   ['PHP', 'https://example.com/shop/', 'deferred'],
+  ['PHP-FPM', 'https://example.com/shop/', 'deferred'],
   ['PHP/8.2', 'https://example.com/shop/', 'deferred'],
   ['PHP/8.6.0', 'https://example.com/shop/', 'deferred'],
   ['PHP/8.2.35', 'https://example.com/elsewhere/', 'deferred'],

@@ -261,6 +261,7 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
   db.prepare("UPDATE managed_cases SET status='awaiting_verification' WHERE id=?").run(caseId);
   for (const [label, tech] of [
     ['hidden', await response('PHP')],
+    ['runtime-alias-hidden', await response('PHP-FPM')],
     ['malformed', await response('PHP/8.2')],
     ['other-path', await response('PHP/8.2.35', 'https://php.example.com/other/')],
     ['other-host', await response('PHP/8.2.35', 'https://other.example.com/shop/')],
