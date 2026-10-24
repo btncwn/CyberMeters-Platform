@@ -430,6 +430,49 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   const atUnowned=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise:unowned,specialControlsAvailable:true,trigger:'manual'});
   assert.deepEqual(atUnowned.endpoints[0].scope.held_checks,{robot:'address_not_verified_not_tested'});
 }
+// F1 (24 Oct 2026): an explicitly authorised additional TLS service is planned
+// on its own authority, without waiting for the website checks to have seen
+// HTTPS on that host. Normal checks and granted specials both run; a standard
+// host still waits for an observation; a tight budget keeps the named service
+// even when a discovered host sorts before it.
+{
+  const ep=(hostname,address,kind,scope={})=>{const endpoint={hostname,sni:hostname,address,port:443,transport:'tcp',
+    application_protocol:'https',dns_addresses:[address],dns_observed_at:new Date().toISOString()};
+    return {endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind,...scope}};};
+  const granted={special_consent:true,special_checks:{heartbleed:'acc_f1',robot:'acc_f1',ccs:'acc_f1'},granted_checks:{},held_checks:{}};
+  const service=ep('probe.special.example.org','8.8.4.4','authorized_service',{service_authorization_id:'svc_f1',generation:1,...granted});
+  const standard=ep('alpha.example.org','8.8.8.8','standard_https',{special_consent:false,special_checks:{},granted_checks:{},held_checks:{}});
+  const plan=buildBudgetedTlsCheckPlan({endpoints:[standard,service],cipherCatalog:[],observedHttpsHosts:[],scanId:'f1_fresh'});
+  const onService=plan.selected.filter(r=>r.endpoint_index===1).map(r=>r.check.control);
+  assert.ok(onService.includes('certificate')&&onService.includes('protocol'),'F1: normal checks are planned on the authorised service with no previous observation');
+  if(TLS_SPECIAL_CONTROLS_AVAILABLE){
+    for(const control of ['heartbleed','robot','ccs'])assert.ok(onService.includes(control),`F1: the granted ${control} test is planned on the authorised service`);
+  }
+  assert.ok(!plan.deferred_hosts.some(d=>d.hostname==='probe.special.example.org'),'F1: the authorised service is never deferred for a missing website observation');
+  assert.deepEqual(plan.deferred_hosts.filter(d=>d.hostname==='alpha.example.org').map(d=>d.reason),['https_service_not_observed'],
+    'control: a discovered standard host still waits for an HTTPS observation');
+  const serviceRows=plan.selected.filter(r=>r.endpoint_index===1).length;
+  const tight=buildBudgetedTlsCheckPlan({endpoints:[standard,service],cipherCatalog:[],observedHttpsHosts:['alpha.example.org'],scanId:'f1_tight',maxChecks:serviceRows});
+  assert.ok(tight.selected.length===serviceRows&&tight.selected.every(r=>r.endpoint_index===1),'F1: a tight budget keeps the named service first');
+  assert.deepEqual(tight.deferred_hosts.filter(d=>d.hostname==='alpha.example.org').map(d=>d.reason),['tls_plan_budget']);
+  // Scheduled: the service's normal checks still run; its specials are held, with the reason.
+  const scheduled=ep('probe.special.example.org','8.8.4.4','authorized_service',{service_authorization_id:'svc_f1',generation:1,special_consent:false,
+    special_checks:{},granted_checks:{},held_checks:{heartbleed:'scheduled_or_unknown_origin',robot:'scheduled_or_unknown_origin',ccs:'scheduled_or_unknown_origin'}});
+  const held=buildBudgetedTlsCheckPlan({endpoints:[scheduled],cipherCatalog:[],observedHttpsHosts:[],scanId:'f1_scheduled'});
+  assert.ok(held.selected.some(r=>r.check.control==='certificate'),'scheduled: the authorised service still gets its normal checks');
+  assert.ok(!held.selected.some(r=>['heartbleed','robot','ccs'].includes(r.check.control)),'scheduled: no special test is selected');
+  assert.deepEqual(held.static_results.map(r=>[r.check.control,r.state,r.reason]).sort(),
+    [['ccs','unexecutable','scheduled_or_unknown_origin'],['heartbleed','unexecutable','scheduled_or_unknown_origin'],['robot','unexecutable','scheduled_or_unknown_origin']]);
+}
+// F1: the authorised service is planned only while its current DNS answer equals
+// the authorised IP target; otherwise it is not planned and the gap says why.
+{
+  const scan={id:'scope_mismatch',workspace_id:scopeWorkspace,domain_id:scopeDomainId,domain:scopeDomain};
+  const moved=async(host,type)=>type==='A'?{Status:0,Answer:[{name:`${host}.`,type:1,data:'9.9.9.9'}]}:{Status:0,Answer:[]};
+  const plannedMoved=await loadTlsEndpoints(env,scan,{lookup:moved});
+  assert.equal(plannedMoved.endpoints.filter(e=>e.scope.kind==='authorized_service').length,0,'DNS mismatch: the service is not planned');
+  assert.ok(plannedMoved.gaps.some(g=>g.port===587&&g.reason==='dns_target_mismatch_or_unavailable'),'DNS mismatch: the gap is stated with its reason');
+}
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no
 // connection is opened.
