@@ -179,7 +179,7 @@ export async function tlsScopeStillAuthorized(env,scan,entry,{authorise} = {}) {
   catch { return false; }
 }
 
-const productControls = ['protocol','key_exchange','certificate','ocsp','compression','secure_renegotiation','fallback_scsv','extended_master_secret','session_resumption','early_data','sni_alpn',...TLS_SPECIAL_CONTROLS];
+const productControls = ['protocol','key_exchange','certificate','ocsp','compression','secure_renegotiation','fallback_scsv','extended_master_secret','session_resumption','early_data','sni_alpn','pqc_key_exchange',...TLS_SPECIAL_CONTROLS];
 export function buildTlsCheckPlan({endpoints,cipherCatalog=[],previousFindings=[],scanId='',maxChecks=MAX_CHECKS_PER_SCAN}) {
   const all = [];
   for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex++) {
@@ -261,7 +261,8 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
     // Certificate and chain facts precede version, cipher-class and optional
     // active checks. Old protocols get one version check, not hundreds of
     // duplicate cipher handshakes.
-    for(const protocol of ['tls1_3','tls1_2'])for(const control of ['certificate','key_exchange','ocsp'])add(control,protocol);
+    // PQC readiness (TLS 1.3 only by applicability): one handshake per endpoint.
+    for(const protocol of ['tls1_3','tls1_2'])for(const control of ['certificate','key_exchange','ocsp','pqc_key_exchange'])add(control,protocol);
     for(const protocol of [...TLS_PROTOCOLS].reverse())add('protocol',protocol);
     for(const protocol of ['tls1_3','tls1_2']){
       for(const control of ['compression','secure_renegotiation','fallback_scsv','extended_master_secret',

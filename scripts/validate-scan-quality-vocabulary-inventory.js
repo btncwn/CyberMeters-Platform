@@ -222,9 +222,12 @@ const EXPECTED = Object.freeze({
     // BRI 2026-10-23.1 (item 15 fix C): three comment lines shift business-risk.js;
     // the two-tree --dump-current diff, ignoring position, is identical in every
     // inventory (sql/static/sink sites, comparisons, direct reads).
-    fingerprint: "2531e77bfc9b393a83faea14333660bb2689d641ecc17786792f870a9b097df1",
+    // Hardening (24 Oct 2026): two imports added to routes/workspace-insights.js
+    // shift its SQL sites; keyed two-tree diff (file, kind, snippet) shows 0
+    // added and 0 removed across sql_sites / static / query-sink. Counts unchanged.
+    fingerprint: "c8156c8101878556dc5cc5c97f06b510158f49ce4f4323dca4e47f08a416f7ae",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "8e1eb81b76ca05634cbce628a07cbf1b5ad9d53634892ab17a900c11b6609532",
+    resolved_query_sink_fingerprint: "e75a5e1a94ed6171ce121fc8f793d172bf57ee500aa35a70cfda6695e8ce5779",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1

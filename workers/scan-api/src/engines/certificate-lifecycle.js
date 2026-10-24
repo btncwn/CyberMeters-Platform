@@ -1092,7 +1092,7 @@ const TLS_CONDITION_REASON = Object.freeze({
   tls_weak_key_exchange: "weak key exchange",
   tls_no_forward_secrecy: "no forward secrecy",
   tls_heartbleed_confirmed: "Heartbleed behaviour confirmed",
-  tls_robot_confirmed: "RSA padding oracle signal",
+  tls_robot_confirmed: "server reveals RSA decryption errors (ROBOT)",
   tls_ccs_confirmed: "CCS injection behaviour confirmed",
   tls_certificate_hostname: "certificate does not cover this host",
   tls_certificate_trust: "certificate trust failure",
@@ -1106,7 +1106,7 @@ const TLS_CONDITION_REASON = Object.freeze({
 const TLS_PROTOCOL_LABEL = Object.freeze({ ssl2: "SSL 2.0", ssl3: "SSL 3.0", tls1: "TLS 1.0", tls1_1: "TLS 1.1", tls1_2: "TLS 1.2", tls1_3: "TLS 1.3" });
 const TLS_VULNERABILITY_LABEL = Object.freeze({
   tls_heartbleed_confirmed: "Heartbleed behaviour confirmed",
-  tls_robot_confirmed: "ROBOT (RSA padding oracle) signal",
+  tls_robot_confirmed: "server reveals RSA decryption errors (ROBOT)",
   tls_ccs_confirmed: "CCS injection behaviour confirmed",
 });
 // The distinguishing part of a TLS case's title, from the condition recorded on

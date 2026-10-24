@@ -21,7 +21,7 @@ const CONNECTION_BINARY = Object.freeze({
 const activeControls = new Set(['heartbleed', 'robot', 'ccs']);
 // The private parent independently requires the versioned workspace consent.
 const SPECIAL_CONTROLS_ENABLED = true;
-const productControl = Object.freeze({ protocol:'handshake',cipher:'handshake',key_exchange:'handshake',certificate:'certificate',ocsp:'certificate',compression:'compression',secure_renegotiation:'renegotiation',fallback_scsv:'fallback',extended_master_secret:'handshake',session_resumption:'resumption',early_data:'resumption',sni_alpn:'handshake',heartbleed:'heartbleed',robot:'robot',ccs:'ccs' });
+const productControl = Object.freeze({ protocol:'handshake',cipher:'handshake',key_exchange:'handshake',pqc_key_exchange:'handshake',certificate:'certificate',ocsp:'certificate',compression:'compression',secure_renegotiation:'renegotiation',fallback_scsv:'fallback',extended_master_secret:'handshake',session_resumption:'resumption',early_data:'resumption',sni_alpn:'handshake',heartbleed:'heartbleed',robot:'robot',ccs:'ccs' });
 
 function ipKey(value) {
   if (isIP(value) === 4) return value;
@@ -161,6 +161,8 @@ function engineCommand(input, check, maxConnections) {
     '--hostname',input.endpoint.sni,'--alpn',input.endpoint.application_protocol === 'https' ? 'h2-http1' : 'none',
     '--trust-bundle','/opt/cybermeters/trust/ca-bundle.pem','--timeout-ms',String(input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000)];
   if (check.cipher_id !== null) args.push('--cipher',check.cipher_id);
+  // PQC readiness: offer the hybrid ML-KEM group beside classical groups (modern engine).
+  if (check.control === 'pqc_key_exchange') args.push('--group','pqc_hybrid');
   if (input.scope.kind === 'mail_mx') args.push('--mail-probe','true');
   return { binary, args };
 }

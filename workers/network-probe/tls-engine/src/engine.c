@@ -454,7 +454,17 @@ static SSL_CTX *context(void) {
     } else SSL_CTX_set_options(ctx,SSL_OP_NO_COMPRESSION);
     SSL_CTX_set_session_cache_mode(ctx,SSL_SESS_CACHE_CLIENT|SSL_SESS_CACHE_NO_INTERNAL_STORE);
     SSL_CTX_sess_set_new_cb(ctx,save_session);
-    if(opt.group) {
+    /* PQC readiness (S3-MODERN 2): offer the hybrid ML-KEM group beside
+       classical groups and report what the server chose. Modern build only. */
+    if(opt.group&&!strcmp(opt.group,"pqc_hybrid")) {
+#if CM_LEGACY
+        state="unexecutable";reason="group_unavailable";SSL_CTX_free(ctx);return NULL;
+#else
+        if(SSL_CTX_set1_groups_list(ctx,"X25519MLKEM768:X25519:P-256")!=1) {
+            state="unexecutable";reason="group_unavailable";SSL_CTX_free(ctx);return NULL;
+        }
+#endif
+    } else if(opt.group) {
         const char *groups[]={"P-256","P-384","P-521","X25519","X448","ffdhe2048","ffdhe3072","ffdhe4096",NULL};
         if(!in_list(opt.group,groups)||SSL_CTX_set1_curves_list(ctx,opt.group)!=1) {
             state="unexecutable";reason="group_unavailable";SSL_CTX_free(ctx);return NULL;
@@ -712,6 +722,15 @@ static void negotiated_json(SSL *s) {
         if(SSL_CIPHER_get_kx_nid(cipher)==NID_kx_rsa)pfs=0;
 #endif
     }
+#if !CM_LEGACY
+    /* For the PQC control the negotiated group is named by OpenSSL itself, so a
+       hybrid (X25519MLKEM768) is reported exactly; the temp-key derivation above
+       cannot name an ML-KEM hybrid. */
+    if(opt.group&&!strcmp(opt.group,"pqc_hybrid")) {
+        const char *negotiated=SSL_group_to_name(s,SSL_get_negotiated_group(s));
+        group=negotiated&&identifier(negotiated,64)?negotiated:NULL;
+    }
+#endif
     append("{\"version\":\"%s\",\"cipher\":\"%s\",\"cipher_bits\":%d,\"group\":",version,name,SSL_CIPHER_get_bits(cipher,NULL));
     if(group&&identifier(group,64))append("\"%s\"",group);else append("null");
     append(",\"group_bits\":");if(bits>0&&bits<=16384)append("%d",bits);else append("null");

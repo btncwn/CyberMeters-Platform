@@ -58,6 +58,20 @@ assert(weakKeyFinding&&weakSignatureFinding);
 const unknown=module([protocol('tls1_2'),certRow({...leaf,key_type:'UNKNOWN',key_bits:0,signature_algorithm:'unknown'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,unknown).state,'deferred');
 assert.equal(evaluateTlsCondition(weakSignatureFinding.id,unknown).state,'deferred');
+// PQC readiness (S3-MODERN 2): a readiness state per endpoint, never a finding.
+{
+  const { pqcKeyExchangeState } = await import('../workers/scan-api/src/engines/tls-findings.js');
+  const pqcRow=(group,state='accepted')=>{const row=protocol('tls1_3');row.control='pqc_key_exchange';row.state=state;
+    row.evidence={...row.evidence,negotiated:{...(row.evidence?.negotiated||{}),version:'tls1_3',group}};return row;};
+  const st=(row)=>pqcKeyExchangeState(module([protocol('tls1_3'),row]))[0];
+  assert.deepEqual([st(pqcRow('X25519MLKEM768')).state,st(pqcRow('X25519MLKEM768')).group],['hybrid_pqc_negotiated','X25519MLKEM768']);
+  assert.equal(st(pqcRow('X25519Kyber768Draft00')).state,'hybrid_pqc_negotiated','a draft hybrid is still named as negotiated');
+  assert.deepEqual([st(pqcRow('x25519')).state,st(pqcRow('x25519')).group],['classical_only','x25519']);
+  assert.equal(st(pqcRow('X25519MLKEM768','uncertain')).state,'not_assessed','an unfinished handshake is not assessed');
+  assert.equal(pqcKeyExchangeState(module([protocol('tls1_3')])).length,0,'no PQC check planned: nothing to say');
+  const findings=tlsAssessmentFindings(module([protocol('tls1_3'),pqcRow('x25519')]));
+  assert.ok(!findings.some(f=>/pqc|quantum/i.test(f.id+f.title)),'classical-only is never a finding');
+}
 // Must-Staple (RFC 7633, S3-MODERN 1): a finding only for a definite Must-Staple
 // leaf with no stapled OCSP response; null/missing is not assessed.
 {
@@ -96,22 +110,44 @@ const robot={...protocol('tls1_2'),control:'robot',reason:'active_confirmed',eng
 const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).find(row=>row.id.startsWith('tls_robot_confirmed__'));
 // C-45: no internal identifier (snake_case enum or profile id) in customer prose.
 {
-  const prose=/[a-z]+_[a-z_]+|-v\d/;
+  // Case-insensitive, and plain-English jargon too (C-45 follow-up, 24 Oct 2026).
+  const prose=/[a-z]+_[a-z_]+|-v\d|snapshot|bounded|\bcontrol\b|oracle|CDN edge|key material|\bSNI\b/i;
   const active=(control,profile,planned)=>({...robot,control,evidence:{...robot.evidence,vulnerability:{status:'confirmed',profile,completed_vectors:planned,planned_vectors:planned}}});
   const rows=[...['ssl2','ssl3','tls1','tls1_1'].map(v=>protocol(v)),cipher,robot,active('heartbleed','heartbleed-minimal-v1',1),active('ccs','ccs-early-record-v1',4),
     ...['rsa_md5','rsa_sha1','ecdsa_sha1','dsa_sha1'].map(sig=>certRow({...leaf,signature_algorithm:sig})),
     ...['issuer_missing','self_signed','expired','not_yet_valid','signature_invalid','invalid_purpose','trust_unknown','something_new'].map(reason=>{
-      const row=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'});row.evidence.certificates={...row.evidence.certificates,trust:'invalid',reason};return row;})];
+      const row=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'});row.evidence.certificates={...row.evidence.certificates,trust:'invalid',reason};return row;}),
+    // Every other TLS finding (C-45 follow-up): key exchange, forward secrecy,
+    // hostname, weak key, OCSP revoked, Must-Staple (absent and invalid), compression.
+    ...[['DH',1024],['ffdhe2048',1024],['secp256r1',160],['mystery_group',512]].map(([group,group_bits])=>({...protocol('tls1_2'),control:'key_exchange',
+      evidence:{...protocol('tls1_2').evidence,negotiated:{version:'tls1_2',cipher:'AES256-SHA',group,group_bits,pfs:false}}})),
+    (()=>{const row=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'});row.evidence.certificates={...row.evidence.certificates,hostname:false};return row;})(),
+    (()=>{const row=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'});row.evidence.ocsp={state:'revoked',signature_valid:true,cert_id_match:true,fresh:true,this_update:1,next_update:2};return row;})(),
+    ...['absent','invalid','unknown'].map(state=>{const row=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256',must_staple:true});
+      row.evidence.ocsp={state,signature_valid:state==='absent'?null:false,cert_id_match:null,fresh:null,this_update:null,next_update:null};return row;}),
+    {...protocol('tls1_2'),control:'compression',evidence:{...protocol('tls1_2').evidence,extensions:{compression:true}}}];
   let checked=0;
   for(const row of rows)for(const f of tlsAssessmentFindings(module([protocol('tls1_2'),row]))){
     for(const field of ['title','description','recommendation'])assert.doesNotMatch(f[field],prose,`${f.id.split('__')[0]} ${field}: ${f[field]}`);
     checked++;
   }
-  assert.ok(checked>=20,`prose scan covered ${checked} findings`);
+  assert.ok(checked>=30,`prose scan covered ${checked} findings`);
+  // Every emitted TLS finding type is covered by this scan.
+  const covered=new Set();
+  for(const row of rows)for(const f of tlsAssessmentFindings(module([protocol('tls1_2'),row])))covered.add(f.id.split('__')[0]);
+  assert.deepEqual([...covered].sort(),['tls_ccs_confirmed','tls_certificate_hostname','tls_certificate_trust','tls_compression_enabled','tls_heartbleed_confirmed',
+    'tls_legacy_protocol','tls_must_staple_not_stapled','tls_no_forward_secrecy','tls_ocsp_revoked','tls_robot_confirmed','tls_weak_certificate_key',
+    'tls_weak_certificate_signature','tls_weak_cipher','tls_weak_key_exchange'],'the prose scan covers every TLS finding type');
+  // All four legacy protocol titles, pinned.
+  assert.deepEqual(['ssl2','ssl3','tls1','tls1_1'].map(v=>tlsAssessmentFindings(module([protocol('tls1_2'),protocol(v)])).find(f=>f.id.startsWith('tls_legacy_protocol__')).title),
+    ['SSL 2.0 accepted on this endpoint','SSL 3.0 accepted on this endpoint','TLS 1.0 accepted on this endpoint','TLS 1.1 accepted on this endpoint']);
+  const kx=f=>tlsAssessmentFindings(module([protocol('tls1_2'),{...protocol('tls1_2'),control:'key_exchange',evidence:{...protocol('tls1_2').evidence,negotiated:{version:'tls1_2',cipher:'AES256-SHA',...f,pfs:true}}}])).find(x=>x.id.startsWith('tls_weak_key_exchange__'))?.description;
+  assert.match(kx({group:'DH',group_bits:1024}),/used Diffie-Hellman at 1024-bit strength/);
+  assert.match(kx({group:'mystery_group',group_bits:512}),/used an unrecognised key exchange group at 512-bit strength/,'an unknown group is not guessed or echoed raw');
   const tls10=tlsAssessmentFindings(module([protocol('tls1_2'),protocol('tls1')]))[0];
   assert.match(tls10.title,/^TLS 1\.0 accepted/);assert.equal(tls10.evidence[0].value.startsWith('tls1 '),true,'evidence keeps the raw value');
   const expired=certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'});expired.evidence.certificates={...expired.evidence.certificates,trust:'invalid',reason:'expired'};
-  assert.match(tlsAssessmentFindings(module([protocol('tls1_2'),expired])).find(f=>f.id.startsWith('tls_certificate_trust__')).description,/certificate chain: the certificate has expired\./);
+  assert.match(tlsAssessmentFindings(module([protocol('tls1_2'),expired])).find(f=>f.id.startsWith('tls_certificate_trust__')).description,/validated against trusted certificate authorities: the certificate has expired\./);
 }
 // Heartbeat not offered (Executive, 24 Oct 2026): Heartbleed reads "not
 // applicable", never "Could not execute"; no finding; an open case stays inconclusive.
@@ -130,7 +166,10 @@ const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).fin
 }
 assert(robotFinding);
 assert.equal(robotFinding.confidence,80);
-assert.match(robotFinding.description,/CDN edge result does not establish an origin vulnerability/);
+// Active checks run only on customer-owned addresses (F1): the ROBOT prose
+// states what was seen, that nothing was decrypted, and makes no edge claim.
+assert.match(robotFinding.description,/No decryption was attempted\./);
+assert.doesNotMatch(robotFinding.description,/edge|CDN/i);
 assert.equal(evaluateTlsCondition(robotFinding.id,module([protocol('tls1_2'),robot])).state,'present');
 const robotClear={...robot,state:'rejected',reason:'active_not_observed',evidence:{...robot.evidence,
   vulnerability:{...robot.evidence.vulnerability,status:'not_observed'}}};
@@ -195,7 +234,7 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
     assert.equal(certificateCaseDisplay({...db.prepare("SELECT * FROM managed_cases WHERE id=?").get(t11)}).display_title,'TLS endpoint mail.example.org — TLS 1.1 accepted','an older case is retitled on the next re-measure');
     assert.equal(db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n,before,'no duplicate case');
     assert.equal(certificateCaseDisplay({case_type:'certificate_case',source_finding_type:'tls_weak_cipher',asset_ref:'mail.example.org',evidence_json:JSON.stringify({tls_condition:{protocol:'tls1_2',cipher_id:'RC4-MD5'}})}).display_title,'TLS endpoint mail.example.org — weak cipher RC4-MD5 accepted','a weak cipher case names its cipher');
-    assert.equal(certificateCaseDisplay({case_type:'certificate_case',source_finding_type:'tls_robot_confirmed',asset_ref:'mail.example.org'}).display_title,'TLS endpoint mail.example.org — ROBOT (RSA padding oracle) signal','a _confirmed case names its vulnerability');
+    assert.equal(certificateCaseDisplay({case_type:'certificate_case',source_finding_type:'tls_robot_confirmed',asset_ref:'mail.example.org'}).display_title,'TLS endpoint mail.example.org — server reveals RSA decryption errors (ROBOT)','a _confirmed case names its vulnerability');
     db.prepare("DELETE FROM managed_cases WHERE workspace_id='ws1' AND id<>?").run(c1.id);
     // This block's own side effects stay inside it (the alert assertions below count from the open).
     db.prepare("DELETE FROM notification_events WHERE rowid > ?").run(notifMark);
