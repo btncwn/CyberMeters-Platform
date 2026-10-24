@@ -22,7 +22,8 @@ import {
   caseDisplayTitle,
 } from '../../lib/caseDisplay'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
-import { formatDate, formatDay } from '../../utils/dates'
+import { formatDay, formatLocalDateTime } from '../../utils/dates'
+import { resolutionEventWords } from '../../lib/caseEventWords'
 import { affectedLabel } from '../../lib/keyLabel'
 import { useScopedDomain } from '../../components/shell/WorkspaceContext'
 
@@ -56,9 +57,10 @@ const SUPPORT_TONE = {
   slate: 'bg-slate-50 text-slate-700 border-slate-200',
 }
 
-// Human dates, one formatter for the product (utils/dates: server timestamps are UTC).
+// Human dates: the app-wide customer time rule, local time with the zone named
+// ("24 Oct 2026 at 01:34 BST") — the same as the scan pages (10c).
 function fmt(ts) {
-  return formatDate(ts, '—')
+  return formatLocalDateTime(ts, '—')
 }
 
 // Present one append-only history event honestly (assignment, creation, transitions).
@@ -82,6 +84,8 @@ function isAutomaticReopen(ev) {
 
 function eventLabel(ev) {
   const a = ev.action || ''
+  const resolution = resolutionEventWords(ev)
+  if (resolution) return resolution
   if (a === 'case_created') return 'Case opened'
   if (a === 'assignment_changed') return 'Owner assigned'
   if (isReopenEvent(ev)) {
