@@ -1090,7 +1090,7 @@ export async function authRoutes(rctx) {
             .prepare(
               `UPDATE password_reset_tokens
                SET used_at = datetime('now')
-               WHERE user_id = ? AND used_at IS NULL AND expires_at > datetime('now')`
+               WHERE user_id = ? AND used_at IS NULL AND julianday(expires_at) > julianday('now')`
             )
             .bind(user.id)
             .run();

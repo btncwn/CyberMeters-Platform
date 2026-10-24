@@ -67,7 +67,7 @@ async function readScan(db,workspaceId,scanId) {
   return db.prepare('SELECT s.*,t.target FROM network_scans s JOIN network_targets t ON t.id=s.target_id AND t.workspace_id=s.workspace_id WHERE s.workspace_id=? AND s.id=?').bind(workspaceId,scanId).first();
 }
 async function monthlyUsage(db,ownerId) {
-  const row=await db.prepare(`SELECT (SELECT COUNT(*) FROM scans s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_user_id=? AND s.created_at>=?) + (SELECT COUNT(*) FROM network_scans n JOIN workspaces w ON w.id=n.workspace_id WHERE w.owner_user_id=? AND n.created_at>=?) AS cnt`).bind(ownerId,getMonthStart(),ownerId,getMonthStart()).first();
+  const row=await db.prepare(`SELECT (SELECT COUNT(*) FROM scans s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_user_id=? AND julianday(s.created_at)>=julianday(?)) + (SELECT COUNT(*) FROM network_scans n JOIN workspaces w ON w.id=n.workspace_id WHERE w.owner_user_id=? AND julianday(n.created_at)>=julianday(?)) AS cnt`).bind(ownerId,getMonthStart(),ownerId,getMonthStart()).first();
   if(!Number.isInteger(row?.cnt)||row.cnt<0)throw new Error('usage_unavailable');
   return row.cnt;
 }
@@ -272,7 +272,7 @@ export async function networkAssetRoutes(rctx) {
       // The quota predicate executes in the same D1 statement as admission.
       const admission=await getOperationAdmission(env,workspaceId,user.id,'scans');
       const quota=admission.state.is_trial||admission.state.plan==='free' ? admission : {
-        sql:`((SELECT COUNT(*) FROM scans s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_user_id=? AND s.created_at>=?) + (SELECT COUNT(*) FROM network_scans n JOIN workspaces w ON w.id=n.workspace_id WHERE w.owner_user_id=? AND n.created_at>=?))<?`,
+        sql:`((SELECT COUNT(*) FROM scans s JOIN workspaces w ON w.id=s.workspace_id WHERE w.owner_user_id=? AND julianday(s.created_at)>=julianday(?)) + (SELECT COUNT(*) FROM network_scans n JOIN workspaces w ON w.id=n.workspace_id WHERE w.owner_user_id=? AND julianday(n.created_at)>=julianday(?)))<?`,
         args:[owner,getMonthStart(),owner,getMonthStart(),limits.scans_per_month],
         rejection:async()=>({status:403,body:{error:'plan_limit_exceeded',resource:'scans_per_month',limit:limits.scans_per_month,usage:await monthlyUsage(db,owner),reset_at:getMonthResetAt()}})
       };

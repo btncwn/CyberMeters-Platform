@@ -208,14 +208,14 @@ export async function workspaceInsightRoutes(rctx) {
 	            `SELECT COUNT(DISTINCT s.id) AS n
 	             FROM scans s
 	             LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-	             WHERE s.created_at >= ?
+	             WHERE julianday(s.created_at) >= julianday(?)
 	               AND (s.workspace_id = ? OR (s.workspace_id IS NULL AND wd.workspace_id = ?))`
 	          ).bind(periodStart, workspaceId, workspaceId).first(),
 	          env.cybermeters_db.prepare(
 	            `SELECT COUNT(DISTINCT s.id) AS n
 	             FROM scans s
 	             LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-	             WHERE s.status = 'completed' AND s.created_at >= ?
+	             WHERE s.status = 'completed' AND julianday(s.created_at) >= julianday(?)
 	               AND (s.workspace_id = ? OR (s.workspace_id IS NULL AND wd.workspace_id = ?))`
 	          ).bind(periodStart, workspaceId, workspaceId).first(),
 	          env.cybermeters_db.prepare(

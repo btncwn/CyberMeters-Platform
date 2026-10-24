@@ -117,8 +117,8 @@ async function computeWindow(env, { workspaceId, domainId, scanId, assessedAt })
       `SELECT created_at FROM scans
         WHERE domain_id = ? AND (workspace_id = ? OR workspace_id IS NULL)
           AND id != ? AND status = 'completed' AND scan_quality = 'complete'
-          AND created_at <= ?
-        ORDER BY created_at DESC LIMIT 1`
+          AND julianday(created_at) <= julianday(?)
+        ORDER BY julianday(created_at) DESC LIMIT 1`
     )
     .bind(domainId, workspaceId, scanId, assessedAt)
     .first();
