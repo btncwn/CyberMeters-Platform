@@ -18,6 +18,13 @@ import { dnsQuery } from "./dns.js";
 import { observedNetworkAddresses } from "./network-ownership.js";
 import { collectNetworkProbe, isPublicProbeAddress } from "./network-probe.js";
 import { createId } from "../lib/util.js";
+import { cloudProviderForAddress, cloudProviderName, cloudRangeIndex, readCloudRanges } from "./cloud-ranges.js";
+
+// Dangling-DNS (24 Oct 2026): an owned address in a cloud provider's published
+// range is also checked on the web ports, in its own request (the 16-port
+// list is the per-request cap). Unreachable = every checked port timed out.
+export const CLOUD_WEB_PORTS = Object.freeze([80, 443]);
+const CLOUD_HISTORY_JOBS = 5;
 
 export const REMOTE_ADMIN_EXPOSURE_VERSION = "remote-admin-exposure-v1";
 
@@ -77,6 +84,7 @@ export async function runRemoteAdminExposureModule(env, scan, {
     dnsQueryImpl: (name, type) => dnsQuery(name, type, { accounting }),
   }),
   collect = collectNetworkProbe, now = Date.now, requestId = () => createId("netadm"),
+  cloudRanges = () => readCloudRanges(env), history = (addresses) => addressLiveHistory(env, scan, addresses),
 } = {}) {
   const observedAt = () => new Date(now()).toISOString();
   const result = (fields) => ({
@@ -126,20 +134,41 @@ export async function runRemoteAdminExposureModule(env, scan, {
     targets: selected.map(([address]) => ({ address, hostname: null })), ports: [...REMOTE_ADMIN_PORT_LIST],
   };
   const coverageBase = { owned_addresses: owned.length, checked_addresses: selected.length, planned_pairs: selected.length * REMOTE_ADMIN_PORT_LIST.length };
+  // Cloud-range addresses (dangling-DNS) get a second, web-port request in parallel.
+  const cloudIndex = cloudRangeIndex(await Promise.resolve().then(cloudRanges).catch(() => null), now());
+  const cloudSelected = cloudIndex ? selected.filter(([address]) => cloudProviderForAddress(cloudIndex, address)) : [];
+  const webRequest = cloudSelected.length ? {
+    schema_version: "network-probe-request-v1", request_id: requestId(),
+    workspace_id: scan.workspace_id, scan_id: scan.id, profile: "network_services",
+    deadline_at: request.deadline_at, targets: cloudSelected.map(([address]) => ({ address, hostname: null })), ports: [...CLOUD_WEB_PORTS],
+  } : null;
+  const webPromise = webRequest ? (async () => {
+    accounting?.assertCanIssue?.();
+    accounting?.recordAttempt?.();
+    return collect(env, webRequest, { signal });
+  })().catch(() => null) : Promise.resolve(null);
   let receipt;
   try {
     accounting?.assertCanIssue?.();
     accounting?.recordAttempt?.();
     receipt = await collect(env, request, { signal });
   } catch {
+    await webPromise;
     return result({ state: "not_assessed", reason: "probe_unavailable", incomplete: true, incomplete_reason: "probe_unavailable",
-      error: "probe_unavailable", coverage: { ...coverageBase, completed_pairs: 0 } });
+      error: "probe_unavailable", coverage: { ...coverageBase, completed_pairs: 0 },
+      cloud_hosts: cloudHostsNotAssessed(cloudIndex, selected, "probe_unavailable") });
   }
+  const webReceipt = await webPromise;
   const rows = Array.isArray(receipt?.observations) ? receipt.observations : [];
   // A port that did not answer (timeout at connect) is a conclusive "no
   // answer" only when another port on the SAME address answered in this run;
   // if nothing on an address answered, the host may simply be unreachable.
-  const answeredAddresses = new Set(rows.filter((row) => row?.state === "open" || row?.state === "closed").map((row) => row.address));
+  // A web port answering on the same address in this run (cloud addresses get
+  // the 80/443 check) also proves the host is up, so its admin-port timeouts
+  // are conclusive too.
+  const webAnswered = (Array.isArray(webReceipt?.observations) ? webReceipt.observations : [])
+    .filter((row) => row?.state === "open" || row?.state === "closed").map((row) => row.address);
+  const answeredAddresses = new Set([...rows.filter((row) => row?.state === "open" || row?.state === "closed").map((row) => row.address), ...webAnswered]);
   const completedPairs = rows.filter((row) => row?.state === "open" || row?.state === "closed" ||
     (row?.state === "timeout" && answeredAddresses.has(row.address))).length;
   const unreachableAddresses = [...new Set(rows.filter((row) => row?.state === "timeout" && !answeredAddresses.has(row.address)).map((row) => row.address))];
@@ -149,10 +178,73 @@ export async function runRemoteAdminExposureModule(env, scan, {
   if (unreachableAddresses.length) reasons.push("address_unreachable");
   if (completedPairs < coverageBase.planned_pairs && !unreachableAddresses.length) reasons.push("ports_not_all_checked");
   if (lookupsFailed > 0) reasons.push("address_lookup_failed");
+  const cloudHosts = await assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, history });
   return result({
-    state: "observed", reason: null, exposures,
+    state: "observed", reason: null, exposures, cloud_hosts: cloudHosts,
     addresses_checked: selected.map(([address, hostnames]) => ({ address, hostnames })),
     coverage: { ...coverageBase, completed_pairs: completedPairs },
     incomplete: reasons.length > 0, incomplete_reason: reasons[0] || null, incomplete_reasons: reasons,
   });
+}
+
+// ── Dangling DNS on cloud addresses (24 Oct 2026) ─────────────────────────────
+// For each owned address in a published cloud range: did ANY checked port
+// answer (open, or closed = the host refused, so it is up)? Unreachable only
+// when every remote-admin port and both web ports timed out in this run. A
+// missing or partial web receipt is not assessed, never unreachable.
+function cloudHostsNotAssessed(cloudIndex, selected, reason) {
+  if (!cloudIndex) return { state: "not_assessed", reason: "cloud_ranges_unavailable", hosts: [] };
+  const hosts = selected.filter(([address]) => cloudProviderForAddress(cloudIndex, address)).map(([address, hostnames]) => {
+    const provider = cloudProviderForAddress(cloudIndex, address);
+    return { address, hostnames, provider, provider_name: cloudProviderName(provider), state: "not_assessed", reason, live_history: null };
+  });
+  return { state: "not_assessed", reason, ranges_fetched_at: cloudIndex.fetched_at, hosts };
+}
+async function assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, history }) {
+  if (!cloudIndex) return { state: "not_assessed", reason: "cloud_ranges_unavailable", hosts: [] };
+  if (!cloudSelected.length) return { state: "assessed", reason: null, ranges_fetched_at: cloudIndex.fetched_at, hosts: [] };
+  const webRows = Array.isArray(webReceipt?.observations) ? webReceipt.observations : null;
+  const answered = (list, address) => list.some((row) => row?.address === address && (row.state === "open" || row.state === "closed"));
+  const allTimedOut = (list, address, ports) => ports.every((port) => list.some((row) => row?.address === address && row.port === port && row.state === "timeout"));
+  let live = {};
+  try { live = await history(cloudSelected.map(([address]) => address)) || {}; } catch { live = {}; }
+  const hosts = cloudSelected.map(([address, hostnames]) => {
+    const provider = cloudProviderForAddress(cloudIndex, address);
+    const base = { address, hostnames, provider, provider_name: cloudProviderName(provider), live_history: live[address] || null };
+    if (!webRows) return { ...base, state: "not_assessed", reason: "web_ports_not_checked" };
+    if (answered(rows, address) || answered(webRows, address)) return { ...base, state: "answered", reason: null };
+    if (allTimedOut(rows, address, REMOTE_ADMIN_PORT_LIST) && allTimedOut(webRows, address, CLOUD_WEB_PORTS))
+      return { ...base, state: "unreachable", reason: "no_port_answered" };
+    return { ...base, state: "not_assessed", reason: "ports_not_all_checked" };
+  });
+  return { state: "assessed", reason: null, ranges_fetched_at: cloudIndex.fetched_at, hosts };
+}
+
+// Did this workspace see a service answer on the address before? Durable
+// sources only: an open port in network_assets, or an accepted TLS handshake on
+// that address in one of this domain's recent exposure jobs.
+export async function addressLiveHistory(env, scan, addresses) {
+  const db = env.cybermeters_db, out = {};
+  if (!db || !addresses.length) return out;
+  const marks = addresses.map(() => "?").join(",");
+  const ports = await db.prepare(`SELECT address, port, last_seen_at FROM network_assets
+      WHERE workspace_id=? AND address IN (${marks}) AND last_observed_state='open' AND last_seen_at IS NOT NULL`)
+    .bind(scan.workspace_id, ...addresses).all();
+  for (const row of ports.results || []) {
+    const prior = out[row.address];
+    if (!prior || row.last_seen_at > prior.seen_at) out[row.address] = { seen_at: row.last_seen_at, source: "open_port", port: row.port };
+  }
+  const jobs = await db.prepare(`SELECT scan_id, json_extract(plan_json,'$.tls') AS tls FROM external_exposure_jobs
+      WHERE workspace_id=? AND domain_id=? AND scan_id<>? ORDER BY created_ms DESC LIMIT ${CLOUD_HISTORY_JOBS}`)
+    .bind(scan.workspace_id, scan.domain_id, scan.id).all();
+  for (const job of jobs.results || []) {
+    let tls = null; try { tls = JSON.parse(job.tls); } catch { tls = null; }
+    for (const row of tls?.results || []) {
+      const address = tls.endpoints?.[row.endpoint_index]?.endpoint?.address;
+      if (!addresses.includes(address) || row.state !== "accepted" || row.evidence?.authenticated_finished !== true || !row.observed_at) continue;
+      const prior = out[address];
+      if (!prior || row.observed_at > prior.seen_at) out[address] = { seen_at: row.observed_at, source: "tls_handshake", port: tls.endpoints[row.endpoint_index].endpoint.port };
+    }
+  }
+  return out;
 }
