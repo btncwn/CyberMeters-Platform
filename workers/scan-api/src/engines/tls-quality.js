@@ -48,6 +48,52 @@ export function isTlsRefusalProbe(check) {
     || check?.control === 'cipher' || check?.control === 'secure_renegotiation';
 }
 
+// The customer outcome of a TLS control, from its stored evidence (F1 rerun,
+// 24 Oct 2026). The engine 'state' names the CONNECTION outcome ('accepted'
+// means the handshake for that control completed), not the feature: showing
+// 'Accepted' for compression, early data or OCSP read as the opposite of the
+// truth. The raw state stays in the receipt; the UI reads this. Anything not
+// settled by evidence is 'unknown' - never a guessed yes or no.
+const unknownOutcome = { value: 'unknown', summary: 'Not determined in this run.' };
+export function tlsControlOutcome(row) {
+  const ext = row?.evidence?.extensions || null, ocsp = row?.evidence?.ocsp || null;
+  const done = row?.state === 'accepted' || row?.state === 'rejected';
+  switch (row?.control) {
+    case 'compression':
+      if (!done || typeof ext?.compression !== 'boolean') return unknownOutcome;
+      return ext.compression
+        ? { value: 'yes', summary: 'TLS compression is used.' }
+        : { value: 'no', summary: 'TLS compression is not used.' };
+    case 'early_data':
+      if (row.protocol !== 'tls1_3' || !done || !Number.isSafeInteger(ext?.early_data_max)) return unknownOutcome;
+      return ext.early_data_max > 0
+        ? { value: 'yes', summary: '0-RTT early data is accepted.' }
+        : { value: 'no', summary: '0-RTT early data is not accepted.' };
+    case 'ocsp': {
+      if (!done || !ocsp?.state) return unknownOutcome;
+      const verified = ocsp.signature_valid === true && ocsp.cert_id_match === true && ocsp.fresh === true;
+      if (ocsp.state === 'absent') return { value: 'no', summary: 'No OCSP response is stapled.' };
+      if (ocsp.state === 'good' && verified) return { value: 'yes', summary: 'A valid OCSP response is stapled.' };
+      if (ocsp.state === 'revoked' && verified) return { value: 'revoked', summary: 'The stapled OCSP response says the certificate is revoked.' };
+      return { value: 'invalid', summary: 'An OCSP response is stapled but could not be verified.' };
+    }
+    case 'secure_renegotiation':
+      if (ext?.renegotiation_completed === true) return { value: 'allowed', summary: 'Client-initiated renegotiation is allowed.' };
+      if (ext?.renegotiation_completed === false && ['handshake_failed', 'peer_alert'].includes(row.reason)
+          && (row.state === 'uncertain' || row.state === 'rejected'))
+        return { value: 'refused', summary: 'Client-initiated renegotiation is refused.' };
+      return unknownOutcome;
+    case 'fallback_scsv':
+      if (row.state === 'rejected' && row.reason === 'fallback_rejected' && ext?.fallback_scsv !== false)
+        return { value: 'blocked', summary: 'Protocol downgrade is blocked (TLS_FALLBACK_SCSV).' };
+      if (row.state === 'accepted' && ext?.fallback_scsv === false)
+        return { value: 'not_blocked', summary: 'Protocol downgrade is not blocked.' };
+      return unknownOutcome;
+    default:
+      return null;
+  }
+}
+
 export function classifyTlsRefusals(checks) {
   const rows = Array.isArray(checks) ? checks : [];
   const reachable = new Set(rows.filter(row => row?.state === 'accepted').map(row => row.endpoint_index));

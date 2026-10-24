@@ -113,6 +113,34 @@ const robot={...protocol('tls1_2'),control:'robot',reason:'active_confirmed',eng
   evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'robot-finite-v1',completed_vectors:10,planned_vectors:10}},
   physical_telemetry:{...good,connections:11}};
 const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).find(row=>row.id.startsWith('tls_robot_confirmed__'));
+// Customer outcome per TLS control (F1 rerun, 24 Oct 2026): the facts, not the
+// connection state. Rows below are the F1 probe rows as stored.
+{
+  const { tlsControlOutcome } = await import('../workers/scan-api/src/engines/tls-quality.js');
+  const ext=(over)=>({ems:true,compression:null,secure_renegotiation:true,fallback_scsv:null,session_reused:false,early_data_max:null,renegotiation_completed:false,...over});
+  const row=(control,protocol,state,reason,evidence)=>({control,protocol,state,reason,evidence:{...protocol_evidence(protocol),...evidence}});
+  const protocol_evidence=(p)=>protocol(p).evidence;
+  const out=(r)=>{const o=tlsControlOutcome(r);return o&&[o.value,o.summary];};
+  // F1 rows: every one of these read 'Accepted' / 'Rejected' and meant the opposite.
+  assert.deepEqual(out(row('compression','tls1_2','accepted','handshake_completed',{extensions:ext({compression:false})})),['no','TLS compression is not used.']);
+  assert.deepEqual(out(row('early_data','tls1_3','accepted','resumption_completed',{extensions:ext({early_data_max:0})})),['no','0-RTT early data is not accepted.']);
+  assert.deepEqual(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'absent',signature_valid:null,cert_id_match:null,fresh:null}})),['no','No OCSP response is stapled.']);
+  assert.deepEqual(out(row('secure_renegotiation','tls1_2','uncertain','handshake_failed',{extensions:ext({renegotiation_completed:false})})),['refused','Client-initiated renegotiation is refused.']);
+  assert.deepEqual(out(row('fallback_scsv','tls1_2','rejected','fallback_rejected',{extensions:ext({fallback_scsv:true})})),['blocked','Protocol downgrade is blocked (TLS_FALLBACK_SCSV).']);
+  // The other way round.
+  assert.equal(out(row('compression','tls1_2','accepted','handshake_completed',{extensions:ext({compression:true})}))[0],'yes');
+  assert.equal(out(row('early_data','tls1_3','accepted','resumption_completed',{extensions:ext({early_data_max:16384})}))[0],'yes');
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:true,cert_id_match:true,fresh:true}}))[0],'yes');
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:false,cert_id_match:true,fresh:true}}))[0],'invalid','an unverified "good" staple is never yes');
+  assert.equal(out(row('secure_renegotiation','tls1_2','accepted','renegotiation_completed',{extensions:ext({renegotiation_completed:true})}))[0],'allowed');
+  assert.equal(out(row('fallback_scsv','tls1_2','accepted','handshake_completed',{extensions:ext({fallback_scsv:false})}))[0],'not_blocked');
+  // Not settled by evidence: unknown, never a guessed yes/no.
+  assert.equal(out(row('compression','tls1_2','uncertain','transport_timeout',{extensions:null}))[0],'unknown');
+  assert.equal(out(row('early_data','tls1_2','accepted','resumption_completed',{extensions:ext({early_data_max:0})}))[0],'unknown','early data is a TLS 1.3 fact');
+  assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','transport_timeout',{extensions:ext({renegotiation_completed:false})}))[0],'unknown','a timeout is not a refusal');
+  assert.equal(out(row('fallback_scsv','tls1_2','uncertain','peer_alert',{extensions:ext({fallback_scsv:false})}))[0],'unknown');
+  assert.equal(tlsControlOutcome(row('protocol','tls1_2','accepted','handshake_completed',{})),null,'controls without a feature outcome carry none');
+}
 // C-45: no internal identifier (snake_case enum or profile id) in customer prose.
 {
   // Case-insensitive, and plain-English jargon too (C-45 follow-up, 24 Oct 2026).
