@@ -225,9 +225,13 @@ const EXPECTED = Object.freeze({
     // Hardening (24 Oct 2026): two imports added to routes/workspace-insights.js
     // shift its SQL sites; keyed two-tree diff (file, kind, snippet) shows 0
     // added and 0 removed across sql_sites / static / query-sink. Counts unchanged.
-    fingerprint: "c8156c8101878556dc5cc5c97f06b510158f49ce4f4323dca4e47f08a416f7ae",
+    // C-58 (24 Oct 2026): the related-changes previous-scan query compares and
+    // orders timestamps with julianday(). Two-tree --dump-current vs main:
+    // exactly that SQL snippet changes; its scan_quality predicate, all counts,
+    // projections, direct reads and non-SQL fingerprints remain unchanged.
+    fingerprint: "ea44eb72b955348b6ea388e68edb38c70cff0bd044087262a6d39469a4145954",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "e75a5e1a94ed6171ce121fc8f793d172bf57ee500aa35a70cfda6695e8ce5779",
+    resolved_query_sink_fingerprint: "4eb21227b6cc5c23f7909e67f04dc71ab947db29812f74f0fa06cc8186265f60",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
