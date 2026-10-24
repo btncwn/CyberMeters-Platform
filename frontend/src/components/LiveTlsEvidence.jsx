@@ -26,6 +26,9 @@ const CONTROL_REASONS = Object.freeze({
   // The TLS engine's reason when the server offers no heartbeat extension
   // (network-probe tls-engine; a server-feature limit, not a failed check).
   heartbeat_unavailable: 'Not applicable — this server did not offer the TLS heartbeat extension that Heartbleed relies on.',
+  // scan-api records a TLS check whose run kept failing (twice) and moves on;
+  // the other checks are not affected (F1, 24 Oct 2026).
+  slice_failed: 'Could not complete — this check did not finish on this server after two attempts. The other checks were not affected.',
 })
 // Where a customer adds their OWN servers so the TLS checks can test them.
 export const ADDITIONAL_TLS_SERVICES_HREF = '/ws/certificates?tab=settings#additional-tls-services'

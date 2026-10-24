@@ -32,6 +32,16 @@ describe('an endpoint that was not tested', () => {
     expect(document.body.textContent).toContain('Assessed Not tested in this scan')
     expect(document.body.textContent).not.toContain('No controls recorded')
   })
+  // F1 (24 Oct 2026): a special whose run kept failing is recorded by scan-api
+  // as unexecutable / slice_failed. It reads as a finite "Could not complete",
+  // never as "budget exhausted".
+  it('a ROBOT check that could not complete says so in words', () => {
+    render(<TlsAssessmentEvidence assessment={{ source: 'tls_assessment', quality: 'complete', coverage: {}, endpoints: [{ ...ep,
+      checks: [{ control: 'protocol', protocol: 'tls1_2', state: 'accepted', observed_at: '2026-10-24T14:15:00Z' },
+        { control: 'robot', protocol: 'tls1_2', state: 'unexecutable', reason: 'slice_failed', observed_at: '2026-10-24T14:16:00Z' }] }] }} />)
+    expect(document.body.textContent).toContain('Could not complete — this check did not finish on this server after two attempts.')
+    expect(document.body.textContent.toLowerCase()).not.toContain('budget exhausted')
+  })
   it('a tested endpoint shows when its checks were observed', () => {
     render(<TlsAssessmentEvidence assessment={{ source: 'tls_assessment', quality: 'complete', coverage: {}, endpoints: [{ ...ep,
       checks: [{ control: 'protocol', protocol: 'tls1_2', state: 'accepted', observed_at: '2026-10-24T09:59:30Z' }] }] }} />)

@@ -252,7 +252,10 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
     groups.get(key).push({entry,index});
   }
   const prior=new Set(previousFindings.map(row=>row.endpoint_identity));
-  const selected=[],staticResults=[];
+  // Special (intrusive) checks run after EVERY normal check, so a special that
+  // cannot complete never keeps the domain's own checks or a service's normal
+  // checks from running (F1, 24 Oct 2026).
+  const selected=[],specialSelected=[],staticResults=[];
   // Explicitly authorised services are budgeted first, so a tight plan never
   // drops the one service the customer named in favour of discovered hosts.
   const authorisedFirst=([,group])=>group.some(({entry})=>entry?.scope?.kind==='authorized_service')?0:1;
@@ -302,12 +305,13 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
         state:'not_authorized',reason:TLS_AUTHORISATION_REQUIRED_REASON});
     }
     const unique=[...new Map(rows.map(row=>[`${row.check.control}|${row.check.protocol}|${row.check.cipher_id||''}`,row])).values()];
-    if(selected.length+unique.length>Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN))){
+    if(selected.length+specialSelected.length+unique.length>Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN))){
       deferredHosts.push({hostname:entry.endpoint.hostname,port:entry.endpoint.port,reason:'tls_plan_budget'});
       continue;
     }
-    selected.push(...unique);
+    for(const row of unique)(TLS_SPECIAL_CONTROLS.includes(row.check.control)?specialSelected:selected).push(row);
   }
+  selected.push(...specialSelected);
   return {profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,selected,static_results:staticResults,
     pending_total:selected.length,omitted_checks:0,deferred_hosts:[...new Map(deferredHosts.map(row=>[`${row.hostname}|${row.port}|${row.reason}`,row])).values()],
     deferred_endpoints:deferredEndpoints,cursor:0,scan_id:scanId,plan_scope:'observed_https_representative'};
