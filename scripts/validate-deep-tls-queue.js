@@ -617,6 +617,28 @@ await test('a special slice that always throws is recorded and the job still com
     sql.prepare("UPDATE workspace_tls_service_authorizations SET authorization_status='revoked' WHERE id='service_f1_https'").run();
   }
 }
+// Customer outcome per control on the read model (F1 rerun, 24 Oct 2026).
+{
+  const workspace='w_outcome',scanId='tls_outcome_read',domain='outcome.example.org',domainId='d_outcome',now=Date.now();
+  sql.prepare('INSERT OR IGNORE INTO workspaces VALUES(?,NULL)').run(workspace);
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'completed');
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const ext={ems:true,compression:false,secure_renegotiation:true,fallback_scsv:null,session_reused:false,early_data_max:null,renegotiation_completed:false};
+  const result=(control,state,reason,extensions)=>({endpoint_index:0,control,protocol:'tls1_2',cipher_id:null,state,reason,observed_at:new Date(now).toISOString(),
+    engine:null,evidence:{authenticated_finished:true,negotiated:null,certificates:null,ocsp:null,extensions,vulnerability:null,limitations:[]},
+    physical_telemetry:{connections:1,bytes_sent:1,bytes_received:1,duration_ms:1}});
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,generation:0,special_consent:false,consent_version:null}}],
+    selected:[],static_results:[],results:[result('compression','accepted','handshake_completed',ext),result('protocol','accepted','handshake_completed',ext)],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'complete'}};
+  sql.prepare("INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at,state) VALUES(?,?,?,?,?,?,?,?,'complete')")
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+60_000,new Date(now).toISOString());
+  const assessment=await readTlsAssessmentForScan(env,{workspaceId:workspace,scanId});
+  const rows=assessment.endpoints[0].checks;
+  assert.deepEqual(rows.find(r=>r.control==='compression').customer_outcome,{value:'no',summary:'TLS compression is not used.'},'the read model carries the customer outcome');
+  assert.equal(rows.find(r=>r.control==='compression').state,'accepted','the raw engine state is kept');
+  assert.equal(Object.hasOwn(rows.find(r=>r.control==='protocol'),'customer_outcome'),false,'controls without a feature outcome carry none');
+}
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no
 // connection is opened.

@@ -411,7 +411,7 @@ static void assess_renegotiation(SSL *ssl,BIO *wire) {
     if(SSL_renegotiate(ssl)!=1){state="uncertain";reason="control_unavailable";limit("engine_capability_limit");return;}
     if(do_handshake(ssl,wire)&&SSL_total_renegotiations(ssl)>before) {
         reneg_completed=1;state="accepted";reason="renegotiation_completed";
-    } else {state="uncertain";}
+    } else {state="uncertain";reneg_completed=0;} /* attempted and not completed */
 }
 static const char *protocol_name(int version) {
     switch(version) {

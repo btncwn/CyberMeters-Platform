@@ -10,7 +10,7 @@ import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/con
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
 import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
-import { blockingTlsNotAuthorized, blockingTlsUnexecutable, classifyTlsRefusals } from './tls-quality.js';
+import { blockingTlsNotAuthorized, blockingTlsUnexecutable, classifyTlsRefusals, tlsControlOutcome } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized, TLS_SPECIAL_CHECK_IDS } from './tls-planner.js';
 import { getEffectiveDomainLimit, getEffectivePlanState } from './entitlements.js';
@@ -958,8 +958,13 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
     physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}}))]);
   const endpoints=tls.endpoints.map((entry,index)=>({
     ...entry.endpoint,endpoint_identity:entry.endpoint_identity,scope:entry.scope,
-    checks:all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>({...(check||{}),...rest,
-      endpoint_identity:entry.endpoint_identity})),
+    checks:(()=>{
+      const rows=all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>
+        ({...(check||{}),...rest,endpoint_identity:entry.endpoint_identity}));
+      // The customer outcome per control (compression used, 0-RTT advertised,
+      // OCSP stapled, renegotiation refused, downgrade blocked); raw state stays.
+      return rows.map(row=>{const outcome=tlsControlOutcome(row,rows);return outcome?{...row,customer_outcome:outcome}:row;});
+    })(),
   }));
   const coverage={planned:all.length+(tls.omitted_checks||0),completed:0,uncertain:0,unexecutable:0,not_authorized:0,not_applicable:0,
     omitted_checks:tls.omitted_checks||0,omitted_services:tls.omitted_services||0,endpoint_gaps:tls.gaps.length,

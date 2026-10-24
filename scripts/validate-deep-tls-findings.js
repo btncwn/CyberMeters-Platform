@@ -113,6 +113,50 @@ const robot={...protocol('tls1_2'),control:'robot',reason:'active_confirmed',eng
   evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'robot-finite-v1',completed_vectors:10,planned_vectors:10}},
   physical_telemetry:{...good,connections:11}};
 const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).find(row=>row.id.startsWith('tls_robot_confirmed__'));
+// Customer outcome per TLS control (F1 rerun, 24 Oct 2026): the facts, not the
+// connection state. Rows below are the F1 probe rows as stored.
+{
+  const { tlsControlOutcome } = await import('../workers/scan-api/src/engines/tls-quality.js');
+  const ext=(over)=>({ems:true,compression:null,secure_renegotiation:true,fallback_scsv:null,session_reused:false,early_data_max:null,renegotiation_completed:false,...over});
+  const row=(control,protocol,state,reason,evidence)=>({control,protocol,state,reason,evidence:{...protocol_evidence(protocol),...evidence}});
+  const protocol_evidence=(p)=>protocol(p).evidence;
+  const out=(r)=>{const o=tlsControlOutcome(r);return o&&[o.value,o.summary];};
+  // F1 rows: every one of these read 'Accepted' / 'Rejected' and meant the opposite.
+  assert.deepEqual(out(row('compression','tls1_2','accepted','handshake_completed',{extensions:ext({compression:false})})),['no','TLS compression is not used.']);
+  assert.deepEqual(out(row('early_data','tls1_3','accepted','resumption_completed',{extensions:ext({early_data_max:0})})),['no','0-RTT early data is not advertised.']);
+  assert.deepEqual(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'absent',signature_valid:null,cert_id_match:null,fresh:null}})),['no','No OCSP response is stapled.']);
+  assert.deepEqual(out(row('secure_renegotiation','tls1_2','uncertain','handshake_failed',{extensions:ext({renegotiation_completed:false})})),['refused','Client-initiated renegotiation is refused.']);
+  assert.deepEqual(out(row('fallback_scsv','tls1_2','rejected','fallback_rejected',{extensions:ext({fallback_scsv:true})})),['blocked','Protocol downgrade is blocked (TLS_FALLBACK_SCSV).']);
+  // The other way round.
+  assert.equal(out(row('compression','tls1_2','accepted','handshake_completed',{extensions:ext({compression:true})}))[0],'yes');
+  assert.equal(out(row('early_data','tls1_3','accepted','resumption_completed',{extensions:ext({early_data_max:16384})}))[0],'yes');
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:true,cert_id_match:true,fresh:true}}))[0],'yes');
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:false,cert_id_match:true,fresh:true}}))[0],'invalid','an unverified "good" staple is never yes');
+  // R1 #985: a staple CyberMeters could not check (no issuer/trust path: null) is
+  // our limitation - unknown, never the server's 'invalid'.
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:null,cert_id_match:null,fresh:null}}))[0],'unknown');
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'revoked',signature_valid:null,cert_id_match:true,fresh:true}}))[0],'unknown');
+  assert.equal(out(row('secure_renegotiation','tls1_2','accepted','renegotiation_completed',{extensions:ext({renegotiation_completed:true})}))[0],'allowed');
+  // R1 #985 (1): 'not blocked' only when the endpoint serves TLS 1.3; a TLS 1.2-max
+  // server correctly accepts the fallback probe (RFC 7507).
+  const fbAccepted=row('fallback_scsv','tls1_2','accepted','handshake_completed',{extensions:ext({fallback_scsv:false})});
+  assert.equal(tlsControlOutcome(fbAccepted,[fbAccepted]).value,'unknown','a TLS 1.2-max server accepting the fallback probe is not a missing protection');
+  assert.equal(tlsControlOutcome(fbAccepted,[fbAccepted,{control:'protocol',protocol:'tls1_3',state:'rejected'}]).value,'unknown');
+  assert.equal(tlsControlOutcome(fbAccepted,[fbAccepted,{control:'protocol',protocol:'tls1_3',state:'accepted'}]).value,'not_blocked','not blocked on a TLS 1.3 endpoint');
+  // R1 #985 (2): handshake_failed is a refusal only with secure renegotiation support.
+  assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','handshake_failed',{extensions:ext({renegotiation_completed:false,secure_renegotiation:false})}))[0],'unknown',
+    'a local/non-alert handshake failure without RFC 5746 support is not a refusal');
+  assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','peer_alert',{extensions:ext({renegotiation_completed:false,secure_renegotiation:null})}))[0],'refused','a peer alert is a refusal');
+  // R1 #985 (3): a verified staple with status unknown has its own outcome.
+  assert.deepEqual(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'unknown',signature_valid:true,cert_id_match:true,fresh:true}})),
+    ['status_unknown','A verified OCSP response is stapled, but it reports the certificate status as unknown.']);
+  // Not settled by evidence: unknown, never a guessed yes/no.
+  assert.equal(out(row('compression','tls1_2','uncertain','transport_timeout',{extensions:null}))[0],'unknown');
+  assert.equal(out(row('early_data','tls1_2','accepted','resumption_completed',{extensions:ext({early_data_max:0})}))[0],'unknown','early data is a TLS 1.3 fact');
+  assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','transport_timeout',{extensions:ext({renegotiation_completed:false})}))[0],'unknown','a timeout is not a refusal');
+  assert.equal(out(row('fallback_scsv','tls1_2','uncertain','peer_alert',{extensions:ext({fallback_scsv:false})}))[0],'unknown');
+  assert.equal(tlsControlOutcome(row('protocol','tls1_2','accepted','handshake_completed',{})),null,'controls without a feature outcome carry none');
+}
 // C-45: no internal identifier (snake_case enum or profile id) in customer prose.
 {
   // Case-insensitive, and plain-English jargon too (C-45 follow-up, 24 Oct 2026).
