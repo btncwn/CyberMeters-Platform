@@ -50,9 +50,10 @@ export const TLS_SAFE_ACTIVE_CONTROLS = Object.freeze(TLS_CONTROLS.filter(contro
 export const TLS_AUTHORISATION_REQUIRED_REASON = 'requires_customer_authorisation';
 // The customer authorised an intrusive control, but the engine is not released.
 export const TLS_AUTHORISED_NOT_RELEASED_REASON = 'authorised_engine_not_released';
-// Authorised, but this scan was not started by a person: the signed consent is
-// "on demand", so a scheduled scan never runs an intrusive control (F1).
-export const TLS_AUTHORISED_ON_DEMAND_REASON = 'authorised_runs_on_started_check';
+// Authorised, but this scan was not started by a person, or its origin is not
+// known: the signed consent is "on demand", so only a scan whose trigger is
+// exactly 'manual' runs an intrusive control (F1; C-52 N02).
+export const TLS_AUTHORISED_ON_DEMAND_REASON = 'scheduled_or_unknown_origin';
 // Authorised for the host, but this address is shared provider infrastructure
 // (a CDN or hosting edge): never tested, whatever the grant says (F1).
 export const TLS_PROVIDER_EDGE_REASON = 'provider_infrastructure_not_tested';

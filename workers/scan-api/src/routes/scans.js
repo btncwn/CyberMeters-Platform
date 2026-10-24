@@ -366,7 +366,7 @@ export async function scanRoutes(rctx) {
       // engine actually starts (exactly-once via the claim CAS).
       if (queueDispatch) {
         const dispatched = await dispatchAdmittedScan(env, {
-          scanId, domainId: resolvedDomainId, workspaceId, userId, domain, reportKey,
+          scanId, domainId: resolvedDomainId, workspaceId, userId, domain, reportKey, trigger: "manual",
         });
         if (!dispatched.ok) {
           return json({ error: "The scan could not be started. Please try again." }, 503);

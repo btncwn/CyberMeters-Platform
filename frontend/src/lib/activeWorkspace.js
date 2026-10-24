@@ -14,6 +14,12 @@
 export const WS_ID_KEY = 'cybermeters_workspace_id'
 export const WS_NAME_KEY = 'cybermeters_workspace_name'
 export const ACTIVE_WORKSPACE_EVENT = 'cybermeters:active-workspace'
+// A domain was added, removed or verified: lists of the workspace's domains refetch (C-47 F04).
+export const WORKSPACE_DOMAINS_EVENT = 'cybermeters:workspace-domains-changed'
+
+export function notifyWorkspaceDomainsChanged() {
+  try { window.dispatchEvent(new Event(WORKSPACE_DOMAINS_EVENT)) } catch { /* no window */ }
+}
 
 // Everything stored about the signed-in account's workspaces. The pending
 // invitation and dismissed hints are left alone: they belong to the browser and

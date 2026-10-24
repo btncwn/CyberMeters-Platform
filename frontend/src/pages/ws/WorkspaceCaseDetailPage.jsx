@@ -23,6 +23,7 @@ import {
 } from '../../lib/caseDisplay'
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import { formatDate, formatDay } from '../../utils/dates'
+import { useScopedDomain } from '../../components/shell/WorkspaceContext'
 
 // domain_key → { service-colour key, the area page that handles a case the
 // universal page cannot move (Brand Protection) }.
@@ -417,6 +418,8 @@ export default function WorkspaceCaseDetailPage() {
   }, [wsId, caseId])
 
   useEffect(() => { load() }, [load])
+  // The context bar names the case's domain (founder, 23 Oct 2026).
+  useScopedDomain(data?.case?.domain, { workspaceId: data?.case?.workspace_id })
 
   if (!wsLoading && !wsId) return <NoWorkspaceSelected />
 

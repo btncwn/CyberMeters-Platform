@@ -12,6 +12,7 @@ import { exposureIdentity } from '../shared/exposure/redaction.js';
 import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { WEBSITE_CONTENT_LIMITS, sanitizeWebsitePageDiscovery, validateWebsiteContentReceipt } from '../workers/network-probe/src/website-content-contract.js';
 import { ensureExposureReady,processExposureMessage,readExposureForScan,orderExposureAssets,unresolvedExposureChecks,mergeWebsiteContentPlan,EXPOSURE_JOB_LIMITS } from '../workers/scan-api/src/engines/exposure-jobs.js';
+import { loadTlsEndpoints, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
 
 function harness(){
   const sql=new DatabaseSync(':memory:');
@@ -360,6 +361,34 @@ for(const outcome of [
  const row=h.sql.prepare('SELECT * FROM external_exposure_jobs').get();
  check(JSON.parse(row.plan_json).checks.length>20);check(JSON.parse(row.dispatch_json).trigger==='scheduled');
  await ensureExposureReady(h.env,scan);check(h.sql.prepare('SELECT count(*) n FROM external_exposure_jobs').get().n===1);
+}
+// C-52 N02 witness: through the real createJob, an absent trigger reaches the
+// real TLS planner as null and selects ZERO intrusive checks (held, stated); the
+// same grant on an explicit 'manual' trigger selects them.
+for(const [body,expectSpecials] of [[{},false],[{trigger:'scheduled'},false],[{trigger:'manual'},true]]){
+ const h=harness(),{scan}=h.seed(`n02_${body.trigger||'none'}`);h.sql.exec('DELETE FROM external_exposure_jobs');
+ h.sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
+ h.sql.exec(`CREATE TABLE IF NOT EXISTS network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope')`);
+ h.env.TLS_ASSESSMENT_MODE='evidence-v1';
+ const seen=[];
+ const loader=(e,s,o)=>{seen.push(o.trigger);return loadTlsEndpoints(e,s,{...o,
+   lookup:async(host,type)=>type==='A'?{Status:0,Answer:[{type:1,name:`${host}.`,data:'8.8.8.8'}]}:{Status:0,Answer:[]},
+   authorise:async()=>({authorised:true,reason:'authorised',consent_id:'acc_n02'}),specialControlsAvailable:true});};
+ await ensureExposureReady(h.env,scan,body,{loadTlsEndpoints:loader});
+ const tls=JSON.parse(h.sql.prepare('SELECT plan_json FROM external_exposure_jobs').get().plan_json).tls;
+ // The persisted scope is what the post-HTTP replan reads; plan from it as the replan does.
+ const scope=tls.endpoints[0].scope;
+ const host=tls.endpoints[0].endpoint.hostname;
+ const replan=buildBudgetedTlsCheckPlan({endpoints:tls.endpoints,cipherCatalog:[],observedHttpsHosts:[host],scanId:scan.id});
+ const specials=replan.selected.filter(r=>['heartbleed','robot','ccs'].includes(r.check.control));
+ check(seen.length===1&&seen[0]===(body.trigger??null));
+ if(expectSpecials){check(scope.special_consent===true&&Object.keys(scope.special_checks).length===3&&specials.length>0);}
+ else{
+  check(scope.special_consent===false&&Object.keys(scope.special_checks).length===0);
+  check(specials.length===0);
+  const held=replan.static_results.filter(r=>['heartbleed','robot','ccs'].includes(r.check.control));
+  check(held.length>0&&held.every(r=>r.state==='unexecutable'&&r.reason==='scheduled_or_unknown_origin'));
+ }
 }
 {
  const h=harness(),{body,scan}=h.seed('late');

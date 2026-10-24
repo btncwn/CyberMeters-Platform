@@ -562,7 +562,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-network-assets.js:413:mixed.quality==='partial'",
   "scripts/validate-network-assets.js:425:mutant.networkReceiptCoverage({coverage:{planned:4},observations:[o(22,'open'),o(80,'timeout'),o(443,'timeout'),o(3389,'timeout')]}).quality==='partial'",
   // against origin/main 16a4ae0b shows no other unresolved-site change.
-  "scripts/validate-exposure-queue.js:180:report.quality==='partial'",
+  "scripts/validate-exposure-queue.js:181:report.quality==='partial'", // F1 C-52b: one import line added above; keyed diff shows only this shift
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",

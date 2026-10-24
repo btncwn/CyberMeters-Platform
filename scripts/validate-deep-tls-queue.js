@@ -411,10 +411,10 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
     const held=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:true,trigger});
     assert.deepEqual(held.endpoints[0].scope.special_checks,{},`${trigger} scan: never runnable`);
     assert.equal(held.endpoints[0].scope.special_consent,false);
-    assert.deepEqual(held.endpoints[0].scope.held_checks,{robot:'authorised_runs_on_started_check'});
+    assert.deepEqual(held.endpoints[0].scope.held_checks,{robot:'scheduled_or_unknown_origin'});
     const planned=buildBudgetedTlsCheckPlan({endpoints:held.endpoints,cipherCatalog:[],observedHttpsHosts:['special.example.org'],scanId:'held'});
     assert.ok(!planned.selected.some(r=>r.check.control==='robot'),'a held control is never selected for the probe');
-    assert.deepEqual(planned.static_results.filter(r=>r.check.control==='robot').map(r=>[r.state,r.reason]),[['unexecutable','authorised_runs_on_started_check']]);
+    assert.deepEqual(planned.static_results.filter(r=>r.check.control==='robot').map(r=>[r.state,r.reason]),[['unexecutable','scheduled_or_unknown_origin']]);
   }
   // F1: a grant for the host does not reach a shared provider edge, and the
   // customer is told so, not "requires your authorisation".

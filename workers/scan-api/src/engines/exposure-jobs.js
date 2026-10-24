@@ -219,7 +219,7 @@ export function replanTlsFromOwnResults(plan,results) {
   return true;
 }
 
-async function createJob(env, scan, now, dispatch) {
+async function createJob(env, scan, now, dispatch, deps = {}) {
   const db=env.cybermeters_db;
   // The asset's LATEST lifecycle observation (unique per asset+scan) carries the
   // DNS/HTTP signal states this planner reads for address applicability.
@@ -282,7 +282,7 @@ async function createJob(env, scan, now, dispatch) {
     plan.content_state='not_requested';plan.checks=[];plan.omitted_checks=0;
   }
   if(env.TLS_ASSESSMENT_MODE==='evidence-v1'){
-    const endpoints=await loadTlsEndpoints(env,scan,{trigger:dispatch?.trigger});
+    const endpoints=await (deps.loadTlsEndpoints??loadTlsEndpoints)(env,scan,{trigger:dispatch?.trigger??null});
     const observedHttpsHosts=observedHttpsHostsFrom(json(previous?.results_json,[]),hosts);
     const tlsArgs={endpoints:endpoints.endpoints,cipherCatalog:TLS_CIPHER_CATALOG,
       previousFindings:priorTlsRiskChecks(json(previous?.plan_json,{})),observedHttpsHosts,scanId:scan.id};
@@ -318,11 +318,12 @@ async function createJob(env, scan, now, dispatch) {
 
 // Called before the ordinary scan claim. Free/unverified scans never enter this
 // feature. Configuration is explicit so rollout requires migration 119 first.
-export async function ensureExposureReady(env,scan,body={}) {
+export async function ensureExposureReady(env,scan,body={},deps={}) {
   if((env.EXPOSURE_SCAN_MODE!=='evidence-v1'&&env.TLS_ASSESSMENT_MODE!=='evidence-v1')||!scan.workspace_id||scan.status!=='queued')return true;
   const now=Date.now();
   let row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();
-  if(!row){await createJob(env,scan,now,{trigger:body.trigger==='scheduled'?'scheduled':'manual',...(typeof body.scheduled_scan_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.scheduled_scan_id)?{scheduled_scan_id:body.scheduled_scan_id}:{}),...(typeof body.user_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.user_id)?{user_id:body.user_id}:{})});row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();}
+  // C-52 N02: an absent trigger stays null; only 'manual' runs intrusive checks.
+  if(!row){await createJob(env,scan,now,{trigger:body.trigger==='scheduled'||body.trigger==='manual'?body.trigger:null,...(typeof body.scheduled_scan_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.scheduled_scan_id)?{scheduled_scan_id:body.scheduled_scan_id}:{}),...(typeof body.user_id==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(body.user_id)?{user_id:body.user_id}:{})},deps);row=await env.cybermeters_db.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=? AND workspace_id=?').bind(scan.id,scan.workspace_id).first();}
   if(!row)throw new Error('exposure_authority_lost');
   if(terminal(row.state))return true;
   await env.SCAN_QUEUE.send(messageFor(row));
