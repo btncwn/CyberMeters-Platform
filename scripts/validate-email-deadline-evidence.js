@@ -418,12 +418,32 @@ async function trace(variant, {
       ? { NETWORK_PROBE: liveTlsProbeBinding({ days: CERT_LIVE_DAYS.get(variant) }) }
       : CERT_COLLECTOR_UNAVAILABLE.has(variant)
         ? { NETWORK_PROBE: { fetch: async (_url, init) => { assertProbeFetch(init); return new Response("collector unavailable", { status: 503 }); } } }
-        : {}),
+        : variant === "remote-admin-open"
+          // 24 Oct 2026 (#991 follow-up): the network_services probe finds RDP
+          // (3389) open on the domain's own address; every other profile is
+          // unavailable, as when the collector serves only this profile.
+          ? { NETWORK_PROBE: { fetch: async (_url, init) => {
+              const request = assertProbeFetch(init);
+              if (request.profile !== "network_services") return new Response("collector unavailable", { status: 503 });
+              const at = new Date().toISOString();
+              const observations = request.targets.flatMap((t) => request.ports.map((port) => ({ address: t.address, hostname: null, port, transport: "tcp",
+                state: port === 3389 ? "open" : "closed", service: null, tls: null, error: null })));
+              return Response.json({ schema_version: "network-probe-receipt-v1", request_id: request.request_id, workspace_id: request.workspace_id,
+                scan_id: request.scan_id, profile: request.profile, started_at: at, finished_at: at,
+                collector: { name: "cybermeters-cloudflare-network-probe", version: "1", node_version: "v26.10.0", openssl_version: "synthetic-test",
+                  trust_store: { name: "Node.js bundled Mozilla CA roots", sha256: "a".repeat(64) } },
+                limitations: ["Synthetic local transport fixture; not a provider receipt."], quality: "complete",
+                coverage: { planned: observations.length, attempted: observations.length, completed: observations.length, not_run: 0 }, observations });
+            } } }
+          : {}),
   };
   db.prepare("INSERT INTO users (id, email) VALUES ('usr','o@example.com')").run();
   db.prepare("INSERT INTO workspaces (id, name, deleted_at) VALUES ('ws','EMAIL-P1',NULL)").run();
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('dom','usr','example.com')").run();
   db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws','dom')").run();
+  // Remote administration needs a verified domain (ownership is re-checked at
+  // the network boundary); only this variant exercises it.
+  if (variant === "remote-admin-open") db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id='ws' AND domain_id='dom'").run();
   db.prepare(`INSERT INTO scans (id, workspace_id, domain_id, domain, status, scan_quality, created_at)
               VALUES ('scan-em','ws','dom','example.com','running',NULL,?)`).run(NOW);
   if (Array.isArray(previousFindings)) {
@@ -1261,6 +1281,13 @@ const t2 = await trace("no-spf");
 ok("B2: control scan completed", t2.dbStatus === "completed", JSON.stringify({ db: t2.dbStatus, err: t2.reportError }));
 // 24 Oct 2026: supplementary modules (dane, remote_admin_exposure) settle after
 // computeScore; their findings are scored once settled and reach the report.
+{
+  // #991 follow-up (Executive 19:05): a run-level emit - an open RDP port found
+  // by the remote-administration probe reaches report.findings.
+  const tRa = await trace("remote-admin-open");
+  ok("B2: an open remote-administration port reaches the report (scored after the module settled)",
+    tRa.findingIds.includes("remote_admin_service_reachable"), JSON.stringify(tRa.findingIds));
+}
 ok("B2: the DANE status observation reaches the report (scored after the module settled)",
   t2.findingIds.includes("dane_status_observed"), JSON.stringify(t2.findingIds));
 {
