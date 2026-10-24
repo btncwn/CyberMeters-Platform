@@ -450,6 +450,20 @@ const sslPositivelyAbsent = () => ({
     const mutantHeaders = { ...headersNotExecuted() };
     delete mutantHeaders.incomplete;
     delete mutantHeaders.incomplete_reason;
+    // Defence in depth (resolver 2026-10-24.1): with ONLY the flag removed, the
+    // stored HSTS policy (not_observed) still keeps Website Security from
+    // reading healthy.
+    {
+      const flagOnly = { dns: { resolves: true }, ssl: sslHealthy(), headers: { ...mutantHeaders }, email_security: {} };
+      const flagOnlyWs = resolveSecurityCheckDomainStates({ scan_quality: buildScanQuality(flagOnly), modules: flagOnly, findings: [],
+        completed_at: "2026-07-15T00:00:00Z" }, { scanId: "s1" }).find((d) => d.domain_key === "website_security");
+      ok("DEFENCE IN DEPTH: with only the incomplete flag removed, the not-observed HSTS policy still blocks healthy",
+        flagOnlyWs.state !== SECURITY_CHECK_STATES.ASSESSED_HEALTHY);
+    }
+    // To isolate THIS guard, the mutant also drops the fields the second guard
+    // reads (a module shape from before the host-scoped HSTS policy).
+    delete mutantHeaders.hsts_policy;
+    delete mutantHeaders.validation_uncertain;
 
     const modules = { dns: { resolves: true }, ssl: sslHealthy(), headers: mutantHeaders, email_security: {} };
     const q = buildScanQuality(modules);
