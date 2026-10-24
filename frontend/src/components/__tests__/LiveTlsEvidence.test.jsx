@@ -67,7 +67,8 @@ describe('Live TLS evidence presentation', () => {
     render(<LiveTlsEvidence evidence={evidence} />)
     expect(screen.getByText('Did not match the recorded identity')).toBeInTheDocument()
     expect(screen.getByText('Invalid against the recorded trust store')).toBeInTheDocument()
-    expect(screen.getByText('Validation detail: CERT_HAS_EXPIRED')).toBeInTheDocument()
+    // The code in words, never raw (C-45 R18).
+    expect(screen.getByText('Validation detail: Cert has expired')).toBeInTheDocument()
     expect(screen.queryByText('Valid against the recorded trust store')).not.toBeInTheDocument()
   })
 

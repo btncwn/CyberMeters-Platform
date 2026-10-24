@@ -813,6 +813,25 @@ export async function listIdentityExposureEvents(env, workspaceId, id) {
               FROM identity_exposure_events WHERE workspace_id = ? AND record_id = ? ORDER BY created_at ASC`)
     .bind(workspaceId, id).all().catch(() => ({ results: [] }))).results || [];
 }
+// Workspace-wide counts by claim kind (23 Oct 2026): the page's "What we observed"
+// figures read these instead of counting a 500-record page. claim_kind is derived
+// per record (managedIdentityClaimFromRow, the list's own projection), so this is
+// one bounded read: past IDENTITY_CLAIM_COUNT_LIMIT records the counts say
+// complete: false rather than claim a total. A read failure is null, never zeros.
+export const IDENTITY_CLAIM_COUNT_LIMIT = 5000;
+export async function countIdentityExposureByClaimKind(env, workspaceId) {
+  const rows = (await env.cybermeters_db
+    .prepare(`SELECT source_evidence_json, provider_name, primary_hostname, surface_type
+              FROM identity_exposure WHERE workspace_id = ? LIMIT ?`)
+    .bind(workspaceId, IDENTITY_CLAIM_COUNT_LIMIT + 1).all()).results || [];
+  const counts = { measured_identity_surface: 0, provider_relationship: 0, surface_candidate: 0 };
+  for (const row of rows.slice(0, IDENTITY_CLAIM_COUNT_LIMIT)) {
+    const kind = managedIdentityClaimFromRow(row)?.claim_kind;
+    if (Object.prototype.hasOwnProperty.call(counts, kind)) counts[kind] += 1;
+  }
+  return { ...counts, complete: rows.length <= IDENTITY_CLAIM_COUNT_LIMIT, counted: Math.min(rows.length, IDENTITY_CLAIM_COUNT_LIMIT) };
+}
+
 export async function countIdentityExposureByClassification(env, workspaceId) {
   const rows = (await env.cybermeters_db
     .prepare(`SELECT customer_classification, COUNT(*) AS n FROM identity_exposure WHERE workspace_id = ? GROUP BY customer_classification`)

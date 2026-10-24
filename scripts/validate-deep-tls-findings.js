@@ -72,6 +72,35 @@ assert.equal(evaluateTlsCondition(weakSignatureFinding.id,unknown).state,'deferr
   const findings=tlsAssessmentFindings(module([protocol('tls1_3'),pqcRow('x25519')]));
   assert.ok(!findings.some(f=>/pqc|quantum/i.test(f.id+f.title)),'classical-only is never a finding');
 }
+// Must-Staple (RFC 7633, S3-MODERN 1): a finding only for a definite Must-Staple
+// leaf with no stapled OCSP response; null/missing is not assessed.
+{
+  const good={key_type:'RSA',key_bits:2048,signature_algorithm:'rsa_sha256',sha256:'e'.repeat(64)};
+  const stapleRow=(must_staple,ocsp)=>{const row=certRow({...good,must_staple});row.evidence.ocsp=ocsp;return row;};
+  const absent={state:'absent',signature_valid:null,cert_id_match:null,fresh:null,this_update:null,next_update:null};
+  const stapled={state:'good',signature_valid:true,cert_id_match:true,fresh:true,this_update:1,next_update:2};
+  const ids=(row)=>tlsAssessmentFindings(module([protocol('tls1_2'),row])).map(f=>f.id.split('__')[0]).filter(id=>id==='tls_must_staple_not_stapled');
+  assert.deepEqual(ids(stapleRow(true,absent)),['tls_must_staple_not_stapled'],'Must-Staple leaf without a staple is a finding');
+  assert.deepEqual(ids(stapleRow(true,stapled)),[],'Must-Staple leaf with a stapled response is fine');
+  assert.deepEqual(ids(stapleRow(false,absent)),[],'no Must-Staple, no staple: not a finding');
+  assert.deepEqual(ids(stapleRow(null,absent)),[],'unknown Must-Staple (legacy engine) is not assessed');
+  assert.deepEqual(ids(stapleRow(true,null)),[],'no OCSP observation is not assessed');
+  const finding=tlsAssessmentFindings(module([protocol('tls1_2'),stapleRow(true,absent)])).find(f=>f.id.startsWith('tls_must_staple_not_stapled__'));
+  assert.equal(finding.severity,'high');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,stapled)])).state,'clear','stapling enabled clears');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,absent)])).state,'present','still unstapled stays present');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(null,absent)])).state,'deferred','unknown is inconclusive');
+  // R1: an invalid staple fails Must-Staple; it never reads stapled or clears.
+  const invalidStaple={...stapled,state:'invalid',signature_valid:false};
+  assert.deepEqual(ids(stapleRow(true,invalidStaple)),['tls_must_staple_not_stapled'],'an invalid staple is a finding');
+  assert.equal(evaluateTlsCondition(finding.id,module([protocol('tls1_2'),stapleRow(true,invalidStaple)])).state,'present','an invalid staple never clears');
+  assert.deepEqual(ids(stapleRow(true,{...stapled,state:'revoked'})),[],'a revoked staple is the tls_ocsp_revoked finding, not a duplicate');
+  const { mustStapleState } = await import('../workers/scan-api/src/engines/tls-findings.js');
+  const st=(row)=>mustStapleState(module([protocol('tls1_2'),row]))[0]?.state;
+  assert.deepEqual([st(stapleRow(true,absent)),st(stapleRow(true,stapled)),st(stapleRow(false,absent)),st(stapleRow(null,absent)),st(stapleRow(true,null))],
+    ['required_not_stapled','required_stapled','not_required','not_assessed','not_assessed'],'card states are backend-owned');
+  assert.equal(st(stapleRow(true,invalidStaple)),'required_staple_invalid','an invalid staple reads invalid, never stapled');
+}
 const strong=module([protocol('tls1_2'),certRow({...leaf,key_bits:3072,signature_algorithm:'rsa_sha256'})]);
 assert.equal(evaluateTlsCondition(weakKeyFinding.id,strong).state,'clear');
 assert.equal(evaluateTlsCondition(weakSignatureFinding.id,strong).state,'clear');
@@ -79,6 +108,21 @@ const robot={...protocol('tls1_2'),control:'robot',reason:'active_confirmed',eng
   evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'robot-finite-v1',completed_vectors:10,planned_vectors:10}},
   physical_telemetry:{...good,connections:11}};
 const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).find(row=>row.id.startsWith('tls_robot_confirmed__'));
+// Heartbeat not offered (Executive, 24 Oct 2026): Heartbleed reads "not
+// applicable", never "Could not execute"; no finding; an open case stays inconclusive.
+{
+  const { classifyTlsRefusals } = await import('../workers/scan-api/src/engines/tls-quality.js');
+  const noHeartbeat={...protocol('tls1_2'),control:'heartbleed',state:'unexecutable',reason:'heartbeat_unavailable',engine:{...engine,family:'active_legacy'},
+    evidence:{...protocol('tls1_2').evidence,vulnerability:null}};
+  const [mapped]=classifyTlsRefusals([noHeartbeat]);
+  assert.deepEqual([mapped.state,mapped.reason,mapped.engine_state],['not_applicable','heartbeat_unavailable','unexecutable'],'heartbeat not offered is not applicable');
+  assert.equal(classifyTlsRefusals([{...noHeartbeat,reason:'engine_capability_limit'}])[0].state,'unexecutable','another reason is unchanged');
+  assert.equal(classifyTlsRefusals([{...noHeartbeat,control:'robot'}])[0].state,'unexecutable','only Heartbleed relies on the heartbeat extension');
+  assert.equal(tlsAssessmentFindings(module([protocol('tls1_2'),mapped])).length,0,'not applicable is never a finding');
+  const hbOpen={...noHeartbeat,state:'accepted',reason:'active_confirmed',evidence:{...noHeartbeat.evidence,vulnerability:{status:'confirmed',profile:'heartbleed-minimal-v1',completed_vectors:1,planned_vectors:1}}};
+  const hbFinding=tlsAssessmentFindings(module([protocol('tls1_2'),hbOpen])).find(f=>f.id.startsWith('tls_heartbleed_confirmed__'));
+  assert.equal(evaluateTlsCondition(hbFinding.id,module([protocol('tls1_2'),{...mapped,evidence:{...mapped.evidence,vulnerability:{status:'unknown',profile:'heartbleed-minimal-v1',completed_vectors:0,planned_vectors:0}}}])).state,'deferred','an open case is never cleared by a server that stopped offering the heartbeat');
+}
 assert(robotFinding);
 assert.equal(robotFinding.confidence,80);
 assert.match(robotFinding.description,/CDN edge result does not establish an origin vulnerability/);
@@ -129,7 +173,28 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
     ['certificate_case','certificates_trust','detected','tls_legacy_protocol','high','tls.endpoint.legacy_protocol'], 'the case is a Certificates & Trust case with the canonical remediation');
   assert.deepEqual(transitions(),['tls_condition_observed'],'the opening is recorded as an alert occurrence');
   const { certificateCaseDisplay } = await import('../workers/scan-api/src/engines/certificate-lifecycle.js');
-  assert.equal(certificateCaseDisplay(c1).display_title,'TLS endpoint mail.example.org — legacy TLS version accepted','a TLS case names the endpoint condition, never "Certificate follow-up"');
+  assert.equal(certificateCaseDisplay(c1).display_title,'TLS endpoint mail.example.org — TLS 1.0 accepted','a TLS case names its protocol, never "Certificate follow-up" or a shared phrase');
+  // Two cases on one endpoint never read the same (Executive, 23 Oct 19:42).
+  {
+    const notifMark = db.prepare("SELECT COALESCE(MAX(rowid),0) m FROM notification_events").get().m;
+    const both = module([protocol('tls1'),protocol('tls1_1'),protocol('tls1_3')]);
+    await run(both);
+    const titles = db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws1' AND source_finding_type='tls_legacy_protocol'").all().map(r=>certificateCaseDisplay({...r}).display_title).sort();
+    assert.deepEqual(titles,['TLS endpoint mail.example.org — TLS 1.0 accepted','TLS endpoint mail.example.org — TLS 1.1 accepted'],'TLS 1.0 and TLS 1.1 cases are told apart');
+    // An older case without the recorded condition gets it on the next re-measure, once, no duplicate.
+    const t11 = db.prepare("SELECT id FROM managed_cases WHERE workspace_id='ws1' AND title LIKE 'TLS1.1%'").get().id;
+    db.prepare("UPDATE managed_cases SET evidence_json=NULL WHERE id=?").run(t11);
+    assert.equal(certificateCaseDisplay({...db.prepare("SELECT * FROM managed_cases WHERE id=?").get(t11)}).display_title,'TLS endpoint mail.example.org — legacy TLS version accepted');
+    const before = db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n;
+    await run(both);
+    assert.equal(certificateCaseDisplay({...db.prepare("SELECT * FROM managed_cases WHERE id=?").get(t11)}).display_title,'TLS endpoint mail.example.org — TLS 1.1 accepted','an older case is retitled on the next re-measure');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n,before,'no duplicate case');
+    assert.equal(certificateCaseDisplay({case_type:'certificate_case',source_finding_type:'tls_weak_cipher',asset_ref:'mail.example.org',evidence_json:JSON.stringify({tls_condition:{protocol:'tls1_2',cipher_id:'RC4-MD5'}})}).display_title,'TLS endpoint mail.example.org — weak cipher RC4-MD5 accepted','a weak cipher case names its cipher');
+    assert.equal(certificateCaseDisplay({case_type:'certificate_case',source_finding_type:'tls_robot_confirmed',asset_ref:'mail.example.org'}).display_title,'TLS endpoint mail.example.org — ROBOT (RSA padding oracle) signal','a _confirmed case names its vulnerability');
+    db.prepare("DELETE FROM managed_cases WHERE workspace_id='ws1' AND id<>?").run(c1.id);
+    // This block's own side effects stay inside it (the alert assertions below count from the open).
+    db.prepare("DELETE FROM notification_events WHERE rowid > ?").run(notifMark);
+  }
   assert.deepEqual(await run(baseline), {opened:0,reopened:0,verified:0}, 'the same measurement again opens nothing new');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='ws1'").get().n,1,'one case per exact condition');
   const fixed=module([protocol('tls1','rejected'),protocol('tls1_3')]);
@@ -160,6 +225,49 @@ assert.notDeepEqual(plan.selected.filter(row=>row.check.control==='cipher').map(
   assert.match(sent[0].message,/A TLS measurement of mail\.example\.org observed: TLS1 accepted on this endpoint\./,'the open alert names the endpoint and the observed condition in plain words');
   assert.match(sent[1].message,/CyberMeters verified this fixed on \d{1,2} [A-Z][a-z]{2} \d{4}; it has been observed again, so the case is reopened\./,'the reopen alert says it was verified, and when');
   assert(!sent.some(a=>/tls_|tlscase:|condition "/.test(a.message)),'no internal key in alert prose');
+  // F1 end to end (23 Oct 2026): an Active Checks grant -> a scan a person
+  // started plans Heartbleed for the owned address -> the finite profile result
+  // -> tls_heartbleed_confirmed -> a Certificates & Trust case -> one alert.
+  // A scheduled scan with the same grant plans nothing intrusive.
+  {
+    const { loadTlsEndpoints, buildBudgetedTlsCheckPlan } = await import('../workers/scan-api/src/engines/tls-planner.js');
+    const { isAuthorised } = await import('../workers/scan-api/src/engines/active-check-consent.js');
+    db.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+        signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_f1','ws1','grant','d1','example.org','[]',?,'u1','owner','Pat','IT','text','v',?)`)
+      .run(JSON.stringify(['tls_intrusive_heartbleed']),new Date().toISOString());
+    // The owned-address gate is the real one; only the DNS ownership read is fixed.
+    const owned = async()=>({roots:['example.org'],owned:new Map([['8.8.8.8',{domain:'example.org'}]]),shared:new Set(),lookups_failed:0});
+    const authorise = (e,q)=>isAuthorised(e,q,{observedNetworkAddresses:owned});
+    const lookup = async(host,type)=>type==='A'?{Status:0,Answer:[{type:1,name:`${host}.`,data:'8.8.8.8'}]}:{Status:0,Answer:[]};
+    const scan={id:'scan_f1',workspace_id:'ws1',domain_id:'d1',domain:'example.org'};
+    const plan = async trigger => {
+      const loaded=await loadTlsEndpoints(env,scan,{lookup,authorise,trigger});
+      return {loaded,planned:buildBudgetedTlsCheckPlan({endpoints:loaded.endpoints,cipherCatalog:[],observedHttpsHosts:['example.org'],scanId:'scan_f1'})};
+    };
+    const scheduled=await plan('scheduled');
+    assert.ok(!scheduled.planned.selected.some(r=>r.check.control==='heartbleed'),'F1: a scheduled scan never plans Heartbleed');
+    const started=await plan('manual');
+    assert.equal(started.loaded.endpoints[0].scope.special_checks.heartbleed,'acc_f1','F1: the started scan carries the grant for the owned address');
+    const selected=started.planned.selected.find(r=>r.check.control==='heartbleed');
+    assert.deepEqual(selected?.check,{control:'heartbleed',protocol:'tls1_2',cipher_id:null},'F1: the started scan plans Heartbleed on TLS 1.2');
+    // The probe's finite profile result for exactly that check.
+    const hb={...protocol('tls1_2'),control:'heartbleed',reason:'active_confirmed',engine:{...engine,family:'active_legacy'},
+      evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'heartbleed-minimal-v1',completed_vectors:1,planned_vectors:1}}};
+    const measured={source:'tls_assessment',quality:'complete',endpoints:[{...endpoint([protocol('tls1_2'),hb]),
+      endpoint_identity:started.loaded.endpoints[0].endpoint_identity,hostname:'example.org',sni:'example.org',port:443,application_protocol:'https'}]};
+    const confirmed=tlsAssessmentFindings(measured).find(f=>f.id.startsWith('tls_heartbleed_confirmed__'));
+    assert.ok(confirmed,'F1: the confirmed profile result is a finding');
+    const alertsBefore=certAlerts().length;
+    assert.deepEqual(await run(measured),{opened:1,reopened:0,verified:0},'F1: it opens one case');
+    const hbCase=db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws1' AND source_finding_type='tls_heartbleed_confirmed'").get();
+    assert.deepEqual([hbCase.case_type,hbCase.domain_key,hbCase.severity],['certificate_case','certificates_trust','high'],'F1: a Certificates & Trust case');
+    const hbAlerts=certAlerts().slice(alertsBefore);
+    assert.deepEqual(hbAlerts.map(a=>a.type),['certificates_trust.tls_condition_observed'],'F1: one alert');
+    assert.match(hbAlerts[0].message,/HEARTBLEED behaviour confirmed|Heartbleed behaviour confirmed/,'F1: the alert names the observed behaviour');
+    // A clean profile result is no finding and opens nothing.
+    const clean={...hb,state:'rejected',reason:'active_not_observed',evidence:{...hb.evidence,vulnerability:{...hb.evidence.vulnerability,status:'not_observed'}}};
+    assert.ok(!tlsAssessmentFindings({...measured,endpoints:[{...measured.endpoints[0],checks:[protocol('tls1_2'),clean]}]}).some(f=>f.id.startsWith('tls_heartbleed_confirmed__')),'F1: a clean result is not a finding');
+  }
   assert.deepEqual(await run({source:'not_tls'}), {opened:0,reopened:0,verified:0,skipped:'no_tls_assessment'});
   db.prepare("UPDATE workspaces SET deleted_at=datetime('now') WHERE id='ws1'").run();
   db.prepare("DELETE FROM managed_cases").run();

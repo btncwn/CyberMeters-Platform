@@ -81,8 +81,12 @@ ok("A1 mode flag: only the exact string 'queue' enables dispatch (fail-safe)",
 {
   const m = buildScanDispatchMessage({
     scanId: "scan_x1", workspaceId: "ws_x", domainId: "dom_x",
-    domain: "fixture.example", userId: "user_x",
+    domain: "fixture.example", userId: "user_x", trigger: "manual",
   });
+  // C-52 N02: an absent or unknown trigger stays null; it is never assumed manual.
+  ok("A2c absent/unknown trigger stays null",
+    buildScanDispatchMessage({ scanId: "scan_x2", workspaceId: "ws_x", domainId: "dom_x", domain: "fixture.example", userId: "user_x" }).trigger === null &&
+    buildScanDispatchMessage({ scanId: "scan_x3", workspaceId: "ws_x", domainId: "dom_x", domain: "fixture.example", userId: "user_x", trigger: "api" }).trigger === null);
   ok("A2 v1 message shape: version, authoritative scan_id, advisory identity, correlation",
     m.v === SCAN_DISPATCH_MESSAGE_VERSION && m.v === 1 &&
     m.scan_id === "scan_x1" && m.workspace_id === "ws_x" &&
@@ -91,7 +95,7 @@ ok("A1 mode flag: only the exact string 'queue' enables dispatch (fail-safe)",
     !Number.isNaN(Date.parse(m.admitted_at)) &&
     typeof m.request_id === "string" && m.request_id.length > 0);
   // PR-B1A byte-parity: a manual message carries NO scheduled_scan_id key and
-  // its trigger defaults to "manual" (mutation direction: a producer that
+  // its trigger is "manual" (mutation direction: a producer that
   // stamps scheduled fields on manual messages reddens this).
   ok("A2b manual message is byte-parity: no scheduled_scan_id key, trigger manual",
     !("scheduled_scan_id" in m) && m.trigger === "manual");

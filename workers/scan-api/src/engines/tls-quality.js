@@ -24,6 +24,8 @@ export const TLS_CAPABILITY_UNEXECUTABLE_REASONS = Object.freeze([
   'group_unavailable', 'control_unavailable', 'requires_credentials',
   // Authorised by the customer, engine not released (S3-B follow-up): stated.
   'authorised_engine_not_released',
+  // Authorised, held to a started check or refused on a provider edge (F1): stated.
+  'scheduled_or_unknown_origin', 'provider_infrastructure_not_tested', 'address_not_verified_not_tested',
 ]);
 export function blockingTlsUnexecutable(checks) {
   return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'unexecutable'
@@ -51,6 +53,15 @@ export function classifyTlsRefusals(checks) {
   const reachable = new Set(rows.filter(row => row?.state === 'accepted').map(row => row.endpoint_index));
   return rows.map(row => {
     if (row?.state === 'rejected') return { ...row, rejection_basis: 'engine_alert' };
+    // Heartbleed needs the TLS heartbeat extension. A server that does not offer
+    // it is not a check CyberMeters failed to run: it is "Not applicable — this
+    // server did not offer the TLS heartbeat extension that Heartbleed relies
+    // on" (Executive, 24 Oct 2026). A stated state, not a pass verdict: no
+    // finding, no case, no alert, and a retest of an open case stays
+    // inconclusive. The producer's reason is kept.
+    if (row?.control === 'heartbleed' && row.state === 'unexecutable' && row.reason === 'heartbeat_unavailable') {
+      return { ...row, state: 'not_applicable', engine_state: 'unexecutable' };
+    }
     if (row?.state === 'uncertain' && reachable.has(row.endpoint_index)
         && TLS_REFUSAL_REASONS.includes(row.reason) && isTlsRefusalProbe(row)) {
       return { ...row, state: 'rejected', engine_state: 'uncertain', rejection_basis: 'refused_without_version_alert' };

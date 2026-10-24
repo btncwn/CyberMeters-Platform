@@ -16,6 +16,8 @@ import {
   classificationMeta, riskMeta, ownershipMeta, verificationMeta, surfaceLabel, toneClass,
   isAwaitingVerification, IDENTITY_SCOPE_NOTE, identityClaimMeta, confidenceDetailLabel,
 } from '../../lib/identityExposureDisplay'
+import { keyLabel } from '../../lib/keyLabel'
+import { phaseMeta } from '../../lib/caseDisplay'
 
 function Pill({ meta }) {
   return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${toneClass(meta.tone)}`}>{meta.label}</span>
@@ -28,8 +30,11 @@ const CLASS_FILTERS = ['', 'unreviewed', 'expected', 'unexpected', 'investigate'
 // record IS (claim_kind, reachability) is the backend's.
 // The "All" chip from the unfiltered page: "All (500+)" at the bound, plain "All"
 // while it is loading or unavailable, never the filtered list's length.
-export function allChipLabel({ status, items, atLimit = false }) {
+export function allChipLabel({ status, items, counts = null, atLimit = false }) {
   if (status !== 'ok') return 'All'
+  // The backend's workspace-wide count when present (#942): exact, or "N+" past its bound.
+  const by = counts?.by_claim_kind
+  if (by && Number.isInteger(by.counted)) return `All (${by.counted}${by.complete !== true ? '+' : ''})`
   return `All (${atLimit ? `${SUMMARY_LIMIT}+` : (items || []).length})`
 }
 
@@ -37,9 +42,20 @@ export function allChipLabel({ status, items, atLimit = false }) {
 // when a page comes back full, the claim-kind counts are lower bounds ("N+").
 export const SUMMARY_LIMIT = 500
 export function identitySummaryFigures({ status, items, counts, atLimit = false }) {
-  const by = (kind) => (items || []).filter((it) => it?.identity_claim?.claim_kind === kind).length
+  // Workspace-wide counts by claim kind from the backend (#942, Executive 19:55):
+  // exact when complete, "N+" when the backend's bound was reached, "Not available"
+  // when it could not count (null). Only a response without the field (an older
+  // backend) falls back to counting the loaded page, with its own 500 bound.
+  const backend = counts && Object.prototype.hasOwnProperty.call(counts, 'by_claim_kind') ? counts.by_claim_kind : undefined
+  const by = (kind) => {
+    if (backend === null) return null
+    if (backend && Number.isInteger(backend[kind])) return backend.complete !== true ? `${backend[kind]}+` : backend[kind]
+    if (backend) return null
+    const n = (items || []).filter((it) => it?.identity_claim?.claim_kind === kind).length
+    return atLimit ? `${n}+` : n
+  }
   // Never 0 for "not known": loading and error say so (R1 15:55).
-  const v = (n) => (status === 'loading' ? 'Loading…' : status !== 'ok' ? 'Not available' : atLimit ? `${n}+` : n)
+  const v = (n) => (status === 'loading' ? 'Loading…' : status !== 'ok' || n === null ? 'Not available' : n)
   // counts.unreviewed is workspace-wide (not page-bound): never "+"; a missing field is "Not available".
   const unreviewed = status === 'loading' ? 'Loading…' : status !== 'ok' || !Number.isInteger(counts?.unreviewed) ? 'Not available' : counts.unreviewed
   return [
@@ -104,17 +120,17 @@ function IdentitySurfaceDetail({ workspaceId, recordId }) {
         <ol className="space-y-2 text-sm text-slate-600">
           {events.map((event) => <li key={event.id}>
             <span className="font-medium text-slate-800">{event.event_type?.replaceAll('_', ' ') || 'Recorded event'}</span>
-            {event.actor_type && ` · ${event.actor_type}`}
+            {event.actor_type && ` · ${keyLabel(event.actor_type)}`}
             {event.created_at && ` · ${event.created_at}`}
           </li>)}
         </ol>
       )}
       {detail.linked_case && (
         <p className="text-sm">
-          Linked case: <Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>
-            {detail.linked_case.id}
+          <Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>
+            Open the linked case
           </Link>
-          {detail.linked_case.status && ` · ${detail.linked_case.status}`}
+          {detail.linked_case.status && ` · ${phaseMeta(detail.linked_case.status).label}`}
         </p>
       )}
     </div>
@@ -325,8 +341,8 @@ export default function IdentityExposurePage() {
                     {Array.isArray(it.measured_endpoints) && it.measured_endpoints.length > 0 && (
                       <div className="mt-1 break-all">Measured: {it.measured_endpoints.join(', ')}</div>
                     )}
-                    <div className="mt-1">Monitoring: {it.monitoring_status || 'Not available'}</div>
-                    {it.monitoring_reason && <div>Reason: {it.monitoring_reason}</div>}
+                    <div className="mt-1">Monitoring: {keyLabel(it.monitoring_status) || 'Not available'}</div>
+                    {it.monitoring_reason && <div>Reason: {keyLabel(it.monitoring_reason)}</div>}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={riskMeta(it.risk_status)} />

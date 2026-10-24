@@ -12,7 +12,7 @@ import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_
 import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan, tlsProbeScope } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
-import { loadTlsEndpoints } from '../workers/scan-api/src/engines/tls-planner.js';
+import { loadTlsEndpoints, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
 import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 
 const sql=new DatabaseSync(':memory:');
@@ -266,8 +266,8 @@ await test('special-control scope matches the probe contract', async () => {
     // The wire projection does not release an intrusive engine. Its genuine
     // contract refusal stays visible rather than a fake accepting the request.
     for (const [control, max_connections] of [['robot',21],['ccs',5]]) {
-      assert.deepEqual(validateTlsAssessmentRequest({...input, checks:[{control,protocol:'tls1_2',cipher_id:null}],
-        max_connections}), TLS_SPECIAL_CONTROLS_AVAILABLE ? {ok:true} : {ok:false,reason:'control_unavailable'});
+      const verdict = validateTlsAssessmentRequest({...input, checks:[{control,protocol:'tls1_2',cipher_id:null}], max_connections});
+      assert.deepEqual([verdict.ok, verdict.reason ?? null], TLS_SPECIAL_CONTROLS_AVAILABLE ? [true,null] : [false,'control_unavailable']);
     }
     assert.deepEqual(validateTlsAssessmentRequest({...input,
       scope: tlsProbeScope({...rawScope, consent_version: 'unknown-authority-version'})}), {ok: false, reason: 'invalid_scope'});
@@ -401,9 +401,34 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   assert.deepEqual(off.endpoints[0].scope.special_checks,{},'a grant is never runnable while the engine is withheld');
   assert.deepEqual(off.endpoints[0].scope.granted_checks,{robot:'acc_plan'});
   asked.length=0;
-  const on=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:true});
+  const on=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:true,trigger:'manual'});
   assert.deepEqual(asked,['tls_intrusive_heartbleed','tls_intrusive_robot','tls_intrusive_ccs'].map(c=>[c,'special.example.org','8.8.8.8','special.example.org','w_special']));
   assert.deepEqual(on.endpoints[0].scope.special_checks,{robot:'acc_plan'});
+  assert.equal(on.endpoints[0].scope.special_consent,true,'a scan a person started runs the granted control');
+  // F1: the signed consent is "on demand". A scheduled scan, or one with no
+  // trigger, never runs an intrusive control; it states why.
+  for(const trigger of ['scheduled',undefined]){
+    const held=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise,specialControlsAvailable:true,trigger});
+    assert.deepEqual(held.endpoints[0].scope.special_checks,{},`${trigger} scan: never runnable`);
+    assert.equal(held.endpoints[0].scope.special_consent,false);
+    assert.deepEqual(held.endpoints[0].scope.held_checks,{robot:'scheduled_or_unknown_origin'});
+    const planned=buildBudgetedTlsCheckPlan({endpoints:held.endpoints,cipherCatalog:[],observedHttpsHosts:['special.example.org'],scanId:'held'});
+    assert.ok(!planned.selected.some(r=>r.check.control==='robot'),'a held control is never selected for the probe');
+    assert.deepEqual(planned.static_results.filter(r=>r.check.control==='robot').map(r=>[r.state,r.reason]),[['unexecutable','scheduled_or_unknown_origin']]);
+  }
+  // F1: a grant for the host does not reach a shared provider edge, and the
+  // customer is told so, not "requires your authorisation".
+  const edge=async(_env,q)=>q.check==='tls_intrusive_robot'
+    ?{authorised:false,reason:'address_out_of_scope',consent_id:null,address_scope:'address_is_shared_provider_infrastructure'}
+    :{authorised:false,reason:'check_not_in_grant',consent_id:null};
+  const atEdge=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise:edge,specialControlsAvailable:true,trigger:'manual'});
+  assert.deepEqual(atEdge.endpoints[0].scope.special_checks,{});
+  assert.deepEqual(atEdge.endpoints[0].scope.held_checks,{robot:'provider_infrastructure_not_tested'});
+  const unowned=async(_env,q)=>q.check==='tls_intrusive_robot'
+    ?{authorised:false,reason:'address_out_of_scope',consent_id:null,address_scope:'address_not_observed_in_verified_dns'}
+    :{authorised:false,reason:'check_not_in_grant',consent_id:null};
+  const atUnowned=await loadTlsEndpoints(env,scan,{lookup:lookupTlsDns,authorise:unowned,specialControlsAvailable:true,trigger:'manual'});
+  assert.deepEqual(atUnowned.endpoints[0].scope.held_checks,{robot:'address_not_verified_not_tested'});
 }
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no
@@ -481,7 +506,10 @@ for (const [scanId, unexecutableReason, expected] of [
   sql.prepare("INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at,state) VALUES(?,?,?,?,?,?,?,?,'complete')")
     .run(scanId, workspace, domainId, domain, JSON.stringify(plan), now, now + 60_000, new Date(now).toISOString());
   const assessment = await readTlsAssessmentForScan(env, { workspaceId: workspace, scanId });
-  assert.equal(assessment.coverage.unexecutable, 1);
+  // Heartbeat not offered is stated as not applicable (24 Oct 2026); a check
+  // CyberMeters did not run stays unexecutable.
+  assert.deepEqual([assessment.coverage.unexecutable, assessment.coverage.not_applicable],
+    unexecutableReason === 'heartbeat_unavailable' ? [0, 1] : [1, 0]);
   assert.equal(assessment.quality, expected, `TLS module quality for ${unexecutableReason}`);
   const certificates = resolveSecurityCheckDomainStates({ scan_quality: { status: 'complete', modules_skipped: [] },
     modules: { certificate_intelligence: {}, tls_assessment: assessment }, findings: [] }).find(row => row.domain_key === 'certificates_trust');

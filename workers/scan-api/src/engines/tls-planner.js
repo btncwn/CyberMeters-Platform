@@ -2,7 +2,7 @@ import { dnsQuery } from './dns.js';
 import { isAuthorised, ACTIVE_CHECK_AUTHORITY_VERSION } from './active-check-consent.js';
 import { observedNetworkAddresses } from './network-ownership.js';
 import { isPublicProbeAddress, isProbeHostname } from '../../../network-probe/src/contract.js';
-import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_AUTHORISATION_REQUIRED_REASON, TLS_AUTHORISED_NOT_RELEASED_REASON, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
+import { TLS_PROFILE_VERSION, TLS_POLICY_VERSION, TLS_PROTOCOLS, TLS_SPECIAL_CONTROLS, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_AUTHORISATION_REQUIRED_REASON, TLS_AUTHORISED_NOT_RELEASED_REASON, TLS_AUTHORISED_ON_DEMAND_REASON, TLS_PROVIDER_EDGE_REASON, TLS_ADDRESS_NOT_OWNED_REASON, applicableTlsControl, isTlsService, tlsEndpointIdentity } from '../../../../shared/tls/catalog.js';
 
 const MAX_SERVICES_PER_SCAN = 4;
 const MAX_ENDPOINTS_PER_SCAN = 8;
@@ -55,7 +55,10 @@ function selectAddresses(addresses,scanId,hostname) {
   return [v4[0],v6[0],v4[1],v6[1]].filter(Boolean);
 }
 
-export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => Date.now(),authorise = isAuthorised,specialControlsAvailable = TLS_SPECIAL_CONTROLS_AVAILABLE} = {}) {
+// `trigger` is the scan's own trigger. Intrusive controls run only on a scan a
+// person started ('manual'): the signed consent says "on demand". Anything
+// else, including a missing trigger, holds them (F1).
+export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => Date.now(),authorise = isAuthorised,specialControlsAvailable = TLS_SPECIAL_CONTROLS_AVAILABLE,trigger = null} = {}) {
   if (!id(scan.workspace_id) || !id(scan.domain_id) || !id(scan.id) || !isProbeHostname(scan.domain)) throw new Error('invalid_scan');
   const db = env.cybermeters_db;
   // The workspace's owned addresses, resolved at most once for this plan.
@@ -112,18 +115,26 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
       // (granted_checks, plan only) so the customer sees "Authorised — not yet
       // available" rather than "requires your authorisation". The address
       // ownership is resolved once per plan, not once per control.
-      const special_checks = {}, granted_checks = {};
+      const special_checks = {}, granted_checks = {}, held_checks = {};
       for (const [control,check] of Object.entries(TLS_SPECIAL_CHECK_IDS)) {
         const decision = await authorise(env,{workspaceId:scan.workspace_id,domain:scan.domain,host:candidate.hostname,check,address},
           {observedNetworkAddresses:ownership});
+        // A grant that covers the host but not this address is stated as such,
+        // never as "requires your authorisation": a shared provider edge, or an
+        // address not observed in a verified domain's DNS.
+        if (decision?.authorised !== true && decision?.reason === 'address_out_of_scope') {
+          held_checks[control] = decision.address_scope === 'address_is_shared_provider_infrastructure' ? TLS_PROVIDER_EDGE_REASON : TLS_ADDRESS_NOT_OWNED_REASON;
+          continue;
+        }
         if (decision?.authorised !== true || !decision.consent_id) continue;
-        if (specialControlsAvailable) special_checks[control] = decision.consent_id;
+        if (specialControlsAvailable && trigger === 'manual') special_checks[control] = decision.consent_id;
+        else if (specialControlsAvailable) held_checks[control] = TLS_AUTHORISED_ON_DEMAND_REASON;
         else granted_checks[control] = decision.consent_id;
       }
       const consent = consentIds(special_checks).length > 0;
       endpoints.push({endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),
         scope:{kind:candidate.kind,service_authorization_id:candidate.service_authorization_id,generation,
-          special_consent:consent,special_checks,granted_checks,consent_version:consent?ACTIVE_CHECK_AUTHORITY_VERSION:null}});
+          special_consent:consent,special_checks,granted_checks,held_checks,consent_version:consent?ACTIVE_CHECK_AUTHORITY_VERSION:null}});
     }
   }
   return {endpoints,gaps,scope_generation:generation,special_consent:endpoints.some(e => e.scope.special_consent),omitted_services:0,deferred_services:deferredServices};
@@ -271,6 +282,9 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
     for(const control of TLS_SPECIAL_CONTROLS){
       if(TLS_SPECIAL_CONTROLS_AVAILABLE&&entry.scope?.special_checks?.[control])add(control,'tls1_2');
       else if(!applicableTlsControl(control,'tls1_2'))continue;
+      // Authorised, but held: a scheduled scan, or a shared provider edge (F1).
+      else if(entry.scope?.held_checks?.[control])staticResults.push({endpoint_index:index,
+        check:{control,protocol:'tls1_2',cipher_id:null},state:'unexecutable',reason:entry.scope.held_checks[control]});
       // Authorised by the customer but the engine is not released: stated as
       // "Authorised — not yet available", never as needing authorisation.
       else if(entry.scope?.granted_checks?.[control]||entry.scope?.special_checks?.[control])staticResults.push({endpoint_index:index,

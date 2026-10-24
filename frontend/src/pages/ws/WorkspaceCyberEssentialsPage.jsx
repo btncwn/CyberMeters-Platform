@@ -11,7 +11,7 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import ModuleContract from '../../components/module/ModuleContract'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { PlanGate } from '../../components/PlanUsageCard'
-
+import { ceSummaryFigures } from '../../lib/ceSummary'
 const CONTROL_LABELS = {
   boundary_protection: 'Boundary protection',
   secure_configuration: 'Secure configuration',
@@ -448,7 +448,6 @@ function ExternallyObservedControls({ data, error }) {
                     {c.evidence.map((e, i) => (
                       <li key={i} className="text-xs text-gray-700">
                         <span className="block">{e.customer_title || 'Observed control finding'}</span>
-                        {e.remediation_id && <span className="block font-mono text-xs text-gray-500">{e.remediation_id}</span>}
                       </li>
                     ))}
                   </ul>
@@ -565,6 +564,8 @@ export default function WorkspaceCyberEssentialsPage() {
   useEffect(() => {
     if (!wsId) return
     let cancelled = false
+    // Another workspace's control records never stand in for this one's.
+    setControls(null); setControlsError(null)
     api.getCyberEssentialsControls(wsId)
       .then((res) => { if (!cancelled) { setControls(res); setControlsError(null) } })
       .catch(() => { if (!cancelled) setControlsError('Could not load externally observed controls.') })
@@ -627,6 +628,7 @@ export default function WorkspaceCyberEssentialsPage() {
           description="Save self-declared answers for this workspace and combine them with external evidence for readiness guidance and gap analysis."
           /* The area template (18 Oct 2026): until every question is answered, the
              questionnaire IS the next action — one card, one button. */
+          figures={ceSummaryFigures({ readiness, readinessLoaded: !loading && !error, notAssessed: readinessIsNotAssessed(readiness), progress, controls, controlsError })}
           nextAction={progress.total > 0 && progress.answered < progress.total ? {
             title: progress.answered === 0 ? 'Answer the readiness questionnaire' : 'Finish the readiness questionnaire',
             body: `${progress.answered} of ${progress.total} questions answered. Your answers are self-declared and combine with external evidence for readiness guidance.`,

@@ -107,12 +107,12 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     business_impact: rule.risk || "Public operational or source information may expose details intended only for the service owner. No credential validity or unauthorised operation is tested.",
     recommended_action: rule.remediation.join(" "),
     verification_method: rule.observationOnly ? "unsupported" : "rescan",
-    verification_evidence_requirements: "A later successful bounded check of the same rule and exact original URL finds the condition absent. Missing, blocked, incomplete and untested responses cannot verify remediation.",
+    verification_evidence_requirements: rule.verificationEvidence || "A later successful bounded check of the same rule and exact original URL finds the condition absent. Missing, blocked, incomplete and untested responses cannot verify remediation.",
     supporting_evidence_types: ["bounded_http_content"],
     managed_workflow_compatible: !rule.observationOnly,
     case_type: rule.observationOnly ? null : "website_case",
     limitations: [rule.evidence.uncertain, "No authentication bypass, credential validity, data modification or code execution is attempted."],
-    introduced_at: "2026-10-13",
+    introduced_at: rule.introducedAt || "2026-10-13",
   })),
   ...[
     ["tls_legacy_protocol", "Disable the observed legacy TLS version", "Remove this protocol version from the measured service after checking client compatibility."],
@@ -128,6 +128,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     ["tls_weak_certificate_signature", "Replace the certificate with a current signature", "Replace the certificate with one signed using a current algorithm and verify the deployed chain."],
     ["tls_ocsp_revoked", "Replace the revoked certificate", "Replace the affected certificate and correct its stapled OCSP response on this service."],
     ["tls_compression_enabled", "Disable TLS compression", "Disable TLS-level compression on the measured service."],
+    ["tls_must_staple_not_stapled", "Staple OCSP for the Must-Staple certificate", "Enable OCSP stapling on this service, or reissue the certificate without the Must-Staple extension."],
   ].map(([findingType, title, action]) => entry({
     remediation_id: `tls.endpoint.${findingType.slice(4)}`,
     domain_key: "certificates_trust",

@@ -356,7 +356,14 @@ export const HSTS_POLICY_VERSION = "2026-10-23.1";
 export function buildHstsHostPolicy({ domain, apexObserved, apexValue = null, apexUrl = null, apexStatus = null, finalUrl = null, finalValue = null }) {
   const apexHost = String(domain || "").toLowerCase();
   const finalHost = finalUrl ? safeHostname(finalUrl) : null;
-  const state = apexObserved ? (apexValue ? "present" : "absent") : "not_observed";
+  // E2 (item 15 re-run, corpus-90; R1 23-24 Oct 2026): the apex's HSTS counts
+  // only on a serviceable answer (2xx or a redirect), BOTH ways. A 429, a
+  // challenge page or a 5xx says nothing about the origin's policy: without the
+  // header it is not absence, and WITH it (a WAF/CDN error page) it is not the
+  // origin's fix either - so it can never clear a missing-HSTS case.
+  // A missing status is not evidence of a serviceable answer (R1 follow-up, 24 Oct 2026).
+  const serviceable = Number.isInteger(apexStatus) && apexStatus >= 200 && apexStatus < 400;
+  const state = apexObserved && serviceable ? (apexValue ? "present" : "absent") : "not_observed";
   const includeSubDomains = state === "present" && /(^|;)\s*includesubdomains\s*(;|$)/i.test(apexValue);
   return {
     version: HSTS_POLICY_VERSION,
@@ -385,8 +392,11 @@ export function hstsPolicyOf(headers, domain) {
     return buildHstsHostPolicy({ domain, apexObserved: true, apexValue: apex.strict_transport_security, apexUrl: apex.url,
       apexStatus: apex.status, finalUrl: headers?.response_url, finalValue });
   }
-  // Legacy: the final page's value stood for the domain.
-  return { ...buildHstsHostPolicy({ domain, apexObserved: true, apexValue: finalValue, finalUrl: `https://${String(domain || "").toLowerCase()}`, finalValue }),
+  // Legacy result (no hsts_policy, no recorded apex answer or status): the
+  // apex's own policy was never observed, so it is not_observed - neither
+  // present nor missing (R1 follow-up, 24 Oct 2026). The final page's value is
+  // kept as final_value for display only.
+  return { ...buildHstsHostPolicy({ domain, apexObserved: false, finalUrl: `https://${String(domain || "").toLowerCase()}`, finalValue }),
     legacy: true };
 }
 

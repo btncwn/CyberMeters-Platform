@@ -1,4 +1,5 @@
 // Shared canonical-phase presentation for managed cases across all eight
+import { keyLabel } from './keyLabel.js'
 // security domains. This is the ONE place the frontend maps a case's canonical phase
 // to a display label/tone, so cross-domain queues render consistently and no
 // screen re-invents a divergent state map. The frontend NEVER decides legal
@@ -33,7 +34,8 @@ export const EXTERNAL_EVIDENCE_LABEL = 'Requires independent third-party evidenc
 // Legacy certificate titles persisted the assignment state at creation time.
 // The current assignee is the live case field, so never repeat a stale suffix.
 export function caseDisplayTitle(c) {
-  const title = c?.title || c?.source_finding_type || c?.case_id || ''
+  // Never a finding slug or a case id as a heading (C-45 R02).
+  const title = c?.title || keyLabel(c?.source_finding_type) || 'Case'
   if (!c?.owner_ref) return title
   return String(title).replace(/\s*\(owner missing\)$/i, '')
 }

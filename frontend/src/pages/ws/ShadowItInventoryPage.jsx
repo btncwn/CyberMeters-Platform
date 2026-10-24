@@ -16,6 +16,8 @@ import {
   classificationMeta, monitoringMeta, ownershipMeta, onboardingMeta, removalMeta,
   toneClass, SHADOW_IT_SCOPE_NOTE, nextShadowItActions,
 } from '../../lib/shadowItDisplay'
+import { keyLabel } from '../../lib/keyLabel'
+import { phaseMeta } from '../../lib/caseDisplay'
 
 function Pill({ meta }) {
   return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${toneClass(meta.tone)}`}>{meta.label}</span>
@@ -61,11 +63,11 @@ function ShadowItHistory({ workspaceId, itemId }) {
     {events.length === 0 ? <p className="text-sm text-slate-500">No recorded events.</p> : <ol className="space-y-2 text-sm text-slate-600">
       {events.map(event => <li key={event.id}>
         <span className="font-medium text-slate-800">{event.event_type?.replaceAll('_', ' ') || 'Recorded event'}</span>
-        {event.actor_type && ` · ${event.actor_type}`}
+        {event.actor_type && ` · ${keyLabel(event.actor_type)}`}
         {event.created_at && ` · ${event.created_at}`}
       </li>)}
     </ol>}
-    {detail.linked_case && <p className="text-sm">Linked case: <Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>{detail.linked_case.id}</Link>{detail.linked_case.status && ` · ${detail.linked_case.status}`}</p>}
+    {detail.linked_case && <p className="text-sm"><Link className="text-blue-700 hover:underline" to={`/ws/cases/${encodeURIComponent(detail.linked_case.id)}`}>Open the linked case</Link>{detail.linked_case.status && ` · ${phaseMeta(detail.linked_case.status).label}`}</p>}
   </div>
 }
 

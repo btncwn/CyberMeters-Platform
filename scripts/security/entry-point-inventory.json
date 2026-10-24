@@ -65,9 +65,9 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 312,
-    "authed": 266,
-    "public_unauthed": 46,
+    "total": 311,
+    "authed": 268,
+    "public_unauthed": 43,
     "sensitive_scope_gaps": 0,
     "by_scope": {
       "email": {
@@ -80,7 +80,7 @@
       },
       "unknown": {
         "total": 83,
-        "authed": 68
+        "authed": 71
       },
       "public-or-global": {
         "total": 47,
@@ -95,8 +95,8 @@
         "authed": 2
       },
       "workspace": {
-        "total": 139,
-        "authed": 139
+        "total": 138,
+        "authed": 138
       },
       "webhook": {
         "total": 2,
@@ -2786,18 +2786,8 @@
       "path_kind": null,
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
-      "auth_guards": [],
-      "scope_helpers": [],
-      "authed": false,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": null,
-      "path_kind": null,
-      "file": "workers/scan-api/src/routes/network-assets.js",
-      "scope": "unknown",
       "auth_guards": [
+        "requireAuth",
         "requireWorkspaceRole"
       ],
       "scope_helpers": [],
@@ -2810,20 +2800,12 @@
       "path_kind": null,
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
-      "auth_guards": [],
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
       "scope_helpers": [],
-      "authed": false,
-      "public_reason": null
-    },
-    {
-      "method": "GET",
-      "path": null,
-      "path_kind": null,
-      "file": "workers/scan-api/src/routes/network-assets.js",
-      "scope": "unknown",
-      "auth_guards": [],
-      "scope_helpers": [],
-      "authed": false,
+      "authed": true,
       "public_reason": null
     },
     {
@@ -2833,6 +2815,35 @@
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
       "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/network-assets.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/network-assets.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
         "requireWorkspaceRole"
       ],
       "scope_helpers": [
@@ -2848,6 +2859,7 @@
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
       "auth_guards": [
+        "requireAuth",
         "requireWorkspaceRole"
       ],
       "scope_helpers": [],
@@ -2861,6 +2873,7 @@
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
       "auth_guards": [
+        "requireAuth",
         "requireWorkspaceRole"
       ],
       "scope_helpers": [],
@@ -2874,6 +2887,7 @@
       "file": "workers/scan-api/src/routes/network-assets.js",
       "scope": "unknown",
       "auth_guards": [
+        "requireAuth",
         "requireWorkspaceRole"
       ],
       "scope_helpers": [
@@ -4044,22 +4058,6 @@
         "requireWorkspaceRole"
       ],
       "scope_helpers": [],
-      "authed": true,
-      "public_reason": null
-    },
-    {
-      "method": "POST",
-      "path": "/^\\/api\\/workspaces\\/([^/",
-      "path_kind": "regex",
-      "file": "workers/scan-api/src/routes/workspace-members.js",
-      "scope": "workspace",
-      "auth_guards": [
-        "requireAuth",
-        "requireWorkspaceRole"
-      ],
-      "scope_helpers": [
-        "getWorkspaceBillingUserId"
-      ],
       "authed": true,
       "public_reason": null
     },

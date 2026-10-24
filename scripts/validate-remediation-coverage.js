@@ -59,7 +59,7 @@ const ACTIONABLE = [
   "tls_legacy_protocol", "tls_weak_cipher", "tls_weak_key_exchange", "tls_no_forward_secrecy",
   "tls_heartbleed_confirmed", "tls_robot_confirmed", "tls_ccs_confirmed",
   "tls_certificate_hostname", "tls_certificate_trust", "tls_weak_certificate_key",
-  "tls_weak_certificate_signature", "tls_ocsp_revoked", "tls_compression_enabled",
+  "tls_weak_certificate_signature", "tls_ocsp_revoked", "tls_compression_enabled", "tls_must_staple_not_stapled",
   // certificates — cert-trust-l2.js `type:` values
   "expired", "expiring_soon", "self_signed", "unexpected_issuer", "unexpected_san", "unexpected_wildcard",
   // whois — whois-scan.js
@@ -150,14 +150,16 @@ ok("all other remediation identities remain version 1",
 // + asm.subdomain.takeover_unconfirmed (21 Oct 2026, hedged unconfirmed takeover candidate).
 // S3-0 (22 Oct 2026): + asm.network.remote_admin_reachable and asm.network.ftp_reachable.
 // S3-C (22 Oct 2026): + email.dane.tlsa_ineffective and cert.dane.web_tlsa_not_validated.
-ok("registry has exactly 118 entries including script metadata guidance", REMEDIATION_REGISTRY.length === 118);
+// S3-MODERN 1 (23 Oct 2026): + tls.endpoint.must_staple_not_stapled.
+// C-53: + web.exposure.remote_access_portal; all historical entries retained.
+ok("registry has exactly120 entries including remote-access portal guidance", REMEDIATION_REGISTRY.length === 120);
 // Certificate logs retired: evidence types and wording move to the live TLS
 // observation and cert.ct_incomplete becomes a deprecated historical entry, so
 // the fingerprint moves r74-05b42c41 -> r74-ad711388 with the count unchanged.
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
-// The 22 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including script metadata guidance is exact", remediationRegistryFingerprint() === "r118-25b6147b", remediationRegistryFingerprint());
+// The23 local public-content rules add canonical remediations; legacy entries stay unchanged.
+ok("registry fingerprint including remote-access portal guidance is exact", remediationRegistryFingerprint() === "r120-3a49bcc0", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",

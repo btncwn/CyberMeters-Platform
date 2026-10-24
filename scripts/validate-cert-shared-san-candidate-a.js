@@ -698,8 +698,16 @@ const parity = states.map(parityOutputs);
 // has no CSP finding, so only the stamped BRI version moves. With ONLY
 // BUSINESS_RISK_METHODOLOGY_VERSION reverted to 2026-10-21.2 the previous hashes
 // (893866a0… / b2147cf3…) reproduce exactly.
-const GOLDEN_F13 = "24dc14cc552eb314fcd9da4c49a4d4a7dab593f5355887f82cc115099902e89f";
-const GOLDEN_F14 = "87194812c7a7f13a8c85af6b70baeabe7a32acccad3eb4aea0a9a920c061d261";
+// Must-Staple (S3-MODERN 1, 23 Oct 2026): + tls.endpoint.must_staple_not_stapled
+// moves only the stamped registry fingerprint (r118 -> r119). With ONLY
+// remediation-registry.js reverted the previous hashes (24dc14cc… / 87194812…)
+// reproduce exactly.
+// Remote-access guidance (24 Oct 2026) moves only the registry stamp here
+// (r119-f330cb8e -> r120-3a49bcc0). Substituting only the predecessor stamp
+// reproduces both prior report hashes across all five SAN states (30/30);
+// the certificate evidence hash above is unchanged.
+const GOLDEN_F13 = "4e2aaf34e348b995c6ce51a2b19d4a17deaff4a983dcb76dadaf012319e91d78";
+const GOLDEN_F14 = "cbf2234362e1c1d836dc722d299bd7527a57943120f3229b26350d78d73fb442";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

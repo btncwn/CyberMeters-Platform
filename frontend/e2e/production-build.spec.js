@@ -106,3 +106,16 @@ test('?_fresh= is stripped even when the entry bundle fails to load', async ({ p
   expect(u.searchParams.get('tab')).toBe('findings')
   expect(u.hash).toBe('#cert-caa')
 })
+
+// Founder, 23 Oct 2026: every public and app page — the free tools included —
+// shows the brand favicon. All generated pages copy index.html's head, so each
+// must link exactly the brand icons.
+test('every generated page links the brand favicon (tools included)', async () => {
+  const { readdirSync } = await import('node:fs')
+  const pages = ['index.html', ...readdirSync(out).filter((f) => f.endsWith('.html') && f !== 'index.html'), ...readdirSync(join(out, 'tools')).map((f) => `tools/${f}`)]
+  expect(pages.some((p) => p.startsWith('tools/'))).toBe(true)
+  for (const page of pages) {
+    const icons = readFileSync(join(out, page), 'utf8').match(/<link rel="icon"[^>]*>/g) || []
+    expect(icons, page).toEqual(['<link rel="icon" href="/favicon.ico?v=20261021" sizes="32x32" />', '<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261021" />'])
+  }
+})

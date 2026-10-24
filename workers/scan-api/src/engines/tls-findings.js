@@ -103,6 +103,22 @@ export function tlsAssessmentFindings(assessment) {
           description:'A valid, fresh stapled response for the offered certificate reports revoked status.',severity:'high',
           recommendation:'Replace the revoked certificate and correct the stapled response on this endpoint, then retest.',
           value:'verified stapled OCSP: revoked'}));
+      // Must-Staple (RFC 7633, S3-MODERN 1): the leaf requires a stapled OCSP
+      // response and none was stapled; browsers that enforce it refuse the
+      // connection. Only a definite must_staple=true AND an observed 'absent'
+      // staple count; null/unknown is not assessed, never a finding.
+      // An invalid or unknown-status staple fails Must-Staple too (R1, 23 Oct
+      // 2026); a revoked staple is already its own finding (tls_ocsp_revoked).
+      if(leaf?.must_staple===true&&['absent','invalid','unknown'].includes(ocsp?.state))
+        add(make('tls_must_staple_not_stapled',endpoint,row,{title:ocsp.state==='absent'
+            ?'Certificate requires OCSP stapling, but none was stapled'
+            :'Certificate requires OCSP stapling, but the stapled response is not usable',
+          description:ocsp.state==='absent'
+            ?'The offered leaf certificate carries the TLS Feature (Must-Staple) extension, but this endpoint did not staple an OCSP response, so browsers that enforce Must-Staple refuse the connection.'
+            :`The offered leaf certificate carries the TLS Feature (Must-Staple) extension, and this endpoint stapled an OCSP response that is ${ocsp.state==='invalid'?'invalid':'of unknown status'}, so browsers that enforce Must-Staple refuse the connection.`,
+          severity:'high',
+          recommendation:'Enable OCSP stapling on this endpoint, or reissue the certificate without Must-Staple, then retest.',
+          value:ocsp.state==='absent'?'Must-Staple required; no stapled OCSP response':`Must-Staple required; stapled OCSP response ${ocsp.state}`}));
     }
     if(row.control==='compression'&&positive(row)&&row.evidence.extensions?.compression===true)
       add(make('tls_compression_enabled',endpoint,row,{title:'TLS compression accepted',
@@ -170,6 +186,25 @@ export function pqcKeyExchangeState(assessment) {
   }
   return out;
 }
+// Must-Staple state per endpoint for the Certificates & Trust card (S3-MODERN 1),
+// from the latest positive certificate observation: required_stapled /
+// required_not_stapled / not_required / not_assessed. Backend-owned; the card
+// never derives it.
+export function mustStapleState(assessment) {
+  const out=[];
+  for(const endpoint of assessment?.endpoints||[]){
+    const row=(endpoint.checks||[]).find(r=>r.control==='certificate'&&r.engine?.sandboxed&&positive(r));
+    const leaf=row?.evidence?.certificates?.offered_chain?.[0],ocsp=row?.evidence?.ocsp;
+    const state=!leaf||typeof leaf.must_staple!=='boolean'?'not_assessed'
+      :leaf.must_staple===false?'not_required'
+      :!ocsp?'not_assessed'
+      :ocsp.state==='absent'?'required_not_stapled'
+      :ocsp.state==='good'?'required_stapled'
+      :'required_staple_invalid';
+    out.push({endpoint_identity:endpoint.endpoint_identity||null,hostname:endpoint.endpoint?.hostname||null,state});
+  }
+  return out;
+}
 export function evaluateTlsCondition(id,assessment) {
   if(!/^tls_[a-z_]+__[a-f0-9]{64}$/.test(String(id||''))||assessment?.source!=='tls_assessment')return {state:'deferred',reason:'tls_not_recorded'};
   for(const endpoint of assessment.endpoints||[]){
@@ -177,7 +212,8 @@ export function evaluateTlsCondition(id,assessment) {
     for(const row of endpoint.checks||[]){
       if(!row.engine?.sandboxed||!row.observed_at)continue;
       const types=['tls_legacy_protocol','tls_weak_cipher','tls_weak_key_exchange','tls_no_forward_secrecy','tls_heartbleed_confirmed','tls_robot_confirmed','tls_ccs_confirmed',
-        'tls_certificate_hostname','tls_certificate_trust','tls_weak_certificate_key','tls_weak_certificate_signature','tls_ocsp_revoked','tls_compression_enabled'];
+        'tls_certificate_hostname','tls_certificate_trust','tls_weak_certificate_key','tls_weak_certificate_signature','tls_ocsp_revoked','tls_compression_enabled',
+        'tls_must_staple_not_stapled'];
       for(const type of types){
         const detail=type==='tls_weak_cipher'?row.cipher_id||'':
           type.startsWith('tls_')&&type.endsWith('_confirmed')?row.evidence?.vulnerability?.profile||'':
@@ -214,7 +250,7 @@ export function evaluateTlsCondition(id,assessment) {
           if(v.status==='not_observed'&&row.state==='rejected')return {state:'clear',reason:'exact_active_profile_retested'};
           return {state:'deferred',reason:'active_retest_inconclusive'};
         }
-        if(['tls_certificate_hostname','tls_certificate_trust','tls_ocsp_revoked','tls_weak_certificate_key','tls_weak_certificate_signature'].includes(type)
+        if(['tls_certificate_hostname','tls_certificate_trust','tls_ocsp_revoked','tls_weak_certificate_key','tls_weak_certificate_signature','tls_must_staple_not_stapled'].includes(type)
           && !positive(row))return {state:'deferred',reason:'certificate_retest_inconclusive'};
         if(type==='tls_certificate_hostname')return row.evidence?.certificates?.hostname===true?{state:'clear',reason:'hostname_retested'}:{state:'deferred',reason:'hostname_retest_inconclusive'};
         if(type==='tls_certificate_trust')return row.evidence?.certificates?.trust==='valid'?{state:'clear',reason:'trust_retested'}:{state:'deferred',reason:'trust_retest_inconclusive'};
@@ -222,6 +258,13 @@ export function evaluateTlsCondition(id,assessment) {
           ?{state:'clear',reason:'stapled_ocsp_retested'}:{state:'deferred',reason:'ocsp_retest_inconclusive'};
         const leaf=row.evidence?.certificates?.offered_chain?.[0];
         if(!leaf)return {state:'deferred',reason:'certificate_not_observed'};
+        if(type==='tls_must_staple_not_stapled'){
+          const ocsp=row.evidence?.ocsp;
+          if(leaf.must_staple===true&&['absent','invalid','unknown'].includes(ocsp?.state))return {state:'present',reason:'must_staple_still_unstapled'};
+          // Only a good staple (or the extension gone) clears; never an invalid one.
+          if(leaf.must_staple===false||(leaf.must_staple===true&&ocsp?.state==='good'))return {state:'clear',reason:'must_staple_retested'};
+          return {state:'deferred',reason:'must_staple_retest_inconclusive'};
+        }
         if(type==='tls_weak_certificate_key'){
           const weak=((leaf.key_type==='RSA'||leaf.key_type==='DSA')&&leaf.key_bits>0&&leaf.key_bits<2048)||
             (leaf.key_type==='EC'&&leaf.key_bits>0&&leaf.key_bits<224);

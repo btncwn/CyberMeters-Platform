@@ -37,7 +37,7 @@ function hostsFromText(text) {
   return [...new Set(String(text || '').split(/[\s,]+/).map((h) => h.trim().toLowerCase().replace(/\.$/, '')).filter(Boolean))]
 }
 
-function Receipt({ consent, labels, authority, canManage, busy, onRevoke }) {
+function Receipt({ consent, labels, authority, canManage, busy, onRevoke, nextStep = false }) {
   const revoked = consent.status === 'revoked'
   return (
     <li className="card p-5 space-y-3" data-testid="consent-receipt">
@@ -80,6 +80,14 @@ function Receipt({ consent, labels, authority, canManage, busy, onRevoke }) {
           <dd className="text-gray-800 break-words">{consent.revocation_reason || 'No reason given'}</dd>
         </>}
       </dl>
+      {/* The one next step after a grant (Executive 23:00, TLS specials go-live):
+          authorised checks run only on a scan the customer starts. */}
+      {nextStep && (
+        <div className="rounded-lg border border-brand-100 bg-brand-50 p-3" data-testid="consent-next-step">
+          <p className="text-sm text-gray-800">Authorised checks run only on scans you start yourself, never on scheduled scans.</p>
+          <Link to={`/scans/new?domain=${encodeURIComponent(consent.domain)}`} className="btn-primary mt-2">Start a scan now</Link>
+        </div>
+      )}
       {canManage && !revoked && (
         <button type="button" className="btn-secondary text-sm" disabled={busy} onClick={() => onRevoke(consent)}>
           Revoke permission
@@ -144,7 +152,21 @@ export default function ActiveCheckPermissionsPage() {
   const consents = data?.consents || []
   const domain = (domains || []).find((d) => d.domain_id === form.domain_id) || null
   const hosts = hostsFromText(form.hosts)
+  // One primary per screen: once a permission is active its next step ("Start a
+  // scan now") is the primary, and authorising another becomes secondary.
+  const hasActiveGrant = (data?.consents || []).some((c) => c.status !== 'revoked')
   const ready = canManage && !busy && domain && form.checks.length > 0 && form.signer_name.trim() && form.signer_title.trim() && form.confirmed && authority && hosts.length <= MAX_HOSTS
+  // Why Authorise is not available yet, in one sentence (founder, 23 Oct 2026: a
+  // disabled button that looked enabled read as "nothing happens").
+  const anyAvailable = (data?.catalogue || []).some((c) => c.available === true)
+  const notReadyReason = ready || busy ? null
+    : !anyAvailable ? 'None of these checks can be authorised yet. They become available here when CyberMeters starts running them.'
+      : form.checks.length === 0 ? 'Tick at least one check to authorise.'
+        : !domain ? 'Choose a verified domain to authorise.'
+          : hosts.length > MAX_HOSTS ? `List up to ${MAX_HOSTS} hosts.`
+            : !form.signer_name.trim() || !form.signer_title.trim() ? 'Enter your name and your title to authorise.'
+              : !form.confirmed ? 'Confirm the authority statement to authorise.'
+                : 'Complete the form above to authorise.'
 
   const set = (key, value) => { setForm((f) => ({ ...f, [key]: value })); setError(null) }
   const toggleCheck = (id) => set('checks', form.checks.includes(id) ? form.checks.filter((c) => c !== id) : [...form.checks, id])
@@ -170,7 +192,7 @@ export default function ActiveCheckPermissionsPage() {
       setNotice('Permission recorded. No check was started.')
       await load()
     } catch (failure) {
-      if (scope.current === requested) setError(ERROR_TEXT[failure?.message] || 'The permission could not be recorded. Nothing was saved. Try again.')
+      if (scope.current === requested) setError(ERROR_TEXT[failure?.error || failure?.code] || 'The permission could not be recorded. Nothing was saved. Try again.')
     } finally {
       if (scope.current === requested) setBusy(false)
     }
@@ -196,7 +218,7 @@ export default function ActiveCheckPermissionsPage() {
       setNotice('Permission revoked.')
       await load()
     } catch (failure) {
-      if (scope.current === requested) setError(ERROR_TEXT[failure?.message] || 'The permission could not be revoked. Try again.')
+      if (scope.current === requested) setError(ERROR_TEXT[failure?.error || failure?.code] || 'The permission could not be revoked. Try again.')
     } finally {
       if (scope.current === requested) setBusy(false)
     }
@@ -246,9 +268,17 @@ export default function ActiveCheckPermissionsPage() {
                   placeholder={domain ? `e.g. mail.${domain.domain}` : 'e.g. mail.example.co.uk'} aria-describedby="hosts-help" />
                 <span id="hosts-help" className="block text-xs text-gray-500 mt-1">
                   One per line. Leave empty to authorise {domain ? domain.domain : 'the domain'} itself only. Up to {MAX_HOSTS} hosts, each the domain or a name under it.
+                  {' '}Extra hosts are tested only if they are also added as TLS services under Certificates &amp; Trust → Settings.
                 </span>
               </label>
 
+              {/* Founder, 23 Oct 2026: why a TLS check can read "not tested" for a site on a CDN — answered on the page. */}
+              {catalogue.some((c) => String(c.id).startsWith('tls_')) && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700" data-testid="tls-scope-note">
+                  The TLS checks test servers you run yourself — your origin or web server, mail server, VPN or remote-access gateway, or any service on your own IP address. If your website sits behind a CDN or hosting provider, its HTTPS is the provider&apos;s, and CyberMeters will not test shared provider infrastructure. Add your own servers under{' '}
+                  <Link to="/ws/certificates?tab=settings#additional-tls-services" className="underline text-brand-700">Certificates &amp; Trust → Settings → Additional TLS services</Link> to include them.
+                </div>
+              )}
               <fieldset className="text-sm">
                 <legend className="font-medium text-gray-800">Checks</legend>
                 <p className="text-xs text-gray-500 mt-0.5">None are selected for you. A permission covers only the checks you tick, never checks added later.</p>
@@ -300,7 +330,10 @@ export default function ActiveCheckPermissionsPage() {
               )}
               <p className="text-xs text-gray-500">This records your own statement of authority; CyberMeters does not independently verify it. Authorising does not start a check.</p>
 
-              <button type="submit" className="btn-primary" disabled={!ready}>{busy ? 'Recording…' : 'Authorise'}</button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="submit" className={hasActiveGrant ? 'btn-secondary' : 'btn-primary'} disabled={!ready} aria-describedby={notReadyReason ? 'authorise-reason' : undefined}>{busy ? 'Recording…' : 'Authorise'}</button>
+                {notReadyReason && <p id="authorise-reason" className="text-sm text-gray-700" data-testid="authorise-reason">{notReadyReason}</p>}
+              </div>
             </form>
           ) : (
             <p className="card p-5 text-sm text-gray-700">A workspace admin can authorise or revoke active checks. You can see every permission below.</p>
@@ -310,7 +343,8 @@ export default function ActiveCheckPermissionsPage() {
             <h2 id="consents-heading" className="font-semibold text-gray-900">Permissions on record</h2>
             {consents.length === 0
               ? <p className="text-sm text-gray-500">No permission has been recorded for this workspace. No active check runs.</p>
-              : <ul className="space-y-3">{consents.map((c) => <Receipt key={c.id} consent={c} labels={labels} authority={authority} canManage={canManage} busy={busy} onRevoke={revoke} />)}</ul>}
+              : <ul className="space-y-3">{consents.map((c) => <Receipt key={c.id} consent={c} labels={labels} authority={authority} canManage={canManage} busy={busy} onRevoke={revoke}
+                nextStep={c.id === consents.find((x) => x.status !== 'revoked')?.id} />)}</ul>}
           </section>
 
           <p className="text-xs text-gray-500">Passive checks need no permission and keep running on your scans. <Link to="/guide" className="underline">Field Guide</Link></p>

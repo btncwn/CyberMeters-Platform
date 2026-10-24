@@ -159,7 +159,9 @@ describe('WorkspaceCaseDetailPage — input-required transitions still open a fo
     })
     renderCase()
     fireEvent.click(await screen.findByRole('button', { name: 'Move to Assigned' }))
-    expect(await screen.findByText(/Assign an owner in the Owner section/i)).toBeInTheDocument()
+    // C-46 rank 4: the owner is chosen right in the Next action panel.
+    expect(await screen.findByText(/This step needs an accountable owner/i)).toBeInTheDocument()
+    expect(screen.getByTestId('next-action-owner')).toBeInTheDocument()
     // No direct transition fired (owner missing).
     expect(api.transitionCase).not.toHaveBeenCalled()
   })
@@ -185,5 +187,15 @@ describe('WorkspaceCaseDetailPage — a case that moved since the page loaded', 
     expect(await screen.findByText('This case changed since the page was loaded, so nothing was changed. It now shows its current status.')).toBeInTheDocument()
     expect(screen.queryByText('Could not complete this action. Please try again.')).toBeNull()
     await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(2))
+  })
+})
+
+// Founder P1 #3 (23 Oct 2026): "What we saw" never shows a raw condition key (C-45 R01).
+describe('WorkspaceCaseDetailPage — the affected line in words', () => {
+  it('reads "sheshire.co.uk — HSTS header missing", never "sheshire.co.uk:header_missing_…"', async () => {
+    api.getCase.mockResolvedValue({ case: { ...baseCase, resource: null, asset_ref: 'sheshire.co.uk:header_missing_strict_transport_security' }, events: [], can_manage: true, available_transitions: [] })
+    renderCase()
+    expect(await screen.findByText('sheshire.co.uk — HSTS header missing')).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('header_missing_strict_transport_security')
   })
 })

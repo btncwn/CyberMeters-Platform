@@ -41,6 +41,11 @@ const KEEP_WATCHING = {
 const TOOL_SLUGS = { dmarc: 'dmarc-checker', spf: 'spf-checker', headers: 'security-headers-checker', lookalike: 'lookalike-domain-checker', ssl: 'ssl-checker' }
 
 const TRIAL_URL = 'https://app.cybermeters.com/signup'
+// C-46 rank 8: the trial keeps the checked domain, as the main free check does.
+export function trialUrlFor(domain) {
+  const d = String(domain || '').trim().toLowerCase()
+  return d ? `${TRIAL_URL}?domain=${encodeURIComponent(d)}` : TRIAL_URL
+}
 
 function hasSession() {
   try { return Boolean(localStorage.getItem(TOKEN_KEY)) } catch { return false }
@@ -59,7 +64,7 @@ function shareTokenFromHash() {
   return match ? match[1] : null
 }
 
-function LimitNotice({ outcome, toolName }) {
+function LimitNotice({ outcome, toolName, domain = '' }) {
   const at = resetTime(outcome.reset_at)
   const what = outcome.scope === 'domain'
     ? `This domain has been checked many times in the last hour${at ? `; you can check it again after ${at}` : ''}.`
@@ -71,7 +76,7 @@ function LimitNotice({ outcome, toolName }) {
       <h2 className="text-lg font-bold text-sky-950">That's today's free checks</h2>
       <p className="text-sky-950">{what}</p>
       <p className="text-sm text-sky-900">A 14-day trial checks your domains on a schedule and tells you when something changes, with the full remediation steps.</p>
-      <a href={outcome.trial_url || TRIAL_URL} className="btn-primary inline-flex">Start a 14-day trial</a>
+      <a href={outcome.trial_url || trialUrlFor(domain)} className="btn-primary inline-flex">Start a 14-day trial</a>
     </section>
   )
 }
@@ -217,7 +222,7 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
         {phase === 'result' && outcome?.result && (
           <ToolResult result={outcome.result} cached={outcome.cached} share={outcome.share}><Details result={outcome.result} /></ToolResult>
         )}
-        {phase === 'limit' && <LimitNotice outcome={outcome} toolName={toolName} />}
+        {phase === 'limit' && <LimitNotice outcome={outcome} toolName={toolName} domain={domain} />}
         {phase === 'capacity' && !queuedMessage && (
           <DeferForm tool={tool} toolName={toolName} domain={submittedDomain} siteKey={config?.turnstile_site_key} onQueued={setQueuedMessage} />
         )}
@@ -232,7 +237,7 @@ export default function FreeToolPage({ tool, toolName, title, intro, placeholder
         <section className="rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 space-y-3">
           <h2 className="text-lg font-bold">Keep watching it</h2>
           <p className="text-sm text-gray-600">{KEEP_WATCHING[tool]}</p>
-          <div className="flex flex-wrap gap-3"><a href={TRIAL_URL} className="btn-primary">Start a 14-day trial</a><Link to="/tools" className="btn-secondary">More free tools</Link></div>
+          <div className="flex flex-wrap gap-3"><a href={trialUrlFor(phase === 'result' ? (outcome?.domain || domain) : domain)} className="btn-primary">Start a 14-day trial</a><Link to="/tools" className="btn-secondary">More free tools</Link></div>
         </section>
       </main>
       <PublicSiteFooter />

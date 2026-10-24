@@ -583,6 +583,21 @@ static const char *signature(int nid) {
         default:return "unknown";
     }
 }
+/* Must-Staple (RFC 7633): the TLS Feature extension (OID 1.3.6.1.5.5.7.1.24)
+   listing status_request (5). true/false when it can be read; null on the
+   legacy build (no NID_tlsfeature) or when the extension is unreadable. */
+static const char *must_staple_json(X509 *x) {
+#if CM_LEGACY
+    (void)x;return "null";
+#else
+    int critical=0;TLS_FEATURE *features=X509_get_ext_d2i(x,NID_tlsfeature,&critical,NULL);
+    if(!features)return critical==-1?"false":"null";
+    int found=0;
+    for(int i=0;i<sk_ASN1_INTEGER_num(features);i++)if(ASN1_INTEGER_get(sk_ASN1_INTEGER_value(features,i))==5)found=1;
+    TLS_FEATURE_free(features);
+    return found?"true":"false";
+#endif
+}
 static void certificate_json(X509 *x) {
     char digest[65],spki[65];unsigned char bytes[32],*der=NULL;EVP_PKEY *key=X509_get_pubkey(x);
     int n=i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x),&der);
@@ -595,7 +610,7 @@ static void certificate_json(X509 *x) {
     int self=X509_NAME_cmp(X509_get_subject_name(x),X509_get_issuer_name(x))==0&&key&&X509_verify(x,key)==1;
     append("{\"sha256\":\"%s\",\"spki_sha256\":\"%s\",\"not_before\":",digest,spki);time_json(X509_get_notBefore(x));
     append(",\"not_after\":");time_json(X509_get_notAfter(x));
-    append(",\"key_type\":\"%s\",\"key_bits\":%d,\"signature_algorithm\":\"%s\",\"self_signed\":%s,\"ca\":%s}",key_type(key),bits,signature(X509_get_signature_nid(x)),boolean(self),boolean(X509_check_ca(x)>0));
+    append(",\"key_type\":\"%s\",\"key_bits\":%d,\"signature_algorithm\":\"%s\",\"self_signed\":%s,\"ca\":%s,\"must_staple\":%s}",key_type(key),bits,signature(X509_get_signature_nid(x)),boolean(self),boolean(X509_check_ca(x)>0),must_staple_json(x));
     EVP_PKEY_free(key);
 }
 static const char *trust_reason(int error) {
