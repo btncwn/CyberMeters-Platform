@@ -71,6 +71,18 @@ export const TLS_SLICE_LIMITS = Object.freeze({
 // Special checks always occupy their own slice. The ROBOT profile needs a
 // verified baseline plus two rounds of five vectors in two message flows.
 export const TLS_SPECIAL_CONNECTION_LIMITS = Object.freeze({heartbleed:1,robot:21,ccs:5});
+// One slice duration per special control, shared by scan-api (slice timer and
+// deadline_at) and the probe contract (F1 rerun, 24 Oct 2026). The engine itself
+// is capped at 25 s (--timeout-ms); a slice must also hold container start and
+// collector overhead, or the slice is cut before the engine answers. ROBOT on an
+// implicit-rejection server (OpenSSL 3: silent after a bad ClientKeyExchange)
+// spends ~1 s waiting on each of its 10 shortened-flow vectors plus 21
+// handshakes, so its slice is 50 s.
+export const TLS_SPECIAL_SLICE_DURATION_MS = Object.freeze({heartbleed:25000,robot:50000,ccs:25000});
+export function tlsSliceDurationMs(checks) {
+  const specials=(Array.isArray(checks)?checks:[]).map(check=>TLS_SPECIAL_SLICE_DURATION_MS[check?.control]).filter(Number.isSafeInteger);
+  return specials.length?Math.max(...specials):TLS_SLICE_LIMITS.durationMs;
+}
 
 const tls13Only = new Set(['early_data','pqc_key_exchange']);
 const legacyOnly = new Set(['compression','secure_renegotiation','fallback_scsv','extended_master_secret']);

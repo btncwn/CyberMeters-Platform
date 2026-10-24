@@ -12,6 +12,7 @@ const MAX_STARTTLS_BYTES = 8192;
 const CONNECT_TIMEOUT_MS = 4000;
 const DNS_TIMEOUT_MS = 4000;
 const CHECK_TIMEOUT_MS = 25000;
+const ENGINE_RESULT_GRACE_MS = 3000;
 const MAX_WIRE_OVERREAD = 65536;
 const CONNECTION_BINARY = Object.freeze({
   legacy: '/opt/cybermeters/tls-baseline-legacy',
@@ -230,7 +231,11 @@ export async function runTlsEngineCheck(input, check, budget, signal) {
       result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(payload));
     } else throw new Error('engine_frame_invalid');
   };
-  const timeout = setTimeout(abort, input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000);
+  // The engine stops at its own --timeout-ms; the parent waits a little longer
+  // so the result frame is never cut, but never past the slice deadline.
+  const engineMs = input.scope.kind === 'mail_mx' ? 10000 : check.control === 'robot' ? CHECK_TIMEOUT_MS : 12000;
+  const untilDeadline = Date.parse(input.deadline_at) - Date.now();
+  const timeout = setTimeout(abort, Math.max(1, Math.min(engineMs + ENGINE_RESULT_GRACE_MS, Number.isFinite(untilDeadline) ? untilDeadline : engineMs)));
   try {
     for await (const chunk of child.stdout) {
       for (const f of parseFrames(parser, chunk)) await onFrame(f);

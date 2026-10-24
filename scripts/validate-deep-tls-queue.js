@@ -8,7 +8,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS_AVAILABLE, tlsEndpointIdentity } from '../shared/tls/catalog.js';
+import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_SLICE_DURATION_MS, tlsSliceDurationMs, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan, tlsProbeScope } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
@@ -528,6 +528,29 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   } finally {
     sql.prepare("UPDATE workspace_tls_service_authorizations SET authorization_status='revoked' WHERE id='service_f1_https'").run();
   }
+}
+// F1 rerun (24 Oct 2026): one slice duration per special, shared by scan-api and
+// the probe contract. ROBOT's slice holds its 25 s engine run plus overhead.
+{
+  assert.deepEqual(TLS_SPECIAL_SLICE_DURATION_MS,{heartbleed:25000,robot:50000,ccs:25000});
+  assert.equal(tlsSliceDurationMs([{control:'robot',protocol:'tls1_2',cipher_id:null}]),50000);
+  assert.equal(tlsSliceDurationMs([{control:'protocol',protocol:'tls1_2',cipher_id:null}]),TLS_SLICE_LIMITS.durationMs,'normal slices keep 25 s');
+  assert.equal(tlsSliceDurationMs([]),TLS_SLICE_LIMITS.durationMs);
+  const t=Date.now(), iso=ms=>new Date(t+ms).toISOString();
+  const base={schema_version:'tls-assessment-request-v1',request_id:'r_dur',workspace_id:'w1',scan_id:'s1',domain_id:'d1',domain:'acme.org',
+    endpoint:{hostname:'probe.acme.org',sni:'probe.acme.org',address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+      dns_addresses:['8.8.8.8'],dns_observed_at:iso(-1000)},
+    scope:{kind:'authorized_service',service_authorization_id:'svc1',generation:2,special_consent:true,consent_version:TLS_SPECIAL_CONSENT_VERSION},
+    max_bytes:20000};
+  const robot={...base,checks:[{control:'robot',protocol:'tls1_2',cipher_id:null}],max_connections:21};
+  const normal={...base,scope:{...base.scope,special_consent:false,consent_version:null},checks:[{control:'protocol',protocol:'tls1_2',cipher_id:null}],max_connections:4};
+  assert.equal(validateTlsAssessmentRequest({...robot,deadline_at:iso(45000)},t).ok,true,'a ROBOT slice may run 45 s');
+  assert.equal(validateTlsAssessmentRequest({...robot,deadline_at:iso(51000)},t).reason,'invalid_deadline','but never past its 50 s slice');
+  assert.equal(validateTlsAssessmentRequest({...normal,deadline_at:iso(30000)},t).reason,'invalid_deadline','a normal slice stays capped at 25 s');
+  assert.equal(validateTlsAssessmentRequest({...normal,deadline_at:iso(20000)},t).ok,true);
+  // scan-api sizes the slice from the same helper (the 25 s cut was the F1 defect).
+  const src=readFileSync(new URL('../workers/scan-api/src/engines/exposure-jobs.js',import.meta.url),'utf8');
+  assert.ok(src.includes('const remaining=Math.min(tlsSliceDurationMs(items.map(item=>item.check)),row.deadline_ms-now);'),'the TLS slice timer uses the shared per-special duration');
 }
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no

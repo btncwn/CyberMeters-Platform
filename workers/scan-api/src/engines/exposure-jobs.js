@@ -8,7 +8,7 @@ import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
-import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, tlsSliceDurationMs, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
 import { blockingTlsNotAuthorized, blockingTlsUnexecutable, classifyTlsRefusals } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
@@ -642,7 +642,9 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     return finishWithoutProbe(env,row,'budget_exhausted','tls_network_budget',now);
   }
   const controller=new AbortController();
-  const remaining=Math.min(TLS_SLICE_LIMITS.durationMs,row.deadline_ms-now);
+  // A special's slice holds its engine run plus container/collector overhead
+  // (TLS_SPECIAL_SLICE_DURATION_MS, shared with the probe contract).
+  const remaining=Math.min(tlsSliceDurationMs(items.map(item=>item.check)),row.deadline_ms-now);
   const timer=setTimeout(()=>controller.abort(),remaining);
   let polling=false;
   const watchdog=setInterval(async()=>{
