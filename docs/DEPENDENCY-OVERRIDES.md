@@ -445,6 +445,12 @@ package is only in the Wrangler/Miniflare development toolchain, never in the
 deployed Worker bundle. This fixes the development toolchain; it is not a
 production retest. Successor of the closed OV-5 (same path, earlier advisories).
 
+The same `undici` 7.30.1 override is applied in `workers/mcp-server` and
+`workers/network-probe` (24 Oct 2026). Both use the identical Wrangler →
+Miniflare development toolchain, and `npm ls --omit=dev undici` is empty in both.
+These workspaces are outside the machine register (`GOVERNED_WORKSPACES`), like
+mcp-server's existing `sharp` override. Remove them with this record.
+
 Remove when a supported Wrangler/Miniflare release declares undici >=7.30.1:
 delete the override, regenerate the lock, confirm no overridden/invalid marker, a
 clean worker `npm audit --audit-level=high`, and passing Worker, DMARCbis fixture
