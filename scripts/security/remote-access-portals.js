@@ -97,6 +97,8 @@ const examples=[
   {body:`<article>${page(stated)}</article>`,expected:'none'},
   {body:page('PAN-OS version: unknown'),expected:'deferred'},
   {body:page('PAN-OS version: 11.1.203'),expected:'deferred'},
+  {body:page('Server version: 11.1.2-h2'),expected:'deferred'},
+  {body:page('Version: 11.1.2-h2'),expected:'deferred'},
   {body:page(stated),catalogue:null,expected:'deferred'},
 ];
 for(const example of examples){

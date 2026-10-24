@@ -54,10 +54,15 @@ export function remoteAccessFingerprint(body, value) {
     const versions = [...new Set(labels)];
     // Require a standalone product/version field, not prose about a supported,
     // recommended or required release. Ambiguous mentions remain unreadable.
-    const field = visible.split('\n').some(line => new RegExp(`^\\s*${signature.versionLabel}\\s*$`, 'i').test(line));
+    const lines = visible.split('\n');
+    const field = lines.some(line => new RegExp(`^\\s*${signature.versionLabel}\\s*$`, 'i').test(line));
     const explicit = field && versions.length === 1 && /^\d{1,3}\.\d{1,3}\.\d{1,3}(?:-h\d{1,3})?$/.test(versions[0]);
+    // An unattributed visible version is not proof the server version is hidden.
+    // Only a clearly named client/app/agent version may be excluded as client data.
+    const unattributed = !labels.length && lines.some(line => /(?:^|[^\d.])\d{1,3}\.\d{1,3}\.\d{1,3}(?:-h\d{1,3})?(?![\d.])/.test(line) &&
+      !/^\s*(?:client|app|agent)\s+(?:version|release)\s*[:=]?\s*v?\d{1,3}\.\d{1,3}\.\d{1,3}(?:-h\d{1,3})?\s*$/i.test(line));
     return { product_id: signature.id, version: explicit ? versions[0] : null,
-      version_state: explicit ? 'explicit' : labels.length ? 'unreadable' : 'absent' };
+      version_state: explicit ? 'explicit' : labels.length || unattributed ? 'unreadable' : 'absent' };
   }
   return null;
 }
