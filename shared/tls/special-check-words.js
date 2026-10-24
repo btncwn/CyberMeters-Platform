@@ -34,26 +34,62 @@ export function tlsVulnerabilityWords(row) {
 export const TLS_HEARTBEAT_NOT_APPLICABLE =
   "Not applicable — this server did not offer the TLS heartbeat extension that Heartbleed relies on.";
 
+// Recorded TLS control reasons in plain words (Seat 3's held reasons, the
+// engine's heartbeat limit, scan-api's repeated-failure record). The scan page
+// and the PDF read these same strings.
+export const TLS_CONTROL_REASON_WORDS = Object.freeze({
+  requires_customer_authorisation: "Not tested — requires your authorisation",
+  authorised_engine_not_released: "Authorised — not yet available",
+  address_not_verified_not_tested: "Not tested — this address is not verified as yours",
+  // The producer's reason (catalog.js TLS_AUTHORISED_ON_DEMAND_REASON); the older key stays as an alias.
+  scheduled_or_unknown_origin: "Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.",
+  authorised_runs_on_started_check: "Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.",
+  heartbeat_unavailable: TLS_HEARTBEAT_NOT_APPLICABLE,
+  slice_failed: "Could not complete — this check did not finish on this server after repeated attempts. The other checks were not affected.",
+});
+
+/** A provider-edge refusal names the host and, when known, the provider, and says what to do. */
+export function tlsProviderNotTestedWords(row, endpoint = null) {
+  const host = typeof endpoint?.hostname === "string" && endpoint.hostname ? endpoint.hostname : "This host";
+  const provider = row?.provider_name || endpoint?.provider_name || endpoint?.provider || null;
+  return `Not tested — ${host} is served by shared provider infrastructure${provider ? ` (${provider})` : ""}. Add your own servers to test them.`;
+}
+
+/** A check scan-api gave up on, with the attempts it recorded (null when it recorded none). */
+export function tlsSliceFailedWords(row) {
+  const n = row?.failure_attempts;
+  if (!(Number.isSafeInteger(n) && n > 0)) return null;
+  return `Could not complete — this check did not finish on this server after ${n} attempt${n === 1 ? "" : "s"}. The other checks were not affected.`;
+}
+
 /**
- * One special-check row's result in customer words, for a check that was run
- * (or attempted) on an authorised host. The vulnerability status decides;
- * otherwise the recorded reason; never the engine's Accepted/Rejected.
+ * One special-check row's result in customer words — the ONE string both the
+ * scan page and the PDF print. Order: provider edge, recorded failure attempts,
+ * the vulnerability status, the recorded reason; never the engine's
+ * Accepted/Rejected.
  */
-export function tlsSpecialCheckResult(row) {
+export function tlsSpecialCheckResult(row, endpoint = null) {
+  if (row?.reason === "provider_infrastructure_not_tested") return tlsProviderNotTestedWords(row, endpoint);
+  const failed = row?.reason === "slice_failed" ? tlsSliceFailedWords(row) : null;
+  if (failed) return failed;
   const vulnerability = tlsVulnerabilityWords(row);
   if (vulnerability) return vulnerability;
-  if (row?.reason === "heartbeat_unavailable") return TLS_HEARTBEAT_NOT_APPLICABLE;
-  if (row?.reason === "provider_infrastructure_not_tested") return "Not tested — shared provider infrastructure";
-  if (row?.reason === "slice_failed" || row?.state === "uncertain" || row?.state === "unexecutable") return "Could not complete";
+  if (row?.reason && TLS_CONTROL_REASON_WORDS[row.reason]) return TLS_CONTROL_REASON_WORDS[row.reason];
+  if (row?.state === "uncertain") return "Uncertain — the test did not reach a result.";
+  if (row?.state === "unexecutable") return "Could not complete";
+  if (row?.state === "not_authorized") return TLS_CONTROL_REASON_WORDS.requires_customer_authorisation;
   return "Unknown";
 }
 
 // Reasons that mean the check was NOT run on this scan (no authorisation,
-// engine withheld, scheduled scan, unverified address): not an "authorised
-// active check" result.
+// engine withheld, scheduled scan, unverified address, shared provider edge):
+// not an "authorised active check" result.
 const TLS_SPECIAL_NOT_RUN_REASONS = new Set([
   "requires_customer_authorisation", "authorised_engine_not_released",
   "scheduled_or_unknown_origin", "authorised_runs_on_started_check", "address_not_verified_not_tested",
+  // A shared provider edge is refused before anything runs (tls-planner emits it
+  // only when the address is not authorised): nothing ran, so no section.
+  "provider_infrastructure_not_tested",
 ]);
 
 /**
@@ -73,7 +109,7 @@ export function authorisedActiveCheckRows(assessment) {
         host: typeof endpoint.hostname === "string" ? endpoint.hostname : null,
         port: Number.isInteger(endpoint.port) ? endpoint.port : null,
         check: TLS_SPECIAL_CHECK_NAMES[row.control],
-        result: tlsSpecialCheckResult(row),
+        result: tlsSpecialCheckResult(row, endpoint),
         observed_at: typeof row.observed_at === "string" ? row.observed_at : null,
       });
     }

@@ -469,6 +469,10 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
       row("heartbleed", "unexecutable", "heartbeat_unavailable", null),
       { control: "protocol", protocol: "tls1_2", state: "accepted", reason: null, evidence: {} },
     ] },
+    { hostname: "mail.example.com", address: "203.0.113.11", port: 443, application_protocol: "https", checks: [
+      { ...row("robot", "unexecutable", "slice_failed", null), failure_attempts: 2 },
+      row("ccs", "uncertain", null, null),
+    ] },
     { hostname: "example.com", address: "198.51.100.7", port: 443, application_protocol: "https", checks: [
       row("robot", "unexecutable", "provider_infrastructure_not_tested", null),
       row("ccs", "not_authorized", "requires_customer_authorisation", null),
@@ -484,15 +488,18 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
      withChecks.includes("probe.example.com:443 - ROBOT") && withChecks.includes("probe.example.com:443 - CCS injection") &&
      withChecks.includes("Not observed in this test. Observed 24 October 2026, 17:40 UTC.") &&
      withChecks.includes("probe.example.com:443 - Heartbleed") && withChecks.includes("Not applicable - this server did not offer the TLS heartbeat extension") &&
-     withChecks.includes("example.com:443 - ROBOT") && withChecks.includes("Not tested - shared provider infrastructure") &&
+     withChecks.includes("mail.example.com:443 - ROBOT") && withChecks.includes("Could not complete - this check did not finish on this server after 2 attempts. The other checks were not affected.") &&
+     withChecks.includes("mail.example.com:443 - CCS injection") && withChecks.includes("Uncertain - the test did not reach a result.") &&
      true, withChecks.slice(withChecks.indexOf("Authorised active checks", withChecks.indexOf("Authorised active checks") + 1), withChecks.indexOf("Authorised active checks", withChecks.indexOf("Authorised active checks") + 1) + 700));
-  ok("ACT-4 no engine state, vectors or not-authorised rows are printed",
-     !/Rejected|Accepted|20\/20|robot-finite-v1|(?<!probe\.)example\.com:443 - CCS/.test(withChecks.slice(withChecks.indexOf("Run only on hosts"), withChecks.indexOf("Methodology & Limitations"))));
+  ok("ACT-4 no engine state, vectors, not-authorised or provider-edge rows are printed (nothing ran there)",
+     !/Rejected|Accepted|20\/20|robot-finite-v1|(?<![a-z]\.)example\.com:443|shared provider infrastructure/.test(withChecks.slice(withChecks.indexOf("Run only on hosts"), withChecks.indexOf("Methodology & Limitations"))));
   const without = latin1(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap)));
   const nothingRan = latin1(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap), null, null, null,
     { source: "tls_assessment", endpoints: [{ hostname: "example.com", port: 443, checks: [row("robot", "not_authorized", "requires_customer_authorisation", null)] }] }));
-  ok("ACT-5 no section when nothing ran (no assessment, or only not-authorised rows) — bytes unchanged",
-     !without.includes("Authorised active checks") && nothingRan === without);
+  const providerOnly = latin1(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap), null, null, null,
+    { source: "tls_assessment", endpoints: [{ hostname: "example.com", port: 443, checks: [row("robot", "unexecutable", "provider_infrastructure_not_tested", null), row("ccs", "unexecutable", "provider_infrastructure_not_tested", null)] }] }));
+  ok("ACT-5 no section when nothing ran (no assessment, only not-authorised rows, or only provider-edge refusals) — bytes unchanged",
+     !without.includes("Authorised active checks") && nothingRan === without && providerOnly === without);
 }
 
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);
