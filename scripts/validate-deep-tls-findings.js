@@ -94,6 +94,21 @@ const robot={...protocol('tls1_2'),control:'robot',reason:'active_confirmed',eng
   evidence:{...protocol('tls1_2').evidence,vulnerability:{status:'confirmed',profile:'robot-finite-v1',completed_vectors:10,planned_vectors:10}},
   physical_telemetry:{...good,connections:11}};
 const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).find(row=>row.id.startsWith('tls_robot_confirmed__'));
+// Heartbeat not offered (Executive, 24 Oct 2026): Heartbleed reads "not
+// applicable", never "Could not execute"; no finding; an open case stays inconclusive.
+{
+  const { classifyTlsRefusals } = await import('../workers/scan-api/src/engines/tls-quality.js');
+  const noHeartbeat={...protocol('tls1_2'),control:'heartbleed',state:'unexecutable',reason:'heartbeat_unavailable',engine:{...engine,family:'active_legacy'},
+    evidence:{...protocol('tls1_2').evidence,vulnerability:null}};
+  const [mapped]=classifyTlsRefusals([noHeartbeat]);
+  assert.deepEqual([mapped.state,mapped.reason,mapped.engine_state],['not_applicable','heartbeat_unavailable','unexecutable'],'heartbeat not offered is not applicable');
+  assert.equal(classifyTlsRefusals([{...noHeartbeat,reason:'engine_capability_limit'}])[0].state,'unexecutable','another reason is unchanged');
+  assert.equal(classifyTlsRefusals([{...noHeartbeat,control:'robot'}])[0].state,'unexecutable','only Heartbleed relies on the heartbeat extension');
+  assert.equal(tlsAssessmentFindings(module([protocol('tls1_2'),mapped])).length,0,'not applicable is never a finding');
+  const hbOpen={...noHeartbeat,state:'accepted',reason:'active_confirmed',evidence:{...noHeartbeat.evidence,vulnerability:{status:'confirmed',profile:'heartbleed-minimal-v1',completed_vectors:1,planned_vectors:1}}};
+  const hbFinding=tlsAssessmentFindings(module([protocol('tls1_2'),hbOpen])).find(f=>f.id.startsWith('tls_heartbleed_confirmed__'));
+  assert.equal(evaluateTlsCondition(hbFinding.id,module([protocol('tls1_2'),{...mapped,evidence:{...mapped.evidence,vulnerability:{status:'unknown',profile:'heartbleed-minimal-v1',completed_vectors:0,planned_vectors:0}}}])).state,'deferred','an open case is never cleared by a server that stopped offering the heartbeat');
+}
 assert(robotFinding);
 assert.equal(robotFinding.confidence,80);
 assert.match(robotFinding.description,/CDN edge result does not establish an origin vulnerability/);
