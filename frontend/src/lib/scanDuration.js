@@ -145,8 +145,11 @@ export function scanProgressCopy({ status, elapsedMs, estimate, progress = null 
   const elapsed = elapsedLabel(elapsedMs)
   const timer = queued ? `Queued for ${elapsed}` : `Running for ${elapsed}`
   const heading = preparing ? 'Preparing checks' : queued ? 'Scan queued' : 'Scan in progress'
+  // A pending job has not been picked up yet: it is being prepared, not checking.
   const detail = preparing
-    ? 'CyberMeters is checking the domain\u2019s exposed services and certificates first. Results appear here automatically.'
+    ? (progress.exposure_checks === 'running'
+      ? 'CyberMeters is checking the domain\u2019s exposed services and certificates first. Results appear here automatically.'
+      : 'CyberMeters is preparing the domain\u2019s service and certificate checks. Results appear here automatically.')
     : queued
       ? 'Waiting for a scanner to pick it up. Results appear here automatically.'
       : 'Checks are running against the domain. Results appear here automatically.'

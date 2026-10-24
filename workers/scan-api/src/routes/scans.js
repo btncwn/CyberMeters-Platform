@@ -1072,14 +1072,16 @@ export async function scanRoutes(rctx) {
             .bind(scan.id).all())?.results || []).map((r) => r.module);
         } catch { completedModuleNames = null; }
       }
-      // F1 (D): a queued scan's exposure job, one workspace-scoped primary-key
-      // read; a read failure reads as no job (never a false "Preparing").
+      // F1 (D): a queued scan's exposure job, one primary-key read scoped to the
+      // workspace requireScanReadAccess resolved for this scan (the scan SELECT
+      // above does not carry workspace_id); a read failure reads as no job.
       let exposureJob = null;
-      if (scan.status === "queued" && scan.workspace_id) {
+      const exposureWorkspaceId = typeof access?.workspace_id === "string" ? access.workspace_id : null;
+      if (scan.status === "queued" && exposureWorkspaceId) {
         try {
           exposureJob = await env.cybermeters_db
             .prepare(`SELECT state, created_ms, deadline_ms, lease_until FROM external_exposure_jobs WHERE scan_id = ? AND workspace_id = ? LIMIT 1`)
-            .bind(scan.id, scan.workspace_id).first();
+            .bind(scan.id, exposureWorkspaceId).first();
         } catch { exposureJob = null; }
       }
       return json({

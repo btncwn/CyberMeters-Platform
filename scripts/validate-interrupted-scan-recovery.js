@@ -933,8 +933,50 @@ for (const inherited of [{ status: "complete" }, { status: "partial" }]) {
     scanProgress({ status: "running", last_heartbeat_at: iso(60_000) }, NOW, { exposureJob: job() }).exposure_checks === null);
   // The route reads the job by scan AND workspace (tenant scope), only for a queued scan.
   const scansSource = (await import("node:fs")).readFileSync(new URL("../workers/scan-api/src/routes/scans.js", import.meta.url), "utf8");
-  ok("S20 the exposure-job read is bound to the scan's own workspace and only for queued scans",
-    /if \(scan\.status === "queued" && scan\.workspace_id\)[\s\S]{0,200}FROM external_exposure_jobs WHERE scan_id = \? AND workspace_id = \?[\s\S]{0,80}\.bind\(scan\.id, scan\.workspace_id\)/.test(scansSource));
+  void scansSource;
+  // S20–S23 (R1 16:50): the REAL GET /api/scans/:id handler. The scan row carries
+  // no workspace_id (the route's SELECT does not fetch it, as in production); the
+  // job read must use the workspace requireScanReadAccess resolved.
+  const { scanRoutes } = await import(new URL("../workers/scan-api/src/routes/scans.js", import.meta.url).href);
+  const routeNow = Date.now();
+  const callScan = async ({ status = "queued", job = null, accessWorkspace = "ws_OWN" } = {}) => {
+    const reads = [];
+    const db = { prepare(sql) {
+      let args = [];
+      return {
+        bind(...a) { args = a; return this; },
+        async first() {
+          if (/FROM scans WHERE id = \?/.test(sql)) return { id: "scan_q", domain_id: "dom_q", domain: "example.com", status, score: null, rating: null,
+            scan_quality: null, created_at: new Date(routeNow - 6 * 60_000).toISOString(), current_stage: null, last_heartbeat_at: null, completed_modules: null };
+          if (/FROM external_exposure_jobs/.test(sql)) { reads.push(args); return job && job.workspace_id === args[1] && job.scan_id === args[0] ? job : null; }
+          return null;
+        },
+        async all() { return { results: [] }; },
+        async run() { return { meta: { changes: 0 } }; },
+      };
+    } };
+    const env = { cybermeters_db: db, cybermeters_reports: { async get() { return null; }, async head() { return null; }, async put() {} } };
+    const request = new Request("https://api.cybermeters.test/api/scans/scan_q");
+    const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const response = await scanRoutes({ request, env, ctx: { waitUntil() {} }, url: new URL(request.url), json: jsonResponse,
+      serverError: (_s, e) => jsonResponse({ error: String(e?.message || e) }, 500), corsHeaders: {},
+      requireAuth: async () => ({ id: "user_q" }), requireWorkspaceRole: async () => true, consumeApiRateLimit: async () => null,
+      requireScanReadAccess: async () => (accessWorkspace ? { role: "owner", workspace_id: accessWorkspace } : null),
+      getAccessibleWorkspaceIds: async () => [accessWorkspace], computeNextRunAt: () => null });
+    return { status: response?.status, body: response ? await response.json() : null, reads };
+  };
+  const liveJob = { scan_id: "scan_q", workspace_id: "ws_OWN", state: "running", created_ms: routeNow - 6 * 60_000, deadline_ms: routeNow + 20 * 60_000, lease_until: routeNow + 60_000 };
+  const own = await callScan({ job: liveJob });
+  ok("S20 route: a queued scan with its workspace's live job returns progress.exposure_checks 'running'",
+    own.status === 200 && own.body?.progress?.exposure_checks === "running" && own.body?.progress?.exposure_started_at === new Date(routeNow - 6 * 60_000).toISOString(),
+    JSON.stringify({ status: own.status, progress: own.body?.progress, error: own.body?.error }));
+  ok("S21 route: the job read is bound to the scan and the access-resolved workspace",
+    own.reads.length === 1 && own.reads[0][0] === "scan_q" && own.reads[0][1] === "ws_OWN", JSON.stringify(own.reads));
+  const foreign = await callScan({ job: { ...liveJob, workspace_id: "ws_OTHER" } });
+  ok("S22 route: a job recorded under another workspace is never reported (tenant scope)",
+    foreign.status === 200 && foreign.body?.progress?.exposure_checks === null, JSON.stringify(foreign.body?.progress));
+  const running = await callScan({ status: "running", job: liveJob });
+  ok("S23 route: a running scan does not read the job at all", running.reads.length === 0 && running.body?.progress?.exposure_checks === null);
 }
 
 console.log(`\ninterrupted-scan-recovery: ${passed} passed, ${failed} failed`);
