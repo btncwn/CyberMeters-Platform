@@ -530,13 +530,13 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/^\/api\/workspaces\/([^/` | 99 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 | GET | `/^\/api\/workspaces\/([^/` | 344 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `/^\/api\/workspaces\/([^/` | 375 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| DELETE | `/^\/api\/workspaces\/([^/` | 464 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 526 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 591 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/api/invitations/preview` | 785 | public-or-global | public | — |
-| POST | `/api/invitations/accept` | 790 | public-or-global | ✓ | requireAuth |
-| GET | `/^\/api\/invitations\/([^/` | 798 | public-or-global | public | — |
-| POST | `/^\/api\/invitations\/([^/` | 804 | public-or-global | ✓ | requireAuth |
+| DELETE | `/^\/api\/workspaces\/([^/` | 470 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 532 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 597 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/api/invitations/preview` | 791 | public-or-global | public | — |
+| POST | `/api/invitations/accept` | 796 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/invitations\/([^/` | 804 | public-or-global | public | — |
+| POST | `/^\/api\/invitations\/([^/` | 810 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/workspace-reports.js`
 
