@@ -8,7 +8,7 @@ import { useAppDialog } from '../../components/AppDialog'
 import { MailTransportCard } from '../../components/MailTransportCard'
 import { dmarcRecordStatus, spfRecordStatus, dkimRecordStatus, mtaStsRecordStatus, tlsRptRecordStatus, mailTransportStatus } from '../../lib/emailRecordStatus'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ChevronDown, RefreshCw, X } from 'lucide-react'
 import DmarcPolicyEvidenceCard from '../../components/DmarcPolicyEvidenceCard'
 import CloudflareDnsChanges from '../../components/CloudflareDnsChanges'
@@ -16,6 +16,7 @@ import { api, BASE } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleContract'
+import { useScopedDomain } from '../../components/shell/WorkspaceContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Managed DMARC / Email Protection Experience v1
@@ -3604,6 +3605,9 @@ export default function WorkspaceEmailProtectionPage() {
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState(null)
   const [selectedDomain, setSelectedDomain] = useState(null)
+  // The Settings tab configures ONE domain: the context bar names it (C-47 F06).
+  const onSettingsTab = new URLSearchParams(useLocation().search).get('tab') === 'settings'
+  useScopedDomain(onSettingsTab ? selectedDomain : null, { workspaceId: wsId })
   const [report, setReport]     = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
   const goToAnchor = useAreaAnchor()

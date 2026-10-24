@@ -7,7 +7,7 @@
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
-import { getPaymentGraceState, normalizeBillingInterval, normalizePlan } from "./entitlements.js";
+import { getPaymentGraceState, lineageGraceAnchor, normalizeBillingInterval, normalizePlan } from "./entitlements.js";
 import { expectedCheckoutAmountPence } from "./pricing-registry.js";
 import { isSubscriptionActive } from "./subscription-state.js";
 
@@ -419,16 +419,20 @@ export async function findSubscriptionRowId(env, { ownerUserId = null, stripeSub
   }
 
   if (ownerUserId) {
+    // Strict identity (C-49 F13): the owner fallback never takes a row that
+    // belongs to a DIFFERENT Stripe customer — that row is another billing
+    // lineage. Rows with no customer yet (a trial or free row) stay reachable.
     const row = await env.cybermeters_db
       .prepare(
         `SELECT id FROM subscriptions
          WHERE owner_user_id = ?
+           AND (? IS NULL OR stripe_customer_id IS NULL OR stripe_customer_id = ?)
          ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END,
                   COALESCE(updated_at, created_at) DESC,
                   id DESC
          LIMIT 1`
       )
-      .bind(ownerUserId, workspaceId)
+      .bind(ownerUserId, stripeCustomerId, stripeCustomerId, workspaceId)
       .first();
     if (row?.id) return row.id;
   }
@@ -453,14 +457,10 @@ async function upsertStripeSubscriptionState(env, state) {
     const cancelAtPeriodEnd = state.cancel_at_period_end != null
       ? (state.cancel_at_period_end ? 1 : 0)
       : null;
-    // Stale-event guard (Q3, item 13): Stripe can deliver subscription events out of
-    // order. current_period_end only ever advances on renewal, so never let an
-    // incoming (possibly stale) event move it BACKWARD — that would shorten a
-    // customer's entitlement window from an old delivery. Both stored and incoming
-    // values are same-format ISO timestamps, so lexical >= is chronological. Other
-    // fields still apply (a cancel that does not advance the period must take effect);
-    // full status-transition ordering is not enforced (the schema carries no per-event
-    // sequence — documented residual).
+    // Out-of-order delivery (Q3 item 13, C-49): every state written here is
+    // Stripe's CURRENT view of the lineage the row reflects, re-read by
+    // syncStripeSubscription — never an event payload — so the period is
+    // written as Stripe states it (a lineage switch may legitimately move it).
     const cpEnd = state.current_period_end || null;
     // state.plan === null means the event's price could not be mapped to a
     // canonical plan (fail-closed): payment/lifecycle state still applies, but
@@ -484,9 +484,7 @@ async function upsertStripeSubscriptionState(env, state) {
              stripe_subscription_id = COALESCE(?, stripe_subscription_id),
              stripe_price_id = COALESCE(?, stripe_price_id),
              current_period_start = COALESCE(?, current_period_start),
-             current_period_end = CASE
-               WHEN ? IS NOT NULL AND (current_period_end IS NULL OR ? >= current_period_end) THEN ?
-               ELSE current_period_end END,
+             current_period_end = COALESCE(?, current_period_end),
              cancel_at_period_end = COALESCE(?, cancel_at_period_end),
              workspace_id = CASE
                WHEN ? IS NOT NULL AND NOT EXISTS (
@@ -510,7 +508,7 @@ async function upsertStripeSubscriptionState(env, state) {
         stripeSubscriptionId,
         state.stripe_price_id || null,
         state.current_period_start || null,
-        cpEnd, cpEnd, cpEnd,
+        cpEnd,
         cancelAtPeriodEnd,
         // The hand-made production table can enforce one row per workspace
         // (it predates the migrations that describe it). A row is moved to
@@ -643,12 +641,305 @@ async function upsertStripeSubscriptionState(env, state) {
   return Number(insertResult?.meta?.changes ?? insertResult?.changes ?? 0) === 1 ? id : null;
 }
 
+// ── Stripe subscription lineages (migration 139; billing P1 / Codex C-49) ────
+//
+// Stripe does not order webhook deliveries, so an event's own payload is never
+// trusted for state: every subscription, invoice and checkout event that names
+// a subscription FETCHES that subscription from Stripe (latest invoice
+// expanded) and stores Stripe's current view per subscription id. The account
+// `subscriptions` row — the one entitlements read — is then derived from the
+// customer's best ENTITLED lineage. Consequences, by construction:
+//   • an older/late event can only re-read today's truth (no ordering bugs);
+//   • a cancelled lineage is terminal; only a new subscription id re-grants;
+//   • the payment grace is anchored on Stripe's latest unpaid invoice creation
+//     time, so a retried webhook never restarts it;
+//   • one subscription's events never overwrite another subscription's state.
+// A fetch failure throws: the route answers 500 and Stripe retries the event.
+// A subscription Stripe does not know (404) changes nothing: never a reason to
+// cancel (a wrong-mode key would otherwise cancel every customer).
+
+const PLAN_RANK = Object.freeze({ free: 0, starter: 1, professional: 2, business: 3, enterprise: 4 });
+const TERMINAL_STRIPE_STATUSES = new Set(["canceled", "incomplete_expired"]);
+const nowIso = () => new Date(Date.now()).toISOString();
+
+export async function fetchStripeSubscription(env, subscriptionId) {
+  if (!env?.STRIPE_SECRET_KEY) throw new Error("stripe_secret_missing");
+  const res = await fetch(
+    `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}?expand[]=latest_invoice`,
+    { headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` } },
+  );
+  if (res.status === 404) return null;
+  const body = await res.json().catch(() => null);
+  if (!res.ok || body?.id !== subscriptionId) throw new Error(`stripe_subscription_fetch_failed:${res.status}`);
+  return body;
+}
+
+// Pure: Stripe's subscription object → the lineage row (terminal stays terminal).
+export function lineageFromStripeSubscription(env, sub, { previous = null, hint = {} } = {}) {
+  const metadata = sub?.metadata || {};
+  const priceId = getStripeSubscriptionPrice(sub, env)?.id || null;
+  const period = getStripeSubscriptionPeriod(sub, env);
+  const invoice = sub?.latest_invoice && typeof sub.latest_invoice === "object" ? sub.latest_invoice : null;
+  const fetchedStatus = normalizeStripeSubscriptionStatus(sub?.status);
+  const terminal = Boolean(previous?.terminal) || TERMINAL_STRIPE_STATUSES.has(fetchedStatus);
+  return {
+    stripe_subscription_id: sub.id,
+    stripe_customer_id: getStripeObjectId(sub?.customer) || previous?.stripe_customer_id || null,
+    // The account a lineage bills is fixed when it is first seen: metadata
+    // never moves billing to another account (C-49 F14; no supported
+    // billing-transfer policy exists).
+    owner_user_id: previous?.owner_user_id || metadata.user_id || hint.owner_user_id || null,
+    workspace_id: previous?.workspace_id || metadata.workspace_id || hint.workspace_id || null,
+    // A terminal lineage never leaves cancelled, whatever a later read says.
+    status: terminal ? "canceled" : fetchedStatus,
+    // An unknown price never grants or changes a plan (fail closed).
+    plan: getPlanFromStripePriceId(env, priceId, metadata.plan) ?? previous?.plan ?? null,
+    stripe_price_id: priceId || previous?.stripe_price_id || null,
+    billing_interval: getBillingIntervalFromStripeSubscription(sub, metadata.interval),
+    current_period_start: period.start || previous?.current_period_start || null,
+    current_period_end: period.end || previous?.current_period_end || null,
+    cancel_at_period_end: sub?.cancel_at_period_end ? 1 : 0,
+    latest_invoice_id: invoice?.id || (typeof sub?.latest_invoice === "string" ? sub.latest_invoice : null),
+    latest_invoice_status: invoice?.status || null,
+    latest_invoice_created: invoice?.created ? stripeUnixToIso(invoice.created) : null,
+    latest_invoice_attempts: Number.isInteger(invoice?.attempt_count) ? invoice.attempt_count : null,
+    terminal: terminal ? 1 : 0,
+  };
+}
+
+// Pure: is this lineage entitled right now, and where is its grace anchored?
+// past_due is entitled only inside the grace window opened by Stripe's latest
+// UNPAID invoice; `unpaid` is never entitled (as before).
+export function lineageEntitlement(lineage, nowMs = Date.now()) {
+  if (!lineage || lineage.terminal) return { entitled: false, grace_anchor: null };
+  const status = String(lineage.status || "");
+  if (status === "active" || status === "trialing") {
+    const periodOk = !lineage.current_period_end || Date.parse(lineage.current_period_end) > nowMs;
+    return { entitled: periodOk, grace_anchor: null };
+  }
+  if (status === "past_due") {
+    const anchor = lineageGraceAnchor(lineage);
+    return { entitled: getPaymentGraceState({ subscription_status: "past_due", payment_failed_at: anchor }).active, grace_anchor: anchor };
+  }
+  return { entitled: false, grace_anchor: null };
+}
+
+// Pure: the lineage an account row reflects — the best ENTITLED one, in the
+// entitlement resolver's own order (paid, then trial, then payment grace;
+// within one, the highest plan, then most recently fetched), else the most
+// recently fetched. Same order as resolveCanonicalSubscriptionRow, so the
+// stored row and the read-time answer never disagree.
+export function bestLineage(lineages, nowMs = Date.now()) {
+  const list = (lineages || []).filter(Boolean);
+  const recent = (a, b) => String(b.fetched_at || "").localeCompare(String(a.fetched_at || ""))
+    || String(b.stripe_subscription_id).localeCompare(String(a.stripe_subscription_id));
+  const rank = (l) => PLAN_RANK[normalizePlan(l.plan)] ?? 0;
+  const source = (l) => (l.status === "active" ? 2 : l.status === "trialing" ? 1 : 0);
+  const entitled = list.filter((l) => lineageEntitlement(l, nowMs).entitled)
+    .sort((a, b) => source(b) - source(a) || rank(b) - rank(a) || recent(a, b));
+  return entitled[0] || [...list].sort(recent)[0] || null;
+}
+
+async function readLineage(env, subscriptionId) {
+  return env.cybermeters_db
+    .prepare("SELECT * FROM stripe_subscription_lineages WHERE stripe_subscription_id = ? LIMIT 1")
+    .bind(subscriptionId).first();
+}
+
+// Compare-and-swap on `version` (C-49 N01): the write lands only if nobody
+// else wrote this lineage since `expectedVersion` was read. Returns the stored
+// lineage, or null on a lost race (the caller re-reads Stripe and retries).
+async function writeLineage(env, l, expectedVersion) {
+  const now = nowIso();
+  const values = [l.stripe_customer_id, l.status, l.plan, l.stripe_price_id, l.billing_interval,
+    l.current_period_start, l.current_period_end, l.cancel_at_period_end, l.latest_invoice_id,
+    l.latest_invoice_status, l.latest_invoice_created, l.latest_invoice_attempts];
+  let result;
+  if (expectedVersion == null) {
+    result = await env.cybermeters_db
+      .prepare(`INSERT INTO stripe_subscription_lineages
+          (stripe_customer_id, status, plan, stripe_price_id, billing_interval, current_period_start,
+           current_period_end, cancel_at_period_end, latest_invoice_id, latest_invoice_status,
+           latest_invoice_created, latest_invoice_attempts,
+           stripe_subscription_id, owner_user_id, workspace_id, terminal, version, fetched_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+        ON CONFLICT(stripe_subscription_id) DO NOTHING`)
+      .bind(...values, l.stripe_subscription_id, l.owner_user_id, l.workspace_id, l.terminal, now, now, now)
+      .run();
+  } else {
+    result = await env.cybermeters_db
+      .prepare(`UPDATE stripe_subscription_lineages SET
+          stripe_customer_id = ?,
+          status = CASE WHEN terminal = 1 OR ? = 1 THEN 'canceled' ELSE ? END,
+          plan = ?, stripe_price_id = ?, billing_interval = ?, current_period_start = ?,
+          current_period_end = ?, cancel_at_period_end = ?, latest_invoice_id = ?, latest_invoice_status = ?,
+          latest_invoice_created = ?, latest_invoice_attempts = ?,
+          terminal = MAX(terminal, ?), version = version + 1, fetched_at = ?, updated_at = ?
+        WHERE stripe_subscription_id = ? AND version = ?`)
+      .bind(values[0], l.terminal, values[1], ...values.slice(2), l.terminal, now, now, l.stripe_subscription_id, expectedVersion)
+      .run();
+  }
+  if (Number(result?.meta?.changes ?? 0) !== 1) return null;
+  // Exactly what was stored (terminal is monotonic, so a stored terminal stays).
+  return {
+    ...l,
+    status: l.terminal ? "canceled" : l.status,
+    version: expectedVersion == null ? 1 : expectedVersion + 1,
+    fetched_at: now,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+// Fetch one subscription and store it. null when Stripe does not know it.
+const LINEAGE_WRITE_ATTEMPTS = 4;
+
+async function refreshLineage(env, subscriptionId, hint = {}) {
+  // Read the stored version BEFORE asking Stripe: a write based on this read
+  // can then only land if no newer read has landed meanwhile.
+  for (let attempt = 0; attempt < LINEAGE_WRITE_ATTEMPTS; attempt++) {
+    const previous = await readLineage(env, subscriptionId);
+    const fetched = await fetchStripeSubscription(env, subscriptionId);
+    if (!fetched) return null;
+    const stored = await writeFetchedLineage(env, subscriptionId, fetched, previous, hint);
+    if (stored) return stored;
+  }
+  // Still contended: let Stripe retry the event rather than guess.
+  throw new Error("stripe_lineage_write_contended");
+}
+
+async function writeFetchedLineage(env, subscriptionId, fetched, previous, hint) {
+  const marked = await hasCanceledSubscriptionMarker(env, subscriptionId);
+  const lineage = lineageFromStripeSubscription(env, fetched, {
+    previous: marked ? { ...(previous || {}), terminal: 1 } : previous, hint,
+  });
+  if (lineage.stripe_price_id && getPlanFromStripePriceId(env, lineage.stripe_price_id, fetched?.metadata?.plan) === null) {
+    console.error("[stripe_unknown_price_fail_closed]", { stripe_subscription_id: subscriptionId, stripe_price_id: lineage.stripe_price_id });
+    await createAuditEvent(env, {
+      user_id: lineage.owner_user_id,
+      workspace_id: lineage.workspace_id,
+      event_type: "stripe_unknown_price_fail_closed",
+      entity_type: "subscription",
+      entity_id: subscriptionId,
+      description: "Stripe subscription carried a price ID with no canonical plan mapping — plan left unchanged (fail closed)",
+      metadata: { stripe_price_id: lineage.stripe_price_id, metadata_plan: fetched?.metadata?.plan || null },
+    }).catch(() => {});
+  }
+  return writeLineage(env, lineage, previous ? previous.version : null);
+}
+
+/**
+ * Re-read one subscription from Stripe, store it, and re-derive the account row
+ * of its customer from that customer's lineages. Returns the account row id, or
+ * null when nothing could be mapped (Stripe does not know the subscription, or
+ * it grants nothing and no row exists yet). Throws on a Stripe fetch failure.
+ */
+export async function syncStripeSubscription(env, subscriptionId, { hint = {} } = {}) {
+  if (!subscriptionId) return null;
+  const lineage = await refreshLineage(env, subscriptionId, hint);
+  if (!lineage) {
+    await createAuditEvent(env, {
+      user_id: hint.owner_user_id || null,
+      event_type: "stripe_subscription_unknown",
+      entity_type: "subscription",
+      entity_id: subscriptionId,
+      description: "Stripe does not know this subscription id — no billing state changed",
+      metadata: { stripe_subscription_id: subscriptionId },
+    }).catch(() => {});
+    return null;
+  }
+
+  // The account row: the one holding this subscription, else this customer's,
+  // else (first purchase) the account's row that has no Stripe customer yet.
+  const rowId = await findSubscriptionRowId(env, {
+    stripeSubscriptionId: lineage.stripe_subscription_id,
+    stripeCustomerId: lineage.stripe_customer_id,
+    ownerUserId: lineage.owner_user_id,
+    workspaceId: lineage.workspace_id,
+  });
+  const row = rowId
+    ? await env.cybermeters_db.prepare("SELECT id, stripe_subscription_id FROM subscriptions WHERE id = ?").bind(rowId).first()
+    : null;
+
+  // A row written before lineages existed reflects a subscription with no
+  // lineage yet: read it too, so the comparison is over the customer's truth.
+  let rowLineageUnknown = false;
+  const rowSub = row?.stripe_subscription_id;
+  if (rowSub && rowSub !== subscriptionId && !(await readLineage(env, rowSub))) {
+    rowLineageUnknown = !(await refreshLineage(env, rowSub, {}));
+  }
+
+  // Derive the account row from the customer's lineages, then confirm none of
+  // them changed while it was written; a concurrent webhook that wrote a newer
+  // lineage meanwhile makes this derivation re-run, so the row is never left
+  // reflecting an older read (C-49 N01).
+  const readSiblings = async () => {
+    const list = lineage.stripe_customer_id
+      ? ((await env.cybermeters_db.prepare("SELECT * FROM stripe_subscription_lineages WHERE stripe_customer_id = ?")
+          .bind(lineage.stripe_customer_id).all()).results || [])
+      : [await readLineage(env, subscriptionId)].filter(Boolean);
+    if (rowSub && rowSub !== subscriptionId && !list.some((l) => l.stripe_subscription_id === rowSub)) {
+      const rowLineage = await readLineage(env, rowSub);
+      if (rowLineage) list.push(rowLineage);
+    }
+    return list;
+  };
+  const versionsOf = (list) => list.map((l) => `${l.stripe_subscription_id}:${l.version}`).sort().join(",");
+
+  let accountRowId = rowId;
+  let siblings = await readSiblings();
+  for (let attempt = 0; attempt < LINEAGE_WRITE_ATTEMPTS; attempt++) {
+    const best = bestLineage(siblings) || lineage;
+    const ent = lineageEntitlement(best);
+
+    // Never create a row for a lineage that grants nothing, and never replace a
+    // row's subscription Stripe could not confirm unless the new one is entitled.
+    if (!accountRowId && !ent.entitled) return null;
+    if (rowLineageUnknown && !ent.entitled) return accountRowId;
+    // A new customer's subscription for a workspace another customer's row
+    // already holds (the production table allows one row per workspace): no
+    // second row. The lineage alone carries the entitlement at read time
+    // (lineageCandidateRows), instead of a failing insert retried forever.
+    if (!accountRowId && best.workspace_id) {
+      const occupied = await env.cybermeters_db
+        .prepare(`SELECT id FROM subscriptions WHERE workspace_id = ?
+                    AND stripe_customer_id IS NOT NULL AND stripe_customer_id <> ? LIMIT 1`)
+        .bind(best.workspace_id, best.stripe_customer_id || "")
+        .first();
+      if (occupied?.id) return null;
+    }
+
+    accountRowId = await upsertStripeSubscriptionState(env, {
+      owner_user_id: best.owner_user_id,
+      workspace_id: best.workspace_id,
+      plan: best.plan,
+      billing_interval: best.billing_interval,
+      subscription_status: best.status,
+      stripe_customer_id: best.stripe_customer_id,
+      stripe_subscription_id: best.stripe_subscription_id,
+      stripe_price_id: best.stripe_price_id,
+      current_period_start: best.current_period_start,
+      current_period_end: best.current_period_end,
+      cancel_at_period_end: best.cancel_at_period_end,
+    });
+    if (accountRowId) {
+      // Grace from Stripe's invoice, not from when an event happened to arrive.
+      await env.cybermeters_db
+        .prepare("UPDATE subscriptions SET payment_failed_at = ?, payment_retry_count = ? WHERE id = ?")
+        .bind(ent.grace_anchor, ent.grace_anchor ? (best.latest_invoice_attempts ?? 1) : 0, accountRowId)
+        .run();
+    }
+    const after = await readSiblings();
+    if (versionsOf(after) === versionsOf(siblings)) return accountRowId;
+    siblings = after;
+  }
+  throw new Error("stripe_account_row_contended");
+}
+
 export async function handleCheckoutSessionCompleted(env, session) {
   const metadata = session?.metadata || {};
   const ownerUserId = metadata.user_id || session?.client_reference_id || null;
   const workspaceId = metadata.workspace_id || null;
-  const plan = normalizePlan(metadata.plan);
-  const billingInterval = normalizeBillingInterval(metadata.interval);
   const stripeCustomerId = getStripeObjectId(session?.customer);
   const stripeSubscriptionId = getStripeObjectId(session?.subscription);
 
@@ -660,14 +951,6 @@ export async function handleCheckoutSessionCompleted(env, session) {
   }
   if (await hasCanceledSubscriptionMarker(env, stripeSubscriptionId)) return null;
 
-  // Subscription events may arrive before checkout (including cancellation).
-  // The checkout session is older evidence and must not overwrite their state.
-  const existingSubscription = await env.cybermeters_db
-    .prepare("SELECT id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
-    .bind(stripeSubscriptionId)
-    .first();
-  if (existingSubscription?.id) return existingSubscription.id;
-
   if (!workspaceId) {
     console.warn("[stripe_webhook_workspace_unresolved] checkout.session.completed: workspace_id missing from session metadata", {
       stripe_session_id: session?.id || null,
@@ -676,95 +959,24 @@ export async function handleCheckoutSessionCompleted(env, session) {
     });
   }
 
-  return upsertStripeSubscriptionState(env, {
-    owner_user_id: ownerUserId,
-    workspace_id: workspaceId,
-    plan,
-    billing_interval: billingInterval,
-    subscription_status: "active",
-    preserve_existing_subscription_state: true,
-    cancellation_marker_id: canceledSubscriptionMarkerId(stripeSubscriptionId),
-    stripe_customer_id: stripeCustomerId,
-    stripe_subscription_id: stripeSubscriptionId,
+  // The session names the subscription and the account it was bought for;
+  // the subscription's state is read from Stripe, never from the session.
+  return syncStripeSubscription(env, stripeSubscriptionId, {
+    hint: { owner_user_id: ownerUserId, workspace_id: workspaceId, stripe_customer_id: stripeCustomerId },
   });
 }
 
 export async function handleStripeSubscriptionUpsert(env, subscription) {
-  if (await hasCanceledSubscriptionMarker(env, subscription?.id)) return null;
+  // The payload only says WHICH subscription changed; its state is read from
+  // Stripe (syncStripeSubscription), so a late or older event changes nothing.
+  if (!subscription?.id) return null;
   const metadata = subscription?.metadata || {};
-  const price = getStripeSubscriptionPrice(subscription, env);
-  const priceId = price?.id || null;
-  // Price-authoritative mapping. metadata.plan applies only when the event
-  // carries no price at all; a present-but-unknown price yields null and the
-  // upsert keeps the stored plan unchanged (fail-closed — see below).
-  const plan = getPlanFromStripePriceId(env, priceId, metadata.plan);
-  if (priceId && plan === null) {
-    console.error("[stripe_unknown_price_fail_closed]", {
-      stripe_subscription_id: subscription?.id || null,
-      stripe_price_id: priceId,
-      metadata_plan: metadata.plan || null,
-    });
-    await createAuditEvent(env, {
-      user_id: metadata.user_id || null,
+  return syncStripeSubscription(env, subscription.id, {
+    hint: {
+      owner_user_id: metadata.user_id || null,
       workspace_id: metadata.workspace_id || null,
-      event_type: "stripe_unknown_price_fail_closed",
-      entity_type: "subscription",
-      entity_id: subscription?.id || null,
-      description: "Stripe subscription event carried a price ID with no canonical plan mapping — plan left unchanged (fail closed)",
-      metadata: { stripe_price_id: priceId, metadata_plan: metadata.plan || null },
-    }).catch(() => {});
-  }
-  const billingInterval = getBillingIntervalFromStripeSubscription(subscription, metadata.interval);
-
-  // Resolve workspace_id — order of precedence:
-  //   1. subscription.metadata.workspace_id (set by checkout via subscription_data.metadata)
-  //   2. existing subscriptions row (lookup by stripe_subscription_id → stripe_customer_id)
-  // Never pass null workspace_id into an INSERT — the production table has workspace_id NOT NULL.
-  let workspaceId = metadata.workspace_id || null;
-  if (!workspaceId) {
-    const stripeSubId = subscription?.id || null;
-    const stripeCustomerId = getStripeObjectId(subscription?.customer);
-    try {
-      let existingRow = null;
-      if (stripeSubId) {
-        existingRow = await env.cybermeters_db
-          .prepare("SELECT workspace_id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
-          .bind(stripeSubId)
-          .first();
-      }
-      if (!existingRow?.workspace_id && stripeCustomerId) {
-        existingRow = await env.cybermeters_db
-          .prepare("SELECT workspace_id FROM subscriptions WHERE stripe_customer_id = ? LIMIT 1")
-          .bind(stripeCustomerId)
-          .first();
-      }
-      workspaceId = existingRow?.workspace_id || null;
-    } catch { /* resolution best-effort; upsert will guard below */ }
-    if (!workspaceId) {
-      console.warn("[stripe_webhook_workspace_unresolved] workspace_id not in subscription metadata and no existing row found", {
-        stripe_subscription_id: subscription?.id || null,
-        stripe_customer_id: getStripeObjectId(subscription?.customer),
-        user_id: metadata.user_id || null,
-      });
-    }
-  }
-
-  // Period boundary: top-level on older API versions, base item on Basil+.
-  const period = getStripeSubscriptionPeriod(subscription, env);
-
-  return upsertStripeSubscriptionState(env, {
-    owner_user_id: metadata.user_id || null,
-    workspace_id: workspaceId,
-    plan,
-    billing_interval: billingInterval,
-    subscription_status: normalizeStripeSubscriptionStatus(subscription?.status),
-    cancellation_marker_id: subscription?.id ? canceledSubscriptionMarkerId(subscription.id) : null,
-    stripe_customer_id: getStripeObjectId(subscription?.customer),
-    stripe_subscription_id: subscription?.id || null,
-    stripe_price_id: priceId,
-    current_period_start: period.start,
-    current_period_end: period.end,
-    cancel_at_period_end: subscription?.cancel_at_period_end ?? null,
+      stripe_customer_id: getStripeObjectId(subscription?.customer),
+    },
   });
 }
 
@@ -781,35 +993,26 @@ export async function handleStripeSubscriptionDeleted(env, subscription) {
       .bind(canceledSubscriptionMarkerId(subscription.id))
       .run();
   }
+  // The deletion makes this lineage terminal; the account row is re-derived
+  // from the customer's lineages, so another still-paid subscription of the
+  // same customer keeps its entitlement (C-49 F11). No subscription id → no
+  // lineage to change.
+  if (!subscription?.id) return null;
   const metadata = subscription?.metadata || {};
-  // An explicit subscription id identifies one lifecycle. A former subscription
-  // may share its customer or owner with a newer active row; never cancel the
-  // newer row through those fallbacks when the explicit id is unknown.
-  const rowId = subscription?.id
-    ? (await env.cybermeters_db
-      .prepare("SELECT id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
-      .bind(subscription.id)
-      .first())?.id ?? null
-    : await findSubscriptionRowId(env, {
-      ownerUserId: metadata.user_id || null,
-      stripeCustomerId: getStripeObjectId(subscription?.customer),
-    });
-
+  const rowId = await syncStripeSubscription(env, subscription.id, {
+    hint: {
+      owner_user_id: metadata.user_id || null,
+      workspace_id: metadata.workspace_id || null,
+      stripe_customer_id: getStripeObjectId(subscription?.customer),
+    },
+  });
   if (!rowId) return null;
-  // Legacy `status` written in lockstep with subscription_status (see
-  // upsertStripeSubscriptionState); period end read Basil-aware.
-  const deletedPeriodEnd = getStripeSubscriptionPeriod(subscription, env).end;
-  await env.cybermeters_db
-    .prepare(
-      `UPDATE subscriptions
-       SET subscription_status = 'canceled',
-           status = 'canceled',
-           current_period_end = COALESCE(?, current_period_end),
-           updated_at = datetime('now')
-       WHERE id = ?`
-    )
-    .bind(deletedPeriodEnd, rowId)
-    .run();
+  const accountRow = await env.cybermeters_db
+    .prepare("SELECT subscription_status, current_period_end FROM subscriptions WHERE id = ? LIMIT 1")
+    .bind(rowId).first();
+  // Another lineage still carries the account: nothing was cancelled for the customer.
+  if (accountRow?.subscription_status !== "canceled") return rowId;
+  const deletedPeriodEnd = accountRow?.current_period_end ?? null;
 
   // Billing audit trail — non-fatal
   await writeSubscriptionEvent(env, rowId, "subscription.deleted", subscription);
@@ -877,58 +1080,25 @@ export async function handleStripeSubscriptionDeleted(env, subscription) {
   return rowId;
 }
 
-export async function handleStripeInvoicePaymentFailed(env, invoice) {
+// An invoice changes subscription state only through the subscription it
+// names, re-read from Stripe: a one-off invoice (no subscription id) never
+// touches a subscription (C-49 F15/F16), and which invoice is current, paid or
+// open is Stripe's latest_invoice, not this event (F07–F09). The grace anchor
+// is that invoice's creation time, so a retried event never restarts it (F10).
+async function syncFromInvoice(env, invoice) {
   const stripeSubscriptionId = getStripeInvoiceSubscriptionId(invoice);
-  const stripeCustomerId = getStripeObjectId(invoice?.customer);
-  const rowId = await findSubscriptionRowId(env, {
-    stripeSubscriptionId,
-    // An explicit subscription must not fall back to another row for this customer.
-    stripeCustomerId: stripeSubscriptionId ? null : stripeCustomerId,
+  if (!stripeSubscriptionId) return null;
+  return syncStripeSubscription(env, stripeSubscriptionId, {
+    hint: { stripe_customer_id: getStripeObjectId(invoice?.customer) },
   });
+}
 
-  if (!rowId) return null;
-  await env.cybermeters_db
-    .prepare(
-      `UPDATE subscriptions
-       SET subscription_status = 'past_due',
-           status = 'past_due',
-           payment_failed_at = datetime('now'),
-           payment_retry_count = COALESCE(payment_retry_count, 0) + 1,
-           updated_at = datetime('now')
-       WHERE id = ?`
-    )
-    .bind(rowId)
-    .run();
-  return rowId;
+export async function handleStripeInvoicePaymentFailed(env, invoice) {
+  return syncFromInvoice(env, invoice);
 }
 
 export async function handleStripeInvoicePaymentSucceeded(env, invoice) {
-  const stripeSubscriptionId = getStripeInvoiceSubscriptionId(invoice);
-  const stripeCustomerId = getStripeObjectId(invoice?.customer);
-  const rowId = await findSubscriptionRowId(env, {
-    stripeSubscriptionId,
-    stripeCustomerId: stripeSubscriptionId ? null : stripeCustomerId,
-  });
-
-  if (!rowId) return null;
-  // Clear past_due state when payment succeeds; only restore active if currently past_due
-  // (subscription.updated events also fire on renewal and update period_end authoritatively).
-  // Both SET expressions read the OLD subscription_status, so `status` lands in
-  // lockstep with the new subscription_status — and a historically stale
-  // `status` value is re-synced by the same write.
-  await env.cybermeters_db
-    .prepare(
-      `UPDATE subscriptions
-       SET subscription_status = CASE WHEN subscription_status = 'past_due' THEN 'active' ELSE subscription_status END,
-           status = CASE WHEN subscription_status = 'past_due' THEN 'active' ELSE subscription_status END,
-           payment_failed_at = NULL,
-           payment_retry_count = 0,
-           updated_at = datetime('now')
-       WHERE id = ?`
-    )
-    .bind(rowId)
-    .run();
-  return rowId;
+  return syncFromInvoice(env, invoice);
 }
 
 // writeSubscriptionEvent — writes a row to subscription_events for billing audit log.
