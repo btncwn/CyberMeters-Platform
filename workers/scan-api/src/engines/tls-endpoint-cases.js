@@ -24,6 +24,7 @@
 // Alerts go through the canonical pipeline: the transition is appended to
 // certificate_lifecycle_events keyed by the case id (the domain's occurrence
 // source), then emitLifecycleAlert grades it by the finding's own severity.
+import { reconcileTlsTrustIdentities } from "./tls-trust-case-compat.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import { evaluateTlsCase, tlsAssessmentFindings, tlsCaseKey } from "./tls-findings.js";
@@ -45,7 +46,7 @@ const hostOf = (finding) => finding?.evidence?.[0]?.endpoint?.hostname || null;
 // "TLS 1.1 accepted" instead of one shared phrase (Executive, 23 Oct 19:42).
 const caseCondition = (finding) => {
   const c = finding?.tls_condition || {};
-  return { tls_condition: { type: c.type || null, control: c.control || null, protocol: c.protocol || null, cipher_id: c.cipher_id || null } };
+  return { tls_condition: { ...(c.type === "tls_certificate_trust" ? { endpoint_identity: c.endpoint_identity, leaf_sha256: c.leaf_sha256, detail: c.detail } : {}), type: c.type || null, control: c.control || null, protocol: c.protocol || null, cipher_id: c.cipher_id || null } };
 };
 
 // Append-only case history, system actor (never updates a prior row).
@@ -107,12 +108,14 @@ export async function reconcileTlsEndpointCases(env, { workspace_id, domain, sca
     const present = tlsAssessmentFindings(tls_assessment)
       .map((f) => ({ finding: f, key: tlsCaseKey(f.tls_condition) }))
       .filter((p) => p.key);
+    const blocked = await reconcileTlsTrustIdentities(env, { workspace_id, domain, tls_assessment, now });
+    if (blocked.size) out.identity_deferred = blocked.size;
     // One case per build-less condition, even if two builds measured it in one scan.
     const seen = new Set();
 
     for (const { finding, key } of present) {
       const type = finding.tls_condition?.type;
-      if (!type || seen.has(key)) continue;
+      if (!type || seen.has(key) || blocked.has(key)) continue;
       seen.add(key);
       const created = await createManagedCase(env, {
         workspace_id, domain_key: TLS_CASE_DOMAIN_KEY, case_type: TLS_CASE_TYPE,
@@ -171,7 +174,9 @@ export async function reconcileTlsEndpointCases(env, { workspace_id, domain, sca
       .bind(workspace_id, TLS_CASE_TYPE, domain).all()).results || [];
     for (const kase of open) {
       if (!TLS_CASE_KEY.test(String(kase.finding_id || ""))) continue;
-      const result = evaluateTlsCase(kase.finding_id, tls_assessment);
+      let condition = null;
+      try { condition = JSON.parse(kase.evidence_json || "{}").tls_condition; } catch { /* inconclusive legacy evidence */ }
+      const result = evaluateTlsCase(kase.finding_id, tls_assessment, condition);
       if (result.state !== "clear") continue;
       const evidence = {
         verification_method: "certificate_recheck",
