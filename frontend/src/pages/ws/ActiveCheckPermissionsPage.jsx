@@ -181,7 +181,7 @@ export default function ActiveCheckPermissionsPage() {
       setNotice('Permission recorded. No check was started.')
       await load()
     } catch (failure) {
-      if (scope.current === requested) setError(ERROR_TEXT[failure?.message] || 'The permission could not be recorded. Nothing was saved. Try again.')
+      if (scope.current === requested) setError(ERROR_TEXT[failure?.error || failure?.code] || 'The permission could not be recorded. Nothing was saved. Try again.')
     } finally {
       if (scope.current === requested) setBusy(false)
     }
@@ -207,7 +207,7 @@ export default function ActiveCheckPermissionsPage() {
       setNotice('Permission revoked.')
       await load()
     } catch (failure) {
-      if (scope.current === requested) setError(ERROR_TEXT[failure?.message] || 'The permission could not be revoked. Try again.')
+      if (scope.current === requested) setError(ERROR_TEXT[failure?.error || failure?.code] || 'The permission could not be revoked. Try again.')
     } finally {
       if (scope.current === requested) setBusy(false)
     }

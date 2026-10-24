@@ -112,7 +112,8 @@ export default function LoginPage() {
 
       await navigateAfterLogin(data.token, data.user)
     } catch (err) {
-      if (err.message === 'email_verification_required') {
+      // Switch on the machine code, never on the message (httpErrors keeps codes off it).
+      if (err.error === 'email_verification_required' || err.code === 'email_verification_required') {
         setVerificationRequired(true)
       } else {
         setError(err.message || 'Login failed')
