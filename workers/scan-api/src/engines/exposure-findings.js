@@ -40,7 +40,9 @@ export function evaluateExposureCondition(key, module) {
   if (!matches.length) return { state: 'deferred', reason: 'exact_condition_not_tested' };
   if (exposureRuleForCondition(key)?.id === 'remote-access-portal') {
     if (matches.some(r=>r.comparable && r.portal_assessment?.state==='present')) return {state:'present',reason:'remote_access_condition_observed'};
-    if (matches.every(r=>r.comparable && (r.portal_assessment?.state==='clear' || ['not_found','not_present_soft404'].includes(r.state))))
+    // Disabling a portal's browser login may return404 while its VPN service
+    // stays reachable. Absence of this page cannot prove the server was fixed.
+    if (matches.every(r=>r.comparable && r.portal_assessment?.state==='clear'))
       return {state:'clear',reason:'exact_remote_access_condition_retested_clear'};
     return {state:'deferred',reason:'remote_access_retest_inconclusive'};
   }
@@ -138,7 +140,7 @@ export function externalExposureModule(receipt, { catalogue = null, now = Date.n
       indicators, observed_at: observedAt,
       recommended_action: finding.recommendation,
       retest_state: finding.finding_type === 'finding' ? 'condition_observed' : 'observation_only',
-      retest_requirement: 'Run a new domain scan after the change. Only a successful check of this same address and content condition can confirm it is no longer observed; a blocked or unavailable response cannot.',
+      retest_requirement: rule.id==='remote-access-portal' && remediation?.verification_evidence_requirements || 'Run a new domain scan after the change. Only a successful check of this same address and content condition can confirm it is no longer observed; a blocked or unavailable response cannot.',
     };
     dedupe.set(finding.id, finding);
   }

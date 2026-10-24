@@ -134,7 +134,7 @@ export function unresolvedExposureChecks(previous=[],results=[]) {
     // Retain its observed address too: a later timeout must not lose the exact
     // retest preference merely because the collector reports an observation.
     if(row.state==='finding'||row.rule_id==='remote-access-portal'&&row.state==='observed'&&validRemoteAccessEvidence(row.portal))retained.set(key,{rule_id:row.rule_id,url:row.url});
-    else if(row.comparable===true&&['not_found','not_present_soft404','observed'].includes(row.state))retained.delete(key);
+    else if(row.rule_id!=='remote-access-portal'&&row.comparable===true&&['not_found','not_present_soft404','observed'].includes(row.state))retained.delete(key);
   }
   return [...retained.values()];
 }
@@ -841,7 +841,12 @@ export async function readExposureForScan(env,{workspaceId,scanId}) {
   if(plan.content_state==='not_requested')return null;
   const reason=row.state==='cancelled'?'authority_lost':row.state==='budget_exhausted'?'budget_exhausted':'queued';
   const pending=plan.checks.slice(row.cursor).map(c=>({...c,identity:exposureIdentity(c.rule_id,c.url),state:reason,comparable:false,finding:null,reason,observed_at:null}));
-  const checks=[...results,...pending];
+  const priorPortals=new Set((plan.retest_checks||[]).filter(c=>c.rule_id==='remote-access-portal').map(c=>c.url));
+  // Hiding the known portal's browser page is not evidence that the remote
+  // service was removed or patched. Keep the raw receipt, but project this
+  // retest as inconclusive so it cannot verify a case or claim healthy coverage.
+  const checks=[...results,...pending].map(c=>c.rule_id==='remote-access-portal'&&priorPortals.has(c.url)&&['not_found','not_present_soft404'].includes(c.state)
+    ? {...c,state:'uncertain',comparable:false,reason:'remote_access_retest_inconclusive'} : c);
   // The durable job can exhaust after HTTP finished while deep TLS is still
   // pending. Its terminal state must not downgrade already completed HTTP.
   const httpComplete=row.cursor>=plan.checks.length && plan.content_state!=='pending' &&

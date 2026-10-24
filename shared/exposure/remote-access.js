@@ -2,10 +2,15 @@
 // Product names stay in fingerprint/table code; no inference from client versions,
 // URL cache keys, certificates, hostnames, or the KEV product-name strings.
 export const REMOTE_ACCESS_TABLE_VERSION = '2026-10-24.1';
+// Login path: primary release-note PAN-183981 (10.1.9 addressed issues).
+// A disabled browser page returns404 without disabling agent access:
+// https://knowledgebase.paloaltonetworks.com/KCSArticleDetail?id=kA10g000000ClbpCAC
 export const REMOTE_ACCESS_PATHS = Object.freeze(['/', '/global-protect/login.esp']);
 export const REMOTE_ACCESS_SIGNATURES = Object.freeze([{
   id: 'panos_globalprotect',
-  title: '^\\s*GlobalProtect(?:\\s+(?:Portal|Gateway))?\\s*$',
+  // Factory title documented in the primary response-page template.
+  // https://knowledgebase.paloaltonetworks.com/KCSArticleDetail?id=kA10g000000ClErCAK
+  title: '^\\s*(?:Palo Alto Networks\\s*-\\s*)?GlobalProtect(?:\\s+(?:Portal|Gateway))?\\s*$',
   loginPath: '/global-protect/login.esp',
   versionLabel: '\\bPAN-OS\\s+(?:[Vv]ersion\\s*[:=]?\\s*)?([^\\s<>;,]{1,48})',
 }]);

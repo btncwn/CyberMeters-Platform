@@ -6,8 +6,8 @@ import { exposureEvaluatorProgramSource, evaluateExposure } from '../../shared/e
 import { exposureIdentity } from '../../shared/exposure/redaction.js';
 import { planExposureChecks } from '../../shared/exposure/discovery.js';
 import { externalExposureModule, evaluateExposureCondition } from '../../workers/scan-api/src/engines/exposure-findings.js';
-import { unresolvedExposureChecks } from '../../workers/scan-api/src/engines/exposure-jobs.js';
-import { refreshRemoteAccessCatalogue, readRemoteAccessCatalogue, REMOTE_ACCESS_CATALOGUE_KEY } from '../../workers/scan-api/src/engines/remote-access-catalogue.js';
+import { unresolvedExposureChecks, readExposureForScan } from '../../workers/scan-api/src/engines/exposure-jobs.js';
+import { refreshRemoteAccessCatalogue, readRemoteAccessCatalogue, REMOTE_ACCESS_CATALOGUE_KEY, REMOTE_ACCESS_FEED_URLS } from '../../workers/scan-api/src/engines/remote-access-catalogue.js';
 import { evaluateWebsiteSecurityForScan } from '../../workers/scan-api/src/engines/website-security-lifecycle.js';
 import { canTransitionCase } from '../../workers/scan-api/src/engines/managed-case-model.js';
 import { buildDb, makeEnv } from './lib/worker-harness.js';
@@ -18,6 +18,7 @@ const cache = { fetched_at:new Date(now).toISOString(),catalogue_version:'2026.1
 const page = (label='') => `<html><head><title>GlobalProtect Portal</title></head><body><form action="/global-protect/login.esp" method="post"><input name="user"><input type="password" name="passwd"></form><footer>${label}</footer></body></html>`;
 const stated = 'PAN-OS version: 11.1.2-h2';
 const positive = remoteAccessFingerprint(page(stated),url);
+assert.equal(remoteAccessFingerprint(page(stated).replace('<title>GlobalProtect Portal</title>','<title>Palo Alto Networks - GlobalProtect Portal</title>'),url)?.version,positive.version,'primary documented factory title is supported');
 assert.deepEqual(positive,{product_id:'panos_globalprotect',version:'11.1.2-h2',version_state:'explicit'});
 assert.equal(assessRemoteAccess(positive,cache,now).sentence,REMOTE_ACCESS_SENTENCES.listed);
 assert.equal(assessRemoteAccess(remoteAccessFingerprint(page(),url),cache,now).sentence,REMOTE_ACCESS_SENTENCES.hidden);
@@ -60,8 +61,21 @@ const retained=unresolvedExposureChecks([], [wire()]);
 assert.deepEqual(retained,[{rule_id,url}]);
 assert.deepEqual(unresolvedExposureChecks(retained,[{...wire(),state:'uncertain',comparable:false}]),retained);
 assert.equal(planExposureChecks({origin:new URL(url).origin,previousFindings:retained}).checks[0].url,url,'observed portals retain exact-path retest priority across an inconclusive scan');
-assert.deepEqual(unresolvedExposureChecks(retained,[{...wire(),state:'not_found',comparable:true}]),[]);
+assert.deepEqual(unresolvedExposureChecks(retained,[{...wire(),state:'not_found',comparable:true}]),retained,'a hidden browser page cannot discard a known portal retest');
+const gone={...wire(),portal:undefined,state:'not_found',comparable:true,observation:null};
+const stored={state:'complete',cursor:1,domain:'example.test',updated_at:new Date(now).toISOString(),costs_json:'{}',results_json:JSON.stringify([gone])};
+async function readGone(prior){
+  const row={...stored,plan_json:JSON.stringify({content_state:'complete',checks:[{rule_id,url}],retest_checks:prior,hosts_total:1,host_coverage:[{hostname:'vpn.example.test'}]})};
+  return readExposureForScan({cybermeters_db:{prepare:()=>({bind:()=>({first:async()=>row})})}},{workspaceId:'ws',scanId:'hidden'});
+}
+const hiddenReceipt=await readGone(retained),hiddenModule=externalExposureModule(hiddenReceipt,{catalogue:cache,now});
+assert.equal((await readGone([])).checks[0].state,'not_found','a never-observed portal path is an ordinary negative, not a blanket coverage gap');
+assert.equal(hiddenReceipt.checks[0].comparable,false);
+assert.equal(hiddenModule.quality,'partial');assert.equal(hiddenModule.incomplete_reason,'checks_inconclusive');
+assert.equal(evaluateExposureCondition(finding.id,hiddenModule).state,'deferred','disabling a browser login does not prove the service was patched');
 assert.ok(finding);assert.equal(finding.finding_type,'finding');assert.equal(finding.description,REMOTE_ACCESS_SENTENCES.listed);
+assert.match(finding.exposure.retest_requirement,/server version in the curated fixed range/);
+assert.match(finding.recommendation,/browser login page/);
 assert.equal(moduleFor([wire({...positive,version:null,version_state:'absent'})]).findings[0].description,REMOTE_ACCESS_SENTENCES.hidden);
 const fixed=moduleFor([wire({...positive,version:'11.1.2-h3'})]);
 assert.equal(fixed.findings.length,0);assert.equal(evaluateExposureCondition(finding.id,fixed).state,'clear');
@@ -97,10 +111,14 @@ assert.equal(calibration.fp,0);assert.equal(calibration.fn,0);
 console.log('Remote-access controlled product truth: '+JSON.stringify(calibration));
 // Public feed: strict size/schema, official mirror fallback, no scan-time fetch.
 let persisted=null,reads=0,calls=[];
-const storage={put:async(key,text)=>{assert.equal(key,REMOTE_ACCESS_CATALOGUE_KEY);persisted=text;},get:async()=>{reads++;return persisted?{size:persisted.length,body:new Response(persisted).body}:null;}};
-const feed={catalogVersion:'2026.10.23',dateReleased:'2026-10-23T12:00:00Z',count:1,vulnerabilities:[{cveID:'CVE-2024-3400'}]};
+assert.equal(REMOTE_ACCESS_CATALOGUE_KEY,'public-feeds/remote-access-kev-v1.json');
+const storage={put:async(key,text)=>{assert.equal(key,REMOTE_ACCESS_CATALOGUE_KEY);persisted=text;},get:async key=>{assert.equal(key,REMOTE_ACCESS_CATALOGUE_KEY);reads++;return persisted?{size:persisted.length,body:new Response(persisted).body}:null;}};
+const feed={catalogVersion:'2026.10.23',dateReleased:'2026-10-23T12:00:00Z',count:1,workspace_private:'synthetic-private-metadata',vulnerabilities:[{cveID:'CVE-2024-3400',customer_private:'synthetic-private-metadata'}]};
 await refreshRemoteAccessCatalogue({cybermeters_reports:storage},{now,fetchImpl:async(u,opts)=>{calls.push(u);assert.equal(opts.method,'GET');assert.equal(opts.redirect,'error');return calls.length===1?new Response('denied',{status:403}):Response.json(feed);}});
 assert.equal(calls.length,2);assert.equal((await readRemoteAccessCatalogue({cybermeters_reports:storage})).cves[0],feed.vulnerabilities[0].cveID);
+assert.deepEqual(calls,[...REMOTE_ACCESS_FEED_URLS]);
+assert.deepEqual(Object.keys(JSON.parse(persisted)).sort(),['schema','source','fetched_at','catalogue_version','released_at','cves'].sort());
+assert.ok(!persisted.includes('synthetic-private-metadata'),'the shared public object cannot retain arbitrary feed metadata');
 const saved=persisted;
 await assert.rejects(()=>refreshRemoteAccessCatalogue({cybermeters_reports:storage},{now,fetchImpl:async()=>Response.json({...feed,count:2})}));
 assert.equal(persisted,saved,'malformed refresh never replaces the last validated cache');
@@ -118,6 +136,7 @@ for(const target of ['triaged','assigned','approved','action_in_progress','await
   assert.equal(result.ok,true,result.reason);db.prepare('UPDATE managed_cases SET status=? WHERE id=?').run(result.case.status,kase.id);kase={...kase,status:result.case.status};
 }
 await run('unavailable',moduleFor([wire()],null));assert.equal(db.prepare('SELECT status FROM managed_cases WHERE id=?').get(kase.id).status,'awaiting_verification');
+await run('login-hidden',hiddenModule);assert.equal(db.prepare('SELECT status FROM managed_cases WHERE id=?').get(kase.id).status,'awaiting_verification');
 await run('fixed',fixed);assert.equal(db.prepare('SELECT status FROM managed_cases WHERE id=?').get(kase.id).status,'verified');
 assert.equal(db.prepare("SELECT COUNT(*) n FROM managed_cases WHERE workspace_id='foreign'").get().n,0);
 db.close();
