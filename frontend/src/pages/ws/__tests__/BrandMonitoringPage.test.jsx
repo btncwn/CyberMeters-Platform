@@ -74,7 +74,7 @@ describe('Brand Protection actions', () => {
     expect(await screen.findByText('Example Registrar')).toBeInTheDocument()
     expect(screen.getByText('192.0.2.1')).toBeInTheDocument()
     expect(screen.getByText('mail.example')).toBeInTheDocument()
-    expect(screen.getByText('abuse: abuse@example.test')).toBeInTheDocument()
+    expect(screen.getByText('Abuse: abuse@example.test')).toBeInTheDocument()
     expect(screen.getByText('Prepare takedown submission')).toBeInTheDocument()
     expect(screen.getByText('Due:')).toBeInTheDocument()
     expect(screen.getByText('Captured')).toBeInTheDocument()
