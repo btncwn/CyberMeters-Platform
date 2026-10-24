@@ -250,14 +250,24 @@ const run = (ws, findings, { modules = MODULES_OK, scanQuality = QUALITY_OK, sca
     });
   };
   await correlate(await response(null), 'php_baseline');
+  const beforeHidden = notifs(ws).length;
+  for (const scan of ['php_hidden_first', 'php_hidden_repeat']) {
+    const result = await correlate(await response('PHP'), scan);
+    eq('PHP hidden-version observation emits no alert: ' + scan, result.alerts, 0);
+    eq('PHP hidden-version observation writes no notification: ' + scan, notifs(ws).length, beforeHidden);
+  }
+  eq('PHP hidden-version observation creates no condition', condFor(ws, 'tech_php2shell_version_hidden'), undefined);
+  eq('PHP hidden-version observation creates no case', db.prepare('SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id=?').get(ws).n, 0);
   const detected = await response('PHP/8.2.34-1+deb12u1');
-  await correlate(detected, 'php_reported_old');
+  const reportedOld = await correlate(detected, 'php_reported_old');
+  eq('PHP reported old release alerts through the same enabled pipeline', reportedOld.alerts, 1);
+  eq('PHP reported old release writes one notification', notifs(ws).length, beforeHidden + 1);
   const key = detected.php_runtime.condition_key;
   let condition = condFor(ws, key);
   const caseId = condition?.linked_case_id;
   ok('PHP reported old release opens the canonical case', Boolean(caseId));
   const caseRow = () => db.prepare('SELECT * FROM managed_cases WHERE id=? AND workspace_id=?').get(caseId, ws);
-  ok('PHP case title describes the observation without a hash/key', caseRow()?.title.includes('Review the reported PHP release') && !caseRow()?.title.includes(key));
+  ok('PHP case title describes the observation without a hash/key', caseRow()?.title.includes('Website reports a PHP version older than the PHP2Shell fix') && !caseRow()?.title.includes(key));
   db.prepare("UPDATE managed_cases SET status='awaiting_verification' WHERE id=?").run(caseId);
   for (const [label, tech] of [
     ['hidden', await response('PHP')],

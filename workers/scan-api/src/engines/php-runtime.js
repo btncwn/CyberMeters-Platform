@@ -8,7 +8,9 @@ export const PHP_UPSTREAM_FIXES = Object.freeze([
   ...[['8.5', '8.5.12'], ['8.4', '8.4.27'], ['8.3', '8.3.36'], ['8.2', '8.2.35']].map(([branch, fixed]) => Object.freeze({ branch, fixed, advisory: ADVISORY })),
   Object.freeze({ branch: '<=8.1', fixed: null, advisory: ADVISORY }),
 ]);
-export const PHP_RUNTIME_TITLE = 'Review the reported PHP release';
+export const PHP_RUNTIME_TITLE = 'Website reports a PHP version older than the PHP2Shell fix';
+export const PHP_RUNTIME_HIDDEN_TITLE = 'Website runs on PHP; version not visible';
+export const PHP_RUNTIME_HIDDEN_SENTENCE = 'Your website appears to run on PHP. Its version is not visible from outside, so confirm with your hosting provider that PHP has been updated for the PHP2Shell vulnerabilities.';
 const KEY = /^tech_php2shell_outdated__[a-f0-9]{64}$/;
 export const isPhpRuntimeConditionKey = (key) => KEY.test(String(key || ''));
 
@@ -71,7 +73,7 @@ export function phpRuntimeFindings(observation) {
     title: PHP_RUNTIME_TITLE, severity: 'high',
     description: phpRuntimeSentence(observation) }];
   if (observation.state === 'hidden') return [{ ...common, id: 'tech_php2shell_version_hidden',
-    title: 'Confirm the PHP update with your hosting provider', severity: 'info', finding_type: 'observation',
+    title: PHP_RUNTIME_HIDDEN_TITLE, severity: 'info', finding_type: 'observation',
     description: phpRuntimeSentence(observation) }];
   return [];
 }
@@ -81,7 +83,7 @@ export function phpRuntimeSentence(observation) {
       && /^[0-9][0-9A-Za-z.+~_-]{0,79}$/.test(observation.reported_version)) {
     return `Your website reports PHP version ${observation.reported_version}, which is older than the release that fixes the critical PHP2Shell vulnerabilities (CVE-2026-109618, CVE-2026-109619). Update PHP, or confirm with your hosting provider that their patched build is installed.`;
   }
-  if (observation?.state === 'hidden') return 'Your website appears to run on PHP. Its version is not visible from outside, so confirm with your hosting provider that PHP has been updated for the PHP2Shell vulnerabilities.';
+  if (observation?.state === 'hidden') return PHP_RUNTIME_HIDDEN_SENTENCE;
   return null;
 }
 

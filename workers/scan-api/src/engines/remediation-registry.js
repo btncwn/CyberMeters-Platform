@@ -26,6 +26,7 @@
 // This registry is CODE-BACKED (compute-on-read). It stores no rows and adds no
 // schema. resolveRemediation is pure and deterministic.
 
+import { PHP_RUNTIME_TITLE, PHP_RUNTIME_HIDDEN_TITLE, PHP_RUNTIME_HIDDEN_SENTENCE } from "./php-runtime.js";
 import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
@@ -1208,9 +1209,9 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     introduced_at: "2026-10-24",
     domain_key: "website_security",
     finding_types: ["tech_php2shell_outdated"],
-    customer_title: "Review the reported PHP release",
-    technical_explanation: "The website reports a PHP release older than the upstream release for CVE-2026-109618 and CVE-2026-109619. A distribution may have backported the fixes without changing that number.",
-    business_impact: "The response alone cannot establish whether the installed build contains the security fixes.",
+    customer_title: PHP_RUNTIME_TITLE,
+    technical_explanation: PHP_RUNTIME_TITLE,
+    business_impact: "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.",
     recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed.",
     effort: "medium",
     owner_type: "customer_it",
@@ -1227,10 +1228,10 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     introduced_at: "2026-10-24",
     domain_key: "website_security",
     finding_types: ["tech_php2shell_version_hidden"],
-    customer_title: "Confirm the PHP update with your hosting provider",
-    technical_explanation: "The response reports PHP without a readable version.",
-    business_impact: "An external header cannot establish whether PHP has been updated.",
-    recommended_action: "Confirm with your hosting provider that PHP has been updated for the PHP2Shell vulnerabilities.",
+    customer_title: PHP_RUNTIME_HIDDEN_TITLE,
+    technical_explanation: PHP_RUNTIME_HIDDEN_SENTENCE,
+    business_impact: PHP_RUNTIME_HIDDEN_SENTENCE,
+    recommended_action: PHP_RUNTIME_HIDDEN_SENTENCE,
     effort: "low",
     owner_type: "customer_it",
     verification_method: "unsupported",
