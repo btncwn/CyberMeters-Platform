@@ -1,4 +1,4 @@
-import { formatReportTime } from '../lib/reportTime'
+import { formatViewerTime } from '../lib/reportTime'
 import SecurityCheckDomains from './SecurityCheckDomains'
 import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
@@ -55,11 +55,11 @@ const BRI_PILL = {
   low:      'bg-brand-50 text-brand-700 border-brand-100',
 }
 
-// The report renders in UTC, like its PDF; the page states the zone once
-// (lib/reportTime). Bare D1 timestamps parse as UTC there too.
+// The web report shows the viewer's local time with its zone named
+// (lib/reportTime); bare D1 timestamps still parse as UTC.
 function fmtDate(str) {
   if (!str) return '—'
-  return formatReportTime(str)
+  return formatViewerTime(str)
 }
 
 function EvidenceBasis({ label, assertion, className = '' }) {
