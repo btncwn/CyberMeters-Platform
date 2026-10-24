@@ -652,6 +652,27 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     managed_workflow_compatible: true,
     case_type: "asm_exposure",
   }),
+  // Dangling DNS on a cloud address (24 Oct 2026): an owned name resolves into a
+  // cloud provider's published range, a service answered there before, and no
+  // checked port answered now. Never a takeover claim.
+  entry({
+    remediation_id: "asm.dns.cloud_address_unreachable",
+    introduced_at: "2026-10-24",
+    domain_key: "attack_surface",
+    finding_types: ["dns_cloud_address_unreachable_after_live"],
+    customer_title: "Check the DNS record that points at a cloud address that stopped answering",
+    technical_explanation: "A name under your domain resolves to an address in a cloud provider's published range. A service answered there before; in this scan none of the checked ports answered. CyberMeters connected only.",
+    business_impact: "If the address was released back to the provider, another customer of that provider could be given it and serve content on your subdomain.",
+    recommended_action: "Verify the record still points at infrastructure you control, or remove the DNS record.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "A fresh scan finds the address answering again, or the DNS record removed.",
+    supporting_evidence_types: ["network_port_observation"],
+    limitations: ["An address that is only temporarily down looks the same; this is not a confirmed takeover. Azure address ranges are not covered (no stable public list)."],
+    managed_workflow_compatible: true,
+    case_type: "asm_exposure",
+  }),
   entry({
     remediation_id: "asm.network.ftp_reachable",
     domain_key: "attack_surface",
