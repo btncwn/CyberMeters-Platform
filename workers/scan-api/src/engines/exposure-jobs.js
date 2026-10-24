@@ -923,13 +923,13 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
     physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}}))]);
   const endpoints=tls.endpoints.map((entry,index)=>({
     ...entry.endpoint,endpoint_identity:entry.endpoint_identity,scope:entry.scope,
-    checks:all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>{
-      const row={...(check||{}),...rest,endpoint_identity:entry.endpoint_identity};
-      // The customer outcome per control (compression used, 0-RTT accepted,
+    checks:(()=>{
+      const rows=all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>
+        ({...(check||{}),...rest,endpoint_identity:entry.endpoint_identity}));
+      // The customer outcome per control (compression used, 0-RTT advertised,
       // OCSP stapled, renegotiation refused, downgrade blocked); raw state stays.
-      const outcome=tlsControlOutcome(row);
-      return outcome?{...row,customer_outcome:outcome}:row;
-    }),
+      return rows.map(row=>{const outcome=tlsControlOutcome(row,rows);return outcome?{...row,customer_outcome:outcome}:row;});
+    })(),
   }));
   const coverage={planned:all.length+(tls.omitted_checks||0),completed:0,uncertain:0,unexecutable:0,not_authorized:0,not_applicable:0,
     omitted_checks:tls.omitted_checks||0,omitted_services:tls.omitted_services||0,endpoint_gaps:tls.gaps.length,

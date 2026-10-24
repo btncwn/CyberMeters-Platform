@@ -55,7 +55,9 @@ export function isTlsRefusalProbe(check) {
 // truth. The raw state stays in the receipt; the UI reads this. Anything not
 // settled by evidence is 'unknown' - never a guessed yes or no.
 const unknownOutcome = { value: 'unknown', summary: 'Not determined in this run.' };
-export function tlsControlOutcome(row) {
+// endpointChecks: the same endpoint's other rows (downgrade needs to know
+// whether the endpoint serves TLS 1.3 at all).
+export function tlsControlOutcome(row, endpointChecks = []) {
   const ext = row?.evidence?.extensions || null, ocsp = row?.evidence?.ocsp || null;
   const done = row?.state === 'accepted' || row?.state === 'rejected';
   switch (row?.control) {
@@ -66,27 +68,37 @@ export function tlsControlOutcome(row) {
         : { value: 'no', summary: 'TLS compression is not used.' };
     case 'early_data':
       if (row.protocol !== 'tls1_3' || !done || !Number.isSafeInteger(ext?.early_data_max)) return unknownOutcome;
+      // An advertised ticket limit: CyberMeters does not send 0-RTT data.
       return ext.early_data_max > 0
-        ? { value: 'yes', summary: '0-RTT early data is accepted.' }
-        : { value: 'no', summary: '0-RTT early data is not accepted.' };
+        ? { value: 'yes', summary: '0-RTT early data is enabled (advertised by the server).' }
+        : { value: 'no', summary: '0-RTT early data is not advertised.' };
     case 'ocsp': {
       if (!done || !ocsp?.state) return unknownOutcome;
       const verified = ocsp.signature_valid === true && ocsp.cert_id_match === true && ocsp.fresh === true;
       if (ocsp.state === 'absent') return { value: 'no', summary: 'No OCSP response is stapled.' };
       if (ocsp.state === 'good' && verified) return { value: 'yes', summary: 'A valid OCSP response is stapled.' };
       if (ocsp.state === 'revoked' && verified) return { value: 'revoked', summary: 'The stapled OCSP response says the certificate is revoked.' };
+      if (ocsp.state === 'unknown' && verified)
+        return { value: 'status_unknown', summary: 'A verified OCSP response is stapled, but it reports the certificate status as unknown.' };
       return { value: 'invalid', summary: 'An OCSP response is stapled but could not be verified.' };
     }
     case 'secure_renegotiation':
       if (ext?.renegotiation_completed === true) return { value: 'allowed', summary: 'Client-initiated renegotiation is allowed.' };
-      if (ext?.renegotiation_completed === false && ['handshake_failed', 'peer_alert'].includes(row.reason)
-          && (row.state === 'uncertain' || row.state === 'rejected'))
+      // 'handshake_failed' is also set for local/non-alert errors (engine.c
+      // do_handshake): it means refused only when the server supports secure
+      // renegotiation; a peer alert is a refusal on its own.
+      if (ext?.renegotiation_completed === false && (row.state === 'uncertain' || row.state === 'rejected')
+          && (row.reason === 'peer_alert' || (row.reason === 'handshake_failed' && ext?.secure_renegotiation === true)))
         return { value: 'refused', summary: 'Client-initiated renegotiation is refused.' };
       return unknownOutcome;
     case 'fallback_scsv':
       if (row.state === 'rejected' && row.reason === 'fallback_rejected' && ext?.fallback_scsv !== false)
         return { value: 'blocked', summary: 'Protocol downgrade is blocked (TLS_FALLBACK_SCSV).' };
-      if (row.state === 'accepted' && ext?.fallback_scsv === false)
+      // The fallback probe runs at TLS 1.2. A server whose highest version IS
+      // TLS 1.2 correctly accepts it (RFC 7507), so 'not blocked' is a claim only
+      // when this endpoint was seen serving TLS 1.3.
+      if (row.state === 'accepted' && ext?.fallback_scsv === false
+          && (Array.isArray(endpointChecks) ? endpointChecks : []).some(r => r?.control === 'protocol' && r.protocol === 'tls1_3' && r.state === 'accepted'))
         return { value: 'not_blocked', summary: 'Protocol downgrade is not blocked.' };
       return unknownOutcome;
     default:

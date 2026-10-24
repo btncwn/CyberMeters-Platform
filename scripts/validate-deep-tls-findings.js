@@ -123,7 +123,7 @@ const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).fin
   const out=(r)=>{const o=tlsControlOutcome(r);return o&&[o.value,o.summary];};
   // F1 rows: every one of these read 'Accepted' / 'Rejected' and meant the opposite.
   assert.deepEqual(out(row('compression','tls1_2','accepted','handshake_completed',{extensions:ext({compression:false})})),['no','TLS compression is not used.']);
-  assert.deepEqual(out(row('early_data','tls1_3','accepted','resumption_completed',{extensions:ext({early_data_max:0})})),['no','0-RTT early data is not accepted.']);
+  assert.deepEqual(out(row('early_data','tls1_3','accepted','resumption_completed',{extensions:ext({early_data_max:0})})),['no','0-RTT early data is not advertised.']);
   assert.deepEqual(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'absent',signature_valid:null,cert_id_match:null,fresh:null}})),['no','No OCSP response is stapled.']);
   assert.deepEqual(out(row('secure_renegotiation','tls1_2','uncertain','handshake_failed',{extensions:ext({renegotiation_completed:false})})),['refused','Client-initiated renegotiation is refused.']);
   assert.deepEqual(out(row('fallback_scsv','tls1_2','rejected','fallback_rejected',{extensions:ext({fallback_scsv:true})})),['blocked','Protocol downgrade is blocked (TLS_FALLBACK_SCSV).']);
@@ -133,7 +133,19 @@ const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).fin
   assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:true,cert_id_match:true,fresh:true}}))[0],'yes');
   assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:false,cert_id_match:true,fresh:true}}))[0],'invalid','an unverified "good" staple is never yes');
   assert.equal(out(row('secure_renegotiation','tls1_2','accepted','renegotiation_completed',{extensions:ext({renegotiation_completed:true})}))[0],'allowed');
-  assert.equal(out(row('fallback_scsv','tls1_2','accepted','handshake_completed',{extensions:ext({fallback_scsv:false})}))[0],'not_blocked');
+  // R1 #985 (1): 'not blocked' only when the endpoint serves TLS 1.3; a TLS 1.2-max
+  // server correctly accepts the fallback probe (RFC 7507).
+  const fbAccepted=row('fallback_scsv','tls1_2','accepted','handshake_completed',{extensions:ext({fallback_scsv:false})});
+  assert.equal(tlsControlOutcome(fbAccepted,[fbAccepted]).value,'unknown','a TLS 1.2-max server accepting the fallback probe is not a missing protection');
+  assert.equal(tlsControlOutcome(fbAccepted,[fbAccepted,{control:'protocol',protocol:'tls1_3',state:'rejected'}]).value,'unknown');
+  assert.equal(tlsControlOutcome(fbAccepted,[fbAccepted,{control:'protocol',protocol:'tls1_3',state:'accepted'}]).value,'not_blocked','not blocked on a TLS 1.3 endpoint');
+  // R1 #985 (2): handshake_failed is a refusal only with secure renegotiation support.
+  assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','handshake_failed',{extensions:ext({renegotiation_completed:false,secure_renegotiation:false})}))[0],'unknown',
+    'a local/non-alert handshake failure without RFC 5746 support is not a refusal');
+  assert.equal(out(row('secure_renegotiation','tls1_2','uncertain','peer_alert',{extensions:ext({renegotiation_completed:false,secure_renegotiation:null})}))[0],'refused','a peer alert is a refusal');
+  // R1 #985 (3): a verified staple with status unknown has its own outcome.
+  assert.deepEqual(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'unknown',signature_valid:true,cert_id_match:true,fresh:true}})),
+    ['status_unknown','A verified OCSP response is stapled, but it reports the certificate status as unknown.']);
   // Not settled by evidence: unknown, never a guessed yes/no.
   assert.equal(out(row('compression','tls1_2','uncertain','transport_timeout',{extensions:null}))[0],'unknown');
   assert.equal(out(row('early_data','tls1_2','accepted','resumption_completed',{extensions:ext({early_data_max:0})}))[0],'unknown','early data is a TLS 1.3 fact');
