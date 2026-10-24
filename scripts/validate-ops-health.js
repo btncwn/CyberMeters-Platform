@@ -300,6 +300,23 @@ ok("db down: email warns DB unreachable", downMail !== null && /UNREACHABLE/i.te
   ok('weekly workflow uploads only encrypted bytes', workflow.includes('/captured/weekly-backup.bin') && !workflow.includes('path: ${{ runner.temp }}/captured\n'));
 }
 
+// stale_queued_scan reads scans.created_at, which production writes as
+// 'YYYY-MM-DD HH:MM:SS'. Comparing it as a string with an ISO 'T' timestamp made
+// every queued/running scan look stale (24 Oct 2026: /ready said
+// stale_queued_scan=true for a scan created three minutes earlier).
+{
+  const { computeOperationalHealth } = await import('../workers/scan-api/src/lib/ops-health.js');
+  db.exec("PRAGMA foreign_keys = OFF"); // scan rows only; no domain fixture needed
+  const sqlNow = (minutesAgo) => new Date(Date.now() - minutesAgo * 60000).toISOString().replace('T', ' ').slice(0, 19);
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, created_at) VALUES ('scan_fresh_q', 'd', 'fresh.example.org', 'queued', ?)").run(sqlNow(3));
+  const fresh = await computeOperationalHealth({ cybermeters_db: realD1, INDEPENDENT_BACKUP_MONITORING: 'off' });
+  ok("stale_queued_scan: a queued scan created 3 min ago (production format) is NOT stale", fresh.stale_queued_scan === false);
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, created_at) VALUES ('scan_old_q', 'd', 'old.example.org', 'queued', ?)").run(sqlNow(120));
+  const old = await computeOperationalHealth({ cybermeters_db: realD1, INDEPENDENT_BACKUP_MONITORING: 'off' });
+  ok("stale_queued_scan: a queued scan created 2 h ago (production format) IS stale", old.stale_queued_scan === true);
+  db.prepare("DELETE FROM scans WHERE id IN ('scan_fresh_q','scan_old_q')").run();
+}
+
 console.log(`\nOps health: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("ops-health validation FAILED"); process.exit(1); }
 console.log("ops-health validation passed");
