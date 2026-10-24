@@ -49,7 +49,7 @@ describe('why a TLS check can read "not tested" (founder, 23 Oct 2026)', () => {
     api.getActiveCheckConsents.mockResolvedValue({ consents: [], catalogue: [{ id: 'tls_intrusive_heartbleed', label: 'TLS Heartbleed test', available: true }], authority: AUTHORITY, capabilities: { can_manage: true } })
     mount()
     const note = await screen.findByTestId('tls-scope-note')
-    expect(note).toHaveTextContent('These checks test servers you run yourself')
+    expect(note).toHaveTextContent('The TLS checks test servers you run yourself')
     expect(note).toHaveTextContent('CyberMeters will not test shared provider infrastructure')
     expect(within(note).getByRole('link', { name: /Additional TLS services/ })).toHaveAttribute('href', '/ws/certificates?tab=settings#additional-tls-services')
   })

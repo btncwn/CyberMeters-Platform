@@ -34,8 +34,8 @@ describe('provider infrastructure', () => {
   })
   it('names the provider when the evidence carries it', () => {
     const a = assessmentWith('provider_infrastructure_not_tested')
-    a.endpoints[0].checks[0].provider_name = 'Cloudflare'
+    a.endpoints[0].checks[0].provider_name = 'Example CDN'
     render(<TlsAssessmentEvidence assessment={a} />)
-    expect(document.body.textContent).toContain('example.com is served by shared provider infrastructure (Cloudflare).')
+    expect(document.body.textContent).toContain('example.com is served by shared provider infrastructure (Example CDN).')
   })
 })
