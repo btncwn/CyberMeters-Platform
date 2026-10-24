@@ -12,6 +12,7 @@ import RiskBadge from '../../components/RiskBadge'
 import DataTable from '../../components/DataTable'
 import CertificateAssuranceSummary from '../../components/CertificateAssuranceSummary'
 import { OWNER_LABELS } from '../../data/remediation'
+import { keyLabel } from '../../lib/keyLabel'
 
 function expiryStatus(daysLeft) {
   if (daysLeft == null) return { label: 'Unknown', cls: 'text-gray-400' }
@@ -192,7 +193,7 @@ function FindingPill({ finding }) {
     <div className="rounded-lg border border-gray-100 bg-white p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-gray-900">{finding.title || finding.type}</p>
+          <p className="text-sm font-semibold text-gray-900">{finding.title || keyLabel(finding.type) || 'Certificate finding'}</p>
           <p className="text-xs text-gray-500 mt-1">{finding.reasons?.[0] || 'Certificate evidence needs review.'}</p>
         </div>
         <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
@@ -560,7 +561,7 @@ export default function CertificatesPage() {
                 <div className="space-y-2">
                   {timeline.flatMap(day => day.events || []).slice(0, 5).map((event, idx) => (
                     <div key={`${event.event_type}-${idx}`} className="text-sm">
-                      <div className="font-medium text-gray-800">{event.hostname || event.event_type}</div>
+                      <div className="font-medium text-gray-800">{event.hostname || keyLabel(event.event_type) || 'Certificate alert'}</div>
                       <div className="text-xs text-gray-400">{event.description}</div>
                     </div>
                   ))}

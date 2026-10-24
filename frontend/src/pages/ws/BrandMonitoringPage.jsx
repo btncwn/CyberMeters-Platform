@@ -9,6 +9,7 @@ import ModuleContract, { useAreaAnchor } from '../../components/module/ModuleCon
 import { SERVICE_COLORS } from '../../theme/serviceColors'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
+import { keyLabel, keysInText } from '../../lib/keyLabel'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function asList(v) {
@@ -209,7 +210,7 @@ function CandidateRow({ c, busy, onClassify }) {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Risk reasons</p>
                 <ul className="list-disc pl-5 space-y-1">
                   {c._reasons.map((r, i) => (
-                    <li key={i} className="text-xs text-gray-600">{typeof r === 'object' ? (r.label || r.message || JSON.stringify(r)) : r}</li>
+                    <li key={i} className="text-xs text-gray-600">{typeof r === 'object' ? (r.label || r.message || keyLabel(r.code || r.type || r.reason) || 'Recorded reason') : keysInText(r)}</li>
                   ))}
                 </ul>
               </div>
@@ -409,7 +410,7 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit, unava
                       </span>
                     )}
                     {c.campaign_id && (
-                      <span>Evidence-linked campaign <span className="mono">{c.campaign_id}</span></span>
+                      <span>Part of an evidence-linked lookalike campaign</span>
                     )}
                   </div>
                   {(bundle || c.due_at || c.recommended_actions?.length > 0) && (
@@ -425,14 +426,14 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit, unava
                         <div>
                           <p className="font-medium text-gray-700">Abuse contacts</p>
                           {bundle.recipients?.length ? (
-                            <ul className="list-disc pl-4">{bundle.recipients.map((r, i) => <li key={i} className="break-all">{r.role || r.type || 'Contact'}: {r.contact || 'Unknown'}</li>)}</ul>
+                            <ul className="list-disc pl-4">{bundle.recipients.map((r, i) => <li key={i} className="break-all">{keyLabel(r.role || r.type) || 'Contact'}: {r.contact || 'Unknown'}</li>)}</ul>
                           ) : <p>None recorded</p>}
                         </div>
                       </>}
                       {c.due_at && <p><span className="font-medium text-gray-700">Due:</span> {fmtDate(c.due_at) || 'Not recorded'}</p>}
                       {!!c.recommended_actions?.length && (
                         <div><p className="font-medium text-gray-700">Recommended actions</p>
-                          <ul className="list-disc pl-4">{c.recommended_actions.map((a, i) => <li key={i}>{typeof a === 'string' ? a : (a.title || a.action || 'Review case')}</li>)}</ul>
+                          <ul className="list-disc pl-4">{c.recommended_actions.map((a, i) => <li key={i}>{typeof a === 'string' ? keysInText(a) : (a.title || keyLabel(a.action) || 'Review case')}</li>)}</ul>
                         </div>
                       )}
                     </div>

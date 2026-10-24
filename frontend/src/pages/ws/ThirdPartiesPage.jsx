@@ -15,6 +15,7 @@ import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import RiskBadge from '../../components/RiskBadge'
 import { PlanGate } from '../../components/PlanUsageCard'
+import { keyLabel } from '../../lib/keyLabel'
 
 const CAT_META = {
   email:         { label: 'Email'         },
@@ -26,7 +27,7 @@ const CAT_META = {
 }
 
 function AssetCard({ asset }) {
-  const meta = CAT_META[asset.category] ?? { label: asset.category }
+  const meta = CAT_META[asset.category] ?? { label: keyLabel(asset.category) || 'Uncategorised' }
   return (
     <div className="card p-4 flex items-start gap-3">
       <div className="flex-1 min-w-0">
@@ -35,7 +36,7 @@ function AssetCard({ asset }) {
           <RiskBadge level={asset.risk_level} />
         </div>
         <p className="text-xs text-gray-400 mt-0.5 capitalize">{meta.label}</p>
-        <p className="text-xs text-gray-500 mt-1 capitalize">{asset.confidence} confidence · via {asset.source}</p>
+        <p className="text-xs text-gray-500 mt-1">{keyLabel(asset.confidence) || 'Unknown'} confidence · via {keyLabel(asset.source) || 'an unrecorded source'}</p>
       </div>
     </div>
   )
@@ -77,11 +78,11 @@ function FilterBtn({ active, onClick, children }) {
 
 const COLUMNS = [
   { key: 'name',       label: 'Provider' },
-  { key: 'category',   label: 'Category', render: v => CATEGORY_LABELS[v] ?? v ?? '—' },
+  { key: 'category',   label: 'Category', render: v => CATEGORY_LABELS[v] ?? keyLabel(v) ?? '—' },
   { key: 'confidence', label: 'Confidence', render: v => <span className="capitalize text-gray-600 text-xs">{v}</span> },
   { key: 'risk_level', label: 'Tier',     render: v => <RiskBadge level={v} /> },
   { key: 'status',     label: 'Status',   render: v => (
-    <span className={`text-xs font-semibold capitalize ${v === 'active' ? 'text-brand-700' : 'text-gray-400'}`}>{v}</span>
+    <span className={`text-xs font-semibold ${v === 'active' ? 'text-brand-700' : 'text-gray-400'}`}>{keyLabel(v) || '—'}</span>
   )},
   { key: 'last_seen',  label: 'Last Seen', render: v => v ? formatDay(v) : '—' },
 ]

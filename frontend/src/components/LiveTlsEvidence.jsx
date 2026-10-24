@@ -1,4 +1,5 @@
 import { useEvidenceTime } from '../lib/reportTime'
+import { keyLabel } from '../lib/keyLabel'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
@@ -135,7 +136,7 @@ export default function LiveTlsEvidence({ evidence, assessment, showEndpoints = 
           <Field label="Leaf certificate fingerprint">{leaf.certificate_identity}</Field>
           <Field label="DNS names (SAN)">{names.length ? names.join(', ') : 'Not recorded'}</Field>
         </dl>
-        {trustResult === 'invalid' && trust.reason && <p className="text-xs text-red-700">Validation detail: {text(trust.reason)}</p>}
+        {trustResult === 'invalid' && trust.reason && <p className="text-xs text-red-700">Validation detail: {keyLabel(trust.reason)}</p>}
         <details className="rounded-sm border border-gray-100 p-3">
           <summary className="cursor-pointer text-sm font-medium">Runtime-observed issuer chain ({runtimeChain.length} recorded)</summary>
           <p className="mt-2 text-xs text-gray-500">This is the runtime’s issuer chain, which may include a root from its trust store. It is not the exact chain sent over the connection, and its completeness is not established.</p>
