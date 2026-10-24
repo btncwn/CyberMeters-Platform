@@ -118,7 +118,11 @@ import {
 // is incomplete; DNS absence is execution coverage, not a web-service verdict.
 // `2026-10-23.1`: Website Security is provisional, never healthy, while its own
 // header checks could not validate ("— Validation Uncertain").
-export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-23.1";
+// `2026-10-24.1`: the same holds when the headers module itself says it could
+// not validate (validation_uncertain) or the apex's own HSTS policy was not
+// observed, even when no header finding was raised (item 15 re-run: a 403 apex
+// made HSTS not_observed, no finding fired, and the domain read healthy).
+export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-24.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -801,7 +805,10 @@ export function resolveSecurityCheckDomainStates(report, opts = {}) {
       base.summary = "Not yet assessed for this domain — required checks did not run.";
       return base;
     }
-    if (d.domain_key === "website_security" && findings.some(isUnvalidatedHeaderObservation)) {
+    const headersModule = report?.modules?.headers;
+    const headersUnvalidated = headersModule?.validation_uncertain === true
+      || headersModule?.hsts_policy?.state === "not_observed";
+    if (d.domain_key === "website_security" && (findings.some(isUnvalidatedHeaderObservation) || headersUnvalidated)) {
       // Website Security never reads healthy while its own header checks could
       // not validate (item 15 corpus, 23 Oct 2026: 8 of 22 healthy Website
       // Security states rested on "Validation Uncertain" header evidence).

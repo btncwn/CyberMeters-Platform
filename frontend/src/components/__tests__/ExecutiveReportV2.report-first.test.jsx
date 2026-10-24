@@ -589,7 +589,7 @@ describe('ExecutiveReportV2 report-first corrective', () => {
   it('keeps resolver and score methodology stamps independent and historical snapshot bytes immutable', () => {
     const current = b3ReportFixture('version-stamps', { findings: [hstsFinding] })
     expect(current.report.methodology).toMatchObject({
-      cyber_mot_resolver_version: '2026-10-23.1',
+      cyber_mot_resolver_version: '2026-10-24.1',
       cyber_metrics_score_methodology_version: '2026-10-21.1',
     })
 
