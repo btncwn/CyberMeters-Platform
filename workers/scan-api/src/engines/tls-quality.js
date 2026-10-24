@@ -81,6 +81,9 @@ export function tlsControlOutcome(row, endpointChecks = []) {
       if (!done || !ocsp?.state) return unknownOutcome;
       const verified = ocsp.signature_valid === true && ocsp.cert_id_match === true && ocsp.fresh === true;
       if (ocsp.state === 'absent') return { value: 'no', summary: 'No OCSP response is stapled.' };
+      // CyberMeters could not check the staple (no issuer or trust path): our
+      // limitation, never the server's 'invalid' (R1 on #985).
+      if (ocsp.signature_valid === null || ocsp.cert_id_match === null) return unknownOutcome;
       if (ocsp.state === 'good' && verified) return { value: 'yes', summary: 'A valid OCSP response is stapled.' };
       if (ocsp.state === 'revoked' && verified) return { value: 'revoked', summary: 'The stapled OCSP response says the certificate is revoked.' };
       if (ocsp.state === 'unknown' && verified)

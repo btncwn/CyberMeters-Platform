@@ -132,6 +132,10 @@ const robotFinding=tlsAssessmentFindings(module([protocol('tls1_2'),robot])).fin
   assert.equal(out(row('early_data','tls1_3','accepted','resumption_completed',{extensions:ext({early_data_max:16384})}))[0],'yes');
   assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:true,cert_id_match:true,fresh:true}}))[0],'yes');
   assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:false,cert_id_match:true,fresh:true}}))[0],'invalid','an unverified "good" staple is never yes');
+  // R1 #985: a staple CyberMeters could not check (no issuer/trust path: null) is
+  // our limitation - unknown, never the server's 'invalid'.
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'good',signature_valid:null,cert_id_match:null,fresh:null}}))[0],'unknown');
+  assert.equal(out(row('ocsp','tls1_2','accepted','handshake_completed',{ocsp:{state:'revoked',signature_valid:null,cert_id_match:true,fresh:true}}))[0],'unknown');
   assert.equal(out(row('secure_renegotiation','tls1_2','accepted','renegotiation_completed',{extensions:ext({renegotiation_completed:true})}))[0],'allowed');
   // R1 #985 (1): 'not blocked' only when the endpoint serves TLS 1.3; a TLS 1.2-max
   // server correctly accepts the fallback probe (RFC 7507).

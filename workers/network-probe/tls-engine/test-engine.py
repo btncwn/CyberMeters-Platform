@@ -577,6 +577,17 @@ class BaselineTests(unittest.TestCase):
         self.assertTrue(result['extensions']['renegotiation_completed'])
         self.assertEqual(result['telemetry']['connections'], 1)
 
+    def test_client_renegotiation_refused_by_a_modern_server(self):
+        # Production runs the renegotiation control on the modern engine for
+        # TLS 1.2. A stock OpenSSL 3 server refuses client-initiated
+        # renegotiation by default: the attempt is recorded as made and not
+        # completed (false, never null), with RFC 5746 support observed.
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            result = self.assess('tls1_2', port, control='renegotiation', family='modern')
+        self.assertNotEqual(result['state'], 'accepted', result)
+        self.assertIs(result['extensions']['renegotiation_completed'], False, result)
+        self.assertIs(result['extensions']['secure_renegotiation'], True, result)
+
     def test_compression_is_measured_only_by_dedicated_legacy_check(self):
         for protocol in ('ssl3', 'tls1', 'tls1_1', 'tls1_2'):
             with self.subTest(protocol=protocol):
