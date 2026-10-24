@@ -1138,8 +1138,8 @@
     {
       "type": "library",
       "name": "undici",
-      "version": "7.29.1",
-      "bom-ref": "cybermeters-scan-api@0.1.0|undici@7.29.1",
+      "version": "7.30.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|undici@7.30.1",
       "description": "An HTTP/1.1 client, written from scratch for Node.js",
       "licenses": [
         {
@@ -1149,7 +1149,7 @@
           }
         }
       ],
-      "purl": "pkg:npm/undici@7.29.1",
+      "purl": "pkg:npm/undici@7.30.1",
       "externalReferences": [
         {
           "url": "git+https://github.com/nodejs/undici.git",
@@ -1167,12 +1167,12 @@
           "comment": "as detected from PackageJson property \"bugs.url\""
         },
         {
-          "url": "https://registry.npmjs.org/undici/-/undici-7.29.1.tgz",
+          "url": "https://registry.npmjs.org/undici/-/undici-7.30.1.tgz",
           "type": "distribution",
           "hashes": [
             {
               "alg": "SHA-512",
-              "content": "45838d5b631e69f81896454e2982a403f020ec1997aa021609af2dd66d09731ad083da48f6512a46100eaee38109b02884e6bf824085fa23e2f61ae0bd3ceee9"
+              "content": "d372ab31b8c814359047944d3eb4b0ddb775af5d89a7215097dff2c6351b26daa48e6965a82e65163661eae8deb8908aafc10e42f456f3bd8ecbf6b3fa72d8c6"
             }
           ],
           "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
@@ -2529,7 +2529,7 @@
       "dependsOn": [
         "cybermeters-scan-api@0.1.0|@cspotcode/source-map-support@0.8.1",
         "cybermeters-scan-api@0.1.0|sharp@0.35.5",
-        "cybermeters-scan-api@0.1.0|undici@7.29.1",
+        "cybermeters-scan-api@0.1.0|undici@7.30.1",
         "cybermeters-scan-api@0.1.0|workerd@1.20261006.1",
         "cybermeters-scan-api@0.1.0|ws@8.21.0",
         "cybermeters-scan-api@0.1.0|youch@4.1.0-beta.10"
@@ -2570,7 +2570,7 @@
       ]
     },
     {
-      "ref": "cybermeters-scan-api@0.1.0|undici@7.29.1"
+      "ref": "cybermeters-scan-api@0.1.0|undici@7.30.1"
     },
     {
       "ref": "cybermeters-scan-api@0.1.0|ws@8.21.0"
