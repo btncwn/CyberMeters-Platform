@@ -240,6 +240,11 @@ export default function OnboardingPage() {
   // (bounded to ~20 minutes); the report step then turns into "Open Executive
   // Report" without the customer leaving or refreshing.
   const firstScanActive = ['queued', 'running', 'processing'].includes(completedScan?.status)
+  // Set once setup has watched its first scan run in this visit; only then does
+  // a ready report take the customer to it (R1 01:01), exactly once.
+  const followedScanRef = useRef(null)
+  const openedReportRef = useRef(false)
+  if (firstScanActive && scanIdOf(completedScan)) followedScanRef.current = scanIdOf(completedScan)
   useEffect(() => {
     if (!firstScanActive || !workspace?.id) return undefined
     let alive = true
@@ -274,6 +279,28 @@ export default function OnboardingPage() {
 
   const reportStatus = reportState && reportState.scanId === reportScanId ? reportState.status : 'checking'
   const reportReady = scanFinished && reportStatus === 'report_ready'
+
+  // C-46 rank 2 (R1 01:01): a followed scan that finished keeps checking its
+  // report (8 s, bounded to ~5 minutes) and, once it is ready, opens the results
+  // once; polling then stops. A scan that was already finished on arrival never
+  // navigates by itself.
+  const followed = Boolean(reportScanId) && followedScanRef.current === reportScanId
+  const reportPending = scanFinished && (reportStatus === 'report_preparing' || reportStatus === 'checking')
+  useEffect(() => {
+    if (!followed || !reportPending) return undefined
+    let ticks = 0
+    const timer = setInterval(() => {
+      ticks += 1
+      if (ticks > 40) { clearInterval(timer); return }
+      setReportRefresh(value => value + 1)
+    }, 8_000)
+    return () => clearInterval(timer)
+  }, [followed, reportPending])
+  useEffect(() => {
+    if (!followed || !reportReady || openedReportRef.current) return
+    openedReportRef.current = true
+    navigate(`/scans/${reportScanId}`)
+  }, [followed, reportReady, reportScanId, navigate])
 
   const steps = {
     workspace: Boolean(workspace?.id),

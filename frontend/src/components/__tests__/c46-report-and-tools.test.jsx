@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import ExecutiveReportV2 from '../ExecutiveReportV2'
 import { trialUrlFor } from '../tools/FreeToolPage'
@@ -9,7 +10,7 @@ describe('C-46 rank 3: report recommended actions lead to their managed case', (
       { remediation_id: 'web.header.hsts', title: 'Add or strengthen HSTS', priority: 'medium', case_id: 'mc_1' },
       { remediation_id: 'email.dmarc', title: 'Publish a DMARC policy', priority: 'high' },
     ] }
-    render(<ExecutiveReportV2 report={report} />)
+    render(<MemoryRouter><ExecutiveReportV2 report={report} /></MemoryRouter>)
     // The report lists actions twice (top priorities, then all): every link leads to
     // the action's own case; the action without a case has none.
     const links = screen.getAllByTestId('report-action-case')
