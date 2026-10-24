@@ -652,7 +652,18 @@ export async function scanRoutes(rctx) {
             }
           } catch { relatedChanges = null; }
 
-          return buildScanReportPdf(scan, read, branding, logoImage, relatedChanges);
+          // Authorised active checks (Executive 24 Oct 2026): from the scan's own
+          // completed technical report (modules.tls_assessment, frozen at
+          // completion, the record the scan page shows). Missing or unreadable →
+          // no section; the PDF never fails on it.
+          let tlsAssessment = null;
+          try {
+            const object = await env.cybermeters_reports.get(`reports/${scan.id}.json`);
+            const technical = object ? JSON.parse(await object.text()) : null;
+            if (technical?.scan_id === scan.id && technical?.status === "completed") tlsAssessment = technical.modules?.tls_assessment ?? null;
+          } catch { tlsAssessment = null; }
+
+          return buildScanReportPdf(scan, read, branding, logoImage, relatedChanges, tlsAssessment);
         }, evidence);
         const safeName = String(scan.domain || "scan").replace(/[^a-z0-9.-]/gi, "_");
         await createAuditEvent(env, {

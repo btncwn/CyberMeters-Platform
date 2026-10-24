@@ -1,6 +1,6 @@
 import { useEvidenceTime } from '../lib/reportTime'
 import { keyLabel } from '../lib/keyLabel'
-import { isTlsSpecialCheck, tlsVulnerabilityWords, TLS_VULNERABILITY_STATUS_WORDS } from '../../../shared/tls/special-check-words.js'
+import { isTlsSpecialCheck, tlsSpecialCheckResult, tlsProviderNotTestedWords, tlsSliceFailedWords, TLS_CONTROL_REASON_WORDS, TLS_VULNERABILITY_STATUS_WORDS } from '../../../shared/tls/special-check-words.js'
 
 const text = value => typeof value === 'string' && value.trim() ? value : 'Not recorded'
 const stateLabels = { open: 'Open', closed: 'Closed', timeout: 'Timed out', error: 'Measurement failed', not_run: 'Not run' }
@@ -14,45 +14,19 @@ function Field({ label, children }) {
 }
 
 const controlStates = { accepted: 'Accepted', rejected: 'Rejected', uncertain: 'Uncertain', not_applicable: 'Not applicable', not_authorized: 'Not authorized', unexecutable: 'Could not execute' }
-// S3-B: an intrusive check the customer has not authorised is stated plainly.
-// Seat 3's held reasons (TLS specials go-live, 23 Oct 2026), in plain words.
-const CONTROL_REASONS = Object.freeze({
-  requires_customer_authorisation: 'Not tested — requires your authorisation',
-  authorised_engine_not_released: 'Authorised — not yet available',
-  address_not_verified_not_tested: 'Not tested — this address is not verified as yours',
-  // The producer's reason (shared/tls/catalog.js TLS_AUTHORISED_ON_DEMAND_REASON);
-  // the older key stays as an alias.
-  scheduled_or_unknown_origin: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
-  authorised_runs_on_started_check: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
-  // The TLS engine's reason when the server offers no heartbeat extension
-  // (network-probe tls-engine; a server-feature limit, not a failed check).
-  heartbeat_unavailable: 'Not applicable — this server did not offer the TLS heartbeat extension that Heartbleed relies on.',
-  // scan-api records a TLS check whose run kept failing (twice) and moves on;
-  // the other checks are not affected (F1, 24 Oct 2026).
-  slice_failed: 'Could not complete — this check did not finish on this server after repeated attempts. The other checks were not affected.',
-})
+// Recorded reasons in plain words: shared with the PDF (shared/tls/special-check-words.js).
+const CONTROL_REASONS = TLS_CONTROL_REASON_WORDS
 // Where a customer adds their OWN servers so the TLS checks can test them.
 export const ADDITIONAL_TLS_SERVICES_HREF = '/ws/certificates?tab=settings#additional-tls-services'
 const controlState = (row, item = null) => {
   // Founder, 23 Oct 2026: a provider-infrastructure refusal names the host and,
   // when known, the provider, and says what to do — never just "not tested".
-  if (row?.reason === 'provider_infrastructure_not_tested') {
-    const host = typeof item?.hostname === 'string' && item.hostname ? item.hostname : 'This host'
-    const provider = row.provider_name || item?.provider_name || item?.provider || null
-    return `Not tested — ${host} is served by shared provider infrastructure${provider ? ` (${provider})` : ''}. Add your own servers to test them.`
-  }
+  if (row?.reason === 'provider_infrastructure_not_tested') return tlsProviderNotTestedWords(row, item)
   // The number of attempts comes from the row itself (scan-api records it).
-  if (row?.reason === 'slice_failed' && Number.isSafeInteger(row.failure_attempts) && row.failure_attempts > 0) {
-    return `Could not complete — this check did not finish on this server after ${row.failure_attempts} attempt${row.failure_attempts === 1 ? '' : 's'}. The other checks were not affected.`
-  }
-  // Heartbleed / ROBOT / CCS (F1, Executive 24 Oct 2026): the headline is the
-  // recorded vulnerability status, never the engine's Accepted/Rejected.
-  if (isTlsSpecialCheck(row?.control)) {
-    const vulnerability = tlsVulnerabilityWords(row)
-    if (vulnerability) return vulnerability
-    if (row?.reason && CONTROL_REASONS[row.reason]) return CONTROL_REASONS[row.reason]
-    return row?.state === 'accepted' || row?.state === 'rejected' ? 'Unknown' : (controlStates[row?.state] || 'Unknown')
-  }
+  const failed = row?.reason === 'slice_failed' ? tlsSliceFailedWords(row) : null
+  if (failed) return failed
+  // Heartbleed / ROBOT / CCS: the one shared result string (the PDF prints the same).
+  if (isTlsSpecialCheck(row?.control)) return tlsSpecialCheckResult(row, item)
   return (row?.reason && CONTROL_REASONS[row.reason]) || controlStates[row?.state] || 'Unknown'
 }
 // Why an endpoint has no checks, from the planner's own scope deferrals

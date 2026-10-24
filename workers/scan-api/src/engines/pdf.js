@@ -22,6 +22,7 @@ import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-pr
 // Canonical Related-Changes scope wording — consumed, never redefined, so the
 // PDF and every other surface state the workspace scope with one voice.
 import { RELATED_CHANGES_WORKSPACE_SCOPE_NOTE } from "./related-changes.js";
+import { authorisedActiveCheckRows } from "../../../../shared/tls/special-check-words.js";
 
 // Typographic → ASCII transliteration (trust-closure episode, July 2026).
 // The stream encoder is ASCII-only, and the old behaviour replaced EVERY
@@ -1146,6 +1147,22 @@ const RELATED_CHANGE_LABELS = {
 // sheshire.co.uk report with nothing saying which domain it affected. The scope note
 // is consumed from the canonical summary field; the engine constant is the fallback
 // for summaries frozen before the field existed (the fact was always workspace-level).
+// Authorised active checks (Executive 24 Oct 2026): one short section, only when
+// the scan ran any. Per host:port, the check, its result in the same words as
+// the scan page (shared/tls/special-check-words.js), and when it was observed.
+// No raw engine output and no vector detail.
+function sectionAuthorisedActiveChecks(w, rows) {
+  if (!rows.length) return;
+  w.heading("Authorised active checks");
+  w.prose("Run only on hosts you authorised, on a scan you started.", { size: 9, color: "0.35 0.38 0.44" });
+  for (const row of rows) {
+    const target = row.host ? `${row.host}${row.port != null ? `:${row.port}` : ""}` : "Host not recorded";
+    w.text(`${target} - ${row.check}`, { size: 10, bold: true });
+    const result = /[.!?]$/.test(row.result) ? row.result : `${row.result}.`;
+    w.proseKeep(`${result} Observed ${row.observed_at ? pdfUtcDate(row.observed_at, true) : "time not recorded"}.`, { size: 9 });
+  }
+}
+
 function sectionRelatedChanges(w, summary, { reportSubjectDomain = null } = {}) {
   const items = (summary && Array.isArray(summary.items)) ? summary.items : [];
   if (!items.length) return;
@@ -1573,9 +1590,10 @@ function brandingHeader(w, branding, title, subtitle, logoImage = null) {
  * verified canonical snapshot read ({ snapshot } from readScanReportSnapshot).
  * Returns a Uint8Array. Deterministic for a given snapshot + branding.
  */
-export function buildScanReportPdf(scan, read, branding = null, logoImage = null, relatedChanges = null) {
+export function buildScanReportPdf(scan, read, branding = null, logoImage = null, relatedChanges = null, tlsAssessment = null) {
   const snap = read.customerSnapshot ?? read.snapshot;
   const s = snap.snapshot || {};
+  const activeChecks = authorisedActiveCheckRows(tlsAssessment);
   const dmarcPresentation = buildDmarcPolicyPresentation(read.dmarcPolicy);
   const entries = [
     ["overview", "1. Assessment overview & priorities"],
@@ -1586,6 +1604,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
     ["attack", "6. Attack-surface evidence & lifecycle"],
     ...(dmarcPresentation ? [["dmarc", "7. Email policy evidence"]] : []),
     ["certificates", `${dmarcPresentation ? "8" : "7"}. Certificate evidence & trust`],
+    ...(activeChecks.length ? [["activeChecks", "Authorised active checks"]] : []),
     ...(relatedChanges?.items?.length ? [["changes", "Workspace-related changes"]] : []),
     ["methodology", "Scope, methodology & limitations"],
     ["appendix", "Appendix: evidence grades & provenance"],
@@ -1628,6 +1647,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
     section("attack", () => { w.heading("Technical Evidence"); sectionAttackSurfaceAssurance(w, snap); }, true);
     if (dmarcPresentation) section("dmarc", () => sectionDmarcPolicy(w, dmarcPresentation));
     section("certificates", () => sectionCertificateAssurance(w, snap));
+    if (activeChecks.length) section("activeChecks", () => sectionAuthorisedActiveChecks(w, activeChecks));
     if (relatedChanges?.items?.length) section("changes", () => sectionRelatedChanges(w, relatedChanges, { reportSubjectDomain: s.domain || scan?.domain || null }));
     section("methodology", () => sectionMethodology(w, snap));
     section("appendix", () => sectionEvidenceGradeAppendix(w, snap), true);
