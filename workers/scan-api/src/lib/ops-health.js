@@ -216,7 +216,7 @@ export async function computeOperationalHealth(env, { nowMs = null } = {}) {
       .prepare(
         `SELECT COUNT(*) AS n FROM scans
           WHERE status IN ('queued','running')
-            AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)`
+            AND datetime(created_at) < datetime('now', ?)`
       )
       .bind(`-${STALE_SCAN_AFTER_MIN} minutes`).first();
     staleQueuedScan = Number(row?.n || 0) > 0;

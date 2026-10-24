@@ -582,9 +582,20 @@ function growExposureJobBudget(plan) {
   for(const key of ['requests','bytes','attempts'])plan.network_budget[key]=Math.max(plan.network_budget[key],next[key]);
 }
 
-async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now) {
+// Consecutive failures of ONE TLS slice before it is recorded and skipped.
+// Below the job-wide cap (EXPOSURE_JOB_LIMITS.failures), so one stubborn slice
+// can never end the job by itself.
+export const TLS_SLICE_FAILURE_CAP = 2;
+const TLS_SLICE_FAILURE_REASONS = new Set(['invalid_receipt','unbounded_receipt','tls_scope_revoked']);
+export function tlsSliceFailureReason(error,aborted) {
+  if(aborted)return 'slice_time_limit_or_abort';
+  const message=String(error?.message||'');
+  return TLS_SLICE_FAILURE_REASONS.has(message)?message:'collector_error';
+}
+
+async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now,detail={}) {
   const tls=plan.tls,oldCursor=tls.cursor;
-  for(const item of items)tls.results.push({endpoint_index:item.endpoint_index,...item.check,state,reason,observed_at:new Date(now).toISOString(),engine:null,evidence:null,physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}});
+  for(const item of items)tls.results.push({endpoint_index:item.endpoint_index,...item.check,state,reason,...detail,observed_at:new Date(now).toISOString(),engine:null,evidence:null,physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}});
   tls.cursor+=items.length;
   const complete=tls.cursor>=tls.selected.length;
   tls.state=complete?'complete':'pending';
@@ -683,12 +694,36 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     if(!changed(stored))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
     if(state==='complete')await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
     return {action:'ack',outcome:state};
-  }catch{
+  }catch(error){
     const active=await canRun(env,row).catch(()=>false);
-    await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=failure_count+1,unknown_attempts=unknown_attempts+1,
-      lease_token=NULL,lease_until=0,updated_at=? WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
-      .bind(active?'pending':'cancelled',new Date(deps.now?.()??Date.now()).toISOString(),row.scan_id,row.workspace_id,token).run();
+    // F1 (24 Oct 2026): a slice that keeps failing (ROBOT on a server that
+    // stays silent after a bad key exchange ran past its time limit three
+    // times) used to end the whole job through the job-wide failure cap, so
+    // every check after it, the domain's own included, never ran and the score
+    // was withheld. The failure is now counted per slice: after
+    // TLS_SLICE_FAILURE_CAP consecutive failures that slice is recorded as
+    // 'unexecutable / slice_failed' (with the failure reason) and the job
+    // continues. The last failure is kept on the plan for diagnosis. The
+    // attempt's reservation stays charged: an unknown attempt may have opened
+    // its connections.
+    const at=new Date(deps.now?.()??Date.now());
+    const key=String(tls.cursor);
+    const failures=((tls.slice_failures&&tls.slice_failures[key])||0)+1;
+    tls.slice_failures={...(tls.slice_failures||{}),[key]:failures};
+    tls.last_slice_failure={cursor:tls.cursor,endpoint_index:items[0].endpoint_index,control:items[0].check.control,
+      reason:tlsSliceFailureReason(error,controller.signal.aborted),attempts:failures,at:at.toISOString()};
+    // Once a slice is given up the streak resets, so the job-wide failure cap
+    // bounds CONSECUTIVE failures only. Total work stays bounded: every retry
+    // charges an attempt (budget.attempts), the job has a deadline, and the
+    // request/byte budgets keep their unrefunded reservations.
+    const giveUp=active&&failures>=TLS_SLICE_FAILURE_CAP;
+    await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=CASE WHEN ?=1 THEN 0 ELSE failure_count+1 END,
+      unknown_attempts=unknown_attempts+1,plan_json=?,lease_token=NULL,lease_until=0,updated_at=?
+      WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
+      .bind(active?'pending':'cancelled',giveUp?1:0,JSON.stringify(plan),at.toISOString(),row.scan_id,row.workspace_id,token).run();
     if(!active){await resumeDomain(env,row);return {action:'ack',outcome:'cancelled'};}
+    if(giveUp)return storeUnrunTlsSlice(env,row,plan,items,'unexecutable','slice_failed',at.getTime(),
+      {failure_reason:tls.last_slice_failure.reason,failure_attempts:failures});
     return {action:'retry',delaySeconds:5,outcome:'tls_uncertain_attempt_charged'};
   }finally{clearTimeout(timer);clearInterval(watchdog);}
 }
