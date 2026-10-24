@@ -24,6 +24,7 @@ import { applyCaseTransition, createCaseMachine, isTerminal, canTransition,
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
 import { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES } from "./brand-case-machine.js";
 import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
+import { tlsCaseKey } from "./tls-findings.js";
 import { findingRemediation, getRemediationById } from "./remediation-registry.js";
 
 // The eight canonical domain keys are DERIVED from the domain model so they
@@ -557,7 +558,25 @@ export function canTransitionCase(opts = {}) {
   if (opts.owner_ref != null) ctx.owner_ref = opts.owner_ref;
   if (opts.submission_reference != null) ctx.submission_reference = opts.submission_reference;
 
-  const result = applyCaseTransition(entry.machine, caseRecord, target, ctx);
+  // C-57 identity compatibility: a system-only, proven duplicate may retire
+  // into its surviving case without claiming remediation or changing normal
+  // customer transitions. Both case histories and the survivor's state remain.
+  const merge = opts.identity_merge;
+  const survivor = merge?.canonical_case;
+  const mergeKey = tlsCaseKey(merge?.condition);
+  const identityMerge = target === "superseded" && actorType === "system" &&
+    caseRecord.case_type === "certificate_case" && caseRecord.source_finding_type === "tls_certificate_trust" &&
+    ["detected","triaged","assigned","approved","action_in_progress","awaiting_verification","reopened","accepted_risk"].includes(caseRecord.status) &&
+    survivor?.id && survivor.id !== caseRecord.id && survivor.workspace_id === caseRecord.workspace_id &&
+    survivor.domain === caseRecord.domain && survivor.case_type === caseRecord.case_type &&
+    survivor.source_finding_type === caseRecord.source_finding_type &&
+    mergeKey && mergeKey === survivor.finding_id &&
+    merge.condition?.type === "tls_certificate_trust" &&
+    !["superseded","rejected","false_positive","closed_no_action","closed"].includes(survivor.status);
+  const machine = identityMerge ? { ...entry.machine, transitions: {
+    ...entry.machine.transitions, [caseRecord.status]: [...(entry.machine.transitions[caseRecord.status] || []), "superseded"],
+  }} : entry.machine;
+  const result = applyCaseTransition(machine, caseRecord, target, ctx);
   if (!result.ok) return { ok: false, code: "invalid_transition", error: result.error };
 
   // 2) System-only states cannot be set by a customer/manual actor.
