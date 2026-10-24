@@ -746,11 +746,19 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
       {failure_reason:tls.last_slice_failure.reason,failure_attempts:failures}):false;
     const released=await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=CASE WHEN ?=1 THEN 0 ELSE failure_count+1 END,
       unknown_attempts=unknown_attempts+1,plan_json=?,lease_token=NULL,lease_until=0,updated_at=?
-      WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
-      .bind(!active?'cancelled':complete?'complete':'pending',giveUp?1:0,JSON.stringify(plan),at.toISOString(),row.scan_id,row.workspace_id,token).run();
+      WHERE scan_id=? AND workspace_id=? AND lease_token=? AND (?=0 OR ${AUTHORITY})`)
+      .bind(!active?'cancelled':complete?'complete':'pending',giveUp?1:0,JSON.stringify(plan),at.toISOString(),row.scan_id,row.workspace_id,token,giveUp?1:0).run();
     if(!active){await resumeDomain(env,row);return {action:'ack',outcome:'cancelled'};}
     if(giveUp){
-      if(!changed(released))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
+      // Recording a given-up slice also needs the job's authority, exactly as
+      // storeUnrunTlsSlice does. If it was lost, still release this attempt's
+      // lease (nothing recorded) so the job is never left stuck, then retry.
+      if(!changed(released)){
+        await db.prepare(`UPDATE external_exposure_jobs SET lease_token=NULL,lease_until=0,updated_at=?
+          WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
+          .bind(at.toISOString(),row.scan_id,row.workspace_id,token).run();
+        return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
+      }
       if(complete)await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
       return {action:'ack',outcome:'slice_failed'};
     }
