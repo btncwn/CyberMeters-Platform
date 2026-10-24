@@ -135,8 +135,12 @@ export function remoteAccessFingerprint(body, value) {
     // Only a clearly named client/app/agent version may be excluded as client data.
     const unattributed = !labels.length && lines.some(line => /(?:^|[^\w.])v?\d{1,3}\.\d{1,3}(?:[.Rr-]\d{1,3})*(?:-h\d{1,3})?/.test(line) &&
       !/^\s*(?:client|app|agent)\s+(?:version|release)\s*[:=]?\s*v?\d{1,3}\.\d{1,3}(?:[.Rr-]\d{1,3})*(?:-h\d{1,3})?\s*$/i.test(line));
+    const unparsedField = !labels.length && lines.some(line => {
+      const value = line.match(/^\s*(?:(?:server|software|firmware)\s+)?(?:version|release)\s*[:=]?\s*([^\s]{1,48})/i)?.[1];
+      return value && /\d/.test(value);
+    });
     return { product_id: signature.id, version: explicit ? versions[0] : null,
-      version_state: explicit ? 'explicit' : unsupported || labels.length || unattributed ? 'unreadable' : 'absent' };
+      version_state: explicit ? 'explicit' : unsupported || labels.length || unattributed || unparsedField ? 'unreadable' : 'absent' };
   }
   return null;
 }

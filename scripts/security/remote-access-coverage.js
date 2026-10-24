@@ -120,8 +120,13 @@ for(const [id,version] of [['panos_globalprotect','11.1.203'],['panos_globalprot
 assert.equal(remoteAccessFingerprint(html('fortios_sslvpn','7.4.2').replace('FortiGate</div>','FortiGate FortiProxy</div>'),root),null,
   'ambiguous product markers cannot select the first matching product');
 for(const id of Object.keys(profiles)){
-  const body=html(id).replace('</footer>','Version: 13.1-64.23</footer>');
-  assert.equal(remoteAccessFingerprint(body,root).version_state,'unreadable','unattributed version-like text is not hidden');
+  for(const field of ['Version: 13.1-64.23','Server version: v12R1','Release: 7_4_2']){
+    const body=html(id).replace('</footer>',field+'</footer>');
+    assert.equal(remoteAccessFingerprint(body,root).version_state,'unreadable','unattributed version-like text is not hidden');
+    assert.equal(generated({rule:'remote-access-portal',response:{url:root,status:200,body},controls}).portal.version_state,'unreadable');
+  }
+  const client=html(id).replace('</footer>','Client version: v12R1</footer>');
+  assert.equal(remoteAccessFingerprint(client,root).version_state,'absent','a clearly identified client version does not establish a server version');
 }
 for(const released_at of [undefined,new Date(now-14*86400000-1).toISOString(),new Date(now+60001).toISOString()])
   assert.equal(state('fortios_sslvpn','7.4.2',{...catalogue,released_at}),'deferred');
