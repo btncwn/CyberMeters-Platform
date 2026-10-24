@@ -16,7 +16,7 @@
 import { findingRemediation } from "./remediation-registry.js";
 import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
-export const CHECK_PACK_VERSION = "2026.10.13.1";
+export const CHECK_PACK_VERSION = "2026.10.24.2";
 
 // Services outside the scanned domain that a scan still talks to. Both speak a
 // public protocol about the customer's own domain; neither is a data broker.
@@ -135,6 +135,14 @@ const CHECKS = Object.freeze([
     evidence: "The endpoint, the leaf fingerprint, the trust store and its fingerprint, and the validation error.",
     limitation: "One trust store; the exact chain the server sent is not recorded.",
     recheck: "A new handshake presents a certificate that validates.",
+  }),
+  Object.freeze({
+    id: "disclosure.php_upstream_release",
+    finding_types: ["tech_php2shell_outdated", "tech_php2shell_version_hidden"],
+    observation: "A serviceable HTTPS response names PHP in Server or X-Powered-By. An exact stable reported version is compared with the four upstream security releases in the curated PHP advisory table.",
+    evidence: "The reported version, upstream release, advisory-table version and original HTTPS host/path. No extra request or exploit test is made.",
+    limitation: "Distribution backports may retain an older number. A response header cannot prove vulnerability, exploitability or the installed build. Hidden and unreadable versions never verify an existing case.",
+    recheck: "The exact original HTTPS host/path reports a fixed upstream release or no longer reports PHP on a serviceable response. A version-hidden observation has no managed case.",
   }),
   Object.freeze({
     id: "disclosure.software_version",

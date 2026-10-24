@@ -1,0 +1,870 @@
+{
+  "schema": "php-runtime-corpus-v1",
+  "observed_at": "2026-10-24T02:12:44.297Z",
+  "corpus_sha256": "df14ecce667c9e9481434f0b815008aa686988dbe66f621fba31f4d2e26d13bc",
+  "table_version": "2026-10-24.1",
+  "scope": "Existing accuracy corpus, existing bounded HTTPS homepage technology observation only. No exploit testing or production scan.",
+  "counts": {
+    "total": 105,
+    "tp": 0,
+    "fp": 0,
+    "unknown": 39,
+    "not_detected": 66,
+    "review_required": 0
+  },
+  "limitation": "Positive reported-release observations require independent header/version triage. No true vulnerable/exploitable installation is assumed; controlled fixtures carry detection truth.",
+  "records": [
+    {
+      "corpus_id": "entry-001",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-002",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-003",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "595b6edb23da5234393485706cf745f38422a80eb40b63e69b109decf092dff7"
+    },
+    {
+      "corpus_id": "entry-004",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "d236d20caff6245a8142dbb0be30033e39a939d3d2690d7975ce3d5de91b20ac"
+    },
+    {
+      "corpus_id": "entry-005",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-006",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "f3bd08334318223cefa7cee8c2c4a7419304a772c30988af105b02144fc3f3d4"
+    },
+    {
+      "corpus_id": "entry-007",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-008",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "8275f981a7420aa5dc1ba39389476e0350715e14dadfdda7668d56fda6476cea"
+    },
+    {
+      "corpus_id": "entry-009",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-010",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-011",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-012",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-013",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-014",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_timeout"
+    },
+    {
+      "corpus_id": "entry-015",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "e74f3c06195c4beb13b12997ec3c013ae4b9b2188bb9745dc7d6a1128833106e"
+    },
+    {
+      "corpus_id": "entry-016",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-017",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-018",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "5a3541de99b09a5cc4e1fff08abf995b78a1cd0f7e92abacf40dd1e3aacd8d40"
+    },
+    {
+      "corpus_id": "entry-019",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-020",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "44585f15bea422f371d4caa67570de85790ddda2835033bc771bacae4a6c92e7"
+    },
+    {
+      "corpus_id": "entry-021",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "1f1cc91d2c9e2383b43d14100801bc188bfb2018b72fb3677a1fb9b23add9fdc"
+    },
+    {
+      "corpus_id": "entry-022",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-023",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-024",
+      "classification": "unknown",
+      "status": 200,
+      "reason": "unreadable",
+      "state": "unreadable",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-025",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-026",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-027",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-028",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-029",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_timeout"
+    },
+    {
+      "corpus_id": "entry-030",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-031",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "2c3de969b4600e4fe590ffd248d18427559c8236002873c9b6eeb9ee024a2c61"
+    },
+    {
+      "corpus_id": "entry-032",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-033",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "ec80c2837601a5b430872f46ebc52500e8b016e8fa81d45b10fd52d96483b436"
+    },
+    {
+      "corpus_id": "entry-034",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-035",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-036",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-037",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-038",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-039",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "ec80c2837601a5b430872f46ebc52500e8b016e8fa81d45b10fd52d96483b436"
+    },
+    {
+      "corpus_id": "entry-040",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "c6edce5d2c01cd188d0ee31b24b996ff00a37451942340f973394961e5bc5036"
+    },
+    {
+      "corpus_id": "entry-041",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-042",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "de203d7a00621d32532c290de3333aedc1a0465e6601b870d136fabba56250c4"
+    },
+    {
+      "corpus_id": "entry-043",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3808e43a24645dfe139da4b3f5e002dafce5394165e05b656726e632fc653647"
+    },
+    {
+      "corpus_id": "entry-044",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-045",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "e70921fd1352a8f2c79a8ecf2ffa09a3ce5c7d27e214326d55c0fdac19e96b3e"
+    },
+    {
+      "corpus_id": "entry-046",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "e1974cee06973b8875b58ee0d58227766c2e34af3c9dc09fc40bd4d44df47ffe"
+    },
+    {
+      "corpus_id": "entry-047",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "449117860019dd52ef7dde59758d46487089b69366be477be59cc7b8fcb3e649"
+    },
+    {
+      "corpus_id": "entry-048",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-049",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "021d01e20b3fe2c738b4d64124185db6a09e4d7e859aca10b2756dcd3b92169b"
+    },
+    {
+      "corpus_id": "entry-050",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-051",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "ec80c2837601a5b430872f46ebc52500e8b016e8fa81d45b10fd52d96483b436"
+    },
+    {
+      "corpus_id": "entry-052",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-053",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-054",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "6ee0a8c949f58311024e7e61635cc161561eb60f2b534d077d8f56b19f1ebcae"
+    },
+    {
+      "corpus_id": "entry-055",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-056",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "0d44117e64eecd5280a54e9f60e873274a95ecb9c12c96983b1caba3dab7997f"
+    },
+    {
+      "corpus_id": "entry-057",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-058",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-059",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-060",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "f3bd08334318223cefa7cee8c2c4a7419304a772c30988af105b02144fc3f3d4"
+    },
+    {
+      "corpus_id": "entry-061",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "b85c0695de6abfc4ac9c2917c9553c50b19ef71caf3ebfaef6a691bb17da70af"
+    },
+    {
+      "corpus_id": "entry-062",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-063",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-064",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "f97b4071f9173577e227ae3ad6f1f2743d8a118d0cd2471e29c9be5d5594e5c1"
+    },
+    {
+      "corpus_id": "entry-065",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-066",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-067",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-068",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-069",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "0d44117e64eecd5280a54e9f60e873274a95ecb9c12c96983b1caba3dab7997f"
+    },
+    {
+      "corpus_id": "entry-070",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-071",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-072",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-073",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-074",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-075",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-076",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-077",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-078",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-079",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "6ee0a8c949f58311024e7e61635cc161561eb60f2b534d077d8f56b19f1ebcae"
+    },
+    {
+      "corpus_id": "entry-080",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-081",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-082",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-083",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-084",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-085",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "95cb9b4f84ceff132cc7a875d8c192bf4997016a939ee64141c1fd628c0e8738"
+    },
+    {
+      "corpus_id": "entry-086",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_not_observed"
+    },
+    {
+      "corpus_id": "entry-087",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-088",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-089",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "2c3de969b4600e4fe590ffd248d18427559c8236002873c9b6eeb9ee024a2c61"
+    },
+    {
+      "corpus_id": "entry-090",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-091",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-092",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-093",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-094",
+      "classification": "unknown",
+      "status": 429,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-095",
+      "classification": "unknown",
+      "status": 403,
+      "reason": "origin_access_restricted"
+    },
+    {
+      "corpus_id": "entry-096",
+      "classification": "unknown",
+      "status": 200,
+      "reason": "unreadable",
+      "state": "unreadable",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "ec80c2837601a5b430872f46ebc52500e8b016e8fa81d45b10fd52d96483b436"
+    },
+    {
+      "corpus_id": "entry-097",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_timeout"
+    },
+    {
+      "corpus_id": "entry-098",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_timeout"
+    },
+    {
+      "corpus_id": "entry-099",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_timeout"
+    },
+    {
+      "corpus_id": "entry-100",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_timeout"
+    },
+    {
+      "corpus_id": "entry-101",
+      "classification": "unknown",
+      "status": 200,
+      "reason": "unreadable",
+      "state": "unreadable",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "f17bb3276f6720aa68a604eeb3109371d6ac4b24daf033084f8adb0a870bf9e6"
+    },
+    {
+      "corpus_id": "entry-102",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_not_observed"
+    },
+    {
+      "corpus_id": "entry-103",
+      "classification": "unknown",
+      "status": 200,
+      "reason": "unreadable",
+      "state": "unreadable",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "625db10cbc6dde773c0c6f0e5a033ac55863623d4fb567caaae4ffafd9f6173d"
+    },
+    {
+      "corpus_id": "entry-104",
+      "classification": "not_detected",
+      "status": 200,
+      "reason": "absent",
+      "state": "absent",
+      "table_version": "2026-10-24.1",
+      "header_sha256": "3eb613154630a99359a57737c672a901e70ae109fb0539f034a92e080c0cde50"
+    },
+    {
+      "corpus_id": "entry-105",
+      "classification": "unknown",
+      "status": null,
+      "reason": "origin_not_observed"
+    }
+  ],
+  "controlled_truth": {
+    "tp": 9,
+    "fp": 0,
+    "tn": 17,
+    "fn": 0,
+    "unknown": 16
+  },
+  "sources": [
+    "https://www.php.net/archive/2026.php#2026-10-21-5",
+    "https://thephp.foundation/blog/2026/10/21/todays-php-security-release-and-how-were-strengthening-php-security/"
+  ],
+  "acceptance": "No positive observation required manual triage. Public corpus TP=0, FP=0; it contains no known vulnerable/exploitable installation. Boundary and lifecycle truth comes from controlled fixtures."
+}

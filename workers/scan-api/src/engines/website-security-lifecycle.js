@@ -36,6 +36,7 @@ import {
 import { maySupportDefectConclusion, mayGroundRedirectAbsence } from "../lib/serviceability.js";
 import { isSignInConditionKey, evaluateSignInCondition } from "./signin-page-findings.js";
 import { isExposureConditionKey, evaluateExposureCondition } from "./exposure-findings.js";
+import { isPhpRuntimeConditionKey, evaluatePhpRuntimeCondition } from "./php-runtime.js";
 
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
@@ -96,6 +97,7 @@ const WS_CONDITION_PREFIXES = Object.freeze([
 export function websiteConditionSpec(conditionKey) {
   const key = String(conditionKey || "");
   if (WS_CONDITIONS[key]) return WS_CONDITIONS[key];
+  if (isPhpRuntimeConditionKey(key)) return { recurrence: "reported_runtime_outdated", module: "technology_detection" };
   if (isExposureConditionKey(key)) return { recurrence: "external_content_exposed", module: "external_exposure" };
   for (const p of WS_CONDITION_PREFIXES) {
     if (key.startsWith(p.prefix)) return { recurrence: p.recurrence, module: p.module };
@@ -185,8 +187,8 @@ function gradeFindings(findings, modules, gate) {
     graded.set(f.id, {
       condition_key: f.id,
       severity: String(f.severity || "").toLowerCase(),
-      title: f.exposure?.affected_url ? `${f.title} (${f.exposure.affected_url})` : f.title || null,
-      affected_url: f.exposure?.affected_url || null,
+      title: (f.exposure?.affected_url || f.php_runtime?.affected_url) ? `${f.title} (${f.exposure?.affected_url || f.php_runtime.affected_url})` : f.title || null,
+      affected_url: f.exposure?.affected_url || f.php_runtime?.affected_url || null,
       module: spec.module,
       recurrence: spec.recurrence,
       material,
@@ -304,6 +306,9 @@ export async function evaluateWebsiteSecurityForScan(env, {
 
       const exposureObservation = isExposureConditionKey(key)
         ? evaluateExposureCondition(key, modules?.external_exposure) : null;
+      const runtimeObservation = isPhpRuntimeConditionKey(key)
+        ? evaluatePhpRuntimeCondition(key, modules?.technology_detection) : null;
+      if (runtimeObservation?.state === "deferred") continue;
       // Unavailability is not a new occurrence, recovery or evidence replacement.
       // Keep the prior finding/case identity and observation; current coverage is
       // visible separately in the scan receipt. A different URL cannot clear it.
@@ -323,6 +328,7 @@ export async function evaluateWebsiteSecurityForScan(env, {
       if (obs && obs.material && mayIssueFromModule(modules, spec.module)
           && (!cookieObservation || cookieObservation.state === "present")
           && (!signInObservation || signInObservation.state === "present")
+          && (!runtimeObservation || runtimeObservation.state === "present")
           && (!exposureObservation || exposureObservation.state === "present")) {
         status = "observed";
         recurrence = obs.recurrence;
@@ -333,6 +339,12 @@ export async function evaluateWebsiteSecurityForScan(env, {
         status = "unknown";
         unknown_reason = "evidence_insufficient";
         reason = "condition_observation_not_serviceable";
+      } else if (runtimeObservation?.state === "clear"
+          && (gate.canVerify("technology_detection") || gate.canVerifyModule("technology_detection"))) {
+        status = "no_longer_observed";
+        reason = "exact_runtime_response_retested_clear";
+      } else if (runtimeObservation) {
+        continue;
       } else if (exposureObservation?.state === "clear" && gate.qualityAuthoritative && !gate.scanPartial) {
         status = "no_longer_observed";
         reason = "exact_content_condition_retested_clear";

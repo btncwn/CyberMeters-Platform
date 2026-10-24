@@ -26,6 +26,7 @@
 // This registry is CODE-BACKED (compute-on-read). It stores no rows and adds no
 // schema. resolveRemediation is pure and deterministic.
 
+import { PHP_RUNTIME_TITLE, PHP_RUNTIME_HIDDEN_TITLE, PHP_RUNTIME_HIDDEN_SENTENCE } from "./php-runtime.js";
 import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
@@ -1203,6 +1204,44 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     supporting_evidence_types: ["http_header_probe"],
   }),
 
+  entry({
+    remediation_id: "web.php.runtime_release",
+    introduced_at: "2026-10-24",
+    domain_key: "website_security",
+    finding_types: ["tech_php2shell_outdated"],
+    customer_title: PHP_RUNTIME_TITLE,
+    technical_explanation: PHP_RUNTIME_TITLE,
+    business_impact: "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.",
+    recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "https_recheck",
+    case_type: "website_case",
+    managed_workflow_compatible: true,
+    verification_evidence_requirements: "A serviceable response at the exact original HTTPS host and path reports a fixed upstream release, or no longer reports PHP. A hidden, ambiguous or unsupported version is inconclusive.",
+    supporting_evidence_types: ["http_header_probe"],
+    limitations: ["Only the reported version is compared. Backported fixes and the actual installed build cannot be verified remotely. This is not a claim of vulnerability or exploitability."],
+    references: ["https://www.php.net/archive/2026.php#2026-10-21-5"],
+  }),
+  entry({
+    remediation_id: "web.php.runtime_observation",
+    introduced_at: "2026-10-24",
+    domain_key: "website_security",
+    finding_types: ["tech_php2shell_version_hidden"],
+    customer_title: PHP_RUNTIME_HIDDEN_TITLE,
+    technical_explanation: PHP_RUNTIME_HIDDEN_SENTENCE,
+    business_impact: PHP_RUNTIME_HIDDEN_SENTENCE,
+    recommended_action: PHP_RUNTIME_HIDDEN_SENTENCE,
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "unsupported",
+    managed_workflow_compatible: false,
+    case_type: null,
+    verification_evidence_requirements: "Observation only; no system-verified case or recovery is inferred.",
+    supporting_evidence_types: ["http_header_probe"],
+    references: ["https://www.php.net/archive/2026.php#2026-10-21-5"],
+  }),
+
   // ─────────────────────── CYBER ESSENTIALS READINESS ────────────────────────
   entry({
     remediation_id: "ce.certification.external",
@@ -1586,6 +1625,7 @@ function normalizeFindingType(rawType) {
   if (!ft) return "";
   const exposure = /^(external_exposure_[a-z][a-z0-9-]+)__[a-f0-9]{64}$/.exec(ft);
   if (exposure) return exposure[1];
+  if (/^tech_php2shell_outdated__[a-f0-9]{64}$/.test(ft)) return "tech_php2shell_outdated";
   const tls = /^(tls_[a-z_]+)__[a-f0-9]{64}$/.exec(ft);
   if (tls) return tls[1];
   if (ft.startsWith("subdomain_sensitive_")) return "subdomain_sensitive";
