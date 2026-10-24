@@ -495,7 +495,10 @@ const EXPECTED = Object.freeze({
   // F1 (D, 24 Oct 2026): scans.js gains the exposure-job read above the scan read
   // handlers; a two-tree --dump-current diff shows all 24 projection sites identical
   // apart from line numbers. Only the fingerprint moves.
-  sql_reads: { projection_occurrences: 24, fingerprint: "0f34cd4e332b786d7dcc3ddf60bd95b18365b0bbc96adedb175a9f1c04ec68c9" },
+  // PDF authorised active checks (24 Oct 2026): the PDF route's frozen
+  // tls_assessment read shifts later scans.js projection sites; the two-tree
+  // --dump-current diff is identical ignoring line (24 projections, same snippets).
+  sql_reads: { projection_occurrences: 24, fingerprint: "e8f5f2414f611b4243fd5f709fa0161bec738317864a7c96ab8c95220e1d607d" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
