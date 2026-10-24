@@ -712,6 +712,10 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     tls.slice_failures={...(tls.slice_failures||{}),[key]:failures};
     tls.last_slice_failure={cursor:tls.cursor,endpoint_index:items[0].endpoint_index,control:items[0].check.control,
       reason:tlsSliceFailureReason(error,controller.signal.aborted),attempts:failures,at:at.toISOString()};
+    // Once a slice is given up the streak resets, so the job-wide failure cap
+    // bounds CONSECUTIVE failures only. Total work stays bounded: every retry
+    // charges an attempt (budget.attempts), the job has a deadline, and the
+    // request/byte budgets keep their unrefunded reservations.
     const giveUp=active&&failures>=TLS_SLICE_FAILURE_CAP;
     await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=CASE WHEN ?=1 THEN 0 ELSE failure_count+1 END,
       unknown_attempts=unknown_attempts+1,plan_json=?,lease_token=NULL,lease_until=0,updated_at=?

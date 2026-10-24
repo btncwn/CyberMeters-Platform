@@ -38,8 +38,10 @@ describe('an endpoint that was not tested', () => {
   it('a ROBOT check that could not complete says so in words', () => {
     render(<TlsAssessmentEvidence assessment={{ source: 'tls_assessment', quality: 'complete', coverage: {}, endpoints: [{ ...ep,
       checks: [{ control: 'protocol', protocol: 'tls1_2', state: 'accepted', observed_at: '2026-10-24T14:15:00Z' },
-        { control: 'robot', protocol: 'tls1_2', state: 'unexecutable', reason: 'slice_failed', observed_at: '2026-10-24T14:16:00Z' }] }] }} />)
-    expect(document.body.textContent).toContain('Could not complete — this check did not finish on this server after two attempts.')
+        { control: 'robot', protocol: 'tls1_2', state: 'unexecutable', reason: 'slice_failed', failure_attempts: 2, observed_at: '2026-10-24T14:16:00Z' },
+        { control: 'ccs', protocol: 'tls1_2', state: 'unexecutable', reason: 'slice_failed', observed_at: '2026-10-24T14:17:00Z' }] }] }} />)
+    expect(document.body.textContent).toContain('Could not complete — this check did not finish on this server after 2 attempts.')
+    expect(document.body.textContent).toContain('Could not complete — this check did not finish on this server after repeated attempts.')
     expect(document.body.textContent.toLowerCase()).not.toContain('budget exhausted')
   })
   it('a tested endpoint shows when its checks were observed', () => {

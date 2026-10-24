@@ -28,7 +28,7 @@ const CONTROL_REASONS = Object.freeze({
   heartbeat_unavailable: 'Not applicable — this server did not offer the TLS heartbeat extension that Heartbleed relies on.',
   // scan-api records a TLS check whose run kept failing (twice) and moves on;
   // the other checks are not affected (F1, 24 Oct 2026).
-  slice_failed: 'Could not complete — this check did not finish on this server after two attempts. The other checks were not affected.',
+  slice_failed: 'Could not complete — this check did not finish on this server after repeated attempts. The other checks were not affected.',
 })
 // Where a customer adds their OWN servers so the TLS checks can test them.
 export const ADDITIONAL_TLS_SERVICES_HREF = '/ws/certificates?tab=settings#additional-tls-services'
@@ -39,6 +39,10 @@ const controlState = (row, item = null) => {
     const host = typeof item?.hostname === 'string' && item.hostname ? item.hostname : 'This host'
     const provider = row.provider_name || item?.provider_name || item?.provider || null
     return `Not tested — ${host} is served by shared provider infrastructure${provider ? ` (${provider})` : ''}. Add your own servers to test them.`
+  }
+  // The number of attempts comes from the row itself (scan-api records it).
+  if (row?.reason === 'slice_failed' && Number.isSafeInteger(row.failure_attempts) && row.failure_attempts > 0) {
+    return `Could not complete — this check did not finish on this server after ${row.failure_attempts} attempt${row.failure_attempts === 1 ? '' : 's'}. The other checks were not affected.`
   }
   return (row?.reason && CONTROL_REASONS[row.reason]) || controlStates[row?.state] || 'Unknown'
 }
