@@ -15,7 +15,10 @@ const assessmentWith = (reason, state = 'unexecutable') => ({
 describe('LiveTlsEvidence held reasons', () => {
   it.each([
     ['address_not_verified_not_tested', 'Not tested — this address is not verified as yours'],
-    ['authorised_runs_on_started_check', 'Not tested on this scan — authorised checks run only on scans you start yourself'],
+    // The real producer reason: shared/tls/catalog.js TLS_AUTHORISED_ON_DEMAND_REASON (Seat 3, #951).
+    ['scheduled_or_unknown_origin', 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.'],
+    // The older key is kept as an alias.
+    ['authorised_runs_on_started_check', 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.'],
   ])('%s', (reason, text) => {
     render(<TlsAssessmentEvidence assessment={assessmentWith(reason)} />)
     expect(screen.getAllByText(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).length).toBeGreaterThan(0)

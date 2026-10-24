@@ -19,7 +19,10 @@ const CONTROL_REASONS = Object.freeze({
   requires_customer_authorisation: 'Not tested — requires your authorisation',
   authorised_engine_not_released: 'Authorised — not yet available',
   address_not_verified_not_tested: 'Not tested — this address is not verified as yours',
-  authorised_runs_on_started_check: 'Not tested on this scan — authorised checks run only on scans you start yourself',
+  // The producer's reason (shared/tls/catalog.js TLS_AUTHORISED_ON_DEMAND_REASON);
+  // the older key stays as an alias.
+  scheduled_or_unknown_origin: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
+  authorised_runs_on_started_check: 'Not tested — authorised checks run only on scans you start yourself, never on scheduled scans.',
 })
 // Where a customer adds their OWN servers so the TLS checks can test them.
 export const ADDITIONAL_TLS_SERVICES_HREF = '/ws/certificates?tab=settings#additional-tls-services'
