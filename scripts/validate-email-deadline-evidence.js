@@ -1259,6 +1259,15 @@ ok("B1: Executive and PDF contain no false finding/action wording",
 console.log("\n── B2. positive control: fast probes, NO SPF record, DMARC p=none ──");
 const t2 = await trace("no-spf");
 ok("B2: control scan completed", t2.dbStatus === "completed", JSON.stringify({ db: t2.dbStatus, err: t2.reportError }));
+// 24 Oct 2026: supplementary modules (dane, remote_admin_exposure) settle after
+// computeScore; their findings are scored once settled and reach the report.
+ok("B2: the DANE status observation reaches the report (scored after the module settled)",
+  t2.findingIds.includes("dane_status_observed"), JSON.stringify(t2.findingIds));
+{
+  const engineSource = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js"), "utf8");
+  ok("B2: remote_admin_exposure is scored after it settles too",
+    /SUPPLEMENTARY_SCORED_MODULES = new Set\(\["dane", "remote_admin_exposure"\]\)/.test(engineSource));
+}
 ok("B2: the email module genuinely EXECUTED", t2.email?.executed !== false && t2.email?.outcome !== "deadline_exceeded");
 ok("B2: observed SPF absence still produces the email_missing_spf finding",
   t2.findingIds.includes("email_missing_spf"), t2.findingIds.join("|"));

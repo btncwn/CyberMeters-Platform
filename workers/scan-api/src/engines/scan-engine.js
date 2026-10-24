@@ -46,6 +46,9 @@ import { runEmailIntelModule } from "./email-intel.js";
 import { runMailTransportModule } from "./mail-transport.js";
 import { runRemoteAdminExposureModule } from "./remote-admin-exposure.js";
 import { runDaneModule } from "./dane.js";
+// Supplementary modules settle after computeScore; their findings are scored
+// once they have settled (see the post-settle block in runScanEngine).
+const SUPPLEMENTARY_SCORED_MODULES = new Set(["dane", "remote_admin_exposure"]);
 import { isStatedAccessLimit, statedLimitMessage, webServiceNeverAnsweredHosts } from "./scan-stated-limits.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
@@ -1993,6 +1996,23 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     } else {
       modules.remote_admin_exposure = { source: "remote_admin_exposure", state: "not_assessed", reason: "verified_workspace_required",
         exposures: [], incomplete: false, incomplete_reason: null, error: null, observed_at: new Date(now()).toISOString() };
+    }
+    // computeScore ran before these supplementary modules settled, so it never
+    // saw them: DANE and remote-administration findings were never emitted in
+    // production (24 Oct 2026: modules.dane 'active' on scan_1f24a64a, no
+    // finding; no remote_admin finding ever). computeScore is pure: score the
+    // settled modules again and take only these modules' findings and
+    // recommendations. They carry score_impact 0, so the CMS cannot move.
+    {
+      const late = computeScore(modules, domain);
+      const seen = new Set(findings.map((finding) => finding?.id));
+      for (const finding of late.findings || []) {
+        if (SUPPLEMENTARY_SCORED_MODULES.has(finding?.module) && !seen.has(finding.id)) findings.push(finding);
+      }
+      const seenRecs = new Set(recommendations.map((rec) => rec?.id || rec?.remediation_id || rec?.title));
+      for (const rec of late.recommendations || []) {
+        if (SUPPLEMENTARY_SCORED_MODULES.has(rec?.module) && !seenRecs.has(rec?.id || rec?.remediation_id || rec?.title)) recommendations.push(rec);
+      }
     }
     // One module never stands in as the completion guard for the other:
     //   • the intelligence module proves its OWN completion — deferred, errored
