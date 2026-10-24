@@ -506,7 +506,10 @@ for (const [scanId, unexecutableReason, expected] of [
   sql.prepare("INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at,state) VALUES(?,?,?,?,?,?,?,?,'complete')")
     .run(scanId, workspace, domainId, domain, JSON.stringify(plan), now, now + 60_000, new Date(now).toISOString());
   const assessment = await readTlsAssessmentForScan(env, { workspaceId: workspace, scanId });
-  assert.equal(assessment.coverage.unexecutable, 1);
+  // Heartbeat not offered is stated as not applicable (24 Oct 2026); a check
+  // CyberMeters did not run stays unexecutable.
+  assert.deepEqual([assessment.coverage.unexecutable, assessment.coverage.not_applicable],
+    unexecutableReason === 'heartbeat_unavailable' ? [0, 1] : [1, 0]);
   assert.equal(assessment.quality, expected, `TLS module quality for ${unexecutableReason}`);
   const certificates = resolveSecurityCheckDomainStates({ scan_quality: { status: 'complete', modules_skipped: [] },
     modules: { certificate_intelligence: {}, tls_assessment: assessment }, findings: [] }).find(row => row.domain_key === 'certificates_trust');
