@@ -133,6 +133,25 @@ assert.equal(moduleCompletionGate({ remote_admin_exposure: exposed }, { status: 
   assert.equal(computeScore({ dns: { resolves: true }, remote_admin_exposure: stale }, 'example.com').findings.some((f) => /^dns_cloud_address/.test(f.id)), false);
 }
 
+// The cloud-range cache is a global public reference list: a fixed key, and only
+// provider CIDRs and fetch metadata are stored (tenant-query audit suppression).
+{
+  const { refreshCloudRanges, CLOUD_RANGES_KEY, CLOUD_RANGE_SOURCES } = await import('../workers/scan-api/src/engines/cloud-ranges.js');
+  assert.equal(CLOUD_RANGES_KEY, 'public-feeds/cloud-ranges-v1.json');
+  const puts = [];
+  const feeds = {
+    'https://www.gstatic.com/ipranges/cloud.json': { syncToken: 'x', creationTime: 'x', prefixes: [{ ipv4Prefix: '35.224.0.0/16', service: 'Google Cloud', scope: 'us', secret: 'drop me' }] },
+    'https://ip-ranges.amazonaws.com/ip-ranges.json': { prefixes: [{ ip_prefix: '3.5.140.0/22', service: 'EC2' }, { ip_prefix: '13.32.0.0/15', service: 'CLOUDFRONT' }], ipv6_prefixes: [] },
+  };
+  await refreshCloudRanges({ cybermeters_reports: { put: async (key, value) => { puts.push([key, JSON.parse(value)]); } } }, {
+    fetchImpl: async (url, init) => { assert.equal(init.method, 'GET'); assert.equal(init.redirect, 'error');
+      return feeds[url] ? new Response(JSON.stringify(feeds[url]), { status: 200 }) : new Response('no', { status: 503 }); } });
+  assert.equal(puts.length, 1); assert.equal(puts[0][0], CLOUD_RANGES_KEY);
+  assert.deepEqual(Object.keys(puts[0][1]).sort(), ['fetched_at', 'providers', 'schema', 'sources']);
+  assert.deepEqual(puts[0][1].providers, { gcp: ['35.224.0.0/16'], aws: ['3.5.140.0/22'] }, 'only CIDRs; CloudFront (CDN) excluded; no other feed field');
+  assert.deepEqual(CLOUD_RANGE_SOURCES.map((s) => s.id), ['gcp', 'aws', 'oracle', 'digitalocean']);
+}
+
 // Mutation proof: each guard reintroduces its defect and the fixture catches it.
 const source = readFileSync(new URL('../workers/scan-api/src/engines/remote-admin-exposure.js', import.meta.url), 'utf8')
   .replaceAll('from "./dns.js"', `from "${new URL('../workers/scan-api/src/engines/dns.js', import.meta.url)}"`)
