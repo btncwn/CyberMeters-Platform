@@ -49,6 +49,7 @@ export async function liveRangeGrant(db, workspaceId, target) {
   const rows = (await db.prepare(
     `SELECT g.* FROM network_range_consents g
       WHERE g.workspace_id = ? AND g.network_target_id = ? AND g.kind = 'grant'
+        AND EXISTS (SELECT 1 FROM network_targets t WHERE t.id=g.network_target_id AND t.workspace_id=g.workspace_id AND t.withdrawn_at IS NULL)
         AND NOT EXISTS (SELECT 1 FROM network_range_consents r
                          WHERE r.kind = 'revocation' AND r.grant_id = g.id AND r.workspace_id = g.workspace_id)
       ORDER BY g.created_at DESC, g.id DESC`,

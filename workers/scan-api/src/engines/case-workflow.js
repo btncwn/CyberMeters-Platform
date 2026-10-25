@@ -91,7 +91,11 @@ export function applyCaseTransition(machineDef, caseRecord, to, ctx = {}) {
     if (ctx.assigned_user_id != null) next.assigned_user_id = ctx.assigned_user_id;
   }
   if (ctx.reason != null) next.reason = String(ctx.reason).trim() || null;
-  if (ctx.risk_accepted_until != null) next.risk_accepted_until = ctx.risk_accepted_until;
+  if (ctx.risk_accepted_until != null) {
+    const expiry = Date.parse(ctx.risk_accepted_until);
+    if (!Number.isFinite(expiry)) return { ok: false, error: "A valid expiry date is required." };
+    next.risk_accepted_until = new Date(expiry).toISOString();
+  }
   if (to === "resolved") next.resolved_at = now;
   if (to === "reopened") next.reopened_count = Number(caseRecord.reopened_count || 0) + 1;
   if (to === "verifying" || to === "resolved" || to === "verification_failed") next.last_verified_at = now;

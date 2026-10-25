@@ -607,8 +607,8 @@ export async function reopenNote(env, workspaceId, caseId, caseReopened) {
     .bind(workspaceId, caseId).first().catch(() => null);
   const day = utcDay(ev?.created_at);
   if (!day) return null;
-  if (ev.actor_type === "system") return `CyberMeters verified this fixed on ${day}; it has been observed again, so the case is reopened.`;
-  if (ev.actor_type === "customer") return `You marked this fixed on ${day}; it has been observed again, so the case is reopened.`;
+  if (ev.actor_type === "system") return `This case was verified on ${day} (UTC) and has reopened — the condition was observed again.`;
+  if (ev.actor_type === "customer") return `You marked this fixed on ${day} (UTC); it has been observed again, so the case is reopened.`;
   return null;
 }
 
@@ -627,7 +627,13 @@ export function humanizeRecurrence(recurrence) {
 export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay, ctx = {}) {
   const subject = String(entityDisplay || "").trim() || "A monitored item";
   const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
-  if (copy?.what_changed) return copy.what_changed(subject, ctx);
+  if (copy?.what_changed) {
+    const sentence = copy.what_changed(subject, ctx);
+    // Several website conditions share one transition sentence. Name the
+    // canonical finding too; the runtime observation keeps its agreed exact copy.
+    return domain_key === "website_security" && recurrence !== "reported_runtime_outdated" && ctx.finding_label
+      ? `${ctx.finding_label}: ${sentence}` : sentence;
+  }
   // Never the internal recurrence name: CI requires copy for every alerting
   // recurrence, so this generic sentence is only a last resort.
   return `CyberMeters observed a change for ${subject} that needs your review.`;

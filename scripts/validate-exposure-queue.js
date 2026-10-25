@@ -155,7 +155,7 @@ for(const outcome of [
  const plan=JSON.parse(first.plan_json);
  const original=plan.checks[0];
  plan.checks=EXPOSURE_RULES.flatMap(rule=>rule.paths.map(path=>({rule_id:rule.id,url:`https://${scan.domain}${path}`})));
- check(plan.checks.length===136);
+ check(plan.checks.length===139);
  plan.retest_checks=[original];
  h.sql.prepare('UPDATE external_exposure_jobs SET plan_json=? WHERE scan_id=?').run(JSON.stringify(plan),scan.id);
  const terminalReceipt=async(_env,input)=>{
@@ -174,7 +174,7 @@ for(const outcome of [
  const result=await processExposureMessage(body,h.env,{collect:terminalReceipt});
  const stored=h.sql.prepare('SELECT * FROM external_exposure_jobs WHERE scan_id=?').get(scan.id),next=JSON.parse(stored.plan_json);
  check(result.outcome==='complete'&&stored.cursor===0&&next.checks.length===0);
- check(next.host_outcomes.length===1&&next.host_outcomes[0].skipped_checks===136);
+ check(next.host_outcomes.length===1&&next.host_outcomes[0].skipped_checks===139);
  check(JSON.stringify(next.retest_checks)===JSON.stringify([original]));
  check(stored.charged_requests===outcome.requests);
  const report=await readExposureForScan(h.env,{workspaceId:scan.workspace_id,scanId:scan.id});
@@ -368,7 +368,7 @@ for(const outcome of [
 for(const [body,expectSpecials] of [[{},false],[{trigger:'scheduled'},false],[{trigger:'manual'},true]]){
  const h=harness(),{scan}=h.seed(`n02_${body.trigger||'none'}`);h.sql.exec('DELETE FROM external_exposure_jobs');
  h.sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
- h.sql.exec(`CREATE TABLE IF NOT EXISTS network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope')`);
+ h.sql.exec(`CREATE TABLE IF NOT EXISTS network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope',withdrawn_at TEXT)`);
  h.env.TLS_ASSESSMENT_MODE='evidence-v1';
  const seen=[];
  const loader=(e,s,o)=>{seen.push(o.trigger);return loadTlsEndpoints(e,s,{...o,

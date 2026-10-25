@@ -30,9 +30,10 @@ for(const name of fs.readdirSync(path.join(root,'database/migrations')).filter(n
   }
 }
 db.exec('PRAGMA foreign_keys=ON');
-let batchFailure=false,readFailure=false,rateFailure=false,r2Failure=false;
-function stmt(sql,args=[]){const obj={sql,args,bind:(...a)=>stmt(sql,a),first:async()=>{if(readFailure)throw new Error('storage');return db.prepare(sql).get(...args)||null;},all:async()=>{if(readFailure)throw new Error('storage');return {results:db.prepare(sql).all(...args)};},run:async()=>({meta:{changes:db.prepare(sql).run(...args).changes}})};return obj;}
-const d1={prepare:sql=>stmt(sql),batch:async statements=>{db.exec('BEGIN');try{const out=[];for(let i=0;i<statements.length;i++){if(batchFailure&&i===2)throw new Error('injected transaction failure');out.push(await statements[i].run());}db.exec('COMMIT');return out;}catch(e){db.exec('ROLLBACK');throw e;}}};
+let batchFailure=false,readFailure=false,rateFailure=false,r2Failure=false,beforeStatement=null,beforeBatch=null;
+async function statementHook(sql){if(beforeStatement?.match(sql)){const hook=beforeStatement;beforeStatement=null;await hook.run();}}
+function stmt(sql,args=[]){const obj={sql,args,bind:(...a)=>stmt(sql,a),first:async()=>{await statementHook(sql);if(readFailure)throw new Error('storage');return db.prepare(sql).get(...args)||null;},all:async()=>{await statementHook(sql);if(readFailure)throw new Error('storage');return {results:db.prepare(sql).all(...args)};},run:async()=>{await statementHook(sql);return {meta:{changes:db.prepare(sql).run(...args).changes}};}};return obj;}
+const d1={prepare:sql=>stmt(sql),batch:async statements=>{if(beforeBatch){const hook=beforeBatch;beforeBatch=null;await hook();}db.exec('BEGIN');try{const out=[];for(let i=0;i<statements.length;i++){if(batchFailure&&i===2)throw new Error('injected transaction failure');out.push(await statements[i].run());}db.exec('COMMIT');return out;}catch(e){db.exec('ROLLBACK');throw e;}}};
 for(const id of ['owner','other','admin','analyst','viewer'])db.prepare('INSERT INTO users(id,email,email_verified) VALUES(?,?,1)').run(id,`${id}@example.test`);
 for(const [id,owner] of [['wa','owner'],['wb','other']]){
   db.prepare('INSERT INTO workspaces(id,name,owner_user_id) VALUES(?,?,?)').run(id,id,owner);
@@ -526,6 +527,123 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
     eq('range: no membership and not the owner is refused, nothing written',[response.status,grants().length],[403,before]);
   }
   ok('range: the workspace purge erases the consent table',/"network_range_consents",\s*\n?\s*"network_assets"/.test(fs.readFileSync(path.join(root,'workers/scan-api/src/index.js'),'utf8').replace(/\/\/[^\n]*\n/g,'')));
+}
+
+
+// C-63: removal withdraws authority, never erases target/receipt identities.
+{
+  const {NETWORK_RANGE_AUTHORITY_VERSION,liveRangeGrant}=await import('../workers/scan-api/src/engines/network-range-consent.js');
+  const {checkNetworkTargetScope}=await import('../workers/scan-api/src/engines/network-ownership.js');
+  const migration=fs.readFileSync(path.join(root,'database/migrations/140-network-target-withdrawal.sql'),'utf8');
+  const upgrade=new DatabaseSync(':memory:');
+  upgrade.exec("CREATE TABLE network_targets(id TEXT PRIMARY KEY,target TEXT); INSERT INTO network_targets VALUES('keep','93.184.216.201');");
+  upgrade.exec(migration);
+  eq('withdraw: additive upgrade preserves existing identity',upgrade.prepare('SELECT * FROM network_targets').get(),{id:'keep',target:'93.184.216.201',withdrawn_at:null,withdrawn_by:null});
+  eq('withdraw: only two nullable TEXT additions',upgrade.prepare('PRAGMA table_info(network_targets)').all().slice(2).map(c=>[c.name,c.type,c.notnull,c.dflt_value]),[['withdrawn_at','TEXT',0,null],['withdrawn_by','TEXT',0,null]]);
+  upgrade.close();
+  db.prepare("UPDATE subscriptions SET plan='professional' WHERE id='sub_wa'").run();
+  const consent={ports:[22,443],signer_name:'Pat Owner',signer_title:'IT Manager',authority_confirmed:true,authority_version:NETWORK_RANGE_AUTHORITY_VERSION};
+  const declaration={target:'93.184.216.201',authorization_confirmed:true,range_consent:consent};
+  const create=await call('network-targets',{method:'POST',body:declaration});
+  eq('withdraw: fixture target granted',create.status,201);
+  const target=create.body.target, resource=`network-targets/${target.id}`;
+  const before=snapshot();
+  for(const user of ['analyst','viewer'])eq(`withdraw: ${user} refused`,(await call(resource,{user,method:'DELETE'})).status,403);
+  eq('withdraw: unauthenticated refused',(await call(resource,{user:null,method:'DELETE'})).status,401);
+  eq('withdraw: read token refused',(await call(resource,{method:'DELETE',token:{token_scope:'read',token_workspace_id:'wa'}})).status,403);
+  const unknown=await call('network-targets/absent',{method:'DELETE'});
+  eq('withdraw: foreign target indistinguishable from nonexistent',await call(resource,{user:'other',workspace:'wb',method:'DELETE'}),unknown);
+  eq('withdraw: foreign workspace indistinguishable from nonexistent',await call(resource,{user:'other',method:'DELETE'}),unknown);
+  eq('withdraw: refusals leave records unchanged',snapshot(),before);
+  const start=await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}});
+  eq('withdraw: fixture scan admitted',start.status,202);
+  state='open';
+  eq('withdraw: fixture history completed',(await processNetworkScanMessage(queued.at(-1),env,{adapter})).outcome,'completed');
+  const completedRow=JSON.stringify(db.prepare('SELECT * FROM network_scans WHERE id=?').get(start.body.scan.id));
+  const receipt=objects.get(`network-reports/wa/${start.body.scan.id}.json`);
+  const pending=await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}});
+  const probesBefore=probeCalls;
+  eq('withdraw: admin removes',(await call(resource,{user:'admin',method:'DELETE'})).status,200);
+  const removed=db.prepare('SELECT * FROM network_targets WHERE id=?').get(target.id);
+  ok('withdraw: actor/time retained',removed.withdrawn_by==='admin'&&!!Date.parse(removed.withdrawn_at));
+  eq('withdraw: GET hides target',(await call('network-targets')).body.targets.some(t=>t.id===target.id),false);
+  eq('withdraw: start refuses',(await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}})).status,404);
+  eq('withdraw: retest refuses',(await call(`network-scans/${start.body.scan.id}/retest`,{method:'POST'})).status,404);
+  eq('withdraw: new grant refuses',(await call(`${resource}/range-consents`,{method:'POST',body:consent})).status,404);
+  eq('withdraw: no live grant even using stale object',await liveRangeGrant(d1,'wa',{...removed,withdrawn_at:null}),null);
+  eq('withdraw: pending work stopped',db.prepare('SELECT status,reason FROM network_scans WHERE id=?').get(pending.body.scan.id),{status:'failed',reason:'network_target_withdrawn'});
+  await processNetworkScanMessage(queued.at(-1),env,{adapter});
+  eq('withdraw: queued dispatch makes no physical call',probeCalls,probesBefore);
+  eq('withdraw: completed row byte-identical',JSON.stringify(db.prepare('SELECT * FROM network_scans WHERE id=?').get(start.body.scan.id)),completedRow);
+  eq('withdraw: completed receipt byte-identical',objects.get(`network-reports/wa/${start.body.scan.id}.json`),receipt);
+  eq('withdraw: receipt history readable',(await call(`network-scans/${start.body.scan.id}`)).status,200);
+  ok('withdraw: history list retains target',(await call('network-scans')).body.scans.some(s=>s.id===start.body.scan.id&&s.target===target.target));
+  eq('withdraw: old grant listed revoked',(await call('network-range-consents')).body.consents.find(g=>g.id===create.body.target.range_consent.id).status,'revoked');
+  const events=()=>db.prepare("SELECT * FROM audit_events WHERE event_type='network_target_withdrawn' AND entity_id=?").all(target.id);
+  const rows=()=>JSON.stringify(db.prepare('SELECT * FROM network_range_consents ORDER BY rowid').all());
+  const once={row:JSON.stringify(removed),events:JSON.stringify(events()),consents:rows()};
+  eq('withdraw: idempotent second remove',(await call(resource,{method:'DELETE'})).status,200);
+  eq('withdraw: second remove writes no timestamp/audit/revocation',[JSON.stringify(db.prepare('SELECT * FROM network_targets WHERE id=?').get(target.id)),JSON.stringify(events()),rows()],[once.row,once.events,once.consents]);
+  eq('withdraw: exactly one withdrawal audit',events().length,1);
+  eq('withdraw: re-add without required range authority refused',(await call('network-targets',{method:'POST',body:{target:target.target,authorization_confirmed:true}})).status,422);
+  eq('withdraw: refused re-add stays withdrawn',db.prepare('SELECT withdrawn_at FROM network_targets WHERE id=?').get(target.id).withdrawn_at,removed.withdrawn_at);
+  // The 24 h path receives an old object, and observes the address in DNS now.
+  const observed={owned:new Map([[target.target,['host.seed.example']]]),shared:new Map(),roots:['seed.example'],lookups_failed:[]};
+  await checkNetworkTargetScope(env,'wa',[{...removed,withdrawn_at:null}],{observed,now:()=>Date.now()+25*3600_000});
+  eq('withdraw: stale ownership refresh cannot rewrite/re-enable',JSON.stringify(db.prepare('SELECT * FROM network_targets WHERE id=?').get(target.id)),once.row);
+  const readd=await call('network-targets',{method:'POST',body:declaration});
+  eq('withdraw: re-add succeeds with original identity',[readd.status,readd.body.target?.id],[201,target.id]);
+  eq('withdraw: re-add clears both withdrawal fields',db.prepare('SELECT withdrawn_at,withdrawn_by FROM network_targets WHERE id=?').get(target.id),{withdrawn_at:null,withdrawn_by:null});
+  eq('withdraw: re-add needs a fresh grant',readd.body.target.range_consent.id===create.body.target.range_consent.id,false);
+  eq('withdraw: re-add does not revive queued scan',db.prepare('SELECT status FROM network_scans WHERE id=?').get(pending.body.scan.id).status,'failed');
+  eq('withdraw: re-add does not rewrite old scan',JSON.stringify(db.prepare('SELECT * FROM network_scans WHERE id=?').get(start.body.scan.id)),completedRow);
+  // A grant arriving after the remove route read is revoked by the same batch.
+  beforeBatch=async()=>{eq('withdraw: concurrent grant admitted before withdrawal',(await call(`${resource}/range-consents`,{method:'POST',body:consent})).status,201);};
+  eq('withdraw: removes with concurrent grant',(await call(resource,{method:'DELETE'})).status,200);
+  eq('withdraw: all target grants revoked atomically',db.prepare("SELECT count(*) n FROM network_range_consents g WHERE g.network_target_id=? AND g.kind='grant' AND NOT EXISTS(SELECT 1 FROM network_range_consents r WHERE r.grant_id=g.id AND r.kind='revocation')").get(target.id).n,0);
+  // Failure at revocation rolls back withdrawal and its audit as well.
+  await call('network-targets',{method:'POST',body:declaration});
+  const rollback=snapshot(),consentsBefore=rows();batchFailure=true;
+  eq('withdraw: storage fault fails closed',(await call(resource,{method:'DELETE'})).status,500);batchFailure=false;
+  eq('withdraw: transaction fault preserves all records',[snapshot(),rows()],[rollback,consentsBefore]);
+  // Withdrawal after scan admission's JS read, before the atomic INSERT.
+  beforeStatement={match:sql=>sql.startsWith('INSERT INTO network_scans'),run:()=>call(resource,{method:'DELETE'})};
+  const queueBefore=queued.length;
+  eq('withdraw: admission race refuses',(await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}})).status,404);
+  eq('withdraw: admission race queues nothing',queued.length,queueBefore);
+  await call('network-targets',{method:'POST',body:declaration});
+  await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}});
+  beforeStatement={match:sql=>sql.startsWith("UPDATE network_scans SET status='running'"),run:()=>call(resource,{method:'DELETE'})};
+  const callsBefore=probeCalls;
+  await processNetworkScanMessage(queued.at(-1),env,{adapter});
+  eq('withdraw: claim race makes no physical call',probeCalls,callsBefore);
+  await call('network-targets',{method:'POST',body:declaration});
+  const grantsBefore=db.prepare("SELECT count(*) n FROM network_range_consents WHERE kind='grant'").get().n;
+  beforeBatch=()=>call(resource,{method:'DELETE'});
+  eq('withdraw: grant race refuses',(await call(`${resource}/range-consents`,{method:'POST',body:consent})).status,404);
+  eq('withdraw: grant race writes no new grant',db.prepare("SELECT count(*) n FROM network_range_consents WHERE kind='grant'").get().n,grantsBefore);
+  await call('network-targets',{method:'POST',body:declaration});
+  await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}});
+  beforeStatement={match:sql=>sql.startsWith('SELECT 1 FROM network_targets'),run:()=>call(resource,{method:'DELETE'})};
+  const callsBeforeTransport=probeCalls;
+  await processNetworkScanMessage(queued.at(-1),env,{adapter});
+  eq('withdraw: post-claim transport fence makes no physical call',probeCalls,callsBeforeTransport);
+  // Withdrawal during a physical call rejects its late result. In-flight I/O
+  // cannot be recalled, but it cannot repopulate customer inventory/evidence.
+  await call('network-targets',{method:'POST',body:declaration});
+  await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}});
+  const inventoryBefore=JSON.stringify(db.prepare('SELECT * FROM network_assets ORDER BY address,port').all()),objectsBefore=[...objects];
+  const during={...adapter,collectNetworkProbe:async(...args)=>{const result=await adapter.collectNetworkProbe(...args);await call(resource,{method:'DELETE'});return result;}};
+  eq('withdraw: late receipt refused',(await processNetworkScanMessage(queued.at(-1),env,{adapter:during})).outcome,'failed');
+  eq('withdraw: late receipt preserves inventory',JSON.stringify(db.prepare('SELECT * FROM network_assets ORDER BY address,port').all()),inventoryBefore);
+  eq('withdraw: late receipt not published',[...objects],objectsBefore);
+  await call('network-targets',{method:'POST',body:declaration});
+  const finalizing=await call(`${resource}/scans`,{method:'POST',body:{ports:[22,443]}});
+  beforeBatch=()=>call(resource,{method:'DELETE'});
+  eq('withdraw: finalization transaction race refuses',(await processNetworkScanMessage(queued.at(-1),env,{adapter})).outcome,'failed');
+  eq('withdraw: finalization race preserves inventory',JSON.stringify(db.prepare('SELECT * FROM network_assets ORDER BY address,port').all()),inventoryBefore);
+  eq('withdraw: finalization race never completes scan',db.prepare('SELECT status,reason FROM network_scans WHERE id=?').get(finalizing.body.scan.id),{status:'failed',reason:'network_target_withdrawn'});
+  eq('withdraw: finalization race has no completed audit',db.prepare("SELECT count(*) n FROM audit_events WHERE event_type='network_scan_completed' AND entity_id=?").get(finalizing.body.scan.id).n,0);
 }
 
 console.log(`\nNetwork assets: ${passed} passed, ${failed} failed`);if(failed)process.exit(1);

@@ -596,6 +596,95 @@ await import("./remote-admin-exposure-fixture.js");
   ok("S3-0: tenant isolation holds", (await listManagedCases(env, "ws_case")).every((item) => item.finding_id !== "remote_admin_service_reachable"));
 }
 
+// ── Queue 14 (24 Oct 2026): the four added services, each through the same loop ─
+// Telnet 23, Docker API 2375, WinRM 5985/5986, memcached 11211: finding with its
+// own sentence -> one Attack Surface case -> a complete re-check with the port
+// closed resolves it. Same gates as RDP; reachability only, never "vulnerable".
+{
+  const engine = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
+  const { runRemoteAdminExposureModule } = await import(engine("remote-admin-exposure.js"));
+  const { computeScore } = await import(engine("scoring.js"));
+  const ports = [[23, "Telnet"], [2375, "Docker API"], [5985, "WinRM (Windows remote management, HTTP)"],
+    [5986, "WinRM (Windows remote management, HTTPS)"], [11211, "Memcached"]];
+  for (const [port, service] of ports) {
+    const ws = `ws_q14_${port}`, dom = `dom_q14_${port}`, domain = `q14-${port}.example.com`;
+    seedWorkspace(ws, dom, domain);
+    db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id=?").run(ws);
+    const owned = new Map([["81.2.69.161", [domain]]]);
+    const run = (state) => runRemoteAdminExposureModule(env, { id: `scan_${ws}`, workspace_id: ws, domain_id: dom, domain }, {
+      observe: async () => ({ roots: [domain], owned, shared: new Map(), lookups_failed: 0 }),
+      collect: async (_env, request) => { assertProbeRequest(request); return ({ observations: request.targets.flatMap((target) => request.ports.map((p) => ({
+        address: target.address, hostname: null, port: p, transport: "tcp", state: p === port ? state : "closed", service: null, tls: null, reason: null }))) }); },
+    });
+    const scored = computeScore({ dns: { resolves: true, has_mx: true }, remote_admin_exposure: await run("open") }, domain);
+    const found = scored.findings.filter((item) => item.id === "remote_admin_service_reachable");
+    ok(`Q14 ${port}: one high finding naming ${service}`, found.length === 1 && found[0].severity === "high"
+      && found[0].description.includes(`${service} port ${port} reachable from the internet`) && !/vulnerab|compromis|unencrypted/i.test(found[0].description));
+    await createManagedAsmCasesForScan(`scan_${ws}_1`, dom, domain, found, scored.recommendations, env);
+    const cases = await listManagedCases(env, ws);
+    ok(`Q14 ${port}: the finding opens one Attack Surface case`, cases.length === 1 && cases[0].status === "open");
+    // The customer reports it fixed (the system verifies only a requested case).
+    let row = await getManagedCase(env, ws, cases[0].id);
+    row = (await transitionManagedCase(env, row, "triage", { actor_type: "customer", actor_id: "u" })).case;
+    row = (await assignManagedCaseOwner(env, row, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "u" })).case;
+    row = (await transitionManagedCase(env, row, "remediation_in_progress", { actor_type: "customer", actor_id: "u" })).case;
+    row = (await transitionManagedCase(env, row, "verification_requested", { actor_type: "customer", actor_id: "u", action: "fix_completed" })).case;
+    const resolved = await verifyManagedAsmCasesForScan(`scan_${ws}_2`, dom, domain, [], env,
+      { modules: { remote_admin_exposure: await run("closed") }, scanQuality: { status: "complete", modules_skipped: [] } });
+    ok(`Q14 ${port}: a complete re-check with the port closed resolves it`, resolved.resolved === 1
+      && (await getManagedCase(env, ws, cases[0].id)).status === "resolved");
+  }
+}
+
+// ── Dangling DNS on a cloud address (24 Oct 2026): finding -> case -> retest ──
+// The case resolves when the address answers again, or when the record is
+// removed (the address is no longer the domain's): a complete re-check with
+// no such finding. Re-detection reopens.
+{
+  const engine = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
+  const { runRemoteAdminExposureModule } = await import(engine("remote-admin-exposure.js"));
+  const { computeScore } = await import(engine("scoring.js"));
+  const ws = "ws_dangling", dom = "dom_dangling", domain = "dangling.example.com";
+  seedWorkspace(ws, dom, domain);
+  db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id=?").run(ws);
+  const cloud = { schema: "cloud-ranges-v1", fetched_at: new Date().toISOString(), providers: { gcp: ["35.224.0.0/16"] } };
+  const history = async () => ({ "35.224.199.137": { seen_at: "2026-10-22T17:40:44.503Z", source: "open_port", port: 22 } });
+  const run = (owned, state, other = "timeout") => runRemoteAdminExposureModule(env, { id: "scan_dangling", workspace_id: ws, domain_id: dom, domain }, {
+    observe: async () => ({ roots: [domain], owned, shared: new Map(), lookups_failed: 0 }), cloudRanges: async () => cloud, history,
+    collect: async (_env, request) => { assertProbeRequest(request); return ({ observations: request.targets.flatMap((t) => request.ports.map((port) => ({
+      address: t.address, hostname: null, port, transport: "tcp", state: port === 443 ? state : other, service: null, tls: null, reason: null }))) }); },
+  });
+  const pointed = new Map([["35.224.199.137", ["probe." + domain]]]);
+  const darkModule = await run(pointed, "timeout");
+  const scored = computeScore({ dns: { resolves: true }, remote_admin_exposure: darkModule }, domain);
+  const dangling = scored.findings.filter((f) => f.id === "dns_cloud_address_unreachable_after_live");
+  ok("Dangling: a dark cloud address with live history is one medium finding", dangling.length === 1 && dangling[0].severity === "medium");
+  await createManagedAsmCasesForScan("scan_dangling_1", dom, domain, dangling, scored.recommendations, env);
+  const [kase] = await listManagedCases(env, ws);
+  ok("Dangling: the finding opens one Attack Surface case", kase?.finding_id === "dns_cloud_address_unreachable_after_live" && kase.status === "open");
+  let row = await getManagedCase(env, ws, kase.id);
+  row = (await transitionManagedCase(env, row, "triage", { actor_type: "customer", actor_id: "u" })).case;
+  row = (await assignManagedCaseOwner(env, row, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "u" })).case;
+  row = (await transitionManagedCase(env, row, "remediation_in_progress", { actor_type: "customer", actor_id: "u" })).case;
+  row = (await transitionManagedCase(env, row, "verification_requested", { actor_type: "customer", actor_id: "u", action: "fix_completed" })).case;
+  // The address answers again (443 open): a complete re-check resolves the case.
+  const back = await run(pointed, "open");
+  const resolved = await verifyManagedAsmCasesForScan("scan_dangling_2", dom, domain, [], env,
+    { modules: { remote_admin_exposure: back }, scanQuality: { status: "complete", modules_skipped: [] } });
+  ok("Dangling: the address answering again resolves the case", resolved.resolved === 1 && (await getManagedCase(env, ws, kase.id)).status === "resolved");
+  // Dark again: the same case reopens; then the record is removed (no longer owned) and it resolves.
+  await createManagedAsmCasesForScan("scan_dangling_3", dom, domain, dangling, [], env);
+  let again = await getManagedCase(env, ws, kase.id);
+  ok("Dangling: going dark again reopens the same case", again.reopened_count === 1 && again.status !== "resolved");
+  again = (await transitionManagedCase(env, again, "verification_requested", { actor_type: "customer", actor_id: "u", action: "fix_completed" })).case
+    || (await getManagedCase(env, ws, kase.id));
+  // The record now points at a different, non-cloud host that refuses the admin ports.
+  const removed = await run(new Map([["81.2.69.170", [domain]]]), "closed", "closed");
+  const gone = await verifyManagedAsmCasesForScan("scan_dangling_4", dom, domain, [], env,
+    { modules: { remote_admin_exposure: removed }, scanQuality: { status: "complete", modules_skipped: [] } });
+  ok("Dangling: the record removed resolves the case", (await getManagedCase(env, ws, kase.id)).status === "resolved", JSON.stringify({ gone, status: (await getManagedCase(env, ws, kase.id)).status }));
+}
+
 // ── S2-C (22 Oct 2026): what the customer is TOLD about a remote-admin exposure ──
 // The walk above proves the case; this proves the alerts a customer receives.
 // The activation watermark is set in the past, as it is for any workspace whose

@@ -136,15 +136,27 @@ export function elapsedLabel(msValue) {
  *   domain      for the first-scan sentence
  */
 export function scanProgressCopy({ status, elapsedMs, estimate, progress = null } = {}) {
-  const queued = status === 'queued'
+  // F1 (D, Executive 24 Oct 2026): a scan stays 'queued' while its exposure job
+  // (services and TLS checks) runs first. The backend says so
+  // (progress.exposure_checks: 'pending' | 'running'); then it is working, not
+  // waiting, and says "Preparing checks". Real queueing keeps "Scan queued".
+  const preparing = status === 'queued' && ['pending', 'running'].includes(progress?.exposure_checks)
+  const queued = status === 'queued' && !preparing
   const elapsed = elapsedLabel(elapsedMs)
   const timer = queued ? `Queued for ${elapsed}` : `Running for ${elapsed}`
-  const heading = queued ? 'Scan queued' : 'Scan in progress'
-  const detail = queued
-    ? 'Waiting for a scanner to pick it up. Results appear here automatically.'
-    : 'Checks are running against the domain. Results appear here automatically.'
+  const heading = preparing ? 'Preparing checks' : queued ? 'Scan queued' : 'Scan in progress'
+  // A pending job has not been picked up yet: it is being prepared, not checking.
+  const detail = preparing
+    ? (progress.exposure_checks === 'running'
+      ? 'CyberMeters is checking the domain\u2019s exposed services and certificates first. Results appear here automatically.'
+      : 'CyberMeters is preparing the domain\u2019s service and certificate checks. Results appear here automatically.')
+    : queued
+      ? 'Waiting for a scanner to pick it up. Results appear here automatically.'
+      : 'Checks are running against the domain. Results appear here automatically.'
   const stage = !queued ? STAGE_TEXT[progress?.stage] || null : null
-  const stale = !queued && progress?.stale === true ? STALE_TEXT : null
+  // The backend marks a queued scan stale when its exposure job is past its
+  // deadline or lost its lease (F1 D) — said, never "Queued" forever.
+  const stale = progress?.stale === true ? STALE_TEXT : null
   const running = !queued && Number.isFinite(elapsedMs)
   const longRunningText = !running ? null
     : elapsedMs >= VERY_LONG_MS ? 'This check has been running for over 30 minutes. It is still running; if it cannot finish, we will mark what could not be completed rather than guess.'

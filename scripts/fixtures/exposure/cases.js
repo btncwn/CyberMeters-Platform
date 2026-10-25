@@ -54,6 +54,23 @@ const observed = new Set(['admin-interface','api-schema','remote-access-portal']
 export const EXPOSURE_FIXTURES = Object.freeze(Object.keys(positives).flatMap(ruleId => [
   {id:`${ruleId}-positive`,ruleId,status:200,body:positives[ruleId],expectedState:observed.has(ruleId)?'observed':'finding',polarity:'positive'},
   {id:`${ruleId}-negative`,ruleId,status:200,body:negatives[ruleId],expectedState:'not_found',polarity:'negative'},
+]).concat([
+  {id:'remote-access-firmware-positive',ruleId:'remote-access-portal',status:200,polarity:'positive',expectedState:'observed',
+    body:'<html><title>SSL VPN Service</title><div>FortiGate</div><form action="/remote/logincheck"><input name="username"><input type="password" name="credential"></form><footer>FortiOS version: 7.4.2</footer></html>'},
+  {id:'remote-access-firmware-client-negative',ruleId:'remote-access-portal',status:200,polarity:'negative',expectedState:'blocked',
+    body:'<html><title>SSL VPN Service</title><form action="/remote/logincheck"><input name="username"><input type="password"></form><footer>FortiClient version: 7.4.2</footer></html>'},
+  {id:'remote-access-proxy-positive',ruleId:'remote-access-portal',status:200,polarity:'positive',expectedState:'observed',
+    body:'<html><title>SSL VPN Service</title><div>FortiProxy</div><form action="/remote/logincheck"><input name="username"><input type="password"></form><footer>FortiProxy version: 7.2.8</footer></html>'},
+  {id:'remote-access-proxy-offsite-negative',ruleId:'remote-access-portal',status:200,polarity:'negative',expectedState:'blocked',
+    body:'<html><title>SSL VPN Service</title><div>FortiProxy</div><form action="https://foreign.example.test/remote/logincheck"><input name="username"><input type="password"></form></html>'},
+  {id:'remote-access-gateway-positive',ruleId:'remote-access-portal',status:200,polarity:'positive',expectedState:'observed',
+    body:'<html><title>NetScaler Gateway</title><form action="/cgi/login"><input name="login"><input type="password" name="passwd"></form><footer>NetScaler Gateway version: 14.1-73.36</footer></html>'},
+  {id:'remote-access-gateway-no-form-negative',ruleId:'remote-access-portal',status:200,polarity:'negative',expectedState:'not_found',
+    body:'<html><title>NetScaler Gateway</title><p>Product documentation.</p></html>'},
+  {id:'remote-access-secure-positive',ruleId:'remote-access-portal',status:200,polarity:'positive',expectedState:'observed',
+    body:'<html><title>Ivanti Connect Secure</title><form action="/dana-na/auth/url_default/login.cgi"><input name="username"><input type="password" name="password"></form><footer>Ivanti Connect Secure version: 22.7R2.5</footer></html>'},
+  {id:'remote-access-secure-other-login-negative',ruleId:'remote-access-portal',status:200,polarity:'negative',expectedState:'blocked',
+    body:'<html><title>Ivanti Connect Secure</title><form action="/login"><input name="username"><input type="password"></form></html>'},
 ]));
 export const EXPOSURE_CONTROL_FIXTURES = Object.freeze([
   {status:404,body:'<html><title>Not found</title><body>No such page 291</body></html>'},

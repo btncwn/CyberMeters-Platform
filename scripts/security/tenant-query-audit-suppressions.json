@@ -261,6 +261,13 @@
       "detector": "r2_key_not_workspace_bound",
       "reason": "Reviewed 2026-10-24: scans read the same public reference catalogue; there is no customer-owned object at this fixed key and no public read endpoint.",
       "contract": "No caller-supplied key or workspace identity is accepted. The reader fetches only public-feeds/remote-access-kev-v1.json, caps the body, validates schema/source/CVE identifiers and returns no customer content. The scanner copies only curated assessment metadata into its already workspace-scoped report. Key provenance and public-only writer projection are covered by the CI-blocking exposure-catalog tests."
+    },
+    {
+      "fingerprint": "d7045e15619d",
+      "file": "workers/scan-api/src/engines/cloud-ranges.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "Reviewed 2026-10-24: a system cron stores one global public reference list (cloud providers' published address ranges), not customer data. A workspace prefix would falsely imply ownership of shared public provider ranges.",
+      "contract": "The key is the fixed literal public-feeds/cloud-ranges-v1.json. Only four fixed public provider URLs are fetched (GET, no redirects, bounded). The writer stores only schema, fetched_at, per-source status and validated CIDR strings per provider, discarding every other feed field. No request, workspace, host or customer content can select this key or enter the object. remote-admin-exposure-fixture.js (imported by the CI-blocking asm-remediation-loop validator) asserts the fixed key and this exact projection."
     }
   ]
 }

@@ -8,11 +8,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS_AVAILABLE, tlsEndpointIdentity } from '../shared/tls/catalog.js';
+import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_SPECIAL_CONTROLS_AVAILABLE, TLS_SPECIAL_SLICE_DURATION_MS, tlsSliceDurationMs, tlsEndpointIdentity } from '../shared/tls/catalog.js';
 import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan, tlsProbeScope } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
-import { loadTlsEndpoints, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
+import { loadTlsEndpoints, tlsScopeStillAuthorized, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
 import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 
 const sql=new DatabaseSync(':memory:');
@@ -22,6 +22,7 @@ sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
   CREATE TABLE network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope');`);
 sql.exec(readFileSync(new URL('../database/migrations/119-external-exposure-jobs.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
+sql.exec(readFileSync(new URL('../database/migrations/140-network-target-withdrawal.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/135-active-check-consents.sql',import.meta.url),'utf8'));
 const prepare=(query,args=[])=>({bind:(...values)=>prepare(query,values),first:async()=>sql.prepare(query).get(...args)||null,
   all:async()=>({results:sql.prepare(query).all(...args)}),run:async()=>({meta:{changes:sql.prepare(query).run(...args).changes}})});
@@ -176,6 +177,12 @@ function scopedJob(scanId,generation){
   const lookup=async(host,type)=>type==='A'?{Status:0,Answer:[{name:`${host}.`,type:1,data:'8.8.8.8'}]}:{Status:0,Answer:[]};
   const services=async()=>(await loadTlsEndpoints(env,scan,{lookup})).endpoints.filter(e=>e.scope.kind==='authorized_service').length;
   assert.equal(await services(),1,'an in-scope target\'s service is planned');
+  const entry=(await loadTlsEndpoints(env,scan,{lookup})).endpoints.find(e=>e.scope.kind==='authorized_service');
+  sql.prepare("UPDATE network_targets SET withdrawn_at='2026-10-25T15:30:00Z' WHERE id='target_scope'").run();
+  assert.equal(await services(),0,'C-63: withdrawn target is not planned');
+  assert.equal(await tlsScopeStillAuthorized(env,scan,entry,{lookup}),false,'C-63: an old endpoint plan cannot survive target withdrawal');
+  sql.prepare("UPDATE network_targets SET withdrawn_at=NULL WHERE id='target_scope'").run();
+
   const deferred=async()=>(await loadTlsEndpoints(env,scan,{lookup})).deferred_services;
   assert.deepEqual(await deferred(),[],'nothing deferred while in scope');
   sql.prepare("UPDATE network_targets SET scope_state='out_of_scope' WHERE id='target_scope'").run();
@@ -225,6 +232,20 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   assert.equal((await processExposureMessage(third.message,env,{lookupTlsDns,collectTlsAssessment:leaveScopeBeforeReceipt})).outcome,'tls_fence_lost');
   assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_target').plan_json).tls.results.length,0);
   sql.prepare("UPDATE network_targets SET scope_state='in_scope' WHERE id='target_scope'").run();
+}
+// C-63: the reservation/finalization fence also rejects target withdrawal.
+{
+  const generation=sql.prepare('SELECT generation FROM workspace_tls_authorizations WHERE workspace_id=?').get(scopeWorkspace).generation;
+  sql.prepare('UPDATE external_exposure_jobs SET lease_until=0 WHERE workspace_id=?').run(scopeWorkspace);
+  const withdrawn=scopedJob('scope_withdrawn',generation);
+  const during=async(...args)=>{const receipt=await collectTlsAssessment(...args);sql.prepare("UPDATE network_targets SET withdrawn_at='2026-10-25T15:30:00Z' WHERE id='target_scope'").run();return receipt;};
+  assert.equal((await processExposureMessage(withdrawn.message,env,{lookupTlsDns,collectTlsAssessment:during})).outcome,'tls_fence_lost','C-63: late TLS receipt fenced');
+  assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_withdrawn').plan_json).tls.results.length,0);
+  sql.prepare('UPDATE external_exposure_jobs SET lease_until=0 WHERE scan_id=?').run('scope_withdrawn');
+  const calls=collectorCalls;
+  assert.equal((await processExposureMessage(withdrawn.message,env,{lookupTlsDns,collectTlsAssessment,now:()=>withdrawn.now+31000})).outcome,'scope_changed','C-63: withdrawn TLS target refuses dispatch');
+  assert.equal(collectorCalls,calls,'C-63: no physical TLS call after withdrawal');
+  sql.prepare("UPDATE network_targets SET withdrawn_at=NULL WHERE id='target_scope'").run();
 }
 // A normal check must carry a valid projected scope even when the plan
 // contains Active Checks grants. Intrusive controls remain withheld.
@@ -351,6 +372,7 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
     .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
   const reservations=[];
+  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
   const specialCollector=async(_env,input)=>{
     const verdict = validateTlsAssessmentRequest(input);
     if (!verdict.ok) console.error('PROBE_CONTRACT', verdict.reason);
@@ -358,6 +380,18 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
     const control=input.checks[0].control;
     assert.equal(input.checks.length,1);
     reservations.push([control,input.max_connections]);
+    if(control==='robot'){
+      // R1 on #981: the lease outlives the 50 s ROBOT slice, and a second
+      // delivery arriving mid-run cannot claim the job (no second intrusive run).
+      const lease=sql.prepare('SELECT lease_until FROM external_exposure_jobs WHERE scan_id=?').get(scanId).lease_until;
+      assert.ok(lease-Date.now()>=50000,`the ROBOT slice's lease covers its 50 s slice (left ${lease-Date.now()} ms)`);
+      let secondRuns=0;
+      // The second delivery's clock is 40 s on: past the old 30 s job lease, inside
+      // the ROBOT slice's 55 s lease - with the old lease this claim succeeds.
+      await processExposureMessage(message,env,{lookupTlsDns,authoriseActiveCheck,now:()=>Date.now()+40000,
+        collectTlsAssessment:async()=>{secondRuns++;throw new Error('second run');}});
+      assert.equal(secondRuns,0,'no second claim while the ROBOT slice runs');
+    }
     const physical={connections:control==='robot'?21:control==='ccs'?5:1,bytes_sent:1000,bytes_received:2000,duration_ms:10};
     const special=control!=='protocol';
     const engine={schema:'tls-engine-result-v1',engine:{family:special?'active_legacy':'modern',
@@ -374,7 +408,6 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
       telemetry:physical};
     return projectTlsCollectorReceipt(input,raw);
   };
-  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'pending');
   assert.equal((await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:specialCollector,authoriseActiveCheck})).outcome,'complete');
@@ -384,6 +417,110 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   assert.equal(JSON.parse(finished.plan_json).tls.results.length,3);
   console.log("TLS_RESERVATIONS_RELEASED_OK protocol16 robot21 ccs5 charged27");
 });
+// F1 (24 Oct 2026, scan_34b54a23): a special whose slice throws every time
+// (ROBOT ran past its time limit on a server that stays silent) used to end the
+// whole job through the job-wide failure cap, so the domain's own checks never
+// ran and the score was withheld. Now that slice is recorded as
+// 'unexecutable / slice_failed' after TLS_SLICE_FAILURE_CAP failures and the job
+// completes. CCS fails once straight after ROBOT is recorded, so without the
+// streak reset that third consecutive failure would still end the job.
+await test('a special slice that always throws is recorded and the job still completes', async () => {
+  if (!TLS_SPECIAL_CONTROLS_AVAILABLE) return;
+  const { TLS_SLICE_FAILURE_CAP } = await import('../workers/scan-api/src/engines/exposure-jobs.js');
+  const { blockingTlsUnexecutable } = await import('../workers/scan-api/src/engines/tls-quality.js');
+  const workspace='w_slice_fail',scanId='tls_slice_fail',domainId='d_slice_fail',domain='slicefail.example.org',now=Date.now();
+  sql.prepare('INSERT INTO workspaces VALUES(?,NULL)').run(workspace);
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'queued');
+  sql.prepare("INSERT INTO workspace_domains VALUES(?,?,'verified')").run(workspace,domainId);
+  sql.prepare('INSERT INTO workspace_tls_authorizations(workspace_id,enabled,generation,consent_version,updated_at) VALUES(?,0,1,NULL,?)')
+    .run(workspace,new Date(now).toISOString());
+  sql.prepare(`INSERT INTO active_check_consents(id,workspace_id,kind,domain_id,domain,hosts_json,checks_json,actor_user_id,actor_workspace_role,
+      signer_name,signer_title,authority_text,authority_version,created_at) VALUES('acc_slice_fail',?,'grant',?,?,'[]',?,'u','owner','Pat','IT','text','v',?)`)
+    .run(workspace,domainId,domain,JSON.stringify(['tls_intrusive_robot','tls_intrusive_ccs']),new Date(now).toISOString());
+  const authoriseActiveCheck=async()=>({authorised:true,reason:'authorised',consent_id:'acc_slice_fail'});
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+    dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const selected=['protocol','robot','ccs'].map(control=>({endpoint_index:0,check:{control,protocol:'tls1_2',cipher_id:null}}));
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,
+      generation:1,special_consent:true,special_checks:{robot:'acc_slice_fail',ccs:'acc_slice_fail'},consent_version:'active-checks-2026-10-22'}}],selected,static_results:[],results:[],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'pending'}};
+  sql.prepare('INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+30*60_000,new Date(now).toISOString());
+  let robotCalls=0,ccsCalls=0;
+  // CCS also fails ONCE right after ROBOT is recorded: without the streak reset
+  // that would be the third consecutive failure and end the job.
+  const order=[];
+  const collector=async(_env,input)=>{
+    const control=input.checks[0].control;order.push(control);
+    if(control==='robot'){robotCalls++;throw new Error('collector timed out');}
+    if(control==='ccs'&&++ccsCalls===1)throw new Error('collector timed out');
+    const physical={connections:control==='ccs'?5:1,bytes_sent:1000,bytes_received:2000,duration_ms:10};
+    const special=control!=='protocol';
+    const engine={schema:'tls-engine-result-v1',engine:{family:special?'active_legacy':'modern',version:special?'1.0.2u':'3.5.9',build_id:'a'.repeat(64),sandboxed:true},
+      control:special?control:'handshake',protocol:'tls1_2',state:special?'rejected':'accepted',reason:special?'active_not_observed':'handshake_completed',
+      authenticated_finished:true,vulnerability:special?{status:'not_observed',profile:'ccs-early-record-v1',completed_vectors:4,planned_vectors:4}:null,
+      negotiated:{version:'tls1_2',cipher:'AES128-GCM-SHA256',cipher_bits:128,group:null,group_bits:null,pfs:false,alpn:null,sni_sent:true},
+      certificates:null,ocsp:null,extensions:null,telemetry:physical,limitations:[],catalog:null};
+    const timestamp=new Date().toISOString();
+    return projectTlsCollectorReceipt(input,{schema_version:'tls-collector-raw-v1',request_id:input.request_id,started_at:timestamp,finished_at:timestamp,
+      results:[{check:input.checks[0],engine_result:engine,reason:null,observed_at:timestamp,physical_telemetry:physical}],telemetry:physical});
+  };
+  const message={kind:'external_exposure',v:1,scan_id:scanId,workspace_id:workspace};
+  // Force the gap (R1 follow-up, 16:40): the moment the giving-up attempt's
+  // lease is released, a competing delivery runs. If the slice were recorded
+  // only AFTER that release, the competitor would claim and re-run ROBOT.
+  let competed=false;
+  const raced={...env,cybermeters_db:{...env.cybermeters_db,prepare(sql){
+    const statement=env.cybermeters_db.prepare(sql);
+    if(!/lease_token=NULL,lease_until=0/.test(sql)||!/failure_count=CASE/.test(sql))return statement;
+    const wrap=(st)=>({...st,bind(...a){return wrap(st.bind(...a));},async run(){
+      const out=await st.run();
+      if(!competed&&robotCalls===TLS_SLICE_FAILURE_CAP){competed=true;
+        await processExposureMessage(message,env,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck});}
+      return out;
+    }});
+    return wrap(statement);
+  }}};
+  const outcomes=[];
+  for(let i=0;i<10&&!outcomes.includes('complete');i++){
+    outcomes.push((await processExposureMessage(message,raced,{lookupTlsDns,collectTlsAssessment:collector,authoriseActiveCheck})).outcome);
+  }
+  assert.equal(competed,true,'the forced gap was exercised');
+  const job=sql.prepare('SELECT state,failure_count,plan_json FROM external_exposure_jobs WHERE scan_id=?').get(scanId);
+  const tls=JSON.parse(job.plan_json).tls;
+  assert.equal(job.state,'complete','the job completes; it never ends as budget_exhausted');
+  assert.equal(robotCalls,TLS_SLICE_FAILURE_CAP,'the failing slice is tried exactly the per-slice cap, then recorded');
+  assert.equal(order.indexOf('ccs')>order.lastIndexOf('robot'),true);
+  const robot=tls.results.find(r=>r.control==='robot');
+  assert.deepEqual([robot.state,robot.reason,robot.failure_reason,robot.failure_attempts],['unexecutable','slice_failed','collector_error',TLS_SLICE_FAILURE_CAP],
+    'ROBOT reads a finite "could not complete" state, never budget exhausted');
+  assert.equal(tls.results.find(r=>r.control==='protocol')?.state,'accepted','the normal check after it still ran');
+  assert.ok(tls.results.find(r=>r.control==='ccs'),'the next special still ran');
+  assert.equal(job.failure_count,0,'the failure streak is reset once the slice is recorded');
+  assert.deepEqual([tls.last_slice_failure.control,tls.last_slice_failure.reason],['ccs','collector_error'],'the most recent slice failure is kept on the job');
+  assert.equal(tls.results.find(r=>r.control==='ccs')?.state,'rejected','a slice that failed once is retried and then completes');
+  assert.equal(blockingTlsUnexecutable(tls.results),0,'a failed special does not keep the TLS assessment partial (the score stays available)');
+  assert.equal(blockingTlsUnexecutable([{control:'protocol',state:'unexecutable',reason:'slice_failed'}]),1,'a failed NORMAL check still does');
+});
+// F1: specials are planned after every normal check, across endpoints, so a
+// special can never keep the domain's own checks from running.
+{
+  const ep=(hostname,address,kind,scope={})=>{const endpoint={hostname,sni:hostname,address,port:443,transport:'tcp',
+    application_protocol:'https',dns_addresses:[address],dns_observed_at:new Date().toISOString()};
+    return {endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind,...scope}};};
+  const service=ep('probe.order.example.org','8.8.4.4','authorized_service',{service_authorization_id:'svc_order',generation:1,special_consent:true,
+    special_checks:{heartbleed:'acc',robot:'acc',ccs:'acc'},granted_checks:{},held_checks:{}});
+  const domainEp=ep('order.example.org','8.8.8.8','standard_https',{special_consent:false,special_checks:{},granted_checks:{},held_checks:{}});
+  const plan=buildBudgetedTlsCheckPlan({endpoints:[domainEp,service],cipherCatalog:[],observedHttpsHosts:['order.example.org'],scanId:'order'});
+  const firstSpecial=plan.selected.findIndex(r=>['heartbleed','robot','ccs'].includes(r.check.control));
+  if(TLS_SPECIAL_CONTROLS_AVAILABLE)assert.ok(firstSpecial>0,'specials are planned');
+  assert.ok(plan.selected.slice(firstSpecial<0?plan.selected.length:firstSpecial).every(r=>['heartbleed','robot','ccs'].includes(r.check.control)),
+    'no normal check is planned after a special');
+  assert.ok(plan.selected.some(r=>r.endpoint_index===0)&&plan.selected.findIndex(r=>r.endpoint_index===0)<(firstSpecial<0?Infinity:firstSpecial),
+    "the domain's own checks come before any special");
+}
+
 // RELEASE_RESERVATION_FIXTURE_END
 // The planner asks Active Checks consent per intrusive control and per address and
 // records only the granted ones. With the controls unavailable it still asks
@@ -528,6 +665,54 @@ await test('released intrusive controls keep protocol/ROBOT/CCS reservations iso
   } finally {
     sql.prepare("UPDATE workspace_tls_service_authorizations SET authorization_status='revoked' WHERE id='service_f1_https'").run();
   }
+}
+// Customer outcome per control on the read model (F1 rerun, 24 Oct 2026).
+{
+  const workspace='w_outcome',scanId='tls_outcome_read',domain='outcome.example.org',domainId='d_outcome',now=Date.now();
+  sql.prepare('INSERT OR IGNORE INTO workspaces VALUES(?,NULL)').run(workspace);
+  sql.prepare('INSERT INTO scans VALUES(?,?,?,?,?)').run(scanId,workspace,domainId,domain,'completed');
+  const endpoint={hostname:domain,sni:domain,address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',dns_addresses:['8.8.8.8'],dns_observed_at:new Date(now).toISOString()};
+  const ext={ems:true,compression:false,secure_renegotiation:true,fallback_scsv:null,session_reused:false,early_data_max:null,renegotiation_completed:false};
+  const result=(control,state,reason,extensions)=>({endpoint_index:0,control,protocol:'tls1_2',cipher_id:null,state,reason,observed_at:new Date(now).toISOString(),
+    engine:null,evidence:{authenticated_finished:true,negotiated:null,certificates:null,ocsp:null,extensions,vulnerability:null,limitations:[]},
+    physical_telemetry:{connections:1,bytes_sent:1,bytes_received:1,duration_ms:1}});
+  const plan={content_state:'not_requested',checks:[],tls:{profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,
+    endpoints:[{endpoint,endpoint_identity:tlsEndpointIdentity(endpoint),scope:{kind:'standard_https',service_authorization_id:null,generation:0,special_consent:false,consent_version:null}}],
+    selected:[],static_results:[],results:[result('compression','accepted','handshake_completed',ext),result('protocol','accepted','handshake_completed',ext)],
+    cursor:0,gaps:[],omitted_checks:0,omitted_services:0,state:'complete'}};
+  sql.prepare("INSERT INTO external_exposure_jobs(scan_id,workspace_id,domain_id,domain,plan_json,created_ms,deadline_ms,updated_at,state) VALUES(?,?,?,?,?,?,?,?,'complete')")
+    .run(scanId,workspace,domainId,domain,JSON.stringify(plan),now,now+60_000,new Date(now).toISOString());
+  const assessment=await readTlsAssessmentForScan(env,{workspaceId:workspace,scanId});
+  const rows=assessment.endpoints[0].checks;
+  assert.deepEqual(rows.find(r=>r.control==='compression').customer_outcome,{value:'no',summary:'TLS compression is not used.'},'the read model carries the customer outcome');
+  assert.equal(rows.find(r=>r.control==='compression').state,'accepted','the raw engine state is kept');
+  assert.equal(Object.hasOwn(rows.find(r=>r.control==='protocol'),'customer_outcome'),false,'controls without a feature outcome carry none');
+}
+// F1 rerun (24 Oct 2026): one slice duration per special, shared by scan-api and
+// the probe contract. ROBOT's slice holds its 25 s engine run plus overhead.
+{
+  assert.deepEqual(TLS_SPECIAL_SLICE_DURATION_MS,{heartbleed:25000,robot:50000,ccs:25000});
+  assert.equal(tlsSliceDurationMs([{control:'robot',protocol:'tls1_2',cipher_id:null}]),50000);
+  assert.equal(tlsSliceDurationMs([{control:'protocol',protocol:'tls1_2',cipher_id:null}]),TLS_SLICE_LIMITS.durationMs,'normal slices keep 25 s');
+  assert.equal(tlsSliceDurationMs([]),TLS_SLICE_LIMITS.durationMs);
+  const { tlsLeaseMs } = await import('../workers/scan-api/src/engines/exposure-jobs.js');
+  assert.equal(tlsLeaseMs([{check:{control:'robot',protocol:'tls1_2',cipher_id:null}}]),55000,'a ROBOT lease is its slice plus 5 s');
+  assert.equal(tlsLeaseMs([{check:{control:'protocol',protocol:'tls1_2',cipher_id:null}}]),30000,'a normal slice keeps the job lease');
+  const t=Date.now(), iso=ms=>new Date(t+ms).toISOString();
+  const base={schema_version:'tls-assessment-request-v1',request_id:'r_dur',workspace_id:'w1',scan_id:'s1',domain_id:'d1',domain:'acme.org',
+    endpoint:{hostname:'probe.acme.org',sni:'probe.acme.org',address:'8.8.8.8',port:443,transport:'tcp',application_protocol:'https',
+      dns_addresses:['8.8.8.8'],dns_observed_at:iso(-1000)},
+    scope:{kind:'authorized_service',service_authorization_id:'svc1',generation:2,special_consent:true,consent_version:TLS_SPECIAL_CONSENT_VERSION},
+    max_bytes:20000};
+  const robot={...base,checks:[{control:'robot',protocol:'tls1_2',cipher_id:null}],max_connections:21};
+  const normal={...base,scope:{...base.scope,special_consent:false,consent_version:null},checks:[{control:'protocol',protocol:'tls1_2',cipher_id:null}],max_connections:4};
+  assert.equal(validateTlsAssessmentRequest({...robot,deadline_at:iso(45000)},t).ok,true,'a ROBOT slice may run 45 s');
+  assert.equal(validateTlsAssessmentRequest({...robot,deadline_at:iso(51000)},t).reason,'invalid_deadline','but never past its 50 s slice');
+  assert.equal(validateTlsAssessmentRequest({...normal,deadline_at:iso(30000)},t).reason,'invalid_deadline','a normal slice stays capped at 25 s');
+  assert.equal(validateTlsAssessmentRequest({...normal,deadline_at:iso(20000)},t).ok,true);
+  // scan-api sizes the slice from the same helper (the 25 s cut was the F1 defect).
+  const src=readFileSync(new URL('../workers/scan-api/src/engines/exposure-jobs.js',import.meta.url),'utf8');
+  assert.ok(src.includes('const remaining=Math.min(tlsSliceDurationMs(items.map(item=>item.check)),row.deadline_ms-now);'),'the TLS slice timer uses the shared per-special duration');
 }
 // A revoked grant stops the intrusive control in SQL itself: even when the
 // JavaScript precheck still says yes, the reservation fence refuses, and no

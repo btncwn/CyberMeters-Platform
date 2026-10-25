@@ -30,6 +30,8 @@ import { PHP_RUNTIME_TITLE, PHP_RUNTIME_HIDDEN_TITLE, PHP_RUNTIME_HIDDEN_SENTENC
 import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { EXPOSURE_RULES } from "../../../../shared/exposure/catalog.js";
 
+const PHP_RUNTIME_NCSC_FACTS = "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.";
+
 // The eight canonical domain keys are DERIVED from the security domain model so
 // they can never drift from it. Every registry entry must use one of these.
 export const CANONICAL_DOMAIN_KEYS = Object.freeze(
@@ -650,6 +652,27 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     managed_workflow_compatible: true,
     case_type: "asm_exposure",
   }),
+  // Dangling DNS on a cloud address (24 Oct 2026): an owned name resolves into a
+  // cloud provider's published range, a service answered there before, and no
+  // checked port answered now. Never a takeover claim.
+  entry({
+    remediation_id: "asm.dns.cloud_address_unreachable",
+    introduced_at: "2026-10-24",
+    domain_key: "attack_surface",
+    finding_types: ["dns_cloud_address_unreachable_after_live"],
+    customer_title: "Check the DNS record that points at a cloud address that stopped answering",
+    technical_explanation: "A name under your domain resolves to an address in a cloud provider's published range. A service answered there before; in this scan none of the checked ports answered. CyberMeters connected only.",
+    business_impact: "If the address was released back to the provider, another customer of that provider could be given it and serve content on your subdomain.",
+    recommended_action: "Verify the record still points at infrastructure you control, or remove the DNS record.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "A fresh scan finds the address answering again, or the DNS record removed.",
+    supporting_evidence_types: ["network_port_observation"],
+    limitations: ["An address that is only temporarily down looks the same; this is not a confirmed takeover. Azure address ranges are not covered (no stable public list)."],
+    managed_workflow_compatible: true,
+    case_type: "asm_exposure",
+  }),
   entry({
     remediation_id: "asm.network.ftp_reachable",
     domain_key: "attack_surface",
@@ -1211,7 +1234,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     finding_types: ["tech_php2shell_outdated"],
     customer_title: PHP_RUNTIME_TITLE,
     technical_explanation: PHP_RUNTIME_TITLE,
-    business_impact: "The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.",
+    business_impact: PHP_RUNTIME_NCSC_FACTS,
     recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed.",
     effort: "medium",
     owner_type: "customer_it",
@@ -1230,7 +1253,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     finding_types: ["tech_php2shell_version_hidden"],
     customer_title: PHP_RUNTIME_HIDDEN_TITLE,
     technical_explanation: PHP_RUNTIME_HIDDEN_SENTENCE,
-    business_impact: PHP_RUNTIME_HIDDEN_SENTENCE,
+    business_impact: PHP_RUNTIME_NCSC_FACTS,
     recommended_action: PHP_RUNTIME_HIDDEN_SENTENCE,
     effort: "low",
     owner_type: "customer_it",

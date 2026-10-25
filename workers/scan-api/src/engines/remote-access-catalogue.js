@@ -16,7 +16,7 @@ export async function refreshRemoteAccessCatalogue(env, { fetchImpl = fetch, now
       if (!response.ok) { await response.body?.cancel(); continue; }
       const body = await readBoundedJson(response.body, 4 * 1024 * 1024);
       const released = Date.parse(body.dateReleased || '');
-      if (!Number.isFinite(released) || released > now + 60000 ||
+      if (!Number.isFinite(released) || released > now + 60000 || now - released > 14 * 86400000 ||
           typeof body.catalogVersion !== 'string' || !/^\d{4}\.\d{2}\.\d{2}$/.test(body.catalogVersion) ||
           !Array.isArray(body.vulnerabilities) || body.vulnerabilities.length < 1 || body.vulnerabilities.length > 20000 ||
           body.count !== body.vulnerabilities.length || body.vulnerabilities.some(v => !/^CVE-\d{4}-\d{4,19}$/.test(v?.cveID))) continue;

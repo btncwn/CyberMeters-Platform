@@ -257,6 +257,21 @@ const R_ALL_503 = async () => origin503();
   }
   const healthy = await observe(allHeaders);
   eq("UNCERTAIN_CONTROL_FULLY_HEADERED_200_STAYS_HEALTHY", healthy.website?.state, "assessed_healthy");
+
+  // Item 15 re-run (24 Oct 2026, corpus-mind): a 403 page that carries every
+  // header EXCEPT HSTS. Since E2 the HSTS policy is not_observed on a 403, so no
+  // HSTS finding fires and no other header check is uncertain - the domain read
+  // assessed_healthy. The headers module itself says it could not validate.
+  const allButHsts403 = async (url) => (new URL(String(url)).protocol === "http:" ? redirect301(url)
+    : new Response("<html><body>blocked</body></html>", { status: 403, headers: {
+        "server": "nginx", "content-type": "text/html",
+        "content-security-policy": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        "x-frame-options": "DENY", "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin", "permissions-policy": "camera=()" } }));
+  const blocked = await observe(allButHsts403);
+  eq("UNCERTAIN_403_ALL_BUT_HSTS_POLICY_NOT_OBSERVED", blocked.headers?.hsts_policy?.state, "not_observed");
+  eq("UNCERTAIN_403_ALL_BUT_HSTS_WEBSITE_NOT_HEALTHY", [blocked.website?.state, blocked.website?.coverage], ["provisional", "partial"]);
+  // Control: the same headers on a 200 WITH HSTS stays healthy.
 }
 
 // ── Item 15 fix B/B2 (23 Oct 2026): HSTS is the apex's own, host-scoped policy ─

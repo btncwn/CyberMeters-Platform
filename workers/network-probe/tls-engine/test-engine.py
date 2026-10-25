@@ -577,6 +577,17 @@ class BaselineTests(unittest.TestCase):
         self.assertTrue(result['extensions']['renegotiation_completed'])
         self.assertEqual(result['telemetry']['connections'], 1)
 
+    def test_client_renegotiation_refused_by_a_modern_server(self):
+        # Production runs the renegotiation control on the modern engine for
+        # TLS 1.2. A stock OpenSSL 3 server refuses client-initiated
+        # renegotiation by default: the attempt is recorded as made and not
+        # completed (false, never null), with RFC 5746 support observed.
+        with server(self.modern, self.cert, self.key, 'tls1_2') as port:
+            result = self.assess('tls1_2', port, control='renegotiation', family='modern')
+        self.assertNotEqual(result['state'], 'accepted', result)
+        self.assertIs(result['extensions']['renegotiation_completed'], False, result)
+        self.assertIs(result['extensions']['secure_renegotiation'], True, result)
+
     def test_compression_is_measured_only_by_dedicated_legacy_check(self):
         for protocol in ('ssl3', 'tls1', 'tls1_1', 'tls1_2'):
             with self.subTest(protocol=protocol):
@@ -779,6 +790,27 @@ class BaselineTests(unittest.TestCase):
         }, result)
         self.assertEqual(result['telemetry']['connections'], 21)
         self.assertLess(result['telemetry']['bytes_sent'] + result['telemetry']['bytes_received'], 65536)
+
+    def test_robot_implicit_rejection_server_is_finite_not_observed(self):
+        # F1 rerun (24 Oct 2026): the F1 listener shape - a stock OpenSSL 3 server
+        # (implicit rejection: no alert after a bad ClientKeyExchange), RSA-2048
+        # certificate, AES128-GCM-SHA256 offered. ROBOT must finish inside the
+        # engine's 25 s budget with a finite not_observed, never uncertain.
+        started = time.monotonic()
+        with server(self.modern, self.cert, self.key, 'tls1_2', extra=('--cipher', 'AES128-GCM-SHA256')) as port:
+            result = self.assess('tls1_2', port, control='robot', family='active_legacy',
+                                 extra=['--max-connections', '21', '--timeout-ms', '25000'])
+        elapsed = time.monotonic() - started
+        self.assertEqual(result['state'], 'rejected', result)
+        self.assertEqual(result['vulnerability'], {
+            'status': 'not_observed', 'profile': 'robot-finite-v1',
+            'completed_vectors': 20, 'planned_vectors': 20,
+        }, result)
+        self.assertEqual(result['negotiated']['cipher'], 'AES128-GCM-SHA256')
+        self.assertLess(result['telemetry']['duration_ms'], 25000)
+        # The scan-api slice for ROBOT (TLS_SPECIAL_SLICE_DURATION_MS.robot, 50 s)
+        # must hold this run plus collector overhead with room to spare.
+        self.assertLess(elapsed, 40)
 
     def test_version_rejection_is_not_engine_unsupported(self):
         with server(self.modern, self.cert, self.key, 'tls1_3') as port:

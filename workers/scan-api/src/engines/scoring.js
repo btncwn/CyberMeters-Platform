@@ -1169,9 +1169,12 @@ export function computeScore(modules, domain) {
   if (remoteAdmin && !remoteAdmin.error && Array.isArray(remoteAdmin.exposures)) {
     const describe = (row) => {
       const where = `${row.address}${row.hostnames?.length ? ` (${row.hostnames.slice(0, 3).join(", ")})` : ""}`;
+      // "<service> reachable from the internet on port <n>" (Executive, 24 Oct
+      // 2026). The service is named as fact only when it announced itself;
+      // otherwise the port answered and that is all that is claimed.
       return row.service_basis === "banner"
-        ? `${row.banner_service} answered on port ${row.port} at ${where}`
-        : `port ${row.port} answered at ${where}; this port is commonly used by ${row.service}`;
+        ? `${row.banner_service} reachable from the internet on port ${row.port} at ${where}`
+        : `${row.service} port ${row.port} reachable from the internet at ${where} (the port answered; the service did not identify itself)`;
     };
     const hostsOf = (rows) => [...new Set(rows.flatMap((row) => row.hostnames || []))];
     const evidenceOf = (rows, expected) => ({
@@ -1230,6 +1233,46 @@ export function computeScore(modules, domain) {
         description:  `${ssh.map((row) => `${describe(row)}${row.banner_excerpt ? ` (announced as "${row.banner_excerpt}")` : ""}`).join("; ")}. SSH is a normal way to manage servers; make sure it accepts keys rather than passwords and is kept up to date.`,
         score_impact: 0,
         evidence:     evidenceOf(ssh, "Only expected management access is reachable"),
+      });
+    }
+    // ── Dangling DNS on a cloud address (24 Oct 2026) ─────────────────────
+    // An owned name resolves into a cloud provider's published range and no
+    // checked port answered in this run. Medium when this workspace saw a
+    // service answer there before (a live host went dark); an observation
+    // otherwise. Never a takeover claim: the address may simply be down.
+    const dark = (remoteAdmin.cloud_hosts?.hosts || []).filter((row) => row.state === "unreachable");
+    const sentence = (row) => `${(row.hostnames || []).slice(0, 3).join(", ") || row.address} resolves to ${row.address} in a ${row.provider_name} address range but no service answered. ` +
+      "If that address was released, another tenant could claim it and serve content on your subdomain. Verify the record still points at infrastructure you control, or remove the DNS record.";
+    const cloudEvidence = (rows, expected) => ({
+      evidence_type:  "network_port_observation",
+      probe_target:   rows.map((row) => row.address).join(", "),
+      observed_value: rows.map((row) => `${row.address} (${row.provider_name}): no port answered${row.live_history ? `; answered before on ${row.live_history.seen_at.slice(0, 10)} (port ${row.live_history.port})` : ""}`).join("; "),
+      expected_value: expected, source: "remote_admin_exposure", checked_at: remoteAdmin.observed_at || evidenceTime,
+    });
+    const wentDark = dark.filter((row) => row.live_history);
+    if (wentDark.length > 0) {
+      finding({
+        id:           "dns_cloud_address_unreachable_after_live",
+        module:       "remote_admin_exposure",
+        severity:     "medium",
+        affected_hosts: [...new Set(wentDark.flatMap((row) => row.hostnames || []))],
+        title:        "DNS Record Points at a Cloud Address That Stopped Answering",
+        description:  wentDark.map(sentence).join(" "),
+        score_impact: 0,
+        evidence:     cloudEvidence(wentDark, "The address answers again, or the DNS record is removed"),
+      });
+      recommendations.push(canonicalRec("dns_cloud_address_unreachable_after_live", { priority: 2, module: "remote_admin_exposure",
+        detail: `Records: ${wentDark.map((row) => `${(row.hostnames || []).join(", ")} → ${row.address}`).join("; ")}.` }));
+    }
+    const neverSeen = dark.filter((row) => !row.live_history);
+    if (neverSeen.length > 0) {
+      // Pushed directly: no history, so an observation, never actionable.
+      findings.push({
+        id: "dns_cloud_address_unreachable_observed", module: "remote_admin_exposure", severity: "info", confidence: 100,
+        finding_type: "observation", affected_hosts: [...new Set(neverSeen.flatMap((row) => row.hostnames || []))],
+        title: "DNS Record Points at an Unreachable Cloud Address",
+        description: neverSeen.map(sentence).join(" "), score_impact: 0,
+        evidence: cloudEvidence(neverSeen, "The address answers, or the DNS record is removed"),
       });
     }
   }

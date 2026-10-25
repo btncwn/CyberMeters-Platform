@@ -16,6 +16,7 @@ sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
   INSERT INTO workspace_domains VALUES('a','domain_a','verified'),('b','domain_b','verified'),('a','unverified','pending');
   INSERT INTO network_targets VALUES('target_a','a','8.8.8.8','attested','["8.8.8.8"]','in_scope'),('target_b','b','8.8.4.4','attested','["8.8.4.4"]','in_scope'),('revoked_target','a','1.1.1.1','revoked','["1.1.1.1"]','in_scope'),('unobserved_target','a','9.9.9.9','attested','["9.9.9.9"]','out_of_scope');`);
 sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
+sql.exec(readFileSync(new URL('../database/migrations/140-network-target-withdrawal.sql',import.meta.url),'utf8'));
 const prepare = (text,args=[]) => ({bind:(...values)=>prepare(text,values),first:async()=>sql.prepare(text).get(...args)||null,all:async()=>({results:sql.prepare(text).all(...args)}),run:async()=>({meta:{changes:sql.prepare(text).run(...args).changes}})});
 let networkCalls = 0;
 const noNetwork = () => {networkCalls++;throw new Error('unexpected_network');};
@@ -70,6 +71,10 @@ response=await request('PUT','',{enabled:false});check(response.body.authorizati
 for (const change of [{domain_id:'domain_b'},{domain_id:'unverified'},{hostname:'other.example.com',sni:'other.example.com'},{hostname:'owned.example.com.evil.net',sni:'owned.example.com.evil.net'},{sni:'another.owned.example.com'},{hostname:'127.0.0.1',sni:'127.0.0.1'},{port:443},{application_protocol:'https'},{application_protocol:'__proto__'},{port:'587'},{authorization_confirmed:false},{transport_override:'udp'}]) check((await request('POST','/services',{...service,...change})).status,400);
 for (const target of ['target_b','revoked_target','unobserved_target','missing']) check((await request('POST','/services',{...service,network_target_id:target})).status,409);
 check((await request('POST','/services',service,{role:'viewer'})).status,403);
+sql.prepare("UPDATE network_targets SET withdrawn_at='2026-10-25T15:30:00Z' WHERE id='target_a'").run();
+check((await request()).body.network_targets,[]);
+check((await request('POST','/services',service)).status,409);
+sql.prepare("UPDATE network_targets SET withdrawn_at=NULL WHERE id='target_a'").run();
 response=await request('POST','/services',service);check(response.status,201);const id=response.body.service.id;
 check(response.body.service.sni,service.hostname);check(response.body.service.authorization_status,'active');check(response.body.authorization.generation,4);
 check((await request('POST','/services',service)).status,409);check((await request()).body.authorization.generation,4);

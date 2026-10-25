@@ -225,9 +225,13 @@ const EXPECTED = Object.freeze({
     // Hardening (24 Oct 2026): two imports added to routes/workspace-insights.js
     // shift its SQL sites; keyed two-tree diff (file, kind, snippet) shows 0
     // added and 0 removed across sql_sites / static / query-sink. Counts unchanged.
-    fingerprint: "c8156c8101878556dc5cc5c97f06b510158f49ce4f4323dca4e47f08a416f7ae",
+    // C-58 (24 Oct 2026): the related-changes previous-scan query compares and
+    // orders timestamps with julianday(). Two-tree --dump-current vs main:
+    // exactly that SQL snippet changes; its scan_quality predicate, all counts,
+    // projections, direct reads and non-SQL fingerprints remain unchanged.
+    fingerprint: "ea44eb72b955348b6ea388e68edb38c70cff0bd044087262a6d39469a4145954",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "e75a5e1a94ed6171ce121fc8f793d172bf57ee500aa35a70cfda6695e8ce5779",
+    resolved_query_sink_fingerprint: "4eb21227b6cc5c23f7909e67f04dc71ab947db29812f74f0fa06cc8186265f60",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -378,7 +382,11 @@ const EXPECTED = Object.freeze({
     // ONE-SCORE (24 Oct 2026): 144 -> 145 — one read in ScanDetail.jsx,
     // `reportV2?.evidence_completeness?.scan_quality`, so the Technical Details hero
     // judges completeness from the Executive Report's own source (same file set).
-    runtime: { occurrence_count: 145, source_file_count: 49, fingerprint: "10bfb16667148b3377a4a2611ba1c594c3b9cbf06182ec8614ea26b20df2048b" },
+    // SNAPSHOT-NEVER-SILENT (25 Oct 2026): 145 -> 146 — one read in report-snapshot.js,
+    // `report?.scan_quality`, recorded on the 'failed' row a refused workspace read now
+    // leaves (same file set). Two-tree --dump-current diff: this read only; the two
+    // scan-engine.js runtime comparisons moved by byte offset only.
+    runtime: { occurrence_count: 146, source_file_count: 49, fingerprint: "fde3aa89356c83aad450af5090fa1d68612d2a6cc0152057cd79adc3fc2fda44" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
@@ -492,7 +500,13 @@ const EXPECTED = Object.freeze({
   // takeover_risks -> high_risk_assets (23 Oct 2026): comment lines shift
   // attack-surface.js projection sites; the two-tree diff is identical ignoring
   // position (24 projections, same snippets).
-  sql_reads: { projection_occurrences: 24, fingerprint: "6e7db7480d48123df76aa343b17e77cf0494262f02bc1ecebe9a0bc630822697" },
+  // F1 (D, 24 Oct 2026): scans.js gains the exposure-job read above the scan read
+  // handlers; a two-tree --dump-current diff shows all 24 projection sites identical
+  // apart from line numbers. Only the fingerprint moves.
+  // PDF authorised active checks (24 Oct 2026): the PDF route's frozen
+  // tls_assessment read shifts later scans.js projection sites; the two-tree
+  // --dump-current diff is identical ignoring line (24 projections, same snippets).
+  sql_reads: { projection_occurrences: 24, fingerprint: "e8f5f2414f611b4243fd5f709fa0161bec738317864a7c96ab8c95220e1d607d" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([
@@ -562,17 +576,23 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
 // only its line moves (257 -> 301 -> 276 -> 290) as that validator's fixtures above it
 // change; it now proves module-owned degraded evidence.
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
+  // C-61: the local corpus preserves inconclusive exposure results as unknown;
+  // this is the collector module's quality, not canonical scan_quality.
+  "scripts/lab/local-recall-corpus.mjs:123:observed.module.quality==='partial'",
   // TLS assessment quality is a recorded fixture field, not scan_quality.
   "scripts/validate-cert-trust-l2.js:232:routeCert?.tls_assessment?.quality === \"partial\"",
   // The terminal-host queue fixture asserts exposure receipt quality, not scan_quality.
   // C-27 guards move this exact assertion 174 -> 179; keyed two-tree diff
   // Network-probe coverage quality (no-answer is an observation, 22 Oct 2026), not scan_quality.
-  "scripts/validate-network-assets.js:403:proof.quality==='complete'",
-  "scripts/validate-network-assets.js:405:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'error')]}).quality==='partial'",
-  "scripts/validate-network-assets.js:406:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'not_run')]}).quality==='partial'",
-  "scripts/validate-network-assets.js:410:silent.quality==='partial'",
-  "scripts/validate-network-assets.js:413:mixed.quality==='partial'",
-  "scripts/validate-network-assets.js:425:mutant.networkReceiptCoverage({coverage:{planned:4},observations:[o(22,'open'),o(80,'timeout'),o(443,'timeout'),o(3389,'timeout')]}).quality==='partial'",
+  // Target withdrawal adds one import above these six unchanged fixture assertions.
+  // Two-tree inventory diff: only their line keys move by +1; all counts,
+  // semantic fingerprints and other unresolved sites remain identical to main.
+  "scripts/validate-network-assets.js:404:proof.quality==='complete'",
+  "scripts/validate-network-assets.js:406:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'error')]}).quality==='partial'",
+  "scripts/validate-network-assets.js:407:networkReceiptCoverage({coverage:{planned:2},observations:[o(22,'open'),o(80,'not_run')]}).quality==='partial'",
+  "scripts/validate-network-assets.js:411:silent.quality==='partial'",
+  "scripts/validate-network-assets.js:414:mixed.quality==='partial'",
+  "scripts/validate-network-assets.js:426:mutant.networkReceiptCoverage({coverage:{planned:4},observations:[o(22,'open'),o(80,'timeout'),o(443,'timeout'),o(3389,'timeout')]}).quality==='partial'",
   // against origin/main 16a4ae0b shows no other unresolved-site change.
   "scripts/validate-exposure-queue.js:181:report.quality==='partial'", // F1 C-52b: one import line added above; keyed diff shows only this shift
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",

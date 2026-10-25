@@ -8,9 +8,9 @@ import { planExposureChecks } from '../../../../shared/exposure/discovery.js';
 import { EXPOSURE_LIMITS, validateExposureRequest, validateExposureReceipt } from '../../../network-probe/src/exposure-contract.js';
 import { readBoundedJson, isProbeHostname } from '../../../network-probe/src/contract.js';
 import { WEBSITE_CONTENT_LIMITS, validateWebsiteContentRequest, validateWebsiteContentReceipt } from '../../../network-probe/src/website-content-contract.js';
-import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
+import { TLS_SLICE_LIMITS, TLS_SPECIAL_CONNECTION_LIMITS, tlsSliceDurationMs, TLS_SPECIAL_CONSENT_VERSION, TLS_TRUST_BUNDLE, isWeakTlsCipher, tlsProtocolRisk } from '../../../../shared/tls/catalog.js';
 import { TLS_CIPHER_CATALOG } from '../../../../shared/tls/cipher-catalog.generated.js';
-import { blockingTlsNotAuthorized, blockingTlsUnexecutable, classifyTlsRefusals } from './tls-quality.js';
+import { blockingTlsNotAuthorized, blockingTlsUnexecutable, classifyTlsRefusals, tlsControlOutcome } from './tls-quality.js';
 import { validateTlsAssessmentRequest, validateTlsAssessmentReceipt } from '../../../network-probe/src/tls-contract.js';
 import { buildBudgetedTlsCheckPlan, loadTlsEndpoints, refreshTlsEndpoint, tlsScopeStillAuthorized, TLS_SPECIAL_CHECK_IDS } from './tls-planner.js';
 import { getEffectiveDomainLimit, getEffectivePlanState } from './entitlements.js';
@@ -104,7 +104,7 @@ const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_author
       AND EXISTS(SELECT 1 FROM json_each(g.checks_json) k WHERE k.value=json_extract(c.value,'$[1]'))
       AND NOT EXISTS(SELECT 1 FROM active_check_consents r WHERE r.kind='revocation' AND r.grant_id=g.id)))))
   AND (?='standard_https' OR EXISTS(SELECT 1 FROM workspace_tls_service_authorizations sa
-    JOIN network_targets t ON t.id=sa.network_target_id AND t.workspace_id=sa.workspace_id
+    JOIN network_targets t ON t.id=sa.network_target_id AND t.workspace_id=sa.workspace_id AND t.withdrawn_at IS NULL
     WHERE sa.id=? AND sa.workspace_id=external_exposure_jobs.workspace_id
       AND sa.domain_id=external_exposure_jobs.domain_id AND sa.authorization_status='active'
       AND sa.hostname=? AND sa.sni=? AND sa.port=? AND sa.application_protocol=?
@@ -446,7 +446,8 @@ export async function collectTlsAssessment(env,input,{signal}={}) {
     });
     pending.then(response=>{if(controller.signal.aborted)response.body?.cancel().catch(()=>{});}).catch(()=>{});
     const response=await Promise.race([pending,aborted]);
-    if(!response.ok){await response.body?.cancel();throw new Error('collector_unavailable');}
+    // 503 = both probe scan slots in use (mail transport records it; a TLS slice reads it as collector_error).
+    if(!response.ok){await response.body?.cancel();throw new Error(response.status===503?'collector_busy':'collector_unavailable');}
     const receipt=await Promise.race([readBoundedJson(response.body,TLS_SLICE_LIMITS.responseBytes),aborted]);
     if(controller.signal.aborted||!validateTlsAssessmentReceipt(input,receipt).ok)throw new Error('invalid_tls_receipt');
     return receipt;
@@ -523,12 +524,13 @@ export function estimateExposureJobBudget(plan) {
     httpSlices++;
   }
   const selected=Array.isArray(plan?.tls?.selected)?plan.tls.selected:[];
-  let tlsSlices=0,tlsRequests=0;
+  let tlsSlices=0,tlsRequests=0,tlsDurationMs=0;
   for(let i=0;i<selected.length;){
     const slice=tlsSliceAt(selected,i);
     if(!slice.length)break;
     tlsSlices++;
     tlsRequests+=TLS_SPECIAL_CONNECTION_LIMITS[slice[0].check.control]||TLS_SLICE_LIMITS.connections;
+    tlsDurationMs+=tlsSliceDurationMs(slice.map(row=>row.check));
     i+=slice.length;
   }
   const content=plan?.content_state==='not_requested'?0:1;
@@ -540,7 +542,7 @@ export function estimateExposureJobBudget(plan) {
   // Slices run serially. Reserve deadline margin against every collector's
   // maximum wait, not just the median observed on a small workspace.
   const durationMs=content*WEBSITE_CONTENT_LIMITS.durationMs+
-    httpSlices*EXPOSURE_LIMITS.durationMs+tlsSlices*TLS_SLICE_LIMITS.durationMs;
+    httpSlices*EXPOSURE_LIMITS.durationMs+tlsDurationMs;
   const headroom=value=>Math.ceil(value*6/5);
   return {requests:headroom(requests),bytes:headroom(bytes),attempts:headroom(slices),
     durationMs:headroom(durationMs)};
@@ -582,12 +584,31 @@ function growExposureJobBudget(plan) {
   for(const key of ['requests','bytes','attempts'])plan.network_budget[key]=Math.max(plan.network_budget[key],next[key]);
 }
 
-async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now) {
-  const tls=plan.tls,oldCursor=tls.cursor;
-  for(const item of items)tls.results.push({endpoint_index:item.endpoint_index,...item.check,state,reason,observed_at:new Date(now).toISOString(),engine:null,evidence:null,physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}});
+// Consecutive failures of ONE TLS slice before it is recorded and skipped.
+// Below the job-wide cap (EXPOSURE_JOB_LIMITS.failures), so one stubborn slice
+// can never end the job by itself.
+export const TLS_SLICE_FAILURE_CAP = 2;
+const TLS_SLICE_FAILURE_REASONS = new Set(['invalid_receipt','unbounded_receipt','tls_scope_revoked']);
+export function tlsSliceFailureReason(error,aborted) {
+  if(aborted)return 'slice_time_limit_or_abort';
+  const message=String(error?.message||'');
+  return TLS_SLICE_FAILURE_REASONS.has(message)?message:'collector_error';
+}
+
+// Record a slice's checks as not run (in memory) and advance the cursor.
+// Returns whether the TLS plan is now complete.
+function recordUnrunTlsRows(plan,items,state,reason,now,detail={}) {
+  const tls=plan.tls;
+  for(const item of items)tls.results.push({endpoint_index:item.endpoint_index,...item.check,state,reason,...detail,observed_at:new Date(now).toISOString(),engine:null,evidence:null,physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}});
   tls.cursor+=items.length;
   const complete=tls.cursor>=tls.selected.length;
   tls.state=complete?'complete':'pending';
+  return complete;
+}
+
+async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now,detail={}) {
+  const oldCursor=plan.tls.cursor;
+  const complete=recordUnrunTlsRows(plan,items,state,reason,now,detail);
   const result=await env.cybermeters_db.prepare(`UPDATE external_exposure_jobs SET plan_json=?,state=?,updated_at=?
     WHERE scan_id=? AND workspace_id=? AND state IN ('pending','running') AND lease_until<=?
       AND CAST(json_extract(plan_json,'$.tls.cursor') AS INTEGER)=? AND ${AUTHORITY}`)
@@ -595,6 +616,13 @@ async function storeUnrunTlsSlice(env,row,plan,items,state,reason,now) {
   if(!changed(result))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
   if(complete)await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
   return {action:'ack',outcome:reason};
+}
+
+// A TLS slice's lease: at least the job lease, and always longer than the slice
+// itself (its duration plus a 5 s margin), so no second claim can start while it runs.
+export const TLS_LEASE_MARGIN_MS = 5000;
+export function tlsLeaseMs(items) {
+  return Math.max(EXPOSURE_JOB_LIMITS.leaseMs, tlsSliceDurationMs((items||[]).map(item=>item.check))+TLS_LEASE_MARGIN_MS);
 }
 
 async function processTlsSlice(env,row,plan,now,deps={}) {
@@ -630,7 +658,10 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
       AND (SELECT COALESCE(SUM(j.charged_bytes),0) FROM external_exposure_jobs j
         WHERE j.workspace_id=external_exposure_jobs.workspace_id AND j.created_ms>=?)+?<=?
       AND ${TLS_SCOPE_FENCE}`)
-    .bind(token,now+EXPOSURE_JOB_LIMITS.leaseMs,reservationRequests,reservationBytes,now+runMsFor(plan),new Date(now).toISOString(),
+    // The lease must outlive the slice (a 50 s ROBOT slice exceeded the 30 s
+    // lease: its result was fenced out and another delivery could claim the job
+    // and start a second intrusive run). R1 on #981.
+    .bind(token,now+tlsLeaseMs(items),reservationRequests,reservationBytes,now+runMsFor(plan),new Date(now).toISOString(),
       row.scan_id,row.workspace_id,row.cursor,now,tls.cursor,reservationRequests,budget.requests,
       reservationBytes,budget.bytes,now,now-EXPOSURE_JOB_LIMITS.windowMs,reservationRequests,
       window.requests,now-EXPOSURE_JOB_LIMITS.windowMs,reservationBytes,window.bytes,
@@ -642,7 +673,9 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     return finishWithoutProbe(env,row,'budget_exhausted','tls_network_budget',now);
   }
   const controller=new AbortController();
-  const remaining=Math.min(TLS_SLICE_LIMITS.durationMs,row.deadline_ms-now);
+  // A special's slice holds its engine run plus container/collector overhead
+  // (TLS_SPECIAL_SLICE_DURATION_MS, shared with the probe contract).
+  const remaining=Math.min(tlsSliceDurationMs(items.map(item=>item.check)),row.deadline_ms-now);
   const timer=setTimeout(()=>controller.abort(),remaining);
   let polling=false;
   const watchdog=setInterval(async()=>{
@@ -683,12 +716,53 @@ async function processTlsSlice(env,row,plan,now,deps={}) {
     if(!changed(stored))return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
     if(state==='complete')await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
     return {action:'ack',outcome:state};
-  }catch{
+  }catch(error){
     const active=await canRun(env,row).catch(()=>false);
-    await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=failure_count+1,unknown_attempts=unknown_attempts+1,
-      lease_token=NULL,lease_until=0,updated_at=? WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
-      .bind(active?'pending':'cancelled',new Date(deps.now?.()??Date.now()).toISOString(),row.scan_id,row.workspace_id,token).run();
+    // F1 (24 Oct 2026): a slice that keeps failing (ROBOT on a server that
+    // stays silent after a bad key exchange ran past its time limit three
+    // times) used to end the whole job through the job-wide failure cap, so
+    // every check after it, the domain's own included, never ran and the score
+    // was withheld. The failure is now counted per slice: after
+    // TLS_SLICE_FAILURE_CAP consecutive failures that slice is recorded as
+    // 'unexecutable / slice_failed' (with the failure reason) and the job
+    // continues. The last failure is kept on the plan for diagnosis. The
+    // attempt's reservation stays charged: an unknown attempt may have opened
+    // its connections.
+    const at=new Date(deps.now?.()??Date.now());
+    const key=String(tls.cursor);
+    const failures=((tls.slice_failures&&tls.slice_failures[key])||0)+1;
+    tls.slice_failures={...(tls.slice_failures||{}),[key]:failures};
+    tls.last_slice_failure={cursor:tls.cursor,endpoint_index:items[0].endpoint_index,control:items[0].check.control,
+      reason:tlsSliceFailureReason(error,controller.signal.aborted),attempts:failures,at:at.toISOString()};
+    // Once a slice is given up the streak resets, so the job-wide failure cap
+    // bounds CONSECUTIVE failures only. Total work stays bounded: every retry
+    // charges an attempt (budget.attempts), the job has a deadline, and the
+    // request/byte budgets keep their unrefunded reservations.
+    const giveUp=active&&failures>=TLS_SLICE_FAILURE_CAP;
+    // A given-up slice is recorded in the SAME write that releases this
+    // attempt's lease (fenced on its lease_token): there is no moment where the
+    // lease is free while the cursor still points at that slice, so no other
+    // delivery can claim and re-run it (it may be intrusive).
+    const complete=giveUp?recordUnrunTlsRows(plan,items,'unexecutable','slice_failed',at.getTime(),
+      {failure_reason:tls.last_slice_failure.reason,failure_attempts:failures}):false;
+    const released=await db.prepare(`UPDATE external_exposure_jobs SET state=?,failure_count=CASE WHEN ?=1 THEN 0 ELSE failure_count+1 END,
+      unknown_attempts=unknown_attempts+1,plan_json=?,lease_token=NULL,lease_until=0,updated_at=?
+      WHERE scan_id=? AND workspace_id=? AND lease_token=? AND (?=0 OR ${AUTHORITY})`)
+      .bind(!active?'cancelled':complete?'complete':'pending',giveUp?1:0,JSON.stringify(plan),at.toISOString(),row.scan_id,row.workspace_id,token,giveUp?1:0).run();
     if(!active){await resumeDomain(env,row);return {action:'ack',outcome:'cancelled'};}
+    if(giveUp){
+      // Recording a given-up slice also needs the job's authority, exactly as
+      // storeUnrunTlsSlice does. If it was lost, still release this attempt's
+      // lease (nothing recorded) so the job is never left stuck, then retry.
+      if(!changed(released)){
+        await db.prepare(`UPDATE external_exposure_jobs SET lease_token=NULL,lease_until=0,updated_at=?
+          WHERE scan_id=? AND workspace_id=? AND lease_token=?`)
+          .bind(at.toISOString(),row.scan_id,row.workspace_id,token).run();
+        return {action:'retry',delaySeconds:30,outcome:'tls_fence_lost'};
+      }
+      if(complete)await resumeDomain(env,row);else await env.SCAN_QUEUE.send(messageFor(row));
+      return {action:'ack',outcome:'slice_failed'};
+    }
     return {action:'retry',delaySeconds:5,outcome:'tls_uncertain_attempt_charged'};
   }finally{clearTimeout(timer);clearInterval(watchdog);}
 }
@@ -923,8 +997,13 @@ export async function readTlsAssessmentForScan(env,{workspaceId,scanId}) {
     physical_telemetry:{connections:0,bytes_sent:0,bytes_received:0,duration_ms:0}}))]);
   const endpoints=tls.endpoints.map((entry,index)=>({
     ...entry.endpoint,endpoint_identity:entry.endpoint_identity,scope:entry.scope,
-    checks:all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>({...(check||{}),...rest,
-      endpoint_identity:entry.endpoint_identity})),
+    checks:(()=>{
+      const rows=all.filter(item=>item.endpoint_index===index).map(({endpoint_index,check,...rest})=>
+        ({...(check||{}),...rest,endpoint_identity:entry.endpoint_identity}));
+      // The customer outcome per control (compression used, 0-RTT advertised,
+      // OCSP stapled, renegotiation refused, downgrade blocked); raw state stays.
+      return rows.map(row=>{const outcome=tlsControlOutcome(row,rows);return outcome?{...row,customer_outcome:outcome}:row;});
+    })(),
   }));
   const coverage={planned:all.length+(tls.omitted_checks||0),completed:0,uncertain:0,unexecutable:0,not_authorized:0,not_applicable:0,
     omitted_checks:tls.omitted_checks||0,omitted_services:tls.omitted_services||0,endpoint_gaps:tls.gaps.length,

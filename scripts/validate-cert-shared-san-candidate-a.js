@@ -710,8 +710,17 @@ const parity = states.map(parityOutputs);
 // registry stamp (r120-3a49bcc0 -> r122-87a173b3) in this certificate-only fixture.
 // Substituting just the predecessor stamp restores both prior report hashes
 // across all five SAN states (30/30); certificate evidence remains unchanged.
-const GOLDEN_F13 = "1a32269dbb1505fe5df6d60fc78c805f43f2225f8c779d4d7f85a39a5398c09a";
-const GOLDEN_F14 = "28f7e3846d10e33a0e3fdd0b6c359f1092bf26ecfdb95c16bc64b534d6fd5b3b";
+// Resolver 2026-10-24.1 (24 Oct 2026): Website Security is also provisional when
+// the headers module says it could not validate or the apex HSTS policy was not
+// observed. This certificate-only fixture has neither, so only the stamped
+// resolver version moves. With ONLY SECURITY_CHECK_RESOLVER_VERSION reverted to
+// 2026-10-23.1 the previous hashes (1a32269d… / 28f7e384…) reproduce (30/30).
+// Dangling-DNS guidance (24 Oct 2026) adds one registry entry and moves only the
+// registry stamp (r122 -> r123) in this certificate-only fixture. With ONLY
+// remediation-registry.js reverted the previous hashes (73f0e348… / 802bb585…)
+// reproduce (30/30).
+const GOLDEN_F13 = "0432ee13a697c6f0d97026cf676fd154a84bdb38c41b765746fdc84f6b9828ee";
+const GOLDEN_F14 = "bfd55ed8768a1201aceadf79c93213bace45b27b54f30b5d00c8ae5fceb2555d";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

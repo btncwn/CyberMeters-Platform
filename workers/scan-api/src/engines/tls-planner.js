@@ -71,7 +71,7 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
   const services = await db.prepare(`SELECT a.id,a.domain_id,a.hostname,a.sni,a.port,a.application_protocol,a.network_target_id,
       t.addresses_json,t.authorization_status AS target_authorization_status,t.scope_state AS target_scope_state,w.deleted_at,d.verification_status
     FROM workspace_tls_service_authorizations a
-    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id
+    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id AND t.withdrawn_at IS NULL
     JOIN workspace_domains d ON d.workspace_id=a.workspace_id AND d.domain_id=a.domain_id
     JOIN workspaces w ON w.id=a.workspace_id
     WHERE a.workspace_id=? AND a.authorization_status='active' ORDER BY a.authorized_at,a.id LIMIT 64`).bind(scan.workspace_id).all();
@@ -169,7 +169,7 @@ export async function tlsScopeStillAuthorized(env,scan,entry,{authorise} = {}) {
   }
   if (entry.scope.kind === 'standard_https') return entry.endpoint.hostname === scan.domain && entry.endpoint.port === 443 && entry.endpoint.application_protocol === 'https';
   const service=await db.prepare(`SELECT a.id,t.addresses_json FROM workspace_tls_service_authorizations a
-    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id AND t.authorization_status='attested' AND t.scope_state='in_scope'
+    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id AND t.withdrawn_at IS NULL AND t.authorization_status='attested' AND t.scope_state='in_scope'
     WHERE a.id=? AND a.workspace_id=? AND a.domain_id=? AND a.authorization_status='active'
       AND a.hostname=? AND a.sni=? AND a.port=? AND a.application_protocol=?`)
     .bind(entry.scope.service_authorization_id,scan.workspace_id,scan.domain_id,entry.endpoint.hostname,entry.endpoint.sni,
@@ -252,7 +252,10 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
     groups.get(key).push({entry,index});
   }
   const prior=new Set(previousFindings.map(row=>row.endpoint_identity));
-  const selected=[],staticResults=[];
+  // Special (intrusive) checks run after EVERY normal check, so a special that
+  // cannot complete never keeps the domain's own checks or a service's normal
+  // checks from running (F1, 24 Oct 2026).
+  const selected=[],specialSelected=[],staticResults=[];
   // Explicitly authorised services are budgeted first, so a tight plan never
   // drops the one service the customer named in favour of discovered hosts.
   const authorisedFirst=([,group])=>group.some(({entry})=>entry?.scope?.kind==='authorized_service')?0:1;
@@ -302,12 +305,13 @@ export function buildBudgetedTlsCheckPlan({endpoints,cipherCatalog=[],previousFi
         state:'not_authorized',reason:TLS_AUTHORISATION_REQUIRED_REASON});
     }
     const unique=[...new Map(rows.map(row=>[`${row.check.control}|${row.check.protocol}|${row.check.cipher_id||''}`,row])).values()];
-    if(selected.length+unique.length>Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN))){
+    if(selected.length+specialSelected.length+unique.length>Math.max(0,Math.min(maxChecks,MAX_CHECKS_PER_SCAN))){
       deferredHosts.push({hostname:entry.endpoint.hostname,port:entry.endpoint.port,reason:'tls_plan_budget'});
       continue;
     }
-    selected.push(...unique);
+    for(const row of unique)(TLS_SPECIAL_CONTROLS.includes(row.check.control)?specialSelected:selected).push(row);
   }
+  selected.push(...specialSelected);
   return {profile_version:TLS_PROFILE_VERSION,policy_version:TLS_POLICY_VERSION,selected,static_results:staticResults,
     pending_total:selected.length,omitted_checks:0,deferred_hosts:[...new Map(deferredHosts.map(row=>[`${row.hostname}|${row.port}|${row.reason}`,row])).values()],
     deferred_endpoints:deferredEndpoints,cursor:0,scan_id:scanId,plan_scope:'observed_https_representative'};

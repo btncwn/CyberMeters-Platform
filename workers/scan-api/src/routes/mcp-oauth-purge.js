@@ -242,7 +242,7 @@ export async function purgeExpiredMcpOAuthRefreshUses(env, nowIso, options = {})
     const result = await env.cybermeters_db.prepare(
       `DELETE FROM mcp_oauth_refresh_uses WHERE rowid IN (
          SELECT rowid FROM mcp_oauth_refresh_uses
-          WHERE expires_at < ? ORDER BY expires_at, rowid LIMIT ?)`,
+          WHERE julianday(expires_at) < julianday(?) ORDER BY julianday(expires_at), rowid LIMIT ?)`,
     ).bind(nowIso, batchSize).run();
     const changes = Number(result?.meta?.changes ?? result?.changes);
     if (!Number.isInteger(changes) || changes < 0 || changes > batchSize) {
@@ -252,7 +252,7 @@ export async function purgeExpiredMcpOAuthRefreshUses(env, nowIso, options = {})
     if (changes < batchSize) return { deleted, pending: false };
   }
   const pending = Boolean(await env.cybermeters_db.prepare(
-    "SELECT 1 FROM mcp_oauth_refresh_uses WHERE expires_at < ? LIMIT 1",
+    "SELECT 1 FROM mcp_oauth_refresh_uses WHERE julianday(expires_at) < julianday(?) LIMIT 1",
   ).bind(nowIso).first());
   if (pending) console.warn("[mcp-oauth-refresh-cleanup-backlog]", JSON.stringify({ deleted }));
   return { deleted, pending };

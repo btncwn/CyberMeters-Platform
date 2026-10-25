@@ -6,6 +6,7 @@
 //
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import './security/timestamp-comparisons.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workflow = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "case-workflow.js")).href);
@@ -61,7 +62,7 @@ ok("risk acceptance request requires and stores reason", riskReq.ok && riskReq.c
 const riskNoExpiry = applyCaseTransition(asm.ASM_CASE_MACHINE, riskReq.case, "risk_accepted", { reason: "Approved exception" });
 ok("risk accepted requires expiry", !riskNoExpiry.ok && /expiry/i.test(riskNoExpiry.error));
 const risk = applyCaseTransition(asm.ASM_CASE_MACHINE, riskReq.case, "risk_accepted", { reason: "Approved exception", risk_accepted_until: "2026-08-01T00:00:00Z" });
-ok("risk accepted with expiry succeeds", risk.ok && risk.case.risk_accepted_until === "2026-08-01T00:00:00Z");
+ok("risk accepted with expiry succeeds", risk.ok && risk.case.risk_accepted_until === "2026-08-01T00:00:00.000Z");
 
 const queue = buildCaseQueue([
   { id: "new", status: "open", created_at: "2026-07-13T11:00:00Z" },

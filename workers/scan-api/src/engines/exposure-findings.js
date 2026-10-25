@@ -2,7 +2,7 @@ import { assessRemoteAccess, validRemoteAccessEvidence } from '../../../../share
 // Canonical projection of bounded exposure receipts. Raw content is never an input
 // to this module. Identity includes the rule and original path, never secret values.
 import { RULES_BY_ID, EXPOSURE_CATALOG_VERSION, exposurePresentation, EXPOSURE_INDICATORS } from '../../../../shared/exposure/catalog.js';
-import { safeExposureUrl } from '../../../../shared/exposure/redaction.js';
+import { safeExposureUrl, sha256Text } from '../../../../shared/exposure/redaction.js';
 import { findingRemediation } from './remediation-registry.js';
 import { EXPOSURE_INCOMPLETE_REASONS } from './exposure-jobs.js';
 
@@ -29,14 +29,22 @@ export function exposureRuleForCondition(key) {
 export const isExposureConditionKey = (key) => Boolean(exposureRuleForCondition(key));
 export function exposureConditionKey(row) {
   const identity = String(row?.identity || row?.finding?.identity || row?.observation?.identity || '').replace(/^exposure:/, '');
+  // Preserve shipped portal identities. Additional product families bind their
+  // condition to the product as well as the original URL: a replacement portal
+  // cannot verify its predecessor merely by reporting its own fixed version.
+  const product = row?.rule_id === 'remote-access-portal' && validRemoteAccessEvidence(row.portal) ? row.portal.product_id : null;
+  const conditionIdentity = product && product !== 'panos_globalprotect' ? sha256Text(`${identity}\n${product}`) : identity;
   return RULES_BY_ID[row?.rule_id] && validIdentity(identity)
-    ? `${exposureFindingType(row.rule_id)}__${identity}` : null;
+    ? `${exposureFindingType(row.rule_id)}__${conditionIdentity}` : null;
 }
 
 /** Only an exact rule + original-path identity and conclusive response can clear. */
 export function evaluateExposureCondition(key, module) {
   if (!isExposureConditionKey(key) || module?.source !== 'external_exposure') return { state: 'deferred', reason: 'exposure_not_recorded' };
-  const matches = (module.checks || []).filter((row) => row.condition_key === key || exposureConditionKey(row) === key);
+  const remotePortal = exposureRuleForCondition(key)?.id === 'remote-access-portal';
+  const matches = (module.checks || []).filter((row) => remotePortal
+    ? validRemoteAccessEvidence(row.portal) && exposureConditionKey(row) === key
+    : row.condition_key === key || exposureConditionKey(row) === key);
   if (!matches.length) return { state: 'deferred', reason: 'exact_condition_not_tested' };
   if (exposureRuleForCondition(key)?.id === 'remote-access-portal') {
     if (matches.some(r=>r.comparable && r.portal_assessment?.state==='present')) return {state:'present',reason:'remote_access_condition_observed'};

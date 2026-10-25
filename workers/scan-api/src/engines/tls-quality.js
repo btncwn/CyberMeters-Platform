@@ -1,4 +1,5 @@
-import { TLS_AUTHORISATION_REQUIRED_REASON } from '../../../../shared/tls/catalog.js';
+import { TLS_AUTHORISATION_REQUIRED_REASON, TLS_SPECIAL_CONTROLS } from '../../../../shared/tls/catalog.js';
+import { pqcRowState } from './tls-findings.js';
 // The deep TLS profile includes static states for controls the engine cannot
 // execute (notably the unreleased special checks). Those states remain visible
 // in the TLS receipt, but do not make every supported-profile scan incomplete.
@@ -27,9 +28,14 @@ export const TLS_CAPABILITY_UNEXECUTABLE_REASONS = Object.freeze([
   // Authorised, held to a started check or refused on a provider edge (F1): stated.
   'scheduled_or_unknown_origin', 'provider_infrastructure_not_tested', 'address_not_verified_not_tested',
 ]);
+// A special (intrusive) check whose slice could not complete (F1: it kept
+// failing and was recorded instead of ending the job) is stated as
+// "could not complete": an optional authorised extra, like an unauthorised one,
+// it never keeps the assessment partial. A normal check that failed still does.
 export function blockingTlsUnexecutable(checks) {
   return (Array.isArray(checks) ? checks : []).filter(row => row?.state === 'unexecutable'
-    && !TLS_CAPABILITY_UNEXECUTABLE_REASONS.includes(row.reason)).length;
+    && !TLS_CAPABILITY_UNEXECUTABLE_REASONS.includes(row.reason)
+    && !(row.reason === 'slice_failed' && TLS_SPECIAL_CONTROLS.includes(row.control))).length;
 }
 
 // An intrusive control the customer has not authorised (S3-B) is stated, not
@@ -46,6 +52,76 @@ const LEGACY_PROTOCOLS = new Set(['ssl2', 'ssl3', 'tls1', 'tls1_1']);
 export function isTlsRefusalProbe(check) {
   return (check?.control === 'protocol' && LEGACY_PROTOCOLS.has(check.protocol))
     || check?.control === 'cipher' || check?.control === 'secure_renegotiation';
+}
+
+// The customer outcome of a TLS control, from its stored evidence (F1 rerun,
+// 24 Oct 2026). The engine 'state' names the CONNECTION outcome ('accepted'
+// means the handshake for that control completed), not the feature: showing
+// 'Accepted' for compression, early data or OCSP read as the opposite of the
+// truth. The raw state stays in the receipt; the UI reads this. Anything not
+// settled by evidence is 'unknown' - never a guessed yes or no.
+const unknownOutcome = { value: 'unknown', summary: 'Not determined in this run.' };
+// endpointChecks: the same endpoint's other rows (downgrade needs to know
+// whether the endpoint serves TLS 1.3 at all).
+export function tlsControlOutcome(row, endpointChecks = []) {
+  const ext = row?.evidence?.extensions || null, ocsp = row?.evidence?.ocsp || null;
+  const done = row?.state === 'accepted' || row?.state === 'rejected';
+  switch (row?.control) {
+    case 'compression':
+      if (!done || typeof ext?.compression !== 'boolean') return unknownOutcome;
+      return ext.compression
+        ? { value: 'yes', summary: 'TLS compression is used.' }
+        : { value: 'no', summary: 'TLS compression is not used.' };
+    case 'early_data':
+      if (row.protocol !== 'tls1_3' || !done || !Number.isSafeInteger(ext?.early_data_max)) return unknownOutcome;
+      // An advertised ticket limit: CyberMeters does not send 0-RTT data.
+      return ext.early_data_max > 0
+        ? { value: 'yes', summary: '0-RTT early data is enabled (advertised by the server).' }
+        : { value: 'no', summary: '0-RTT early data is not advertised.' };
+    case 'ocsp': {
+      if (!done || !ocsp?.state) return unknownOutcome;
+      const verified = ocsp.signature_valid === true && ocsp.cert_id_match === true && ocsp.fresh === true;
+      if (ocsp.state === 'absent') return { value: 'no', summary: 'No OCSP response is stapled.' };
+      // CyberMeters could not check the staple (no issuer or trust path): our
+      // limitation, never the server's 'invalid' (R1 on #985).
+      if (ocsp.signature_valid === null || ocsp.cert_id_match === null) return unknownOutcome;
+      if (ocsp.state === 'good' && verified) return { value: 'yes', summary: 'A valid OCSP response is stapled.' };
+      if (ocsp.state === 'revoked' && verified) return { value: 'revoked', summary: 'The stapled OCSP response says the certificate is revoked.' };
+      if (ocsp.state === 'unknown' && verified)
+        return { value: 'status_unknown', summary: 'A verified OCSP response is stapled, but it reports the certificate status as unknown.' };
+      return { value: 'invalid', summary: 'An OCSP response is stapled but could not be verified.' };
+    }
+    case 'secure_renegotiation':
+      if (ext?.renegotiation_completed === true) return { value: 'allowed', summary: 'Client-initiated renegotiation is allowed.' };
+      // 'handshake_failed' is also set for local/non-alert errors (engine.c
+      // do_handshake): it means refused only when the server supports secure
+      // renegotiation; a peer alert is a refusal on its own.
+      if (ext?.renegotiation_completed === false && (row.state === 'uncertain' || row.state === 'rejected')
+          && (row.reason === 'peer_alert' || (row.reason === 'handshake_failed' && ext?.secure_renegotiation === true)))
+        return { value: 'refused', summary: 'Client-initiated renegotiation is refused.' };
+      return unknownOutcome;
+    case 'fallback_scsv':
+      if (row.state === 'rejected' && row.reason === 'fallback_rejected' && ext?.fallback_scsv !== false)
+        return { value: 'blocked', summary: 'Protocol downgrade is blocked (TLS_FALLBACK_SCSV).' };
+      // The fallback probe runs at TLS 1.2. A server whose highest version IS
+      // TLS 1.2 correctly accepts it (RFC 7507), so 'not blocked' is a claim only
+      // when this endpoint was seen serving TLS 1.3.
+      if (row.state === 'accepted' && ext?.fallback_scsv === false
+          && (Array.isArray(endpointChecks) ? endpointChecks : []).some(r => r?.control === 'protocol' && r.protocol === 'tls1_3' && r.state === 'accepted'))
+        return { value: 'not_blocked', summary: 'Protocol downgrade is not blocked.' };
+      return unknownOutcome;
+    case 'pqc_key_exchange': {
+      // Same gates as the card (pqcRowState is the single source). Offered the
+      // hybrid group beside classical ones, the server CHOSE one: 'not
+      // negotiated' never claims the server lacks post-quantum support.
+      const { state, group } = pqcRowState(row);
+      if (state === 'hybrid_pqc_negotiated') return { value: 'negotiated', summary: `Post-quantum hybrid key exchange negotiated (${group}).` };
+      if (state === 'classical_only') return { value: 'not_negotiated', summary: `Post-quantum hybrid key exchange not negotiated (the server chose ${group}).` };
+      return unknownOutcome;
+    }
+    default:
+      return null;
+  }
 }
 
 export function classifyTlsRefusals(checks) {

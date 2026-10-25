@@ -53,7 +53,7 @@ async function failScan(env,row,reason) {
 export async function processNetworkScanMessage(body,env,deps={}) {
   if(!body||body.kind!=='network_probe'||body.v!==1||typeof body.scan_id!=='string'||body.scan_id.length>100)return {action:'ack',outcome:'malformed'};
   let row;
-  try{row=await env.cybermeters_db.prepare(`SELECT s.*,t.target,t.addresses_json,t.authorization_status,t.scope_state,t.scope_checked_at FROM network_scans s JOIN network_targets t ON t.id=s.target_id AND t.workspace_id=s.workspace_id JOIN workspaces w ON w.id=s.workspace_id AND w.deleted_at IS NULL WHERE s.id=?`).bind(body.scan_id).first();}
+  try{row=await env.cybermeters_db.prepare(`SELECT s.*,t.target,t.addresses_json,t.authorization_status,t.scope_state,t.scope_checked_at FROM network_scans s JOIN network_targets t ON t.id=s.target_id AND t.workspace_id=s.workspace_id AND t.withdrawn_at IS NULL JOIN workspaces w ON w.id=s.workspace_id AND w.deleted_at IS NULL WHERE s.id=?`).bind(body.scan_id).first();}
   catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
   if(!row)return {action:'ack',outcome:'missing'};
   if(body.workspace_id!=null&&body.workspace_id!==row.workspace_id)return {action:'ack',outcome:'identity_mismatch'};
@@ -76,6 +76,7 @@ export async function processNetworkScanMessage(body,env,deps={}) {
   // The claim re-checks the declared-range grant in SQL: still a grant of this
   // workspace for this target's exact addresses, and not revoked.
   try{claimed=await env.cybermeters_db.prepare(`UPDATE network_scans SET status='running',started_at=? WHERE id=? AND status='queued'
+      AND EXISTS(SELECT 1 FROM network_targets t WHERE t.id=network_scans.target_id AND t.workspace_id=network_scans.workspace_id AND t.withdrawn_at IS NULL)
       AND (range_consent_id IS NULL OR EXISTS(SELECT 1 FROM network_range_consents g WHERE g.id=network_scans.range_consent_id AND g.workspace_id=network_scans.workspace_id AND g.kind='grant' AND g.network_target_id=network_scans.target_id AND g.addresses_json=?
         AND NOT EXISTS(SELECT 1 FROM network_range_consents r WHERE r.kind='revocation' AND r.grant_id=g.id AND r.workspace_id=g.workspace_id)))`).bind(new Date().toISOString(),row.id,row.addresses_json).run();}
   catch{return {action:'retry',delaySeconds:60,outcome:'storage_unavailable'};}
@@ -91,9 +92,10 @@ export async function processNetworkScanMessage(body,env,deps={}) {
   try {
     const adapter=deps.adapter||await import('./network-probe.js');
     const request={schema_version:'network-probe-request-v1',request_id:row.id,workspace_id:row.workspace_id,scan_id:row.id,profile:'network_services',deadline_at:new Date(Date.now()+90_000).toISOString(),targets:normalized.addresses.map(address=>({address,hostname:null})),ports};
+    if(!await env.cybermeters_db.prepare('SELECT 1 FROM network_targets WHERE id=? AND workspace_id=? AND withdrawn_at IS NULL').bind(row.target_id,row.workspace_id).first())throw new Error('network_target_withdrawn');
     const receipt=await adapter.collectNetworkProbe(env,request,{signal:AbortSignal.timeout(90_000)});
     if(adapter.validateNetworkProbeReceipt(request,receipt).ok!==true)throw new Error('invalid_receipt');
-    const active=await env.cybermeters_db.prepare("SELECT s.id FROM network_scans s JOIN workspaces w ON w.id=s.workspace_id WHERE s.id=? AND s.workspace_id=? AND s.status='running' AND w.deleted_at IS NULL").bind(row.id,row.workspace_id).first();
+    const active=await env.cybermeters_db.prepare("SELECT s.id FROM network_scans s JOIN workspaces w ON w.id=s.workspace_id JOIN network_targets t ON t.id=s.target_id AND t.workspace_id=s.workspace_id AND t.withdrawn_at IS NULL WHERE s.id=? AND s.workspace_id=? AND s.status='running' AND w.deleted_at IS NULL").bind(row.id,row.workspace_id).first();
     if(!active)throw new Error('finalization_refused');
     const prior=await env.cybermeters_db.prepare('SELECT * FROM network_assets WHERE workspace_id=?').bind(row.workspace_id).all();
     const changes=networkObservationChanges(prior.results||[],receipt.observations);
@@ -103,7 +105,7 @@ export async function processNetworkScanMessage(body,env,deps={}) {
     if(!stored)throw new Error('receipt_exists');
     // Completed state, inventory and audit are one transaction, only after the
     // immutable receipt is durable. No findings, scores or closed cases invented.
-    const statements=[env.cybermeters_db.prepare(`UPDATE network_scans SET status=CASE WHEN status='running' AND EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) THEN 'running' ELSE 'invalid_finalization' END WHERE id=? AND workspace_id=?`).bind(row.workspace_id,row.id,row.workspace_id)];
+    const statements=[env.cybermeters_db.prepare(`UPDATE network_scans SET status=CASE WHEN status='running' AND EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) AND EXISTS(SELECT 1 FROM network_targets t WHERE t.id=network_scans.target_id AND t.workspace_id=network_scans.workspace_id AND t.withdrawn_at IS NULL) THEN 'running' ELSE 'invalid_finalization' END WHERE id=? AND workspace_id=?`).bind(row.workspace_id,row.id,row.workspace_id)];
     for(const item of receipt.observations) {
       statements.push(env.cybermeters_db.prepare(`INSERT INTO network_assets (workspace_id,address,port,transport,state,last_observed_state,service_json,tls_json,first_seen_at,last_seen_at,last_checked_at,last_scan_id) SELECT ?,?,?,'tcp',?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL) ON CONFLICT(workspace_id,address,port,transport) DO UPDATE SET state=excluded.state,last_observed_state=COALESCE(excluded.last_observed_state,network_assets.last_observed_state),service_json=CASE WHEN excluded.last_observed_state IS NULL THEN network_assets.service_json ELSE excluded.service_json END,tls_json=CASE WHEN excluded.last_observed_state IS NULL THEN network_assets.tls_json ELSE excluded.tls_json END,first_seen_at=COALESCE(network_assets.first_seen_at,excluded.first_seen_at),last_seen_at=COALESCE(excluded.last_seen_at,network_assets.last_seen_at),last_checked_at=excluded.last_checked_at,last_scan_id=excluded.last_scan_id`)
         .bind(row.workspace_id,item.address,item.port,item.state,observed(item)?item.state:null,JSON.stringify(item.service??null),JSON.stringify(item.tls??null),observed(item)?now:null,observed(item)?now:null,now,row.id,row.workspace_id));

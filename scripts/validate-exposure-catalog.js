@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import './security/remote-access-portals.js';
+import './security/remote-access-coverage.js';
 // Pure content/catalog gate; actual HTTP fixture acceptance is a separate required gate.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

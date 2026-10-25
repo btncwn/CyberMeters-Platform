@@ -4,6 +4,7 @@ import { dnsQuery, dnsQueryGoogle } from './dns.js';
 import { parseTlsDnsAnswers } from './tls-planner.js';
 import { isWeakTlsCipher } from '../../../../shared/tls/catalog.js';
 import { createId } from '../lib/util.js';
+import { probeErrorDetail } from './network-probe.js';
 import { resolvePublicDnsTarget, STRICT_DNS_STATES } from '../lib/ssrf.js';
 
 export const MAIL_MX_LIMIT = 5;
@@ -114,8 +115,11 @@ export async function runMailTransportModule(env, scan, dnsModule, {
         accounting?.assertCanIssue?.();
         accounting?.recordAttempt?.();
         return projectMailMxReceipt({...mx,address:endpoint.address},await collect(env,request,{signal}));
-      } catch {
-        return {host:mx.host,priority:mx.priority,state:'not_tested',reason:'probe_unavailable',starttls_offered:null};
+      } catch (error) {
+        // Why, beside the unchanged reason: collector_busy | deadline | budget |
+        // collector_unavailable, or mx_dns_unavailable before any probe call.
+        const detail=error?.message==='mx_dns_unavailable'?'mx_dns_unavailable':probeErrorDetail(error,signal);
+        return {host:mx.host,priority:mx.priority,state:'not_tested',reason:'probe_unavailable',detail,starttls_offered:null};
       }
     }));
     results.push(...batch);
