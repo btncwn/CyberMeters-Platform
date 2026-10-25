@@ -9,7 +9,9 @@
 //     public vulnerability/identity directories (requests about the domain,
 //     never to it);
 //   - the home page of the apex and www (GET/HEAD of "/") and the redirects it
-//     sends, the way one browser visit would;
+//     sends, the way one browser visit would. The fence follows redirects
+//     itself (each hop fetched with redirect: "manual" and admitted on its
+//     own), so a "follow" request cannot reach a hop the fence never saw;
 //   - the published MTA-STS policy file.
 // Every other request is refused (as a network failure) and recorded, so a
 // module that needed it is "not measured on corpus", never TP or FP.
@@ -37,6 +39,17 @@ const DATA_HOSTS = [
 ];
 const isDataHost = (host) => DATA_HOSTS.includes(host) || host === "rdap.org" || /^rdap\./.test(host);
 const MAX_REDIRECTS = 5;
+// A redirect from a public site must not reach the operator's own network:
+// loopback, private, link-local, CGNAT and unique-local literal addresses and
+// local-only names are refused. (A public NAME that resolves to a private
+// address is not caught here; the lab runs on a machine, not inside a VPC.)
+const LOCAL_NAME = /(^|\.)(localhost|local|internal|home\.arpa)$/;
+const PRIVATE_V4 = /^(0|10|127)\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
+const PRIVATE_V6 = /^(::1?|f[cd][0-9a-f]{0,2}:|fe[89ab][0-9a-f]?:|::ffff:)/;
+export const isPrivateTarget = (host) => {
+  const bare = host.replace(/^\[|\]$/g, "");
+  return LOCAL_NAME.test(bare) || (/^[\d.]+$/.test(bare) && PRIVATE_V4.test(bare)) || (bare.includes(":") && PRIVATE_V6.test(bare));
+};
 
 /** A fetch that lets only passive public requests about `domain` through. */
 export function passiveFence(domain, realFetch) {
@@ -44,31 +57,47 @@ export function passiveFence(domain, realFetch) {
   const homeHosts = new Set([apex, `www.${apex}`]);
   const redirectTargets = new Map();
   const allowed = [], refused = [];
-  const fence = async (input, init = {}) => {
-    const url = new URL(typeof input === "string" ? input : input.url);
-    const method = String(init.method || (typeof input === "object" && input.method) || "GET").toUpperCase();
+  const admit = (url, method) => {
     const host = url.hostname.toLowerCase();
-    const key = `${host}${url.pathname}${url.search}`;
-    const hops = redirectTargets.get(key);
+    const hops = redirectTargets.get(`${host}${url.pathname}${url.search}`);
     let why = null;
     if (isDataHost(host)) why = "data_source";
     else if (homeHosts.has(host) && url.pathname === "/" && !url.search && (method === "GET" || method === "HEAD")) why = "home_page";
     else if (host === `mta-sts.${apex}` && url.pathname === "/.well-known/mta-sts.txt" && method === "GET") why = "mta_sts_policy";
-    else if (hops !== undefined && (method === "GET" || method === "HEAD")) why = "redirect_of_home_page";
+    else if (hops !== undefined && !isPrivateTarget(host) && (method === "GET" || method === "HEAD")) why = "redirect_of_home_page";
     if (!why) {
       refused.push({ host, path: url.pathname, method });
       throw new TypeError("fetch failed (corpus passive fence)");
     }
     allowed.push({ host, path: url.pathname, method, why });
-    const response = await realFetch(input, init);
-    const location = response.headers.get("location");
-    if (why !== "data_source" && location && response.status >= 300 && response.status < 400 && (hops || 0) < MAX_REDIRECTS) {
-      try {
-        const next = new URL(location, url);
-        redirectTargets.set(`${next.hostname.toLowerCase()}${next.pathname}${next.search}`, (hops || 0) + 1);
-      } catch { /* an unusable Location is the engine's to report */ }
+    return { why, hops: hops || 0 };
+  };
+  const fence = async (input, init = {}) => {
+    const request = typeof input === "object" && !(input instanceof URL) ? input : null;
+    let url = new URL(request ? request.url : String(input));
+    let method = String(init.method || request?.method || "GET").toUpperCase();
+    const mode = init.redirect || request?.redirect || "follow";
+    const hopInit = { headers: init.headers ?? request?.headers, signal: init.signal ?? request?.signal };
+    for (let followed = 0; ; followed++) {
+      const { why, hops } = admit(url, method);
+      // Never let the runtime follow a redirect on its own: every hop comes back here.
+      const response = followed === 0
+        ? await realFetch(input, { ...init, redirect: "manual" })
+        : await realFetch(url.href, { ...hopInit, method, redirect: "manual" });
+      const location = response.headers.get("location");
+      if (!(response.status >= 300 && response.status < 400 && location)) return response;
+      let next;
+      try { next = new URL(location, url); } catch { return response; } // an unusable Location is the engine's to report
+      if (why !== "data_source" && hops < MAX_REDIRECTS) {
+        redirectTargets.set(`${next.hostname.toLowerCase()}${next.pathname}${next.search}`, hops + 1);
+      }
+      if (mode === "manual") return response;
+      if (mode === "error" || followed + 1 > MAX_REDIRECTS) throw new TypeError("fetch failed (corpus passive fence: redirect)");
+      try { await response.body?.cancel(); } catch { /* nothing to release */ }
+      // Fetch spec: 303, and 301/302 after a non-GET, continue as GET (HEAD stays HEAD).
+      if (method !== "HEAD" && (response.status === 303 || ((response.status === 301 || response.status === 302) && method !== "GET"))) method = "GET";
+      url = next;
     }
-    return response;
   };
   return { fence, allowed, refused };
 }
