@@ -715,8 +715,12 @@ const parity = states.map(parityOutputs);
 // observed. This certificate-only fixture has neither, so only the stamped
 // resolver version moves. With ONLY SECURITY_CHECK_RESOLVER_VERSION reverted to
 // 2026-10-23.1 the previous hashes (1a32269d… / 28f7e384…) reproduce (30/30).
-const GOLDEN_F13 = "73f0e34832237c202f0331dd21956bdc24af39548acf28f5b53fbcdf6b82fe1f";
-const GOLDEN_F14 = "802bb585e364f0d22520d875134a70747aadf8f11f6aa3001513bf068a990fd3";
+// Dangling-DNS guidance (24 Oct 2026) adds one registry entry and moves only the
+// registry stamp (r122 -> r123) in this certificate-only fixture. With ONLY
+// remediation-registry.js reverted the previous hashes (73f0e348… / 802bb585…)
+// reproduce (30/30).
+const GOLDEN_F13 = "0432ee13a697c6f0d97026cf676fd154a84bdb38c41b765746fdc84f6b9828ee";
+const GOLDEN_F14 = "bfd55ed8768a1201aceadf79c93213bace45b27b54f30b5d00c8ae5fceb2555d";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

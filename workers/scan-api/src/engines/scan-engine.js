@@ -49,7 +49,7 @@ import { runDaneModule } from "./dane.js";
 // Supplementary modules settle after computeScore; their findings are scored
 // once they have settled (see the post-settle block in runScanEngine).
 const SUPPLEMENTARY_SCORED_MODULES = new Set(["dane", "remote_admin_exposure"]);
-import { isStatedAccessLimit, statedLimitMessage, webServiceNeverAnsweredHosts } from "./scan-stated-limits.js";
+import { cloudCheckStatedLimit, isStatedAccessLimit, statedLimitMessage, webServiceNeverAnsweredHosts } from "./scan-stated-limits.js";
 import { applyDmarcbisEmailCompatibilityProjection, deadlineDeferredEmailModuleResult, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
 import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
@@ -263,6 +263,9 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
       // The customer sentence every surface renders (never the reason key).
       message: statedLimitMessage(name, value),
     }));
+  // The cloud (dangling-DNS) check is stated on its own when it did not complete.
+  const cloudLimit = cloudCheckStatedLimit(modules);
+  if (cloudLimit) statedLimits.push(cloudLimit);
   const incompleteModules = Object.entries(modules)
     .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
     .filter(([name, value]) => !isStatedAccessLimit(name, value))

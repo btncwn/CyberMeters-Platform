@@ -568,6 +568,9 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
 // only its line moves (257 -> 301 -> 276 -> 290) as that validator's fixtures above it
 // change; it now proves module-owned degraded evidence.
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
+  // C-61: the local corpus preserves inconclusive exposure results as unknown;
+  // this is the collector module's quality, not canonical scan_quality.
+  "scripts/lab/local-recall-corpus.mjs:123:observed.module.quality==='partial'",
   // TLS assessment quality is a recorded fixture field, not scan_quality.
   "scripts/validate-cert-trust-l2.js:232:routeCert?.tls_assessment?.quality === \"partial\"",
   // The terminal-host queue fixture asserts exposure receipt quality, not scan_quality.
