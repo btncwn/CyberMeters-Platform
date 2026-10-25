@@ -356,7 +356,10 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   function selectTab(id) {
     const next = new URLSearchParams(params)
     if (id === 'overview') next.delete('tab'); else next.set('tab', id)
-    scrollToPanelRef.current = true
+    // Re-picking the current tab does not change `tab`, so the effect would never
+    // clear the flag and a later back/forward would scroll (R1 15:30): arm it only
+    // for a real switch.
+    scrollToPanelRef.current = id !== tab
     setParams(next, { replace: true })
   }
   useEffect(() => {
@@ -369,9 +372,14 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       if (!panel || typeof panel.getBoundingClientRect !== 'function' || typeof panel.scrollIntoView !== 'function') return
       const top = panel.getBoundingClientRect().top
       const viewport = window.innerHeight || document.documentElement.clientHeight || 0
-      // Already in the upper part of the screen: leave the page where it is.
-      if (top >= 0 && top <= viewport * 0.5) return
-      panel.scrollIntoView({ block: 'start' })
+      // The sticky top bar covers the top of the screen: the panel's own
+      // scroll-margin-top (index.css, the shell header height) is that offset.
+      const header = parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0
+      // Already visible below the bar, in the upper part of the screen: leave it.
+      if (top >= header && top <= viewport * 0.5) return
+      // Reduced motion: jump, never animate (index.css sets a smooth page scroll).
+      const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      panel.scrollIntoView({ block: 'start', behavior: reduce ? 'instant' : 'smooth' })
     })
     return () => cancel(handle)
   }, [tab])

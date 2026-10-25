@@ -13,9 +13,9 @@ for (const width of [1440, 390]) {
       await page.evaluate(() => window.scrollTo(0, 0))
       await page.getByRole('tab', { name: new RegExp(`^${label}`) }).first().click()
       await expect(page.getByRole('tab', { name: new RegExp(`^${label}`) }).first()).toHaveAttribute('aria-selected', 'true')
-      await page.waitForTimeout(400)
-      const top = await page.locator('#module-tabpanel').evaluate((el) => el.getBoundingClientRect().top)
-      expect(top, `${label} panel top`).toBeLessThan(800 * 0.6)
+      // Wait on the panel's position itself (smooth scroll), not a fixed delay.
+      await expect.poll(() => page.locator('#module-tabpanel').evaluate((el) => Math.round(el.getBoundingClientRect().top)),
+        { message: `${label} panel top`, timeout: 4000 }).toBeLessThan(800 * 0.6)
       if (label === 'Cases') await page.screenshot({ path: `test-results/assets-tab-cases-${width}.png` })
     }
   })

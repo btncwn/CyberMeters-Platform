@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ModuleContract from '../module/ModuleContract'
 import { api } from '../../api'
@@ -16,6 +16,8 @@ vi.mock('../../utils/preloadMap', () => ({ routePreloadMap: {} }))
 
 let panelTop = 1400
 let scrolled = []
+let lastOptions = null
+let reduceMotion = false
 const realRect = Element.prototype.getBoundingClientRect
 const realScroll = Element.prototype.scrollIntoView
 beforeEach(() => {
@@ -31,12 +33,19 @@ beforeEach(() => {
   Element.prototype.getBoundingClientRect = function rect() {
     return this.id === 'module-tabpanel' ? { top: panelTop, bottom: panelTop + 600, left: 0, right: 0, width: 0, height: 600, x: 0, y: panelTop } : realRect.call(this)
   }
-  Element.prototype.scrollIntoView = function scroll() { scrolled.push(this.id) }
+  Element.prototype.scrollIntoView = function scroll(options) { scrolled.push(this.id); lastOptions = options }
+  reduceMotion = false
+  window.matchMedia = (q) => ({ matches: q.includes('prefers-reduced-motion') ? reduceMotion : false, addEventListener() {}, removeEventListener() {} })
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
 })
 afterEach(() => { Element.prototype.getBoundingClientRect = realRect; Element.prototype.scrollIntoView = realScroll })
 
-function Where() { const { search } = useLocation(); return <output data-testid="search">{search}</output> }
+function Where() {
+  const { search } = useLocation()
+  const navigate = useNavigate()
+  // Stands in for back/forward or a deep link changing ?tab= without a tab pick.
+  return <><output data-testid="search">{search}</output><button type="button" onClick={() => navigate('/assets?tab=settings')}>history change</button></>
+}
 const show = (entry = '/assets') => render(
   <MemoryRouter initialEntries={[entry]}>
     <ModuleContract domainKey="attack_surface" workspaceId="ws1" workspaceName="Example Ltd" overview={<p>overview body</p>} settings={<p>settings body</p>}>
@@ -64,6 +73,37 @@ describe('picking an area tab shows its section', () => {
     fireEvent.click(screen.getByRole('tab', { name: /^Findings/ }))
     await flush()
     expect(scrolled).toEqual([])
+  })
+  it('re-picking the current tab leaves nothing armed: a later history change does not scroll (R1 15:30)', async () => {
+    show('/assets?tab=findings')
+    await flush()
+    fireEvent.click(screen.getByRole('tab', { name: /^Findings/ }))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: 'history change' }))
+    await flush()
+    expect(screen.getByTestId('search').textContent).toBe('?tab=settings')
+    expect(scrolled).toEqual([])
+  })
+  it('smooth by default; instant when the customer prefers reduced motion (R1 15:30)', async () => {
+    show()
+    await flush()
+    fireEvent.click(screen.getByRole('tab', { name: /^Findings/ }))
+    await flush()
+    expect(lastOptions).toEqual({ block: 'start', behavior: 'smooth' })
+    reduceMotion = true
+    fireEvent.click(screen.getByRole('tab', { name: /^Cases/ }))
+    await flush()
+    expect(lastOptions).toEqual({ block: 'start', behavior: 'instant' })
+  })
+  it('keyboard activation (Arrow keys) shows the section too', async () => {
+    show()
+    await flush()
+    const summary = screen.getByRole('tab', { name: /^Summary|^Overview/ })
+    summary.focus()
+    fireEvent.keyDown(summary, { key: 'ArrowRight' })
+    await flush()
+    expect(screen.getByTestId('search').textContent).toMatch(/tab=/)
+    expect(scrolled).toEqual(['module-tabpanel'])
   })
   it('a deep link with ?tab= does not add a tab scroll on load', async () => {
     show('/assets?tab=cases')
