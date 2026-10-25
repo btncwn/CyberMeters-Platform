@@ -827,47 +827,165 @@ async function main() {
        !!eSnap && eSnap.domains.every((d) => d.state !== "assessed_healthy"));
   }
 
-  // P1 (25 Oct 2026, scan_5e495f40): a queue invocation whose late lifecycle
-  // phases are slow reached its 120 s ceiling before Phase 8o, so no snapshot.
-  // Here 8k starts with 40 s left and every later lifecycle phase costs 15 s:
-  // without the reserve the ceiling refuses 8o's reads (no row); with it the
-  // remaining phases are skipped (logged) and the snapshot still completes.
+  // P1 (25 Oct 2026, scan_5e495f40): a queue invocation reached its 120 s
+  // ceiling inside the finalize phases, so Phase 8o never ran. Each scenario is
+  // a REAL queue runScanEngine whose clock is driven by the SQL it issues, so
+  // the same trace runs unchanged against the previous head (a398569):
+  //   A. a customer-impact phase crosses the reserve: every later customer-
+  //      impact phase still runs (previous head skipped 8a.2..8n), only
+  //      inventory work is postponed, and the snapshot names it;
+  //   B. a slow inventory phase that starts just above the reserve is cut by
+  //      the guard instead of consuming the invocation (previous head: the
+  //      ceiling refused 8o, no snapshot);
+  //   C. the next scan of the same domain runs the postponed work and records
+  //      nothing twice;
+  //   D. below the floor, unfinished customer-impact work is named on its
+  //      domain, never presented as done.
   {
-    db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsSlow','u1','Slow')").run();
-    db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('domSlow','u1','slow.example')").run();
-    db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('wsSlow','domSlow')").run();
-    db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES ('scanSlow','wsSlow','domSlow','slow.example','running',datetime('now'))").run();
     const engineMod = await import(pathToFileURL(srcPath("engines", "scan-engine.js")).href);
-    const startMs = Date.parse("2026-10-25T14:27:57.000Z");
-    let clock = startMs, inLifecycle = false;
-    const slowDb = {
-      ...env.cybermeters_db,
-      prepare(sql) {
-        const stmt = env.cybermeters_db.prepare(sql);
-        const tick = () => {
-          if (/FROM certificate_observations/.test(sql) && !inLifecycle) { inLifecycle = true; clock = startMs + 80_000; }
-          else if (inLifecycle && /SELECT workspace_id FROM workspace_domains WHERE domain_id = \?/.test(sql)) clock += 15_000;
-        };
-        const wrap = (bound) => ({ ...bound,
-          first: async (...a) => { tick(); return bound.first(...a); },
-          all: async (...a) => { tick(); return bound.all(...a); },
-          run: async (...a) => { tick(); return bound.run(...a); } });
-        return { ...wrap(stmt), bind: (...args) => wrap(stmt.bind(...args)) };
-      },
+    const clockBase = Date.parse("2026-10-25T14:27:57.000Z");
+    const seedTenant = (wsId, domId, host) => {
+      db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES (?, 'u1', ?)").run(wsId, wsId);
+      db.prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, 'u1', ?)").run(domId, host);
+      db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES (?, ?, 'verified')").run(wsId, domId);
     };
-    const warnings = [];
-    const realWarn = console.warn;
-    console.warn = (...args) => { warnings.push(args.join(" ")); };
-    try {
-      await engineMod.runScanEngine("scanSlow", "domSlow", "wsSlow", "slow.example", { ...env, cybermeters_db: slowDb },
-        { executionContext: "queue", now: () => clock });
-    } finally { console.warn = realWarn; }
-    const slowRow = db.prepare("SELECT status FROM scan_report_snapshots WHERE scan_id='scanSlow'").get();
-    ok("slow lifecycle phases past the reserve: the snapshot still completes", slowRow?.status === "completed",
-       JSON.stringify({ slowRow, inLifecycle, clockS: (clock - startMs) / 1000 }));
-    ok("the phases skipped for the snapshot reserve are logged, never silent",
-       warnings.some((line) => /phase_8n_skipped_for_snapshot_reserve/.test(line)), JSON.stringify(warnings.filter((w) => /skipped/.test(w))));
-    ok("the reserve is a named constant of at least 20 s", engineMod.SNAPSHOT_PHASE_RESERVE_MS >= 20_000);
+    const queueScan = async (scanId, wsId, domId, host, tick = () => {}) => {
+      db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES (?, ?, ?, ?, 'running', datetime('now'))")
+        .run(scanId, wsId, domId, host);
+      const state = { clock: clockBase, ran: [], phases: [] };
+      const leftMs = () => 120_000 - (state.clock - clockBase);
+      const tracedDb = {
+        ...env.cybermeters_db,
+        prepare(sql) {
+          const stmt = env.cybermeters_db.prepare(sql);
+          // Runs only for a call the invocation's guards admitted.
+          const flat = String(sql).replace(/\s+/g, " ");
+          const call = (bound, method) => async (...args) => {
+            tick(flat, state);
+            state.ran.push({ sql: flat, leftMs: leftMs() });
+            return bound[method](...args);
+          };
+          const wrap = (bound) => ({ ...bound, first: call(bound, "first"), all: call(bound, "all"), run: call(bound, "run") });
+          return { ...wrap(stmt), bind: (...args) => wrap(stmt.bind(...args)) };
+        },
+      };
+      const warnings = [];
+      const realWarn = console.warn;
+      console.warn = (...args) => { warnings.push(args.join(" ")); };
+      try {
+        await engineMod.runScanEngine(scanId, domId, wsId, host, { ...env, cybermeters_db: tracedDb }, {
+          executionContext: "queue", now: () => state.clock,
+          testOnlyFinalizePhaseObserver: (phase, remainingMs) => state.phases.push({ phase, leftMs: remainingMs }),
+        });
+      } finally { console.warn = realWarn; }
+      const row = db.prepare("SELECT status, r2_key FROM scan_report_snapshots WHERE scan_id = ? AND status != 'failed'").get(scanId);
+      const snapshot = row?.status === "completed" && store.has(row.r2_key) ? JSON.parse(store.get(row.r2_key)) : null;
+      const ranMarker = (marker) => state.ran.some((r) => r.sql.includes(marker));
+      return { ...state, warnings, row, snapshot, ranMarker, clockS: (state.clock - clockBase) / 1000 };
+    };
+    const M = {
+      asm: "FROM managed_cases WHERE status = 'risk_accepted'",          // 8a.0
+      baseline: "scan_quality, created_at FROM scans WHERE domain_id",   // 8a.1 and 8d: previous-scan diff baseline
+      website: "FROM website_security_conditions",                       // 8m
+      ce: "FROM cyber_essentials_control_records",                       // 8n
+      vendorScores: "DELETE FROM vendor_risk_scores",                    // 8h
+      supplyChain: "source_module, confidence, first_seen",              // 8i
+      pages: "SELECT 1 AS ok FROM workspaces w",                         // 8m-ii
+      snapshotClaim: "INSERT OR IGNORE INTO scan_report_snapshots",      // 8o
+    };
+    const postponedCount = () => db.prepare("SELECT COALESCE(SUM(count), 0) AS n FROM ops_daily_counters WHERE metric = 'scan_finalize_postponed'").get().n;
+    const postponedPhases = (snap) => (snap?.finalize_postponed || []).map((e) => `${e.phase}:${e.reason}`).sort();
+
+    // ── A ───────────────────────────────────────────────────────────────────
+    seedTenant("wsTierA", "domTierA", "tier-a.example");
+    let sawAsm = false, baselineReads = 0;
+    const scenarioA = await queueScan("scanTierA", "wsTierA", "domTierA", "tier-a.example", (sql, st) => {
+      if (sql.includes(M.asm)) sawAsm = true;
+      // Phase 8a.1 (a cross-scan diff producer) starts with 30 s left and
+      // spends 10 s: it finishes 5 s past the 25 s reserve.
+      if (sawAsm && sql.includes(M.baseline) && ++baselineReads === 1) st.clock = clockBase + 90_000;
+      else if (baselineReads === 1 && st.clock === clockBase + 90_000) st.clock += 10_000;
+    });
+    ok("A: a customer-impact phase that crosses the reserve does not cancel the customer-impact phases after it (8d diff, 8m cases, 8n CE)",
+       baselineReads >= 2 && scenarioA.ranMarker(M.website) && scenarioA.ranMarker(M.ce),
+       JSON.stringify({ baselineReads, website: scenarioA.ranMarker(M.website), ce: scenarioA.ranMarker(M.ce), clockS: scenarioA.clockS }));
+    ok("A: only inventory work is postponed, and none of it ran",
+       !scenarioA.ranMarker(M.vendorScores) && !scenarioA.ranMarker(M.supplyChain) && !scenarioA.ranMarker(M.pages)
+       && JSON.stringify(postponedPhases(scenarioA.snapshot)) === JSON.stringify(["phase_8e:not_started", "phase_8h:not_started", "phase_8i:not_started", "phase_8m-ii:not_started"]),
+       JSON.stringify(postponedPhases(scenarioA.snapshot)));
+    ok("A: the snapshot completes and tells the customer which updates were postponed",
+       scenarioA.row?.status === "completed"
+       && scenarioA.snapshot.limitations.some((l) => /postponed to the next check/.test(l) && /vendor risk scores/.test(l))
+       && scenarioA.snapshot.domains.every((d) => !(d.limitations || []).some((l) => /ran out of time/.test(l))),
+       JSON.stringify({ row: scenarioA.row, limitations: scenarioA.snapshot?.limitations }));
+    const snapshotStartA = scenarioA.phases.find((p) => p.phase === "phase_8o");
+    ok("A: the snapshot starts above the floor, after every customer-impact phase",
+       snapshotStartA?.leftMs >= engineMod.SNAPSHOT_FLOOR_MS
+       && ["phase_8a.0", "phase_8a.1", "phase_8a.2", "phase_8b", "phase_8c", "phase_8d", "phase_8d.1", "phase_8f", "phase_8g", "phase_8j", "phase_8k", "phase_8k-ii", "phase_8l", "phase_8m", "phase_8n"]
+         .every((phase) => scenarioA.phases.findIndex((p) => p.phase === phase) > -1
+           && scenarioA.phases.findIndex((p) => p.phase === phase) < scenarioA.phases.indexOf(snapshotStartA)),
+       JSON.stringify(scenarioA.phases));
+    const counterRowsA = db.prepare("SELECT label, count FROM ops_daily_counters WHERE metric = 'scan_finalize_postponed' ORDER BY label").all();
+    ok("A: each postponed phase is counted in ops_daily_counters with a fixed label (no tenant or domain data)",
+       counterRowsA.length === 4 && counterRowsA.every((r) => /^phase_[\w.-]+:(not_started|interrupted)$/.test(r.label) && r.count === 1),
+       JSON.stringify(counterRowsA));
+
+    // ── B ───────────────────────────────────────────────────────────────────
+    seedTenant("wsTierB", "domTierB", "tier-b.example");
+    let inSupplyChain = false;
+    const scenarioB = await queueScan("scanTierB", "wsTierB", "domTierB", "tier-b.example", (sql, st) => {
+      // Phase 8i starts with 27 s left; each of its provider calls takes 6 s.
+      if (!inSupplyChain && sql.includes(M.supplyChain)) { inSupplyChain = true; st.clock = clockBase + 93_000; return; }
+      if (inSupplyChain && !sql.includes(M.snapshotClaim) && !/scan_report_snapshots|FROM workspaces WHERE id = \? AND deleted_at IS NULL/.test(sql)) st.clock += 6_000;
+      if (sql.includes(M.snapshotClaim)) inSupplyChain = false;
+    });
+    const snapshotClaimB = scenarioB.ran.find((r) => r.sql.includes(M.snapshotClaim));
+    ok("B: a slow inventory phase that started above the reserve is cut by the guard; the snapshot completes",
+       inSupplyChain === false && scenarioB.row?.status === "completed" && snapshotClaimB?.leftMs >= engineMod.SNAPSHOT_FLOOR_MS,
+       JSON.stringify({ row: scenarioB.row, claimLeftS: snapshotClaimB && snapshotClaimB.leftMs / 1000, clockS: scenarioB.clockS }));
+    ok("B: the cut phase is recorded as interrupted and the ones after it as not started",
+       JSON.stringify(postponedPhases(scenarioB.snapshot)) === JSON.stringify(["phase_8i:interrupted", "phase_8m-ii:not_started"])
+       && scenarioB.warnings.some((w) => /phase_8i_interrupted_for_snapshot/.test(w)),
+       JSON.stringify({ postponed: postponedPhases(scenarioB.snapshot), warnings: scenarioB.warnings.filter((w) => /for_snapshot/.test(w)) }));
+
+    // ── C ───────────────────────────────────────────────────────────────────
+    const countsBeforeC = postponedCount();
+    const scenarioC = await queueScan("scanTierC", "wsTierB", "domTierB", "tier-b.example");
+    const pageRuns = (scanId) => db.prepare("SELECT COUNT(*) AS n FROM website_page_discovery_runs WHERE scan_id = ?").get(scanId).n;
+    ok("C: the next scan runs the postponed inventory work",
+       scenarioC.ranMarker(M.vendorScores) && scenarioC.ranMarker(M.supplyChain) && scenarioC.ranMarker(M.pages)
+       && pageRuns("scanTierB") === 0 && pageRuns("scanTierC") === 1,
+       JSON.stringify({ b: pageRuns("scanTierB"), c: pageRuns("scanTierC") }));
+    ok("C: the caught-up scan's snapshot has no postponed work, and nothing is recorded twice",
+       scenarioC.row?.status === "completed" && !("finalize_postponed" in scenarioC.snapshot)
+       && !scenarioC.snapshot.limitations.some((l) => /postponed|ran out of time/.test(l))
+       && postponedCount() === countsBeforeC
+       && db.prepare("SELECT COUNT(*) AS n FROM scan_report_snapshots WHERE scan_id IN ('scanTierB','scanTierC') AND status = 'completed'").get().n === 2,
+       JSON.stringify({ limitations: scenarioC.snapshot?.limitations, before: countsBeforeC, after: postponedCount() }));
+
+    // ── D ───────────────────────────────────────────────────────────────────
+    seedTenant("wsTierD", "domTierD", "tier-d.example");
+    let websiteSlow = false;
+    const scenarioD = await queueScan("scanTierD", "wsTierD", "domTierD", "tier-d.example", (sql, st) => {
+      // Website Security's first table read answers with 14 s left (just above
+      // the floor); each further call takes 5 s, so its third call is refused.
+      if (!websiteSlow && sql.includes(M.website)) { websiteSlow = true; st.clock = clockBase + 106_000; return; }
+      if (websiteSlow && /website_security_/.test(sql)) st.clock += 5_000;
+    });
+    const websiteEntry = scenarioD.snapshot?.domains.find((d) => d.domain_key === "website_security");
+    ok("D: below the floor, unfinished customer-impact work is named on its domain and the snapshot still completes",
+       scenarioD.row?.status === "completed"
+       && postponedPhases(scenarioD.snapshot).includes("phase_8m:interrupted")
+       && postponedPhases(scenarioD.snapshot).includes("phase_8n:interrupted")
+       && (websiteEntry?.limitations || []).some((l) => /ran out of time before it finished updating Website Security cases/.test(l))
+       && scenarioD.snapshot.limitations.some((l) => /ran out of time/.test(l)),
+       JSON.stringify({ row: scenarioD.row, postponed: postponedPhases(scenarioD.snapshot), limits: websiteEntry?.limitations }));
+    ok("D: the refused calls launched no further Website Security provider work",
+       scenarioD.ran.filter((r) => /website_security_/.test(r.sql)).every((r) => r.leftMs + 5_000 >= engineMod.SNAPSHOT_FLOOR_MS),
+       JSON.stringify(scenarioD.ran.filter((r) => /website_security_/.test(r.sql)).map((r) => r.leftMs / 1000)));
+    ok("the reserve and the floor are named constants (25 s and the 12 s email-admission floor)",
+       engineMod.SNAPSHOT_PHASE_RESERVE_MS >= 20_000 && engineMod.SNAPSHOT_FLOOR_MS === 12_000
+       && engineMod.SNAPSHOT_FLOOR_MS < engineMod.SNAPSHOT_PHASE_RESERVE_MS);
   }
 
   // ═══ Read-route contract — the REAL worker fetch handler ════════════════════
@@ -1293,6 +1411,48 @@ async function main() {
         file: srcPath("engines", "scan-engine.js"),
         from: "        const snapshot = await buildScanReportSnapshot(env, {",
         to:   "        const snapshot = false && await buildScanReportSnapshot(env, {",
+      },
+      {
+        name: "inventory tier unbounded — a slow inventory phase consumes the snapshot's time",
+        file: srcPath("engines", "scan-engine.js"),
+        from: "    const inventoryEnv = finalizeTierEnv(phaseEnv, SNAPSHOT_PHASE_RESERVE_MS);",
+        to:   "    const inventoryEnv = phaseEnv;",
+      },
+      {
+        name: "customer-impact work cut at the snapshot reserve instead of the floor",
+        file: srcPath("engines", "scan-engine.js"),
+        from: "    const impactEnv = finalizeTierEnv(phaseEnv, SNAPSHOT_FLOOR_MS);",
+        to:   "    const impactEnv = finalizeTierEnv(phaseEnv, SNAPSHOT_PHASE_RESERVE_MS);",
+      },
+      {
+        name: "customer-impact work unbounded below the floor — unfinished work starves the snapshot",
+        file: srcPath("engines", "scan-engine.js"),
+        from: "    const impactEnv = finalizeTierEnv(phaseEnv, SNAPSHOT_FLOOR_MS);",
+        to:   "    const impactEnv = phaseEnv;",
+      },
+      {
+        name: "postponed finalize work not handed to the snapshot — the customer is not told",
+        file: srcPath("engines", "scan-engine.js"),
+        from: "          postponedFinalizeWork: [...finalizePostponed].map(([phase, reason]) => ({ phase, reason })),",
+        to:   "          postponedFinalizeWork: [],",
+      },
+      {
+        name: "postponed-phase ops counter dropped — operators are not told",
+        file: srcPath("engines", "scan-engine.js"),
+        from: "      await bumpDailyCounter(env, \"scan_finalize_postponed\", `${phase}:${reason}`);",
+        to:   "      void phase;",
+      },
+      {
+        name: "tier refusals thrown synchronously — a refusal inside Promise.all orphans its sibling",
+        file: srcPath("engines", "scan-engine.js"),
+        from: "      if (refuseAsRejection) return Promise.reject(refusal(label));",
+        to:   "      if (false) return Promise.reject(refusal(label));",
+      },
+      {
+        name: "unfinished customer-impact work no longer named on its domain",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "    if (unfinished.length) entry.limitations = [...(entry.limitations || []), unfinishedImpactLimit(unfinished)];",
+        to:   "    void unfinished;",
       },
       {
         name: "checksum verification dropped from the shared read helper",

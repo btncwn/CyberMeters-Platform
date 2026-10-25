@@ -76,6 +76,62 @@ export const SNAPSHOT_SCHEMA_VERSION = "1";
 // scan; counts, codes and times only). Additive: older snapshots keep their bytes.
 export const SNAPSHOT_BUILDER_VERSION = "2026-10-22.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
+
+// Scan-finalize work that did not finish before THIS snapshot (P1 25 Oct 2026,
+// scan_5e495f40; scan-engine.js Phase 8a.0..8n). `impact` work (cases,
+// lifecycle, alerts, change timelines) is named on its domain as unfinished;
+// inventory work feeds nothing this snapshot reads and is only postponed. An
+// unknown phase id is still named, generically, never dropped.
+export const POSTPONED_FINALIZE_WORK = Object.freeze({
+  "phase_8a.0":  { impact: true,  domain_key: "attack_surface", label: "Attack Surface case updates" },
+  "phase_8a.1":  { impact: true,  domain_key: "email_protection", label: "the email and exposed-service change timeline" },
+  "phase_8a.2":  { impact: true,  domain_key: "email_protection", label: "the SPF and DMARC report cross-check" },
+  "phase_8b":    { impact: true,  domain_key: "attack_surface", label: "admin login page change events" },
+  "phase_8c":    { impact: true,  domain_key: "shadow_it_unmanaged_technology", label: "the vendor inventory" },
+  "phase_8d":    { impact: true,  domain_key: "certificates_trust", label: "certificate change events" },
+  "phase_8d.1":  { impact: true,  domain_key: "certificates_trust", label: "the certificate timeline" },
+  "phase_8f":    { impact: true,  domain_key: "identity_exposure", label: "the identity inventory" },
+  "phase_8g":    { impact: true,  domain_key: "shadow_it_unmanaged_technology", label: "vendor relationships" },
+  "phase_8j":    { impact: true,  domain_key: "shadow_it_unmanaged_technology", label: "the Shadow IT inventory and its cases" },
+  "phase_8k":    { impact: true,  domain_key: "certificates_trust", label: "the certificate lifecycle" },
+  "phase_8k-ii": { impact: true,  domain_key: "certificates_trust", label: "certificate and TLS cases" },
+  "phase_8l":    { impact: true,  domain_key: "identity_exposure", label: "the Identity Exposure workflow" },
+  "phase_8m":    { impact: true,  domain_key: "website_security", label: "Website Security cases" },
+  "phase_8n":    { impact: true,  domain_key: "cyber_essentials_readiness", label: "the Cyber Essentials evidence lifecycle" },
+  "phase_8e":    { impact: false, domain_key: null, label: "the brand look-alike candidate list" },
+  "phase_8h":    { impact: false, domain_key: null, label: "vendor risk scores" },
+  "phase_8i":    { impact: false, domain_key: null, label: "the supply-chain view" },
+  "phase_8m-ii": { impact: false, domain_key: null, label: "the important website pages list" },
+});
+
+function postponedFinalizeEntries(work) {
+  const seen = new Set();
+  const entries = [];
+  for (const item of Array.isArray(work) ? work : []) {
+    const phase = typeof item?.phase === "string" ? item.phase : null;
+    if (!phase || seen.has(phase)) continue;
+    seen.add(phase);
+    const known = POSTPONED_FINALIZE_WORK[phase];
+    entries.push({
+      phase,
+      reason: item.reason === "interrupted" ? "interrupted" : "not_started",
+      impact: known ? known.impact : true,
+      domain_key: known?.domain_key ?? null,
+      label: known?.label ?? "a scan follow-up update",
+      catch_up: "next_check",
+    });
+  }
+  return entries;
+}
+
+function joinLabels(entries) {
+  const labels = entries.map((entry) => entry.label);
+  return labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}` : labels[0];
+}
+
+const unfinishedImpactLimit = (entries) =>
+  `This check ran out of time before it finished updating ${joinLabels(entries)}. Case, alert and lifecycle status shown here may not yet reflect this check; the next check completes the update.`;
+
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
 // Compatibility-only availability state. It is intentionally NOT a substitute
@@ -687,7 +743,11 @@ export function composeSnapshot({
   reconstruction = false, // strict historical reconstruction (founder policy)
   shadowInventoryCount = null,
   signedInScanning = null, // null = unavailable; see loadSignedInScanningForSnapshot
+  postponedFinalizeWork = [], // scan-engine.js finalize phases that did not finish
 }) {
+  const postponed = postponedFinalizeEntries(postponedFinalizeWork);
+  const postponedImpact = postponed.filter((entry) => entry.impact);
+  const postponedInventory = postponed.filter((entry) => !entry.impact);
   const reportForCustomer = projectUnvalidatedBrandReportForCustomer(projectDmarcReportForCustomer(
     projectTlsReportForCustomer(report ?? {}),
     dmarcPolicyEvidence,
@@ -1001,6 +1061,8 @@ export function composeSnapshot({
         entry.conclusion_label = "Served certificate not captured";
       }
     }
+    const unfinished = postponedImpact.filter((item) => item.domain_key === entry.domain_key);
+    if (unfinished.length) entry.limitations = [...(entry.limitations || []), unfinishedImpactLimit(unfinished)];
     entry.evidence_grade = domainEvidenceGrade(entry, report);
     return entry;
   });
@@ -1233,10 +1295,16 @@ export function composeSnapshot({
     source_artifacts: {
       scan_report_r2_key: `reports/${scanId}.json`,
     },
+    // Present only when finalize work did not finish; older snapshots keep their bytes.
+    ...(postponed.length ? { finalize_postponed: postponed } : {}),
     limitations: [
       "This snapshot records what CyberMeters externally observed at the assessment time shown; it is not a certification.",
       "Customer attestation and CyberMeters verification are different states and are labelled as such.",
       "Evidence that was missing or incomplete at assessment time is recorded as such and is never presented as healthy.",
+      ...(postponedImpact.length ? [unfinishedImpactLimit(postponedImpact)] : []),
+      ...(postponedInventory.length
+        ? [`To deliver this report on time, updates to ${joinLabels(postponedInventory)} were postponed to the next check. They do not change any finding, score or domain state in this report.`]
+        : []),
       ...(reconstruction
         ? [
             "This snapshot was reconstructed on demand from the immutable scan-time report, after the scan completed.",
@@ -1255,7 +1323,7 @@ export function composeSnapshot({
 // Returns { status: 'completed'|'exists'|'in_progress'|'skipped'|'failed', ... }.
 export async function buildScanReportSnapshot(env, opts = {}) {
   const { workspaceId, domainId, scanId, domain, report, cyberEssentials = null, assessedAt,
-          reconstruction = false } = opts;
+          reconstruction = false, postponedFinalizeWork = [] } = opts;
   if (!workspaceId || !domainId || !scanId || !report) {
     return { status: "skipped", reason: "missing_identity" };
   }
@@ -1455,6 +1523,8 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       reconstruction,
       shadowInventoryCount,
       signedInScanning,
+      // A reconstruction cannot know what finalize did not finish.
+      postponedFinalizeWork: reconstruction ? [] : postponedFinalizeWork,
     });
 
     const body = JSON.stringify(snapshot, null, 2);
