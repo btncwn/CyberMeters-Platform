@@ -413,7 +413,13 @@ async function main() {
   const nowD = new Date();
   if (nowD.getUTCHours() === 2) expectedTasks.push(
     "report_retention", "public_api_rate_limit_retention", "audit_retention",
-    "mcp_rate_retention", "mcp_refresh_replay_retention", "ops_observability_retention");
+    "mcp_rate_retention", "mcp_refresh_replay_retention", "ops_observability_retention",
+    // The two public reference-feed refreshes (remote-access KEV catalogue,
+    // cloud provider address ranges) also run at 02:00 UTC.
+    "remote_access_catalogue", "cloud_ranges");
+  // Those two fetch public feeds; this harness disables the network, so each
+  // records its bounded refresh error by design (never a wiring error).
+  const NETWORK_FEED_TASKS = new Set(["remote_access_catalogue", "cloud_ranges"]);
   if (nowD.getUTCHours() === 4) expectedTasks.push("brand_http_enrichment");
   // free_check_canary (07:00 UTC) is opt-in by FREE_CHECK_CANARY = "on", which
   // this fixture does not set: it would make real DNS lookups from CI.
@@ -424,7 +430,8 @@ async function main() {
   ok(`scheduled() runs exactly the registered task set (${expectedTasks.length} tasks, names matched)`,
     JSON.stringify(seenTasks) === JSON.stringify([...expectedTasks].sort()));
   ok("every task completed ok on the harness env (outcome blob = ok for all)",
-    cronPoints.length > 0 && cronPoints.every((d) => d.blobs?.[2] === "ok"));
+    cronPoints.length > 0 && cronPoints.every((d) => d.blobs?.[2] === "ok" ||
+      (nowD.getUTCHours() === 2 && NETWORK_FEED_TASKS.has(String(d.blobs?.[1])))));
   ok("no task failed with a wiring error (no 'is not a function')",
     !cronPoints.some((d) => (d.blobs ?? []).some((b) => String(b).includes("is not a function"))));
 
