@@ -17,9 +17,9 @@ const ev = (action, reason) => ({ action, detail_json: reason ? JSON.stringify({
 
 describe('observed-improvement events', () => {
   it.each([
-    ['recovery_observed', null, 'CyberMeters observed this condition recover. The case stays open until you submit it for verification.'],
-    ['recovery_observed_not_verifying', 'external_evidence_incomplete', 'CyberMeters observed a recovery, but some of the external evidence was not collected, so this does not count as a fix.'],
-    ['recovery_observed_not_verifying', 'registry_method_is_not_externally_observable', 'CyberMeters observed a recovery, but it cannot verify this fix from outside.'],
+    ['recovery_observed', null, 'CyberMeters observed an improvement. The case stays open until you submit it for verification.'],
+    ['recovery_observed_not_verifying', 'external_evidence_incomplete', 'CyberMeters observed an improvement, but some of the external evidence was not collected, so this does not count as a fix.'],
+    ['recovery_observed_not_verifying', 'registry_method_is_not_externally_observable', 'CyberMeters observed an improvement, but it cannot verify this fix from outside.'],
     ['replacement_observed', null, 'CyberMeters observed a replacement certificate. The case stays open until you submit it for verification.'],
     ['replacement_observed_not_verifying', 'registry_method_is_not_externally_observable_for_this_finding', 'CyberMeters observed a replacement certificate, but it cannot verify this fix from outside.'],
     ['replacement_observed_not_verifying', 'invalid_transition', 'CyberMeters observed a replacement certificate, but this does not verify the fix.'],
@@ -27,14 +27,29 @@ describe('observed-improvement events', () => {
   ])('%s (%s)', (action, reason, words) => {
     expect(resolutionEventWords(ev(action, reason))).toBe(words)
   })
+  it('a closed case keeps no "stays open" promise (a replacement noted on a closed certificate case)', () => {
+    for (const status of ['closed_no_action', 'false_positive', 'rejected', 'resolved', 'verified']) {
+      expect(resolutionEventWords({ action: 'replacement_observed', from_status: status, to_status: status })).toBe('CyberMeters observed a replacement certificate.')
+    }
+    expect(resolutionEventWords({ action: 'replacement_observed', from_status: 'detected', to_status: 'detected' }))
+      .toBe('CyberMeters observed a replacement certificate. The case stays open until you submit it for verification.')
+  })
+  it('prototype keys are never table entries and never break History', () => {
+    for (const action of ['toString', 'toString_not_verifying', 'constructor', '__proto__', 'hasOwnProperty_not_verifying']) {
+      expect(() => resolutionEventWords({ action })).not.toThrow()
+      expect(resolutionEventWords({ action })).toBeNull()
+    }
+    expect(resolutionEventWords({ action: 'recovery_observed_not_verifying', detail_json: JSON.stringify({ reason: 'toString' }) }))
+      .toBe('CyberMeters observed an improvement, but this does not verify the fix.')
+  })
   it('other events are untouched', () => {
     for (const action of ['case_created', 'assignment_changed', 'observed_something_else']) expect(resolutionEventWords({ action })).toBeNull()
   })
 })
 
 it.each([
-  ['email_case', 'email_protection', 'recovery_observed', 'CyberMeters observed this condition recover.'],
-  ['ce_case', 'cyber_essentials', 'recovery_observed_not_verifying', 'CyberMeters observed a recovery, but some of the external evidence was not collected'],
+  ['email_case', 'email_protection', 'recovery_observed', 'CyberMeters observed an improvement.'],
+  ['ce_case', 'cyber_essentials', 'recovery_observed_not_verifying', 'CyberMeters observed an improvement, but some of the external evidence was not collected'],
   ['certificate_case', 'certificates_trust', 'replacement_observed', 'CyberMeters observed a replacement certificate.'],
 ])('the %s History never reads "— moved to" for %s', async (caseType, domainKey, action, words) => {
   api.getWorkspaceMembers.mockResolvedValue({ members: [] })
