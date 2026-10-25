@@ -104,7 +104,7 @@ const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_author
       AND EXISTS(SELECT 1 FROM json_each(g.checks_json) k WHERE k.value=json_extract(c.value,'$[1]'))
       AND NOT EXISTS(SELECT 1 FROM active_check_consents r WHERE r.kind='revocation' AND r.grant_id=g.id)))))
   AND (?='standard_https' OR EXISTS(SELECT 1 FROM workspace_tls_service_authorizations sa
-    JOIN network_targets t ON t.id=sa.network_target_id AND t.workspace_id=sa.workspace_id
+    JOIN network_targets t ON t.id=sa.network_target_id AND t.workspace_id=sa.workspace_id AND t.withdrawn_at IS NULL
     WHERE sa.id=? AND sa.workspace_id=external_exposure_jobs.workspace_id
       AND sa.domain_id=external_exposure_jobs.domain_id AND sa.authorization_status='active'
       AND sa.hostname=? AND sa.sni=? AND sa.port=? AND sa.application_protocol=?

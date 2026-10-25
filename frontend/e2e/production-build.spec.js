@@ -44,7 +44,8 @@ test.beforeAll(async () => {
   worker = (await import(`data:text/javascript;base64,${Buffer.from(src).toString('base64')}`)).default
   server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://local')
-    const answer = url.pathname.startsWith('/assets/')
+    // Pages' /assets/* pattern also includes its bare parent application route.
+    const answer = url.pathname === '/assets' || url.pathname.startsWith('/assets/')
       ? await worker.fetch(new Request(url), { ASSETS: { fetch: async (r) => staticAnswer(new URL(r.url).pathname) } })
       : staticAnswer(url.pathname)
     res.writeHead(answer.status, Object.fromEntries(answer.headers))
@@ -76,7 +77,7 @@ test('a missing /assets/* file is 404 + no-store; a real asset stays immutable',
 })
 
 // On a non-production host / and /dashboard go to sign-in; /landing is the public site.
-for (const path of ['/', '/dashboard', '/landing']) {
+for (const path of ['/', '/dashboard', '/landing', '/assets', '/assets/', '/assets?tab=settings']) {
   test(`the production build boots on ${path} (no "new version" card, no uncaught error)`, async ({ page }) => {
     const errors = []
     const htmlAssets = []
