@@ -231,6 +231,9 @@ export default function ActiveCheckPermissionsPage() {
 
   return (
     <div className="max-w-(--breakpoint-lg) mx-auto px-4 sm:px-6 py-8">
+      {/* The revoke confirmation renders here (P1, founder 25 Oct 2026: without it
+          the prompt opened invisibly, never resolved, and "Revoke permission" did nothing). */}
+      {dialog.element}
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-900">Active Checks permission</h1>
         <p className="text-sm text-gray-600 mt-1">

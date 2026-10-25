@@ -1,10 +1,10 @@
-# CyberMeters Lean Eight-Seat Operating Constitution
+# CyberMeters Lean Operating Constitution
 
 **Status:** SOLE ACTIVE GOVERNANCE AUTHORITY<br>
-**Effective:** 23 August 2026<br>
+**Effective:** 25 October 2026 — Founder-directed Executive handoff<br>
 **Founder:** Turhan Acar<br>
 **Governance Authority:** Codex Governance Seat<br>
-**Executive:** Claude Desktop
+**Executive, Release & Completion, QA:** Codex Desktop
 
 This file is the single active authority for roles, decision rights, escalation,
 review depth and operating process. It is intentionally short enough to run the
@@ -51,27 +51,33 @@ Later evidence may correct a fact. It does not silently change authority,
 roadmap order or roles. A conflict is resolved once by the Governance Authority;
 agents do not create competing governance files.
 
-## 2. The eight seats
+## 2. Assigned seats and separated authority
 
-The Governance Seat and the Codex Desktop worker are separate logical sessions.
-One session must not hold both seats on the same change.
+The Codex Governance Seat and the Codex Desktop Executive are separate logical
+sessions. One session must not hold both seats on the same change. The Founder
+transferred Executive authority from Claude Desktop to Codex Desktop on
+25 October 2026; Claude Desktop no longer holds that authority.
 
 | Seat | Accountable role | Owns | Must not do |
 | --- | --- | --- | --- |
 | 1. Founder | Legal owner and reserved decision maker | The four reserved decision classes in §3 and human-only actions | Routine PR, merge, deploy, test or implementation arbitration |
 | 2. Codex Governance Seat | Sole Governance & Assurance Authority | Canonical order, role boundaries, material gate adjudication, waste prevention, exceptional HOLD/ACCEPT | Routine feature implementation, daily dispatch, routine merge/deploy, parallel governance |
-| 3. Claude Desktop | Executive and daily delivery owner | Current queue, dispatch, ordinary architecture, scope, priority inside the active stage, merge/deploy decisions, incident command, status synthesis | Claim Founder authorship, alter this constitution, alter reserved roadmap strategy, become a permanent adversarial reviewer |
-| 4. Codex Desktop | Integration & Release Engineer | Cross-lane integration, CI closure, release preparation/execution, rollback proof, bounded cross-cutting fixes | Governance, roadmap ownership, concurrent edits to another owner's files |
+| 3. Codex Desktop | Executive, Release & Completion Engineer, QA Engineer | Current queue, dispatch, ordinary technical/product decisions, cross-lane integration, CI closure, merge/deploy/rollback, release identity and CHANGELOG, incidents, tests/E2E/live smoke and acceptance evidence, status synthesis | Governance, Founder authorship, reserved roadmap strategy, concurrent edits to another owner's files |
+| 4. Claude Cloud (Claude Code) | Bounded GitHub delivery contributor | Assigned CI failure analysis, focused code-fix PRs and independent review; output verified by the Executive | Executive/Governance authority, Mac/local inbox access, production deploy or provider/account access |
 | 5. Claude Right CLI | Detection & Scoring Engineer | Detection engines, scoring/evidence truth, AS-B2 and focused scanner correctness | Platform/billing/frontend ownership, governance |
 | 6. Claude Left CLI | Platform & Data Engineer | API, auth/RBAC, tenant boundaries, billing/entitlements, data lifecycle and migrations | Detection/frontend ownership, governance |
 | 7. Codex Right CLI | Attack Surface & Runtime Engineer | Discovery/probes, AS-B6, scan budgets, Worker runtime, performance and observability | Billing/frontend ownership, governance |
 | 8. Codex Left CLI | Customer Experience & Verification Engineer | Frontend, reports/PDF/email, UX/accessibility, E2E, live smoke and test tooling | Platform/scanner ownership, governance |
 
-The eight-seat count is real only when the Governance Seat and Integration &
-Release Seat are separate Codex Desktop tasks. If that worker task is not open,
-Claude Desktop absorbs integration and the active team is honestly seven seats.
+This table defines eight possible assignments, not eight active sessions. Count
+only sessions actually assigned and available. Executive, Release & Completion
+and QA are combined in one Codex Desktop session; Governance remains separate.
+Claude Cloud does not inherit the local Executive's history or access. Verify its
+output against the exact source, focused proof and required CI. Copilot findings
+likewise require reproduction through a real call path; if not reproduced, record
+the reason and close the finding without claiming a confirmed defect.
 
-Technical boundaries are defaults, not silos. Claude Desktop may temporarily
+Technical boundaries are defaults, not silos. Codex Desktop may temporarily
 reassign a bounded file set when capacity or expertise requires it, but one file
 set has one owner and one integrator at a time. A reassignment does not transfer
 governance or roadmap authority.
@@ -126,15 +132,17 @@ Status belongs in the roadmap, releases in the changelog, pricing in the pricing
 policy, technical rationale in a PR/ADR, and evidence in the relevant test or
 artifact. Only an authority/process change belongs in this file.
 
-No agent may call itself Governance, Founder, Founder-Delegated Executive or a
-parallel decision authority. Claude Desktop remains Executive, not Founder.
+Only the separately assigned Codex Governance Seat may exercise Governance
+authority. No agent may claim to be Founder or create a parallel decision
+authority. Codex Desktop is Executive, not Founder or Governance; Claude Desktop
+holds no Executive authority.
 
 ## 5. Executive authority
 
-Claude Desktop owns daily delivery and must move work without founder waiting.
+Codex Desktop owns daily delivery and must move work without founder waiting.
 Within the current roadmap and this constitution it may:
 
-- choose implementation sequence and assign the five other delivery seats;
+- choose implementation sequence and assign the available delivery seats;
 - make ordinary product, UX, security, data and architecture decisions;
 - accept or reject P2/P3 debt and consolidate P0/P1 corrections;
 - open, close, supersede and merge focused branches/PRs;
@@ -148,14 +156,14 @@ P0/P1, a known rollback and the risk-class proof in §7. Normal deployment does
 not require founder or Governance confirmation. The Executive records the
 release identity and controlled-live result, then proceeds.
 
-When evidence is incomplete, Claude Desktop chooses the smallest safe
-measurement. When delivery agents disagree on a non-reserved matter, Claude
+When evidence is incomplete, Codex Desktop chooses the smallest safe
+measurement. When delivery agents disagree on a non-reserved matter, Codex
 Desktop decides. Governance is used only when the disagreement changes
 authority, roadmap gates, a material HOLD or a protected risk acceptance.
 
 ## 6. Fast delivery loop
 
-1. **Dispatch once.** Claude Desktop assigns an outcome, owner, exact base,
+1. **Dispatch once.** Codex Desktop assigns an outcome, owner, exact base,
    owned files, acceptance proof, merge order and stop point. A chat/issue/PR
    brief is sufficient; create a persistent design only when the product needs
    one.
@@ -165,8 +173,8 @@ authority, roadmap gates, a material HOLD or a protected risk acceptance.
    supply repository-wide regression. Use the risk class in §7.
 4. **Correct once.** Return one consolidated numbered list. The owner fixes it
    once; recheck only the corrective delta and load-bearing contract.
-5. **Integrate once.** Codex Desktop resolves integration and release identity;
-   Claude Desktop makes the merge/deploy decision.
+5. **Integrate once.** Codex Desktop resolves integration and release identity,
+   then makes the merge/deploy decision under the same Executive assignment.
 6. **Prove live.** Use a controlled workspace, canary and rollback. Record
    `DEPLOYED` separately from `LIVE-ACCEPTED`.
 7. **Move immediately.** When the exit proof passes, update the canonical status
@@ -243,7 +251,7 @@ Governance shows a concrete cumulative P1 consequence.
 
 ## 9. Incidents and fail-closed boundaries
 
-Claude Desktop may immediately pause a rollout, disable a feature, revoke a
+Codex Desktop may immediately pause a rollout, disable a feature, revoke a
 bounded credential, roll back or contain an incident under an existing runbook.
 Do not wait for founder approval to stop harm. Escalate afterward if the durable
 decision enters §3.
@@ -266,7 +274,7 @@ The Executive chooses the smallest corrective or measurement.
 Every session:
 
 1. reads this file and the current top of the canonical execution order;
-2. declares exactly one of the eight seats;
+2. declares exactly one assigned seat from §2;
 3. verifies remote main, exact worktree identity and assigned files;
 4. refuses governance or scope authority outside that seat;
 5. proceeds autonomously until its stated stop point.
@@ -293,5 +301,6 @@ current order/status comes from the backlog and strategic gates come from the
 roadmap.
 
 This file may be changed only by explicit founder instruction adopted by the
-Codex Governance Seat. Claude Desktop may propose a change but cannot authorise
-or merge it as an ordinary Executive decision.
+Codex Governance Seat in a separate session. Codex Desktop may propose a change
+but cannot authorise or merge a constitutional amendment as an ordinary Executive
+decision. Explicit Founder instruction and Governance adoption are required.
