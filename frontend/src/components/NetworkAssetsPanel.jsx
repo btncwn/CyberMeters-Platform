@@ -292,6 +292,18 @@ export default function NetworkAssetsPanel({ workspaceId }) {
       'Authorisation recorded and target saved. No check was started.')
   }
 
+  async function removeTarget(row) {
+    const scope = workspaceId
+    const confirmed = await dialog.confirm({
+      title: `Remove ${row.target} and withdraw your authorisation?`,
+      message: 'Future scans will not check it. Past scan results stay in your history.',
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    })
+    if (!confirmed || workspaceRef.current !== scope) return
+    await act(() => api.removeNetworkTarget(scope, row.id), 'Network target removed. Past scan results stay in your history.')
+  }
+
   async function revokeRange(row) {
     const reason = await dialog.prompt({
       title: `Revoke the authorisation for ${row.target}?`,
@@ -375,7 +387,7 @@ export default function NetworkAssetsPanel({ workspaceId }) {
           <td className="font-mono text-xs">{row.target}{row.label && <span className="block font-sans text-gray-500">{row.label}</span>}</td><td>{count(row.address_count) === null ? 'Address count not recorded' : `${row.address_count} address${row.address_count === 1 ? '' : 'es'}`}</td><td className="text-xs">{row.range_consent?.status === 'active'
             ? <div data-testid="range-consent-active"><p>{DECLARED_RANGE_TEXT}</p><span className="block text-gray-500">{[row.range_consent.signer?.name, row.range_consent.signer?.title].filter(Boolean).join(', ')}{row.range_consent.granted_at ? ` · ${date(row.range_consent.granted_at)}` : ''}{Array.isArray(row.range_consent.ports) && row.range_consent.ports.length ? ` · ports ${row.range_consent.ports.join(', ')}` : ''}</span>{capabilities.can_manage === true && <button type="button" className="btn-secondary text-xs mt-1" disabled={busy} onClick={() => revokeRange(row)}>Revoke</button>}</div>
             : <>{row.authorization_status === 'attested' ? 'Authorization declared' : 'Authorization not established'}<span className="block text-gray-500">{date(row.authorized_at)}</span></>}</td>
-          <td>{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), SCAN_QUEUED_TEXT)}>{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-brand-700 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}</td>
+          <td><div className="flex flex-wrap items-start gap-2">{capabilities.can_scan === true && <><button className="btn-secondary text-sm" disabled={busy || !canScan || !validPorts || !withinPairs(row) || hasPendingRun || row.authorization_status !== 'attested'} onClick={() => act(() => api.startNetworkScan(workspaceId, row.id, selectedPorts), SCAN_QUEUED_TEXT)}>{hasPendingRun ? 'Scan in progress' : 'Run scan'}</button>{validPorts && !withinPairs(row) && <p className="text-xs text-brand-700 mt-1">Reduce the selected ports to fit this target’s scan limit.</p>}</>}{capabilities.can_manage === true && <button type="button" className="btn-secondary text-sm" disabled={busy} onClick={() => removeTarget(row)}>Remove</button>}</div></td>
         </tr>)}</tbody></table></div>}
       </div>}
 

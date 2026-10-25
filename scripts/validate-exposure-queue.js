@@ -368,7 +368,7 @@ for(const outcome of [
 for(const [body,expectSpecials] of [[{},false],[{trigger:'scheduled'},false],[{trigger:'manual'},true]]){
  const h=harness(),{scan}=h.seed(`n02_${body.trigger||'none'}`);h.sql.exec('DELETE FROM external_exposure_jobs');
  h.sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
- h.sql.exec(`CREATE TABLE IF NOT EXISTS network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope')`);
+ h.sql.exec(`CREATE TABLE IF NOT EXISTS network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope',withdrawn_at TEXT)`);
  h.env.TLS_ASSESSMENT_MODE='evidence-v1';
  const seen=[];
  const loader=(e,s,o)=>{seen.push(o.trigger);return loadTlsEndpoints(e,s,{...o,

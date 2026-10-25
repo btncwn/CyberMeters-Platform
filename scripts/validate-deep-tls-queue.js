@@ -12,7 +12,7 @@ import { TLS_POLICY_VERSION, TLS_PROFILE_VERSION, TLS_SLICE_LIMITS, TLS_SPECIAL_
 import { projectTlsCollectorReceipt, validateTlsAssessmentRequest } from '../workers/network-probe/src/tls-contract.js';
 import { processExposureMessage, readTlsAssessmentForScan, tlsProbeScope } from '../workers/scan-api/src/engines/exposure-jobs.js';
 import { loadTlsAssessmentModuleForScan } from '../workers/scan-api/src/engines/scan-engine.js';
-import { loadTlsEndpoints, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
+import { loadTlsEndpoints, tlsScopeStillAuthorized, buildBudgetedTlsCheckPlan } from '../workers/scan-api/src/engines/tls-planner.js';
 import { resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js';
 
 const sql=new DatabaseSync(':memory:');
@@ -22,6 +22,7 @@ sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
   CREATE TABLE network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope');`);
 sql.exec(readFileSync(new URL('../database/migrations/119-external-exposure-jobs.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
+sql.exec(readFileSync(new URL('../database/migrations/140-network-target-withdrawal.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/135-active-check-consents.sql',import.meta.url),'utf8'));
 const prepare=(query,args=[])=>({bind:(...values)=>prepare(query,values),first:async()=>sql.prepare(query).get(...args)||null,
   all:async()=>({results:sql.prepare(query).all(...args)}),run:async()=>({meta:{changes:sql.prepare(query).run(...args).changes}})});
@@ -176,6 +177,12 @@ function scopedJob(scanId,generation){
   const lookup=async(host,type)=>type==='A'?{Status:0,Answer:[{name:`${host}.`,type:1,data:'8.8.8.8'}]}:{Status:0,Answer:[]};
   const services=async()=>(await loadTlsEndpoints(env,scan,{lookup})).endpoints.filter(e=>e.scope.kind==='authorized_service').length;
   assert.equal(await services(),1,'an in-scope target\'s service is planned');
+  const entry=(await loadTlsEndpoints(env,scan,{lookup})).endpoints.find(e=>e.scope.kind==='authorized_service');
+  sql.prepare("UPDATE network_targets SET withdrawn_at='2026-10-25T15:30:00Z' WHERE id='target_scope'").run();
+  assert.equal(await services(),0,'C-63: withdrawn target is not planned');
+  assert.equal(await tlsScopeStillAuthorized(env,scan,entry,{lookup}),false,'C-63: an old endpoint plan cannot survive target withdrawal');
+  sql.prepare("UPDATE network_targets SET withdrawn_at=NULL WHERE id='target_scope'").run();
+
   const deferred=async()=>(await loadTlsEndpoints(env,scan,{lookup})).deferred_services;
   assert.deepEqual(await deferred(),[],'nothing deferred while in scope');
   sql.prepare("UPDATE network_targets SET scope_state='out_of_scope' WHERE id='target_scope'").run();
@@ -225,6 +232,20 @@ assert.equal(fenced.tls.results[0].state,'not_authorized');
   assert.equal((await processExposureMessage(third.message,env,{lookupTlsDns,collectTlsAssessment:leaveScopeBeforeReceipt})).outcome,'tls_fence_lost');
   assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_target').plan_json).tls.results.length,0);
   sql.prepare("UPDATE network_targets SET scope_state='in_scope' WHERE id='target_scope'").run();
+}
+// C-63: the reservation/finalization fence also rejects target withdrawal.
+{
+  const generation=sql.prepare('SELECT generation FROM workspace_tls_authorizations WHERE workspace_id=?').get(scopeWorkspace).generation;
+  sql.prepare('UPDATE external_exposure_jobs SET lease_until=0 WHERE workspace_id=?').run(scopeWorkspace);
+  const withdrawn=scopedJob('scope_withdrawn',generation);
+  const during=async(...args)=>{const receipt=await collectTlsAssessment(...args);sql.prepare("UPDATE network_targets SET withdrawn_at='2026-10-25T15:30:00Z' WHERE id='target_scope'").run();return receipt;};
+  assert.equal((await processExposureMessage(withdrawn.message,env,{lookupTlsDns,collectTlsAssessment:during})).outcome,'tls_fence_lost','C-63: late TLS receipt fenced');
+  assert.equal(JSON.parse(sql.prepare('SELECT plan_json FROM external_exposure_jobs WHERE scan_id=?').get('scope_withdrawn').plan_json).tls.results.length,0);
+  sql.prepare('UPDATE external_exposure_jobs SET lease_until=0 WHERE scan_id=?').run('scope_withdrawn');
+  const calls=collectorCalls;
+  assert.equal((await processExposureMessage(withdrawn.message,env,{lookupTlsDns,collectTlsAssessment,now:()=>withdrawn.now+31000})).outcome,'scope_changed','C-63: withdrawn TLS target refuses dispatch');
+  assert.equal(collectorCalls,calls,'C-63: no physical TLS call after withdrawal');
+  sql.prepare("UPDATE network_targets SET withdrawn_at=NULL WHERE id='target_scope'").run();
 }
 // A normal check must carry a valid projected scope even when the plan
 // contains Active Checks grants. Intrusive controls remain withheld.

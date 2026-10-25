@@ -160,13 +160,14 @@ export async function checkNetworkTargetScope(env, workspaceId, targets, deps = 
   const decisions = new Map();
   const statements = [];
   for (const target of targets) {
+    if (target.withdrawn_at) continue;
     let addresses = [];
     try { addresses = JSON.parse(target.addresses_json); } catch { addresses = []; }
     const decision = evaluateTargetScope(Array.isArray(addresses) ? addresses : [], observed);
     decisions.set(target.id, { ...decision, checked_at: now });
     statements.push(env.cybermeters_db.prepare(
       `UPDATE network_targets SET scope_state = ?, scope_reason = ?, scope_checked_at = ?, scope_evidence_json = ?
-        WHERE id = ? AND workspace_id = ?`,
+        WHERE id = ? AND workspace_id = ? AND withdrawn_at IS NULL`,
     ).bind(decision.state, decision.reason, now, JSON.stringify({
       version: NETWORK_SCOPE_VERSION, unobserved: decision.unobserved, shared: decision.shared,
       evidence: decision.evidence, roots: observed.roots, lookups_failed: observed.lookups_failed,
