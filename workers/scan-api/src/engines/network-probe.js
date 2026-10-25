@@ -2,6 +2,11 @@ import { PROBE_LIMITS, readBoundedJson, validateNetworkProbeRequest } from '../.
 import { validateNetworkProbeReceipt } from '../../../network-probe/src/receipt.js';
 export { validateNetworkProbeReceipt, validateNetworkProbeRequest };
 export { PROBE_PORTS, isPublicProbeAddress } from '../../../network-probe/src/contract.js';
+// The collector's per-port TCP connect window (network-probe/src/collector.js:
+// Math.min(1500, ...)). With less time left a request gets a shortened window,
+// so its 'timeout' is not conclusive. Kept here (scan-api side) so the probe
+// image is unchanged; a fixture pins it to collector.js.
+export const PROBE_CONNECT_TIMEOUT_MS = 1500;
 
 export async function collectNetworkProbe(env,request,{signal}={}) {
   const checked=validateNetworkProbeRequest(request);

@@ -170,6 +170,28 @@ assert.equal(moduleCompletionGate({ remote_admin_exposure: exposed }, { status: 
   let clock = Date.now();
   const late = await run({ now: () => clock, collect: async (e, r) => { if (r.ports.length === 16) clock = Date.parse(r.deadline_at) - 500; return dark(r); } });
   assert.equal(late.cloud_hosts.hosts[0].reason, 'deadline');
+  // R1 #1003 (1): less than connect timeout + margin left -> 'deadline', never a
+  // shortened connect window read as 'timeout' (a false 'unreachable').
+  const { CLOUD_WEB_MIN_REMAINING_MS } = await import('../workers/scan-api/src/engines/remote-admin-exposure.js');
+  const { PROBE_CONNECT_TIMEOUT_MS } = await import('../workers/scan-api/src/engines/network-probe.js');
+  assert.ok(CLOUD_WEB_MIN_REMAINING_MS >= 3000 && CLOUD_WEB_MIN_REMAINING_MS > PROBE_CONNECT_TIMEOUT_MS, 'guard = connect timeout + margin');
+  assert.ok(readFileSync(new URL('../workers/network-probe/src/collector.js', import.meta.url), 'utf8').includes(`Math.min(${PROBE_CONNECT_TIMEOUT_MS},deadline-Date.now())`),
+    'PROBE_CONNECT_TIMEOUT_MS is the collector\'s connect window');
+  let clock2 = Date.now(), lateWeb = 0;
+  const shortWindow = await run({ now: () => clock2, collect: async (e, r) => {
+    if (r.ports.length === 16) clock2 = Date.parse(r.deadline_at) - 2500; else lateWeb++;
+    return dark(r); } });
+  assert.deepEqual([shortWindow.cloud_hosts.hosts[0].state, shortWindow.cloud_hosts.hosts[0].reason, lateWeb], ['not_assessed', 'deadline', 0],
+    '2.5 s left (>= the old 1.5 s guard): no web request, deadline, never unreachable');
+  // R1 #1003 (2): a non-busy error is not retried.
+  let webTries = 0;
+  const down = await run({ collect: async (e, r) => { if (r.ports.length === 2) { webTries++; throw new Error('collector_unavailable'); } return dark(r); } });
+  assert.deepEqual([webTries, down.cloud_hosts.hosts[0].reason], [1, 'web_ports_not_checked'], 'only collector_busy is retried');
+  // ... and the retry goes through the accounting: budget exhausted on the retry -> 'budget'.
+  let used = 0, webAttempts = 0;
+  const retryBudget = { assertCanIssue: () => { if (used >= 2) throw new Error('budget'); return true; }, recordAttempt: () => { used++; } };
+  const exhausted = await run({ accounting: retryBudget, collect: async (e, r) => { if (r.ports.length === 2) { webAttempts++; throw new Error('collector_busy'); } return dark(r); } });
+  assert.deepEqual([webAttempts, exhausted.cloud_hosts.hosts[0].reason], [1, 'budget'], 'the retry is refused by the budget, not sent');
   // The 16-port request failed: no web request at all.
   let webAfterFail = 0;
   await run({ collect: async (e, r) => { if (r.ports.length === 2) webAfterFail++; throw new Error('collector_unavailable'); } });

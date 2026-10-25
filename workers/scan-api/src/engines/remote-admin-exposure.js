@@ -16,7 +16,7 @@
 // a limit rather than turning partial (scan-engine.js buildScanQuality).
 import { dnsQuery } from "./dns.js";
 import { observedNetworkAddresses } from "./network-ownership.js";
-import { collectNetworkProbe, isPublicProbeAddress } from "./network-probe.js";
+import { collectNetworkProbe, isPublicProbeAddress, PROBE_CONNECT_TIMEOUT_MS } from "./network-probe.js";
 import { createId } from "../lib/util.js";
 import { cloudProviderForAddress, cloudProviderName, cloudRangeIndex, readCloudRanges } from "./cloud-ranges.js";
 
@@ -201,7 +201,11 @@ function cloudHostsNotAssessed(cloudIndex, selected, reason) {
   return { state: "not_assessed", reason, ranges_fetched_at: cloudIndex.fetched_at, hosts };
 }
 export const CLOUD_WEB_RETRY_DELAY_MS = 750;
-const CLOUD_WEB_MIN_REMAINING_MS = 1500;
+// R1 #1003: with less than a full connect window left, the collector would cut
+// the window short and a live port could read 'timeout' - a false 'unreachable'.
+// The web check needs the collector's connect timeout plus a margin.
+export const CLOUD_WEB_DEADLINE_MARGIN_MS = 1500;
+export const CLOUD_WEB_MIN_REMAINING_MS = PROBE_CONNECT_TIMEOUT_MS + CLOUD_WEB_DEADLINE_MARGIN_MS;
 // Why the web-port receipt is missing is recorded, never inferred later:
 // collector_busy / deadline / budget / web_ports_not_checked.
 async function collectWebPorts(env, webRequest, { collect, signal, accounting, now, requestId }) {
