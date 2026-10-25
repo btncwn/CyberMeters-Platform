@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 311
-- **Auth-guarded:** 268
+- **Total entry points:** 312
+- **Auth-guarded:** 269
 - **Unauthenticated (public by design):** 43
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -26,7 +26,7 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 3 | 0 |
 | public-or-global | 47 | 21 |
-| unknown | 83 | 71 |
+| unknown | 84 | 72 |
 | webhook | 2 | 0 |
 | workspace | 138 | 138 |
 
@@ -377,11 +377,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `(none)` | 84 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 | GET | `(none)` | 105 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 | POST | `(none)` | 114 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 154 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 176 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 209 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 228 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 238 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| DELETE | `(none)` | 167 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 192 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 214 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 247 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 266 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 276 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/portfolio.js`
 

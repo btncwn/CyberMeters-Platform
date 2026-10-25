@@ -69,7 +69,7 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
   const auth = await db.prepare(`SELECT generation FROM workspace_tls_authorizations WHERE workspace_id=?`).bind(scan.workspace_id).first();
   const generation = Number.isSafeInteger(auth?.generation) ? auth.generation : 0;
   const services = await db.prepare(`SELECT a.id,a.domain_id,a.hostname,a.sni,a.port,a.application_protocol,a.network_target_id,
-      t.addresses_json,t.authorization_status AS target_authorization_status,t.scope_state AS target_scope_state,w.deleted_at,d.verification_status
+      t.addresses_json,t.authorization_status AS target_authorization_status,t.withdrawn_at AS target_withdrawn_at,t.scope_state AS target_scope_state,w.deleted_at,d.verification_status
     FROM workspace_tls_service_authorizations a
     JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id
     JOIN workspace_domains d ON d.workspace_id=a.workspace_id AND d.domain_id=a.domain_id
@@ -77,6 +77,8 @@ export async function loadTlsEndpoints(env,scan,{lookup = dnsQuery,now = () => D
     WHERE a.workspace_id=? AND a.authorization_status='active' ORDER BY a.authorized_at,a.id LIMIT 64`).bind(scan.workspace_id).all();
   const authorised = (services.results||[]).filter(row => row.domain_id === scan.domain_id &&
     row.deleted_at === null && row.verification_status === 'verified' && row.target_authorization_status === 'attested' &&
+    // A target the customer removed (withdrawn_at) is never planned (25 Oct 2026).
+    row.target_withdrawn_at == null &&
     safeHostname(row.hostname,scan.domain) && row.sni === row.hostname && isTlsService(row.port,row.application_protocol));
   // A service whose network target is not in scope (its address is not observed
   // in the verified domain's DNS, or not checked yet) is not planned, and says
@@ -169,7 +171,7 @@ export async function tlsScopeStillAuthorized(env,scan,entry,{authorise} = {}) {
   }
   if (entry.scope.kind === 'standard_https') return entry.endpoint.hostname === scan.domain && entry.endpoint.port === 443 && entry.endpoint.application_protocol === 'https';
   const service=await db.prepare(`SELECT a.id,t.addresses_json FROM workspace_tls_service_authorizations a
-    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id AND t.authorization_status='attested' AND t.scope_state='in_scope'
+    JOIN network_targets t ON t.id=a.network_target_id AND t.workspace_id=a.workspace_id AND t.authorization_status='attested' AND t.withdrawn_at IS NULL AND t.scope_state='in_scope'
     WHERE a.id=? AND a.workspace_id=? AND a.domain_id=? AND a.authorization_status='active'
       AND a.hostname=? AND a.sni=? AND a.port=? AND a.application_protocol=?`)
     .bind(entry.scope.service_authorization_id,scan.workspace_id,scan.domain_id,entry.endpoint.hostname,entry.endpoint.sni,

@@ -108,7 +108,7 @@ const TLS_SCOPE_FENCE = `COALESCE((SELECT a.generation FROM workspace_tls_author
     WHERE sa.id=? AND sa.workspace_id=external_exposure_jobs.workspace_id
       AND sa.domain_id=external_exposure_jobs.domain_id AND sa.authorization_status='active'
       AND sa.hostname=? AND sa.sni=? AND sa.port=? AND sa.application_protocol=?
-      AND t.authorization_status='attested' AND t.scope_state='in_scope'
+      AND t.authorization_status='attested' AND t.withdrawn_at IS NULL AND t.scope_state='in_scope'
       AND EXISTS(SELECT 1 FROM json_each(t.addresses_json) WHERE value=?)))`;
 // [consent id, check id] for every planned intrusive control: the fence proves
 // each grant is live AND still names that exact check.

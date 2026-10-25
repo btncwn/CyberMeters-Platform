@@ -65,8 +65,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 311,
-    "authed": 268,
+    "total": 312,
+    "authed": 269,
     "public_unauthed": 43,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -79,8 +79,8 @@
         "authed": 0
       },
       "unknown": {
-        "total": 83,
-        "authed": 71
+        "total": 84,
+        "authed": 72
       },
       "public-or-global": {
         "total": 47,
@@ -2778,6 +2778,20 @@
       "auth_guards": [],
       "scope_helpers": [],
       "authed": false,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/network-assets.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
       "public_reason": null
     },
     {

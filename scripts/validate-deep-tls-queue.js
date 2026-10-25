@@ -20,6 +20,7 @@ sql.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,deleted_at TEXT);
   CREATE TABLE scans(id TEXT PRIMARY KEY,workspace_id TEXT,domain_id TEXT,domain TEXT,status TEXT);
   CREATE TABLE workspace_domains(workspace_id TEXT,domain_id TEXT,verification_status TEXT);
   CREATE TABLE network_targets(id TEXT PRIMARY KEY,workspace_id TEXT,authorization_status TEXT,addresses_json TEXT,scope_state TEXT DEFAULT 'in_scope');`);
+sql.exec(readFileSync(new URL('../database/migrations/140-network-target-withdrawal.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/119-external-exposure-jobs.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/120-tls-authorization.sql',import.meta.url),'utf8'));
 sql.exec(readFileSync(new URL('../database/migrations/135-active-check-consents.sql',import.meta.url),'utf8'));

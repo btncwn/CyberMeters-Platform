@@ -165,8 +165,10 @@ export async function checkNetworkTargetScope(env, workspaceId, targets, deps = 
     const decision = evaluateTargetScope(Array.isArray(addresses) ? addresses : [], observed);
     decisions.set(target.id, { ...decision, checked_at: now });
     statements.push(env.cybermeters_db.prepare(
+      // A withdrawn target is never re-checked or re-enabled: this update cannot
+      // touch withdrawn_at, and it skips withdrawn rows entirely (25 Oct 2026).
       `UPDATE network_targets SET scope_state = ?, scope_reason = ?, scope_checked_at = ?, scope_evidence_json = ?
-        WHERE id = ? AND workspace_id = ?`,
+        WHERE id = ? AND workspace_id = ? AND withdrawn_at IS NULL`,
     ).bind(decision.state, decision.reason, now, JSON.stringify({
       version: NETWORK_SCOPE_VERSION, unobserved: decision.unobserved, shared: decision.shared,
       evidence: decision.evidence, roots: observed.roots, lookups_failed: observed.lookups_failed,

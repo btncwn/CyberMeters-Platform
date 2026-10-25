@@ -528,4 +528,60 @@ eq('quota refusal preserves every row',snapshot(),preQuota.rows);eq('quota refus
   ok('range: the workspace purge erases the consent table',/"network_range_consents",\s*\n?\s*"network_assets"/.test(fs.readFileSync(path.join(root,'workers/scan-api/src/index.js'),'utf8').replace(/\/\/[^\n]*\n/g,'')));
 }
 
+// ── Remove a target (founder-approved, 25 Oct 2026; migration 140) ──────────
+// A soft withdrawal: owner/admin only, workspace-scoped (same 404), idempotent,
+// audited, its live range grants revoked, every probing path excluded, the 24 h
+// ownership re-check unable to re-enable it, re-adding reactivates it, and past
+// network scans untouched.
+{
+  const { checkNetworkTargetScope } = await import('../workers/scan-api/src/engines/network-ownership.js');
+  const seen=new Date().toISOString();
+  db.prepare("INSERT INTO workspace_assets(id,workspace_id,domain_id,hostname,first_seen,last_seen,created_at,updated_at,ip_addresses,wildcard_dns,lifecycle_state,status) VALUES('seedW','wa','d_seed','vpn.seed.example',?,?,?,?,'[\"93.184.216.77\"]',0,'observed','active')").run(seen,seen,seen,seen);
+  const made=await call('network-targets',{method:'POST',user:'admin',body:{target:'93.184.216.77',authorization_confirmed:true}});
+  eq('W0 a fresh target is declared',made.status,201);
+  const T=made.body.target?.id;
+  // A live declared-range grant on the target, and one past network scan.
+  db.prepare("INSERT INTO network_range_consents(id,workspace_id,kind,network_target_id,target,addresses_json,ports_json,actor_user_id,actor_workspace_role,signer_name,signer_title,authority_text,authority_version,created_at) VALUES('nrcW','wa','grant',?,'93.184.216.77','[\"93.184.216.77\"]','[443]','owner','owner','Taylor Owner','Director','text','v1',?)").run(T,seen);
+  const scansBefore=db.prepare('SELECT COUNT(*) AS n FROM network_scans WHERE target_id=?').get(T).n;
+  const queuedBefore=queued.length;
+  const started=await call(`network-targets/${T}/scans`,{method:'POST',body:{ports:[443]}});
+  const queuedMsg=queued.length>queuedBefore?queued.at(-1):null;
+  eq('W1 an analyst cannot remove (403)',(await call(`network-targets/${T}`,{user:'analyst',method:'DELETE'})).status,403);
+  eq('W1 a viewer cannot remove (403)',(await call(`network-targets/${T}`,{user:'viewer',method:'DELETE'})).status,403);
+  const foreign=await call(`network-targets/${T}`,{user:'other',workspace:'wb',method:'DELETE'});
+  const missing=await call('network-targets/nettarget_does_not_exist',{method:'DELETE'});
+  eq('W2 another workspace\'s target and a nonexistent one read the same 404',[foreign.status,foreign.body,missing.status,missing.body],[404,{error:'Not found'},404,{error:'Not found'}]);
+  ok('W2 a refused removal changes nothing',db.prepare('SELECT withdrawn_at FROM network_targets WHERE id=?').get(T).withdrawn_at===null);
+  const removed=await call(`network-targets/${T}`,{user:'admin',method:'DELETE'});
+  const row=db.prepare('SELECT * FROM network_targets WHERE id=?').get(T);
+  ok('W3 an admin removes: withdrawn_at/by recorded, the row kept',removed.status===200&&removed.body.withdrawn===true&&row&&row.withdrawn_at&&row.withdrawn_by==='admin');
+  eq('W3 one audit event network_target_withdrawn',db.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='network_target_withdrawn' AND entity_id=?").get(T).n,1);
+  eq('W4 its live range grant is revoked through an append-only revocation row',db.prepare("SELECT COUNT(*) AS n FROM network_range_consents WHERE kind='revocation' AND grant_id='nrcW'").get().n,1);
+  const again=await call(`network-targets/${T}`,{user:'admin',method:'DELETE'});
+  ok('W5 removing again is a no-op: 200, no second audit, no second revocation',again.status===200&&again.body.withdrawn===true
+    &&db.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='network_target_withdrawn' AND entity_id=?").get(T).n===1
+    &&db.prepare("SELECT COUNT(*) AS n FROM network_range_consents WHERE kind='revocation' AND grant_id='nrcW'").get().n===1);
+  ok('W6 the list no longer shows it',!(await call('network-targets')).body.targets.some(t=>t.id===T));
+  eq('W6 a new scan on it is refused (404)',(await call(`network-targets/${T}/scans`,{method:'POST',body:{ports:[443]}})).status,404);
+  if(queuedMsg) eq('W7 a scan queued before removal is refused at dispatch, never probed',(await processNetworkScanMessage(queuedMsg,env,{adapter:{collect:async()=>{throw new Error('must not probe');}}})).outcome,'scope_rejected');
+  else ok(`W7 a scan was queued before removal (start status ${started.status})`,false);
+  ok('W8 past network scans are untouched',db.prepare('SELECT COUNT(*) AS n FROM network_scans WHERE target_id=?').get(T).n>=scansBefore);
+  const scopeBefore=JSON.stringify(db.prepare('SELECT scope_state,scope_reason,scope_checked_at,withdrawn_at FROM network_targets WHERE id=?').get(T));
+  await checkNetworkTargetScope(env,'wa',[db.prepare('SELECT * FROM network_targets WHERE id=?').get(T)]);
+  eq('W9 the 24 h ownership re-check cannot touch or re-enable a withdrawn target',JSON.stringify(db.prepare('SELECT scope_state,scope_reason,scope_checked_at,withdrawn_at FROM network_targets WHERE id=?').get(T)),scopeBefore);
+  // Every SQL that decides whether a target may be probed requires withdrawn_at IS NULL.
+  const sources=['engines/exposure-jobs.js','engines/tls-planner.js','engines/network-scan-dispatch.js','routes/tls-authorization.js','routes/network-assets.js']
+    .map(p=>[p,fs.readFileSync(path.join(root,'workers/scan-api/src',p),'utf8')]);
+  // A gate is a condition (WHERE / JOIN … AND), not the reactivation's SET assignment.
+  const gates=sources.flatMap(([p,src])=>[...src.matchAll(/authorization_status\s*=\s*'attested'[^`'"]{0,80}/g)].map(m=>[p,m[0]]))
+    .filter(([,g])=>!/^authorization_status='attested',authorized_by=/.test(g));
+  ok('W10 every attested-target SQL gate also requires withdrawn_at IS NULL',gates.length>=4&&gates.every(([,g])=>/withdrawn_at IS NULL/.test(g)));
+  ok('W10 the TLS planner and dispatch read withdrawn_at and refuse it',/row\.target_withdrawn_at == null/.test(sources[1][1])&&/row\.target_withdrawn_at!=null/.test(sources[2][1]));
+  const readded=await call('network-targets',{method:'POST',user:'admin',body:{target:'93.184.216.77',authorization_confirmed:true}});
+  const back=db.prepare('SELECT * FROM network_targets WHERE id=?').get(T);
+  ok('W11 re-adding the same target reactivates the same row and clears withdrawn_at',readded.status===201&&readded.body.target?.id===T&&back.withdrawn_at===null&&back.withdrawn_by===null&&back.authorized_by==='admin');
+  ok('W11 re-adding is audited and listed again',db.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='network_target_authorized' AND entity_id=?").get(T).n===2&&(await call('network-targets')).body.targets.some(t=>t.id===T));
+  ok('W12 migration 140 is additive: two nullable columns, no rebuild',/ALTER TABLE network_targets ADD COLUMN withdrawn_at TEXT;\s*ALTER TABLE network_targets ADD COLUMN withdrawn_by TEXT;/.test(fs.readFileSync(path.join(root,'database/migrations/140-network-target-withdrawal.sql'),'utf8'))&&!/DROP|RENAME|CREATE TABLE/i.test(fs.readFileSync(path.join(root,'database/migrations/140-network-target-withdrawal.sql'),'utf8').replace(/^--.*$/gm,'')));
+}
+
 console.log(`\nNetwork assets: ${passed} passed, ${failed} failed`);if(failed)process.exit(1);

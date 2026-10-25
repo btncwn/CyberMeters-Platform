@@ -1760,6 +1760,8 @@ export const api = {
   authorizeTlsService: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services`, { method: 'POST', body: JSON.stringify(body) }),
   revokeTlsService: (wsId, serviceId) => request(`/workspaces/${encodeURIComponent(wsId)}/tls-authorization/services/${encodeURIComponent(serviceId)}/revoke`, { method: 'POST', body: '{}' }),
   addNetworkTarget: (wsId, body) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets`, { method: 'POST', body: JSON.stringify(body) }),
+  /** DELETE — remove a network target and withdraw its authorisation (soft; past scans kept). */
+  removeNetworkTarget: (wsId, targetId) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets/${encodeURIComponent(targetId)}`, { method: 'DELETE' }),
   revokeNetworkRangeConsent: (wsId, consentId, reason = '') => request(`/workspaces/${encodeURIComponent(wsId)}/network-range-consents/${encodeURIComponent(consentId)}/revoke`, { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) }),
   startNetworkScan: (wsId, targetId, ports) => request(`/workspaces/${encodeURIComponent(wsId)}/network-targets/${encodeURIComponent(targetId)}/scans`, { method: 'POST', body: JSON.stringify({ ports }) }),
   getNetworkScans: (wsId, options = {}) => request(`/workspaces/${encodeURIComponent(wsId)}/network-scans`, options),
