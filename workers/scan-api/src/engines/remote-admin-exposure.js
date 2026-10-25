@@ -142,23 +142,23 @@ export async function runRemoteAdminExposureModule(env, scan, {
     workspace_id: scan.workspace_id, scan_id: scan.id, profile: "network_services",
     deadline_at: request.deadline_at, targets: cloudSelected.map(([address]) => ({ address, hostname: null })), ports: [...CLOUD_WEB_PORTS],
   } : null;
-  const webPromise = webRequest ? (async () => {
-    accounting?.assertCanIssue?.();
-    accounting?.recordAttempt?.();
-    return collect(env, webRequest, { signal });
-  })().catch(() => null) : Promise.resolve(null);
   let receipt;
   try {
     accounting?.assertCanIssue?.();
     accounting?.recordAttempt?.();
     receipt = await collect(env, request, { signal });
   } catch {
-    await webPromise;
+    // The 16-port request failed: no web request is sent.
     return result({ state: "not_assessed", reason: "probe_unavailable", incomplete: true, incomplete_reason: "probe_unavailable",
       error: "probe_unavailable", coverage: { ...coverageBase, completed_pairs: 0 },
       cloud_hosts: cloudHostsNotAssessed(cloudIndex, selected, "probe_unavailable") });
   }
-  const webReceipt = await webPromise;
+  // The web-port request runs only AFTER the 16-port receipt: the probe has two
+  // scan slots, and in parallel it lost the slot race (#1001 live test). One
+  // retry, only on collector_busy, inside the deadline and through accounting.
+  const { receipt: webReceipt, reason: webReason } = webRequest
+    ? await collectWebPorts(env, webRequest, { collect, signal, accounting, now, requestId })
+    : { receipt: null, reason: null };
   const rows = Array.isArray(receipt?.observations) ? receipt.observations : [];
   // A port that did not answer (timeout at connect) is a conclusive "no
   // answer" only when another port on the SAME address answered in this run;
@@ -178,7 +178,7 @@ export async function runRemoteAdminExposureModule(env, scan, {
   if (unreachableAddresses.length) reasons.push("address_unreachable");
   if (completedPairs < coverageBase.planned_pairs && !unreachableAddresses.length) reasons.push("ports_not_all_checked");
   if (lookupsFailed > 0) reasons.push("address_lookup_failed");
-  const cloudHosts = await assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, history });
+  const cloudHosts = await assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, webReason, history });
   return result({
     state: "observed", reason: null, exposures, cloud_hosts: cloudHosts,
     addresses_checked: selected.map(([address, hostnames]) => ({ address, hostnames })),
@@ -200,7 +200,28 @@ function cloudHostsNotAssessed(cloudIndex, selected, reason) {
   });
   return { state: "not_assessed", reason, ranges_fetched_at: cloudIndex.fetched_at, hosts };
 }
-async function assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, history }) {
+export const CLOUD_WEB_RETRY_DELAY_MS = 750;
+const CLOUD_WEB_MIN_REMAINING_MS = 1500;
+// Why the web-port receipt is missing is recorded, never inferred later:
+// collector_busy / deadline / budget / web_ports_not_checked.
+async function collectWebPorts(env, webRequest, { collect, signal, accounting, now, requestId }) {
+  let reason = "web_ports_not_checked";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted || Date.parse(webRequest.deadline_at) - now() < CLOUD_WEB_MIN_REMAINING_MS) return { receipt: null, reason: "deadline" };
+    try { accounting?.assertCanIssue?.(); accounting?.recordAttempt?.(); }
+    catch { return { receipt: null, reason: "budget" }; }
+    try {
+      return { receipt: await collect(env, attempt ? { ...webRequest, request_id: requestId() } : webRequest, { signal }), reason: null };
+    } catch (error) {
+      const message = String(error?.message || "");
+      reason = message === "collector_busy" ? "collector_busy" : (message === "collector_aborted" || signal?.aborted) ? "deadline" : "web_ports_not_checked";
+      if (reason !== "collector_busy" || attempt === 1) return { receipt: null, reason };
+      await new Promise((resolve) => setTimeout(resolve, CLOUD_WEB_RETRY_DELAY_MS));
+    }
+  }
+  return { receipt: null, reason };
+}
+async function assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, webReason = null, history }) {
   if (!cloudIndex) return { state: "not_assessed", reason: "cloud_ranges_unavailable", hosts: [] };
   if (!cloudSelected.length) return { state: "assessed", reason: null, ranges_fetched_at: cloudIndex.fetched_at, hosts: [] };
   const webRows = Array.isArray(webReceipt?.observations) ? webReceipt.observations : null;
@@ -211,7 +232,7 @@ async function assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, h
   const hosts = cloudSelected.map(([address, hostnames]) => {
     const provider = cloudProviderForAddress(cloudIndex, address);
     const base = { address, hostnames, provider, provider_name: cloudProviderName(provider), live_history: live[address] || null };
-    if (!webRows) return { ...base, state: "not_assessed", reason: "web_ports_not_checked" };
+    if (!webRows) return { ...base, state: "not_assessed", reason: webReason || "web_ports_not_checked" };
     if (answered(rows, address) || answered(webRows, address)) return { ...base, state: "answered", reason: null };
     if (allTimedOut(rows, address, REMOTE_ADMIN_PORT_LIST) && allTimedOut(webRows, address, CLOUD_WEB_PORTS))
       return { ...base, state: "unreachable", reason: "no_port_answered" };

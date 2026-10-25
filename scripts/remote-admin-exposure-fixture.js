@@ -133,6 +133,56 @@ assert.equal(moduleCompletionGate({ remote_admin_exposure: exposed }, { status: 
   assert.equal(computeScore({ dns: { resolves: true }, remote_admin_exposure: stale }, 'example.com').findings.some((f) => /^dns_cloud_address/.test(f.id)), false);
 }
 
+// #1001 live test: the probe has TWO scan slots and answers a third concurrent
+// request with collector_busy. With mail_transport holding one slot, the web
+// check must run after the 16-port request (and retry once on busy).
+{
+  const { cloudCheckStatedLimit, CLOUD_CHECK_LIMIT_MESSAGE, CLOUD_RANGES_LIMIT_MESSAGE } = await import('../workers/scan-api/src/engines/scan-stated-limits.js');
+  const cloud = { schema: 'cloud-ranges-v1', fetched_at: new Date().toISOString(), providers: { gcp: ['35.224.0.0/16'] } };
+  const owned = new Map([['35.224.199.137', ['probe.example.com']]]);
+  const live = async () => ({ '35.224.199.137': { seen_at: '2026-10-24T17:43:30.791Z', source: 'tls_handshake', port: 443 } });
+  const dark = (r) => ({ observations: r.targets.flatMap((t) => r.ports.map((port) => ({ address: t.address, hostname: null, port, transport: 'tcp', state: 'timeout', service: null, tls: null, reason: null }))) });
+  const twoSlots = ({ held = 1, busyFirstWeb = 0 } = {}) => {
+    let inFlight = 0, webCalls = 0;
+    return async (_env, request) => {
+      assertProbeRequest(request);
+      if (request.ports.length === 2 && webCalls++ < busyFirstWeb) throw new Error('collector_busy');
+      if (inFlight + held >= 2) throw new Error('collector_busy');
+      inFlight++; try { await new Promise((resolve) => setTimeout(resolve, 20)); return dark(request); } finally { inFlight--; }
+    };
+  };
+  const run = (opts) => runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(owned), cloudRanges: async () => cloud, history: live, ...opts });
+  const sequential = await run({ collect: twoSlots() });
+  assert.deepEqual([sequential.cloud_hosts.hosts[0].state, sequential.cloud_hosts.hosts[0].reason], ['unreachable', 'no_port_answered'],
+    'with one slot held elsewhere, the web check still gets a slot (it runs after the 16-port request)');
+  assert.equal(computeScore({ dns: { resolves: true }, remote_admin_exposure: sequential }, 'example.com').findings
+    .some((f) => f.id === 'dns_cloud_address_unreachable_after_live'), true, 'the live-test shape now yields the medium');
+  const retried = await run({ collect: twoSlots({ busyFirstWeb: 1 }) });
+  assert.equal(retried.cloud_hosts.hosts[0].state, 'unreachable', 'one retry after collector_busy');
+  const busy = await run({ collect: twoSlots({ busyFirstWeb: 2 }) });
+  assert.deepEqual([busy.cloud_hosts.hosts[0].state, busy.cloud_hosts.hosts[0].reason], ['not_assessed', 'collector_busy'], 'busy twice: the reason is recorded');
+  // Budget: the accounting refuses the web attempt -> 'budget', no request sent.
+  let issued = 0, webSent = 0;
+  const accounting = { assertCanIssue: () => { if (issued >= 1) throw new Error('budget'); return true; }, recordAttempt: () => { issued++; } };
+  const budget = await run({ accounting, collect: async (e, r) => { if (r.ports.length === 2) webSent++; return dark(r); } });
+  assert.deepEqual([budget.cloud_hosts.hosts[0].reason, webSent], ['budget', 0], 'no budget bypass');
+  // Deadline: too little time left after the 16-port request -> 'deadline'.
+  let clock = Date.now();
+  const late = await run({ now: () => clock, collect: async (e, r) => { if (r.ports.length === 16) clock = Date.parse(r.deadline_at) - 500; return dark(r); } });
+  assert.equal(late.cloud_hosts.hosts[0].reason, 'deadline');
+  // The 16-port request failed: no web request at all.
+  let webAfterFail = 0;
+  await run({ collect: async (e, r) => { if (r.ports.length === 2) webAfterFail++; throw new Error('collector_unavailable'); } });
+  assert.equal(webAfterFail, 0, 'no web request after the 16-port request failed');
+  // Stated limits: never silence when the cloud check did not complete.
+  assert.deepEqual(cloudCheckStatedLimit({ remote_admin_exposure: busy }), { module: 'remote_admin_exposure', reason: 'cloud_check_incomplete',
+    hosts: ['probe.example.com'], message: CLOUD_CHECK_LIMIT_MESSAGE });
+  assert.equal(cloudCheckStatedLimit({ remote_admin_exposure: { cloud_hosts: { state: 'not_assessed', reason: 'cloud_ranges_unavailable', hosts: [] } } }).message, CLOUD_RANGES_LIMIT_MESSAGE);
+  assert.equal(cloudCheckStatedLimit({ remote_admin_exposure: sequential }), null, 'an assessed check states nothing');
+  assert.ok(buildScanQuality({ remote_admin_exposure: busy }).stated_limits.some((l) => l.reason === 'cloud_check_incomplete' && l.message === CLOUD_CHECK_LIMIT_MESSAGE),
+    'scan quality carries the cloud-check limit');
+}
+
 // The cloud-range cache is a global public reference list: a fixed key, and only
 // provider CIDRs and fetch metadata are stored (tenant-query audit suppression).
 {
@@ -172,7 +222,7 @@ const MUTANTS = [
       collect: async (_e, r) => ({ observations: r.targets.flatMap((t) => r.ports.map((port) => ({ address: t.address, hostname: null, port, transport: 'tcp',
         state: port === 443 ? 'open' : 'timeout', service: null, tls: null, reason: null }))) }) })).cloud_hosts.hosts[0].state !== 'answered' },
   // Without the guard a failed web check either crashes or reads as assessed: both are caught.
-  { name: 'a failed web check read as dark', from: 'if (!webRows) return { ...base, state: "not_assessed", reason: "web_ports_not_checked" };', to: '',
+  { name: 'a failed web check read as dark', from: 'if (!webRows) return { ...base, state: "not_assessed", reason: webReason || "web_ports_not_checked" };', to: '',
     caught: async (m) => (await m.runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(new Map([['35.224.199.137', ['probe.example.com']]])),
       cloudRanges: async () => ({ schema: 'cloud-ranges-v1', fetched_at: new Date().toISOString(), providers: { gcp: ['35.224.0.0/16'] } }), history: async () => ({}),
       collect: async (_e, r) => { if (r.ports.length === 2) throw new Error('down'); return ({ observations: r.targets.flatMap((t) => r.ports.map((port) => ({ address: t.address, hostname: null, port, transport: 'tcp',
