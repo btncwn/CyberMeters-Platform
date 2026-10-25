@@ -1169,9 +1169,12 @@ export function computeScore(modules, domain) {
   if (remoteAdmin && !remoteAdmin.error && Array.isArray(remoteAdmin.exposures)) {
     const describe = (row) => {
       const where = `${row.address}${row.hostnames?.length ? ` (${row.hostnames.slice(0, 3).join(", ")})` : ""}`;
+      // "<service> reachable from the internet on port <n>" (Executive, 24 Oct
+      // 2026). The service is named as fact only when it announced itself;
+      // otherwise the port answered and that is all that is claimed.
       return row.service_basis === "banner"
-        ? `${row.banner_service} answered on port ${row.port} at ${where}`
-        : `port ${row.port} answered at ${where}; this port is commonly used by ${row.service}`;
+        ? `${row.banner_service} reachable from the internet on port ${row.port} at ${where}`
+        : `${row.service} port ${row.port} reachable from the internet at ${where} (the port answered; the service did not identify itself)`;
     };
     const hostsOf = (rows) => [...new Set(rows.flatMap((row) => row.hostnames || []))];
     const evidenceOf = (rows, expected) => ({

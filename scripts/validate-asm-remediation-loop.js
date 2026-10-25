@@ -596,6 +596,46 @@ await import("./remote-admin-exposure-fixture.js");
   ok("S3-0: tenant isolation holds", (await listManagedCases(env, "ws_case")).every((item) => item.finding_id !== "remote_admin_service_reachable"));
 }
 
+// ── Queue 14 (24 Oct 2026): the four added services, each through the same loop ─
+// Telnet 23, Docker API 2375, WinRM 5985/5986, memcached 11211: finding with its
+// own sentence -> one Attack Surface case -> a complete re-check with the port
+// closed resolves it. Same gates as RDP; reachability only, never "vulnerable".
+{
+  const engine = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
+  const { runRemoteAdminExposureModule } = await import(engine("remote-admin-exposure.js"));
+  const { computeScore } = await import(engine("scoring.js"));
+  const ports = [[23, "Telnet"], [2375, "Docker API"], [5985, "WinRM (Windows remote management, HTTP)"],
+    [5986, "WinRM (Windows remote management, HTTPS)"], [11211, "Memcached"]];
+  for (const [port, service] of ports) {
+    const ws = `ws_q14_${port}`, dom = `dom_q14_${port}`, domain = `q14-${port}.example.com`;
+    seedWorkspace(ws, dom, domain);
+    db.prepare("UPDATE workspace_domains SET verification_status='verified' WHERE workspace_id=?").run(ws);
+    const owned = new Map([["81.2.69.161", [domain]]]);
+    const run = (state) => runRemoteAdminExposureModule(env, { id: `scan_${ws}`, workspace_id: ws, domain_id: dom, domain }, {
+      observe: async () => ({ roots: [domain], owned, shared: new Map(), lookups_failed: 0 }),
+      collect: async (_env, request) => { assertProbeRequest(request); return ({ observations: request.targets.flatMap((target) => request.ports.map((p) => ({
+        address: target.address, hostname: null, port: p, transport: "tcp", state: p === port ? state : "closed", service: null, tls: null, reason: null }))) }); },
+    });
+    const scored = computeScore({ dns: { resolves: true, has_mx: true }, remote_admin_exposure: await run("open") }, domain);
+    const found = scored.findings.filter((item) => item.id === "remote_admin_service_reachable");
+    ok(`Q14 ${port}: one high finding naming ${service}`, found.length === 1 && found[0].severity === "high"
+      && found[0].description.includes(`${service} port ${port} reachable from the internet`) && !/vulnerab|compromis|unencrypted/i.test(found[0].description));
+    await createManagedAsmCasesForScan(`scan_${ws}_1`, dom, domain, found, scored.recommendations, env);
+    const cases = await listManagedCases(env, ws);
+    ok(`Q14 ${port}: the finding opens one Attack Surface case`, cases.length === 1 && cases[0].status === "open");
+    // The customer reports it fixed (the system verifies only a requested case).
+    let row = await getManagedCase(env, ws, cases[0].id);
+    row = (await transitionManagedCase(env, row, "triage", { actor_type: "customer", actor_id: "u" })).case;
+    row = (await assignManagedCaseOwner(env, row, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "u" })).case;
+    row = (await transitionManagedCase(env, row, "remediation_in_progress", { actor_type: "customer", actor_id: "u" })).case;
+    row = (await transitionManagedCase(env, row, "verification_requested", { actor_type: "customer", actor_id: "u", action: "fix_completed" })).case;
+    const resolved = await verifyManagedAsmCasesForScan(`scan_${ws}_2`, dom, domain, [], env,
+      { modules: { remote_admin_exposure: await run("closed") }, scanQuality: { status: "complete", modules_skipped: [] } });
+    ok(`Q14 ${port}: a complete re-check with the port closed resolves it`, resolved.resolved === 1
+      && (await getManagedCase(env, ws, cases[0].id)).status === "resolved");
+  }
+}
+
 // ── Dangling DNS on a cloud address (24 Oct 2026): finding -> case -> retest ──
 // The case resolves when the address answers again, or when the record is
 // removed (the address is no longer the domain's): a complete re-check with
