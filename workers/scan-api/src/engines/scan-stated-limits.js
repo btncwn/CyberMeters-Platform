@@ -57,6 +57,21 @@ const REMOTE_ADMIN_LIMIT = Object.freeze({
   probe_unavailable: "The remote-administration port check was unavailable in this scan.",
   module_deadline: "The remote-administration port check did not finish within its time limit in this scan.",
 });
+// The dangling-DNS cloud check (inside remote_admin_exposure) is stated on its
+// own whenever it did not complete - never silence (#1001 live test).
+export const CLOUD_CHECK_LIMIT_MESSAGE = "The check for DNS records pointing at unused cloud addresses could not complete in this scan.";
+export const CLOUD_RANGES_LIMIT_MESSAGE = "The check for DNS records pointing at unused cloud addresses could not run in this scan (the cloud providers' address lists were unavailable).";
+export function cloudCheckStatedLimit(modules) {
+  const cloud = modules?.remote_admin_exposure?.cloud_hosts;
+  if (!cloud || typeof cloud !== "object") return null;
+  if (cloud.state === "not_assessed" && cloud.reason === "cloud_ranges_unavailable")
+    return { module: "remote_admin_exposure", reason: "cloud_ranges_unavailable", message: CLOUD_RANGES_LIMIT_MESSAGE };
+  const hosts = Array.isArray(cloud.hosts) ? cloud.hosts.filter((row) => row?.state === "not_assessed") : [];
+  if (cloud.state === "not_assessed" || hosts.length > 0)
+    return { module: "remote_admin_exposure", reason: "cloud_check_incomplete", hosts: hosts.flatMap((row) => row.hostnames || []),
+      message: CLOUD_CHECK_LIMIT_MESSAGE };
+  return null;
+}
 export function statedLimitMessage(name, value) {
   if (name === "asset_exposure") {
     const hosts = webServiceNeverAnsweredHosts(value);

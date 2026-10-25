@@ -2,6 +2,11 @@ import { PROBE_LIMITS, readBoundedJson, validateNetworkProbeRequest } from '../.
 import { validateNetworkProbeReceipt } from '../../../network-probe/src/receipt.js';
 export { validateNetworkProbeReceipt, validateNetworkProbeRequest };
 export { PROBE_PORTS, isPublicProbeAddress } from '../../../network-probe/src/contract.js';
+// The collector's per-port TCP connect window (network-probe/src/collector.js:
+// Math.min(1500, ...)). With less time left a request gets a shortened window,
+// so its 'timeout' is not conclusive. Kept here (scan-api side) so the probe
+// image is unchanged; a fixture pins it to collector.js.
+export const PROBE_CONNECT_TIMEOUT_MS = 1500;
 
 export async function collectNetworkProbe(env,request,{signal}={}) {
   const checked=validateNetworkProbeRequest(request);
@@ -14,7 +19,8 @@ export async function collectNetworkProbe(env,request,{signal}={}) {
   const timeout=setTimeout(abort,Math.max(1,Date.parse(request.deadline_at)-Date.now()));
   try{
     const response=await Promise.race([aborted,env.NETWORK_PROBE.fetch('https://network-probe.internal/collect',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(request),signal:controller.signal})]);
-    if(!response.ok){await response.body?.cancel();throw new Error('collector_unavailable');}
+    // The probe answers 503 when both scan slots are in use: say so, so a caller can retry once.
+    if(!response.ok){await response.body?.cancel();throw new Error(response.status===503?'collector_busy':'collector_unavailable');}
     const receipt=await Promise.race([aborted,readBoundedJson(response.body,PROBE_LIMITS.responseBytes)]);
     if(controller.signal.aborted)throw new Error('collector_aborted');
     const validation=validateNetworkProbeReceipt(request,receipt);
