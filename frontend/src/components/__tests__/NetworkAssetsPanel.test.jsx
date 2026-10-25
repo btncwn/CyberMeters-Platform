@@ -6,7 +6,7 @@ import { TOKEN_KEY } from '../../context/authKeys'
 
 vi.mock('../../api', () => ({ api: {
   getNetworkTargets: vi.fn(), getNetworkAssets: vi.fn(), getNetworkScans: vi.fn(),
-  addNetworkTarget: vi.fn(), revokeNetworkRangeConsent: vi.fn(), startNetworkScan: vi.fn(), getNetworkScan: vi.fn(), retestNetworkScan: vi.fn(),
+  addNetworkTarget: vi.fn(), removeNetworkTarget: vi.fn(), revokeNetworkRangeConsent: vi.fn(), startNetworkScan: vi.fn(), getNetworkScan: vi.fn(), retestNetworkScan: vi.fn(),
   getNetworkSuggestions: vi.fn(),
 } }))
 
@@ -34,6 +34,49 @@ async function ready() {
 }
 
 describe('Network assets customer workflow', () => {
+  it('requires the exact remove confirmation, cancels without a write, and keeps history after removal', async () => {
+    api.removeNetworkTarget.mockResolvedValue({ removed: true })
+    api.getNetworkScans.mockResolvedValue({ scans: [run] })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    let dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByRole('heading')).toHaveTextContent(`Remove ${target.target} and withdraw your authorisation?`)
+    expect(within(dialog).getByText('Future scans will not check it. Past scan results stay in your history.')).toBeInTheDocument()
+    expect(api.removeNetworkTarget).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(api.removeNetworkTarget).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    dialog = await screen.findByRole('alertdialog')
+    api.getNetworkTargets.mockResolvedValue({ targets: [], capabilities })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(api.removeNetworkTarget).toHaveBeenCalledExactlyOnceWith('workspace-a', target.id))
+    expect(await screen.findByText('No network targets recorded yet.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Recent scans' }))
+    expect(screen.getByText(target.target)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View evidence' })).toBeInTheDocument()
+  })
+
+  it('only offers Remove to managers, including when scanning is unavailable', async () => {
+    api.getNetworkTargets.mockResolvedValue({ targets: [target], capabilities: { ...capabilities, can_manage: false } })
+    const view = await ready()
+    expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
+    view.unmount()
+    api.getNetworkTargets.mockResolvedValue({ targets: [target], capabilities: { ...capabilities, can_scan: false } })
+    await ready()
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Run scan' })).not.toBeInTheDocument()
+  })
+
+  it('does not remove the old workspace target after switching workspaces in the dialog', async () => {
+    const view = await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    const dialog = await screen.findByRole('alertdialog')
+    view.rerender(<NetworkAssetsPanel workspaceId="workspace-b" />)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(api.removeNetworkTarget).not.toHaveBeenCalled()
+  })
+
   it('records only an explicit authorization declaration and preserves the exact scope', async () => {
     await ready()
     fireEvent.change(screen.getByLabelText('IP address or CIDR'), { target: { value: '93.184.216.0/28' } })
