@@ -114,7 +114,7 @@ export function remoteAccessFingerprint(body, value) {
   for (const signature of candidates) {
     const forms = [...html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)];
     const login = forms.some(([, attrs, fields]) => {
-      const action = attrs.match(/\baction\s*=\s*["']([^"']+)["']/i)?.[1];
+      const action = attrs.match(/\baction\s*=\s*(?:["']([^"']+)["']|([^\s"'`=<>]+)(?=\s|$))/i)?.slice(1).find(Boolean);
       if (!action || !/<input\b[^>]*\btype\s*=\s*["']password["']/i.test(fields) ||
           !new RegExp(`<input\\b[^>]*\\bname\\s*=\\s*["'](?:${signature.userField})["']`, 'i').test(fields)) return false;
       let target; try { target = new URL(action, url); } catch { return false; }
