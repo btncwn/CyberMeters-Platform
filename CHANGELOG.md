@@ -7,6 +7,79 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 25 October 2026 — production deployments (no release tag)
+
+Five changes reached production on 25 October. This entry records deployment
+and acceptance facts from each PR's release comments; it claims no release
+tag, engineering seal, soak or public-beta acceptance.
+
+**#1010 report snapshot cannot be starved (P1).** Merged as `d796d646` after
+16/16 exact-head checks on `2949aac4` (CI run 40222098572). Finalize phases
+now run in two tiers: customer-impact work first, cut only at a 12 s floor,
+and inventory work last, cut at a 25 s reserve. Each phase races its tier
+boundary; at the boundary the provider guard is frozen, in-flight calls are
+recorded as outcome unknown and late continuations are refused. Work that
+did not finish is named in the snapshot and counted in `ops_daily_counters`
+(`scan_finalize_postponed`). A missed cross-scan diff is recorded as an
+unrecoverable change-history interval and carried forward, never promised a
+catch-up; a previous completed scan without a snapshot is an unconfirmed
+interval, not a first check. No migration. API Worker
+`928ef3db-2845-426c-8b47-47ac2d690483`
+(`2026.10.25-d796d6464a0d.813396bbbd54`), rollback
+`e38703cc-62f1-408d-a4fd-b96515c1832a` (retains the withdrawal fences).
+Pages `5a833eae-3fcb-4bf0-a742-e66e16124e3d`, previous
+`d282df20-ba0c-48d4-ba1f-6304ef6ed933`. LIVE-ACCEPTED for the controlled
+normal scan and report workflow: canary `scan_39cd44cf-8128-4187-beed-4ca0969f75fc`
+on cybermeters.com produced snapshot `snap_713909b5-2549-4096-91ed-535ed37f2516`,
+completed at 19:09:16.535 UTC, about 62 seconds after assessment; the D1 row
+and R2 object agree on SHA-256 `17c7b57f87d95cb918cce64df6ab54e7ef0131240971af7a2cf548e8bef3feb8`.
+That canary postponed no finalize work. The tier boundary, late provider
+results, unrecoverable intervals and missing-predecessor handling are proven
+by the focused suite (130/130) and CI only; no production timeout was forced.
+
+**#1014 direct entry to /assets.** Merged as `a6f35595` after 17/17 checks on
+`6c988060` and an independent R1 review. The Pages asset Worker serves the
+app shell for the exact `/assets` and `/assets/` paths with `no-store`;
+missing files under `/assets/` stay plain-text 404 `no-store`, and real hashed
+files stay immutable. No Worker change. Pages
+`d282df20-ba0c-48d4-ba1f-6304ef6ed933`, previous
+`4cf6007f-8322-4ec3-bbd0-1a554bee37ce`. LIVE-ACCEPTED: production `/assets`,
+`/assets/` and `/assets?tab=settings` return 200 HTML with `no-store` and the
+security headers; a missing chunk returns 404; the signed-in Attack Surface
+page renders on direct entry and reload.
+
+**#1011 remove a network target, history kept.** Merged as `216c402c` after
+17/17 checks on `0966d36a`. Additive migration 140 (nullable `withdrawn_at`,
+`withdrawn_by`) was applied before the merge: SQL SHA-256
+`00b3cd0270f8c5abc535849178a66063206ffa12230e5a737e326568cafbc640`, D1
+bookmark before `00001660-00000016-0000510f-7c61900f7d3e4bef752c531458fa9bf2`,
+after `00001660-00000028-0000510f-d2bcfb1f7527fd00e67767495591f3d9`. No rows
+deleted or backfilled. API Worker `e38703cc-62f1-408d-a4fd-b96515c1832a`,
+rollback `9e64a7f1-7a23-4b62-9e6b-fd89e77926e6` (once a target has been
+withdrawn, do not restore code that ignores the withdrawal fences). Pages
+`4cf6007f-8322-4ec3-bbd0-1a554bee37ce`, previous
+`0fa0ff66-de87-4446-9c5d-8cdf0fca1955`. LIVE-ACCEPTED at 18:20:12.945 UTC: the
+retired company probe target was removed through the app, the target row
+remains with `withdrawn_at` and one `network_target_withdrawn` audit event,
+and its historical scan row is unchanged. Known follow-ups: Recent scans
+still offers Retest for a withdrawn target (the backend refuses it), and an
+inert TLS-authorisation display remains.
+
+**#1008 Attack Surface tabs.** Merged as `c6687291` after 17/17 checks on
+`686644f3`. Picking a tab scrolls to its section. No Worker change. First
+Pages `cde068e7-9435-4122-91a6-814a64241bd5`, previous
+`51ef653b-31bb-4661-bdad-5da38cb1d757`. LIVE-ACCEPTED after #1014: Settings,
+Field Guide, Cases, Findings and Summary each render their own content in the
+signed-in workspace.
+
+**#1009 Revoke permission (P1).** Merged as `ec879c79` after 17/17 checks on
+`dbf2117b`. The Revoke confirmation now renders, so revoking works. No Worker
+change (API `9e64a7f1-7a23-4b62-9e6b-fd89e77926e6` at `de95e1c1`). Pages
+`51ef653b-31bb-4661-bdad-5da38cb1d757`, previous
+`563b3fcf-cae0-48ee-ae35-64c2c0c2ce0d`. LIVE-ACCEPTED at 17:45 UTC: two
+existing permissions were revoked through the app and stayed revoked after a
+full reload, with their history kept; no permission or scan was created.
+
 ## Unreleased — bounded exposure evidence and single-domain completeness
 
 Two random missing-path responses now establish a bounded soft-404 baseline
