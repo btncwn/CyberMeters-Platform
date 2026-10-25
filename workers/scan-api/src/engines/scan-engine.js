@@ -3179,180 +3179,221 @@ function buildCanonicalUrlProfile(modules) {
     // total ceiling inside these phases (8a..8l took 82 s), so Phase 8o never ran
     // and the scan had no report snapshot. 8o cannot run first: it freezes what
     // these phases write for THIS scan (certificate lifecycle records and the
-    // cases 8a.0..8n open). So they run in two tiers, each bounded through the
-    // invocation's provider guard, not by a start-only check:
+    // cases 8a.0..8n open). So they run in two tiers, each with a real boundary:
     //   - customer-impact work (cases, lifecycle, alerts, cross-scan change
-    //     diffs and their inputs) runs first and is never skipped for the
-    //     snapshot reserve. Only below SNAPSHOT_FLOOR_MS, where the ceiling would
-    //     otherwise end both it and the snapshot, are its further D1/R2 calls
-    //     refused;
-    //   - inventory-only work (8e, 8h, 8i, 8m-ii) runs last, starts only while
-    //     SNAPSHOT_PHASE_RESERVE_MS remains, and its calls are refused once it
-    //     does not. Each recomputes from persisted state, so the next scan
-    //     catches up, and nothing the snapshot reads depends on it.
-    // Every phase that did not finish is named in the snapshot's limitations and
-    // counted in ops_daily_counters (after 8o). All of it is awaited here.
+    //     diffs and their inputs) runs first and is never cut for the snapshot
+    //     reserve, only at SNAPSHOT_FLOOR_MS, where the ceiling would otherwise
+    //     end both it and the snapshot;
+    //   - inventory-only work (8e, 8h, 8i, 8m-ii) runs last and is cut at
+    //     SNAPSHOT_PHASE_RESERVE_MS. Each recomputes from persisted state.
+    // A tier's provider guard refuses new D1/R2 calls (and scan email) past its
+    // boundary, and each phase races the boundary itself, so a call that never
+    // returns cannot hold finalize. At the boundary the guard is frozen: calls
+    // still in flight are recorded as outcome unknown (D1 cannot be cancelled)
+    // and their late continuations are refused before they can write again.
+    // Every phase that did not finish is named in the snapshot and counted in
+    // ops_daily_counters (after 8o). The 120 s invocation ceiling is unchanged.
     let finalizePhase = null;
     const enterFinalizePhase = (phase) => {
       finalizePhase = phase;
       // Deterministic focused-test seam (the queue trace); production never passes it.
       try { opts.testOnlyFinalizePhaseObserver?.(phase, deadline.totalRemainingMs()); } catch { /* test seam only */ }
     };
-    const finalizePostponed = new Map(); // phase -> "not_started" | "interrupted"
-    const notePostponed = (phase, reason) => {
-      if (!phase || finalizePostponed.has(phase)) return;
-      finalizePostponed.set(phase, reason);
+    const finalizePostponed = new Map(); // phase -> { reason, in_flight_unknown }
+    const notePostponed = (phase, reason, inFlightUnknown = 0) => {
+      if (!phase) return;
+      const known = finalizePostponed.get(phase);
+      if (known) { known.in_flight_unknown += inFlightUnknown; return; }
+      finalizePostponed.set(phase, { reason, in_flight_unknown: inFlightUnknown });
       logSwallowedFinalizeFailure(scanId, `${phase}_${reason}_for_snapshot`, null);
     };
-    const finalizeTierEnv = (sourceEnv, keepMs) => durableInvocation
-      ? createInvocationProviderGuard(sourceEnv, {
-          totalRemainingMs: () => deadline.totalRemainingMs(),
-          totalExceeded: () => {
-            if (!deadline.totalExceeded() && deadline.totalRemainingMs() >= keepMs) return false;
-            notePostponed(finalizePhase, "interrupted");
-            return true;
-          },
-        }, { refuseAsRejection: true }).env
-      : sourceEnv;
-    const impactBaseEnv = finalizeTierEnv(env, SNAPSHOT_FLOOR_MS);
-    const impactEnv = finalizeTierEnv(phaseEnv, SNAPSHOT_FLOOR_MS);
-    const inventoryEnv = finalizeTierEnv(phaseEnv, SNAPSHOT_PHASE_RESERVE_MS);
-    const runInventoryPhase = async (phase, work) => {
-      if (durableInvocation && deadline.totalRemainingMs() < SNAPSHOT_PHASE_RESERVE_MS) {
+    const createFinalizeTier = (keepMs) => {
+      if (!durableInvocation) return { keepMs, frozen: false, env: phaseEnv, baseEnv: env, freeze: () => 0 };
+      const boundary = {
+        totalRemainingMs: () => deadline.totalRemainingMs(),
+        totalExceeded: () => {
+          if (!deadline.totalExceeded() && deadline.totalRemainingMs() >= keepMs) return false;
+          notePostponed(finalizePhase, "interrupted");
+          return true;
+        },
+      };
+      const guards = [phaseEnv, env].map((source) => createInvocationProviderGuard(source, boundary, { refuseAsRejection: true }));
+      const tier = {
+        keepMs, frozen: false, env: guards[0].env, baseEnv: guards[1].env,
+        freeze() {
+          tier.frozen = true;
+          return guards.reduce((count, guard) => count + guard.freeze().in_flight_outcome_unknown_count, 0);
+        },
+      };
+      return tier;
+    };
+    const impactTier = createFinalizeTier(SNAPSHOT_FLOOR_MS);
+    const inventoryTier = createFinalizeTier(SNAPSHOT_PHASE_RESERVE_MS);
+    const FINALIZE_TIER_BOUNDARY = Symbol("finalize_tier_boundary");
+    const tierTimers = opts.testOnlyFinalizeTierTimers || {};
+    // `work` receives the tier's guarded envs; each phase below names them
+    // `phaseEnv` and `env`, shadowing the unguarded ones for its whole body.
+    const runFinalizePhase = async (tier, phase, work) => {
+      if (tier.frozen || (durableInvocation && deadline.totalRemainingMs() < tier.keepMs)) {
         notePostponed(phase, "not_started");
         return;
       }
       enterFinalizePhase(phase);
-      try { await work(inventoryEnv); } catch { /* non-fatal — the next scan recomputes it */ }
+      // Each phase is non-fatal; its own catch already swallows its failures.
+      const run = Promise.resolve().then(() => work(tier)).catch(() => {});
+      if (!durableInvocation) { await run; return; }
+      const setTimer = tierTimers.setTimer || setTimeout;
+      const clearTimer = tierTimers.clearTimer || clearTimeout;
+      let timer = null;
+      const boundary = new Promise((resolve) => {
+        timer = setTimer(() => resolve(FINALIZE_TIER_BOUNDARY), Math.max(0, deadline.totalRemainingMs() - tier.keepMs));
+        timer?.unref?.();
+      });
+      const winner = await Promise.race([run, boundary]);
+      if (timer != null) clearTimer(timer);
+      if (winner === FINALIZE_TIER_BOUNDARY) notePostponed(phase, "interrupted", tier.freeze());
     };
+
 
     // Phase 8a.0: Managed ASM cases — opens cases for new exposure findings,
     // verifies customer-completed fixes against the fresh scan, and reopens
     // resolved cases when the same finding returns. Reuses scan evidence only.
-    enterFinalizePhase("phase_8a.0");
-    try {
-      await createManagedAsmCasesForScan(scanId, domainId, domain, managedAsmFindings, recommendations, impactEnv);
-      // Cases opened from a claim the current rule no longer makes are resolved
-      // as withdrawn, judged on their own originating evidence.
-      await withdrawSupersededAsmClaims(impactEnv, { domainId });
-      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, impactBaseEnv, {
-        modules,
-        scanQuality,
-        // This hook runs only after the terminal R2 report and completed D1
-        // status are durable. P3 lifecycle verification must never infer this
-        // from "the engine returned"; publishability is explicit.
-        scanPublished: true,
-        observedAt: completedAt,
-      });
-    } catch { /* non-fatal — managed cases catch up on the next scan */ }
+    await runFinalizePhase(impactTier, "phase_8a.0", async ({ env: phaseEnv, baseEnv: env }) => {
+      try {
+        await createManagedAsmCasesForScan(scanId, domainId, domain, managedAsmFindings, recommendations, phaseEnv);
+        // Cases opened from a claim the current rule no longer makes are resolved
+        // as withdrawn, judged on their own originating evidence.
+        await withdrawSupersededAsmClaims(phaseEnv, { domainId });
+        await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, {
+          modules,
+          scanQuality,
+          // This hook runs only after the terminal R2 report and completed D1
+          // status are durable. P3 lifecycle verification must never infer this
+          // from "the engine returned"; publishability is explicit.
+          scanPublished: true,
+          observedAt: completedAt,
+        });
+      } catch { /* non-fatal — managed cases catch up on the next scan */ }
+    });
 
     // Phase 8a.1: Posture Timeline Events — cross-scan email-auth and exposed
     // service diffs. Uses previous completed scan report from R2 as baseline.
-    enterFinalizePhase("phase_8a.1");
-    try {
-      await recordPostureEvents(scanId, domainId, domain, modules, impactEnv, { currentReport: report });
-    } catch { /* non-fatal — posture events catch up on next scan */ }
+    await runFinalizePhase(impactTier, "phase_8a.1", async ({ env: phaseEnv }) => {
+      try {
+        await recordPostureEvents(scanId, domainId, domain, modules, phaseEnv, { currentReport: report });
+      } catch { /* non-fatal — posture events catch up on next scan */ }
+    });
 
     // Phase 8a.2: SPF-RUA corroboration (PR-B) — cross-checks this scan's freshly
     // resolved SPF PASS-authorisation set against the domain's recent DMARC-RUA
     // fail-sources and raises a canonical alert for an OBSERVED failure from a
     // source outside the authorised set. Only fires firm wording when the
     // resolution is complete; fails safe otherwise. Non-fatal.
-    enterFinalizePhase("phase_8a.2");
-    try {
-      await recordSpfRuaCorroboration(scanId, domainId, domain, modules, impactEnv);
-    } catch { /* non-fatal — corroboration catches up on the next scan */ }
+    await runFinalizePhase(impactTier, "phase_8a.2", async ({ env: phaseEnv }) => {
+      try {
+        await recordSpfRuaCorroboration(scanId, domainId, domain, modules, phaseEnv);
+      } catch { /* non-fatal — corroboration catches up on the next scan */ }
+    });
 
     // Phase 8b: Admin Surface Events — one asset_event per detected service per workspace.
     // Runs after upsertAssetInventory so workspace_assets rows are already present,
     // allowing asset_id FK resolution.
-    enterFinalizePhase("phase_8b");
-    try {
-      await insertAdminSurfaceEvents(scanId, domainId, modules.admin_surface_detection, impactEnv, { currentReport: report });
-    } catch { /* non-fatal */ }
+    await runFinalizePhase(impactTier, "phase_8b", async ({ env: phaseEnv }) => {
+      try {
+        await insertAdminSurfaceEvents(scanId, domainId, modules.admin_surface_detection, phaseEnv, { currentReport: report });
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8c: Vendor Inventory Upsert — persists vendor_risk detections to D1.
     // Uses workspace lookup internally. Preserves first_seen; marks unseen vendors inactive.
-    enterFinalizePhase("phase_8c");
-    try {
-      await upsertVendorInventory(domainId, modules.vendor_risk, impactEnv);
-    } catch { /* non-fatal */ }
+    await runFinalizePhase(impactTier, "phase_8c", async ({ env: phaseEnv }) => {
+      try {
+        await upsertVendorInventory(domainId, modules.vendor_risk, phaseEnv);
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8d: Certificate Events — fires asset_events for sensitive
     // discovered hosts, expiry warnings, and growth signals.
-    enterFinalizePhase("phase_8d");
-    try {
-      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, impactEnv, { currentReport: report, now: () => certificateNowMs });
-    } catch { /* non-fatal */ }
+    await runFinalizePhase(impactTier, "phase_8d", async ({ env: phaseEnv }) => {
+      try {
+        await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, phaseEnv, { currentReport: report, now: () => certificateNowMs });
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8d.1: Certificate Timeline — persists cross-scan certificate
     // observations and emits alerts for new certs, SANs, and issuers.
-    enterFinalizePhase("phase_8d.1");
-    try {
-      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, impactEnv, { currentReport: report, now: () => certificateNowMs });
-    } catch { /* non-fatal */ }
+    await runFinalizePhase(impactTier, "phase_8d.1", async ({ env: phaseEnv }) => {
+      try {
+        await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, phaseEnv, { currentReport: report, now: () => certificateNowMs });
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8f: Identity Asset Upsert — persists identity_discovery results into
     // identity_assets table. Also upserts detected IdP providers into workspace_vendors.
-    enterFinalizePhase("phase_8f");
-    try {
-      await upsertIdentityAssets(domainId, scanId, modules.identity_discovery, impactEnv);
-    } catch { /* non-fatal */ }
+    await runFinalizePhase(impactTier, "phase_8f", async ({ env: phaseEnv }) => {
+      try {
+        await upsertIdentityAssets(domainId, scanId, modules.identity_discovery, phaseEnv);
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8g: Vendor Relationship Upsert — persists CSP-derived vendor relationships
     // into workspace_vendors with source_module='vendor_relationship'. Additive to
     // Phase 8c (DNS-sourced vendor_risk entries) — no inactive sweep here.
-    enterFinalizePhase("phase_8g");
-    try {
-      await upsertVendorRelationships(domainId, modules.vendor_relationships, impactEnv);
-    } catch { /* non-fatal */ }
+    await runFinalizePhase(impactTier, "phase_8g", async ({ env: phaseEnv }) => {
+      try {
+        await upsertVendorRelationships(domainId, modules.vendor_relationships, phaseEnv);
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8j: Shadow IT approved inventory — correlate the workspace's active
     // vendor observations (+ ephemeral SaaS portal URLs) into the canonical
     // externally-observed technology inventory. Soft-deleted workspaces are
     // skipped inside correlateShadowItInventory. Non-fatal.
-    enterFinalizePhase("phase_8j");
-    try {
-      const siWsRows = await impactEnv.cybermeters_db
-        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-        .bind(domainId)
-        .all();
-      for (const { workspace_id } of (siWsRows.results || [])) {
-        await correlateShadowItInventory(impactEnv, workspace_id, { saasExposure: modules.saas_exposure, subdomainDiscovery: modules.subdomains || { executed: false } });
-      }
-    } catch { /* non-fatal — inventory catches up on the next scan */ }
+    await runFinalizePhase(impactTier, "phase_8j", async ({ env: phaseEnv }) => {
+      try {
+        const siWsRows = await phaseEnv.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (siWsRows.results || [])) {
+          await correlateShadowItInventory(phaseEnv, workspace_id, { saasExposure: modules.saas_exposure, subdomainDiscovery: modules.subdomains || { executed: false } });
+        }
+      } catch { /* non-fatal — inventory catches up on the next scan */ }
+    });
 
     // Phase 8k: Certificate Managed Lifecycle — correlate the raw certificate
     // observations (mig 031) into the canonical managed lifecycle record: pick
     // the current cert per host, detect replacement (old evidence preserved),
     // assess renewal readiness + coverage, and run the monitoring evaluator.
     // Soft-deleted workspaces are skipped inside correlateCertificateLifecycle.
-    enterFinalizePhase("phase_8k");
-    try {
-      const clWsRows = await impactEnv.cybermeters_db
-        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-        .bind(domainId)
-        .all();
-      for (const { workspace_id } of (clWsRows.results || [])) {
-        await correlateCertificateLifecycle(impactEnv, workspace_id, { now: startedAt });
-      }
-    } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+    await runFinalizePhase(impactTier, "phase_8k", async ({ env: phaseEnv }) => {
+      try {
+        const clWsRows = await phaseEnv.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (clWsRows.results || [])) {
+          await correlateCertificateLifecycle(phaseEnv, workspace_id, { now: startedAt });
+        }
+      } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+    });
 
     // Phase 8k-ii: TLS endpoint conditions as Certificates & Trust cases
     // (engines/tls-endpoint-cases.js): open / reopen on an exact measurement,
     // verify only on an exact-retest "clear" of a case the customer submitted.
-    enterFinalizePhase("phase_8k-ii");
-    if (modules.tls_assessment) {
-      try {
-        const tlsWsRows = await impactEnv.cybermeters_db
-          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-          .bind(domainId)
-          .all();
-        for (const { workspace_id } of (tlsWsRows.results || [])) {
-          await reconcileTlsEndpointCases(impactEnv, { workspace_id, domain, scan_id: scanId, tls_assessment: modules.tls_assessment, now: completedAt });
-        }
-      } catch { /* non-fatal — the next scan reconciles again */ }
-    }
+    await runFinalizePhase(impactTier, "phase_8k-ii", async ({ env: phaseEnv }) => {
+      if (modules.tls_assessment) {
+        try {
+          const tlsWsRows = await phaseEnv.cybermeters_db
+            .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+            .bind(domainId)
+            .all();
+          for (const { workspace_id } of (tlsWsRows.results || [])) {
+            await reconcileTlsEndpointCases(phaseEnv, { workspace_id, domain, scan_id: scanId, tls_assessment: modules.tls_assessment, now: completedAt });
+          }
+        } catch { /* non-fatal — the next scan reconciles again */ }
+      }
+    });
 
     // Phase 8l: Identity Exposure Managed Workflow — correlate the raw
     // identity_assets (mig 030) into the canonical managed identity-exposure
@@ -3360,16 +3401,17 @@ function buildCanonicalUrlProfile(modules) {
     // detection (old evidence preserved), externally-observable risk + the
     // monitoring evaluator. Soft-deleted workspaces are skipped inside
     // correlateIdentityExposure. Non-fatal.
-    enterFinalizePhase("phase_8l");
-    try {
-      const ieWsRows = await impactEnv.cybermeters_db
-        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-        .bind(domainId)
-        .all();
-      for (const { workspace_id } of (ieWsRows.results || [])) {
-        await correlateIdentityExposure(impactEnv, workspace_id);
-      }
-    } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+    await runFinalizePhase(impactTier, "phase_8l", async ({ env: phaseEnv }) => {
+      try {
+        const ieWsRows = await phaseEnv.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (ieWsRows.results || [])) {
+          await correlateIdentityExposure(phaseEnv, workspace_id);
+        }
+      } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+    });
 
     // Phase 8m: Website Security Managed Lifecycle — correlate THIS scan's website
     // findings into the canonical per-condition record + append-only history, and
@@ -3385,19 +3427,20 @@ function buildCanonicalUrlProfile(modules) {
     // the detecting module provably ran; without them a timed-out probe would read
     // as the customer fixing it. Soft-deleted workspaces are skipped inside the
     // evaluator. Non-fatal.
-    enterFinalizePhase("phase_8m");
-    try {
-      const wsWsRows = await impactEnv.cybermeters_db
-        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-        .bind(domainId)
-        .all();
-      for (const { workspace_id } of (wsWsRows.results || [])) {
-        await evaluateWebsiteSecurityForScan(impactEnv, {
-          workspace_id, domain_id: domainId, domain, scan_id: scanId,
-          findings: normalizedFindings, modules, scanQuality,
-        });
-      }
-    } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+    await runFinalizePhase(impactTier, "phase_8m", async ({ env: phaseEnv }) => {
+      try {
+        const wsWsRows = await phaseEnv.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (wsWsRows.results || [])) {
+          await evaluateWebsiteSecurityForScan(phaseEnv, {
+            workspace_id, domain_id: domainId, domain, scan_id: scanId,
+            findings: normalizedFindings, modules, scanQuality,
+          });
+        }
+      } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+    });
 
     // Phase 8n: Cyber Essentials external-evidence lifecycle — re-assess the
     // workspace's externally evidenced control-theme readiness now that a new scan
@@ -3409,16 +3452,17 @@ function buildCanonicalUrlProfile(modules) {
     // no scan hook — which is why its verdict was compute-on-read only.
     //
     // Non-fatal.
-    enterFinalizePhase("phase_8n");
-    try {
-      const ceWsRows = await impactEnv.cybermeters_db
-        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-        .bind(domainId)
-        .all();
-      for (const { workspace_id } of (ceWsRows.results || [])) {
-        await evaluateCyberEssentialsLifecycle(impactEnv, workspace_id, { scanId });
-      }
-    } catch { /* non-fatal — readiness catches up on the next scan */ }
+    await runFinalizePhase(impactTier, "phase_8n", async ({ env: phaseEnv }) => {
+      try {
+        const ceWsRows = await phaseEnv.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (ceWsRows.results || [])) {
+          await evaluateCyberEssentialsLifecycle(phaseEnv, workspace_id, { scanId });
+        }
+      } catch { /* non-fatal — readiness catches up on the next scan */ }
+    });
 
     // Inventory-only tier: runs after every customer-impact phase above.
     // Phase 8e: Brand Asset Upsert — persists generated typosquat candidates to
@@ -3426,44 +3470,56 @@ function buildCanonicalUrlProfile(modules) {
     // (hourly brand-dns-enrichment sweep, daily HTTPS enrichment, manual
     // /brand-monitoring/refresh); the NEXT scan reads that state back into its
     // brand decision through loadBrandValidationState above.
-    await runInventoryPhase("phase_8e", (tierEnv) => upsertBrandAssets(domainId, modules.brand_monitoring, tierEnv));
+    await runFinalizePhase(inventoryTier, "phase_8e", async ({ env: phaseEnv }) => {
+      try {
+        await upsertBrandAssets(domainId, modules.brand_monitoring, phaseEnv);
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8h: Vendor Risk Score Upsert — calculates workspace-level vendor
     // exposure scores from current workspace_vendors rows.
-    await runInventoryPhase("phase_8h", (tierEnv) => recomputeVendorRiskScoresForDomain(domainId, tierEnv));
+    await runFinalizePhase(inventoryTier, "phase_8h", async ({ env: phaseEnv }) => {
+      try {
+        await recomputeVendorRiskScoresForDomain(domainId, phaseEnv);
+      } catch { /* non-fatal */ }
+    });
 
     // Phase 8i: Supply Chain Intelligence — computes and persists supply chain
     // risk scores, concentration analysis, and cascading risk scenarios per workspace.
     // Runs after all vendor phases so it sees the full vendor picture.
-    await runInventoryPhase("phase_8i", async (tierEnv) => {
-      const scWsRows = await tierEnv.cybermeters_db
-        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-        .bind(domainId)
-        .all();
-      for (const { workspace_id } of (scWsRows.results || [])) {
-        const scPayload = await computeSupplyChainIntelligence(workspace_id, tierEnv);
-        await upsertSupplyChainScore(workspace_id, scPayload, tierEnv);
-      }
+    await runFinalizePhase(inventoryTier, "phase_8i", async ({ env: phaseEnv }) => {
+      try {
+        const scWsRows = await phaseEnv.cybermeters_db
+          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+          .bind(domainId)
+          .all();
+        for (const { workspace_id } of (scWsRows.results || [])) {
+          const scPayload = await computeSupplyChainIntelligence(workspace_id, phaseEnv);
+          await upsertSupplyChainScore(workspace_id, scPayload, phaseEnv);
+        }
+      } catch { /* non-fatal */ }
     });
 
     // Phase 8m-ii: Website important-page inventory (migration 115). Persists
     // THIS scan's page observations for each workspace that owns the domain and
     // has it verified (checked inside). Non-fatal; never touches findings.
     if (modules.page_discovery?.source === "page_discovery") {
-      await runInventoryPhase("phase_8m-ii", async (tierEnv) => {
-        const pageWsRows = await tierEnv.cybermeters_db
-          .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-          .bind(domainId)
-          .all();
-        for (const { workspace_id } of (pageWsRows.results || [])) {
-          // One workspace failing must not stop the others.
-          try {
-            await persistWebsitePagesForScan(tierEnv, {
-              workspace_id, domain_id: domainId, domain, scan_id: scanId,
-              discovery: modules.page_discovery,
-            });
-          } catch { /* non-fatal for this workspace */ }
-        }
+      await runFinalizePhase(inventoryTier, "phase_8m-ii", async ({ env: phaseEnv }) => {
+        try {
+          const pageWsRows = await phaseEnv.cybermeters_db
+            .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+            .bind(domainId)
+            .all();
+          for (const { workspace_id } of (pageWsRows.results || [])) {
+            // One workspace failing must not stop the others.
+            try {
+              await persistWebsitePagesForScan(phaseEnv, {
+                workspace_id, domain_id: domainId, domain, scan_id: scanId,
+                discovery: modules.page_discovery,
+              });
+            } catch { /* non-fatal for this workspace */ }
+          }
+        } catch { /* non-fatal — the next scan records the pages again */ }
       });
     }
 
@@ -3492,7 +3548,9 @@ function buildCanonicalUrlProfile(modules) {
         const snapshot = await buildScanReportSnapshot(env, {
           workspaceId, domainId, scanId, domain, report,
           cyberEssentials: ceSnap, assessedAt: completedAt,
-          postponedFinalizeWork: [...finalizePostponed].map(([phase, reason]) => ({ phase, reason })),
+          postponedFinalizeWork: [...finalizePostponed].map(([phase, { reason, in_flight_unknown }]) => ({
+            phase, reason, provider_outcome: in_flight_unknown > 0 ? "in_flight_unknown" : "settled",
+          })),
         });
         // The row records its own failure reason; the log line makes a failure
         // visible even when no row could be written (a spent invocation).
@@ -3501,7 +3559,7 @@ function buildCanonicalUrlProfile(modules) {
     }
     // The finalize work that did not finish, counted after the snapshot so the
     // snapshot keeps its time. Fixed vocabulary: "<phase>:<reason>".
-    for (const [phase, reason] of finalizePostponed) {
+    for (const [phase, { reason }] of finalizePostponed) {
       await bumpDailyCounter(env, "scan_finalize_postponed", `${phase}:${reason}`);
     }
 
