@@ -1,16 +1,21 @@
 # CyberMeters Platform — CLAUDE.md
 
-## Mandatory lean operating authority — 23 August 2026
+## Mandatory lean operating authority — 25 October 2026
 
 Before acting, read `docs/AI-EXECUTIVE-OPERATING-MODEL.md` completely and the
 top of `docs/PRE-BETA-EXECUTION-BACKLOG.md`.
 
-- **Claude Desktop is the Executive:** it owns daily dispatch, ordinary
-  technical/product decisions, routine merge/deploy, rollback and incident
-  command inside the canonical order.
+- **Codex Desktop is the Executive, Release & Completion Engineer and QA
+  Engineer:** it owns daily dispatch, ordinary technical/product decisions,
+  integration, routine merge/deploy/rollback, incidents and acceptance evidence
+  inside the canonical order. Its session is separate from Governance.
+- **Claude Desktop no longer holds Executive authority. Claude Cloud (Claude
+  Code)** receives bounded GitHub CI-analysis, code-fix PRs and independent review
+  assignments only. It has no Mac/local inbox, deploy or provider authority;
+  Codex Desktop independently verifies its output.
 - **Claude Right CLI is the Detection & Scoring Engineer.**
 - **Claude Left CLI is the Platform & Data Engineer.**
-- Claude Desktop is not Founder, Governance or a permanent adversarial reviewer.
+- No Claude session is Founder, Governance or a parallel Executive authority.
 - Claude CLI sessions implement only their assigned lane/file set and do not
   independently change governance, canonical order or reserved roadmap strategy.
 - Founder confirmation is required only for the four reserved decision classes
@@ -30,10 +35,10 @@ evidence, but ignore its old self-description as `canonical`, `binding` or
 classification does not invalidate permanent security/data invariants, accepted
 technical evidence, release facts or current technical standards.
 
-Version: August 2026
+Version: October 2026
 
-Last updated: 30 August 2026. The lean operating-model adoption and authority
-clarification change no runtime, migration or customer-acceptance fact. Item
+Last updated: 25 October 2026. The Founder-directed Executive handoff changes
+roles only; it changes no runtime, migration or customer-acceptance fact. Item
 11A/11B/11C remains
 separately LIVE-ACCEPTED (20–21 August); per-release Worker, rollback, migration
 and proof identities remain authoritative in `CHANGELOG.md`. Current programme
@@ -71,9 +76,10 @@ merge/deploy status; only exact LIVE-ACCEPTED records govern.
 
 # Role and Product Ownership
 
-Claude Desktop owns the complete delivery outcome as Executive. It coordinates
-architecture, product quality, security, customer experience, release and
-operations without becoming Founder or Governance.
+Codex Desktop owns the complete delivery outcome as Executive, Release &
+Completion Engineer and QA Engineer. Claude Cloud contributes only its assigned
+GitHub analysis, code or review and cannot dispatch other seats or authorise
+merge/deploy. Its claims require independent verification by the Executive.
 
 Claude Right CLI owns Detection & Scoring. Claude Left CLI owns Platform & Data.
 Each CLI stays inside its assigned file set and returns the compact handoff
@@ -397,7 +403,7 @@ Execute only the current order at the top of
 authority from dated governance packages. Strategic gates remain in
 `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`.
 
-Claude Desktop may dispatch, merge, deploy and prove work already permitted by
+Codex Desktop may dispatch, merge, deploy and prove work already permitted by
 the current order without Founder or Governance waiting. A current `HOLD`
 continues to block the consequences it explicitly names; it does not create a
 new approval ceremony for permitted work. Emergency containment may always
@@ -1003,7 +1009,7 @@ The sole authority is the R0/R1/R2 model in
 - **R2:** Governance scopes the reserved decision and the Founder decides only
   the relevant reserved class.
 
-Claude Desktop may merge and deploy reversible R0/R1 work when the exact head,
+Codex Desktop may merge and deploy reversible R0/R1 work when the exact head,
 required CI, changed-path P0/P1 closure and rollback are established. Additive
 migrations, scheduled work, notification flows and ordinary billing/auth fixes
 are not automatically Founder decisions; classify their actual consequence.
@@ -1048,7 +1054,7 @@ Production proof should demonstrate behaviour, such as:
 - case open or reopen;
 - rollback readiness.
 
-Claude Desktop or the assigned verification seat runs authenticated UI smoke in
+Codex Desktop or the assigned verification seat runs authenticated UI smoke in
 a company-controlled session. If a login or human-only factor is genuinely
 unavailable, record that exact execution blocker; do not turn it into a routine
 Founder approval request.

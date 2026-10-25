@@ -1,6 +1,6 @@
 # AGENTS.md
 
-## Mandatory lean operating authority — 23 August 2026
+## Mandatory lean operating authority — 25 October 2026
 
 Before acting, read `docs/AI-EXECUTIVE-OPERATING-MODEL.md` completely and the
 top of `docs/PRE-BETA-EXECUTION-BACKLOG.md`. The operating model is the sole
@@ -10,14 +10,18 @@ Declare exactly one assigned seat:
 
 - **Codex Governance Seat:** sole governance pen; not a routine implementer,
   merger or deployer;
-- **Codex Desktop:** Integration & Release Engineer;
+- **Codex Desktop:** Executive, Release & Completion Engineer, QA Engineer;
 - **Codex Right CLI:** Attack Surface & Runtime Engineer;
 - **Codex Left CLI:** Customer Experience & Verification Engineer.
 
-Claude Desktop is the Executive. It assigns daily work and decides routine
-merge/deploy. Codex agents do not independently change governance, canonical
-order or reserved roadmap strategy. Founder confirmation is required only for
-the four reserved classes in the operating model.
+Codex Desktop is the Executive. It assigns daily work, integrates releases,
+decides routine merge/deploy/rollback and owns QA and live acceptance evidence.
+Its session must remain separate from the Codex Governance Seat. Claude Desktop
+no longer has Executive authority. Claude Cloud receives bounded GitHub coding,
+CI-analysis or review work only; the Executive independently verifies its output.
+Delivery agents do not independently change governance, canonical order or
+reserved roadmap strategy. Founder confirmation is required only for the four
+reserved classes in the operating model.
 
 This section overrides older role/review wording. Dated governance packages and
 the retired Claude Desktop review contract are historical evidence, not active
@@ -34,12 +38,12 @@ technical evidence, release facts or current technical standards.
 
 # CyberMeters Platform — AI Engineering Context
 
-Version: August 2026
+Version: October 2026
 
-Last updated: 30 August 2026. The lean operating-model adoption and authority
-clarification change no runtime, migration or customer-acceptance fact. Release,
-production migration
-and rollback identities remain authoritative only in `CHANGELOG.md`.
+Last updated: 25 October 2026. The Founder-directed Executive handoff changes
+roles only; it changes no runtime, migration or customer-acceptance fact. Release,
+production migration and rollback identities remain authoritative only in
+`CHANGELOG.md`.
 Frozen-backlog Item 11A/11B/11C is separately LIVE-ACCEPTED (20–21 August).
 Current programme order lives only in `docs/PRE-BETA-EXECUTION-BACKLOG.md`;
 the dated 23-August successor package remains historical decision evidence.
