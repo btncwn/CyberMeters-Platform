@@ -28,7 +28,7 @@ import { buildNextActions } from '../overview/NextActionsList'
 // read that fails or is still pending is shown as that. The filter box narrows
 // the tiles and the case list by text; it does not search anything else and
 // its placeholder says so.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useAreaShell } from '../shell/AreaShell'
 import { MODULE_TABS } from '../../lib/areaTabs'
@@ -347,11 +347,42 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
   const shown = (filteredOpen.length ? filteredOpen : filteredCases).slice(0, tab === 'cases' ? 50 : 5)
   const tiles = useMemo(() => subpagesForDomainKey(domainKey).filter((t) => matchesFilter(`${t.label} ${t.desc}`, query)), [domainKey, query])
 
+  // A tab the customer picks must show its section (founder, 25 Oct 2026: on a
+  // long area page the tab changed the URL, but its section rendered below the
+  // first screen, so nothing visible changed). After the switch, bring the panel
+  // into view when it is not already on screen. A page load or a deep link never
+  // scrolls here (the anchor effect above owns those).
+  const scrollToPanelRef = useRef(false)
   function selectTab(id) {
     const next = new URLSearchParams(params)
     if (id === 'overview') next.delete('tab'); else next.set('tab', id)
+    // Re-picking the current tab does not change `tab`, so the effect would never
+    // clear the flag and a later back/forward would scroll (R1 15:30): arm it only
+    // for a real switch.
+    scrollToPanelRef.current = id !== tab
     setParams(next, { replace: true })
   }
+  useEffect(() => {
+    if (!scrollToPanelRef.current) return undefined
+    scrollToPanelRef.current = false
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => setTimeout(fn, 0)
+    const cancel = typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : clearTimeout
+    const handle = frame(() => {
+      const panel = document.getElementById('module-tabpanel')
+      if (!panel || typeof panel.getBoundingClientRect !== 'function' || typeof panel.scrollIntoView !== 'function') return
+      const top = panel.getBoundingClientRect().top
+      const viewport = window.innerHeight || document.documentElement.clientHeight || 0
+      // The sticky top bar covers the top of the screen: the panel's own
+      // scroll-margin-top (index.css, the shell header height) is that offset.
+      const header = parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0
+      // Already visible below the bar, in the upper part of the screen: leave it.
+      if (top >= header && top <= viewport * 0.5) return
+      // Reduced motion: jump, never animate (index.css sets a smooth page scroll).
+      const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      panel.scrollIntoView({ block: 'start', behavior: reduce ? 'instant' : 'smooth' })
+    })
+    return () => cancel(handle)
+  }, [tab])
 
   function onTabKeyDown(event, currentId) {
     const index = TAB_IDS.indexOf(currentId)
