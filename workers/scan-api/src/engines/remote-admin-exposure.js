@@ -36,7 +36,8 @@ export const REMOTE_ADMIN_PORTS = Object.freeze({
   23:    { service: "Telnet", tier: "high" },
   445:   { service: "SMB (Windows file sharing)", tier: "high" },
   1433:  { service: "Microsoft SQL Server", tier: "high" },
-  2375:  { service: "Docker API (unencrypted)", tier: "high" },
+  // The port convention only: whether THIS host encrypts is not observed.
+  2375:  { service: "Docker API", tier: "high" },
   3306:  { service: "MySQL", tier: "high" },
   3389:  { service: "Remote Desktop (RDP)", tier: "high" },
   5432:  { service: "PostgreSQL", tier: "high" },

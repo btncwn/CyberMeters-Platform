@@ -604,7 +604,7 @@ await import("./remote-admin-exposure-fixture.js");
   const engine = (file) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", file)).href;
   const { runRemoteAdminExposureModule } = await import(engine("remote-admin-exposure.js"));
   const { computeScore } = await import(engine("scoring.js"));
-  const ports = [[23, "Telnet"], [2375, "Docker API (unencrypted)"], [5985, "WinRM (Windows remote management, HTTP)"],
+  const ports = [[23, "Telnet"], [2375, "Docker API"], [5985, "WinRM (Windows remote management, HTTP)"],
     [5986, "WinRM (Windows remote management, HTTPS)"], [11211, "Memcached"]];
   for (const [port, service] of ports) {
     const ws = `ws_q14_${port}`, dom = `dom_q14_${port}`, domain = `q14-${port}.example.com`;
@@ -619,7 +619,7 @@ await import("./remote-admin-exposure-fixture.js");
     const scored = computeScore({ dns: { resolves: true, has_mx: true }, remote_admin_exposure: await run("open") }, domain);
     const found = scored.findings.filter((item) => item.id === "remote_admin_service_reachable");
     ok(`Q14 ${port}: one high finding naming ${service}`, found.length === 1 && found[0].severity === "high"
-      && found[0].description.includes(`${service} port ${port} reachable from the internet`) && !/vulnerab|compromis/i.test(found[0].description));
+      && found[0].description.includes(`${service} port ${port} reachable from the internet`) && !/vulnerab|compromis|unencrypted/i.test(found[0].description));
     await createManagedAsmCasesForScan(`scan_${ws}_1`, dom, domain, found, scored.recommendations, env);
     const cases = await listManagedCases(env, ws);
     ok(`Q14 ${port}: the finding opens one Attack Surface case`, cases.length === 1 && cases[0].status === "open");
