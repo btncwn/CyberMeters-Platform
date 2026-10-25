@@ -446,7 +446,8 @@ export async function collectTlsAssessment(env,input,{signal}={}) {
     });
     pending.then(response=>{if(controller.signal.aborted)response.body?.cancel().catch(()=>{});}).catch(()=>{});
     const response=await Promise.race([pending,aborted]);
-    if(!response.ok){await response.body?.cancel();throw new Error('collector_unavailable');}
+    // 503 = both probe scan slots in use (mail transport records it; a TLS slice reads it as collector_error).
+    if(!response.ok){await response.body?.cancel();throw new Error(response.status===503?'collector_busy':'collector_unavailable');}
     const receipt=await Promise.race([readBoundedJson(response.body,TLS_SLICE_LIMITS.responseBytes),aborted]);
     if(controller.signal.aborted||!validateTlsAssessmentReceipt(input,receipt).ok)throw new Error('invalid_tls_receipt');
     return receipt;
