@@ -148,7 +148,7 @@ const unfinishedImpactLimit = (entries) =>
 const lostChangeLimit = (entries) =>
   `This check ran out of time before it finished processing changes since the previous check for ${joinLabels(entries)}. That processing cannot be redone later, so changes in this interval may be missing from the change history.`;
 
-const gapDate = (value) => (typeof value === "string" ? value.slice(0, 10) : "an unknown date");
+const gapDate = (value) => (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : "an unknown date");
 const earlierGapLimit = (gaps) =>
   `Earlier checks could not finish processing changes, so the change history is incomplete for: ${
     [...new Set(gaps.map((gap) => `${gap.label} (${gapDate(gap.from)} to ${gapDate(gap.to)})`))].join("; ")}.`;
@@ -778,7 +778,7 @@ export function composeSnapshot({
     .filter((gap) => gap && typeof gap.phase === "string");
   const ownGaps = postponedLost.map((entry) => ({
     phase: entry.phase, label: entry.label, domain_key: entry.domain_key,
-    from: previousCheckAssessedAt, to: report?.completed_at || null, scan_id: scanId,
+    from: previousCheckAssessedAt === "unknown" ? null : previousCheckAssessedAt, to: report?.completed_at || null, scan_id: scanId,
   }));
   const allGaps = [...carriedGaps, ...ownGaps];
   const changeHistoryGaps = allGaps.slice(-CHANGE_HISTORY_GAP_LIMIT);
@@ -1445,7 +1445,7 @@ export async function buildScanReportSnapshot(env, opts = {}) {
   let previousUnreadable = false;
   const previous = await env.cybermeters_db
     .prepare(
-      `SELECT id, r2_key, checksum_sha256, assessed_at FROM scan_report_snapshots
+      `SELECT id, scan_id, r2_key, checksum_sha256, assessed_at FROM scan_report_snapshots
        WHERE workspace_id = ? AND domain_id = ? AND status = 'completed' AND assessed_at < ?
        ORDER BY assessed_at DESC LIMIT 1`
     )
@@ -1458,6 +1458,27 @@ export async function buildScanReportSnapshot(env, opts = {}) {
   let carriedChangeHistoryGaps = [];
   let changeHistoryGapsUnknown = previousUnreadable;
   let changeHistoryGapsTruncated = false;
+  // The previous CHECK is the previous completed scan, not the previous
+  // snapshot: a scan can complete without one (P1 25 Oct 2026, scan_5e495f40).
+  // That scan's own change-history state is then unknown, and is recorded as an
+  // unconfirmed interval rather than read as "no gap". An unreadable scan
+  // history is treated the same way: absence is never proof of a first scan.
+  let previousScanUnreadable = false;
+  const previousScan = await env.cybermeters_db
+    .prepare(
+      `SELECT id, created_at FROM scans
+       WHERE workspace_id = ? AND domain_id = ? AND status = 'completed' AND id != ?
+         AND created_at < (SELECT created_at FROM scans WHERE id = ? AND workspace_id = ?)
+       ORDER BY created_at DESC, id DESC LIMIT 1`
+    )
+    .bind(workspaceId, domainId, scanId, scanId, workspaceId).first()
+    .catch(() => { previousScanUnreadable = true; return null; });
+  const previousSnapshotMissing = !!previousScan?.id && previous?.scan_id !== previousScan.id
+    && String(previousScan.created_at || "") >= CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM;
+  const previousCheckAssessedAt = previousScan?.id
+    ? (previous?.scan_id === previousScan.id ? previous.assessed_at : previousScan.created_at) ?? null
+    : (previousScanUnreadable ? "unknown" : null);
+
   // Tenant fence: only this workspace's own snapshot prefix is ever read.
   const previousSnapshotKey = typeof previous?.r2_key === "string"
     && previous.r2_key.startsWith(`reports/snapshots/${workspaceId}/`)
@@ -1606,8 +1627,15 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       signedInScanning,
       // A reconstruction cannot know what finalize did not finish.
       postponedFinalizeWork: reconstruction ? [] : postponedFinalizeWork,
-      previousCheckAssessedAt: previous?.assessed_at ?? null,
-      carriedChangeHistoryGaps, changeHistoryGapsUnknown, changeHistoryGapsTruncated,
+      previousCheckAssessedAt,
+      carriedChangeHistoryGaps: previousSnapshotMissing
+        ? [...carriedChangeHistoryGaps, {
+            phase: "unconfirmed", label: "change processing that could not be confirmed (an earlier check has no report snapshot)",
+            domain_key: null, from: previous?.assessed_at ?? null, to: previousScan.created_at ?? null, scan_id: previousScan.id,
+          }]
+        : carriedChangeHistoryGaps,
+      changeHistoryGapsUnknown: changeHistoryGapsUnknown || previousScanUnreadable,
+      changeHistoryGapsTruncated,
     });
 
     const body = JSON.stringify(snapshot, null, 2);

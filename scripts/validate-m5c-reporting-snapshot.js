@@ -851,10 +851,11 @@ async function main() {
       db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES (?, ?, 'verified')").run(wsId, domId);
     };
     const queueScan = async (scanId, wsId, domId, host, tick = () => {}, { tierTimers = null, hold = null } = {}) => {
-      db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES (?, ?, ?, ?, 'running', datetime('now'))")
-        .run(scanId, wsId, domId, host);
-      // Each scan starts an hour after the previous one, so assessed_at orders them.
+      // Each scan starts an hour after the previous one, so created_at and
+      // assessed_at both order them.
       const base = clockBase + (scanSeq++) * 3_600_000;
+      db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES (?, ?, ?, ?, 'running', ?)")
+        .run(scanId, wsId, domId, host, new Date(base).toISOString().replace("T", " ").slice(0, 19));
       const state = { base, clock: base, ran: [], phases: [] };
       const leftMs = () => 120_000 - (state.clock - base);
       const tracedDb = {
@@ -1049,6 +1050,9 @@ async function main() {
     // gap is carried by F2 and F3 without being doubled.
     seedTenant("wsTierF", "domTierF", "tier-f.example");
     await queueScan("scanTierF0", "wsTierF", "domTierF", "tier-f.example");
+    // The incident shape: F0 is a real completed scan whose snapshot did not
+    // complete. A missing previous SNAPSHOT must not read as "no previous check".
+    db.prepare("UPDATE scan_report_snapshots SET status = 'failed' WHERE scan_id = 'scanTierF0'").run();
     const timersF = new Set();
     let releaseF = null;
     const heldF = new Promise((resolve) => { releaseF = resolve; });
@@ -1081,9 +1085,17 @@ async function main() {
        (f1?.limitations || []).some((l) => /cannot be redone later/.test(l) && /change timeline/.test(l))
        && (emailF1?.limitations || []).some((l) => /cannot be redone later/.test(l))
        && !(emailF1?.limitations || []).some((l) => /email and exposed-service change timeline.*re-evaluates/.test(l))
-       && f1?.change_history_gaps?.length === 4
-       && f1.change_history_gaps.every((g) => g.scan_id === "scanTierF1" && g.from && g.to && g.from < g.to),
+       && f1?.change_history_gaps?.filter((g) => g.phase !== "unconfirmed").length === 4
+       && f1.change_history_gaps.filter((g) => g.phase !== "unconfirmed")
+         .every((g) => g.scan_id === "scanTierF1" && g.from && g.to && g.from < g.to),
        JSON.stringify({ limitations: f1?.limitations, gaps: f1?.change_history_gaps }));
+    const f0Scan = db.prepare("SELECT created_at FROM scans WHERE id = 'scanTierF0'").get();
+    ok("F1: the previous check is the completed F0 scan even though its snapshot failed; F0's own change history is recorded as unconfirmed, not as clean",
+       (f1?.change_history_gaps || []).filter((g) => g.phase !== "unconfirmed").every((g) => g.from === f0Scan.created_at)
+       && (f1?.change_history_gaps || []).some((g) => g.phase === "unconfirmed" && g.scan_id === "scanTierF0")
+       && (f1?.limitations || []).some((l) => /could not be confirmed/.test(l))
+       && db.prepare("SELECT status FROM scan_report_snapshots WHERE scan_id = 'scanTierF0'").get()?.status === "failed",
+       JSON.stringify({ f0: f0Scan, gaps: f1?.change_history_gaps }));
     const scenarioF2 = await queueScan("scanTierF2", "wsTierF", "domTierF", "tier-f.example");
     const scenarioF3 = await queueScan("scanTierF3", "wsTierF", "domTierF", "tier-f.example");
     const sameGaps = (snap) => !!f1?.change_history_gaps && JSON.stringify(snap?.change_history_gaps) === JSON.stringify(f1.change_history_gaps);
@@ -1108,6 +1120,30 @@ async function main() {
          scenarioF4.snapshot?.change_history_gaps_unknown === true
          && (scenarioF4.snapshot?.limitations || []).some((l) => /could not be confirmed/.test(l)),
          JSON.stringify(scenarioF4.snapshot?.limitations));
+    }
+
+    {
+      // An unreadable scan history cannot prove a first scan: a missed diff is
+      // still not recoverable, and the history before it is recorded as unknown.
+      seedScan("scan_hist_unreadable", "ws1", "dom1");
+      const histReport = makeReport("scan_hist_unreadable", "dom1", "shared.example", { completedAt: "2026-10-25T10:05:00.000Z" });
+      const refusingHistory = { ...env, cybermeters_db: { ...env.cybermeters_db, prepare(sql) {
+        const stmt = env.cybermeters_db.prepare(sql);
+        if (!/FROM scans\s+WHERE workspace_id = \? AND domain_id = \? AND status = 'completed' AND id != \?/.test(sql)) return stmt;
+        const refuse = async () => { throw new Error("D1 unavailable"); };
+        const wrap = (bound) => ({ ...bound, first: refuse, all: refuse, run: refuse });
+        return { ...wrap(stmt), bind: (...args) => wrap(stmt.bind(...args)) };
+      } } };
+      const built = await buildScanReportSnapshot(refusingHistory, { workspaceId: "ws1", domainId: "dom1", scanId: "scan_hist_unreadable",
+        domain: "shared.example", report: histReport, cyberEssentials: null, assessedAt: histReport.completed_at,
+        postponedFinalizeWork: [{ phase: "phase_8a.1", reason: "interrupted" }] });
+      const histRow = db.prepare("SELECT r2_key FROM scan_report_snapshots WHERE scan_id = 'scan_hist_unreadable' AND status = 'completed'").get();
+      const histSnap = histRow ? JSON.parse(store.get(histRow.r2_key)) : null;
+      ok("an unreadable scan history: the missed diff is not promised a catch-up and earlier history is unknown",
+         built.status === "completed"
+         && histSnap?.finalize_postponed?.[0]?.catch_up === "not_recoverable"
+         && histSnap?.change_history_gaps_unknown === true,
+         JSON.stringify({ built, postponed: histSnap?.finalize_postponed, unknown: histSnap?.change_history_gaps_unknown }));
     }
 
     ok("the reserve and the floor are named constants (25 s and the 12 s email-admission floor)",
