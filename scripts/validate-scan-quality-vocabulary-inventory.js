@@ -382,7 +382,11 @@ const EXPECTED = Object.freeze({
     // ONE-SCORE (24 Oct 2026): 144 -> 145 — one read in ScanDetail.jsx,
     // `reportV2?.evidence_completeness?.scan_quality`, so the Technical Details hero
     // judges completeness from the Executive Report's own source (same file set).
-    runtime: { occurrence_count: 145, source_file_count: 49, fingerprint: "10bfb16667148b3377a4a2611ba1c594c3b9cbf06182ec8614ea26b20df2048b" },
+    // SNAPSHOT-NEVER-SILENT (25 Oct 2026): 145 -> 146 — one read in report-snapshot.js,
+    // `report?.scan_quality`, recorded on the 'failed' row a refused workspace read now
+    // leaves (same file set). Two-tree --dump-current diff: this read only; the two
+    // scan-engine.js runtime comparisons moved by byte offset only.
+    runtime: { occurrence_count: 146, source_file_count: 49, fingerprint: "fde3aa89356c83aad450af5090fa1d68612d2a6cc0152057cd79adc3fc2fda44" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

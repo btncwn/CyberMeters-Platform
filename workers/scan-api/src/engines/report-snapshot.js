@@ -76,6 +76,83 @@ export const SNAPSHOT_SCHEMA_VERSION = "1";
 // scan; counts, codes and times only). Additive: older snapshots keep their bytes.
 export const SNAPSHOT_BUILDER_VERSION = "2026-10-22.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
+
+// Scan-finalize work that did not finish before THIS snapshot (P1 25 Oct 2026,
+// scan_5e495f40; scan-engine.js Phase 8a.0..8n). `impact` work (cases,
+// lifecycle, alerts, change timelines) is named on its domain as unfinished;
+// inventory work feeds nothing this snapshot reads and is only postponed.
+// `recovery`: "next_check" work is re-evaluated by the next check from its own
+// observations and persisted state; "not_recoverable" work diffs this scan
+// against the previous one, so a missed run is a permanent gap in the change
+// history (the next scan diffs against THIS scan). An unknown phase id is named
+// generically and treated as not recoverable, never dropped.
+export const POSTPONED_FINALIZE_WORK = Object.freeze({
+  "phase_8a.0":  { impact: true,  recovery: "next_check", domain_key: "attack_surface", label: "Attack Surface case updates" },
+  "phase_8a.1":  { impact: true,  recovery: "not_recoverable", domain_key: "email_protection", label: "the email and exposed-service change timeline" },
+  "phase_8a.2":  { impact: true,  recovery: "next_check", domain_key: "email_protection", label: "the SPF and DMARC report cross-check" },
+  "phase_8b":    { impact: true,  recovery: "not_recoverable", domain_key: "attack_surface", label: "admin login page change events" },
+  "phase_8c":    { impact: true,  recovery: "next_check", domain_key: "shadow_it_unmanaged_technology", label: "the vendor inventory" },
+  "phase_8d":    { impact: true,  recovery: "not_recoverable", domain_key: "certificates_trust", label: "certificate change events" },
+  "phase_8d.1":  { impact: true,  recovery: "not_recoverable", domain_key: "certificates_trust", label: "the certificate timeline" },
+  "phase_8f":    { impact: true,  recovery: "next_check", domain_key: "identity_exposure", label: "the identity inventory" },
+  "phase_8g":    { impact: true,  recovery: "next_check", domain_key: "shadow_it_unmanaged_technology", label: "vendor relationships" },
+  "phase_8j":    { impact: true,  recovery: "next_check", domain_key: "shadow_it_unmanaged_technology", label: "the Shadow IT inventory and its cases" },
+  "phase_8k":    { impact: true,  recovery: "next_check", domain_key: "certificates_trust", label: "the certificate lifecycle" },
+  "phase_8k-ii": { impact: true,  recovery: "next_check", domain_key: "certificates_trust", label: "certificate and TLS cases" },
+  "phase_8l":    { impact: true,  recovery: "next_check", domain_key: "identity_exposure", label: "the Identity Exposure workflow" },
+  "phase_8m":    { impact: true,  recovery: "next_check", domain_key: "website_security", label: "Website Security cases" },
+  "phase_8n":    { impact: true,  recovery: "next_check", domain_key: "cyber_essentials_readiness", label: "the Cyber Essentials evidence lifecycle" },
+  "phase_8e":    { impact: false, recovery: "next_check", domain_key: null, label: "the brand look-alike candidate list" },
+  "phase_8h":    { impact: false, recovery: "next_check", domain_key: null, label: "vendor risk scores" },
+  "phase_8i":    { impact: false, recovery: "next_check", domain_key: null, label: "the supply-chain view" },
+  "phase_8m-ii": { impact: false, recovery: "next_check", domain_key: null, label: "the important website pages list" },
+});
+
+// Change-history gaps are carried forward from each snapshot to its successor,
+// so a later snapshot can never make a lost interval look fully processed.
+const CHANGE_HISTORY_GAP_LIMIT = 50;
+
+// With no previous check there is no interval to lose: a diff producer that did
+// not run is simply re-run against this scan by the next one.
+function postponedFinalizeEntries(work, { hasPreviousCheck = false } = {}) {
+  const seen = new Set();
+  const entries = [];
+  for (const item of Array.isArray(work) ? work : []) {
+    const phase = typeof item?.phase === "string" ? item.phase : null;
+    if (!phase || seen.has(phase)) continue;
+    seen.add(phase);
+    const known = POSTPONED_FINALIZE_WORK[phase];
+    const recovery = known?.recovery ?? "not_recoverable";
+    entries.push({
+      phase,
+      reason: item.reason === "interrupted" ? "interrupted" : "not_started",
+      // A provider call still in flight at the boundary may or may not have landed.
+      provider_outcome: item.provider_outcome === "in_flight_unknown" ? "in_flight_unknown" : "settled",
+      impact: known ? known.impact : true,
+      domain_key: known?.domain_key ?? null,
+      label: known?.label ?? "a scan follow-up update",
+      catch_up: recovery === "not_recoverable" && hasPreviousCheck ? "not_recoverable" : "next_check",
+    });
+  }
+  return entries;
+}
+
+function joinLabels(entries) {
+  const labels = [...new Set(entries.map((entry) => entry.label))];
+  return labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}` : labels[0];
+}
+
+const unfinishedImpactLimit = (entries) =>
+  `This check ran out of time before it finished updating ${joinLabels(entries)}. Case, alert and lifecycle status shown here may not yet reflect this check; the next check re-evaluates them from its own observations, and a condition seen only at this check is not recorded.`;
+
+const lostChangeLimit = (entries) =>
+  `This check ran out of time before it finished processing changes since the previous check for ${joinLabels(entries)}. That processing cannot be redone later, so changes in this interval may be missing from the change history.`;
+
+const gapDate = (value) => (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : "an unknown date");
+const earlierGapLimit = (gaps) =>
+  `Earlier checks could not finish processing changes, so the change history is incomplete for: ${
+    [...new Set(gaps.map((gap) => `${gap.label} (${gapDate(gap.from)} to ${gapDate(gap.to)})`))].join("; ")}.`;
+
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
 // Compatibility-only availability state. It is intentionally NOT a substitute
@@ -687,7 +764,25 @@ export function composeSnapshot({
   reconstruction = false, // strict historical reconstruction (founder policy)
   shadowInventoryCount = null,
   signedInScanning = null, // null = unavailable; see loadSignedInScanningForSnapshot
+  postponedFinalizeWork = [], // scan-engine.js finalize phases that did not finish
+  previousCheckAssessedAt = null, // the predecessor snapshot's assessed_at, if any
+  carriedChangeHistoryGaps = [], // the predecessor snapshot's change_history_gaps
+  changeHistoryGapsUnknown = false, // the predecessor's gaps could not be read
+  changeHistoryGapsTruncated = false,
 }) {
+  const postponed = postponedFinalizeEntries(postponedFinalizeWork, { hasPreviousCheck: !!previousCheckAssessedAt });
+  const postponedLost = postponed.filter((entry) => entry.impact && entry.catch_up === "not_recoverable");
+  const postponedImpact = postponed.filter((entry) => entry.impact && entry.catch_up !== "not_recoverable");
+  const postponedInventory = postponed.filter((entry) => !entry.impact);
+  const carriedGaps = (Array.isArray(carriedChangeHistoryGaps) ? carriedChangeHistoryGaps : [])
+    .filter((gap) => gap && typeof gap.phase === "string");
+  const ownGaps = postponedLost.map((entry) => ({
+    phase: entry.phase, label: entry.label, domain_key: entry.domain_key,
+    from: previousCheckAssessedAt === "unknown" ? null : previousCheckAssessedAt, to: report?.completed_at || null, scan_id: scanId,
+  }));
+  const allGaps = [...carriedGaps, ...ownGaps];
+  const changeHistoryGaps = allGaps.slice(-CHANGE_HISTORY_GAP_LIMIT);
+  const gapsTruncated = changeHistoryGapsTruncated === true || allGaps.length > changeHistoryGaps.length;
   const reportForCustomer = projectUnvalidatedBrandReportForCustomer(projectDmarcReportForCustomer(
     projectTlsReportForCustomer(report ?? {}),
     dmarcPolicyEvidence,
@@ -1001,6 +1096,12 @@ export function composeSnapshot({
         entry.conclusion_label = "Served certificate not captured";
       }
     }
+    const unfinished = postponedImpact.filter((item) => item.domain_key === entry.domain_key);
+    if (unfinished.length) entry.limitations = [...(entry.limitations || []), unfinishedImpactLimit(unfinished)];
+    const lost = postponedLost.filter((item) => item.domain_key === entry.domain_key);
+    if (lost.length) entry.limitations = [...(entry.limitations || []), lostChangeLimit(lost)];
+    const earlier = carriedGaps.filter((gap) => gap.domain_key === entry.domain_key);
+    if (earlier.length) entry.limitations = [...(entry.limitations || []), earlierGapLimit(earlier)];
     entry.evidence_grade = domainEvidenceGrade(entry, report);
     return entry;
   });
@@ -1233,10 +1334,26 @@ export function composeSnapshot({
     source_artifacts: {
       scan_report_r2_key: `reports/${scanId}.json`,
     },
+    // Present only when finalize work did not finish; older snapshots keep their bytes.
+    ...(postponed.length ? { finalize_postponed: postponed } : {}),
+    ...(changeHistoryGaps.length ? { change_history_gaps: changeHistoryGaps } : {}),
+    ...(gapsTruncated ? { change_history_gaps_truncated: true } : {}),
+    ...(changeHistoryGapsUnknown ? { change_history_gaps_unknown: true } : {}),
     limitations: [
       "This snapshot records what CyberMeters externally observed at the assessment time shown; it is not a certification.",
       "Customer attestation and CyberMeters verification are different states and are labelled as such.",
       "Evidence that was missing or incomplete at assessment time is recorded as such and is never presented as healthy.",
+      ...(postponedImpact.length ? [unfinishedImpactLimit(postponedImpact)] : []),
+      ...(postponedLost.length ? [lostChangeLimit(postponedLost)] : []),
+      ...(carriedGaps.length
+        ? [`${earlierGapLimit(carriedGaps)}${gapsTruncated ? " Older gaps exist beyond those listed." : ""}`]
+        : []),
+      ...(changeHistoryGapsUnknown
+        ? ["Whether earlier checks finished processing changes could not be confirmed, so the change history may be incomplete before this check."]
+        : []),
+      ...(postponedInventory.length
+        ? [`To deliver this report on time, updates to ${joinLabels(postponedInventory)} were postponed to the next check. They do not change any finding, score or domain state in this report.`]
+        : []),
       ...(reconstruction
         ? [
             "This snapshot was reconstructed on demand from the immutable scan-time report, after the scan completed.",
@@ -1255,15 +1372,47 @@ export function composeSnapshot({
 // Returns { status: 'completed'|'exists'|'in_progress'|'skipped'|'failed', ... }.
 export async function buildScanReportSnapshot(env, opts = {}) {
   const { workspaceId, domainId, scanId, domain, report, cyberEssentials = null, assessedAt,
-          reconstruction = false } = opts;
+          reconstruction = false, postponedFinalizeWork = [] } = opts;
   if (!workspaceId || !domainId || !scanId || !report) {
     return { status: "skipped", reason: "missing_identity" };
   }
 
   // Soft-deleted workspaces are nonexistent to writers (lifecycle-engine guard).
-  const ws = await env.cybermeters_db
-    .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
-    .bind(workspaceId).first().catch(() => null);
+  // A refused or errored read is NOT an inactive workspace (P1 25 Oct 2026,
+  // scan_5e495f40: the invocation's total ceiling refused this read, it was
+  // taken as 'workspace_inactive', and the scan was left with no snapshot row
+  // and no failure record). It is recorded as a visible, retryable 'failed'
+  // attempt that repair-on-read rebuilds; the insert re-checks the workspace,
+  // so a soft-deleted one still receives nothing.
+  let ws;
+  try {
+    ws = await env.cybermeters_db
+      .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+      .bind(workspaceId).first();
+  } catch (error) {
+    const reason = "workspace_read_failed";
+    const failedId = createId("snap");
+    const occurredAt = assessedAt || report?.completed_at || null;
+    const recorded = occurredAt ? await env.cybermeters_db
+      .prepare(
+        `INSERT INTO scan_report_snapshots
+           (id, workspace_id, domain_id, scan_id, status, r2_key,
+            snapshot_schema_version, resolver_version, scan_quality, assessed_at, metadata_json)
+         SELECT ?, ?, ?, ?, 'failed', ?, ?, ?, ?, ?, json_object('failure_reason', ?, 'error', ?)
+         WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)`
+      )
+      .bind(
+        failedId, workspaceId, domainId, scanId, snapshotR2Key(workspaceId, scanId, failedId),
+        SNAPSHOT_SCHEMA_VERSION, SECURITY_CHECK_RESOLVER_VERSION,
+        report?.scan_quality?.status ?? null, occurredAt, reason, String(error?.name || "Error").slice(0, 80),
+        workspaceId
+      )
+      .run().then((result) => (result?.meta?.changes ?? 0) > 0).catch(() => false) : false;
+    // When the same refusal also blocks this insert (a spent invocation), the
+    // missing row is still repaired on read once the scan is older than the
+    // reconstruction window; the caller logs the stage.
+    return { status: "failed", snapshot_id: recorded ? failedId : null, reason, recorded };
+  }
   if (!ws) return { status: "skipped", reason: "workspace_inactive" };
 
   // Reclaim a stale crashed claim so the partial UNIQUE can accept a retry.
@@ -1293,14 +1442,67 @@ export async function buildScanReportSnapshot(env, opts = {}) {
   // of an OLDER assessment can never claim to supersede a newer one, and
   // concurrent same-domain builds at most share a predecessor (the read paths
   // resolve the chain deterministically by assessed_at).
+  let previousUnreadable = false;
   const previous = await env.cybermeters_db
     .prepare(
-      `SELECT id FROM scan_report_snapshots
+      `SELECT id, scan_id, r2_key, checksum_sha256, assessed_at FROM scan_report_snapshots
        WHERE workspace_id = ? AND domain_id = ? AND status = 'completed' AND assessed_at < ?
        ORDER BY assessed_at DESC LIMIT 1`
     )
-    .bind(workspaceId, domainId, occurredAt).first().catch(() => null);
+    .bind(workspaceId, domainId, occurredAt).first().catch(() => { previousUnreadable = true; return null; });
   const supersedesSnapshotId = previous?.id ?? null;
+
+  // Change-history gaps travel from the predecessor (its verified bytes), so a
+  // lost interval stays visible on every later snapshot. Unreadable or
+  // unverifiable predecessor bytes are recorded as unknown, never as no gap.
+  let carriedChangeHistoryGaps = [];
+  let changeHistoryGapsUnknown = previousUnreadable;
+  let changeHistoryGapsTruncated = false;
+  // The previous CHECK is the previous completed scan, not the previous
+  // snapshot: a scan can complete without one (P1 25 Oct 2026, scan_5e495f40).
+  // That scan's own change-history state is then unknown, and is recorded as an
+  // unconfirmed interval rather than read as "no gap". An unreadable scan
+  // history is treated the same way: absence is never proof of a first scan.
+  let previousScanUnreadable = false;
+  const previousScan = await env.cybermeters_db
+    .prepare(
+      `SELECT id, created_at FROM scans
+       WHERE workspace_id = ? AND domain_id = ? AND status = 'completed' AND id != ?
+         AND created_at < (SELECT created_at FROM scans WHERE id = ? AND workspace_id = ?)
+       ORDER BY created_at DESC, id DESC LIMIT 1`
+    )
+    .bind(workspaceId, domainId, scanId, scanId, workspaceId).first()
+    .catch(() => { previousScanUnreadable = true; return null; });
+  const previousSnapshotMissing = !!previousScan?.id && previous?.scan_id !== previousScan.id
+    && String(previousScan.created_at || "") >= CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM;
+  const previousCheckAssessedAt = previousScan?.id
+    ? (previous?.scan_id === previousScan.id ? previous.assessed_at : previousScan.created_at) ?? null
+    : (previousScanUnreadable ? "unknown" : null);
+
+  // Tenant fence: only this workspace's own snapshot prefix is ever read.
+  const previousSnapshotKey = typeof previous?.r2_key === "string"
+    && previous.r2_key.startsWith(`reports/snapshots/${workspaceId}/`)
+    ? previous.r2_key : null;
+  if (previous && !previousSnapshotKey) changeHistoryGapsUnknown = true;
+  if (previousSnapshotKey) {
+    try {
+      const object = await env.cybermeters_reports.get(previousSnapshotKey);
+      // The builder writes JSON.stringify(snapshot, null, 2); re-serialising a
+      // json()-only body reproduces those bytes for the checksum.
+      const body = !object ? null
+        : typeof object.text === "function" ? await object.text()
+        : JSON.stringify(await object.json(), null, 2);
+      if (!body || (previous.checksum_sha256 && await sha256Hex(body) !== previous.checksum_sha256)) {
+        throw new Error("predecessor_unverified");
+      }
+      const prior = JSON.parse(body);
+      carriedChangeHistoryGaps = Array.isArray(prior?.change_history_gaps) ? prior.change_history_gaps : [];
+      changeHistoryGapsTruncated = prior?.change_history_gaps_truncated === true;
+      changeHistoryGapsUnknown = prior?.change_history_gaps_unknown === true;
+    } catch {
+      changeHistoryGapsUnknown = true;
+    }
+  }
 
   // Atomic claim: exactly one concurrent builder gets changes=1.
   const claim = await env.cybermeters_db
@@ -1423,6 +1625,17 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       reconstruction,
       shadowInventoryCount,
       signedInScanning,
+      // A reconstruction cannot know what finalize did not finish.
+      postponedFinalizeWork: reconstruction ? [] : postponedFinalizeWork,
+      previousCheckAssessedAt,
+      carriedChangeHistoryGaps: previousSnapshotMissing
+        ? [...carriedChangeHistoryGaps, {
+            phase: "unconfirmed", label: "change processing that could not be confirmed (an earlier check has no report snapshot)",
+            domain_key: null, from: previous?.assessed_at ?? null, to: previousScan.created_at ?? null, scan_id: previousScan.id,
+          }]
+        : carriedChangeHistoryGaps,
+      changeHistoryGapsUnknown: changeHistoryGapsUnknown || previousScanUnreadable,
+      changeHistoryGapsTruncated,
     });
 
     const body = JSON.stringify(snapshot, null, 2);
