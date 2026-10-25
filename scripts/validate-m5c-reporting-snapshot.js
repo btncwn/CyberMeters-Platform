@@ -763,6 +763,45 @@ async function main() {
      rDead.status === "skipped" && rDead.reason === "workspace_inactive" &&
      db.prepare("SELECT COUNT(*) c FROM scan_report_snapshots WHERE workspace_id='wsDead'").get().c === 0);
 
+  // P1 (25 Oct 2026, scan_5e495f40): a REFUSED workspace read is not an
+  // inactive workspace. It leaves a visible, retryable 'failed' row (main: a
+  // silent 'skipped' with no row and no record).
+  {
+    const refusingEnv = (refuseAll) => ({ ...env, cybermeters_db: {
+      ...env.cybermeters_db,
+      prepare(sql) {
+        const stmt = env.cybermeters_db.prepare(sql);
+        const refuse = refuseAll || /SELECT id FROM workspaces WHERE id = \? AND deleted_at IS NULL/.test(sql) && !/INSERT/.test(sql);
+        if (!refuse) return stmt;
+        const refused = () => { const error = new Error("Provider operation refused after scan total ceiling"); error.name = "ScanTotalCeilingRefusalError"; throw error; };
+        const wrap = (bound) => ({ ...bound, first: async () => refused(), all: async () => refused(), run: async () => refused() });
+        return { ...wrap(stmt), bind: (...args) => wrap(stmt.bind(...args)) };
+      },
+    } });
+    const refusedReport = makeReport("scan_refused", "dom1", "shared.example");
+    const rRefused = await buildScanReportSnapshot(refusingEnv(false), { workspaceId: "ws1", domainId: "dom1", scanId: "scan_refused", domain: "shared.example",
+      report: refusedReport, cyberEssentials: null, assessedAt: refusedReport.completed_at });
+    const refusedRow = db.prepare("SELECT status, metadata_json, assessed_at FROM scan_report_snapshots WHERE scan_id='scan_refused'").get();
+    ok("a refused workspace read leaves a visible 'failed' row with its reason (never a silent skip)",
+       rRefused.status === "failed" && rRefused.reason === "workspace_read_failed" && rRefused.recorded === true
+       && refusedRow?.status === "failed" && JSON.parse(refusedRow.metadata_json).failure_reason === "workspace_read_failed"
+       && refusedRow.assessed_at === refusedReport.completed_at, JSON.stringify({ rRefused, refusedRow }));
+    const rAll = await buildScanReportSnapshot(refusingEnv(true), { workspaceId: "ws1", domainId: "dom1", scanId: "scan_refused_all", domain: "shared.example",
+      report: makeReport("scan_refused_all", "dom1", "shared.example"), cyberEssentials: null, assessedAt: refusedReport.completed_at });
+    ok("when every provider call is refused the result is still 'failed' (logged by the caller), never 'skipped'",
+       rAll.status === "failed" && rAll.recorded === false && rAll.snapshot_id === null);
+    const rDeadRefused = await buildScanReportSnapshot(refusingEnv(false), { workspaceId: "wsDead", domainId: "dom1", scanId: "scan_dead_refused", domain: "shared.example",
+      report: makeReport("scan_dead_refused", "dom1", "shared.example"), cyberEssentials: null, assessedAt: refusedReport.completed_at });
+    ok("a soft-deleted workspace still receives no row, even on a refused read (the insert re-checks it)",
+       rDeadRefused.status === "failed" && rDeadRefused.recorded === false
+       && db.prepare("SELECT COUNT(*) c FROM scan_report_snapshots WHERE workspace_id='wsDead'").get().c === 0);
+    // Repair-on-read rebuilds the failed attempt into a completed snapshot.
+    seedScan("scan_refused", "ws1", "dom1");
+    store.set("reports/scan_refused.json", JSON.stringify(refusedReport));
+    const repaired = await snapEngine.readScanReportSnapshot(env, "scan_refused");
+    ok("repair-on-read rebuilds the failed attempt", repaired.status === "ok" && repaired.row?.status === "completed", JSON.stringify(repaired.status));
+  }
+
   // ═══ Production wiring — the REAL scan-finalize path builds the snapshot ════
   // Walks the genuine customer path (the guard-arity lesson: a seeded end state
   // proves nothing). runScanEngine runs with network disabled: modules fail
@@ -786,6 +825,49 @@ async function main() {
          eSnap.domains.find((d) => d.domain_key === r.domain_key)?.state === r.state));
     ok("network-disabled scan is honest in the snapshot too (nothing assessed_healthy)",
        !!eSnap && eSnap.domains.every((d) => d.state !== "assessed_healthy"));
+  }
+
+  // P1 (25 Oct 2026, scan_5e495f40): a queue invocation whose late lifecycle
+  // phases are slow reached its 120 s ceiling before Phase 8o, so no snapshot.
+  // Here 8k starts with 40 s left and every later lifecycle phase costs 15 s:
+  // without the reserve the ceiling refuses 8o's reads (no row); with it the
+  // remaining phases are skipped (logged) and the snapshot still completes.
+  {
+    db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsSlow','u1','Slow')").run();
+    db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('domSlow','u1','slow.example')").run();
+    db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('wsSlow','domSlow')").run();
+    db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES ('scanSlow','wsSlow','domSlow','slow.example','running',datetime('now'))").run();
+    const engineMod = await import(pathToFileURL(srcPath("engines", "scan-engine.js")).href);
+    const startMs = Date.parse("2026-10-25T14:27:57.000Z");
+    let clock = startMs, inLifecycle = false;
+    const slowDb = {
+      ...env.cybermeters_db,
+      prepare(sql) {
+        const stmt = env.cybermeters_db.prepare(sql);
+        const tick = () => {
+          if (/FROM certificate_observations/.test(sql) && !inLifecycle) { inLifecycle = true; clock = startMs + 80_000; }
+          else if (inLifecycle && /SELECT workspace_id FROM workspace_domains WHERE domain_id = \?/.test(sql)) clock += 15_000;
+        };
+        const wrap = (bound) => ({ ...bound,
+          first: async (...a) => { tick(); return bound.first(...a); },
+          all: async (...a) => { tick(); return bound.all(...a); },
+          run: async (...a) => { tick(); return bound.run(...a); } });
+        return { ...wrap(stmt), bind: (...args) => wrap(stmt.bind(...args)) };
+      },
+    };
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(" ")); };
+    try {
+      await engineMod.runScanEngine("scanSlow", "domSlow", "wsSlow", "slow.example", { ...env, cybermeters_db: slowDb },
+        { executionContext: "queue", now: () => clock });
+    } finally { console.warn = realWarn; }
+    const slowRow = db.prepare("SELECT status FROM scan_report_snapshots WHERE scan_id='scanSlow'").get();
+    ok("slow lifecycle phases past the reserve: the snapshot still completes", slowRow?.status === "completed",
+       JSON.stringify({ slowRow, inLifecycle, clockS: (clock - startMs) / 1000 }));
+    ok("the phases skipped for the snapshot reserve are logged, never silent",
+       warnings.some((line) => /phase_8n_skipped_for_snapshot_reserve/.test(line)), JSON.stringify(warnings.filter((w) => /skipped/.test(w))));
+    ok("the reserve is a named constant of at least 20 s", engineMod.SNAPSHOT_PHASE_RESERVE_MS >= 20_000);
   }
 
   // ═══ Read-route contract — the REAL worker fetch handler ════════════════════
@@ -1209,8 +1291,8 @@ async function main() {
       {
         name: "Phase 8o wiring deleted — scan finalize stops building the snapshot",
         file: srcPath("engines", "scan-engine.js"),
-        from: "        await buildScanReportSnapshot(env, {",
-        to:   "        if (false) await buildScanReportSnapshot(env, {",
+        from: "        const snapshot = await buildScanReportSnapshot(env, {",
+        to:   "        const snapshot = false && await buildScanReportSnapshot(env, {",
       },
       {
         name: "checksum verification dropped from the shared read helper",

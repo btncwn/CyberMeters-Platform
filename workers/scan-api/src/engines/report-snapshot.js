@@ -1261,9 +1261,41 @@ export async function buildScanReportSnapshot(env, opts = {}) {
   }
 
   // Soft-deleted workspaces are nonexistent to writers (lifecycle-engine guard).
-  const ws = await env.cybermeters_db
-    .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
-    .bind(workspaceId).first().catch(() => null);
+  // A refused or errored read is NOT an inactive workspace (P1 25 Oct 2026,
+  // scan_5e495f40: the invocation's total ceiling refused this read, it was
+  // taken as 'workspace_inactive', and the scan was left with no snapshot row
+  // and no failure record). It is recorded as a visible, retryable 'failed'
+  // attempt that repair-on-read rebuilds; the insert re-checks the workspace,
+  // so a soft-deleted one still receives nothing.
+  let ws;
+  try {
+    ws = await env.cybermeters_db
+      .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+      .bind(workspaceId).first();
+  } catch (error) {
+    const reason = "workspace_read_failed";
+    const failedId = createId("snap");
+    const occurredAt = assessedAt || report?.completed_at || null;
+    const recorded = occurredAt ? await env.cybermeters_db
+      .prepare(
+        `INSERT INTO scan_report_snapshots
+           (id, workspace_id, domain_id, scan_id, status, r2_key,
+            snapshot_schema_version, resolver_version, scan_quality, assessed_at, metadata_json)
+         SELECT ?, ?, ?, ?, 'failed', ?, ?, ?, ?, ?, json_object('failure_reason', ?, 'error', ?)
+         WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND deleted_at IS NULL)`
+      )
+      .bind(
+        failedId, workspaceId, domainId, scanId, snapshotR2Key(workspaceId, scanId, failedId),
+        SNAPSHOT_SCHEMA_VERSION, SECURITY_CHECK_RESOLVER_VERSION,
+        report?.scan_quality?.status ?? null, occurredAt, reason, String(error?.name || "Error").slice(0, 80),
+        workspaceId
+      )
+      .run().then((result) => (result?.meta?.changes ?? 0) > 0).catch(() => false) : false;
+    // When the same refusal also blocks this insert (a spent invocation), the
+    // missing row is still repaired on read once the scan is older than the
+    // reconstruction window; the caller logs the stage.
+    return { status: "failed", snapshot_id: recorded ? failedId : null, reason, recorded };
+  }
   if (!ws) return { status: "skipped", reason: "workspace_inactive" };
 
   // Reclaim a stale crashed claim so the partial UNIQUE can accept a retry.
