@@ -41,6 +41,22 @@ const OBSERVED_EVENTS = table({
     lead: 'CyberMeters observed a replacement certificate',
     reasons: table({
       registry_method_is_not_externally_observable_for_this_finding: `but ${OUTSIDE}`,
+      // The verification evidence contract's refusal codes
+      // (managed-case-model.js validateVerificationEvidence), which
+      // certificate-lifecycle.js records as the reason. Each says why the
+      // replacement did not verify the case; none claims a fix.
+      verification_evidence_missing: 'but no verification evidence was recorded, so this does not count as a fix.',
+      scan_completion_not_verification: 'but a completed scan alone does not verify a fix.',
+      note_not_verification: 'but a note alone does not verify a fix.',
+      verification_unsupported: 'but this finding cannot be verified this way.',
+      verification_result_invalid: 'but the verification result was not recorded in a usable form, so this does not count as a fix.',
+      verification_not_positive: 'but the check did not confirm the fix.',
+      evidence_type_missing: 'but the evidence did not say what was checked, so this does not count as a fix.',
+      observed_at_missing: 'but the evidence did not record when it was observed, so this does not count as a fix.',
+      observation_missing: 'but no observation was recorded with it, so this does not count as a fix.',
+      attestation_required: 'but this finding needs your attestation before it can be verified.',
+      attestation_actor_required: 'but the attestation did not record who made it, so this does not count as a fix.',
+      automated_observation_required: 'but the automatic check recorded no observation, so this does not count as a fix.',
     }),
   },
 })
