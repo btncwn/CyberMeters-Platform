@@ -197,6 +197,22 @@ assert.equal(moduleCompletionGate({ remote_admin_exposure: exposed }, { status: 
   let webAfterFail = 0;
   await run({ collect: async (e, r) => { if (r.ports.length === 2) webAfterFail++; throw new Error('collector_unavailable'); } });
   assert.equal(webAfterFail, 0, 'no web request after the 16-port request failed');
+  // A failed 16-port request with NO owned address in a cloud range: the cloud
+  // check had nothing to check, so no cloud limit; the remote-admin limit stays.
+  {
+    const { isStatedAccessLimit, statedLimitMessage } = await import('../workers/scan-api/src/engines/scan-stated-limits.js');
+    const plain = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(new Map([['81.2.69.161', ['www.example.com']]])),
+      cloudRanges: async () => cloud, history: live, collect: async () => { throw new Error('collector_unavailable'); } });
+    assert.deepEqual([plain.cloud_hosts.state, plain.cloud_hosts.hosts], ['assessed', []], 'no cloud address: nothing to assess');
+    assert.equal(cloudCheckStatedLimit({ remote_admin_exposure: plain }), null, 'no cloud-check limit when no address is in a cloud range');
+    assert.ok(isStatedAccessLimit('remote_admin_exposure', plain) && /unavailable/.test(statedLimitMessage('remote_admin_exposure', plain)), 'the remote-admin limit stays');
+    const stated = buildScanQuality({ remote_admin_exposure: plain }).stated_limits;
+    assert.deepEqual(stated.map((l) => l.reason), ['probe_unavailable'], 'exactly the remote-admin limit');
+    // With a cloud address the failed request still states the cloud limit.
+    const cloudy = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(owned), cloudRanges: async () => cloud, history: live,
+      collect: async () => { throw new Error('collector_unavailable'); } });
+    assert.equal(cloudCheckStatedLimit({ remote_admin_exposure: cloudy })?.reason, 'cloud_check_incomplete', 'a cloud address still states the cloud limit');
+  }
   // Stated limits: never silence when the cloud check did not complete.
   assert.deepEqual(cloudCheckStatedLimit({ remote_admin_exposure: busy }), { module: 'remote_admin_exposure', reason: 'cloud_check_incomplete',
     hosts: ['probe.example.com'], message: CLOUD_CHECK_LIMIT_MESSAGE });

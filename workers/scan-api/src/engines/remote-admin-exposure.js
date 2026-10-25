@@ -199,6 +199,10 @@ function cloudHostsNotAssessed(cloudIndex, selected, reason) {
     const provider = cloudProviderForAddress(cloudIndex, address);
     return { address, hostnames, provider, provider_name: cloudProviderName(provider), state: "not_assessed", reason, live_history: null };
   });
+  // No owned address is in a cloud range: there was nothing for the cloud check
+  // to do, so it is complete (no cloud stated limit); the remote-admin limit
+  // for the failed port check still stands on its own.
+  if (!hosts.length) return { state: "assessed", reason: null, ranges_fetched_at: cloudIndex.fetched_at, hosts: [] };
   return { state: "not_assessed", reason, ranges_fetched_at: cloudIndex.fetched_at, hosts };
 }
 export const CLOUD_WEB_RETRY_DELAY_MS = 750;
