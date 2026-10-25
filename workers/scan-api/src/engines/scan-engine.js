@@ -78,7 +78,7 @@ import { runReservedScan } from "./reserved-scan.js";
 import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, createSubOperationTelemetry, durableCoreModuleBudget, isPublishableModuleEvidence, isSubrequestBudgetExhaustedError, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_DURABLE_PHASE5_MODULE_BUDGETS, SCAN_DURABLE_SURFACE_MODULE_BUDGETS, SCAN_MODULE_BUDGETS, skippedModuleResult, SUB_OPERATION_TELEMETRY_ROW_LIMIT } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
-import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings } from "./network-probe.js";
+import { collectLiveTls, attachLiveTlsToSsl, liveCertificateFindings, collectNetworkProbe, createProbeGate, probeErrorDetail } from "./network-probe.js";
 import { collectReferencedHostnames, confirmReferencedHostnames, REFERENCED_HOSTNAME_LIMITS, referencedHostnamesNotExecuted, withConfirmedReferences } from "./referenced-hostnames.js";
 import { DISCOVERY_DEPTH_LIMITS, discoveryDepthNotExecuted, loadDiscoveryRotationIndex, runDiscoveryDepth } from "./discovery-depth.js";
 import { confirmListedHostnames, customerHostnamesNotExecuted, HOSTNAME_LIST_LIMITS, loadActiveHostnames } from "./discovery-hostname-list.js";
@@ -95,7 +95,7 @@ import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js"
 import { PAGE_DISCOVERY_VERSION, runPageDiscoveryModule } from "./page-discovery.js";
 import { persistWebsitePagesForScan } from "./website-pages.js";
 import { signInPageFindings } from "./signin-page-findings.js";
-import { readExposureForScan, readTlsAssessmentForScan } from "./exposure-jobs.js";
+import { collectTlsAssessment, readExposureForScan, readTlsAssessmentForScan } from "./exposure-jobs.js";
 import { externalExposureModule, reconcileCurrentDnsHostCoverage } from "./exposure-findings.js";
 import { tlsAssessmentFindings } from "./tls-findings.js";
 import { projectTlsScanQualityForCustomer } from "./tls-quality.js";
@@ -1162,8 +1162,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Private Cloudflare collector runs alongside the existing HTTP modules.
     // No binding means the historical capability set; a configured failed probe
     // remains explicit incomplete evidence and cannot make the report clean.
+    // Every probe call this scan makes (live TLS, mail transport, remote admin)
+    // goes through one gate sized to the probe's scan slots, so the scan's own
+    // calls queue instead of refusing each other (#1001 live test #2).
+    const probeGate = createProbeGate();
     const liveTlsPromise = env.NETWORK_PROBE?.fetch
-      ? collectLiveTls(env, { domain, scanId, workspaceId, requestId: createId("probe"), signal: deadline.signal })
+      ? collectLiveTls(env, { domain, scanId, workspaceId, requestId: createId("probe"), signal: deadline.signal,
+          collect: probeGate.wrap(collectNetworkProbe) })
       : null;
 
     // Network module results — set by whichever path runs; both produce the same shape
@@ -1627,7 +1632,9 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       ? runMailTransportModule(env, { id: scanId, domain_id: domainId, workspace_id: workspaceId, domain }, dnsResult, {
           signal: mailTransportController.signal,
           accounting: mailTransportOutbound,
-        }).catch(() => ({ source: "mail_transport", state: "not_tested", reason: "probe_unavailable", hosts: [],
+          collect: probeGate.wrap(collectTlsAssessment),
+        }).catch((error) => ({ source: "mail_transport", state: "not_tested", reason: "probe_unavailable", hosts: [],
+          detail: probeErrorDetail(error, mailTransportController.signal),
           coverage: { planned: 0, tested: 0, not_tested: 0 }, observed_at: new Date(now()).toISOString() }))
         .finally(() => clearTimeout(mailTransportTimeout))
       : null;
@@ -1655,8 +1662,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       ? runRemoteAdminExposureModule(env, { id: scanId, domain_id: domainId, workspace_id: workspaceId, domain }, {
           signal: remoteAdminController.signal,
           accounting: remoteAdminOutbound,
-        }).catch(() => ({ source: "remote_admin_exposure", state: "not_assessed", reason: "probe_unavailable", exposures: [],
-          incomplete: true, incomplete_reason: "probe_unavailable", error: "probe_unavailable", observed_at: new Date(now()).toISOString() }))
+          collect: probeGate.wrap(collectNetworkProbe),
+        }).catch((error) => ({ source: "remote_admin_exposure", state: "not_assessed", reason: "probe_unavailable", exposures: [],
+          incomplete: true, incomplete_reason: "probe_unavailable", incomplete_detail: probeErrorDetail(error, remoteAdminController.signal),
+          error: "probe_unavailable", observed_at: new Date(now()).toISOString() }))
         .finally(() => clearTimeout(remoteAdminTimeout))
       : null;
     if (liveTlsPromise) sslResult = attachLiveTlsToSsl(sslResult, await liveTlsPromise);

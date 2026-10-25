@@ -16,7 +16,7 @@
 // a limit rather than turning partial (scan-engine.js buildScanQuality).
 import { dnsQuery } from "./dns.js";
 import { observedNetworkAddresses } from "./network-ownership.js";
-import { collectNetworkProbe, isPublicProbeAddress, PROBE_CONNECT_TIMEOUT_MS } from "./network-probe.js";
+import { collectNetworkProbe, isPublicProbeAddress, PROBE_DEADLINE_MARGIN_MS, PROBE_MIN_REMAINING_MS, probeErrorDetail } from "./network-probe.js";
 import { createId } from "../lib/util.js";
 import { cloudProviderForAddress, cloudProviderName, cloudRangeIndex, readCloudRanges } from "./cloud-ranges.js";
 
@@ -143,22 +143,23 @@ export async function runRemoteAdminExposureModule(env, scan, {
     workspace_id: scan.workspace_id, scan_id: scan.id, profile: "network_services",
     deadline_at: request.deadline_at, targets: cloudSelected.map(([address]) => ({ address, hostname: null })), ports: [...CLOUD_WEB_PORTS],
   } : null;
-  let receipt;
-  try {
-    accounting?.assertCanIssue?.();
-    accounting?.recordAttempt?.();
-    receipt = await collect(env, request, { signal });
-  } catch {
+  // The 16-port request: one retry, only on collector_busy (other scans and
+  // jobs share the probe's slots), inside the deadline and through accounting.
+  // Why it failed is recorded in incomplete_detail; the customer sentence for
+  // probe_unavailable is unchanged (#1001 live test #2).
+  const { receipt, reason: portReason } = await collectWithBusyRetry(env, request,
+    { collect, signal, accounting, now, requestId, fallback: "collector_unavailable" });
+  if (!receipt) {
     // The 16-port request failed: no web request is sent.
     return result({ state: "not_assessed", reason: "probe_unavailable", incomplete: true, incomplete_reason: "probe_unavailable",
-      error: "probe_unavailable", coverage: { ...coverageBase, completed_pairs: 0 },
+      incomplete_detail: portReason, error: "probe_unavailable", coverage: { ...coverageBase, completed_pairs: 0 },
       cloud_hosts: cloudHostsNotAssessed(cloudIndex, selected, "probe_unavailable") });
   }
   // The web-port request runs only AFTER the 16-port receipt: the probe has two
   // scan slots, and in parallel it lost the slot race (#1001 live test). One
   // retry, only on collector_busy, inside the deadline and through accounting.
   const { receipt: webReceipt, reason: webReason } = webRequest
-    ? await collectWebPorts(env, webRequest, { collect, signal, accounting, now, requestId })
+    ? await collectWithBusyRetry(env, webRequest, { collect, signal, accounting, now, requestId, fallback: "web_ports_not_checked" })
     : { receipt: null, reason: null };
   const rows = Array.isArray(receipt?.observations) ? receipt.observations : [];
   // A port that did not answer (timeout at connect) is a conclusive "no
@@ -209,21 +210,21 @@ export const CLOUD_WEB_RETRY_DELAY_MS = 750;
 // R1 #1003: with less than a full connect window left, the collector would cut
 // the window short and a live port could read 'timeout' - a false 'unreachable'.
 // The web check needs the collector's connect timeout plus a margin.
-export const CLOUD_WEB_DEADLINE_MARGIN_MS = 1500;
-export const CLOUD_WEB_MIN_REMAINING_MS = PROBE_CONNECT_TIMEOUT_MS + CLOUD_WEB_DEADLINE_MARGIN_MS;
-// Why the web-port receipt is missing is recorded, never inferred later:
-// collector_busy / deadline / budget / web_ports_not_checked.
-async function collectWebPorts(env, webRequest, { collect, signal, accounting, now, requestId }) {
-  let reason = "web_ports_not_checked";
+export const CLOUD_WEB_DEADLINE_MARGIN_MS = PROBE_DEADLINE_MARGIN_MS;
+export const CLOUD_WEB_MIN_REMAINING_MS = PROBE_MIN_REMAINING_MS;
+// Why a receipt is missing is recorded, never inferred later:
+// collector_busy / deadline / budget / <fallback>.
+async function collectWithBusyRetry(env, probeRequest, { collect, signal, accounting, now, requestId, fallback }) {
+  let reason = fallback;
   for (let attempt = 0; attempt < 2; attempt++) {
-    if (signal?.aborted || Date.parse(webRequest.deadline_at) - now() < CLOUD_WEB_MIN_REMAINING_MS) return { receipt: null, reason: "deadline" };
+    if (signal?.aborted || Date.parse(probeRequest.deadline_at) - now() < CLOUD_WEB_MIN_REMAINING_MS) return { receipt: null, reason: "deadline" };
     try { accounting?.assertCanIssue?.(); accounting?.recordAttempt?.(); }
     catch { return { receipt: null, reason: "budget" }; }
     try {
-      return { receipt: await collect(env, attempt ? { ...webRequest, request_id: requestId() } : webRequest, { signal }), reason: null };
+      return { receipt: await collect(env, attempt ? { ...probeRequest, request_id: requestId() } : probeRequest, { signal }), reason: null };
     } catch (error) {
-      const message = String(error?.message || "");
-      reason = message === "collector_busy" ? "collector_busy" : (message === "collector_aborted" || signal?.aborted) ? "deadline" : "web_ports_not_checked";
+      const detail = probeErrorDetail(error, signal);
+      reason = detail === "collector_unavailable" ? fallback : detail;
       if (reason !== "collector_busy" || attempt === 1) return { receipt: null, reason };
       await new Promise((resolve) => setTimeout(resolve, CLOUD_WEB_RETRY_DELAY_MS));
     }

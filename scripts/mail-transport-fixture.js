@@ -102,7 +102,8 @@ try {
     .replaceAll("from './tls-planner.js'",`from '${new URL('../workers/scan-api/src/engines/tls-planner.js',import.meta.url)}'`)
     .replaceAll("from '../../../../shared/tls/catalog.js'",`from '${new URL('../shared/tls/catalog.js',import.meta.url)}'`)
     .replaceAll("from '../lib/util.js'",`from '${new URL('../workers/scan-api/src/lib/util.js',import.meta.url)}'`)
-    .replaceAll("from '../lib/ssrf.js'",`from '${new URL('../workers/scan-api/src/lib/ssrf.js',import.meta.url)}'`);
+    .replaceAll("from '../lib/ssrf.js'",`from '${new URL('../workers/scan-api/src/lib/ssrf.js',import.meta.url)}'`)
+    .replaceAll("from './network-probe.js'",`from '${new URL('../workers/scan-api/src/engines/network-probe.js',import.meta.url)}'`);
   const target=join(directory,'mail-transport-mutant.mjs');
   writeFileSync(target,imports.replace('isWeakTlsCipher(cipher) ?','false ?'));
   const mutant=await import(`file://${target}`);

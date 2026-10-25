@@ -222,6 +222,104 @@ assert.equal(moduleCompletionGate({ remote_admin_exposure: exposed }, { status: 
     'scan quality carries the cloud-check limit');
 }
 
+// #1001 live test #2: the scan's own probe calls (mail transport's batch of two,
+// remote admin, live TLS) share the probe's two slots. Through the per-scan gate
+// they queue; without it the 16-port call is refused collector_busy.
+{
+  const { createProbeGate, PROBE_SCAN_SLOTS, PROBE_MIN_REMAINING_MS, probeErrorDetail } = await import('../workers/scan-api/src/engines/network-probe.js');
+  const { runMailTransportModule } = await import('../workers/scan-api/src/engines/mail-transport.js');
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  assert.equal(PROBE_SCAN_SLOTS, 2, 'the gate is sized to the probe\'s two scan slots');
+  // Gate unit behaviour: FIFO, at most `capacity` at once, released on every path.
+  {
+    const gate = createProbeGate(2);
+    const order = [];
+    let running = 0, peak = 0;
+    const job = (name, ms, fail = false) => gate.run(async () => { running++; peak = Math.max(peak, running); order.push(name); await sleep(ms); running--; if (fail) throw new Error('collector_unavailable'); return name; });
+    const settled = await Promise.allSettled([job('a', 20), job('b', 20, true), job('c', 5), job('d', 5)]);
+    assert.deepEqual([order, peak, settled.map((r) => r.status)], [['a', 'b', 'c', 'd'], 2, ['fulfilled', 'rejected', 'fulfilled', 'fulfilled']], 'FIFO, never above capacity, a throw releases');
+    assert.deepEqual([gate.active, gate.waiting], [0, 0], 'no permit leaked after a throw');
+    // A queued call aborted while waiting leaves the queue and is never sent.
+    let sent = 0;
+    const controller = new AbortController();
+    const hold = gate.run(() => sleep(30));
+    const hold2 = gate.run(() => sleep(30));
+    const queued = gate.run(async () => { sent++; }, { signal: controller.signal });
+    controller.abort();
+    await assert.rejects(queued, /collector_aborted/);
+    await Promise.all([hold, hold2]);
+    assert.deepEqual([sent, gate.active, gate.waiting], [0, 0, 0], 'an aborted queued call is not sent and leaks no permit');
+    // An aborted call holding a permit releases it too.
+    const inflight = new AbortController();
+    const running2 = gate.run(() => new Promise((_, reject) => inflight.signal.addEventListener('abort', () => reject(new Error('collector_aborted')))), { signal: inflight.signal });
+    inflight.abort();
+    await assert.rejects(running2, /collector_aborted/);
+    assert.deepEqual([gate.active, gate.waiting], [0, 0], 'an aborted in-flight call releases its permit');
+    // When its turn comes with less than a connect window + margin left, the call is not sent: 'deadline'.
+    let clock = Date.now(), late = 0;
+    const timed = createProbeGate(1, { now: () => clock });
+    const first = timed.run(async () => { await sleep(10); clock += 60_000; });
+    const second = timed.run(async () => { late++; }, { deadlineAt: new Date(Date.now() + 30_000).toISOString() });
+    await first;
+    await assert.rejects(second, /probe_gate_deadline/);
+    assert.deepEqual([late, timed.active], [0, 0], 'a call whose deadline passed in the queue is not sent');
+    assert.ok(PROBE_MIN_REMAINING_MS >= 3000);
+    assert.deepEqual([new Error('collector_busy'), new Error('probe_gate_deadline'), new Error('collector_aborted'), Object.assign(new Error('x'), { name: 'SubrequestBudgetExhaustedError' }), new Error('boom')].map((e) => probeErrorDetail(e)),
+      ['collector_busy', 'deadline', 'deadline', 'budget', 'collector_unavailable']);
+  }
+  // The live-test shape: a 3-MX mail plan (batch of two) and remote admin on
+  // probe.cybermeters.com's shape, launched together on a 2-slot probe.
+  const gcp = { schema: 'cloud-ranges-v1', fetched_at: new Date().toISOString(), providers: { gcp: ['35.224.0.0/16'] } };
+  const probeHost = new Map([['35.224.199.137', ['probe.example.com']]]);
+  const wasLive = async () => ({ '35.224.199.137': { seen_at: '2026-10-24T17:43:30.791Z', source: 'tls_handshake', port: 443 } });
+  const allDark = (r) => ({ observations: r.targets.flatMap((t) => r.ports.map((port) => ({ address: t.address, hostname: null, port, transport: 'tcp', state: 'timeout', service: null, tls: null, reason: null }))) });
+  const mxDns = { mx_records: [{ value: '10 route1.mx.example.com.' }, { value: '20 route2.mx.example.com.' }, { value: '30 route3.mx.example.com.' }] };
+  const mailEnv = { cybermeters_db: { prepare: () => ({ bind: () => ({ first: async () => ({ allowed: 1 }) }) }) } };
+  const lookup = async (host, type) => ({ Status: 0, Answer: type === 'A' ? [{ type: 1, name: host + '.', data: '162.159.205.12' }] : [] });
+  const tlsReceipt = () => ({ results: [{ state: 'accepted', reason: 'handshake_completed', observed_at: new Date().toISOString(),
+    evidence: { authenticated_finished: true, negotiated: { version: 'tls1_3', cipher: 'TLS_AES_128_GCM_SHA256' }, certificates: { hostname: true, trust: 'valid', offered_chain: [{ not_after: 1790000000 }] } } }] });
+  const together = async (wrap) => {
+    let inFlight = 0, peak = 0, refused = 0;
+    const take = async (work) => {
+      if (inFlight >= 2) { refused++; throw new Error('collector_busy'); }
+      inFlight++; peak = Math.max(peak, inFlight);
+      try { await sleep(40); return work(); } finally { inFlight--; }
+    };
+    const [mail, ra] = await Promise.all([
+      runMailTransportModule(mailEnv, { id: 'scan_gate', workspace_id: 'ws', domain_id: 'dom', domain: 'example.com' }, mxDns,
+        { lookup, collect: wrap(async () => take(tlsReceipt)) }),
+      // Remote admin reaches the probe a moment after mail's first batch, as live.
+      runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: async (...args) => { await sleep(10); return observe(probeHost)(...args); },
+        cloudRanges: async () => gcp, history: wasLive, collect: wrap(async (_env, r) => { assertProbeRequest(r); return take(() => allDark(r)); }) }),
+    ]);
+    return { mail, ra, peak, refused };
+  };
+  const ungated = await together((collect) => collect);
+  assert.ok(ungated.refused >= 1, 'without the gate the scan\'s own calls collide (the live-test failure)');
+  const gate = createProbeGate();
+  const gated = await together((collect) => gate.wrap(collect));
+  assert.equal(gated.refused, 0, 'through the gate no call is refused');
+  assert.ok(gated.peak <= 2, 'never more than two at once');
+  assert.deepEqual([gate.active, gate.waiting], [0, 0], 'every permit released');
+  assert.equal(gated.ra.state, 'observed', 'the 16-port receipt arrives');
+  assert.deepEqual([gated.mail.coverage.tested, gated.mail.coverage.planned], [3, 3], 'all three MX hosts tested');
+  assert.equal(gated.ra.cloud_hosts.hosts[0].state, 'unreachable');
+  const medium = computeScore({ dns: { resolves: true }, remote_admin_exposure: gated.ra }, 'example.com').findings
+    .filter((f) => f.id === 'dns_cloud_address_unreachable_after_live');
+  assert.deepEqual(medium.map((f) => f.severity), ['medium'], 'the probe.cybermeters.com shape yields the MEDIUM');
+  // The underlying reason is recorded beside the unchanged customer reason.
+  const busyAlways = await runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(probeHost), cloudRanges: async () => gcp, history: wasLive,
+    collect: async () => { throw new Error('collector_busy'); } });
+  assert.deepEqual([busyAlways.incomplete_reason, busyAlways.incomplete_detail], ['probe_unavailable', 'collector_busy'], 'detail recorded, sentence unchanged');
+  const mailBusy = await runMailTransportModule(mailEnv, { id: 'scan_gate', workspace_id: 'ws', domain_id: 'dom', domain: 'example.com' }, mxDns,
+    { lookup, collect: async () => { throw new Error('collector_busy'); } });
+  assert.deepEqual([...new Set(mailBusy.hosts.map((h) => `${h.reason}/${h.detail}`))], ['probe_unavailable/collector_busy'], 'mail records the detail too');
+  // The scan engine routes all three of its probe callers through one gate.
+  const engineSource = readFileSync(new URL('../workers/scan-api/src/engines/scan-engine.js', import.meta.url), 'utf8');
+  assert.equal((engineSource.match(/probeGate\.wrap\(/g) || []).length, 3, 'live TLS, mail transport and remote admin are gated');
+  assert.equal((engineSource.match(/createProbeGate\(\)/g) || []).length, 1, 'one gate per scan');
+}
+
 // The cloud-range cache is a global public reference list: a fixed key, and only
 // provider CIDRs and fetch metadata are stored (tenant-query audit suppression).
 {

@@ -7,6 +7,59 @@ export { PROBE_PORTS, isPublicProbeAddress } from '../../../network-probe/src/co
 // so its 'timeout' is not conclusive. Kept here (scan-api side) so the probe
 // image is unchanged; a fixture pins it to collector.js.
 export const PROBE_CONNECT_TIMEOUT_MS = 1500;
+// A probe call needs a full connect window plus a margin, or a live port could
+// read 'timeout' (R1 #1003). Below this, the call is not sent: 'deadline'.
+export const PROBE_DEADLINE_MARGIN_MS = 1500;
+export const PROBE_MIN_REMAINING_MS = PROBE_CONNECT_TIMEOUT_MS + PROBE_DEADLINE_MARGIN_MS;
+// The probe's scan slots (network-probe index.js: probe-slot-0 / probe-slot-1);
+// a third concurrent call is refused 503 collector_busy.
+export const PROBE_SCAN_SLOTS = 2;
+
+// One scan's own probe calls (live TLS, mail transport, remote admin) share the
+// slots through this gate, so they queue instead of being refused (#1001 live
+// test #2: mail's batch of two held both slots and the 16-port call was
+// refused). FIFO; the permit is released on every path (resolve, throw, abort).
+// A call whose deadline leaves less than PROBE_MIN_REMAINING_MS when its turn
+// comes is not sent and throws 'probe_gate_deadline' - never a false timeout.
+// Other scans and jobs use the same slots; the gate cannot see them, so a
+// caller may still meet collector_busy.
+export function createProbeGate(capacity=PROBE_SCAN_SLOTS,{now=Date.now}={}){
+  let active=0;const waiting=[];
+  const release=()=>{const next=waiting.shift();if(next)next.grant();else active--;};
+  const acquire=signal=>{
+    if(signal?.aborted)return Promise.reject(new Error('collector_aborted'));
+    if(active<capacity){active++;return Promise.resolve();}
+    return new Promise((resolve,reject)=>{
+      const onAbort=()=>{const at=waiting.indexOf(entry);if(at>=0)waiting.splice(at,1);reject(new Error('collector_aborted'));};
+      const entry={grant:()=>{signal?.removeEventListener('abort',onAbort);resolve();}};
+      signal?.addEventListener('abort',onAbort,{once:true});
+      waiting.push(entry);
+    });
+  };
+  async function run(task,{deadlineAt=null,signal=null}={}){
+    await acquire(signal);
+    try{
+      if(signal?.aborted)throw new Error('collector_aborted');
+      if(deadlineAt!=null&&!(Date.parse(deadlineAt)-now()>=PROBE_MIN_REMAINING_MS))throw new Error('probe_gate_deadline');
+      return await task();
+    }finally{release();}
+  }
+  return {
+    run,
+    wrap:collect=>(env,request,options={})=>run(()=>collect(env,request,options),{deadlineAt:request?.deadline_at??null,signal:options?.signal??null}),
+    get active(){return active;},
+    get waiting(){return waiting.length;},
+  };
+}
+// Why a probe call failed, recorded beside the customer reason (which stays as
+// it is): collector_busy | deadline | budget | collector_unavailable.
+export function probeErrorDetail(error,signal=null){
+  const message=String(error?.message||'');
+  if(message==='collector_busy')return 'collector_busy';
+  if(message==='probe_gate_deadline'||message==='collector_aborted'||signal?.aborted)return 'deadline';
+  if(error?.name==='SubrequestBudgetExhaustedError'||/budget/i.test(message))return 'budget';
+  return 'collector_unavailable';
+}
 
 export async function collectNetworkProbe(env,request,{signal}={}) {
   const checked=validateNetworkProbeRequest(request);
@@ -28,9 +81,9 @@ export async function collectNetworkProbe(env,request,{signal}={}) {
     return receipt;
   }finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort);}
 }
-export async function collectLiveTls(env,{domain,scanId,workspaceId,requestId,signal}){
+export async function collectLiveTls(env,{domain,scanId,workspaceId,requestId,signal,collect=collectNetworkProbe}){
   const request={schema_version:'network-probe-request-v1',request_id:requestId,workspace_id:workspaceId,scan_id:scanId,profile:'live_tls',deadline_at:new Date(Date.now()+20_000).toISOString(),targets:[{address:null,hostname:domain}],ports:[443]};
-  try{return {receipt:await collectNetworkProbe(env,request,{signal}),error:null};}
+  try{return {receipt:await collect(env,request,{signal}),error:null};}
   catch{return {receipt:null,error:signal?.aborted?'live_tls_aborted':'live_tls_unavailable'};}
 }
 
