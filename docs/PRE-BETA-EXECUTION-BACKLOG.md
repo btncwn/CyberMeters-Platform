@@ -27,9 +27,15 @@ to a defect. Release facts remain in `CHANGELOG.md`.
 **Current Founder order (26 October 2026):**
 
 ```text
-engineering report → CI preparation → private repository only after the
-Founder approves CI-HAZIR → advertising only after that
+finish authorised P0/P1 engineering and report, by the evening of
+27 October 2026, the evidence for each closed item and, for each unresolved
+item, the reason, the time still needed and the risk
+→ CI preparation → private repository only after the Founder approves
+CI-HAZIR → advertising only after that
 ```
+
+The report records the engineering obligation; a report alone is not an exit
+gate.
 
 The last production deploy is due by 1 November 2026, followed by three full
 clean days; the launch target is 4 November 2026. Production/customer `HOLD`

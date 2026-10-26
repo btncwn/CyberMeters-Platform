@@ -27,16 +27,21 @@ address.** Reviewed head
 [`04260bb3`](https://github.com/btncwn/CyberMeters-Platform/commit/04260bb305ab60bdca2c53beaf388c88b46c009c), merged as
 [`2a4863f5`](https://github.com/btncwn/CyberMeters-Platform/commit/2a4863f5407451fb19653780e1e3c04a4c70e15d). The case
 verifier reads the normalised evidence array, and the scan-quality vocabulary
-inventory was re-pinned. Independent focused runs 144/10/63 plus the prior 8;
+inventory was re-pinned. Independent focused runs: lifecycle 144/144, vocabulary 10/10, registry
+63/63, and the retained independent check 8/8;
 exact-head PR checks 16/16 and `main` 15/15. LIVE-ACCEPTED in the private
 record for one complete system resolution after DNS removal.
 
-**[#1018](https://github.com/btncwn/CyberMeters-Platform/pull/1018) DKIM false change when no selector answered.** Reviewed
+**[#1018](https://github.com/btncwn/CyberMeters-Platform/pull/1018) DKIM false change from incomplete selector evidence.** Reviewed
 head [`1e4b0021`](https://github.com/btncwn/CyberMeters-Platform/commit/1e4b002100e1bd615a153d816def9baa8797a826), R1
 [review 5658801187](https://github.com/btncwn/CyberMeters-Platform/pull/1018#pullrequestreview-5658801187), merged as
-[`44f38f0f`](https://github.com/btncwn/CyberMeters-Platform/commit/44f38f0fa885b8ab582c0e0c09b40b50a72605ae). The DKIM
-comparison uses `selectors_answered`, so a run in which no selector answered
-cannot report a selector change. Exact-head PR checks 16/16, `main` 15/15.
+[`44f38f0f`](https://github.com/btncwn/CyberMeters-Platform/commit/44f38f0fa885b8ab582c0e0c09b40b50a72605ae). A DKIM key
+appearing or disappearing is now a change only when the decisive selector, the
+one the other scan found a key on, answered conclusively in the scan that saw
+no key. This holds in both comparison directions, using the persisted
+`selectors_answered`. Answering conclusively includes a negative (NXDOMAIN)
+answer; a timed-out, SERVFAIL, skipped or legacy selector cannot anchor a DKIM
+event, even when other selectors answered conclusively. Exact-head PR checks 16/16, `main` 15/15.
 Fault controls were exercised offline only. Scoped live acceptance in the
 private record: the normal comparison of persisted selectors. This entry makes
 no claim about the cause of the original weekly-email report and no claim of
@@ -53,7 +58,7 @@ provenance (`source_finding_type`, then `finding_id`), so a `case_resolved`
 alert says resolved, names the finding by its registry title and asks for no
 remediation. An unmapped or missing type reads `<host>: finding resolved`.
 Severity, occurrence, dedupe, link and tenant behaviour are unchanged. Focused
-validators: own 175/175 and truth mapping 69/69. No migration. The API Worker
+validators: canonical-case alerts 175/175 and truth mapping 69/69. No migration. The API Worker
 and Pages both serve this source; post-deploy smoke checks were health, ready
 200 and unauthenticated workspace 401. **DEPLOYED, NOT LIVE-ACCEPTED:** no new
 real resolved-alert delivery has been observed. No repeat scan or resend of an
