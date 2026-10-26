@@ -28,6 +28,7 @@ import { canTransitionCase, assignCaseOwner, createManagedCase } from "./managed
 import { classifyAsmCaseTraceability } from "./attack-surface-customer-presentation.js";
 import { readScanReportSnapshot } from "./report-snapshot.js";
 import { isNonAuthoritativeQuality, isAuthoritativeQuality } from "./scan-degradation-contract.js";
+import { canonicalAddress } from "./network-suggestions.js";
 
 // Re-exported from the neutral machine module so existing importers are unchanged.
 export { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES };
@@ -789,6 +790,102 @@ function relevantModuleForCase(caseRow) {
 
 const COMPLETE_HTTP_NEGATIVES = new Set(["not_observed", "absent"]);
 
+// Dangling DNS on a cloud address (registry asm.dns.cloud_address_unreachable):
+// the record's own acceptance contract is "the address answers again, or the
+// DNS record removed". The remote-admin module re-resolves every name behind
+// an owned address in the same scan (confirmObservedScope); a `stale` row is a
+// definitive answer (NOERROR/NXDOMAIN, not truncated) for that exact name
+// without that exact address. Only that case-scoped DNS evidence is used here;
+// the generic asset-removal policy and every other finding type are unchanged.
+export const DNS_CLOUD_DANGLING_FINDING = "dns_cloud_address_unreachable_after_live";
+
+const rowNamesTarget = (row, hostname, address) =>
+  canonicalAddress(row?.address) === address ||
+  (Array.isArray(row?.hostnames) && row.hostnames.some((h) => normaliseDomain(h) === hostname)) ||
+  normaliseDomain(row?.hostname) === hostname;
+
+const DANGLING_EVIDENCE_TYPE = "network_port_observation";
+const DANGLING_EVIDENCE_SOURCE = "remote_admin_exposure";
+
+// The one address the stored finding was raised for, or null. Stored findings
+// carry the normalized v2 array (findings.js normalizeFindingSchema maps
+// probe_target to label); a genuine pre-normalization object is still read.
+// Exactly one entry, of the eligible type and source, naming one valid
+// address; anything missing, multiple or conflicting is refused. Never prose.
+function storedDanglingAddress(evidence) {
+  if (Array.isArray(evidence)) {
+    if (evidence.length !== 1) return null;
+    const [entry] = evidence;
+    if (entry?.type !== DANGLING_EVIDENCE_TYPE || entry?.source !== DANGLING_EVIDENCE_SOURCE) return null;
+    // A joined list ("a, b") is not one address and is refused by the parser.
+    const address = canonicalAddress(entry.label);
+    if (!address) return null;
+    if (entry.probe_target != null && canonicalAddress(entry.probe_target) !== address) return null;
+    return address;
+  }
+  if (evidence == null || typeof evidence !== "object") return null;
+  if (evidence.evidence_type !== DANGLING_EVIDENCE_TYPE || evidence.source !== DANGLING_EVIDENCE_SOURCE) return null;
+  const address = canonicalAddress(evidence.probe_target);
+  if (!address) return null;
+  if (evidence.label != null && canonicalAddress(evidence.label) !== address) return null;
+  return address;
+}
+
+// Pure. Applicable only to a case with ONE structured affected host and ONE
+// valid stored address; aggregated legacy findings stay on the existing path.
+export function assessDnsRecordRemovalVerification({
+  caseRow,
+  caseEvidence = null,
+  module = null,
+  scanQuality = null,
+  scanPublished = false,
+  findingPresent = true,
+  scanId = null,
+  observedAt = null,
+} = {}) {
+  const findingType = caseRow?.source_finding_type || caseRow?.finding_id;
+  if (findingType !== DNS_CLOUD_DANGLING_FINDING) return { applicable: false };
+  const finding = caseEvidence?.finding || {};
+  const domain = normaliseDomain(caseRow?.domain);
+  const declared = Array.isArray(finding.affected_hosts) ? finding.affected_hosts : [];
+  const hostname = declared.length === 1 ? normalizeDiscoveredHostname(declared[0], domain) : null;
+  const address = storedDanglingAddress(finding.evidence);
+  if (finding.module !== "remote_admin_exposure" || !hostname || !address) {
+    return { applicable: false, reason: "source_evidence_not_single" };
+  }
+  const deferred = (reason) => ({ applicable: true, decision: "deferred", reason });
+  if (scanQuality?.status !== "complete") return deferred("scan_not_complete");
+  if (scanPublished !== true) return deferred("scan_not_publishable");
+  if (!module || module.error || module.incomplete !== false) return deferred("module_incomplete");
+  const recheck = module.scope_recheck;
+  if (!recheck || !Array.isArray(recheck.stale) || !Array.isArray(recheck.changed) || !Array.isArray(recheck.unknown)) {
+    return deferred("dns_recheck_missing");
+  }
+  if (findingPresent) return deferred("finding_present");
+  // Anything else this scan says about the name or the address contradicts removal.
+  const contradicting = [
+    ...recheck.changed, ...recheck.unknown,
+    ...(module.exposures || []), ...(module.addresses_checked || []), ...(module.cloud_hosts?.hosts || []),
+  ].some((row) => rowNamesTarget(row, hostname, address));
+  if (contradicting) return deferred("dns_recheck_contradicted");
+  const removed = recheck.stale.some((row) =>
+    normaliseDomain(row?.hostname) === hostname && canonicalAddress(row?.address) === address);
+  if (!removed) return deferred("dns_record_not_removed");
+  return {
+    applicable: true,
+    decision: "verified_removed",
+    evidence: {
+      scan_id: scanId,
+      observed_at: observedAt,
+      hostname,
+      address,
+      dns_state: "record_removed",
+      source: "remote_admin_exposure.scope_recheck",
+      names_checked: Number(recheck.names_checked) || 0,
+    },
+  };
+}
+
 function lifecycleObservationKey(workspaceId, hostname) {
   return `${workspaceId}:${normaliseDomain(hostname)}`;
 }
@@ -1029,7 +1126,22 @@ export async function verifyManagedAsmCasesForScan(
       const hosts = verificationHostsForCase(row, caseEvidence?.finding || {}, caseEvidence);
       let recheck = null;
       let lifecycleDecision = { applicable: false, decision: "module_specific" };
-      if (hostRecheck) {
+      // Dangling cloud DNS closes on its own record-removed evidence, before the
+      // generic lifecycle step. Not applicable or not met: the existing path.
+      const dnsRemoval = assessDnsRecordRemovalVerification({
+        caseRow: row,
+        caseEvidence,
+        module: modules?.remote_admin_exposure,
+        scanQuality,
+        scanPublished,
+        findingPresent: present.has(row.finding_id),
+        scanId,
+        observedAt: Number.isFinite(Date.parse(observedAt)) ? new Date(Date.parse(observedAt)).toISOString() : null,
+      });
+      const dnsRemovalEvidence = dnsRemoval.decision === "verified_removed" ? dnsRemoval.evidence : null;
+      if (dnsRemovalEvidence) {
+        // Resolved below with the DNS-removal observation as its evidence.
+      } else if (hostRecheck) {
         recheck = assessExposureRecheck({
           findingType: caseFindingType,
           hosts,
@@ -1150,10 +1262,19 @@ export async function verifyManagedAsmCasesForScan(
             observed: "finding_absent",
             lifecycle: lifecycleEvidence,
             ...(recheck ? { recheck } : {}),
+            ...(dnsRemovalEvidence ? { dns_removal: dnsRemovalEvidence } : {}),
           },
           // Structured verification evidence (module-completeness already gated
           // above, so this is a re-check of the specific exposure, not a bare scan).
-          evidence: recheck
+          evidence: dnsRemovalEvidence
+            ? {
+              verification_method: "rescan",
+              verification_result: "fixed",
+              evidence_type: "dns_record_removed_observation",
+              observed_at: evidenceObservedAt,
+              observation: { finding_id: current.finding_id, ...dnsRemovalEvidence },
+            }
+            : recheck
             ? {
               verification_method: "rescan",
               verification_result: "fixed",

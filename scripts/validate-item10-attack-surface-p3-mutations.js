@@ -206,6 +206,40 @@ runMutant("repeated scan duplicates event/case", {
   ),
 });
 
+// Dangling cloud DNS record-removal contract: each fail-closed condition is
+// load-bearing.
+const dnsRemovalMutants = [
+  ["DNS removal applies to every finding type",
+    "if (findingType !== DNS_CLOUD_DANGLING_FINDING) return { applicable: false };", ""],
+  ["DNS removal accepts an aggregated multi-host finding",
+    "declared.length === 1 ? normalizeDiscoveredHostname", "declared.length >= 1 ? normalizeDiscoveredHostname"],
+  ["DNS removal ignores the stored address",
+    "normaliseDomain(row?.hostname) === hostname && canonicalAddress(row?.address) === address);",
+    "normaliseDomain(row?.hostname) === hostname);"],
+  ["DNS removal ignores the stored hostname",
+    "normaliseDomain(row?.hostname) === hostname && canonicalAddress(row?.address) === address);",
+    "canonicalAddress(row?.address) === address);"],
+  ["DNS removal accepts a changed name", "...recheck.changed, ...recheck.unknown,", "...recheck.unknown,"],
+  ["DNS removal accepts an unknown lookup", "...recheck.changed, ...recheck.unknown,", "...recheck.changed,"],
+  ["DNS removal ignores current positive rows",
+    "...(module.exposures || []), ...(module.addresses_checked || []), ...(module.cloud_hosts?.hosts || []),", ""],
+  ["DNS removal accepts an incomplete module",
+    "if (!module || module.error || module.incomplete !== false) return deferred(\"module_incomplete\");",
+    "if (!module) return deferred(\"module_incomplete\");"],
+  ["DNS removal accepts an unpublished scan", "if (scanPublished !== true) return deferred(\"scan_not_publishable\");", ""],
+  ["DNS removal accepts a present finding", "if (findingPresent) return deferred(\"finding_present\");", ""],
+  ["DNS removal reads the first of several stored entries", "if (evidence.length !== 1) return null;", ""],
+  ["DNS removal accepts stored evidence without provenance",
+    "if (entry?.type !== DANGLING_EVIDENCE_TYPE || entry?.source !== DANGLING_EVIDENCE_SOURCE) return null;", ""],
+  ["DNS removal accepts a conflicting stored target",
+    "if (entry.probe_target != null && canonicalAddress(entry.probe_target) !== address) return null;", ""],
+  ["DNS removal accepts a legacy object without provenance",
+    "if (evidence.evidence_type !== DANGLING_EVIDENCE_TYPE || evidence.source !== DANGLING_EVIDENCE_SOURCE) return null;", ""],
+];
+for (const [name, from, to] of dnsRemovalMutants) {
+  runMutant(name, { mutateCases: (source) => mutateRequired(source, from, to, name) });
+}
+
 console.log(`\nItem 10 P3 mutations: ${passed}/${passed + failed} killed`);
 if (failed) process.exit(1);
 console.log("Item 10 P3 mutation validation passed");

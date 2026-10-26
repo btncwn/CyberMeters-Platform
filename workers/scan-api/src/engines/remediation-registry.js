@@ -668,7 +668,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     owner_type: "customer_it",
     verification_method: "rescan",
     verification_evidence_requirements: "A fresh scan finds the address answering again, or the DNS record removed.",
-    supporting_evidence_types: ["network_port_observation"],
+    supporting_evidence_types: ["network_port_observation", "dns_record_removed_observation"],
     limitations: ["An address that is only temporarily down looks the same; this is not a confirmed takeover. Azure address ranges are not covered (no stable public list)."],
     managed_workflow_compatible: true,
     case_type: "asm_exposure",
