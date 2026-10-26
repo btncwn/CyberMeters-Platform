@@ -19,6 +19,7 @@ import { observedNetworkAddresses } from "./network-ownership.js";
 import { collectNetworkProbe, isPublicProbeAddress, PROBE_DEADLINE_MARGIN_MS, PROBE_MIN_REMAINING_MS, probeErrorDetail } from "./network-probe.js";
 import { createId } from "../lib/util.js";
 import { cloudProviderForAddress, cloudProviderName, cloudRangeIndex, readCloudRanges } from "./cloud-ranges.js";
+import { canonicalAddress } from "./network-suggestions.js";
 
 // Dangling-DNS (24 Oct 2026): an owned address in a cloud provider's published
 // range is also checked on the web ports, in its own request (the 16-port
@@ -55,6 +56,65 @@ export const REMOTE_ADMIN_PORT_LIST = Object.freeze(Object.keys(REMOTE_ADMIN_POR
 // the collector's 8 workers x <=1.95 s per pair, inside the deadline below.
 export const REMOTE_ADMIN_LIMITS = Object.freeze({ max_addresses: 8, deadline_ms: 28_000 });
 
+// Fresh-DNS confirmation of the address scope (26 Oct 2026, mc-b55d622593c6):
+// a stored inventory address is kept by the ownership scope even after its DNS
+// record is removed, so a removed record kept being probed and reported as
+// "resolves to". Before the probe, every name behind an owned address of this
+// domain is looked up again (A + AAAA, at most max_names names = 2 queries
+// each). A name is kept on an address only when this scan's answer contains
+// that address. A definitive answer without it (NXDOMAIN, or NOERROR with no
+// such record) drops it; a failed or out-of-budget lookup is unknown, and a
+// name now pointing elsewhere is a changed address - both leave the module
+// incomplete, so neither can verify a case.
+export const REMOTE_ADMIN_SCOPE_RECHECK = Object.freeze({ max_names: 8 });
+
+// One name: "resolved" (addresses), "absent" (definitive, none) or "unknown".
+async function freshNameAddresses(name, dnsQueryImpl) {
+  const answers = await Promise.allSettled([dnsQueryImpl(name, "A"), dnsQueryImpl(name, "AAAA")]);
+  const addresses = [];
+  for (const answer of answers) {
+    if (answer.status !== "fulfilled") return { state: "unknown", addresses: [] };
+    // 0 = NOERROR, 3 = NXDOMAIN: definitive. Anything else (SERVFAIL, REFUSED) is not.
+    const status = answer.value?.Status;
+    if (status !== 0 && status !== 3) return { state: "unknown", addresses: [] };
+    for (const record of answer.value?.Answer || []) {
+      if (record?.type !== 1 && record?.type !== 28) continue;
+      const address = canonicalAddress(record.data);
+      if (address) addresses.push(address);
+    }
+  }
+  return { state: addresses.length ? "resolved" : "absent", addresses };
+}
+
+/** Re-confirm, with this scan's DNS, the names behind this domain's owned addresses. */
+export async function confirmObservedScope(observed, { root, dnsQueryImpl, limits = REMOTE_ADMIN_SCOPE_RECHECK } = {}) {
+  const owned = observed?.owned instanceof Map ? observed.owned : new Map();
+  const base = String(root || "").toLowerCase();
+  const entries = [...owned.entries()]
+    .map(([address, hostnames]) => [address, (hostnames || []).map((h) => String(h).toLowerCase())])
+    .filter(([address, hostnames]) => isPublicProbeAddress(address) && hostnames.some((h) => hostUnder(h, base)))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  // The same names in the same order every scan; names beyond the cap are unknown.
+  const names = [...new Set(entries.flatMap(([, hostnames]) => hostnames.filter((h) => hostUnder(h, base)).sort()))]
+    .slice(0, limits.max_names);
+  const fresh = new Map(await Promise.all(names.map(async (name) => [name, await freshNameAddresses(name, dnsQueryImpl)])));
+  const confirmed = new Map(owned);
+  const recheck = { names_checked: names.length, stale: [], changed: [], unknown: [] };
+  for (const [address, hostnames] of entries) {
+    const canonical = canonicalAddress(address) || address;
+    const kept = hostnames.filter((h) => !hostUnder(h, base));
+    for (const hostname of hostnames.filter((h) => hostUnder(h, base))) {
+      const answer = fresh.get(hostname);
+      if (!answer || answer.state === "unknown") recheck.unknown.push({ address, hostname });
+      else if (answer.addresses.includes(canonical)) kept.push(hostname);
+      else if (answer.state === "absent") recheck.stale.push({ address, hostname });
+      else recheck.changed.push({ address, hostname });
+    }
+    confirmed.set(address, kept);
+  }
+  return { ...observed, owned: confirmed, scope_recheck: recheck };
+}
+
 // The banner names the service only for protocols that announce themselves.
 const BANNER_NAMES = Object.freeze({ ssh: "SSH", telnet: "Telnet", ftp: "FTP", smtp: "SMTP", imap: "IMAP", pop3: "POP3" });
 
@@ -81,9 +141,11 @@ export function exposureFromObservation(row, hostnames = []) {
 
 export async function runRemoteAdminExposureModule(env, scan, {
   signal = null, accounting = null,
-  observe = (environment, workspaceId) => observedNetworkAddresses(environment, workspaceId, {
-    dnsQueryImpl: (name, type) => dnsQuery(name, type, { accounting }),
-  }),
+  dnsQueryImpl = (name, type) => dnsQuery(name, type, { accounting }),
+  observe = async (environment, workspaceId) => confirmObservedScope(
+    await observedNetworkAddresses(environment, workspaceId, { dnsQueryImpl }),
+    { root: scan?.domain, dnsQueryImpl },
+  ),
   collect = collectNetworkProbe, now = Date.now, requestId = () => createId("netadm"),
   cloudRanges = () => readCloudRanges(env), history = (addresses) => addressLiveHistory(env, scan, addresses),
 } = {}) {
@@ -117,12 +179,19 @@ export async function runRemoteAdminExposureModule(env, scan, {
     .map(([address, hostnames]) => [address, (hostnames || []).map((h) => String(h).toLowerCase()).filter((h) => hostUnder(h, root)).sort()])
     .filter(([address, hostnames]) => hostnames.length > 0 && isPublicProbeAddress(address))
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  const lookupsFailed = Number(observed?.lookups_failed || 0);
+  const recheck = observed?.scope_recheck || null;
+  const lookupsFailed = Number(observed?.lookups_failed || 0) + (recheck?.unknown?.length || 0);
+  const addressesChanged = recheck?.changed?.length || 0;
+  const recheckFields = recheck ? { scope_recheck: recheck } : {};
   if (!owned.length) {
-    // Nothing owned to check. A failed lookup means we may have missed one.
+    // Nothing owned to check. A failed lookup means we may have missed one; a
+    // name that moved to an address not yet in scope was not checked either.
+    // Only definitively removed records leave nothing to check.
     return result(lookupsFailed > 0
-      ? { state: "not_assessed", reason: "address_lookup_failed", incomplete: true, incomplete_reason: "address_lookup_failed" }
-      : { state: "not_assessed", reason: "no_owned_address_observed" });
+      ? { state: "not_assessed", reason: "address_lookup_failed", incomplete: true, incomplete_reason: "address_lookup_failed", ...recheckFields }
+      : addressesChanged > 0
+        ? { state: "not_assessed", reason: "address_changed", incomplete: true, incomplete_reason: "address_changed", ...recheckFields }
+        : { state: "not_assessed", reason: "no_owned_address_observed", ...recheckFields });
   }
   // Stable selection: the same addresses every scan, so a case is re-checked
   // on the address it was opened for. Any beyond the cap are stated.
@@ -180,9 +249,10 @@ export async function runRemoteAdminExposureModule(env, scan, {
   if (unreachableAddresses.length) reasons.push("address_unreachable");
   if (completedPairs < coverageBase.planned_pairs && !unreachableAddresses.length) reasons.push("ports_not_all_checked");
   if (lookupsFailed > 0) reasons.push("address_lookup_failed");
+  if (addressesChanged > 0) reasons.push("address_changed");
   const cloudHosts = await assessCloudHosts({ cloudIndex, cloudSelected, rows, webReceipt, webReason, history });
   return result({
-    state: "observed", reason: null, exposures, cloud_hosts: cloudHosts,
+    state: "observed", reason: null, exposures, cloud_hosts: cloudHosts, ...recheckFields,
     addresses_checked: selected.map(([address, hostnames]) => ({ address, hostnames })),
     coverage: { ...coverageBase, completed_pairs: completedPairs },
     incomplete: reasons.length > 0, incomplete_reason: reasons[0] || null, incomplete_reasons: reasons,
