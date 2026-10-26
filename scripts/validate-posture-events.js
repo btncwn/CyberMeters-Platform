@@ -95,7 +95,8 @@ const email = ({ spfPresent = true, spfRecord = "v=spf1 include:example.net -all
     resolved_pass_authorisations: spfPresent ? [CIDRA] : [],
   },
   dmarc: { present: dmarcPresent, policy: dmarcPolicy },
-  dkim: { present: dkimPresent, selector: dkimPresent ? "selector1" : null, selectors_probed: FIXTURE_DKIM_SELECTORS },
+  dkim: { present: dkimPresent, selector: dkimPresent ? "selector1" : null,
+    selectors_probed: FIXTURE_DKIM_SELECTORS, selectors_answered: FIXTURE_DKIM_SELECTORS },
 });
 const service = (hostname, product, severity = "high") => ({ hostname, product, severity, risk_level: severity });
 const modules = ({ email_security = email(), services = [], admin_evidence_status } = {}) => ({
@@ -186,8 +187,9 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
     const u = new URL(typeof input === "string" ? input : input.url);
     if (u.hostname !== "cloudflare-dns.com") throw new Error(`offline validator refused ${u.hostname}`);
     const name = u.searchParams.get("name"), type = u.searchParams.get("type");
-    if (fail && name === fail.name && type === "TXT") {
-      if (fail.kind === "timeout") throw new Error("synthetic timeout");
+    const failing = (fail || []).find((f) => f.name === name && type === "TXT");
+    if (failing) {
+      if (failing.kind === "timeout") throw new Error("synthetic timeout");
       return new Response(JSON.stringify({ Status: 2, Answer: [] }), { status: 200 });
     }
     let answer = [];
@@ -199,7 +201,7 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   };
   const { runEmailModule } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "email-scan.js")).href);
   const scan = async ({ failing = null, keys = { protonmail: true, google: false } } = {}) => {
-    fail = failing; published = keys;
+    fail = failing ? [].concat(failing) : null; published = keys;
     return JSON.parse(JSON.stringify(await runEmailModule(DOMAIN, { dmarcOwnedByCore: true })));
   };
   const rootFail = (kind) => ({ name: DOMAIN, kind });
@@ -213,6 +215,13 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
     phase1: await scan({ keys: { protonmail: false, google: true } }),
     phase1RootFail: await scan({ failing: rootFail("timeout"), keys: { protonmail: false, google: true } }),
     phase1RemovedRootFail: await scan({ failing: rootFail("timeout"), keys: { protonmail: false, google: false } }),
+    // The decisive selector itself was asked but did not answer conclusively.
+    providerTimeout: await scan({ failing: { name: `protonmail._domainkey.${DOMAIN}`, kind: "timeout" } }),
+    providerServfail: await scan({ failing: { name: `protonmail._domainkey.${DOMAIN}`, kind: "servfail" } }),
+    rootAndPhase1Timeout: await scan({ failing: [rootFail("timeout"), { name: `google._domainkey.${DOMAIN}`, kind: "timeout" }],
+      keys: { protonmail: false, google: true } }),
+    rootAndPhase1Servfail: await scan({ failing: [rootFail("servfail"), { name: `google._domainkey.${DOMAIN}`, kind: "servfail" }],
+      keys: { protonmail: false, google: true } }),
   };
   globalThis.fetch = realFetch;
   const dkimEvents = async (prev, cur) => {
@@ -237,7 +246,34 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   ok("DKIM: phase-1 key survives a failed root TXT lookup -> no event", (await dkimEvents(s.phase1, s.phase1RootFail)).length === 0);
   ok("DKIM: phase-1 key genuinely removed during a failed root TXT lookup -> one event",
     (await dkimEvents(s.phase1, s.phase1RemovedRootFail)).length === 1);
+  ok("fixture: a failed decisive selector is probed but not answered",
+    s.providerTimeout.dkim.selectors_probed.includes("protonmail") && !(s.providerTimeout.dkim.selectors_answered ?? []).includes("protonmail") &&
+    s.rootAndPhase1Timeout.dkim.selectors_probed.includes("google") && !(s.rootAndPhase1Timeout.dkim.selectors_answered ?? []).includes("google") &&
+    (s.full.dkim.selectors_answered ?? []).includes("protonmail"));
+  for (const [label, cur] of [
+    ["provider selector timeout, root SPF ok", s.providerTimeout],
+    ["provider selector SERVFAIL, root SPF ok", s.providerServfail],
+  ]) {
+    ok(`DKIM: ${label}, key still published -> no false event`, (await dkimEvents(s.full, cur)).length === 0);
+    ok(`DKIM: ${label} as the PREVIOUS scan -> no false 'published' event`, (await dkimEvents(cur, s.full)).length === 0);
+  }
+  for (const [label, cur] of [
+    ["root TXT + phase-1 selector timeout", s.rootAndPhase1Timeout],
+    ["root TXT + phase-1 selector SERVFAIL", s.rootAndPhase1Servfail],
+  ]) {
+    ok(`DKIM: ${label}, key still published -> no false event`, (await dkimEvents(s.phase1, cur)).length === 0);
+    ok(`DKIM: ${label} as the PREVIOUS scan -> no false 'published' event`, (await dkimEvents(cur, s.phase1)).length === 0);
+  }
+  ok("DKIM: stable completed no-key scans -> no event", (await dkimEvents(s.removed, s.removed)).length === 0);
+  ok("DKIM: phase-1 key removal answered conclusively despite root failure -> one medium event",
+    (await dkimEvents(s.phase1, s.phase1RemovedRootFail))[0]?.severity === "medium");
   const legacy = (present) => ({ ...email(), dkim: { present } });
+  const attemptedOnly = (present) => ({ ...email(), dkim: { present, selector: present ? "protonmail" : null,
+    selectors_probed: ["default", "protonmail"] } });
+  ok("DKIM: report with attempted-only coverage (present -> absent) -> no event",
+    (await dkimEvents(s.full, attemptedOnly(false))).length === 0);
+  ok("DKIM: report with attempted-only coverage (absent -> present) -> no event",
+    (await dkimEvents(attemptedOnly(false), s.full)).length === 0);
   ok("DKIM: legacy previous report without coverage (present -> absent) -> no event",
     (await dkimEvents(legacy(true), s.removed)).length === 0);
   ok("DKIM: legacy previous report without coverage (absent -> present) -> no event",

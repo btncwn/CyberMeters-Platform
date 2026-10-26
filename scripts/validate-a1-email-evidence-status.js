@@ -217,6 +217,8 @@ async function emailScan({ failing = null, published = { protonmail: true, googl
     intelFinding: (intel.findings || []).some((f) => f.id === "email_intel_dkim_not_found"),
     intelUnavailable: intel.dkim?.observation_unavailable === true,
     intelStatus: intel.dkim?.status ?? null,
+    probed: email.dkim.selectors_probed,
+    answered: email.dkim.selectors_answered ?? [],
   };
 }
 const rootTimeout = { name: PROTON, kind: "timeout" };
@@ -243,6 +245,36 @@ ok("genuine no-key with full coverage: observed, with action and findings",
   genuineNoKey.present === false && genuineNoKey.status === "observed" && genuineNoKey.action && genuineNoKey.finding && genuineNoKey.intelFinding);
 ok("observed domain without SPF and without key: observed no-key (nothing to narrow)",
   noSpfNoKey.present === false && noSpfNoKey.status === "observed" && noSpfNoKey.finding);
+
+// Conclusive-answer coverage: a selector that was asked but timed out / SERVFAILed
+// is probed, never answered; only NOERROR/NXDOMAIN answers count.
+const providerTimeout = await emailScan({ failing: { name: `protonmail._domainkey.${PROTON}`, kind: "timeout" } });
+const providerServfail = await emailScan({ failing: { name: `protonmail._domainkey.${PROTON}`, kind: "servfail" } });
+ok("full sweep: the decisive provider selector answered", full.answered.includes("protonmail"));
+ok("provider selector timeout: probed but NOT answered",
+  providerTimeout.probed.includes("protonmail") && !providerTimeout.answered.includes("protonmail"));
+ok("provider selector SERVFAIL: probed but NOT answered",
+  providerServfail.probed.includes("protonmail") && !providerServfail.answered.includes("protonmail"));
+ok("genuine no-key sweep: the provider selector answered (NXDOMAIN is conclusive)", genuineNoKey.answered.includes("protonmail"));
+ok("narrowed sweep: the provider selector is neither probed nor answered",
+  !narrowed.probed.includes("protonmail") && !narrowed.answered.includes("protonmail"));
+
+// M4: count every attempted selector as answered -> a timed-out selector is
+// reported as conclusive coverage again.
+{
+  const m4Src = (src) => src.replace(
+    "selectors.filter((_, i) => dmarcObservationStatusFromDnsResult(results[i]) === DMARC_OBSERVATION_STATUS.OBSERVED);",
+    "selectors.filter(() => true);");
+  const src = fs.readFileSync(path.join(ENG, "email-scan.js"), "utf8");
+  ok("mutation anchor M4 present", m4Src(src) !== src);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "a1-m4-"));
+  const file = path.join(dir, "email-scan.mjs");
+  fs.writeFileSync(file, rewriteRel(m4Src(src)));
+  const mutant = await import(`${pathToFileURL(file).href}?t=${Date.now()}`);
+  const m4 = await emailScan({ failing: { name: `protonmail._domainkey.${PROTON}`, kind: "timeout" }, scanModule: mutant.runEmailModule });
+  fs.rmSync(dir, { recursive: true, force: true });
+  ok("M4: counting attempted selectors as answered is CAUGHT", m4.answered.includes("protonmail"));
+}
 
 // M3: remove the narrowing guard in email-scan -> the narrowed sweep is published
 // as an observed absence again (action + findings reappear).
