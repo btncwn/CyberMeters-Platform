@@ -228,6 +228,13 @@ const dnsRemovalMutants = [
     "if (!module) return deferred(\"module_incomplete\");"],
   ["DNS removal accepts an unpublished scan", "if (scanPublished !== true) return deferred(\"scan_not_publishable\");", ""],
   ["DNS removal accepts a present finding", "if (findingPresent) return deferred(\"finding_present\");", ""],
+  ["DNS removal reads the first of several stored entries", "if (evidence.length !== 1) return null;", ""],
+  ["DNS removal accepts stored evidence without provenance",
+    "if (entry?.type !== DANGLING_EVIDENCE_TYPE || entry?.source !== DANGLING_EVIDENCE_SOURCE) return null;", ""],
+  ["DNS removal accepts a conflicting stored target",
+    "if (entry.probe_target != null && canonicalAddress(entry.probe_target) !== address) return null;", ""],
+  ["DNS removal accepts a legacy object without provenance",
+    "if (evidence.evidence_type !== DANGLING_EVIDENCE_TYPE || evidence.source !== DANGLING_EVIDENCE_SOURCE) return null;", ""],
 ];
 for (const [name, from, to] of dnsRemovalMutants) {
   runMutant(name, { mutateCases: (source) => mutateRequired(source, from, to, name) });

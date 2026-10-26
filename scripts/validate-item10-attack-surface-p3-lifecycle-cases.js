@@ -644,6 +644,7 @@ eq("actual HTTP re-observation resolves the eligible root case",
 // DNS record removed"; the remote-admin module's fresh scope_recheck is that
 // evidence. The module output is built by the real module with stubbed DNS.
 const { runRemoteAdminExposureModule } = await import(engine("remote-admin-exposure.js"));
+const { normalizeFindingSchema } = await import(engine("findings.js"));
 const {
   DNS_CLOUD_DANGLING_FINDING,
   assessDnsRecordRemovalVerification,
@@ -675,14 +676,30 @@ for (const [id, ws, dom, host] of [
     VALUES (?,?,?,?,'subdomain','dns_bruteforce','2026-10-01T00:00:00.000Z','2026-10-01T00:00:00.000Z',
       'active',0,'2026-10-01T00:00:00.000Z','2026-10-01T00:00:00.000Z')`).run(id, ws, dom, host);
 }
-const danglingFinding = (overrides = {}) => ({
+// The finding as scoring.js emits it: a pre-normalization evidence object.
+const rawDanglingFinding = (overrides = {}, evidence = {}) => ({
   id: DANGLE_FINDING_ID,
   module: "remote_admin_exposure",
   severity: "medium",
   affected_hosts: [DANGLE_HOST],
-  evidence: { evidence_type: "network_port_observation", probe_target: DANGLE_ADDRESS, source: "remote_admin_exposure" },
+  title: "DNS Record Points at a Cloud Address That Stopped Answering",
+  description: "Synthetic fixture description.",
+  score_impact: 0,
+  evidence: {
+    evidence_type: "network_port_observation",
+    probe_target: DANGLE_ADDRESS,
+    observed_value: `${DANGLE_ADDRESS} (synthetic cloud): no port answered`,
+    expected_value: "The address answers again, or the DNS record is removed",
+    source: "remote_admin_exposure",
+    checked_at: "2026-10-20T12:00:00.000Z",
+    ...evidence,
+  },
   ...overrides,
 });
+// The stored shape: scan-engine maps every finding through the real
+// normalizeFindingSchema before cases are created, so evidence is the v2 array.
+const danglingFinding = (overrides = {}, evidence = {}) =>
+  normalizeFindingSchema(rawDanglingFinding(overrides, evidence));
 const DANGLE_FINDING_ID = "dns_cloud_address_unreachable_after_live";
 // One case per workspace: (workspace, domain, finding) is unique. A variant
 // workspace gets its own verified domain link and its own legacy assets.
@@ -709,12 +726,50 @@ function seedDangleCase(id, { ws = `ws-${id}`, domain = DANGLE_DOMAIN, findingId
     .run(id, ws, domain, findingId, findingId, (finding.affected_hosts || [])[0] || domain,
       JSON.stringify({ scan_id: "scan-dg-seed", finding: { ...finding, id: findingId } }));
 }
-seedDangleCase("case-dg", { ws: "ws-dg" });
-seedDangleCase("case-dg-wrong-address", { finding: danglingFinding({ evidence: { probe_target: "81.2.69.164" } }) });
+// The main case is opened by the production creator from the normalized
+// finding, then walked through the canonical customer path.
+const stored = danglingFinding();
+ok("normalized finding stores the v2 evidence array",
+  Array.isArray(stored.evidence) && stored.evidence.length === 1 &&
+    stored.evidence[0].type === "network_port_observation" &&
+    stored.evidence[0].label === DANGLE_ADDRESS &&
+    stored.evidence[0].source === "remote_admin_exposure" &&
+    !("probe_target" in stored.evidence[0]));
+eq("normalized finding opens one case through the production creator",
+  (await createManagedAsmCasesForScan("scan-dg-seed", "dom-dg", DANGLE_DOMAIN, [stored], [], dangleEnv)).opened, 1);
+let dgCase = dangle.db.prepare("SELECT * FROM managed_cases WHERE workspace_id='ws-dg' AND finding_id=?").get(DANGLE_FINDING_ID);
+const DG_CASE = dgCase.id;
+ok("persisted case evidence is the normalized array",
+  Array.isArray(JSON.parse(dgCase.evidence_json).finding?.evidence) &&
+    JSON.parse(dgCase.evidence_json).finding.evidence[0].label === DANGLE_ADDRESS);
+for (const [to, ctx] of [
+  ["triage", { actor_type: "customer", actor_id: "usr-dg" }],
+  ["owner", null],
+  ["remediation_in_progress", { actor_type: "customer", actor_id: "usr-dg" }],
+  ["verification_requested", { actor_type: "customer", actor_id: "usr-dg" }],
+]) {
+  const step = to === "owner"
+    ? await assignManagedCaseOwner(dangleEnv, dgCase, { owner_type: "person", owner_ref: "IT owner", assigned_by: "customer", actor_id: "usr-dg" })
+    : await transitionManagedCase(dangleEnv, dgCase, to, ctx);
+  ok(`dangling DNS case: canonical step to ${to}`, step.ok);
+  dgCase = step.case;
+}
+eq("dangling DNS case awaits verification", dgCase.status, "verification_requested");
+// A genuine pre-normalization stored object with full provenance is still read.
+seedDangleCase("case-dg-legacy", { finding: rawDanglingFinding() });
+seedDangleCase("case-dg-wrong-address", { finding: danglingFinding({}, { probe_target: "81.2.69.164" }) });
 seedDangleCase("case-dg-wrong-host", { finding: danglingFinding({ affected_hosts: [`other.${DANGLE_DOMAIN}`] }) });
-seedDangleCase("case-dg-missing-address", { finding: danglingFinding({ evidence: { evidence_type: "network_port_observation" } }) });
+seedDangleCase("case-dg-missing-address", { finding: danglingFinding({}, { probe_target: undefined }) });
 seedDangleCase("case-dg-multi-host", { finding: danglingFinding({ affected_hosts: [DANGLE_HOST, `other.${DANGLE_DOMAIN}`] }) });
-seedDangleCase("case-dg-multi-address", { finding: danglingFinding({ evidence: { probe_target: `${DANGLE_ADDRESS}, 81.2.69.161` } }) });
+seedDangleCase("case-dg-multi-address", { finding: danglingFinding({}, { probe_target: `${DANGLE_ADDRESS}, 81.2.69.161` }) });
+seedDangleCase("case-dg-wrong-source", { finding: danglingFinding({}, { source: "asset_exposure" }) });
+seedDangleCase("case-dg-no-source", { finding: danglingFinding({}, { source: undefined }) });
+seedDangleCase("case-dg-wrong-type", { finding: danglingFinding({}, { evidence_type: "scan_probe" }) });
+seedDangleCase("case-dg-two-entries", { finding: { ...stored, evidence: [stored.evidence[0], { ...stored.evidence[0], label: "81.2.69.161" }] } });
+seedDangleCase("case-dg-conflict", { finding: { ...stored, evidence: [{ ...stored.evidence[0], probe_target: "81.2.69.161" }] } });
+seedDangleCase("case-dg-legacy-no-source", { finding: rawDanglingFinding({}, { source: undefined }) });
+seedDangleCase("case-dg-legacy-conflict", { finding: rawDanglingFinding({}, { label: "81.2.69.161" }) });
+seedDangleCase("case-dg-prose", { finding: danglingFinding({}, { probe_target: `${DANGLE_HOST} resolves to ${DANGLE_ADDRESS}` }) });
 seedDangleCase("case-dg-other-type", { ws: "ws-dg", findingId: "remote_admin_service_reachable" });
 seedDangleCase("case-dg-deleted", { ws: "ws-dg-deleted" });
 seedDangleCase("case-dg-foreign", { ws: "ws-dg-foreign", domain: "foreign-dangling.example.net",
@@ -793,13 +848,13 @@ for (const [label, module, extra] of dangleNegatives) {
   );
   eq(`dangling DNS: ${label} resolves nothing`, outcome.resolved, 0);
   ok(`dangling DNS: ${label} leaves the case unresolved`,
-    ["verification_requested", "verification_failed"].includes(dangleStatus("case-dg")),
-    `status ${dangleStatus("case-dg")}`);
+    ["verification_requested", "verification_failed"].includes(dangleStatus(DG_CASE)),
+    `status ${dangleStatus(DG_CASE)}`);
 }
 eq("dangling DNS: no negative control wrote a verified_resolved event",
-  dangleEvents("case-dg", "verified_resolved"), 0);
+  dangleEvents(DG_CASE, "verified_resolved"), 0);
 eq("dangling DNS: baseline legacy asset defers on the generic lifecycle step",
-  lastDeferral("case-dg"), "no_current_lifecycle_observation");
+  lastDeferral(DG_CASE), "no_current_lifecycle_observation");
 
 // Pure contract: rows the gate would not see must still contradict removal.
 const dgCaseRow = { finding_id: DANGLE_FINDING_ID, source_finding_type: DANGLE_FINDING_ID, domain: DANGLE_DOMAIN };
@@ -813,6 +868,10 @@ const pure = (module) => assessDns({
   scanQuality: { status: "complete" }, scanPublished: true, findingPresent: false, scanId: "scan-pure",
 });
 eq("pure: exact stale pair verifies", pure(removedModule).decision, "verified_removed");
+eq("pure: genuine legacy object with provenance verifies", assessDns({
+  caseRow: dgCaseRow, caseEvidence: { finding: rawDanglingFinding() }, module: removedModule,
+  scanQuality: { status: "complete" }, scanPublished: true, findingPresent: false,
+}).decision, "verified_removed");
 for (const [label, module] of [
   ["changed row for the host", { ...removedModule, scope_recheck: { ...removedModule.scope_recheck, changed: [{ address: DANGLE_ADDRESS, hostname: DANGLE_HOST }] } }],
   ["unknown row for the address", { ...removedModule, scope_recheck: { ...removedModule.scope_recheck, unknown: [{ address: DANGLE_ADDRESS, hostname: `x.${DANGLE_DOMAIN}` }] } }],
@@ -838,8 +897,10 @@ for (const [label, options] of [
 }
 for (const [label, finding] of [
   ["two structured hosts", danglingFinding({ affected_hosts: [DANGLE_HOST, `other.${DANGLE_DOMAIN}`] })],
-  ["two stored addresses", danglingFinding({ evidence: { probe_target: `${DANGLE_ADDRESS}, 81.2.69.161` } })],
-  ["no stored address", danglingFinding({ evidence: {} })],
+  ["two stored addresses", danglingFinding({}, { probe_target: `${DANGLE_ADDRESS}, 81.2.69.161` })],
+  ["no stored address", danglingFinding({}, { probe_target: undefined })],
+  ["no evidence at all", { ...stored, evidence: [] }],
+  ["legacy object without provenance", rawDanglingFinding({}, { source: undefined })],
   ["host only in asset_ref", danglingFinding({ affected_hosts: undefined, asset_ref: DANGLE_HOST })],
 ]) {
   eq(`pure: ${label} is not applicable`, assessDns({
@@ -859,14 +920,15 @@ ok("NOERROR with no record is also a definitive removal",
 const positive = await verifyManagedAsmCasesForScan(
   "scan-dg-positive", "dom-dg", DANGLE_DOMAIN, [], dangleEnv, positiveOptions,
 );
-eq("dangling DNS: exact removal evidence resolves exactly one case", positive.resolved, 1);
-eq("dangling DNS: the exact source case is resolved", dangleStatus("case-dg"), "resolved");
+eq("dangling DNS: exact removal evidence resolves exactly the normalized and legacy cases", positive.resolved, 2);
+eq("dangling DNS: the genuine legacy object case is resolved", dangleStatus("case-dg-legacy"), "resolved");
+eq("dangling DNS: the exact source case is resolved", dangleStatus(DG_CASE), "resolved");
 const resolvedDetail = JSON.parse(dangle.db.prepare(
-  "SELECT detail_json FROM managed_case_events WHERE case_id='case-dg' AND action='verified_resolved'",
-).get()?.detail_json ?? "{}");
+  "SELECT detail_json FROM managed_case_events WHERE case_id=? AND action='verified_resolved'",
+).get(DG_CASE)?.detail_json ?? "{}");
 ok("dangling DNS: resolution is the ordinary system verified_resolved event",
-  dangleEvents("case-dg", "verified_resolved") === 1 &&
-    dangle.db.prepare("SELECT actor_type FROM managed_case_events WHERE case_id='case-dg' AND action='verified_resolved'").get().actor_type === "system");
+  dangleEvents(DG_CASE, "verified_resolved") === 1 &&
+    dangle.db.prepare("SELECT actor_type FROM managed_case_events WHERE case_id=? AND action='verified_resolved'").get(DG_CASE).actor_type === "system");
 ok("dangling DNS: structured evidence names the DNS-removal observation",
   resolvedDetail.verification_evidence?.evidence_type === "dns_record_removed_observation" &&
     resolvedDetail.verification_evidence.verification_method === "rescan" &&
@@ -885,6 +947,14 @@ for (const [id, label] of [
   ["case-dg-multi-host", "aggregated multi-host finding"],
   ["case-dg-multi-address", "aggregated multi-address finding"],
   ["case-dg-other-type", "another finding type on the same host/address"],
+  ["case-dg-wrong-source", "evidence from another module"],
+  ["case-dg-no-source", "evidence without provenance"],
+  ["case-dg-wrong-type", "evidence of another type"],
+  ["case-dg-two-entries", "two stored evidence entries"],
+  ["case-dg-conflict", "label and probe_target in conflict"],
+  ["case-dg-legacy-no-source", "legacy object without provenance"],
+  ["case-dg-legacy-conflict", "legacy object with a conflicting label"],
+  ["case-dg-prose", "a prose target naming the address"],
 ]) {
   eq(`dangling DNS: ${label} stays awaiting verification`, dangleStatus(id), "verification_requested");
 }
@@ -894,12 +964,12 @@ eq("dangling DNS: soft-deleted workspace case untouched", dangleStatus("case-dg-
 eq("dangling DNS: soft-deleted workspace case has no events", dangleEvents("case-dg-deleted"), 0);
 eq("dangling DNS: foreign tenant case untouched", dangleStatus("case-dg-foreign"), "verification_requested");
 eq("dangling DNS: foreign tenant case has no events", dangleEvents("case-dg-foreign"), 0);
-const dangleEventsBeforeReplay = dangleEvents("case-dg");
+const dangleEventsBeforeReplay = dangleEvents(DG_CASE);
 const replay = await verifyManagedAsmCasesForScan(
   "scan-dg-positive", "dom-dg", DANGLE_DOMAIN, [], dangleEnv, positiveOptions,
 );
 eq("dangling DNS: replay resolves nothing new", replay.resolved, 0);
-eq("dangling DNS: replay duplicates no case event", dangleEvents("case-dg"), dangleEventsBeforeReplay);
+eq("dangling DNS: replay duplicates no case event", dangleEvents(DG_CASE), dangleEventsBeforeReplay);
 const registry = await import(engine("remediation-registry.js"));
 ok("registry entry lists the DNS-removal evidence type",
   registry.getRemediationById("asm.dns.cloud_address_unreachable").supporting_evidence_types

@@ -804,6 +804,33 @@ const rowNamesTarget = (row, hostname, address) =>
   (Array.isArray(row?.hostnames) && row.hostnames.some((h) => normaliseDomain(h) === hostname)) ||
   normaliseDomain(row?.hostname) === hostname;
 
+const DANGLING_EVIDENCE_TYPE = "network_port_observation";
+const DANGLING_EVIDENCE_SOURCE = "remote_admin_exposure";
+
+// The one address the stored finding was raised for, or null. Stored findings
+// carry the normalized v2 array (findings.js normalizeFindingSchema maps
+// probe_target to label); a genuine pre-normalization object is still read.
+// Exactly one entry, of the eligible type and source, naming one valid
+// address; anything missing, multiple or conflicting is refused. Never prose.
+function storedDanglingAddress(evidence) {
+  if (Array.isArray(evidence)) {
+    if (evidence.length !== 1) return null;
+    const [entry] = evidence;
+    if (entry?.type !== DANGLING_EVIDENCE_TYPE || entry?.source !== DANGLING_EVIDENCE_SOURCE) return null;
+    // A joined list ("a, b") is not one address and is refused by the parser.
+    const address = canonicalAddress(entry.label);
+    if (!address) return null;
+    if (entry.probe_target != null && canonicalAddress(entry.probe_target) !== address) return null;
+    return address;
+  }
+  if (evidence == null || typeof evidence !== "object") return null;
+  if (evidence.evidence_type !== DANGLING_EVIDENCE_TYPE || evidence.source !== DANGLING_EVIDENCE_SOURCE) return null;
+  const address = canonicalAddress(evidence.probe_target);
+  if (!address) return null;
+  if (evidence.label != null && canonicalAddress(evidence.label) !== address) return null;
+  return address;
+}
+
 // Pure. Applicable only to a case with ONE structured affected host and ONE
 // valid stored address; aggregated legacy findings stay on the existing path.
 export function assessDnsRecordRemovalVerification({
@@ -822,8 +849,7 @@ export function assessDnsRecordRemovalVerification({
   const domain = normaliseDomain(caseRow?.domain);
   const declared = Array.isArray(finding.affected_hosts) ? finding.affected_hosts : [];
   const hostname = declared.length === 1 ? normalizeDiscoveredHostname(declared[0], domain) : null;
-  // A joined list ("a, b") is not one address and is refused by the parser.
-  const address = canonicalAddress(finding.evidence?.probe_target);
+  const address = storedDanglingAddress(finding.evidence);
   if (finding.module !== "remote_admin_exposure" || !hostname || !address) {
     return { applicable: false, reason: "source_evidence_not_single" };
   }
