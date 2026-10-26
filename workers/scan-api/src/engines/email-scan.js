@@ -167,6 +167,11 @@ export async function runEmailModule(domain, opts = {}) {
   let dkimSelector = findDkimInResults(DKIM_SELECTORS, dkimPhase1);
   const dkimSelectorsFound = findAllDkimInResults(DKIM_SELECTORS, dkimPhase1);
   const dkimSettled = [...dkimPhase1];   // A1: track every probe outcome for observation status
+  // Selectors whose own lookup returned a conclusive answer (NOERROR/NXDOMAIN). A
+  // timed-out or SERVFAIL selector was asked but not observed.
+  const answeredSelectors = (selectors, results) =>
+    selectors.filter((_, i) => dmarcObservationStatusFromDnsResult(results[i]) === DMARC_OBSERVATION_STATUS.OBSERVED);
+  const dkimSelectorsAnswered = answeredSelectors(DKIM_SELECTORS, dkimPhase1);
 
   // Phase 2 — provider-specific additional selectors (only if provider known and
   // no DKIM found yet). Only probe selectors not already covered by phase 1.
@@ -183,11 +188,18 @@ export async function runEmailModule(domain, opts = {}) {
       dkimSettled.push(...phase2Results);
       dkimSelector = findDkimInResults(phase2Selectors, phase2Results);
       dkimSelectorsFound.push(...findAllDkimInResults(phase2Selectors, phase2Results));
+      dkimSelectorsAnswered.push(...answeredSelectors(phase2Selectors, phase2Results));
     }
   }
   // A1 evidence status — a failed SPF/DKIM probe must not collapse into "missing".
   const spfObservationStatus = dmarcObservationStatusFromDnsResult(spfRes);
-  const dkimObservationStatus = dkimObservationStatusFromResults(dkimSettled);
+  // Phase 2 is chosen from the root SPF record. When that lookup failed and phase 1
+  // found no key, the provider selectors were never asked: no key is unobserved,
+  // not an observed absence.
+  const dkimSweepNarrowed = !dkimSelector && spfObservationStatus !== DMARC_OBSERVATION_STATUS.OBSERVED;
+  const dkimObservationStatus = dkimSweepNarrowed
+    ? DMARC_OBSERVATION_STATUS.UNAVAILABLE
+    : dkimObservationStatusFromResults(dkimSettled);
 
   const dmarcRecord = dmarcEvidence.dmarc_record;
   const spfDetail = parseSpfRecord(spfRecord, spfRecs.length);
@@ -218,6 +230,8 @@ export async function runEmailModule(domain, opts = {}) {
     selector:         dkimSelector,
     provider:         emailProvider,
     selectors_probed: [...DKIM_SELECTORS, ...phase2Selectors],
+    // Additive: the probed selectors that answered conclusively (see above).
+    selectors_answered: dkimSelectorsAnswered,
     // Additive: every selector that answered with a key (selector = the first).
     selectors_found:  [...new Set(dkimSelectorsFound)],
   };
