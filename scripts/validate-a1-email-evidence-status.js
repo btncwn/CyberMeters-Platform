@@ -176,6 +176,93 @@ const m2 = await scoringMutant({ scoringMutate: m2Src });
 ok("M2: dropping the scoring gate is CAUGHT (unavailable → missing + penalty)",
   m2.spfMissing === true && m2.score < basePresent.score);
 
+// ── 5. Narrowed DKIM sweep: a failed root TXT lookup skips the provider selectors ──
+// Real runEmailModule + the real downstream remediation, scoring and email-intel
+// paths, on synthetic DoH answers (no network). The key is published only under a
+// provider (phase 2) selector, which is chosen from the root SPF record.
+const PROTON = "proton.example.com";
+const PROTON_SPF = "v=spf1 include:_spf.protonmail.ch ~all";
+const realFetch = globalThis.fetch;
+let dnsFail = null, keys = { protonmail: true, google: false }, rootSpf = PROTON_SPF;
+globalThis.fetch = async (input) => {
+  const u = new URL(typeof input === "string" ? input : input.url);
+  if (u.hostname !== "cloudflare-dns.com") throw new Error(`offline validator refused ${u.hostname}`);
+  const name = u.searchParams.get("name"), type = u.searchParams.get("type");
+  if (dnsFail && name === dnsFail.name && type === "TXT") {
+    if (dnsFail.kind === "timeout") throw new Error("synthetic timeout");
+    return new Response(JSON.stringify({ Status: 2, Answer: [] }), { status: 200 });
+  }
+  let answer = [];
+  if (name === PROTON && type === "TXT" && rootSpf) answer = [{ type: 16, data: `"${rootSpf}"` }];
+  for (const sel of ["protonmail", "google"]) {
+    if (name === `${sel}._domainkey.${PROTON}` && type === "TXT" && keys[sel]) answer = [{ type: 16, data: '"v=DKIM1; k=rsa; p=MIIB"' }];
+  }
+  return new Response(JSON.stringify({ Status: answer.length ? 0 : 3, Answer: answer }), { status: 200 });
+};
+const { runEmailModule } = await import(absUrl("email-scan.js"));
+const { runEmailIntelModule } = await import(absUrl("email-intel.js"));
+async function emailScan({ failing = null, published = { protonmail: true, google: false }, spf = PROTON_SPF, scanModule = runEmailModule } = {}) {
+  dnsFail = failing; keys = published; rootSpf = spf;
+  const email = await scanModule(PROTON, { dmarcOwnedByCore: true });
+  const dns = { has_mx: true, error: null, mx_records: [] };
+  const intel = await runEmailIntelModule(PROTON, email, dns, { fetcher: async () => { throw new Error("offline"); } });
+  const score = computeScore({ dns, email_security: email, email_intel: intel }, PROTON);
+  return {
+    present: email.dkim.present,
+    status: email.dkim_evidence_status,
+    spfStatus: email.spf_evidence_status,
+    action: (email.remediation_actions || []).some((a) => a.id === "dkim_verification_uncertain"),
+    finding: score.findings.some((f) => f.id === "email_dkim_not_detected"),
+    spfMissing: score.findings.some((f) => f.id === "email_missing_spf"),
+    intelFinding: (intel.findings || []).some((f) => f.id === "email_intel_dkim_not_found"),
+    intelUnavailable: intel.dkim?.observation_unavailable === true,
+    intelStatus: intel.dkim?.status ?? null,
+  };
+}
+const rootTimeout = { name: PROTON, kind: "timeout" };
+const narrowed = await emailScan({ failing: rootTimeout });
+const narrowedServfail = await emailScan({ failing: { name: PROTON, kind: "servfail" } });
+const includeOnly = await emailScan({ failing: { name: "_spf.protonmail.ch", kind: "timeout" } });
+const genuineNoKey = await emailScan({ published: { protonmail: false, google: false } });
+const noSpfNoKey = await emailScan({ published: { protonmail: false, google: false }, spf: null });
+const phase1RootFail = await emailScan({ failing: rootTimeout, published: { protonmail: false, google: true } });
+const full = await emailScan();
+ok("narrowed sweep (root TXT timeout): no key is UNAVAILABLE, not observed absence", narrowed.present === false && narrowed.status === "unavailable");
+ok("narrowed sweep (root TXT SERVFAIL): UNAVAILABLE", narrowedServfail.status === "unavailable");
+ok("narrowed sweep: no 'Confirm the active DKIM selector' remediation", !narrowed.action);
+ok("narrowed sweep: no email_dkim_not_detected scoring finding", !narrowed.finding);
+ok("narrowed sweep: no email_intel_dkim_not_found finding", !narrowed.intelFinding);
+ok("narrowed sweep: email intel keeps the unknown explicit (NOT_VERIFIED, observation_unavailable)",
+  narrowed.intelStatus === "NOT_VERIFIED" && narrowed.intelUnavailable);
+ok("narrowed sweep: unrelated SPF behaviour unchanged (unavailable SPF is not missing)",
+  narrowed.spfStatus === "unavailable" && !narrowed.spfMissing);
+ok("full sweep: provider-only key found and observed", full.present === true && full.status === "observed");
+ok("SPF include failure does not narrow: key found, observed", includeOnly.present === true && includeOnly.status === "observed");
+ok("phase-1 key under a failed root TXT lookup: still found and observed", phase1RootFail.present === true && phase1RootFail.status === "observed");
+ok("genuine no-key with full coverage: observed, with action and findings",
+  genuineNoKey.present === false && genuineNoKey.status === "observed" && genuineNoKey.action && genuineNoKey.finding && genuineNoKey.intelFinding);
+ok("observed domain without SPF and without key: observed no-key (nothing to narrow)",
+  noSpfNoKey.present === false && noSpfNoKey.status === "observed" && noSpfNoKey.finding);
+
+// M3: remove the narrowing guard in email-scan -> the narrowed sweep is published
+// as an observed absence again (action + findings reappear).
+const emailScanSrc = fs.readFileSync(path.join(ENG, "email-scan.js"), "utf8");
+const m3Src = (src) => src.replace(
+  "const dkimSweepNarrowed = !dkimSelector && spfObservationStatus !== DMARC_OBSERVATION_STATUS.OBSERVED;",
+  "const dkimSweepNarrowed = false;");
+ok("mutation anchor M3 present", m3Src(emailScanSrc) !== emailScanSrc);
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "a1-m3-"));
+  const file = path.join(dir, "email-scan.mjs");
+  fs.writeFileSync(file, rewriteRel(m3Src(emailScanSrc)));
+  const mutant = await import(`${pathToFileURL(file).href}?t=${Date.now()}`);
+  const m3 = await emailScan({ failing: rootTimeout, scanModule: mutant.runEmailModule });
+  fs.rmSync(dir, { recursive: true, force: true });
+  ok("M3: dropping the narrowing guard is CAUGHT (observed absence + finding reappear)",
+    m3.status === "observed" && m3.finding === true && m3.action === true);
+}
+globalThis.fetch = realFetch;
+
 console.log(`\nA1 email evidence-status: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("a1-email-evidence-status validation FAILED"); process.exit(1); }
 console.log("a1-email-evidence-status validation passed");

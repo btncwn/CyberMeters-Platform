@@ -165,7 +165,16 @@ export function buildPostureDiffEvents(domain, prevModules, currentModules, opts
 
   const prevDkimPresent = boolState(previousEmail?.dkim?.present);
   const currDkimPresent = boolState(currentEmail?.dkim?.present);
-  if (prevDkimPresent !== null && currDkimPresent !== null && prevDkimPresent !== currDkimPresent) {
+  // A key's appearance or disappearance is a change only when the scan that saw no
+  // key asked the selector the other scan found (selectors_probed is persisted in R2).
+  // A narrowed or legacy sweep without that coverage cannot anchor a DKIM event.
+  const withKey = prevDkimPresent ? previousEmail?.dkim : currentEmail?.dkim;
+  const withoutKey = prevDkimPresent ? currentEmail?.dkim : previousEmail?.dkim;
+  const comparableDkimCoverage = typeof withKey?.selector === "string" &&
+    Array.isArray(withoutKey?.selectors_probed) &&
+    withoutKey.selectors_probed.includes(withKey.selector);
+  if (prevDkimPresent !== null && currDkimPresent !== null && prevDkimPresent !== currDkimPresent &&
+      comparableDkimCoverage) {
     pushEvent(events, {
       event_type: "email_dkim_changed",
       hostname: domain,

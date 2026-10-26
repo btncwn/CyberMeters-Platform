@@ -187,7 +187,13 @@ export async function runEmailModule(domain, opts = {}) {
   }
   // A1 evidence status — a failed SPF/DKIM probe must not collapse into "missing".
   const spfObservationStatus = dmarcObservationStatusFromDnsResult(spfRes);
-  const dkimObservationStatus = dkimObservationStatusFromResults(dkimSettled);
+  // Phase 2 is chosen from the root SPF record. When that lookup failed and phase 1
+  // found no key, the provider selectors were never asked: no key is unobserved,
+  // not an observed absence.
+  const dkimSweepNarrowed = !dkimSelector && spfObservationStatus !== DMARC_OBSERVATION_STATUS.OBSERVED;
+  const dkimObservationStatus = dkimSweepNarrowed
+    ? DMARC_OBSERVATION_STATUS.UNAVAILABLE
+    : dkimObservationStatusFromResults(dkimSettled);
 
   const dmarcRecord = dmarcEvidence.dmarc_record;
   const spfDetail = parseSpfRecord(spfRecord, spfRecs.length);

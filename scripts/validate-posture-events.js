@@ -84,6 +84,9 @@ async function record(env, modules, options = {}) {
 const report = (modules, options = {}) => ({ domain: "example.co.uk", scan_quality: { status: options.scanQuality ?? "complete" }, timeline_trust: buildAssetTimelineTrustMetadata(), modules });
 const CIDRA = "ip4:c0000200/24";
 const CIDRB = "ip4:cb007100/24";
+// DKIM carries the persisted selector coverage a real email-scan result has, so a
+// present<->absent change is comparable (posture-events DKIM coverage guard).
+const FIXTURE_DKIM_SELECTORS = ["default", "selector1", "selector2"];
 const email = ({ spfPresent = true, spfRecord = "v=spf1 include:example.net -all", dmarcPresent = true, dmarcPolicy = "none", dkimPresent = true } = {}) => ({
   spf: {
     present: spfPresent,
@@ -92,7 +95,7 @@ const email = ({ spfPresent = true, spfRecord = "v=spf1 include:example.net -all
     resolved_pass_authorisations: spfPresent ? [CIDRA] : [],
   },
   dmarc: { present: dmarcPresent, policy: dmarcPolicy },
-  dkim: { present: dkimPresent },
+  dkim: { present: dkimPresent, selector: dkimPresent ? "selector1" : null, selectors_probed: FIXTURE_DKIM_SELECTORS },
 });
 const service = (hostname, product, severity = "high") => ({ hostname, product, severity, risk_level: severity });
 const modules = ({ email_security = email(), services = [], admin_evidence_status } = {}) => ({
@@ -168,6 +171,77 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   const events = rowsFor(db, "email_dkim_changed");
   ok("DKIM present -> absent emits one event", events.length === 1);
   ok("DKIM present -> absent severity is medium", events[0]?.severity === "medium");
+}
+
+// 4b. DKIM coverage guard on REAL email-scan output (synthetic DoH answers, no network).
+//     A domain whose key is published only under a provider (phase 2) selector loses
+//     that probe when the root TXT lookup fails. Prior and current reports are both
+//     round-tripped through JSON, as the previous report is read back from R2.
+{
+  const DOMAIN = "proton.example.com";
+  const SPF = "v=spf1 include:_spf.protonmail.ch ~all";
+  const realFetch = globalThis.fetch;
+  let fail = null, published = { protonmail: true, google: false };
+  globalThis.fetch = async (input) => {
+    const u = new URL(typeof input === "string" ? input : input.url);
+    if (u.hostname !== "cloudflare-dns.com") throw new Error(`offline validator refused ${u.hostname}`);
+    const name = u.searchParams.get("name"), type = u.searchParams.get("type");
+    if (fail && name === fail.name && type === "TXT") {
+      if (fail.kind === "timeout") throw new Error("synthetic timeout");
+      return new Response(JSON.stringify({ Status: 2, Answer: [] }), { status: 200 });
+    }
+    let answer = [];
+    if (name === DOMAIN && type === "TXT") answer = [{ type: 16, data: `"${SPF}"` }];
+    for (const sel of ["protonmail", "google"]) {
+      if (name === `${sel}._domainkey.${DOMAIN}` && type === "TXT" && published[sel]) answer = [{ type: 16, data: '"v=DKIM1; k=rsa; p=MIIB"' }];
+    }
+    return new Response(JSON.stringify({ Status: answer.length ? 0 : 3, Answer: answer }), { status: 200 });
+  };
+  const { runEmailModule } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "email-scan.js")).href);
+  const scan = async ({ failing = null, keys = { protonmail: true, google: false } } = {}) => {
+    fail = failing; published = keys;
+    return JSON.parse(JSON.stringify(await runEmailModule(DOMAIN, { dmarcOwnedByCore: true })));
+  };
+  const rootFail = (kind) => ({ name: DOMAIN, kind });
+  const includeFail = { name: "_spf.protonmail.ch", kind: "timeout" };
+  const s = {
+    full: await scan(),
+    rootTimeout: await scan({ failing: rootFail("timeout") }),
+    rootServfail: await scan({ failing: rootFail("servfail") }),
+    includeTimeout: await scan({ failing: includeFail }),
+    removed: await scan({ keys: { protonmail: false, google: false } }),
+    phase1: await scan({ keys: { protonmail: false, google: true } }),
+    phase1RootFail: await scan({ failing: rootFail("timeout"), keys: { protonmail: false, google: true } }),
+    phase1RemovedRootFail: await scan({ failing: rootFail("timeout"), keys: { protonmail: false, google: false } }),
+  };
+  globalThis.fetch = realFetch;
+  const dkimEvents = async (prev, cur) => {
+    const { db, env } = harness(JSON.parse(JSON.stringify(report(modules({ email_security: prev })))));
+    await record(env, modules({ email_security: cur }));
+    return rowsFor(db, "email_dkim_changed");
+  };
+  ok("fixture: full sweep finds the provider-only key", s.full.dkim.present === true && s.full.dkim.selector === "protonmail");
+  ok("fixture: failed root TXT skips the provider selector", s.rootTimeout.dkim.selectors_probed.includes("protonmail") === false);
+  ok("DKIM: root TXT timeout, key still published -> no false event", (await dkimEvents(s.full, s.rootTimeout)).length === 0);
+  ok("DKIM: root TXT SERVFAIL, key still published -> no false event", (await dkimEvents(s.full, s.rootServfail)).length === 0);
+  ok("DKIM: narrowed previous scan -> full current scan emits no false 'published' event",
+    (await dkimEvents(s.rootTimeout, s.full)).length === 0);
+  ok("DKIM: SPF include failure does not narrow the sweep -> no event", (await dkimEvents(s.full, s.includeTimeout)).length === 0);
+  ok("DKIM: stable full scans -> no event", (await dkimEvents(s.full, s.full)).length === 0);
+  const removedEvents = await dkimEvents(s.full, s.removed);
+  ok("DKIM: genuine removal with comparable coverage -> one medium event",
+    removedEvents.length === 1 && removedEvents[0].severity === "medium");
+  const publishedEvents = await dkimEvents(s.removed, s.full);
+  ok("DKIM: genuine publication with comparable coverage -> one low event",
+    publishedEvents.length === 1 && publishedEvents[0].severity === "low");
+  ok("DKIM: phase-1 key survives a failed root TXT lookup -> no event", (await dkimEvents(s.phase1, s.phase1RootFail)).length === 0);
+  ok("DKIM: phase-1 key genuinely removed during a failed root TXT lookup -> one event",
+    (await dkimEvents(s.phase1, s.phase1RemovedRootFail)).length === 1);
+  const legacy = (present) => ({ ...email(), dkim: { present } });
+  ok("DKIM: legacy previous report without coverage (present -> absent) -> no event",
+    (await dkimEvents(legacy(true), s.removed)).length === 0);
+  ok("DKIM: legacy previous report without coverage (absent -> present) -> no event",
+    (await dkimEvents(legacy(false), s.full)).length === 0);
 }
 
 // 5. Admin-surface services are diffed by hostname + product. A prior service missing
