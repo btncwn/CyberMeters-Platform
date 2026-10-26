@@ -100,7 +100,7 @@ const EXPECTED = Object.freeze({
     // `latestScan?.scan_quality !== 'complete'` (backend-recorded quality,
     // presentation only). Two-tree semantic diff against origin/main: that one
     // addition; none removed.
-    comparison_occurrences: 72,
+    comparison_occurrences: 73,
     source_file_count: 30,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -149,7 +149,12 @@ const EXPECTED = Object.freeze({
     // offsets are normalised, and every count is unchanged; only the fingerprints move.
     // C-11: one additive ScanDetail partial/degraded membership comparison
     // selects recorded backend area messages; the two-tree diff removes none.
-    fingerprint: "eb8ee7b2da06e29a0f80b1035f4bf0ff7ce5259fa29b0dc42784a382627a9afd",
+    // DANGLING-DNS REMOVAL (#1017, 26 Oct 2026): 72 -> 73, files unchanged (30).
+    // assessDnsRecordRemovalVerification in asm-cases.js adds one strict
+    // `scanQuality?.status !== "complete"` (fail closed). Two-tree --dump-current
+    // diff vs f8a694cf, ignoring line/offset/cluster positions: that one addition,
+    // none removed; partial_only fingerprint unchanged.
+    fingerprint: "07f6587c3be6890e837fcf1ce5e9bd6a9555c14187e881a4992b7b46278cfb0a",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -386,7 +391,11 @@ const EXPECTED = Object.freeze({
     // `report?.scan_quality`, recorded on the 'failed' row a refused workspace read now
     // leaves (same file set). Two-tree --dump-current diff: this read only; the two
     // scan-engine.js runtime comparisons moved by byte offset only.
-    runtime: { occurrence_count: 146, source_file_count: 49, fingerprint: "fde3aa89356c83aad450af5090fa1d68612d2a6cc0152057cd79adc3fc2fda44" },
+    // DANGLING-DNS REMOVAL (#1017, 26 Oct 2026): 146 -> 147 (same 49 files) — the
+    // destructured `scanQuality = null` parameter of assessDnsRecordRemovalVerification
+    // (asm-cases.js), read by its strict complete check above. Two-tree diff vs
+    // f8a694cf: this read only; every other read differs by position only.
+    runtime: { occurrence_count: 147, source_file_count: 49, fingerprint: "389dc5ccde68e34e13c4ac99ef684373673369a6556e67de9430110dc7946aff" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.
