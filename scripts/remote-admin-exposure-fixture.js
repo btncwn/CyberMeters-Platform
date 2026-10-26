@@ -339,13 +339,101 @@ assert.equal(moduleCompletionGate({ remote_admin_exposure: exposed }, { status: 
   assert.deepEqual(CLOUD_RANGE_SOURCES.map((s) => s.id), ['gcp', 'aws', 'oracle', 'digitalocean']);
 }
 
+// ── Stale stored address vs this scan's DNS (26 Oct 2026, mc-b55d622593c6) ─────
+// The REAL default scope path (observedNetworkAddresses + confirmObservedScope):
+// a stored inventory address is never probed or reported as "resolves to" on
+// the strength of the stored row alone. Offline: DNS is a stub, fetch throws.
+const realFetch = globalThis.fetch;
+globalThis.fetch = async () => { throw new TypeError('offline fixture: no network'); };
+const staleScope = {};
+try {
+  const cloud = { schema: 'cloud-ranges-v1', fetched_at: new Date().toISOString(), providers: { gcp: ['35.224.0.0/16'] } };
+  const live = { '35.224.199.137': { seen_at: '2026-10-22T17:40:44.503Z', source: 'open_port', port: 22 } };
+  const asset = (hostname, ips) => ({ hostname, ip_addresses: JSON.stringify(ips), cname: null, status: 'active', lifecycle_state: 'not_assessed', wildcard_dns: 0, domain: 'example.com' });
+  const storedEnv = (rows) => ({ cybermeters_db: { prepare: (sql) => ({ bind: () => ({
+    first: async () => (/AS allowed/.test(sql) ? { allowed: 1 } : null),
+    all: async () => ({ results: /SELECT DISTINCT lower\(d\.domain\)/.test(sql) ? [{ domain: 'example.com' }] : /FROM workspace_assets a/.test(sql) ? rows : [] }) }) }) } });
+  const rr = (type, data) => ({ name: '', type, TTL: 60, data });
+  const empty = { Status: 0, Answer: [] };
+  const apex = { 'example.com A': { Status: 0, Answer: [rr(1, '81.2.69.160')] } };
+  // The apex host answers (closed ports); every cloud address is dark.
+  const collect = (requests) => async (_env, request) => { assertProbeRequest(request); requests.push(request); return ({ observations: request.targets.flatMap((t) => request.ports.map((port) => ({
+    address: t.address, hostname: null, port, transport: 'tcp', state: t.address.startsWith('35.224.') ? 'timeout' : 'closed', service: null, tls: null, reason: null }))) }); };
+  const scopeRun = async (rows, table = {}) => {
+    const requests = [], asked = [];
+    const dnsQueryImpl = async (name, type) => {
+      asked.push(`${name} ${type}`);
+      const value = { ...apex, ...table }[`${name} ${type}`] ?? empty;
+      if (value instanceof Error) throw value;
+      return value;
+    };
+    const module = await runRemoteAdminExposureModule(storedEnv(rows), scan, { dnsQueryImpl, cloudRanges: async () => cloud, history: async () => live, collect: collect(requests) });
+    const targeted = requests.flatMap((r) => r.targets.map((t) => t.address));
+    const score = computeScore({ dns: { resolves: true }, remote_admin_exposure: module }, 'example.com');
+    const dangling = score.findings.find((f) => f.id === 'dns_cloud_address_unreachable_after_live') || null;
+    const canVerify = moduleCompletionGate({ remote_admin_exposure: module }, { status: 'complete' }).canVerify('remote_admin_exposure');
+    return { module, targeted, asked, dangling, canVerify };
+  };
+  const stale = [asset('probe.example.com', ['35.224.199.137'])];
+
+  // Removed record (NOERROR, no A/AAAA): the stored address is neither probed nor reported.
+  for (const [label, table] of [['NOERROR/empty', {}], ['NXDOMAIN', { 'probe.example.com A': { Status: 3 }, 'probe.example.com AAAA': { Status: 3 } }]]) {
+    const run = await scopeRun(stale, table);
+    assert.ok(run.asked.includes('probe.example.com A') && run.asked.includes('probe.example.com AAAA'), `${label}: fresh A+AAAA evidence is obtained`);
+    assert.equal(run.targeted.includes('35.224.199.137'), false, `${label}: the stale stored address is not probed`);
+    assert.equal(run.dangling, null, `${label}: no "resolves to" claim for a removed record`);
+    assert.deepEqual(run.module.scope_recheck.stale, [{ address: '35.224.199.137', hostname: 'probe.example.com' }]);
+    assert.equal(run.module.incomplete, false, `${label}: a definitively removed record is a complete re-check`);
+    assert.equal(run.canVerify, true, `${label}: the removed record can verify the case`);
+    staleScope[label] = run;
+  }
+  // Unchanged positive answer: the existing dangling-DNS finding still fires.
+  const positive = await scopeRun(stale, { 'probe.example.com A': { Status: 0, Answer: [rr(1, '35.224.199.137')] } });
+  assert.equal(positive.targeted.includes('35.224.199.137'), true);
+  assert.equal(positive.dangling?.severity, 'medium');
+  assert.match(positive.dangling.description, /^probe\.example\.com resolves to 35\.224\.199\.137 in a Google Cloud address range/);
+  // CNAME chain ending at the same address: still the same record.
+  const cname = await scopeRun(stale, { 'probe.example.com A': { Status: 0, Answer: [rr(5, 'lb.cloud.example.'), rr(1, '35.224.199.137')] } });
+  assert.equal(cname.dangling?.severity, 'medium', 'a CNAME chain to the address keeps the claim');
+  // Changed address: the old address is not probed, and the re-check cannot verify anything.
+  const changed = await scopeRun(stale, { 'probe.example.com A': { Status: 0, Answer: [rr(1, '35.224.199.200')] } });
+  assert.equal(changed.targeted.includes('35.224.199.137'), false);
+  assert.equal(changed.dangling, null);
+  assert.ok(changed.module.incomplete_reasons.includes('address_changed'));
+  assert.equal(changed.canVerify, false, 'a changed address cannot cause a false recovery');
+  // Unknown DNS (SERVFAIL, or a refused/out-of-budget lookup): no claim, no recovery.
+  for (const [label, table] of [['SERVFAIL', { 'probe.example.com A': { Status: 2 } }], ['lookup refused', { 'probe.example.com AAAA': new Error('subrequest_budget_exhausted') }],
+    // A truncated answer may be missing records: it proves nothing, even when it names the address.
+    ['truncated empty', { 'probe.example.com A': { Status: 0, TC: true, Answer: [] } }],
+    ['truncated elsewhere', { 'probe.example.com A': { Status: 0, TC: true, Answer: [rr(1, '35.224.199.200')] } }],
+    ['truncated naming the address', { 'probe.example.com A': { Status: 0, TC: true, Answer: [rr(1, '35.224.199.137')] } }]]) {
+    const run = await scopeRun(stale, table);
+    assert.equal(run.targeted.includes('35.224.199.137'), false, `${label}: not probed on stored evidence alone`);
+    assert.equal(run.dangling, null, `${label}: no "resolves to" claim`);
+    assert.ok(run.module.incomplete_reasons.includes('address_lookup_failed'), `${label}: stated as a lookup gap`);
+    assert.equal(run.canVerify, false, `${label}: unknown DNS cannot verify a case`);
+  }
+  // Two names on one address: only the name that still points there is named.
+  const two = await scopeRun([asset('probe.example.com', ['35.224.199.137']), asset('old.example.com', ['35.224.199.137'])],
+    { 'probe.example.com A': { Status: 0, Answer: [rr(1, '35.224.199.137')] } });
+  assert.deepEqual(two.dangling?.affected_hosts, ['probe.example.com']);
+  assert.doesNotMatch(two.dangling.description, /old\.example\.com/);
+  // Bounded: at most max_names names are looked up again; the rest are unknown, never assumed.
+  const crowd = Array.from({ length: 10 }, (_, i) => asset(`h${i}.example.com`, ['35.224.199.137']));
+  const capped = await scopeRun(crowd, Object.fromEntries(crowd.map((a) => [`${a.hostname} A`, { Status: 0, Answer: [rr(1, '35.224.199.137')] }])));
+  const recheckQueries = capped.asked.filter((q) => /^h\d\.example\.com /.test(q)).length;
+  assert.ok(recheckQueries <= 2 * 8, `fresh lookups stay bounded (${recheckQueries})`);
+  assert.ok(capped.module.incomplete_reasons.includes('address_lookup_failed'), 'names beyond the cap are stated, not assumed');
+} finally { globalThis.fetch = realFetch; }
+
 // Mutation proof: each guard reintroduces its defect and the fixture catches it.
 const source = readFileSync(new URL('../workers/scan-api/src/engines/remote-admin-exposure.js', import.meta.url), 'utf8')
   .replaceAll('from "./dns.js"', `from "${new URL('../workers/scan-api/src/engines/dns.js', import.meta.url)}"`)
   .replaceAll('from "./network-ownership.js"', `from "${new URL('../workers/scan-api/src/engines/network-ownership.js', import.meta.url)}"`)
   .replaceAll('from "./network-probe.js"', `from "${new URL('../workers/scan-api/src/engines/network-probe.js', import.meta.url)}"`)
   .replaceAll('from "../lib/util.js"', `from "${new URL('../workers/scan-api/src/lib/util.js', import.meta.url)}"`)
-  .replaceAll('from "./cloud-ranges.js"', `from "${new URL('../workers/scan-api/src/engines/cloud-ranges.js', import.meta.url)}"`);
+  .replaceAll('from "./cloud-ranges.js"', `from "${new URL('../workers/scan-api/src/engines/cloud-ranges.js', import.meta.url)}"`)
+  .replaceAll('from "./network-suggestions.js"', `from "${new URL('../workers/scan-api/src/engines/network-suggestions.js', import.meta.url)}"`);
 const MUTANTS = [
   { name: 'address cap no longer stated', from: 'if (owned.length > selected.length) reasons.push("address_cap");', to: '',
     caught: async (m) => (await m.runRemoteAdminExposureModule(verifiedEnv(), scan, { observe: observe(many), collect: answer() })).incomplete === false },
@@ -364,7 +452,38 @@ const MUTANTS = [
       cloudRanges: async () => ({ schema: 'cloud-ranges-v1', fetched_at: new Date().toISOString(), providers: { gcp: ['35.224.0.0/16'] } }), history: async () => ({}),
       collect: async (_e, r) => { if (r.ports.length === 2) throw new Error('down'); return ({ observations: r.targets.flatMap((t) => r.ports.map((port) => ({ address: t.address, hostname: null, port, transport: 'tcp',
         state: 'timeout', service: null, tls: null, reason: null }))) }); } }).catch(() => ({ cloud_hosts: { hosts: [{ state: 'crashed' }] } }))).cloud_hosts.hosts[0].state !== 'not_assessed' },
+  // Stale stored address (26 Oct 2026): each reintroduces a false "resolves to" or a false recovery.
+  { name: 'a stored address kept without fresh DNS', from: 'else if (answer.addresses.includes(canonical)) kept.push(hostname);', to: 'else if (answer) kept.push(hostname);',
+    caught: async (m) => (await staleRun(m, {})).targeted.includes('35.224.199.137') },
+  { name: 'an unknown lookup treated as still pointing there', from: 'if (!answer || answer.state === "unknown") recheck.unknown.push({ address, hostname });', to: 'if (!answer || answer.state === "unknown") kept.push(hostname);',
+    caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 2 } })).targeted.includes('35.224.199.137') },
+  { name: 'SERVFAIL read as a definitive answer', from: 'if (status !== 0 && status !== 3) return { state: "unknown", addresses: [] };', to: '',
+    caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 2 } })).canVerify === true },
+  { name: 'a truncated empty answer read as a removed record', from: 'if (answer.value?.TC === true) return { state: "unknown", addresses: [] };', to: '',
+    caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 0, TC: true, Answer: [] } })).canVerify === true },
+  { name: 'a changed address no longer stated', from: 'if (addressesChanged > 0) reasons.push("address_changed");', to: '',
+    caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 0, Answer: [{ type: 1, data: '35.224.199.200' }] } })).canVerify === true },
 ];
+// The stale-scope fixture above, against a mutant module.
+async function staleRun(m, table) {
+  const realFetchInner = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError('offline fixture: no network'); };
+  try {
+    const rows = [{ hostname: 'probe.example.com', ip_addresses: '["35.224.199.137"]', cname: null, status: 'active', lifecycle_state: 'not_assessed', wildcard_dns: 0, domain: 'example.com' }];
+    const env = { cybermeters_db: { prepare: (sql) => ({ bind: () => ({
+      first: async () => (/AS allowed/.test(sql) ? { allowed: 1 } : null),
+      all: async () => ({ results: /SELECT DISTINCT lower\(d\.domain\)/.test(sql) ? [{ domain: 'example.com' }] : /FROM workspace_assets a/.test(sql) ? rows : [] }) }) }) } };
+    const answers = { 'example.com A': { Status: 0, Answer: [{ type: 1, data: '81.2.69.160' }] }, ...table };
+    const requests = [];
+    const module = await m.runRemoteAdminExposureModule(env, scan, {
+      dnsQueryImpl: async (name, type) => answers[`${name} ${type}`] ?? { Status: 0, Answer: [] },
+      cloudRanges: async () => ({ schema: 'cloud-ranges-v1', fetched_at: new Date().toISOString(), providers: { gcp: ['35.224.0.0/16'] } }), history: async () => ({}),
+      collect: async (_e, r) => { requests.push(r); return ({ observations: r.targets.flatMap((t) => r.ports.map((port) => ({ address: t.address, hostname: null, port, transport: 'tcp',
+        state: t.address.startsWith('35.224.') ? 'timeout' : 'closed', service: null, tls: null, reason: null }))) }); } });
+    return { targeted: requests.flatMap((r) => r.targets.map((t) => t.address)),
+      canVerify: moduleCompletionGate({ remote_admin_exposure: module }, { status: 'complete' }).canVerify('remote_admin_exposure') };
+  } finally { globalThis.fetch = realFetchInner; }
+}
 const directory = mkdtempSync(join(tmpdir(), 'cm-remote-admin-mutation-'));
 try {
   let index = 0;
