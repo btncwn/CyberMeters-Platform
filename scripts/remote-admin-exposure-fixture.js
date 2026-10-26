@@ -392,6 +392,9 @@ try {
   assert.equal(positive.targeted.includes('35.224.199.137'), true);
   assert.equal(positive.dangling?.severity, 'medium');
   assert.match(positive.dangling.description, /^probe\.example\.com resolves to 35\.224\.199\.137 in a Google Cloud address range/);
+  // A truncated answer that still contains the address keeps it.
+  const truncatedSame = await scopeRun(stale, { 'probe.example.com A': { Status: 0, TC: true, Answer: [rr(1, '35.224.199.137')] } });
+  assert.equal(truncatedSame.dangling?.severity, 'medium', 'a truncated answer naming the address keeps the claim');
   // CNAME chain ending at the same address: still the same record.
   const cname = await scopeRun(stale, { 'probe.example.com A': { Status: 0, Answer: [rr(5, 'lb.cloud.example.'), rr(1, '35.224.199.137')] } });
   assert.equal(cname.dangling?.severity, 'medium', 'a CNAME chain to the address keeps the claim');
@@ -402,7 +405,10 @@ try {
   assert.ok(changed.module.incomplete_reasons.includes('address_changed'));
   assert.equal(changed.canVerify, false, 'a changed address cannot cause a false recovery');
   // Unknown DNS (SERVFAIL, or a refused/out-of-budget lookup): no claim, no recovery.
-  for (const [label, table] of [['SERVFAIL', { 'probe.example.com A': { Status: 2 } }], ['lookup refused', { 'probe.example.com AAAA': new Error('subrequest_budget_exhausted') }]]) {
+  for (const [label, table] of [['SERVFAIL', { 'probe.example.com A': { Status: 2 } }], ['lookup refused', { 'probe.example.com AAAA': new Error('subrequest_budget_exhausted') }],
+    // A truncated answer may be missing records: it proves neither absence nor a move.
+    ['truncated empty', { 'probe.example.com A': { Status: 0, TC: true, Answer: [] } }],
+    ['truncated elsewhere', { 'probe.example.com A': { Status: 0, TC: true, Answer: [rr(1, '35.224.199.200')] } }]]) {
     const run = await scopeRun(stale, table);
     assert.equal(run.targeted.includes('35.224.199.137'), false, `${label}: not probed on stored evidence alone`);
     assert.equal(run.dangling, null, `${label}: no "resolves to" claim`);
@@ -455,6 +461,8 @@ const MUTANTS = [
     caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 2 } })).targeted.includes('35.224.199.137') },
   { name: 'SERVFAIL read as a definitive answer', from: 'if (status !== 0 && status !== 3) return { state: "unknown", addresses: [] };', to: '',
     caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 2 } })).canVerify === true },
+  { name: 'a truncated empty answer read as a removed record', from: 'else if (answer.truncated) recheck.unknown.push({ address, hostname });', to: '',
+    caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 0, TC: true, Answer: [] } })).canVerify === true },
   { name: 'a changed address no longer stated', from: 'if (addressesChanged > 0) reasons.push("address_changed");', to: '',
     caught: async (m) => (await staleRun(m, { 'probe.example.com A': { Status: 0, Answer: [{ type: 1, data: '35.224.199.200' }] } })).canVerify === true },
 ];
