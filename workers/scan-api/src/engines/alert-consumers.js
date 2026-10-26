@@ -468,8 +468,18 @@ const RECURRENCE_COPY = Object.freeze({
     case_verification_failed: Object.freeze({
       what_changed: (entity) => `CyberMeters re-checked ${entity} and still observed the finding, so it could not verify the fix.`,
     }),
+    // A resolution is good news: the subject says so, the body names the finding,
+    // and nothing asks the customer to remediate what is already gone.
     case_resolved: Object.freeze({
-      what_changed: (entity) => `CyberMeters re-checked ${entity} and no longer observed the finding.`,
+      title: (entity, ctx) => ctx?.customer_title
+        ? `${entity}: resolved — ${ctx.customer_title}`
+        : `${entity}: finding resolved`,
+      // Named by the registry title only: a case's own title can be a placeholder
+      // ("Review external exposure") that would read as a demand on a resolution.
+      what_changed: (entity, ctx) => ctx?.customer_title
+        ? `CyberMeters re-checked ${entity} and no longer observed the finding "${ctx.customer_title}".`
+        : `CyberMeters re-checked ${entity} and no longer observed the finding.`,
+      action: (entity) => `No action is needed. CyberMeters keeps monitoring ${entity} and reopens the case if the finding is observed again.`,
     }),
   }),
   certificates_trust: Object.freeze({
@@ -639,6 +649,15 @@ export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay, c
   return `CyberMeters observed a change for ${subject} that needs your review.`;
 }
 
+// The alert subject. A recurrence may declare its own title (a resolution must say
+// it is resolved); otherwise the registry title, then the generic review subject.
+export function titleForRecurrence(domain_key, recurrence, entityDisplay, customerTitle) {
+  const subject = String(entityDisplay || "").trim() || "A monitored item";
+  const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
+  if (copy?.title) return copy.title(subject, { customer_title: customerTitle || null });
+  return customerTitle || `${subject}: review required`;
+}
+
 // The recommendation: recurrence-specific override first (a transition can make
 // the finding-level action wrong — see owner_missing), then the canonical
 // registry action, then the bounded fallback.
@@ -717,7 +736,10 @@ export async function emitCaseLifecycleAlert(env, caseRow, {
       entity: caseRow.domain || caseRow.asset_ref || caseRow.id,
       recurrence,
       record_severity: caseRow.severity,  // the grade scoring already assigned
-      finding_type: finding_type || caseRow.finding_type || null,
+      // Persisted ASM cases carry their finding type as provenance
+      // (source_finding_type, finding_id), not as finding_type.
+      finding_type: finding_type || caseRow.finding_type ||
+        (domain_key === "attack_surface" ? caseRow.source_finding_type || caseRow.finding_id : null) || null,
       case_id: caseRow.id,
       link,
       hostname: caseRow.domain || null,
@@ -834,6 +856,7 @@ export async function emitLifecycleAlert(env, {
     const reopenedNote = await reopenNote(env, workspace_id, case_id, case_reopened);
     const eventDescription = describeRecurrenceEvent(domain_key, recurrence, displayName, {
       finding_label: finding_label || resolved?.customer_title || null,
+      customer_title: resolved?.customer_title || null,
       php_runtime: recurrence === "reported_runtime_outdated" ? module_evidence?.php_runtime : null,
     });
     const canonicalWhatChanged = reopenedNote ? `${eventDescription} ${reopenedNote}` : eventDescription;
@@ -846,7 +869,7 @@ export async function emitLifecycleAlert(env, {
       finding_type,
       module_evidence,
       canonical: {
-        title: resolved?.customer_title || `${displayName}: review required`,
+        title: titleForRecurrence(domain_key, recurrence, displayName, resolved?.customer_title || null),
         what_changed: canonicalWhatChanged,
         recommended_action: canonicalRecommendation,
         remediation_id: resolved?.remediation_id || null,

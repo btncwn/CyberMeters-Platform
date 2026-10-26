@@ -487,5 +487,120 @@ const reset = () => { db.exec("DELETE FROM notification_events; DELETE FROM mana
   eq("event write failure → nothing sent", notifs("ws1").length, 0);
 }
 
+// ── 12. A resolved ASM case says it is resolved and names the finding ─────
+// Persisted ASM rows carry the finding type as provenance (source_finding_type,
+// finding_id), never as finding_type. The bridge read only finding_type, so the
+// registry lookup missed and the subject fell back to "<host>: review required"
+// on good news, with the registry's remediation instruction as the CTA.
+{
+  const KNOWN = "dns_cloud_address_unreachable_after_live";
+  const KNOWN_TITLE = "Check the DNS record that points at a cloud address that stopped answering";
+  const KNOWN_REMEDIATION = "asm.dns.cloud_address_unreachable";
+  const REGISTRY_ACTION = "Verify the record still points at infrastructure you control";
+  const asmCase = (id, { source_finding_type = null, finding_id = `f_${id}`, title = null, severity = "high", dk = "attack_surface" } = {}) => {
+    const c = mkCase(id, "ws1", dk, severity);
+    db.prepare("UPDATE managed_cases SET domain=?, source_finding_type=?, finding_id=?, title=? WHERE id=?")
+      .run(`${id.replace(/_/g, "-")}.example.test`, source_finding_type, finding_id, title, id);
+    return db.prepare("SELECT * FROM managed_cases WHERE id=?").get(id);
+  };
+  const lastNotif = () => { const n = notifs("ws1"); return n[n.length - 1]; };
+  const meta = (n) => JSON.parse(n?.metadata_json || "{}");
+  const assertResolved = (label, n, host) => {
+    ok(`${label}: a notification was written`, Boolean(n));
+    eq(`${label}: subject says resolved and carries the registry title`, n?.title, `${host}: resolved — ${KNOWN_TITLE}`);
+    ok(`${label}: subject never says review required`, !/review required/i.test(n?.title || ""));
+    eq(`${label}: body names the finding`, n?.message,
+      `CyberMeters re-checked ${host} and no longer observed the finding "${KNOWN_TITLE}".`);
+    eq(`${label}: resolution is info at any grade`, n?.severity, "info");
+    const m = meta(n);
+    ok(`${label}: CTA asks for no remediation`, /^No action is needed\./.test(m.recommended_action || ""));
+    ok(`${label}: CTA is not the registry remediation`, !String(m.recommended_action || "").includes(REGISTRY_ACTION));
+    ok(`${label}: no internal finding key in customer copy`, !`${n?.title} ${n?.message} ${m.recommended_action}`.includes(KNOWN));
+  };
+
+  // (a) Stored provenance only — the production shape. No finding_type passed.
+  reset(); activate("ws1", "attack_surface");
+  const a = asmCase("case_res_a", { source_finding_type: KNOWN, finding_id: KNOWN, title: "Review external exposure" });
+  eq("(a) the persisted row has no finding_type column value", a.finding_type ?? null, null);
+  await emitCaseLifecycleAlert(env, a, { domain_key: "attack_surface", recurrence: "case_resolved" });
+  assertResolved("(a) stored source_finding_type", lastNotif(), "case-res-a.example.test");
+  eq("(a) the other tenant is not notified", notifs("ws2").length, 0);
+  ok("(a) a placeholder case title never reaches the resolved copy", !/Review external exposure/.test(`${lastNotif()?.title} ${lastNotif()?.message}`));
+
+  // (a2) Legacy rows with only finding_id still resolve.
+  reset(); activate("ws1", "attack_surface");
+  const a2 = asmCase("case_res_a2", { source_finding_type: null, finding_id: KNOWN });
+  await emitCaseLifecycleAlert(env, a2, { domain_key: "attack_surface", recurrence: "case_resolved" });
+  assertResolved("(a2) finding_id provenance", lastNotif(), "case-res-a2.example.test");
+
+  // (b) An explicit finding_type still wins over stored provenance.
+  reset(); activate("ws1", "attack_surface");
+  const b = asmCase("case_res_b", { source_finding_type: "unmapped_synthetic_key" });
+  await emitCaseLifecycleAlert(env, b, { domain_key: "attack_surface", recurrence: "case_resolved", finding_type: KNOWN });
+  assertResolved("(b) explicit finding_type", lastNotif(), "case-res-b.example.test");
+
+  // (c) Unknown and missing types: honest resolved fallback, no key, no review demand.
+  for (const [label, sft, fid] of [["(c) unmapped type", "unmapped_synthetic_key", "unmapped_synthetic_key"], ["(c) missing type", null, null]]) {
+    reset(); activate("ws1", "attack_surface");
+    const id = sft ? "case_res_c1" : "case_res_c2";
+    const c = asmCase(id, { source_finding_type: sft, finding_id: fid, title: "Review external exposure" });
+    await emitCaseLifecycleAlert(env, c, { domain_key: "attack_surface", recurrence: "case_resolved" });
+    const n = lastNotif();
+    const host = `${id.replace(/_/g, "-")}.example.test`;
+    ok(`${label}: a notification was written`, Boolean(n));
+    eq(`${label}: subject honestly says resolved`, n?.title, `${host}: finding resolved`);
+    eq(`${label}: body says resolved without inventing a name`, n?.message,
+      `CyberMeters re-checked ${host} and no longer observed the finding.`);
+    ok(`${label}: never review required`, !/review/i.test(`${n?.title} ${n?.message}`));
+    ok(`${label}: no internal key leaks`, !`${n?.title} ${n?.message} ${meta(n).recommended_action}`.includes("unmapped_synthetic_key"));
+    ok(`${label}: CTA asks for no remediation`, /^No action is needed\./.test(meta(n).recommended_action || ""));
+    eq(`${label}: no remediation id is invented`, meta(n).remediation_id ?? null, null);
+    eq(`${label}: severity is info`, n?.severity, "info");
+  }
+
+  // (d) Non-resolved control: the registry title and action, inherited severity.
+  for (const rec of ["case_opened", "case_verification_failed"]) {
+    reset(); activate("ws1", "attack_surface");
+    const id = `case_ctl_${rec}`;
+    const d = asmCase(id, { source_finding_type: KNOWN, finding_id: KNOWN, severity: "critical" });
+    await emitCaseLifecycleAlert(env, d, { domain_key: "attack_surface", recurrence: rec });
+    const n = lastNotif();
+    eq(`(d) ${rec}: keeps the registry title`, n?.title, KNOWN_TITLE);
+    ok(`(d) ${rec}: never says resolved`, !/resolved/i.test(n?.title || ""));
+    eq(`(d) ${rec}: severity is inherited`, n?.severity, "critical");
+    ok(`(d) ${rec}: CTA is the registry remediation`, String(meta(n).recommended_action || "").includes(REGISTRY_ACTION));
+  }
+
+  // (e) Other domains keep their semantics: the provenance fallback is ASM-only.
+  reset(); activate("ws1", "brand_protection");
+  const e = asmCase("case_res_e", { source_finding_type: KNOWN, finding_id: KNOWN, dk: "brand_protection" });
+  await emitCaseLifecycleAlert(env, e, { domain_key: "brand_protection", recurrence: "case_resolved" });
+  const en = lastNotif();
+  ok("(e) brand: still alerts", Boolean(en));
+  ok("(e) brand: an ASM registry title is not borrowed from provenance", !(en?.title || "").includes(KNOWN_TITLE));
+  eq("(e) brand: resolution severity unchanged", en?.severity, "info");
+
+  // (f) Existing mappings: dedupe, occurrence and link semantics are unchanged.
+  reset(); activate("ws1", "attack_surface");
+  const f = asmCase("case_res_f", { source_finding_type: KNOWN, finding_id: KNOWN });
+  await emitCaseLifecycleAlert(env, f, { domain_key: "attack_surface", recurrence: "case_resolved" });
+  const fn = lastNotif();
+  const fevs = events("case_res_f");
+  eq("(f) one event, one occurrence", fevs.length, 1);
+  eq("(f) occurrence id is the event id", meta(fn).occurrence_id, fevs[0].id);
+  eq("(f) link is the shared lifecycle record link", meta(fn).link ?? null, lifecycleRecordLink(env, "attack_surface", "case_res_f") ?? null);
+  const keys = [...new Set(ledger("ws1").map((r) => r.dedupe_key))];
+  eq("(f) one dedupe key across every channel", keys.length, 1);
+  eq("(f) the dedupe key is the canonical occurrence key", keys[0],
+    `attack_surface|attack_surface.case_resolved|case-res-f.example.test|${fevs[0].id}`);
+  eq("(f) remediation id from the registry", meta(fn).remediation_id, KNOWN_REMEDIATION);
+  // The hourly sweep re-reaching the same occurrence must not re-alert.
+  const before = notifs("ws1").length;
+  const { emitLifecycleAlert } = await import(eng("alert-consumers.js"));
+  await emitLifecycleAlert(env, { workspace_id: "ws1", domain_key: "attack_surface", record_id: "case_res_f",
+    entity: f.domain, recurrence: "case_resolved", record_severity: f.severity, finding_type: KNOWN, case_id: f.id, hostname: f.domain });
+  eq("(f) a replay of the same occurrence is deduplicated", notifs("ws1").length, before);
+}
+
 report(`\nAlert B1 (canonical managed-case alerts): ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);
