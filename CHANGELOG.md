@@ -7,6 +7,58 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 26 October 2026 — production deployments (no release tag)
+
+Four changes reached production on 26 October. This entry records public
+merge, review, CI and scoped-acceptance facts only. Production deployment and
+rollback identities and the raw acceptance evidence are kept in the private
+operations record, not here. It claims no release tag, engineering seal, soak
+PASS, launch GO or public capability.
+
+**[#1016](https://github.com/btncwn/CyberMeters-Platform/pull/1016) remote-administration stale stored addresses.**
+Merged as [`f8a694cf`](https://github.com/btncwn/CyberMeters-Platform/commit/f8a694cf483445003ed233a91d24ee3523f9a02f).
+A stored address is confirmed against this scan's DNS before it is probed or
+described as "resolves to". A truncated DNS answer is unknown: it cannot
+confirm scope or prove a record removed or moved, so a stale address is
+reported as unprobed rather than absent. Accepted for this detector scope only.
+
+**[#1017](https://github.com/btncwn/CyberMeters-Platform/pull/1017) DNS-removal verification for an unreachable cloud
+address.** Reviewed head
+[`04260bb3`](https://github.com/btncwn/CyberMeters-Platform/commit/04260bb305ab60bdca2c53beaf388c88b46c009c), merged as
+[`2a4863f5`](https://github.com/btncwn/CyberMeters-Platform/commit/2a4863f5407451fb19653780e1e3c04a4c70e15d). The case
+verifier reads the normalised evidence array, and the scan-quality vocabulary
+inventory was re-pinned. Independent focused runs 144/10/63 plus the prior 8;
+exact-head PR checks 16/16 and `main` 15/15. LIVE-ACCEPTED in the private
+record for one complete system resolution after DNS removal.
+
+**[#1018](https://github.com/btncwn/CyberMeters-Platform/pull/1018) DKIM false change when no selector answered.** Reviewed
+head [`1e4b0021`](https://github.com/btncwn/CyberMeters-Platform/commit/1e4b002100e1bd615a153d816def9baa8797a826), R1
+[review 5658801187](https://github.com/btncwn/CyberMeters-Platform/pull/1018#pullrequestreview-5658801187), merged as
+[`44f38f0f`](https://github.com/btncwn/CyberMeters-Platform/commit/44f38f0fa885b8ab582c0e0c09b40b50a72605ae). The DKIM
+comparison uses `selectors_answered`, so a run in which no selector answered
+cannot report a selector change. Exact-head PR checks 16/16, `main` 15/15.
+Fault controls were exercised offline only. Scoped live acceptance in the
+private record: the normal comparison of persisted selectors. This entry makes
+no claim about the cause of the original weekly-email report and no claim of
+zero false positives overall. Known limit: an old absence baseline without
+completed-selector coverage can suppress one real change.
+
+**[#1019](https://github.com/btncwn/CyberMeters-Platform/pull/1019) resolved Attack Surface case alerts.** Reviewed exact
+head [`7b1a6655`](https://github.com/btncwn/CyberMeters-Platform/commit/7b1a6655b6da26bb6fe9f88bb86a7708ed2a35df), R1
+[review 5659653303](https://github.com/btncwn/CyberMeters-Platform/pull/1019#pullrequestreview-5659653303), merged as
+[`cf77d809`](https://github.com/btncwn/CyberMeters-Platform/commit/cf77d809868c3f840110e502b2777c8021b4cc09) after
+exact-head checks 16/16 ([CI run 40407828744](https://github.com/btncwn/CyberMeters-Platform/actions/runs/40407828744)).
+The shared alert builder resolves the finding type from the stored ASM case
+provenance (`source_finding_type`, then `finding_id`), so a `case_resolved`
+alert says resolved, names the finding by its registry title and asks for no
+remediation. An unmapped or missing type reads `<host>: finding resolved`.
+Severity, occurrence, dedupe, link and tenant behaviour are unchanged. Focused
+validators: own 175/175 and truth mapping 69/69. No migration. The API Worker
+and Pages both serve this source; post-deploy smoke checks were health, ready
+200 and unauthenticated workspace 401. **DEPLOYED, NOT LIVE-ACCEPTED:** no new
+real resolved-alert delivery has been observed. No repeat scan or resend of an
+old alert was used as proof.
+
 ## 25 October 2026 — production deployments (no release tag)
 
 Five changes reached production on 25 October. This entry records deployment

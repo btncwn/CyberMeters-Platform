@@ -16,6 +16,50 @@ Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
 re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
+## Dated status reconciliation — 26 October 2026
+
+This is a status overlay, not a new feature queue, constitution or order. Every
+section below keeps its history, order and item contracts unchanged. Where a
+dated label below is now stale, this overlay records the later fact; it does not
+erase any claimed completed gate and does not upgrade an `UNKNOWN` to `PASS` or
+to a defect. Release facts remain in `CHANGELOG.md`.
+
+**Current Founder order (26 October 2026):**
+
+```text
+engineering report → CI preparation → private repository only after the
+Founder approves CI-HAZIR → advertising only after that
+```
+
+The last production deploy is due by 1 November 2026, followed by three full
+clean days; the launch target is 4 November 2026. Production/customer `HOLD`
+remains Founder-only. Nothing here is a tag, engineering seal, soak PASS, launch
+GO or public capability claim.
+
+**26 October production changes** (details in `CHANGELOG.md`):
+
+| PR | Merge | State |
+| --- | --- | --- |
+| [#1016](https://github.com/btncwn/CyberMeters-Platform/pull/1016) | `f8a694cf` | Deployed; accepted for the stale-address detector scope only |
+| [#1017](https://github.com/btncwn/CyberMeters-Platform/pull/1017) | `2a4863f5` | Deployed; one complete DNS-removal system resolution accepted |
+| [#1018](https://github.com/btncwn/CyberMeters-Platform/pull/1018) | `44f38f0f` | Deployed; normal persisted-selector comparison accepted (scoped); fault controls offline only |
+| [#1019](https://github.com/btncwn/CyberMeters-Platform/pull/1019) | `cf77d809` | **DEPLOYED, NOT LIVE-ACCEPTED** — live resolved-alert acceptance OPEN |
+
+**Corrections to stale dated labels:**
+
+- **SPF CIDR Evidence-Fidelity P1** (interlock below, headed "recorded, not
+  implemented"): implemented in [#334](https://github.com/btncwn/CyberMeters-Platform/pull/334) (merged 27 July 2026) and
+  deployed in the `v2026.07.27-2` cutover. Specific live acceptance of readable
+  CIDR evidence on a real authorisation change is still missing.
+- **Free-Scan False-Healthy P1** (interlock below): implemented in
+  [#332](https://github.com/btncwn/CyberMeters-Platform/pull/332) (merged 27 July 2026) and deployed in `v2026.07.27-1`.
+  A later scoped normal public journey was observed. The failed/partial live
+  gate is not globally certified.
+- **43-producer P1 inventory:** the count is the dated measurement already
+  recorded below. It is not measured today. The current source/freshness
+  aggregate (Item 19) remains open; a 26 October read-only source scope map is
+  held as hypotheses only and grants no count, closure or defect credit.
+
 ## Current rescue gate and canonical order — 30 August 2026
 
 The 30-August rescue operation is a bounded recovery of customer actionability,
@@ -378,6 +422,10 @@ takeover candidate, KEV signal).
 
 ### Evidence-integrity interlock — Free-Scan False-Healthy P1
 
+> **Dated status, 26 October 2026:** implemented in [#332](https://github.com/btncwn/CyberMeters-Platform/pull/332) and
+> deployed in `v2026.07.27-1`. A later scoped normal public journey was observed;
+> the failed/partial live gate is not globally certified.
+
 Mandatory, unnumbered interlock in the frozen execution order — **it does not renumber
 anything**. Sequenced **after Item 10 P3 and before Item 10 P4**:
 
@@ -426,6 +474,11 @@ Engineering merged  ≠  deployed  ≠  controlled live acceptance
 Each remains a separate gate with its own evidence; none inherits from another.
 
 ### Evidence-fidelity interlock — SPF CIDR Evidence-Fidelity P1 (recorded, not implemented)
+
+> **Dated status, 26 October 2026:** the heading is the original record. The fix
+> was implemented in [#334](https://github.com/btncwn/CyberMeters-Platform/pull/334) and deployed in `v2026.07.27-2`;
+> specific live CIDR acceptance is still missing. See the reconciliation overlay
+> at the top of this document.
 
 Recorded here for ownership so it is not lost; **no implementation is authorised by this entry.**
 
