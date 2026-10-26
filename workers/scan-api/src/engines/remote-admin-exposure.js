@@ -69,25 +69,23 @@ export const REMOTE_ADMIN_LIMITS = Object.freeze({ max_addresses: 8, deadline_ms
 export const REMOTE_ADMIN_SCOPE_RECHECK = Object.freeze({ max_names: 8 });
 
 // One name: "resolved" (addresses), "absent" (definitive, none) or "unknown".
-// A truncated answer (TC) may be missing records: `truncated` makes it unable
-// to prove an address absent or changed (confirmObservedScope).
 async function freshNameAddresses(name, dnsQueryImpl) {
   const answers = await Promise.allSettled([dnsQueryImpl(name, "A"), dnsQueryImpl(name, "AAAA")]);
   const addresses = [];
-  let truncated = false;
   for (const answer of answers) {
     if (answer.status !== "fulfilled") return { state: "unknown", addresses: [] };
     // 0 = NOERROR, 3 = NXDOMAIN: definitive. Anything else (SERVFAIL, REFUSED) is not.
     const status = answer.value?.Status;
     if (status !== 0 && status !== 3) return { state: "unknown", addresses: [] };
-    if (answer.value?.TC === true) truncated = true;
+    // A truncated answer (TC) may be missing records: it proves nothing either way.
+    if (answer.value?.TC === true) return { state: "unknown", addresses: [] };
     for (const record of answer.value?.Answer || []) {
       if (record?.type !== 1 && record?.type !== 28) continue;
       const address = canonicalAddress(record.data);
       if (address) addresses.push(address);
     }
   }
-  return { state: addresses.length ? "resolved" : "absent", addresses, truncated };
+  return { state: addresses.length ? "resolved" : "absent", addresses };
 }
 
 /** Re-confirm, with this scan's DNS, the names behind this domain's owned addresses. */
@@ -111,7 +109,6 @@ export async function confirmObservedScope(observed, { root, dnsQueryImpl, limit
       const answer = fresh.get(hostname);
       if (!answer || answer.state === "unknown") recheck.unknown.push({ address, hostname });
       else if (answer.addresses.includes(canonical)) kept.push(hostname);
-      else if (answer.truncated) recheck.unknown.push({ address, hostname });
       else if (answer.state === "absent") recheck.stale.push({ address, hostname });
       else recheck.changed.push({ address, hostname });
     }
