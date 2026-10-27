@@ -61,11 +61,14 @@ GO or public capability claim.
 | [#1024](https://github.com/btncwn/CyberMeters-Platform/pull/1024) | `90009a21` | Deployed; three scoped live checks passed (CE action, TLS list, MCP own-case read) |
 | [#1025](https://github.com/btncwn/CyberMeters-Platform/pull/1025) | `dd441901` | Merged; tests and docs only; no Worker deploy; Pages auto-deployed |
 | [#1026](https://github.com/btncwn/CyberMeters-Platform/pull/1026) | `e23f19f0` | **DEPLOYED, NOT LIVE-ACCEPTED** — fresh functional TLS-RPT scan acceptance OPEN |
+| [#1027](https://github.com/btncwn/CyberMeters-Platform/pull/1027) | `ca069fbd` | Documentation only; Pages auto-deployed; no Worker deploy or acceptance-gate change |
+| [#1028](https://github.com/btncwn/CyberMeters-Platform/pull/1028) | `bbf0fc3f` | Deployed; smoke and offline fault proof passed; controlled live primary-email failure acceptance OPEN |
+| [#1029](https://github.com/btncwn/CyberMeters-Platform/pull/1029) | `706b0208` | Pages deployed; canonical Technical Details action-list parity LIVE-ACCEPTED on an existing report; no Worker deploy |
 
 Still OPEN, not passed: #1019 live resolved-alert email delivery; Cyber
 Essentials case verify and reopen on a real control change; the #1022 canary's
-natural morning email; and #1026's fresh TLS-RPT scan. Journeys already accepted
-in scope stay accepted.
+natural morning email; #1026's fresh TLS-RPT scan; and #1028's controlled live
+primary-email failure. Journeys already accepted in scope stay accepted.
 
 **Corrections to stale dated labels:**
 
@@ -76,7 +79,8 @@ in scope stay accepted.
 - **Free-Scan False-Healthy P1** (interlock below): implemented in
   [#332](https://github.com/btncwn/CyberMeters-Platform/pull/332) (merged 27 July 2026) and deployed in `v2026.07.27-1`.
   A later scoped normal public journey was observed. The failed/partial live
-  gate is not globally certified.
+  gate is not globally certified. A 27 October public no-A/AAAA refusal was
+  observed; this proves preflight presentation only, not failed/partial probes.
 - **43-producer P1 inventory:** the count is the dated measurement already
   recorded below. It is not measured today. The current source/freshness
   aggregate (Item 19) remains open; a 26 October read-only source scope map is

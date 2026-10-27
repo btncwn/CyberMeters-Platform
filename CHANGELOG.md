@@ -81,6 +81,38 @@ merge commit.
   fresh functional TLS-RPT scan acceptance is **OPEN**. TLS-RPT report
   delivery and full RFC 8460 field validation are not claimed.
 
+**[#1027](https://github.com/btncwn/CyberMeters-Platform/pull/1027) dated release-record reconciliation.**
+Merged as `ca069fbd`. Documentation only; Pages auto-deployed, with no Worker
+deploy. The earlier scoped acceptance and outstanding live gates remain as
+recorded above.
+
+**[#1028](https://github.com/btncwn/CyberMeters-Platform/pull/1028) primary-email failure must not imply missing SPF.**
+Merged as `bbf0fc3f` at exact head `70578a5f`, after independent non-author R1
+review comment 5670903330 and 16/16 checks. Main push CI run 40545662836 also
+completed successfully. Deployed separately; the release smoke passed.
+- An errored primary-email module remains unobserved through compatibility
+  projection and scoring. It no longer fabricates missing-SPF/DKIM findings,
+  advice or selector observations from an error result. Genuine observed
+  absence and independent DMARC evidence retain their existing gates.
+- The focused production-path validator passed 194 checks and killed 21/21
+  mutants. Controlled live primary-email failure acceptance remains **OPEN**;
+  deployment smoke and offline fault proof do not establish that acceptance.
+
+**[#1029](https://github.com/btncwn/CyberMeters-Platform/pull/1029) Technical Details uses canonical report actions.**
+Merged as `706b0208` at exact head `3d194fea`, after independent non-author R1
+review comment 5671173145, 109 related tests across 16 files and 17/17 checks.
+Main push CI run 40550097158 completed successfully. Frontend only; Pages
+auto-deployed, with no Worker deploy.
+- The Technical Details action count and list now use the immutable snapshot's
+  canonical actions, including an authoritative empty array. Only missing
+  canonical data retains the legacy fallback. The existing Executive renderer
+  preserves grouped findings, frozen instructions, verification wording and
+  case links.
+- Scoped **LIVE-ACCEPTED** on the same existing completed report: Technical
+  Details now shows both canonical actions, including the grouped TLS action
+  already present in the Executive view and PDF. No new scan or historical
+  report rewrite was needed. This closes that action-list mismatch only.
+
 **Main CI note.** Main push CI run 40485558077 failed one frontend test
 (`WorkspaceEmailProtectionPage.hostedDmarcManualControl.test.jsx`, the
 not-ready advance dialog's initial focus). A scheduled run on the same head
@@ -94,8 +126,9 @@ product change in either case.
 **Acceptance still open.** These are not passed and are not claimed here:
 #1019 live resolved-alert delivery by email; Cyber Essentials case verify and
 reopen on a real control change; the free-check canary's natural morning email
-under #1022; and a fresh TLS-RPT scan under #1026. Journeys already accepted in
-scope stay accepted.
+under #1022; a fresh TLS-RPT scan under #1026; and the controlled live
+primary-email failure under #1028. Journeys already accepted in scope stay
+accepted.
 
 ## 26 October 2026 — production deployments (no release tag)
 
