@@ -2231,7 +2231,7 @@ const MUTATIONS = [
     edits: [{
       target: SCORING,
       from: `    const emailModuleUnobserved = modules.email_security?.skipped === true ||
-      modules.email_security?.executed === false;`,
+      modules.email_security?.executed === false || Boolean(modules.email_security?.error);`,
       to:   "    const emailModuleUnobserved = false;",
     }],
     check: () => {
