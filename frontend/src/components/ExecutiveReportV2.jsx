@@ -217,7 +217,7 @@ function CaseLink({ caseId }) {
   return inRouter ? <Link to={to} {...props}>{text}</Link> : <a href={to} {...props}>{text}</a>
 }
 
-function ActionList({ items }) {
+export function ActionList({ items }) {
   if (!items?.length) {
     return (
       <div className="flex items-center gap-2 px-6 py-6 text-sm text-gray-400">

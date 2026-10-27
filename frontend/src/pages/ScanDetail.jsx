@@ -16,7 +16,7 @@ import { rememberSample } from '../lib/scanDuration'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
-import ExecutiveReportV2 from '../components/ExecutiveReportV2'
+import ExecutiveReportV2, { ActionList as CanonicalActionList } from '../components/ExecutiveReportV2'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import SecurityCheckDomains from '../components/SecurityCheckDomains'
 import LiveTlsEvidence, { TlsAssessmentEvidence } from '../components/LiveTlsEvidence'
@@ -1167,8 +1167,12 @@ function BusinessRiskCard({ businessRisk }) {
 
 // ── Report View ──────────────────────────────────────────────────────────────
 
-function ReportView({ report, canonicalScore = null, canonicalQuality = null, signedIn = null, queuedAt = null, waivers = {}, onWaive = null, onUnwaive = null }) {
+function ReportView({ report, canonicalScore = null, canonicalQuality = null, canonicalActions = null, signedIn = null, queuedAt = null, waivers = {}, onWaive = null, onUnwaive = null }) {
   const { cyber_metrics_score: score, risk_level, assessment, findings, recommendations, modules, scan_quality, cyber_mot_domains } = report
+  // The same frozen snapshot owns the Executive/PDF and technical actions.
+  // An explicitly empty list is authoritative; only absent V2 data falls back.
+  const hasCanonicalActions = Array.isArray(canonicalActions)
+  const displayedActions = hasCanonicalActions ? canonicalActions : recommendations
 
   // Sprint 10A: split findings into actionable vs informational.
   // Backward compat: if finding_type absent, fall back to score_impact sign.
@@ -1232,7 +1236,7 @@ function ReportView({ report, canonicalScore = null, canonicalQuality = null, si
           <div className="flex-1 grid grid-cols-3 divide-x divide-gray-100">
             {[
               { label: 'Findings',      value: actionableFindings.length },
-              { label: 'Actions',       value: recommendations?.length ?? 0 },
+              { label: 'Actions',       value: displayedActions?.length ?? 0 },
               { label: 'Scan Duration', value: duration ?? '—' },
             ].map(({ label, value }) => (
               <div key={label} className="flex flex-col items-center justify-center py-6 gap-1">
@@ -1310,8 +1314,10 @@ function ReportView({ report, canonicalScore = null, canonicalQuality = null, si
 
       {/* Recommendations */}
       <div className="card overflow-hidden">
-        <SectionHeader title={`Recommended Actions (${recommendations?.length ?? 0})`} />
-        <RecommendationsPanel recommendations={recommendations} />
+        <SectionHeader title={`Recommended Actions (${displayedActions?.length ?? 0})`} />
+        {hasCanonicalActions
+          ? <CanonicalActionList items={displayedActions} />
+          : <RecommendationsPanel recommendations={displayedActions} />}
       </div>
 
       {/* Changes Since Last Scan */}
@@ -1815,10 +1821,10 @@ export default function ScanDetail() {
                     {(reportV2 && report)
                       ? (reportTab === 'executive'
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={canonicalReportQuality} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} canonicalActions={reportV2?.remediation_actions} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={canonicalReportQuality} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                       : (reportV2
                           ? <ExecutiveReportV2 report={reportV2} hasTlsAssessment={Boolean(report?.modules?.tls_assessment?.endpoints?.length)} />
-                          : <ReportView report={report} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={canonicalReportQuality} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
+                          : <ReportView report={report} canonicalActions={reportV2?.remediation_actions} canonicalScore={reportV2?.cyber_metrics_score && typeof reportV2.cyber_metrics_score === 'object' ? reportV2.cyber_metrics_score : null} canonicalQuality={canonicalReportQuality} signedIn={reportV2?.website_signed_in ?? null} queuedAt={scan.created_at} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                     }
                   </div>
                 ) : null
