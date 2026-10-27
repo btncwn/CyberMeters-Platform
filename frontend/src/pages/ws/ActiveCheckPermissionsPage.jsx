@@ -153,6 +153,10 @@ export default function ActiveCheckPermissionsPage() {
   const catalogue = data?.catalogue || []
   const labels = Object.fromEntries(catalogue.map((c) => [c.id, c.label]))
   const availability = Object.fromEntries(catalogue.map((c) => [c.id, c.available === true]))
+  // Only checks a released engine runs today are offered (Founder, 27 Oct 2026).
+  // An unavailable or unknown entry is not shown as a choice at all; its label
+  // stays in `labels` so an older receipt that names it still reads in words.
+  const offered = catalogue.filter((c) => c.available === true)
   const authority = data?.authority || null
   const consents = data?.consents || []
   const domain = (domains || []).find((d) => d.domain_id === form.domain_id) || null
@@ -163,7 +167,7 @@ export default function ActiveCheckPermissionsPage() {
   const ready = canManage && !busy && domain && form.checks.length > 0 && form.signer_name.trim() && form.signer_title.trim() && form.confirmed && authority && hosts.length <= MAX_HOSTS
   // Why Authorise is not available yet, in one sentence (founder, 23 Oct 2026: a
   // disabled button that looked enabled read as "nothing happens").
-  const anyAvailable = (data?.catalogue || []).some((c) => c.available === true)
+  const anyAvailable = offered.length > 0
   const notReadyReason = ready || busy ? null
     : !anyAvailable ? 'None of these checks can be authorised yet. They become available here when CyberMeters starts running them.'
       : form.checks.length === 0 ? 'Tick at least one check to authorise.'
@@ -174,7 +178,10 @@ export default function ActiveCheckPermissionsPage() {
                 : 'Complete the form above to authorise.'
 
   const set = (key, value) => { setForm((f) => ({ ...f, [key]: value })); setError(null) }
-  const toggleCheck = (id) => set('checks', form.checks.includes(id) ? form.checks.filter((c) => c !== id) : [...form.checks, id])
+  const toggleCheck = (id) => {
+    if (!availability[id]) return
+    set('checks', form.checks.includes(id) ? form.checks.filter((c) => c !== id) : [...form.checks, id])
+  }
 
   async function authorise(event) {
     event.preventDefault()
@@ -186,7 +193,7 @@ export default function ActiveCheckPermissionsPage() {
         domain_id: domain.domain_id,
         hosts,
         // Never send a check the catalogue does not mark available (#929 refuses it anyway).
-        checks: form.checks.filter((id) => catalogue.find((c) => c.id === id)?.available === true),
+        checks: form.checks.filter((id) => availability[id] === true),
         signer_name: form.signer_name.trim(),
         signer_title: form.signer_title.trim(),
         authority_confirmed: true,
@@ -281,7 +288,7 @@ export default function ActiveCheckPermissionsPage() {
               </label>
 
               {/* Founder, 23 Oct 2026: why a TLS check can read "not tested" for a site on a CDN — answered on the page. */}
-              {catalogue.some((c) => String(c.id).startsWith('tls_')) && (
+              {offered.some((c) => String(c.id).startsWith('tls_')) && (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700" data-testid="tls-scope-note">
                   The TLS checks test servers you run yourself — your origin or web server, mail server, VPN or remote-access gateway, or any service on your own IP address. If your website sits behind a CDN or hosting provider, its HTTPS is the provider&apos;s, and CyberMeters will not test shared provider infrastructure. Add your own servers under{' '}
                   <Link to="/ws/certificates?tab=settings#additional-tls-services" className="underline text-brand-700">Certificates &amp; Trust → Settings → Additional TLS services</Link> to include them.
@@ -289,25 +296,19 @@ export default function ActiveCheckPermissionsPage() {
               )}
               <fieldset className="text-sm">
                 <legend className="font-medium text-gray-800">Checks</legend>
-                <p className="text-xs text-gray-500 mt-0.5">None are selected for you. A permission covers only the checks you tick, never checks added later.</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {catalogue.map((c) => {
-                    // The catalogue says whether a released engine runs the check today
-                    // (#929). Only `available: true` is offered — an offer never comes
-                    // from an absent field (Executive 14:40, as the backend's === true).
-                    const unavailable = c.available !== true
-                    return (
-                      <label key={c.id} className={`flex items-start gap-2 rounded-lg border p-3 ${unavailable ? 'border-gray-100 bg-gray-50 text-gray-500' : 'border-gray-200'}`} data-testid={`active-check-${c.id}`}>
-                        <input type="checkbox" className="mt-0.5" checked={!unavailable && form.checks.includes(c.id)} onChange={() => toggleCheck(c.id)} disabled={busy || unavailable}
-                          aria-describedby={unavailable ? `active-check-${c.id}-na` : undefined} />
-                        <span>
-                          {c.label}
-                          {unavailable && <span id={`active-check-${c.id}-na`} className="block text-xs text-gray-600 mt-0.5">Not available yet — CyberMeters does not run this check today, so it cannot be authorised.</span>}
-                        </span>
+                {offered.length > 0 ? <>
+                  <p className="text-xs text-gray-500 mt-0.5">None are selected for you. A permission covers only the checks you tick, never checks added later.</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {offered.map((c) => (
+                      <label key={c.id} className="flex items-start gap-2 rounded-lg border border-gray-200 p-3" data-testid={`active-check-${c.id}`}>
+                        <input type="checkbox" className="mt-0.5" checked={form.checks.includes(c.id)} onChange={() => toggleCheck(c.id)} disabled={busy} />
+                        <span>{c.label}</span>
                       </label>
-                    )
-                  })}
-                </div>
+                    ))}
+                  </div>
+                </> : (
+                  <p className="text-sm text-gray-600 mt-1" data-testid="no-active-checks-offered">No active check can be authorised here yet.</p>
+                )}
               </fieldset>
 
               <div className="grid gap-4 sm:grid-cols-2">
