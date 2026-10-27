@@ -5,6 +5,8 @@ import { TLS_SPECIAL_CONTROLS_AVAILABLE } from '../../../../shared/tls/catalog.j
 export const TLS_SPECIAL_CONSENT_VERSION = 'tls-special-2026-10-13';
 export const TLS_SERVICE_PORTS = Object.freeze({https:[443,8443],smtp:[25,587],smtps:[465],imap:[143],imaps:[993],pop3:[110],pop3s:[995]});
 export const TLS_SERVICE_LIMIT = 64;
+// The service's own network target, in the same workspace, not withdrawn.
+const LIVE_TARGET = 'EXISTS(SELECT 1 FROM network_targets t WHERE t.id=s.network_target_id AND t.workspace_id=s.workspace_id AND t.withdrawn_at IS NULL)';
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 const strict = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every(key => keys.includes(key));
 export const tlsAuthorizationProjection = row => ({enabled:row?.enabled === 1,generation:row?.generation || 0,consent_version:row?.consent_version || null,authorized_by:row?.authorized_by || null,authorized_at:row?.authorized_at || null,revoked_by:row?.revoked_by || null,revoked_at:row?.revoked_at || null,updated_at:row?.updated_at || null});
@@ -27,7 +29,10 @@ export async function tlsAuthorizationRoutes(rctx, { specialControlsAvailable = 
     const canManage = !!await requireWorkspaceRole(user,workspaceId,'domain:import',env);
     const assessmentAvailable = env.TLS_ASSESSMENT_MODE === 'evidence-v1';
     const readAuthorization = async () => tlsAuthorizationProjection(await db.prepare('SELECT * FROM workspace_tls_authorizations WHERE workspace_id=?').bind(workspaceId).first());
-    const readServices = async () => (await db.prepare("SELECT * FROM workspace_tls_service_authorizations WHERE workspace_id=? AND authorization_status='active' ORDER BY authorized_at,id LIMIT 64").bind(workspaceId).all()).results.map(tlsServiceProjection);
+    // An active service whose network target was withdrawn (#1011) is not in
+    // scope: the planner already skips it, so it is not listed or counted as
+    // active either. Its stored record and history are left as they are.
+    const readServices = async () => (await db.prepare(`SELECT s.* FROM workspace_tls_service_authorizations s WHERE s.workspace_id=? AND s.authorization_status='active' AND ${LIVE_TARGET} ORDER BY s.authorized_at,s.id LIMIT 64`).bind(workspaceId).all()).results.map(tlsServiceProjection);
     if (request.method === 'GET' && !serviceId) {
       if (resource) return json({services:await readServices(),capabilities:{can_manage:canManage,assessment_available:assessmentAvailable,special_controls_available:specialControlsAvailable}});
       const [authorization,services,domains,targets] = await Promise.all([
@@ -92,7 +97,7 @@ export async function tlsAuthorizationRoutes(rctx, { specialControlsAvailable = 
       WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=? AND deleted_at IS NULL)
       AND EXISTS(SELECT 1 FROM workspace_domains wd JOIN domains d ON d.id=wd.domain_id WHERE wd.workspace_id=? AND wd.domain_id=? AND wd.verification_status='verified' AND d.domain=?)
       AND EXISTS(SELECT 1 FROM network_targets WHERE workspace_id=? AND id=? AND authorization_status='attested' AND scope_state='in_scope' AND withdrawn_at IS NULL)
-      AND (SELECT COUNT(*) FROM workspace_tls_service_authorizations WHERE workspace_id=? AND authorization_status='active')<64`)
+      AND (SELECT COUNT(*) FROM workspace_tls_service_authorizations s WHERE s.workspace_id=? AND s.authorization_status='active' AND ${LIVE_TARGET})<64`)
       .bind(id,workspaceId,body.domain_id,body.hostname,body.sni,body.port,body.application_protocol,body.network_target_id,user.id,now,now,workspaceId,workspaceId,body.domain_id,domain.domain,workspaceId,body.network_target_id,workspaceId);
     let results;
     try {results = await db.batch([write,generationAfterChange(),auditAfterChange('tls_service_authorized','tls_service',id,{domain_id:body.domain_id,hostname:body.hostname,sni:body.sni,port:body.port,application_protocol:body.application_protocol,network_target_id:body.network_target_id})]);}

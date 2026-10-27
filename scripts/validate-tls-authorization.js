@@ -112,6 +112,28 @@ for(let i=activeCount;i<TLS_SERVICE_LIMIT;i++) sql.prepare(`INSERT INTO workspac
 check((await request('POST','/services',{...service,hostname:'overflow.owned.example.com',sni:'overflow.owned.example.com'})).status,409);
 check((await request()).body.authorization.generation,generationBeforeRace);
 check(sql.prepare('SELECT COUNT(*) AS n FROM audit_events').get().n,auditsBeforeRace);
+// #1011 follow-up: an active service whose network target was later withdrawn is
+// neither listed nor counted toward the limit; its stored record is untouched.
+// A row pointing at another tenant's target id is not this workspace's live scope.
+sql.prepare("INSERT INTO network_targets(id,workspace_id,target,authorization_status,addresses_json,scope_state) VALUES('target_w','a','8.8.8.4','attested','[\"8.8.8.4\"]','in_scope')").run();
+sql.prepare("UPDATE workspace_tls_service_authorizations SET network_target_id='target_w' WHERE id='cap_63'").run();
+sql.prepare("UPDATE workspace_tls_service_authorizations SET network_target_id='target_b' WHERE id='cap_62'").run();
+const listed=async(workspace='a')=>(await request('GET','',undefined,{workspace,allowedWorkspace:workspace})).body.services.map(row=>row.id);
+check((await listed()).includes('cap_63'),true);
+check((await listed()).includes('cap_62'),false);
+sql.prepare("UPDATE network_targets SET withdrawn_at='2026-10-25T15:30:00Z' WHERE id='target_w'").run();
+check((await listed()).includes('cap_63'),false);
+check((await request('GET','/services')).body.services.some(row=>row.id==='cap_63'),false);
+check({...sql.prepare("SELECT authorization_status,network_target_id,generation FROM workspace_tls_service_authorizations WHERE id='cap_63'").get()},{authorization_status:'active',network_target_id:'target_w',generation:1});
+// With two of the 64 stored active rows out of live scope, a valid service fits again.
+response=await request('POST','/services',{...service,hostname:'fits.owned.example.com',sni:'fits.owned.example.com'});
+check(response.status,201);
+check((await request('POST','/services',{...service,hostname:'fits2.owned.example.com',sni:'fits2.owned.example.com'})).status,201);
+check((await request('POST','/services',{...service,hostname:'fits3.owned.example.com',sni:'fits3.owned.example.com'})).status,409);
+// Workspace b never sees workspace a's services, live or withdrawn.
+check((await listed('b')).some(id=>id.startsWith('cap_')),false);
+// A viewer reads the same live list.
+check((await request('GET','',undefined,{role:'viewer'})).body.services.some(row=>row.id==='cap_63'),false);
 check(networkCalls,0);
 console.log(`TLS authorization: ${assertions} assertions passed; tenant, role, scope, revocation generation, atomic audit and zero scan dispatch.`);
 sql.close();

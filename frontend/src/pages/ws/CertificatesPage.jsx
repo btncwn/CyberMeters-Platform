@@ -205,11 +205,12 @@ function FindingPill({ finding }) {
 const SERVICE_LABELS = { https: 'HTTPS', smtp: 'SMTP with STARTTLS', smtps: 'SMTP over TLS', imap: 'IMAP with STARTTLS', imaps: 'IMAP over TLS', pop3: 'POP3 with STARTTLS', pop3s: 'POP3 over TLS' }
 const EMPTY_SERVICE = { domain_id: '', hostname: '', network_target_id: '', protocol: 'https:443' }
 
-// One workspace permission for the bounded special controls; service scope is
-// separately declared. Neither action starts a scan or authorizes a shared IP.
+// Service scope is declared here; it never starts a scan or authorizes a shared
+// IP. The bounded special controls are authorised only on the Active Checks
+// permission page (per domain, host and check). The old workspace-wide switch
+// grants nothing, so its stored flag is never shown as a permission.
 export function TlsAuthorizationSettings({ workspaceId }) {
   const [data, setData] = useState(null)
-  const [desired, setDesired] = useState(false)
   const [service, setService] = useState(EMPTY_SERVICE)
   const [attested, setAttested] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -223,7 +224,7 @@ export function TlsAuthorizationSettings({ workspaceId }) {
     try {
       const result = await api.getTlsAuthorization(workspaceId)
       if (ticket !== latest.current || scope.current !== workspaceId) return
-      setData({ ...result, workspaceId }); setDesired(result.authorization?.enabled === true); setError(null)
+      setData({ ...result, workspaceId }); setError(null)
     } catch {
       if (ticket === latest.current && scope.current === workspaceId) setError('TLS permissions could not be loaded. Try again.')
     }
@@ -247,11 +248,6 @@ export function TlsAuthorizationSettings({ workspaceId }) {
       if (scope.current === requestedWorkspace) setError(failure?.message || 'The permission could not be saved. Try again.')
     } finally { if (scope.current === requestedWorkspace) setBusy(false) }
   }
-  function savePermission(event) {
-    event.preventDefault()
-    if (!canManage || !current || busy) return
-    mutate(() => api.saveTlsAuthorization(workspaceId, { enabled: desired, ...(desired ? { authorization_confirmed: true, consent_version: current.consent_version } : {}) }), desired ? 'Permission saved for this workspace. No scan was started.' : 'Special TLS permission revoked. Running special checks must stop; recorded evidence remains available.')
-  }
   function addService(event) {
     event.preventDefault()
     if (!canManage || !attested || busy) return
@@ -266,12 +262,9 @@ export function TlsAuthorizationSettings({ workspaceId }) {
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {notice && <p role="status" className="text-sm text-gray-700">{notice}</p>}
     {!current ? <button type="button" className="btn-secondary text-sm" onClick={load}>Reload TLS permissions</button> : <>
-      {current.capabilities?.special_controls_available === true && <form onSubmit={savePermission} className="space-y-2">
-        <label className="flex items-start gap-2 text-sm text-gray-800"><input type="checkbox" className="mt-1" checked={desired} onChange={event => setDesired(event.target.checked)} disabled={!canManage || busy} /><span>Allow bounded checks for known TLS vulnerabilities on this workspace’s authorized targets.</span></label>
-        <p className="text-xs text-gray-500">This permission is reserved for separately validated, bounded Heartbleed, ROBOT and CCS checks. No memory harvesting, data decryption or load testing. It adds no domains, IP addresses or ports to your scope.</p>
-        <p className="text-xs text-gray-500">{current.authorization?.enabled ? 'Special checks are permitted.' : 'Special checks are not permitted.'} Saving this setting does not start a scan.</p>
-        {canManage ? <button className="btn-secondary text-sm" disabled={busy || desired === (current.authorization?.enabled === true)}>{busy ? 'Saving…' : 'Save TLS permission'}</button> : <p className="text-xs text-gray-500">A workspace admin can change these permissions.</p>}
-      </form>}
+      {current.capabilities?.special_controls_available === true && <p className="text-sm text-gray-700" data-testid="tls-special-checks-link">
+        Heartbleed, ROBOT and CCS checks are authorised per domain, host and check on the <Link to="/ws/active-checks/permission" className="underline text-brand-700">Active Checks permission</Link> page.
+      </p>}
       {/* Linked from Active Checks and TLS evidence (#additional-tls-services): opens when the link lands here. */}
       <details id="additional-tls-services" className="border-t border-gray-100 pt-3 scroll-mt-24" open={typeof window !== 'undefined' && window.location.hash === '#additional-tls-services' ? true : undefined}>
         <summary className="cursor-pointer text-sm font-semibold">Additional TLS services ({services.length})</summary>
