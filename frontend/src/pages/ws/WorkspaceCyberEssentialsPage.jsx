@@ -617,6 +617,18 @@ export default function WorkspaceCyberEssentialsPage() {
   const planError = error?.error === 'plan_feature_required' ? null : error?.message
   const selfControls = readiness?.self_assessment?.controls || []
   const readinessNotAssessed = readinessIsNotAssessed(readiness)
+  // A complete, saved questionnaire with a self-declared gap: reviewing that
+  // answer is the job, not a scan — an external re-check cannot see an internal
+  // answer. Only when the answers and readiness loaded; a finding or a case still
+  // comes first (ModuleContract fallbackNextAction).
+  const selfDeclaredGaps = selfControls.reduce((n, control) => n + (Array.isArray(control?.self_attestation?.gaps) ? control.self_attestation.gaps.length : 0), 0)
+  const questionnaireDone = progress.total > 0 && progress.answered === progress.total
+  const selfDeclaredNext = !loading && !error && readiness && questionnaireDone && selfDeclaredGaps > 0 ? {
+    title: 'Review your self-declared answers',
+    body: `${selfDeclaredGaps} of your saved answers ${selfDeclaredGaps === 1 ? 'shows' : 'show'} a gap. These are your own answers about internal users, devices and processes: CyberMeters cannot see them from outside, so a new scan does not check them. Review them with your IT provider or internal owner.`,
+    label: 'Review your self-declared answers',
+    to: '/ws/cyber-essentials?tab=findings#questionnaire',
+  } : null
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={planError} onRetry={load}>
@@ -635,6 +647,7 @@ export default function WorkspaceCyberEssentialsPage() {
             label: 'Start questionnaire',
             to: '/ws/cyber-essentials?tab=findings#questionnaire',
           } : null}
+          fallbackNextAction={selfDeclaredNext}
           overview={(
             <>
               {/* The readiness indicator and which controls external evidence can

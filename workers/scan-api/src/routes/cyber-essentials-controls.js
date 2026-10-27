@@ -29,7 +29,7 @@ import { pageMeta, paginationParams } from "../lib/util.js";
 
 const CE_SCOPE_NOTE =
   "Indicative readiness from externally observable evidence only. CyberMeters does not certify Cyber Essentials and does not verify these controls. "
-  + "Coverage is partial by nature: controls marked `not_externally_assessable` cannot be observed from outside at all, and their absence from this list's "
+  + "Coverage is partial by nature: controls marked Not visible externally cannot be observed from outside at all, and their absence from this list's "
   + "findings is not evidence that they pass. Questionnaire answers are a customer self-assessment, are never treated as verification, and are served separately.";
 
 export async function cyberEssentialsControlsRoutes(rctx) {
