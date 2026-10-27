@@ -7,6 +7,56 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 27 October 2026 — merges and production deployments (no release tag)
+
+This entry records public merge, review, CI and scoped-acceptance facts only.
+Production deployment and rollback identities and raw acceptance evidence stay
+in the private operations record. It claims no release tag, engineering seal,
+soak PASS, launch GO or public capability.
+
+**[#1020](https://github.com/btncwn/CyberMeters-Platform/pull/1020) docs: 26 October release facts and a dated backlog
+status overlay.** Merged as `1febe8cc`. Documentation only.
+
+**[#1021](https://github.com/btncwn/CyberMeters-Platform/pull/1021) Active Checks permission form offers only released
+checks.** Merged as `b4c99e08` after R1 review 5663758021 on exact head
+`61edc6fe` and 17/17 checks. Frontend only (Pages); no Worker deploy. The five
+checks without an engine are no longer offered; receipts that name them stay
+readable and revocable. Live acceptance is not recorded in this entry.
+
+**[#1022](https://github.com/btncwn/CyberMeters-Platform/pull/1022) free-check canary reports incomplete results.**
+Merged as `b88e8873` after R1 review 5663958755 on exact head `414c0884` and
+16/16 checks; deployed separately, with the deploy smoke passing. Canary
+outcomes are classified per component (error / incomplete / ok), so a
+conclusive SPF permerror is a completed check and an unknown result is
+reported every fresh morning. Live acceptance is not recorded in this entry.
+
+**[#1023](https://github.com/btncwn/CyberMeters-Platform/pull/1023) mobile workspace switcher in the top bar.** Merged as
+`97398586` after 17/17 checks and integrator review 5664249891. Below 1024px
+the workspace card is in the top bar instead of floating over content; from
+1024px it is unchanged. Scoped live acceptance in the private record: an
+authenticated narrow viewport of CSS 520x1125 (a requested 390 rendered at 520
+through browser scaling) and a wide viewport of 1440x900. Exact 390, 768, 1024
+and 1440 widths were proven by real-Layout E2E only.
+
+**[#1024](https://github.com/btncwn/CyberMeters-Platform/pull/1024) three P2 fixes.** Merged as `90009a21` after R1 review
+5665107494 on exact head `a89735b9` and 17/17 checks; deployed separately.
+- Cyber Essentials: a complete, saved questionnaire with a self-declared gap
+  shows "Review your self-declared answers" rather than "Run a scan"; the
+  controls scope note names the state in words.
+- MCP: `getManagedCase` and `getPortfolioSummary` are forwarded by the
+  customer read entrypoint.
+- TLS: services on withdrawn network targets are not listed or counted, and
+  Certificates settings no longer reads the legacy special-check flag.
+Scoped live checks passed in the private record: the CE saved-gap action and
+note, the TLS active list, and an MCP own-case read.
+
+**Main CI note.** Main push CI run 40485558077 failed one frontend test
+(`WorkspaceEmailProtectionPage.hostedDmarcManualControl.test.jsx`, the
+not-ready advance dialog's initial focus). A scheduled run on the same head
+passed, which does not establish the cause. The test asserted focus before
+`useDialog`'s passive effect moves it; the test now waits for that same focus.
+No product change.
+
 ## 26 October 2026 — production deployments (no release tag)
 
 Four changes reached production on 26 October. This entry records public
