@@ -458,6 +458,73 @@ export function mtaStsAdmission(mtaSts = {}) {
   });
 }
 
+// TLS-RPT (RFC 8460 §3) from one _smtp._tls TXT answer set. DNS JSON carries a
+// TXT value as quoted character-strings ("v=TLSRPTv1; rua=…", or split into
+// several "…" "…" chunks); normalizeDnsTxtValue joins them, as for SPF and DMARC.
+// Only TXT answers count. A record must begin with the exact version tag v=TLSRPTv1
+// followed by ";" (so v=TLSRPTv12 is not a version-1 record), and must carry an
+// rua field. RFC 8460: records with another start are discarded, and if not
+// exactly one remains, or that one is invalid, the domain does not implement
+// TLS-RPT — a conclusive "no valid record", never a lookup failure.
+const DNS_TYPE_TXT = 16;
+const TLS_RPT_VERSION_PREFIX = /^v=TLSRPTv1\s*;/i;
+
+export function parseTlsRptAnswers(answers) {
+  const txt = (Array.isArray(answers) ? answers : [])
+    .filter((answer) => Number(answer?.type) === DNS_TYPE_TXT && typeof answer?.data === "string")
+    .map((answer) => normalizeDnsTxtValue(answer.data));
+  const candidates = txt.filter((value) => TLS_RPT_VERSION_PREFIX.test(value));
+  if (candidates.length === 0) {
+    return { valid: false, record: null, reporting_uris: [], reason: txt.length ? "no_tls_rpt_record" : "no_txt_record",
+      error: txt.length ? "No valid TLS-RPT record found (missing v=TLSRPTv1)." : "No TXT record found at the TLS-RPT name." };
+  }
+  if (candidates.length > 1) {
+    return { valid: false, record: null, reporting_uris: [], reason: "multiple_records",
+      error: "More than one TLS-RPT record was found; RFC 8460 requires exactly one." };
+  }
+  const record = candidates[0];
+  let reportingUris = [];
+  for (const part of record.split(";").slice(1)) {
+    const eq = part.indexOf("=");
+    if (eq > 0 && part.slice(0, eq).trim().toLowerCase() === "rua") {
+      reportingUris = part.slice(eq + 1).split(",").map((uri) => uri.trim()).filter(Boolean);
+    }
+  }
+  if (reportingUris.length === 0) {
+    return { valid: false, record, reporting_uris: [], reason: "missing_rua",
+      error: "The TLS-RPT record has no rua reporting address, so it is not a valid record." };
+  }
+  return { valid: true, record, reporting_uris: reportingUris, reason: "record_observed", error: null };
+}
+
+const TLS_RPT_OBSERVATION_STATES = Object.freeze(["present", "definitive_absent", "unavailable"]);
+
+/**
+ * Canonical TLS-RPT admission, the TLS-RPT counterpart of mtaStsAdmission. Only a
+ * conclusive DNS answer (NOERROR/NXDOMAIN) can say "no valid record"; a failed,
+ * unsettled or malformed lookup is `unavailable` and admits neither a score, a
+ * missing-record finding nor publish advice. A token that does not cohere with the
+ * row is demoted to `unavailable`. A row from before observation_state keeps its
+ * original reading (enabled === true is present, otherwise absent); no row at all
+ * is `not_observed`.
+ */
+export function tlsRptAdmission(tlsRpt) {
+  const row = tlsRpt && typeof tlsRpt === "object" ? tlsRpt : null;
+  let state;
+  if (!row) state = "not_observed";
+  else if (row.observation_state == null) state = row.enabled === true ? "present" : "definitive_absent";
+  else if (!TLS_RPT_OBSERVATION_STATES.includes(row.observation_state)) state = "unavailable";
+  else if (row.observation_state === "present") state = row.enabled === true && typeof row.record === "string" ? "present" : "unavailable";
+  else if (row.observation_state === "definitive_absent") state = row.enabled === true ? "unavailable" : "definitive_absent";
+  else state = "unavailable";
+  return Object.freeze({
+    state,
+    missing_finding: state === "definitive_absent",
+    score_admitted: state === "present",
+    remediation_admitted: state === "definitive_absent",
+  });
+}
+
 export function buildEmailTransportDetails(emailIntel = {}) {
   const mta = emailIntel.mta_sts || {};
   const tls = emailIntel.tls_rpt || {};
@@ -470,6 +537,7 @@ export function buildEmailTransportDetails(emailIntel = {}) {
   // token to unavailable) is what every field below renders — the raw token is
   // never echoed to a customer surface.
   const admitted = malformed ? "unavailable" : mtaStsAdmission(mta).state;
+  const tlsAdmitted = tlsRptAdmission(emailIntel.tls_rpt).state;
   return {
     mta_sts_detail: {
       record_found: null,
@@ -493,9 +561,17 @@ export function buildEmailTransportDetails(emailIntel = {}) {
       ],
     },
     tls_rpt_detail: {
-      record_found: tls.enabled === true,
-      rua: tls.reporting_uris || [],
-      warnings: (tls.errors || []).map((w) => sanitizeInfraErrorMessage(w, "tls_rpt")),
+      // null, not false, when the lookup did not conclude: unknown is never "no record".
+      record_found: tlsAdmitted === "present" ? true : tlsAdmitted === "definitive_absent" ? false : null,
+      observation_state: tlsAdmitted,
+      reason: tls.reason ?? null,
+      coverage_state: tlsAdmitted === "unavailable" ? "incomplete"
+        : ["present", "definitive_absent"].includes(tlsAdmitted) ? "complete" : "not_assessed",
+      rua: tlsAdmitted === "present" ? (tls.reporting_uris || []) : [],
+      warnings: [
+        ...(tls.errors || []).map((w) => sanitizeInfraErrorMessage(w, "tls_rpt")),
+        ...(tlsAdmitted === "unavailable" ? ["TLS-RPT could not be verified during this scan."] : []),
+      ],
     },
   };
 }
@@ -677,7 +753,7 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
   if (emailIntel.mta_sts && transport.mta_sts_detail.policy_found === false) actions.push(remediationAction("mta_sts_policy_missing", "MTA-STS", "low", "Review MTA-STS transport policy",
     "An MTA-STS policy file was not confirmed.", "Inbound SMTP TLS enforcement may be less resilient to downgrade or misconfiguration.",
     "Assess MTA-STS after confirming the domain's MX configuration and operational ownership."));
-  if (emailIntel.tls_rpt && !transport.tls_rpt_detail.record_found) actions.push(remediationAction("tls_rpt_missing", "TLS-RPT", "info", "Add TLS delivery reporting",
+  if (tlsRptAdmission(emailIntel.tls_rpt).remediation_admitted) actions.push(remediationAction("tls_rpt_missing", "TLS-RPT", "info", "Add TLS delivery reporting",
     "No TLS-RPT record was confirmed.", "Email administrators may have less visibility into SMTP TLS delivery failures.",
     `Publish v=TLSRPTv1; rua=mailto:tls-reports@${domain} at _smtp._tls.${domain}.`,
     { suggested_dns_record: `v=TLSRPTv1; rua=mailto:tls-reports@${domain}` }));
