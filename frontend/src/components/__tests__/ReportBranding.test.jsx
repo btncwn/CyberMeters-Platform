@@ -157,7 +157,9 @@ describe('Report branding for a single business', () => {
     render(<WorkspaceReportBranding workspaceId="ws_plain" />)
     expect(await screen.findByText('Put your company name and logo on reports.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Report branding' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Name on reports')).toHaveAttribute('placeholder', 'Your company name')
+    // The intro and heading render while the settings are still loading; the
+    // form appears only once they have loaded, so wait for its field.
+    expect(await screen.findByLabelText('Name on reports')).toHaveAttribute('placeholder', 'Your company name')
     expect(screen.getByRole('button', { name: 'Save report branding' })).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/agency/i)
   })
