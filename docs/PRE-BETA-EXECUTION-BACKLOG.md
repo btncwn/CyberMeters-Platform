@@ -59,7 +59,7 @@ GO or public capability claim.
 | [#1022](https://github.com/btncwn/CyberMeters-Platform/pull/1022) | `b88e8873` | Deployed; live acceptance not recorded here |
 | [#1023](https://github.com/btncwn/CyberMeters-Platform/pull/1023) | `97398586` | Scoped live acceptance at CSS 520x1125 and 1440x900; exact 390/768/1024/1440 by real-Layout E2E only |
 | [#1024](https://github.com/btncwn/CyberMeters-Platform/pull/1024) | `90009a21` | Deployed; three scoped live checks passed (CE action, TLS list, MCP own-case read) |
-| [#1025](https://github.com/btncwn/CyberMeters-Platform/pull/1025) | `dd441901` | Merged; tests and docs only, no deploy |
+| [#1025](https://github.com/btncwn/CyberMeters-Platform/pull/1025) | `dd441901` | Merged; tests and docs only; no Worker deploy; Pages auto-deployed |
 | [#1026](https://github.com/btncwn/CyberMeters-Platform/pull/1026) | `e23f19f0` | **DEPLOYED, NOT LIVE-ACCEPTED** — fresh functional TLS-RPT scan acceptance OPEN |
 
 Still OPEN, not passed: #1019 live resolved-alert email delivery; Cyber
