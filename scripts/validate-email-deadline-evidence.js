@@ -62,7 +62,7 @@ const loadedModule = (url) => ({
     .digest("hex"),
 });
 const { computeScore } = await import(engUrl("scoring.js"));
-const { runScanEngine } = await import(scanEngineUrl);
+const { runScanEngine, buildScanQuality } = await import(scanEngineUrl);
 const { liveTlsProbeBinding } = await import(pathToFileURL(path.join(root, "scripts", "lib", "live-tls-fixture.mjs")).href);
 const {
   isPublishableModuleEvidence,
@@ -1167,6 +1167,25 @@ console.log("── A. canonical fallback contract + non-publishable refusal mat
     !findings.some((f) => f.id === "email_missing_spf"), findings.map((f) => f.id).join("|"));
   ok("A6: scoring emits NO fabricated DKIM observation from the fallback",
     !findings.some((f) => f.id === "email_dkim_not_detected"));
+  // A rejected primary module is not an observed absence. Exercise the real
+  // engine fallback shape through DMARC projection, scoring and action mapping;
+  // retain the completed per-probe/partial positive controls below.
+  for (const errored of [
+    { error: "Email module failed" },
+    { error: "Email module failed", spf: { present: false }, dkim: { present: false } },
+  ]) {
+    const projectedError = applyDmarcbisEmailCompatibilityProjection("example.com", errored, null);
+    const errorModules = { dns: { has_mx: true }, ssl: {}, headers: { headers: {} }, email_security: projectedError };
+    const errorScore = computeScore(errorModules, "example.com");
+    ok("A6: errored email never claims SPF is missing",
+      !errorScore.findings.some((f) => f.id === "email_missing_spf"));
+    ok("A6: errored email never claims a completed DKIM selector sweep",
+      !errorScore.findings.some((f) => f.id === "email_dkim_not_detected"));
+    ok("A6: errored email never advises publishing an SPF record",
+      !errorScore.recommendations.some((r) => r.module === "email_security" && /SPF/i.test(r.title)));
+    ok("A6: errored email retains partial scan quality",
+      buildScanQuality(errorModules).status === "partial");
+  }
   const observedMissing = { spf: { present: false }, dmarc: { present: false }, dkim: { present: false, selectors_probed: ["default"] } };
   Object.defineProperty(observedMissing, "spf_evidence_status", { value: "observed", enumerable: false });
   Object.defineProperty(observedMissing, "dkim_evidence_status", { value: "observed", enumerable: false });
@@ -2212,7 +2231,7 @@ const MUTATIONS = [
     edits: [{
       target: SCORING,
       from: `    const emailModuleUnobserved = modules.email_security?.skipped === true ||
-      modules.email_security?.executed === false;`,
+      modules.email_security?.executed === false || Boolean(modules.email_security?.error);`,
       to:   "    const emailModuleUnobserved = false;",
     }],
     check: () => {
