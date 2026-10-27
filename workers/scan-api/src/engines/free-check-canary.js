@@ -41,6 +41,27 @@ export function canaryFingerprint({ target, dmarc, spf }) {
   ].join("|");
 }
 
+// One fingerprint's outcome. "error" is unchanged: anything the fingerprint
+// marks as an error stays one. "incomplete" is a result the check could not
+// conclude (a DMARC or SPF verdict of "unknown", or a target the DNS could not
+// settle): it is neither healthy nor a sign that a policy went away, and it is
+// reported every morning it is fresh, not only on the day it first appears.
+// Everything else is a conclusive result, good or bad, and reads "ok".
+export const CANARY_OUTCOMES = Object.freeze({ OK: "ok", INCOMPLETE: "incomplete", ERROR: "error" });
+export function canaryOutcome(fingerprint) {
+  const text = String(fingerprint ?? "");
+  if (!text || text.includes("error")) return CANARY_OUTCOMES.ERROR;
+  const parts = Object.fromEntries(text.split("|").map((part) => {
+    const at = part.indexOf(":");
+    return [part.slice(0, at), part.slice(at + 1)];
+  }));
+  const head = (value) => String(value ?? "").split("/")[0];
+  if (head(parts.target) === "unavailable" || head(parts.dmarc) === "unknown" || head(parts.spf) === "unknown") {
+    return CANARY_OUTCOMES.INCOMPLETE;
+  }
+  return CANARY_OUTCOMES.OK;
+}
+
 /** Every part of the run is a value or "error"; nothing here throws. */
 async function checkDomain(domain, { counter, runners, query }) {
   const deadline = new AbortController();
@@ -70,12 +91,12 @@ export async function runFreeCheckCanary(env, { nowMs = Date.now(), runners = {}
   const all = { ...DEFAULT_RUNNERS, ...runners };
   const counter = new PhysicalSubrequestCounter({ limit: limits.totalSubrequests, safetyMargin: 0 });
   const checkedAt = new Date(nowMs).toISOString();
-  const summary = { checked: 0, changed: [], errors: [], not_run: [] };
+  const summary = { checked: 0, changed: [], errors: [], incomplete: [], not_run: [] };
   for (const domain of domains) {
     if (counter.wouldExceed(limits.perDomainSubrequests)) { summary.not_run.push(domain); continue; }
     const parts = await checkDomain(domain, { counter, runners: all, query });
     const fingerprint = canaryFingerprint(parts);
-    const outcome = fingerprint.includes("error") ? "error" : "ok";
+    const outcome = canaryOutcome(fingerprint);
     const prior = await db.prepare("SELECT fingerprint FROM ops_canary_results WHERE domain = ?").bind(domain).first();
     const changed = prior && prior.fingerprint !== fingerprint;
     await db.prepare(
@@ -93,11 +114,12 @@ export async function runFreeCheckCanary(env, { nowMs = Date.now(), runners = {}
     summary.checked += 1;
     if (changed) summary.changed.push({ domain, from: prior.fingerprint, to: fingerprint });
     if (outcome === "error") summary.errors.push({ domain, fingerprint });
+    if (outcome === "incomplete") summary.incomplete.push({ domain, fingerprint });
   }
   return summary;
 }
 
-/** Canary rows checked since `sinceIso`: what changed, what errored, what did not run. */
+/** Canary rows checked since `sinceIso`: what changed, what errored, what was incomplete. */
 export async function readCanarySince(env, sinceIso) {
   const rows = await env.cybermeters_db.prepare(
     `SELECT domain, checked_at, fingerprint, previous_fingerprint, changed_at, outcome
@@ -109,5 +131,10 @@ export async function readCanarySince(env, sinceIso) {
     fresh: all.filter((row) => row.checked_at >= sinceIso).length,
     changed: all.filter((row) => row.changed_at && row.changed_at >= sinceIso),
     errors: all.filter((row) => row.checked_at >= sinceIso && row.outcome === "error"),
+    // Read from the fingerprint as well as the stored outcome: rows written
+    // before "incomplete" existed say "ok" for an unknown result. They are read
+    // honestly, never rewritten.
+    incomplete: all.filter((row) => row.checked_at >= sinceIso && row.outcome !== "error" &&
+      (row.outcome === "incomplete" || canaryOutcome(row.fingerprint) === "incomplete")),
   };
 }
