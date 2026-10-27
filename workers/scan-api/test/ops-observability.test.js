@@ -398,15 +398,41 @@ test("canary: conclusive absence and the controls stay ok, never incomplete", as
   assert.deepEqual(incompleteLines(await digestOn(env, 21)), []);
 });
 
+test("canary: the real SPF tool's permanent error is a completed check, its temporary lookup failure is incomplete", async () => {
+  const { sqlite, env } = fixture();
+  // Stubbed DNS only: two SPF records (RFC 7208 permerror) and a SERVFAIL root.
+  const query = async (name, type) => {
+    if (type === "TXT" && name === "perm.example.com") return { Status: 0, Answer: [{ type: 16, data: '"v=spf1 -all"' }, { type: 16, data: '"v=spf1 ~all"' }] };
+    if (type === "TXT" && name === "temp.example.com") return { Status: 2 };
+    return { Status: 0, Answer: [] };
+  };
+  const { target, dmarc } = canaryRunners();
+  const out = await runFreeCheckCanary(env, { nowMs: day(21), domains: ["perm.example.com", "temp.example.com"], query, runners: { target, dmarc } });
+  const fp = (d) => ({ ...sqlite.prepare("SELECT fingerprint, outcome FROM ops_canary_results WHERE domain = ?").get(d) });
+  assert.deepEqual(fp("perm.example.com"), { fingerprint: "target:public|dmarc:good/reject|spf:risk/permerror", outcome: "ok" });
+  assert.deepEqual(fp("temp.example.com"), { fingerprint: "target:public|dmarc:good/reject|spf:unknown/none", outcome: "incomplete" });
+  assert.deepEqual(out.errors, [], "a conclusive broken policy is not a canary error");
+  assert.deepEqual((out.incomplete || []).map((r) => r.domain), ["temp.example.com"]);
+  const digest = await digestOn(env, 21);
+  assert.equal(digest.anomalies.filter((a) => a.startsWith("Canary error:")).length, 0);
+  assert.deepEqual(incompleteLines(digest).map((a) => a.split(" ")[2]), ["temp.example.com"]);
+});
+
 test("canary: a fresh row written before 'incomplete' existed is read honestly and not rewritten; a stale one is ignored", async () => {
   const { sqlite, env } = fixture();
   sqlite.exec(`INSERT INTO ops_canary_results (domain, checked_at, fingerprint, previous_fingerprint, changed_at, outcome) VALUES
     ('legacy.example.com', '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:unknown/none', 'target:public|dmarc:good/reject|spf:good/complete', '2026-10-21T07:00:00.000Z', 'ok'),
     ('stale.example.com',  '2026-10-21T23:59:59.999Z', 'target:public|dmarc:good/reject|spf:unknown/none', NULL, NULL, 'ok'),
-    ('fine.example.com',   '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:good/complete', NULL, NULL, 'ok')`);
+    ('fine.example.com',   '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:good/complete', NULL, NULL, 'ok'),
+    ('perm.example.com',   '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:risk/permerror', NULL, NULL, 'error'),
+    ('broke.example.com',  '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:error/none', NULL, NULL, 'error'),
+    ('oldbroke.example.com','2026-10-21T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:error/none', NULL, NULL, 'error')`);
   const digest = await digestOn(env, 22);
   assert.deepEqual(incompleteLines(digest).map((a) => a.split(" ")[2]), ["legacy.example.com"], "fresh legacy unknown counts; the row before today does not");
-  assert.equal(sqlite.prepare("SELECT outcome FROM ops_canary_results WHERE domain = 'legacy.example.com'").get().outcome, "ok", "history is not rewritten");
+  assert.deepEqual(digest.anomalies.filter((a) => a.startsWith("Canary error:")).map((a) => a.split(" ")[2]), ["broke.example.com"],
+    "a stored error for a conclusive permerror is read as completed; a genuine fresh error stays; a stale one is not today's");
+  const stored = (d) => sqlite.prepare("SELECT outcome FROM ops_canary_results WHERE domain = ?").get(d).outcome;
+  assert.deepEqual([stored("legacy.example.com"), stored("perm.example.com"), stored("broke.example.com")], ["ok", "error", "error"], "history is not rewritten");
 });
 
 test("the canary runs from the cron only where FREE_CHECK_CANARY is on (it makes real DNS lookups)", async () => {

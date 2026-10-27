@@ -41,24 +41,28 @@ export function canaryFingerprint({ target, dmarc, spf }) {
   ].join("|");
 }
 
-// One fingerprint's outcome. "error" is unchanged: anything the fingerprint
-// marks as an error stays one. "incomplete" is a result the check could not
-// conclude (a DMARC or SPF verdict of "unknown", or a target the DNS could not
-// settle): it is neither healthy nor a sign that a policy went away, and it is
-// reported every morning it is fresh, not only on the day it first appears.
-// Everything else is a conclusive result, good or bad, and reads "ok".
+// One fingerprint's outcome, read per component (target, dmarc, spf) from the
+// head each check reports:
+//   • "error": a component failed to produce a result (it threw, returned
+//     nothing, or the fingerprint is unreadable) - its head is "error";
+//   • "incomplete": a check ran but could not conclude - the target is
+//     "unavailable", or the DMARC or SPF verdict is "unknown";
+//   • "ok": every component reached a conclusive result, good or bad. A broken
+//     policy (for example SPF risk/permerror from two records) is a completed
+//     check, not a canary failure.
+// An incomplete result is neither healthy nor a sign that a policy went away,
+// and it is reported every morning it is fresh, not only on the day it appears.
 export const CANARY_OUTCOMES = Object.freeze({ OK: "ok", INCOMPLETE: "incomplete", ERROR: "error" });
+const CANARY_COMPONENTS = Object.freeze(["target", "dmarc", "spf"]);
+const INCOMPLETE_HEADS = Object.freeze({ target: "unavailable", dmarc: "unknown", spf: "unknown" });
 export function canaryOutcome(fingerprint) {
-  const text = String(fingerprint ?? "");
-  if (!text || text.includes("error")) return CANARY_OUTCOMES.ERROR;
-  const parts = Object.fromEntries(text.split("|").map((part) => {
+  const parts = new Map(String(fingerprint ?? "").split("|").map((part) => {
     const at = part.indexOf(":");
-    return [part.slice(0, at), part.slice(at + 1)];
+    return at > 0 ? [part.slice(0, at), part.slice(at + 1).split("/")[0]] : [part, ""];
   }));
-  const head = (value) => String(value ?? "").split("/")[0];
-  if (head(parts.target) === "unavailable" || head(parts.dmarc) === "unknown" || head(parts.spf) === "unknown") {
-    return CANARY_OUTCOMES.INCOMPLETE;
-  }
+  const heads = CANARY_COMPONENTS.map((name) => [name, parts.get(name)]);
+  if (heads.some(([, head]) => !head || head === "error")) return CANARY_OUTCOMES.ERROR;
+  if (heads.some(([name, head]) => head === INCOMPLETE_HEADS[name])) return CANARY_OUTCOMES.INCOMPLETE;
   return CANARY_OUTCOMES.OK;
 }
 
@@ -130,11 +134,10 @@ export async function readCanarySince(env, sinceIso) {
     total: all.length,
     fresh: all.filter((row) => row.checked_at >= sinceIso).length,
     changed: all.filter((row) => row.changed_at && row.changed_at >= sinceIso),
-    errors: all.filter((row) => row.checked_at >= sinceIso && row.outcome === "error"),
-    // Read from the fingerprint as well as the stored outcome: rows written
-    // before "incomplete" existed say "ok" for an unknown result. They are read
-    // honestly, never rewritten.
-    incomplete: all.filter((row) => row.checked_at >= sinceIso && row.outcome !== "error" &&
-      (row.outcome === "incomplete" || canaryOutcome(row.fingerprint) === "incomplete")),
+    // Classified from the fingerprint, not the stored outcome: rows written
+    // before the per-component reading stored "ok" for an unknown result and
+    // "error" for a conclusive permerror. They are read honestly, never rewritten.
+    errors: all.filter((row) => row.checked_at >= sinceIso && canaryOutcome(row.fingerprint) === "error"),
+    incomplete: all.filter((row) => row.checked_at >= sinceIso && canaryOutcome(row.fingerprint) === "incomplete"),
   };
 }
