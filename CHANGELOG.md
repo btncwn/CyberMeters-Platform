@@ -14,6 +14,19 @@ Production deployment and rollback identities and raw acceptance evidence stay
 in the private operations record. It claims no release tag, engineering seal,
 soak PASS, launch GO or public capability.
 
+**Frontend test tooling — Vitest 4.1.12.** Updated `frontend/package.json`
+and `frontend/package-lock.json` to synchronise Vitest, `@vitest/coverage-v8`
+and their development-only package family at 4.1.12, including the
+`@vitest/mocker` fixes for moderate advisories GHSA-qxg6-89mg-rqv8 and
+GHSA-xp26-3454-mjgp. Refreshed the derived `sbom/frontend.cdx.json` with the
+documented CycloneDX 6.0.0 workflow and verified its portable component
+identities recursively against the lockfile. The production dependency graph
+is unchanged, including all 50 production lock entries. Local validation
+passed once: 2,273 tests across 295 files, a valid dependency graph, and npm
+audit reporting zero vulnerabilities. Installation scripts were disabled.
+No production exploit was demonstrated; this entry claims no Worker
+deployment or live acceptance.
+
 **[#1020](https://github.com/btncwn/CyberMeters-Platform/pull/1020) docs: 26 October release facts and a dated backlog
 status overlay.** Merged as `1febe8cc`. Documentation only.
 
