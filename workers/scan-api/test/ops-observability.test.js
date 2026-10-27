@@ -331,6 +331,110 @@ test("the canary stops at its subrequest budget and lists what it did not run", 
   assert.deepEqual([out.checked, out.not_run], [2, ["c.example.com"]]);
 });
 
+// An unknown result is neither healthy nor an error (P2, 27 Oct 2026). Before
+// this, "spf:unknown/none" was stored as ok: the first morning it showed only as
+// a change, and from the next morning it vanished from the founder email.
+const UNKNOWN_SPF = { verdict: { level: "unknown" } };            // resolution never reached
+const NO_SPF = { verdict: { level: "risk" }, resolution_status: null }; // a conclusive "no record"
+const day = (d) => Date.parse(`2026-10-${d}T07:00:00Z`);
+const digestOn = (env, d) => collectFounderDigest(env, { nowMs: Date.parse(`2026-10-${d}T08:00:00Z`) });
+const incompleteLines = (digest) => digest.anomalies.filter((a) => a.startsWith("Canary incomplete:"));
+
+test("canary: an unknown result is counted incomplete on the first day and every fresh day after", async () => {
+  const { sqlite, env } = fixture();
+  const domains = ["a.example.com", "b.example.com"];
+  const base = await runFreeCheckCanary(env, { nowMs: day(20), domains, runners: canaryRunners() });
+  assert.deepEqual([base.errors.length, (base.incomplete || []).length], [0, 0], "complete and stable: nothing to report");
+  const unknownB = canaryRunners({ spf: async (d) => (d === "b.example.com" ? UNKNOWN_SPF : { verdict: { level: "good" }, resolution_status: "complete" }) });
+
+  const first = await runFreeCheckCanary(env, { nowMs: day(21), domains, runners: unknownB });
+  assert.deepEqual(first.errors, [], "unknown is not an error");
+  assert.deepEqual((first.incomplete || []).map((r) => r.domain), ["b.example.com"]);
+  assert.equal(sqlite.prepare("SELECT outcome FROM ops_canary_results WHERE domain = 'b.example.com'").get().outcome, "incomplete");
+  const d1 = await digestOn(env, 21);
+  assert.deepEqual(incompleteLines(d1), ["Canary incomplete: b.example.com target:public|dmarc:good/reject|spf:unknown/none (the check could not conclude)"]);
+  assert.ok(d1.anomalies.includes("Canary changed: b.example.com target:public|dmarc:good/reject|spf:good/complete -> target:public|dmarc:good/reject|spf:unknown/none (result incomplete, not a confirmed change)"),
+    "a change into unknown is never read as a policy that went away");
+  assert.match(formatFounderDigest(d1).text, /2 of 2 domains checked, 1 changed, 0 errors, 1 incomplete/);
+
+  // Unchanged next day: no change, but still reported.
+  const second = await runFreeCheckCanary(env, { nowMs: day(22), domains, runners: unknownB });
+  assert.deepEqual([second.changed.length, (second.incomplete || []).length], [0, 1]);
+  const d2 = await digestOn(env, 22);
+  assert.equal(d2.anomalies.filter((a) => a.startsWith("Canary changed:")).length, 0);
+  assert.deepEqual(incompleteLines(d2).map((a) => a.split(" ")[2]), ["b.example.com"], "a persistent unknown never disappears");
+  assert.match(formatFounderDigest(d2).text, /0 changed, 0 errors, 1 incomplete/);
+
+  // Back to a conclusive result: a change, and no longer incomplete.
+  const third = await runFreeCheckCanary(env, { nowMs: day(23), domains, runners: canaryRunners() });
+  assert.deepEqual([third.changed.map((c) => c.domain), (third.incomplete || []).length], [["b.example.com"], 0]);
+  const d3 = await digestOn(env, 23);
+  assert.deepEqual(incompleteLines(d3), []);
+  assert.equal(sqlite.prepare("SELECT outcome FROM ops_canary_results WHERE domain = 'b.example.com'").get().outcome, "ok");
+});
+
+test("canary: errors, unknown DNS targets and unknown DMARC keep their own classes", async () => {
+  const { env } = fixture();
+  const out = await runFreeCheckCanary(env, { nowMs: day(21), domains: ["e.example.com", "m.example.com", "t.example.com", "d.example.com"], runners: canaryRunners({
+    spf: async (d) => { if (d === "e.example.com") throw new Error("boom"); return { verdict: { level: "good" }, resolution_status: "complete" }; },
+    dmarc: async (d) => (d === "m.example.com" ? null : d === "d.example.com" ? { verdict: { level: "unknown" } } : { verdict: { level: "good" }, ladder: { current: "reject" } }),
+    target: async (d) => (d === "t.example.com" ? { state: "unavailable", reason: "dns_timeout" } : { state: "public" }),
+  }) });
+  assert.deepEqual(out.errors.map((r) => r.domain).sort(), ["e.example.com", "m.example.com"], "a throwing or missing runner is still an error");
+  assert.deepEqual((out.incomplete || []).map((r) => r.domain).sort(), ["d.example.com", "t.example.com"]);
+  const digest = await digestOn(env, 21);
+  assert.equal(digest.anomalies.filter((a) => a.startsWith("Canary error:")).length, 2);
+  assert.equal(incompleteLines(digest).length, 2);
+});
+
+test("canary: conclusive absence and the controls stay ok, never incomplete", async () => {
+  const { env } = fixture();
+  const out = await runFreeCheckCanary(env, { nowMs: day(21), domains: ["n.example.com", "x.example.com"], runners: canaryRunners({
+    target: async (d) => (d === "x.example.com" ? { state: "no_address", reason: "nxdomain" } : { state: "public" }),
+    dmarc: async () => ({ verdict: { level: "risk" }, ladder: { current: "none" } }),
+    spf: async () => NO_SPF,
+  }) });
+  assert.deepEqual([out.errors, out.incomplete || []], [[], []]);
+  assert.deepEqual(incompleteLines(await digestOn(env, 21)), []);
+});
+
+test("canary: the real SPF tool's permanent error is a completed check, its temporary lookup failure is incomplete", async () => {
+  const { sqlite, env } = fixture();
+  // Stubbed DNS only: two SPF records (RFC 7208 permerror) and a SERVFAIL root.
+  const query = async (name, type) => {
+    if (type === "TXT" && name === "perm.example.com") return { Status: 0, Answer: [{ type: 16, data: '"v=spf1 -all"' }, { type: 16, data: '"v=spf1 ~all"' }] };
+    if (type === "TXT" && name === "temp.example.com") return { Status: 2 };
+    return { Status: 0, Answer: [] };
+  };
+  const { target, dmarc } = canaryRunners();
+  const out = await runFreeCheckCanary(env, { nowMs: day(21), domains: ["perm.example.com", "temp.example.com"], query, runners: { target, dmarc } });
+  const fp = (d) => ({ ...sqlite.prepare("SELECT fingerprint, outcome FROM ops_canary_results WHERE domain = ?").get(d) });
+  assert.deepEqual(fp("perm.example.com"), { fingerprint: "target:public|dmarc:good/reject|spf:risk/permerror", outcome: "ok" });
+  assert.deepEqual(fp("temp.example.com"), { fingerprint: "target:public|dmarc:good/reject|spf:unknown/none", outcome: "incomplete" });
+  assert.deepEqual(out.errors, [], "a conclusive broken policy is not a canary error");
+  assert.deepEqual((out.incomplete || []).map((r) => r.domain), ["temp.example.com"]);
+  const digest = await digestOn(env, 21);
+  assert.equal(digest.anomalies.filter((a) => a.startsWith("Canary error:")).length, 0);
+  assert.deepEqual(incompleteLines(digest).map((a) => a.split(" ")[2]), ["temp.example.com"]);
+});
+
+test("canary: a fresh row written before 'incomplete' existed is read honestly and not rewritten; a stale one is ignored", async () => {
+  const { sqlite, env } = fixture();
+  sqlite.exec(`INSERT INTO ops_canary_results (domain, checked_at, fingerprint, previous_fingerprint, changed_at, outcome) VALUES
+    ('legacy.example.com', '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:unknown/none', 'target:public|dmarc:good/reject|spf:good/complete', '2026-10-21T07:00:00.000Z', 'ok'),
+    ('stale.example.com',  '2026-10-21T23:59:59.999Z', 'target:public|dmarc:good/reject|spf:unknown/none', NULL, NULL, 'ok'),
+    ('fine.example.com',   '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:good/complete', NULL, NULL, 'ok'),
+    ('perm.example.com',   '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:risk/permerror', NULL, NULL, 'error'),
+    ('broke.example.com',  '2026-10-22T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:error/none', NULL, NULL, 'error'),
+    ('oldbroke.example.com','2026-10-21T07:00:00.000Z', 'target:public|dmarc:good/reject|spf:error/none', NULL, NULL, 'error')`);
+  const digest = await digestOn(env, 22);
+  assert.deepEqual(incompleteLines(digest).map((a) => a.split(" ")[2]), ["legacy.example.com"], "fresh legacy unknown counts; the row before today does not");
+  assert.deepEqual(digest.anomalies.filter((a) => a.startsWith("Canary error:")).map((a) => a.split(" ")[2]), ["broke.example.com"],
+    "a stored error for a conclusive permerror is read as completed; a genuine fresh error stays; a stale one is not today's");
+  const stored = (d) => sqlite.prepare("SELECT outcome FROM ops_canary_results WHERE domain = ?").get(d).outcome;
+  assert.deepEqual([stored("legacy.example.com"), stored("perm.example.com"), stored("broke.example.com")], ["ok", "error", "error"], "history is not rewritten");
+});
+
 test("the canary runs from the cron only where FREE_CHECK_CANARY is on (it makes real DNS lookups)", async () => {
   const { env } = fixture();
   const runs = async (flag) => {

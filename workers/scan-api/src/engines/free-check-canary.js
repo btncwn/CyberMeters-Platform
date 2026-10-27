@@ -41,6 +41,31 @@ export function canaryFingerprint({ target, dmarc, spf }) {
   ].join("|");
 }
 
+// One fingerprint's outcome, read per component (target, dmarc, spf) from the
+// head each check reports:
+//   • "error": a component failed to produce a result (it threw, returned
+//     nothing, or the fingerprint is unreadable) - its head is "error";
+//   • "incomplete": a check ran but could not conclude - the target is
+//     "unavailable", or the DMARC or SPF verdict is "unknown";
+//   • "ok": every component reached a conclusive result, good or bad. A broken
+//     policy (for example SPF risk/permerror from two records) is a completed
+//     check, not a canary failure.
+// An incomplete result is neither healthy nor a sign that a policy went away,
+// and it is reported every morning it is fresh, not only on the day it appears.
+export const CANARY_OUTCOMES = Object.freeze({ OK: "ok", INCOMPLETE: "incomplete", ERROR: "error" });
+const CANARY_COMPONENTS = Object.freeze(["target", "dmarc", "spf"]);
+const INCOMPLETE_HEADS = Object.freeze({ target: "unavailable", dmarc: "unknown", spf: "unknown" });
+export function canaryOutcome(fingerprint) {
+  const parts = new Map(String(fingerprint ?? "").split("|").map((part) => {
+    const at = part.indexOf(":");
+    return at > 0 ? [part.slice(0, at), part.slice(at + 1).split("/")[0]] : [part, ""];
+  }));
+  const heads = CANARY_COMPONENTS.map((name) => [name, parts.get(name)]);
+  if (heads.some(([, head]) => !head || head === "error")) return CANARY_OUTCOMES.ERROR;
+  if (heads.some(([name, head]) => head === INCOMPLETE_HEADS[name])) return CANARY_OUTCOMES.INCOMPLETE;
+  return CANARY_OUTCOMES.OK;
+}
+
 /** Every part of the run is a value or "error"; nothing here throws. */
 async function checkDomain(domain, { counter, runners, query }) {
   const deadline = new AbortController();
@@ -70,12 +95,12 @@ export async function runFreeCheckCanary(env, { nowMs = Date.now(), runners = {}
   const all = { ...DEFAULT_RUNNERS, ...runners };
   const counter = new PhysicalSubrequestCounter({ limit: limits.totalSubrequests, safetyMargin: 0 });
   const checkedAt = new Date(nowMs).toISOString();
-  const summary = { checked: 0, changed: [], errors: [], not_run: [] };
+  const summary = { checked: 0, changed: [], errors: [], incomplete: [], not_run: [] };
   for (const domain of domains) {
     if (counter.wouldExceed(limits.perDomainSubrequests)) { summary.not_run.push(domain); continue; }
     const parts = await checkDomain(domain, { counter, runners: all, query });
     const fingerprint = canaryFingerprint(parts);
-    const outcome = fingerprint.includes("error") ? "error" : "ok";
+    const outcome = canaryOutcome(fingerprint);
     const prior = await db.prepare("SELECT fingerprint FROM ops_canary_results WHERE domain = ?").bind(domain).first();
     const changed = prior && prior.fingerprint !== fingerprint;
     await db.prepare(
@@ -93,11 +118,12 @@ export async function runFreeCheckCanary(env, { nowMs = Date.now(), runners = {}
     summary.checked += 1;
     if (changed) summary.changed.push({ domain, from: prior.fingerprint, to: fingerprint });
     if (outcome === "error") summary.errors.push({ domain, fingerprint });
+    if (outcome === "incomplete") summary.incomplete.push({ domain, fingerprint });
   }
   return summary;
 }
 
-/** Canary rows checked since `sinceIso`: what changed, what errored, what did not run. */
+/** Canary rows checked since `sinceIso`: what changed, what errored, what was incomplete. */
 export async function readCanarySince(env, sinceIso) {
   const rows = await env.cybermeters_db.prepare(
     `SELECT domain, checked_at, fingerprint, previous_fingerprint, changed_at, outcome
@@ -108,6 +134,10 @@ export async function readCanarySince(env, sinceIso) {
     total: all.length,
     fresh: all.filter((row) => row.checked_at >= sinceIso).length,
     changed: all.filter((row) => row.changed_at && row.changed_at >= sinceIso),
-    errors: all.filter((row) => row.checked_at >= sinceIso && row.outcome === "error"),
+    // Classified from the fingerprint, not the stored outcome: rows written
+    // before the per-component reading stored "ok" for an unknown result and
+    // "error" for a conclusive permerror. They are read honestly, never rewritten.
+    errors: all.filter((row) => row.checked_at >= sinceIso && canaryOutcome(row.fingerprint) === "error"),
+    incomplete: all.filter((row) => row.checked_at >= sinceIso && canaryOutcome(row.fingerprint) === "incomplete"),
   };
 }

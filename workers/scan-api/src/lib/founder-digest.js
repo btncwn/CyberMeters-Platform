@@ -80,8 +80,12 @@ export async function collectFounderDigest(env, { nowMs = Date.now() } = {}) {
   if (canary === null) anomalies.push("Could not read the free-check canary");
   else if (canary.total > 0 && canary.fresh === 0) anomalies.push("The free-check canary did not run this morning");
   else if (canary) {
-    for (const row of canary.changed) anomalies.push(`Canary changed: ${row.domain} ${row.previous_fingerprint ?? "(new)"} -> ${row.fingerprint}`);
+    // A change into an incomplete result is not a confirmed change: the check
+    // could not conclude, so it must not read as a policy that went away.
+    const incomplete = new Set((canary.incomplete || []).map((row) => row.domain));
+    for (const row of canary.changed) anomalies.push(`Canary changed: ${row.domain} ${row.previous_fingerprint ?? "(new)"} -> ${row.fingerprint}${incomplete.has(row.domain) ? " (result incomplete, not a confirmed change)" : ""}`);
     for (const row of canary.errors) anomalies.push(`Canary error: ${row.domain} ${row.fingerprint}`);
+    for (const row of canary.incomplete || []) anomalies.push(`Canary incomplete: ${row.domain} ${row.fingerprint} (the check could not conclude)`);
   }
   const watch = (label, value, average) => {
     if (value >= ANOMALY_MIN && (average === 0 || value >= ANOMALY_RATIO * average)) {
@@ -204,7 +208,7 @@ export function formatFounderDigest(digest) {
   out.push(["Funnel (accounts created yesterday):", `  ${line("Signed up", f.signups)}`, `  ${line("Verified email", f.verified)}`,
     `  ${line("Ran a scan", f.scanned)}`, `  ${line("New paid subscriptions (any age)", f.paid)}`].join("\n"));
   if (digest.canary) {
-    out.push(`Free-check canary this morning: ${digest.canary.fresh} of ${digest.canary.total} domains checked, ${digest.canary.changed.length} changed, ${digest.canary.errors.length} errors`);
+    out.push(`Free-check canary this morning: ${digest.canary.fresh} of ${digest.canary.total} domains checked, ${digest.canary.changed.length} changed, ${digest.canary.errors.length} errors, ${(digest.canary.incomplete || []).length} incomplete`);
   }
   if (digest.feedback?.length) {
     out.push(["Feedback:", ...digest.feedback.map((item) =>
