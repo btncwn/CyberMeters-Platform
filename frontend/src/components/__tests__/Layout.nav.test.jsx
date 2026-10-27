@@ -304,7 +304,7 @@ describe('Layout top bar — shape', () => {
     expect(screen.queryByTestId('area-row')).not.toBeInTheDocument()
   })
 
-  it('<1024px: a menu button opens the sidebar as a drawer (Escape closes it); the workspace card floats at 76px', async () => {
+  it('<1024px: a menu button opens the sidebar as a drawer (Escape closes it); the workspace card is in the top bar', async () => {
     renderLayout({ features: DIRECT_FEATURES }, { workspace: { id: 'ws_a', name: 'Customer A' }, wide: false })
     expect(screen.queryByRole('navigation', { name: 'Security areas' })).not.toBeInTheDocument()
     const menu = within(header()).getByRole('button', { name: 'Open areas menu' })
@@ -315,10 +315,10 @@ describe('Layout top bar — shape', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: 'Areas' })).not.toBeInTheDocument()
     expect(menu).toHaveFocus()
-    const card = within(screen.getByTestId('workspace-dock')).getByRole('button', { name: 'Workspace: Customer A' })
-    expect(card).toHaveClass('cm-wsbtn-compact')
-    // C-38 S04: the 76px card keeps its WORKSPACE label.
-    expect(within(card).getByText('Workspace')).toBeInTheDocument()
+    // P2, 27 Oct 2026: nothing floats over the page below 1024px; the 36px card sits in the top bar.
+    expect(screen.queryByTestId('workspace-dock')).not.toBeInTheDocument()
+    const card = within(header()).getByRole('button', { name: 'Workspace: Customer A' })
+    expect(card).toHaveClass('cm-wsmini')
     fireEvent.click(card)
     expect(await screen.findByRole('menu', { name: 'Workspace' })).toBeInTheDocument()
   })

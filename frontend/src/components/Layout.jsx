@@ -329,7 +329,18 @@ function ShellFrame() {
                   </NavLink>
                 ))}
               </nav>
-              <div className="cm-top-account">
+              {/* Below 1024px the group anchors the workspace menu (CSS .cm-wsheader); from 1024px it is unchanged. */}
+              <div className={wide ? 'cm-top-account' : 'cm-top-account relative'}>
+                {/* Below 1024px the workspace switcher is the 36px card in the top bar
+                    (P2, 27 Oct 2026): a card fixed to the screen's corner covered page
+                    content and controls as they scrolled past it. */}
+                {!wide && (
+                  <SafeBoundary>
+                    <div className="cm-wsheader mr-2 flex items-center" data-testid="workspace-header-slot">
+                      <WorkspaceMenu wsId={wsId} wsName={wsName} domainsState={domainsState} size="mini" />
+                    </div>
+                  </SafeBoundary>
+                )}
                 {/* The globe: notifications, 12px before the account initial. */}
                 <SafeBoundary>
                   <div className="mr-3 flex items-center" data-testid="earth-slot">
@@ -372,14 +383,16 @@ function ShellFrame() {
         </div>
       </div>
 
-      {/* The workspace card floats bottom-left, exactly as before (founder rule):
-          from 1024px over the foot of the sidebar (whose list keeps room for it),
-          below that at 76px. It is not part of the sidebar. */}
-      <div className={wide ? 'cm-wsfloat cm-wsfloat-wide' : 'cm-wsfloat'} data-testid="workspace-dock">
-        <SafeBoundary>
-          <WorkspaceMenu wsId={wsId} wsName={wsName} domainsState={domainsState} size={wide ? 'deck' : 'compact'} />
-        </SafeBoundary>
-      </div>
+      {/* From 1024px the workspace card floats bottom-left over the foot of the
+          sidebar, whose list keeps room for it (founder rule). It is not part of
+          the sidebar. Below 1024px it is in the top bar instead (above). */}
+      {wide && (
+        <div className="cm-wsfloat cm-wsfloat-wide" data-testid="workspace-dock">
+          <SafeBoundary>
+            <WorkspaceMenu wsId={wsId} wsName={wsName} domainsState={domainsState} size="deck" />
+          </SafeBoundary>
+        </div>
+      )}
       {!wide && drawerOpen && (
         <div className="cm-drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setDrawerOpen(false) }}>
           <div id="cm-area-drawer" ref={drawerRef} className="cm-drawer" role="dialog" aria-modal="true" aria-label="Areas" data-testid="area-drawer">

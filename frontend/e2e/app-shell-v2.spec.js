@@ -102,9 +102,15 @@ test('44px globe and account initial; the WORKSPACE card label at 1440 and 390; 
     expect(Math.round(globe.height), `globe @${width}`).toBe(44)
     const avatar = await page.locator('header.cm-top .cm-avatar').boundingBox()
     expect(Math.round(avatar.width), `initial @${width}`).toBe(44)
-    const dock = page.getByTestId('workspace-dock')
-    await expect(dock.getByText('Workspace', { exact: true }), `card label @${width}`).toBeVisible()
-    expect(await dock.locator('.cm-wsbtn').evaluate((el) => el.closest('.cm-sidebar')), `card outside the sidebar @${width}`).toBeNull()
+    if (width >= 1024) {
+      const dock = page.getByTestId('workspace-dock')
+      await expect(dock.getByText('Workspace', { exact: true }), `card label @${width}`).toBeVisible()
+      expect(await dock.locator('.cm-wsbtn').evaluate((el) => el.closest('.cm-sidebar')), `card outside the sidebar @${width}`).toBeNull()
+    } else {
+      // Below 1024px the 36px card is in the top bar and nothing floats (P2, 27 Oct 2026).
+      await expect(page.getByTestId('workspace-dock'), `no floating card @${width}`).toHaveCount(0)
+      await expect(page.locator('header.cm-top .cm-wsmini'), `top-bar card @${width}`).toBeVisible()
+    }
     await expect(page.locator('[data-testid="area-row"] .btn-primary'), `row 2 primary @${width}`).toHaveCount(0)
   }
 })

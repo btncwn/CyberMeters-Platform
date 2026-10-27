@@ -708,8 +708,8 @@
 /* ── S1-SHELL-V2 (founder-approved design, 22 Oct 2026) ──────────────────
    ≥1024px: a 272px sidebar (sticky, full height) beside the content column.
    The workspace card sits in its own block at the sidebar's foot, so it never
-   covers an area row. <1024px: no sidebar; the drawer and a 76px floating
-   workspace card instead, and the page keeps room at its foot for the card. */
+   covers an area row. <1024px: no sidebar; the drawer instead, and the
+   workspace card sits in the top bar (36px), so nothing floats over content. */
 .cm-frame { display: flex; min-height: 100vh; align-items: stretch; }
 .cm-column { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .cm-sidebar {
@@ -806,7 +806,6 @@
 .cm-wsfloat { position: fixed; left: 16px; bottom: 16px; z-index: 35; }
 .cm-wsfloat-wide { left: 24px; bottom: 24px; }
 @media (max-width: 1023.98px) {
-  .cm-main { padding-bottom: 108px; }
   .cm-arearow { padding: 0 12px; }
 }
 .cm-wsdock-compact { width: 76px; height: 76px; }
@@ -823,6 +822,9 @@
 }
 .cm-wsmini:hover { color: #fff; background: linear-gradient(145deg, #173a78 0%, #1d67db 100%); transform: translateY(-1px); box-shadow: 0 6px 14px rgba(11, 87, 208, 0.3); }
 .cm-wsmini .cm-wsbtn-initial { font-size: 18px; }
+/* In the top bar the card's menu hangs from the right edge of the account
+   group, not from the card, so on a 390px phone it stays on screen. */
+.cm-wsheader, .cm-wsheader > [data-testid="workspace-menu"] { position: static; }
 .cm-hero-input {
   display: flex; align-items: center; gap: 8px; width: 100%; max-width: 560px; margin: 0 auto;
   padding: 6px 6px 6px 18px; border-radius: 999px; background: #fff;
