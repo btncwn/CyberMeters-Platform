@@ -23,7 +23,20 @@ const methods = ['listWorkspaces', 'getWorkspaceSummary', 'getWorkspacePosture',
   'listFindings', 'explainFinding', 'getTlsPosture', 'getEmailPosture',
   'getReportSummary', 'getPortfolioSummary'];
 
+// The production entrypoint the gateway is bound to. Every gateway RPC must be a
+// method of it: a synthetic complete class here once hid that getManagedCase and
+// getPortfolioSummary were never forwarded (P2, 27 Oct 2026).
+const entrypointPath = join(scanApi, 'src/routes/mcp-entrypoint.js');
+async function entrypointReadMethods() {
+  const source = await readFile(entrypointPath, 'utf8');
+  const body = source.match(/export class McpCustomerReadService extends WorkerEntrypoint \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  return [...body.matchAll(/^\s*async (\w+)\(input\)/gm)].map((m) => m[1]).filter((name) => name !== 'recordGatewayDenial');
+}
+
 async function main() {
+  const real = await entrypointReadMethods();
+  assert.deepEqual(methods.filter((name) => !real.includes(name)), [],
+    'every gateway RPC is forwarded by McpCustomerReadService (routes/mcp-entrypoint.js)');
   const temp = await mkdtemp(join(tmpdir(), 'cybermeters-mcp-chain-'));
   const port = randomInt(20_000, 45_000);
   const origin = `http://127.0.0.1:${port}`;
@@ -46,15 +59,23 @@ async function main() {
     await writeFile(backendFixture, `import { WorkerEntrypoint } from 'cloudflare:workers';
 import { handleMcpOAuthRequest, validateMcpOAuthToken } from ${JSON.stringify(oauthRoute)};
 import { callMcpCustomerRead, recordMcpGatewayDenial } from ${JSON.stringify(readRoute)};
+import { McpCustomerReadService } from ${JSON.stringify(entrypointPath)};
 const opts = (env) => ({ issuer: env.TEST_ISSUER, resource: env.TEST_RESOURCE,
   appOrigin: env.TEST_ISSUER, testClientIp: '127.0.0.1' });
 const validate = (env, resource, token) => validateMcpOAuthToken(env, resource, token, opts(env));
 export class McpLocalAuthService extends WorkerEntrypoint {
   async validateToken(resource, token) { return validate(this.env, resource, token); }
 }
+// The read surface is the production entrypoint's own: a method it lacks is
+// missing here too. Only token validation is local (issuer, resource, client IP).
 export class McpLocalReadService extends WorkerEntrypoint {
   async recordGatewayDenial(input) { return recordMcpGatewayDenial(this.env, input); }
-  ${methods.map((name) => `async ${name}(input) { return callMcpCustomerRead(this.env, '${name}', input, { validateToken: validate }); }`).join('\n  ')}
+}
+for (const name of Object.getOwnPropertyNames(McpCustomerReadService.prototype)) {
+  if (name === 'constructor' || name === 'recordGatewayDenial') continue;
+  McpLocalReadService.prototype[name] = async function (input) {
+    return callMcpCustomerRead(this.env, name, input, { validateToken: validate });
+  };
 }
 export default { async fetch(request, env, ctx) {
   return await handleMcpOAuthRequest(request, env, ctx, opts(env)) ??
@@ -128,7 +149,9 @@ export default { async fetch(request, env, ctx) {
         actor_type TEXT, event_type TEXT, entity_type TEXT, entity_id TEXT,
         description TEXT, metadata_json TEXT, created_at TEXT);
       CREATE TABLE workspace_domains(workspace_id TEXT, domain_id TEXT);
-      CREATE TABLE managed_cases(id TEXT, workspace_id TEXT, status TEXT);
+      CREATE TABLE managed_cases(id TEXT, workspace_id TEXT, status TEXT, case_type TEXT,
+        domain_key TEXT, severity TEXT, remediation_id TEXT, created_at TEXT,
+        updated_at TEXT, verified_at TEXT);
       CREATE TABLE scans(id TEXT, workspace_id TEXT, domain_id TEXT, status TEXT,
         scan_quality TEXT, score INTEGER, rating TEXT, created_at TEXT);
       CREATE TABLE subscriptions(id TEXT PRIMARY KEY, owner_user_id TEXT,
@@ -149,8 +172,10 @@ export default { async fetch(request, env, ctx) {
         ('trial_u1','u1','w1','professional','trialing','trialing','2099-01-01','2026-01-01'),
         ('trial_u2','u2','w2','professional','trialing','trialing','2099-01-01','2026-01-01');
       INSERT INTO workspace_domains VALUES ('w1','d1'),('w2','d2'),('w2','d3');
-      INSERT INTO managed_cases VALUES ('c1','w1','detected'),('c2','w2','detected'),
-        ('c3','w2','detected');
+      INSERT INTO managed_cases(id,workspace_id,status,case_type,domain_key,severity,created_at,updated_at)
+        VALUES ('c1','w1','open','asm_exposure','attack_surface','critical','2026-10-15T12:00:00.000Z','2026-10-15T12:00:00.000Z'),
+        ('c2','w2','open','asm_exposure','attack_surface','critical','2026-10-15T12:00:00.000Z','2026-10-15T12:00:00.000Z'),
+        ('c3','w2','open','asm_exposure','attack_surface','critical','2026-10-15T12:00:00.000Z','2026-10-15T12:00:00.000Z');
     `);
     async function d1(sqlOrFile, isFile = false) {
       const args = ['d1', 'execute', 'mcp-chain-disposable-local', '--config', backendConfig,
@@ -316,6 +341,22 @@ export default { async fetch(request, env, ctx) {
       assert.equal(JSON.stringify(denied.body).includes('One'), false);
       assert.equal(JSON.stringify(denied.body).includes('Two'), false);
     }
+    // One case through the real entrypoint: its own case reads; another
+    // tenant's case and a nonexistent one are denied by the data owner.
+    const ownCase = result(await toolCall(a, 'cybermeters_get_managed_case', { workspace_id: 'w1', case_id: 'c1' }));
+    assert.equal(ownCase.workspace_id, 'w1');
+    assert.equal(JSON.stringify(ownCase).includes('c1'), true, JSON.stringify(ownCase));
+    for (const caseId of ['c2', 'c9']) {
+      const denied = await toolCall(a, 'cybermeters_get_managed_case', { workspace_id: 'w1', case_id: caseId });
+      assert.equal(denied.body.result?.isError, true, JSON.stringify(denied.body));
+      assert.equal(JSON.stringify(denied.body).includes('Two'), false);
+    }
+    // A single-workspace connection cannot ask for the portfolio: the gateway
+    // refuses it before any backend call. No portfolio scope or grant is added
+    // here; getPortfolioSummary's forwarding is pinned by the surface check above.
+    const portfolio = await toolCall(a, 'cybermeters_get_portfolio_summary');
+    assert.equal(portfolio.status, 403, JSON.stringify(portfolio.body));
+    assert.deepEqual(portfolio.body, { error: 'insufficient_scope' });
     const ownedConnections = await fetch(`${origin}/api/mcp/oauth/connections`, {
       headers: { Origin: origin, Authorization: `Bearer ${sessionA}` },
     });
@@ -334,6 +375,15 @@ export default { async fetch(request, env, ctx) {
     assert.equal(events.filter((row) => row.event_type === 'mcp_customer_workspaces_read').length, 3);
     assert.equal(events.filter((row) => row.event_type === 'mcp_customer_summary_read').length, 2);
     assert.equal(events.filter((row) => row.event_type === 'mcp_oauth_grant_revoked').length, 1);
+    // The backend gates were reached: one case read, and its two denials are
+    // the data owner's own audit records.
+    const deniedTool = (tool) => events.filter((row) => row.event_type === 'mcp_customer_read_denied' &&
+      JSON.parse(row.metadata_json || '{}').tool === tool);
+    assert.equal(events.filter((row) => row.event_type === 'mcp_customer_case_read' && row.workspace_id === 'w1').length, 1);
+    assert.equal(deniedTool('getManagedCase').length, 2);
+    assert.equal(deniedTool('getPortfolioSummary').length, 0, 'the gateway refused the portfolio call first');
+    assert.equal(deniedTool('getManagedCase').every((row) => row.workspace_id === 'w1'), true,
+      'a denial is attributed to the caller\'s own workspace, never the foreign one');
     assert.ok(events.filter((row) => row.event_type === 'mcp_customer_gateway_denied').length >= 3);
     assert.equal(JSON.stringify(events).includes(a), false);
     assert.equal(JSON.stringify(events).includes(b), false);

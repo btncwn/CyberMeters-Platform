@@ -33,4 +33,30 @@ describe('resolveNextAction: the area’s primary job', () => {
     const own = { title: 'Answer the questionnaire', label: 'Start questionnaire', to: '/x' }
     expect(resolveNextAction({ nextAction: own, request: 'ok', entry: entry('cyber_essentials_readiness') })).toBe(own)
   })
+
+  // A page's fallback (CE self-declared answers, 27 Oct 2026) replaces only the
+  // generic run-a-scan / all-clear endings; findings and cases keep priority.
+  describe('fallbackNextAction', () => {
+    const fallback = { title: 'Review your self-declared answers', label: 'Review your self-declared answers', to: '/ws/cyber-essentials?tab=findings#questionnaire' }
+    it('replaces "Run a scan to assess this area" for a not-assessed area', () => {
+      expect(resolveNextAction({ request: 'ok', entry: entry('cyber_essentials_readiness', { state: 'not_assessed' }) })).toMatchObject({ title: 'Run a scan to assess this area' })
+      expect(resolveNextAction({ fallbackNextAction: fallback, request: 'ok', entry: entry('cyber_essentials_readiness', { state: 'not_assessed' }) })).toBe(fallback)
+    })
+    it('replaces the all-clear too', () => {
+      expect(resolveNextAction({ fallbackNextAction: fallback, request: 'ok', entry: entry('cyber_essentials_readiness', { state: 'assessed_healthy' }) })).toBe(fallback)
+    })
+    it('never outranks an external finding, a case ready to verify or an open case', () => {
+      const withFinding = entry('cyber_essentials_readiness', { finding_count: 1, finding_details: [resolved('header_weak_hsts', 'Add or strengthen HSTS')] })
+      expect(resolveNextAction({ fallbackNextAction: fallback, request: 'ok', entry: withFinding })).toMatchObject({ label: 'Review this finding' })
+      const quiet = entry('cyber_essentials_readiness', { state: 'not_assessed' })
+      expect(resolveNextAction({ fallbackNextAction: fallback, request: 'ok', entry: quiet, cases: [{ id: 'c1', domain_key: 'cyber_essentials_readiness', status: 'awaiting_verification', verification_support: 'manual' }] }))
+        .toMatchObject({ label: 'Open the case to verify' })
+      expect(resolveNextAction({ fallbackNextAction: fallback, request: 'ok', entry: quiet, cases: [{ id: 'c2', domain_key: 'cyber_essentials_readiness', status: 'action_required' }] }))
+        .toMatchObject({ label: 'Review 1 case', tab: 'cases' })
+    })
+    it('loading and failed reads stay honest', () => {
+      expect(resolveNextAction({ fallbackNextAction: fallback, request: 'loading' })).toMatchObject({ title: 'Reading the latest assessment…' })
+      expect(resolveNextAction({ fallbackNextAction: fallback, request: 'error' })).toMatchObject({ title: 'The latest assessment could not be read' })
+    })
+  })
 })

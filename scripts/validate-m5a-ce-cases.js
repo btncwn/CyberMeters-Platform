@@ -646,6 +646,12 @@ async function driveToAwaiting(db, env, id) {
   ok("the route resolves the linked case only when one exists", /if \(rec\.linked_case_id\)/.test(route));
   ok("the route is tenant-scoped when resolving the case", /WHERE id = \? AND workspace_id = \?/.test(route));
   ok("the route ships an explicit scope note", /scope_note/.test(route));
+  // The note is customer prose: it names the state in words, never the raw key
+  // (the records keep readiness_state "not_externally_assessable" unchanged).
+  const note = (route.match(/const CE_SCOPE_NOTE =([\s\S]*?);\n/) || [])[1] || "";
+  ok("the scope note keeps its disclaimer", /does not certify Cyber Essentials/.test(note) && /never treated as verification/.test(note));
+  ok("the scope note names the state in words, not the raw key", /Not visible externally/.test(note) && !/not_externally_assessable/.test(note));
+  ok("the records still carry the raw state", /not_externally_assessable/.test(route.replace(note, "")));
 
   // The alert must be able to name the case, and the deep link must resolve.
   const lc = fs.readFileSync(srcPath("engines", "ce-lifecycle.js"), "utf8");

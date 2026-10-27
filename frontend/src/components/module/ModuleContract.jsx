@@ -92,7 +92,10 @@ const VERIFY_BODY = {
   external: 'An independent party certifies this. Open the case to record their evidence.',
 }
 
-export function resolveNextAction({ nextAction = null, entry = null, request = 'loading', guide = '/guide', cases = [] } = {}) {
+// `fallbackNextAction` is a page's own job for when the assessment has nothing
+// for the customer to act on: it never outranks a finding or a case, and it
+// replaces only the generic "run a scan" / all-clear endings.
+export function resolveNextAction({ nextAction = null, fallbackNextAction = null, entry = null, request = 'loading', guide = '/guide', cases = [] } = {}) {
   if (nextAction) return nextAction
   if (request === 'loading') return { title: 'Reading the latest assessment…', body: null, label: null }
   if (request !== 'ok' || !entry) return { title: 'The latest assessment could not be read', body: 'Nothing is assumed in the meantime. A new scan reads this area again.', label: 'Run a scan', to: '/scans/new' }
@@ -113,12 +116,11 @@ export function resolveNextAction({ nextAction = null, entry = null, request = '
       to: `/ws/cases/${encodeURIComponent(ready.case_id || ready.id)}`,
     }
   }
-  if (STILL_TO_ASSESS.has(String(entry.state || '').toLowerCase())) return { title: 'Run a scan to assess this area', body: 'The latest assessment could not establish this area yet.', label: 'Run a scan', to: '/scans/new' }
   // Never "no issue" beside an open case without saying how they relate
   // (S1-SHELL-V2): the latest scan found nothing new, but earlier cases are
   // still open, so reviewing them is the real next action.
   const stillOpen = (Array.isArray(cases) ? cases : []).filter((c) => ['action_required', 'in_progress', 'recurring'].includes(caseStatus(c)) && (!c.domain_key || c.domain_key === entry.domain_key))
-  if (stillOpen.length) {
+  const openCasesAction = () => {
     const n = stillOpen.length
     return {
       title: `${n} case${n === 1 ? '' : 's'} from earlier ${n === 1 ? 'is' : 'are'} still open`,
@@ -127,6 +129,9 @@ export function resolveNextAction({ nextAction = null, entry = null, request = '
       tab: 'cases',
     }
   }
+  if (fallbackNextAction) return stillOpen.length ? openCasesAction() : fallbackNextAction
+  if (STILL_TO_ASSESS.has(String(entry.state || '').toLowerCase())) return { title: 'Run a scan to assess this area', body: 'The latest assessment could not establish this area yet.', label: 'Run a scan', to: '/scans/new' }
+  if (stillOpen.length) return openCasesAction()
   // No finding is only an all-clear when the scan could check the whole area.
   if (String(entry.coverage || '').toLowerCase() !== 'complete') return { title: 'No issue found in what could be checked', body: 'Coverage was not complete, so this is not an all-clear. A new scan checks the rest.', label: 'Run a scan', to: '/scans/new' }
   return { title: 'Nothing to fix from the latest assessment', body: 'CyberMeters keeps monitoring and will raise anything new.', label: 'Open the Field Guide', to: guide }
@@ -265,7 +270,7 @@ function SubpageTiles({ domainKey, tiles, theme, summaries = null }) {
  *   recommendedAction  — optional node the page already derives from its own backend data (shown in section 5)
  *   children           — the page's findings body (section 4)
  */
-export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, tileSummaries = null, recommendedAction = null, figures = null, nextAction = null, settings = null, scanDomain = null, children }) {
+export default function ModuleContract({ domainKey, workspaceId, workspaceName, description = null, actions = null, aside = null, overview = null, tileSummaries = null, recommendedAction = null, figures = null, nextAction = null, fallbackNextAction = null, settings = null, scanDomain = null, children }) {
   const module = moduleForDomainKey(domainKey)
   const theme = moduleTheme(domainKey)
   const [params, setParams] = useSearchParams()
@@ -473,7 +478,7 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
       )}
     </section>
   )
-  const next = resolveNextAction({ nextAction, entry, request: domainsRequest === 'ok' && !entry ? 'error' : domainsRequest, guide: guide || '/guide', cases: casesRequest === 'ok' ? cases : [] })
+  const next = resolveNextAction({ nextAction, fallbackNextAction, entry, request: domainsRequest === 'ok' && !entry ? 'error' : domainsRequest, guide: guide || '/guide', cases: casesRequest === 'ok' ? cases : [] })
   const nextSection = (
     // The one decision point (C-38 S20): neutral card, compact heading; its words come from backend state.
     <section id="module-next" aria-labelledby="module-next-heading" className="card p-5" data-testid="module-next">

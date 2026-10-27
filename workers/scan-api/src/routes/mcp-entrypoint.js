@@ -44,10 +44,12 @@ export class McpCustomerReadService extends WorkerEntrypoint {
   async listRecentScans(input) { return customerMcpReads.listRecentScans(this.env, input); }
   async getScanStatus(input) { return customerMcpReads.getScanStatus(this.env, input); }
   async listManagedCases(input) { return customerMcpReads.listManagedCases(this.env, input); }
+  async getManagedCase(input) { return customerMcpReads.getManagedCase(this.env, input); }
   async listDomains(input) { return customerMcpReads.listDomains(this.env, input); }
   async listFindings(input) { return customerMcpReads.listFindings(this.env, input); }
   async explainFinding(input) { return customerMcpReads.explainFinding(this.env, input); }
   async getTlsPosture(input) { return customerMcpReads.getTlsPosture(this.env, input); }
   async getEmailPosture(input) { return customerMcpReads.getEmailPosture(this.env, input); }
   async getReportSummary(input) { return customerMcpReads.getReportSummary(this.env, input); }
+  async getPortfolioSummary(input) { return customerMcpReads.getPortfolioSummary(this.env, input); }
 }
