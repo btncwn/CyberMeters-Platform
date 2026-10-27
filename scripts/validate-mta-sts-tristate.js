@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// MTA-STS tri-state contract: producer coherence, canonical admission, and the
-// PRODUCTION consumer paths (score, business impacts, findings, transport
+// MTA-STS tri-state contract (and, below, the TLS-RPT TXT evidence contract):
+// producer coherence, canonical admission, and the PRODUCTION consumer paths
+// (score, business impacts, findings, transport
 // boundary). Forged evidence must fail closed at every consumer OUTPUT, and a
 // zero from unavailable evidence must never be byte-identical to a zero from
 // admitted absence (denominator honesty).
@@ -11,7 +12,14 @@ import {
   buildEmailIntelFindings,
   runEmailIntelModule,
 } from "../workers/scan-api/src/engines/email-intel.js";
-import { mtaStsAdmission, buildEmailTransportDetails } from "../workers/scan-api/src/engines/email-analysis.js";
+import {
+  mtaStsAdmission,
+  buildEmailTransportDetails,
+  buildEmailRemediationActions,
+  parseTlsRptAnswers,
+  tlsRptAdmission,
+} from "../workers/scan-api/src/engines/email-analysis.js";
+import { runEmailModule } from "../workers/scan-api/src/engines/email-scan.js";
 
 let passed = 0;
 const failures = [];
@@ -173,7 +181,10 @@ const orchestratorResult = await (async () => {
 ok("orchestrator breakdown carries denominator markers",
   Array.isArray(orchestratorResult.email_score_breakdown.unmeasured) &&
   orchestratorResult.email_score_breakdown.unmeasured.includes("mta_sts") &&
-  orchestratorResult.email_score_breakdown.measured_weight === 95);
+  // TLS-RPT's lookup throws here too, so it is unmeasured as well (27 Oct 2026):
+  // a failed DNS query is not a measured TLS-RPT zero.
+  orchestratorResult.email_score_breakdown.unmeasured.includes("tls_rpt") &&
+  orchestratorResult.email_score_breakdown.measured_weight === 90);
 ok("orchestrator mta_sts outcome is unavailable, not absence",
   orchestratorResult.mta_sts.observation_state === "unavailable" &&
   orchestratorResult.email_score_breakdown.mta_sts === 0);
@@ -201,6 +212,147 @@ ok("orchestrator mta_sts outcome is unavailable, not absence",
   ok("MTA-STS private-resolving policy host: DNS consulted", dns > 0);
   ok("MTA-STS private-resolving policy host: no HTTP request", http === 0);
   ok("MTA-STS private-resolving policy host: never an enforced policy", r?.enabled === false && r?.policy_mode !== "enforce");
+}
+
+// ── TLS-RPT TXT evidence (P2, 27 Oct 2026) ──────────────────────────────────────
+// DNS JSON returns a TXT value as quoted character-strings, so the published record
+// "v=TLSRPTv1; rua=…" arrives as "\"v=TLSRPTv1; rua=…\"". checkTlsRpt compared the
+// raw string, so a real record read as missing and the customer was told to publish
+// one; a failed or inconclusive lookup also read as missing. These cases drive the
+// production path — runEmailModule -> runEmailIntelModule -> checkTlsRpt (real
+// dnsQuery and DNS cache) -> buildEmailTransportDetails ->
+// buildEmailRemediationActions, wired as scan-engine.js does — against a local
+// DNS-over-HTTPS stub. No live network.
+{
+  const DOMAIN = "fixture.example";
+  const TLS_NAME = `_smtp._tls.${DOMAIN}`;
+  const RECORD = "v=TLSRPTv1; rua=mailto:tls@fixture.example";
+  const TXT = 16;
+  const txt = (data, type = TXT) => ({ name: TLS_NAME, type, TTL: 300, data });
+  const noerror = (Answer) => ({ Status: 0, TC: false, Answer });
+
+  // One scan run: every DoH question is answered locally. SPF and DMARC are
+  // published so the email evidence is publishable and actions are built; the
+  // TLS-RPT name gets the case's answer (an object, a throw, or an HTTP error).
+  async function scan(tlsAnswer) {
+    const saved = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      const name = (url.searchParams.get("name") || "").toLowerCase();
+      const type = (url.searchParams.get("type") || "").toUpperCase();
+      let body;
+      if (name === TLS_NAME) {
+        if (tlsAnswer === "throw") throw new TypeError("network unavailable");
+        if (tlsAnswer === "http_503") return new Response("busy", { status: 503 });
+        body = tlsAnswer;
+      } else if (name === DOMAIN && type === "TXT") {
+        body = noerror([{ name: DOMAIN, type: TXT, TTL: 300, data: "\"v=spf1 -all\"" }]);
+      } else if (name === `_dmarc.${DOMAIN}` && type === "TXT") {
+        body = noerror([{ name: `_dmarc.${DOMAIN}`, type: TXT, TTL: 300, data: "\"v=DMARC1; p=reject; rua=mailto:d@fixture.example\"" }]);
+      } else {
+        body = { Status: 3, TC: false };
+      }
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/dns-json" } });
+    };
+    try {
+      const cache = new Map();
+      const email = await runEmailModule(DOMAIN, { cache });
+      const intel = await runEmailIntelModule(DOMAIN, email, {}, {
+        cache,
+        fetcher: async () => new Response("not found", { status: 404 }),
+      });
+      Object.assign(email, buildEmailTransportDetails(intel));
+      const actions = buildEmailRemediationActions(DOMAIN, email, intel);
+      return { intel, detail: email.tls_rpt_detail, actions };
+    } finally {
+      globalThis.fetch = saved;
+    }
+  }
+
+  const publishAdvice = (r) => r.actions.some((a) => a.id === "tls_rpt_missing");
+  const missingFinding = (r) => (r.intel.findings || []).some((f) => f.id === "email_intel_tls_rpt_missing");
+  const missingImpact = (r) => (r.intel.business_impacts || []).some((i) => i.technical === "TLS-RPT Missing");
+
+  // ── Present: quoted, split into chunks, and the legacy unquoted shape ───────────
+  for (const [label, data] of [
+    ["quoted", JSON.stringify(RECORD)],
+    ["split into two character-strings", "\"v=TLSRPTv1; \" \"rua=mailto:tls@fixture.example\""],
+    ["unquoted", RECORD],
+  ]) {
+    const r = await scan(noerror([txt(data)]));
+    ok(`${label}: record found and enabled`, r.intel.tls_rpt.enabled === true && r.detail.record_found === true &&
+      r.detail.observation_state === "present" && r.detail.coverage_state === "complete");
+    ok(`${label}: record normalised and rua read`, r.intel.tls_rpt.record === RECORD &&
+      JSON.stringify(r.detail.rua) === JSON.stringify(["mailto:tls@fixture.example"]));
+    ok(`${label}: no publish advice, finding or impact; scored`, !publishAdvice(r) && !missingFinding(r) && !missingImpact(r) &&
+      r.intel.email_score_breakdown.tls_rpt === 5 && !r.intel.email_score_breakdown.unmeasured.includes("tls_rpt"));
+  }
+
+  // ── Conclusive "no valid record": NOERROR/NODATA, NXDOMAIN, wrong version, invalid ─
+  for (const [label, answer, reason] of [
+    ["NOERROR with no answers", noerror([]), "no_txt_record"],
+    ["NXDOMAIN", { Status: 3, TC: false }, "no_txt_record"],
+    ["wrong version v=TLSRPTv12", noerror([txt(JSON.stringify("v=TLSRPTv12; rua=mailto:tls@fixture.example"))]), "no_tls_rpt_record"],
+    ["unrelated TXT", noerror([txt(JSON.stringify("google-site-verification=abc"))]), "no_tls_rpt_record"],
+    ["version without a field separator", noerror([txt(JSON.stringify("v=TLSRPTv1 rua=mailto:tls@fixture.example"))]), "no_tls_rpt_record"],
+    ["record without rua", noerror([txt(JSON.stringify("v=TLSRPTv1;"))]), "missing_rua"],
+    ["two TLS-RPT records", noerror([txt(JSON.stringify(RECORD)), txt(JSON.stringify("v=TLSRPTv1; rua=mailto:other@fixture.example"))]), "multiple_records"],
+  ]) {
+    const r = await scan(answer);
+    ok(`${label}: conclusively no valid record`, r.intel.tls_rpt.enabled === false && r.detail.record_found === false &&
+      r.detail.observation_state === "definitive_absent" && r.detail.coverage_state === "complete" && r.intel.tls_rpt.reason === reason);
+    ok(`${label}: publish advice, finding and impact are admitted; measured zero`, publishAdvice(r) && missingFinding(r) && missingImpact(r) &&
+      r.intel.email_score_breakdown.tls_rpt === 0 && !r.intel.email_score_breakdown.unmeasured.includes("tls_rpt"));
+  }
+
+  // ── Not concluded: SERVFAIL, REFUSED, HTTP error, throw, malformed replies ─────────
+  for (const [label, answer] of [
+    ["SERVFAIL (Status 2) with no answers", { Status: 2, TC: false }],
+    ["REFUSED (Status 5)", { Status: 5, TC: false }],
+    ["SERVFAIL carrying a record", { Status: 2, TC: false, Answer: [txt(JSON.stringify(RECORD))] }],
+    ["DoH HTTP 503", "http_503"],
+    ["resolver throws", "throw"],
+    ["reply without Status", { Answer: [] }],
+    ["Answer is not an array", { Status: 0, Answer: { data: RECORD } }],
+    ["resolver disagreement", { Status: 0, resolver_agreement: "disagreement", Answer: [] }],
+    ["truncated (TC) with no answers", { Status: 0, TC: true, Answer: [] }],
+    ["truncated (TC) carrying a valid record", { Status: 0, TC: true, Answer: [txt(JSON.stringify(RECORD))] }],
+    ["Status null", { Status: null, TC: false, Answer: [] }],
+    ["Status empty string", { Status: "", TC: false, Answer: [] }],
+    ["Status as the string \"0\"", { Status: "0", TC: false, Answer: [txt(JSON.stringify(RECORD))] }],
+  ]) {
+    const r = await scan(answer);
+    ok(`${label}: unknown, never "not found"`, r.intel.tls_rpt.enabled === false && r.detail.record_found === null &&
+      r.detail.observation_state === "unavailable" && r.detail.coverage_state === "incomplete");
+    ok(`${label}: no publish advice, finding or impact`, !publishAdvice(r) && !missingFinding(r) && !missingImpact(r));
+    ok(`${label}: no healthy result; zero is unmeasured, not measured`, r.intel.email_score_breakdown.tls_rpt === 0 &&
+      r.intel.email_score_breakdown.unmeasured.includes("tls_rpt") &&
+      !(r.intel.strengths || []).some((s) => /TLS-RPT configured/.test(s)));
+    ok(`${label}: says it could not be verified`, r.detail.warnings.some((w) => /could not be verified/.test(w)));
+  }
+
+  // ── Only TXT answers count ──────────────────────────────────────────────────────
+  {
+    const r = await scan(noerror([{ name: TLS_NAME, type: 5, TTL: 300, data: "elsewhere.fixture.example." }, txt(JSON.stringify(RECORD), 99)]));
+    ok("a CNAME and a non-TXT record carrying the value are not a TLS-RPT record",
+      r.intel.tls_rpt.enabled === false && r.detail.observation_state === "definitive_absent");
+  }
+  ok("parser ignores answers without a TXT type", parseTlsRptAnswers([{ data: RECORD }]).valid === false);
+
+  // ── Admission keeps older rows and refuses incoherent ones ─────────────────────
+  ok("row from before observation_state: enabled reads present", tlsRptAdmission({ enabled: true }).state === "present");
+  ok("row from before observation_state: not enabled reads absent", tlsRptAdmission({ enabled: false }).state === "definitive_absent");
+  ok("no row at all is not observed, admits nothing", (() => {
+    const a = tlsRptAdmission(undefined);
+    return a.state === "not_observed" && !a.missing_finding && !a.remediation_admitted && !a.score_admitted;
+  })());
+  ok("present token without an enabled record is refused", tlsRptAdmission({ observation_state: "present", enabled: false }).state === "unavailable");
+  ok("absent token on an enabled row is refused", tlsRptAdmission({ observation_state: "definitive_absent", enabled: true }).state === "unavailable");
+  ok("unknown token is refused", tlsRptAdmission({ observation_state: "healthy", enabled: true, record: RECORD }).state === "unavailable");
+  ok("no TLS-RPT row: transport detail is not assessed, never not found", (() => {
+    const d = buildEmailTransportDetails({}).tls_rpt_detail;
+    return d.record_found === null && d.coverage_state === "not_assessed";
+  })());
 }
 
 if (failures.length > 0) {

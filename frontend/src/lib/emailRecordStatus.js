@@ -34,8 +34,29 @@ export function mtaStsRecordStatus(detail) {
   return { label: detail.policy_found ? (detail.mode || 'Found') : 'No policy', kind: enforced ? 'good' : detail.policy_found ? 'warn' : 'na' }
 }
 
+// TLS-RPT record_found is tri-state: true found, false conclusively no valid
+// record, null when the lookup did not conclude (or was not run). Unknown is
+// never "Not found". A detail from before the field was tri-state keeps its
+// original reading.
+export function tlsRptNotConcluded(detail) {
+  return Boolean(detail) && (detail.record_found === null ||
+    detail.observation_state === 'unavailable' || detail.observation_state === 'not_observed')
+}
+
+// The module row (email_security_intelligence.tls_rpt), as the Intelligence page
+// shows it. observation_state is the backend's own word: present / definitive_absent
+// are conclusive, anything else is not known. A row from before the field keeps its
+// boolean reading.
+export function tlsRptConfiguredStatus(row) {
+  if (!row) return { label: 'Not available', kind: 'na' }
+  if (row.observation_state == null) return row.enabled ? { label: 'Configured', kind: 'good' } : { label: 'Not configured', kind: 'bad' }
+  if (row.observation_state === 'present' && row.enabled === true) return { label: 'Configured', kind: 'good' }
+  if (row.observation_state === 'definitive_absent' && row.enabled !== true) return { label: 'Not configured', kind: 'bad' }
+  return { label: 'Not available', kind: 'na' }
+}
+
 export function tlsRptRecordStatus(detail) {
-  if (!detail) return { label: 'Not available', kind: 'na' }
+  if (!detail || tlsRptNotConcluded(detail)) return { label: 'Not available', kind: 'na' }
   return { label: detail.record_found ? 'Found' : 'Not found', kind: detail.record_found ? 'good' : 'na' }
 }
 

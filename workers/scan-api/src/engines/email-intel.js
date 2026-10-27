@@ -8,8 +8,8 @@ import { safeFetch } from "../lib/http.js";
 import { runDnsModule } from "./dns-scan.js";
 import { dnsQuery } from "./dns.js";
 import { DMARC_INTEL_STATUS, isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
-import { buildDkimDetail, isEmailProbeUnobserved, mtaStsAdmission, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
-import { runEmailModule } from "./email-scan.js";
+import { buildDkimDetail, isEmailProbeUnobserved, mtaStsAdmission, parseDmarcRecord, parseSpfRecord, parseTlsRptAnswers, tlsRptAdmission } from "./email-analysis.js";
+import { DMARC_OBSERVATION_STATUS, dmarcObservationStatusFromDnsResult, runEmailModule } from "./email-scan.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeScore } from "./scoring.js";
 import { classifyServiceability, mayGroundAbsence } from "../lib/serviceability.js";
@@ -251,30 +251,40 @@ async function checkTlsRpt(domain, opts = {}) {
   const accounting = opts.accounting || null;
   const cache = opts.cache || null;
   const recordName = `_smtp._tls.${domain}`;
-  const result = { enabled: false, record_name: recordName, record: null, reporting_uris: [], errors: [] };
+  const result = { enabled: false, record_name: recordName, record: null, reporting_uris: [], errors: [],
+    observation_state: "unavailable", reason: null };
+  let res;
   try {
-    const res     = await dnsQuery(recordName, "TXT", { accounting, cache });
-    const answers = res?.Answer || [];
-    for (const ans of answers) {
-      const txt = ans.data || "";
-      if (txt.toLowerCase().startsWith("v=tlsrptv1")) {
-        result.enabled = true;
-        result.record  = txt;
-        for (const part of txt.split(";")) {
-          const p = part.trim();
-          if (p.toLowerCase().startsWith("rua=")) {
-            result.reporting_uris = p.slice(p.indexOf("=") + 1)
-              .split(",").map(u => u.trim()).filter(Boolean);
-          }
-        }
-        return result;
-      }
-    }
-    if (answers.length > 0) result.errors.push("No valid TLS-RPT record found (missing v=TLSRPTv1).");
-    else                    result.errors.push("No TXT record found at " + recordName + ".");
-  } catch (e) {
-    result.errors.push(e?.message ?? "TLS-RPT DNS query failed");
+    res = await dnsQuery(recordName, "TXT", { accounting, cache });
+  } catch {
+    result.reason = "dns_query_failed";
+    result.errors.push("TLS-RPT could not be verified during this scan.");
+    return result;
   }
+  // Only a conclusive answer (NOERROR or NXDOMAIN, resolvers agreeing) can say a
+  // record is missing; SERVFAIL, REFUSED or a malformed reply stays unavailable.
+  // Checked here as well, strictly: Status must be the number 0 or 3 (the shared
+  // classifier reads Number(Status), so null or "" would pass as NOERROR), and a
+  // truncated (TC) answer is incomplete whatever it carries.
+  if (dmarcObservationStatusFromDnsResult({ status: "fulfilled", value: res }) !== DMARC_OBSERVATION_STATUS.OBSERVED
+      || (res.Status !== 0 && res.Status !== 3)
+      || res.TC === true
+      || (res.Answer != null && !Array.isArray(res.Answer))) {
+    result.reason = res && typeof res === "object" ? "dns_inconclusive" : "dns_malformed_response";
+    result.errors.push("TLS-RPT could not be verified during this scan.");
+    return result;
+  }
+  const parsed = parseTlsRptAnswers(res.Answer || []);
+  result.record = parsed.record;
+  result.reason = parsed.reason;
+  if (parsed.valid) {
+    result.enabled = true;
+    result.reporting_uris = parsed.reporting_uris;
+    result.observation_state = "present";
+    return result;
+  }
+  result.observation_state = "definitive_absent";
+  result.errors.push(parsed.reason === "no_txt_record" ? `No TXT record found at ${recordName}.` : parsed.error);
   return result;
 }
 
@@ -351,8 +361,11 @@ export function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
   else if (mtaAdmission.score_admitted) mtaScore = Math.round(W.mta_sts * 0.6);
   const mtaMeasured = mtaAdmission.state === "present" || mtaAdmission.state === "definitive_absent";
 
-  // TLS-RPT — mirrors _score_tls_rpt()
-  const tlsRptScore = tlsRpt.enabled ? W.tls_rpt : 0;
+  // TLS-RPT — mirrors _score_tls_rpt(), through the canonical admission. A lookup
+  // that did not conclude is unmeasured, not a measured zero.
+  const tlsAdmission = tlsRptAdmission(tlsRpt);
+  const tlsRptScore = tlsAdmission.score_admitted ? W.tls_rpt : 0;
+  const tlsMeasured = tlsAdmission.state === "present" || tlsAdmission.state === "definitive_absent";
 
   const total = spfScore + dkimScore + dmarcScore + mtaScore + tlsRptScore;
 
@@ -369,8 +382,8 @@ export function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
     // Denominator honesty: components whose evidence was not admitted this scan
     // (insufficient / never observed), and the weight that was actually measured.
     // No new stamp — this is a coverage marker on the existing score object.
-    unmeasured: mtaMeasured ? [] : ["mta_sts"],
-    measured_weight: mtaMeasured ? 100 : 100 - W.mta_sts,
+    unmeasured: [...(mtaMeasured ? [] : ["mta_sts"]), ...(tlsMeasured ? [] : ["tls_rpt"])],
+    measured_weight: 100 - (mtaMeasured ? 0 : W.mta_sts) - (tlsMeasured ? 0 : W.tls_rpt),
   };
 }
 
@@ -449,8 +462,8 @@ export function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
     });
   }
 
-  // TLS-RPT
-  if (!tlsRpt.enabled) {
+  // TLS-RPT — only a conclusive "no valid record" is an impact.
+  if (tlsRptAdmission(tlsRpt).remediation_admitted) {
     impacts.push({
       technical:        "TLS-RPT Missing",
       risk_level:       "LOW",
@@ -547,7 +560,7 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt, domain
     });
   }
 
-  if (!tlsRpt.enabled) {
+  if (tlsRptAdmission(tlsRpt).missing_finding) {
     findings.push({
       id:             "email_intel_tls_rpt_missing",
       module:         "email_security_intelligence",
@@ -601,7 +614,8 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
     : { enabled: false, policy_mode: null, mx_patterns: [], max_age: null, errors: ["MTA-STS fetch failed"] };
   const tlsRpt = tlsRptSettled.status === "fulfilled"
     ? tlsRptSettled.value
-    : { enabled: false, record_name: `_smtp._tls.${domain}`, record: null, reporting_uris: [], errors: ["TLS-RPT lookup failed"] };
+    : { enabled: false, record_name: `_smtp._tls.${domain}`, record: null, reporting_uris: [], errors: ["TLS-RPT lookup failed"],
+        observation_state: "unavailable", reason: "lookup_failed" };
 
   // Step 3: MX DNS inventory; the private collector's mail_transport module
   // records any live STARTTLS observation separately.
@@ -622,7 +636,7 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
   else if (dmarc.status === "PARTIAL_PROTECTED") strengths.push(`DMARC enforcement partially active (${dmarc.policy}, pct=${dmarc.pct}).`);
   if (mtaSts.enabled && mtaSts.policy_mode === "enforce") strengths.push("MTA-STS enabled in enforce mode — inbound TLS delivery is required.");
   else if (mtaSts.enabled)                 strengths.push("MTA-STS policy is published.");
-  if (tlsRpt.enabled)                      strengths.push("TLS-RPT configured — email TLS delivery problems will be reported.");
+  if (tlsRptAdmission(tlsRpt).score_admitted) strengths.push("TLS-RPT configured — email TLS delivery problems will be reported.");
   if (dmarc.rua)                           strengths.push("DMARC aggregate reporting (rua) is configured.");
 
   // Step 7: Rating and business risk level

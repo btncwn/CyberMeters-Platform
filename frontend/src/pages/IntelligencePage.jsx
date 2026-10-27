@@ -12,6 +12,7 @@ import {
   phase5KnownCount,
 } from '../lib/phase5EvidencePresentation'
 import { bandMeta } from '../lib/score-presentation'
+import { tlsRptConfiguredStatus } from '../lib/emailRecordStatus'
 
 // ── Design-system helpers ─────────────────────────────────────────────────────
 
@@ -102,6 +103,16 @@ function StatusPill({ value, trueLabel = 'Yes', falseLabel = 'No' }) {
     : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
         {falseLabel}
       </span>
+}
+
+// TLS-RPT only: a lookup that did not conclude reads "Not available", never "Not
+// configured" (27 Oct 2026). The other rows keep StatusPill.
+export function TlsRptStatusPill({ row }) {
+  const { label, kind } = tlsRptConfiguredStatus(row)
+  const tone = kind === 'good' ? 'text-brand-700 bg-brand-50 border-brand-100'
+    : kind === 'bad' ? 'text-red-700 bg-red-50 border-red-100'
+      : 'text-gray-600 bg-gray-50 border-gray-200'
+  return <span className={`inline-flex items-center gap-1 text-xs font-semibold border px-2 py-0.5 rounded-full ${tone}`}>{label}</span>
 }
 
 function EmptyState({ title, subtitle }) {
@@ -762,7 +773,7 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
           </div>
           <div className="px-5 py-3 flex items-center justify-between border-b border-gray-50">
             <span className="text-xs font-semibold text-gray-500">TLS-RPT</span>
-            <StatusPill value={tls_rpt?.enabled} trueLabel="Configured" falseLabel="Not configured" />
+            <TlsRptStatusPill row={tls_rpt} />
           </div>
           <div className="px-5 py-3 flex items-center justify-between">
             <div>
