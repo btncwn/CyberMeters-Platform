@@ -83,7 +83,8 @@ describe('product typography', () => {
     expect(css).not.toMatch(/\.cm-sidebar > \.cm-side::after/)
     expect(css).toMatch(/\.cm-wsfloat\s*\{[^}]*position:\s*fixed;\s*left:\s*16px;\s*bottom:\s*16px/)
     expect(css).toMatch(/\.cm-wsfloat-wide\s*\{[^}]*left:\s*24px;\s*bottom:\s*24px/)
-    expect(css).toMatch(/@media \(max-width: 1023\.98px\)\s*\{\s*\.cm-main\s*\{\s*padding-bottom:\s*108px/)
+    // Below 1024px the card is in the top bar, so the page no longer reserves room at its foot for it.
+    expect(css).not.toMatch(/\.cm-main\s*\{\s*padding-bottom:\s*108px/)
     // The notification panel hangs under the globe, right-aligned, capped below the bar; the list scrolls inside.
     expect(css).toMatch(/\.cm-notif\s*\{[^}]*position:\s*absolute;\s*right:\s*0;\s*top:\s*calc\(100% \+ 10px\)/)
     expect(css).toMatch(/\.cm-notif\s*\{[^}]*max-height:\s*calc\(100dvh - 100px\)/)
