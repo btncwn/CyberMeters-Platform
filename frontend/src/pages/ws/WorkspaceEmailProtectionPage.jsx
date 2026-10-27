@@ -6,7 +6,7 @@ import { formatReportDay, formatReportTime } from '../../lib/reportTime'
 export const pageTime = (value) => (value ? `${formatReportTime(value)} UTC` : null)
 import { useAppDialog } from '../../components/AppDialog'
 import { MailTransportCard } from '../../components/MailTransportCard'
-import { dmarcRecordStatus, spfRecordStatus, dkimRecordStatus, mtaStsRecordStatus, tlsRptRecordStatus, mailTransportStatus } from '../../lib/emailRecordStatus'
+import { dmarcRecordStatus, spfRecordStatus, dkimRecordStatus, mtaStsRecordStatus, tlsRptRecordStatus, tlsRptNotConcluded, mailTransportStatus } from '../../lib/emailRecordStatus'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ChevronDown, RefreshCw, X } from 'lucide-react'
@@ -470,7 +470,7 @@ function TlsRptCard({ detail }) {
     <NaNote text="TLS-RPT details were not returned for this scan." /></AuthCard>
   return (
     <AuthCard title="TLS-RPT" status={tlsRptRecordStatus(detail).label} statusKind={tlsRptRecordStatus(detail).kind}>
-      <KV k="Record" v={detail.record_found ? 'Published' : 'None'} />
+      <KV k="Record" v={tlsRptNotConcluded(detail) ? 'Not assessed' : detail.record_found ? 'Published' : 'None'} />
       {detail.rua?.length > 0 && <KV k="Reporting (rua)" v={detail.rua.join(', ')} mono />}
       <Warnings items={detail.warnings} />
     </AuthCard>
@@ -3596,7 +3596,7 @@ export function MxRecordsCard({ intelligence, transport }) {
 }
 
 // Shared with the scan's Technical Details tab (components/MailTransportCard.jsx).
-export { MailTransportCard }
+export { MailTransportCard, TlsRptCard }
 
 export default function WorkspaceEmailProtectionPage() {
   const { wsId, wsName } = useWorkspace()

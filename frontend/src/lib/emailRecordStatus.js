@@ -34,8 +34,17 @@ export function mtaStsRecordStatus(detail) {
   return { label: detail.policy_found ? (detail.mode || 'Found') : 'No policy', kind: enforced ? 'good' : detail.policy_found ? 'warn' : 'na' }
 }
 
+// TLS-RPT record_found is tri-state: true found, false conclusively no valid
+// record, null when the lookup did not conclude (or was not run). Unknown is
+// never "Not found". A detail from before the field was tri-state keeps its
+// original reading.
+export function tlsRptNotConcluded(detail) {
+  return Boolean(detail) && (detail.record_found === null ||
+    detail.observation_state === 'unavailable' || detail.observation_state === 'not_observed')
+}
+
 export function tlsRptRecordStatus(detail) {
-  if (!detail) return { label: 'Not available', kind: 'na' }
+  if (!detail || tlsRptNotConcluded(detail)) return { label: 'Not available', kind: 'na' }
   return { label: detail.record_found ? 'Found' : 'Not found', kind: detail.record_found ? 'good' : 'na' }
 }
 
