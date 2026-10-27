@@ -292,8 +292,13 @@ for (const [label, p] of [
     ce.data.items.every((i) => i.readiness_state !== "verified"));
   ok("090: every control carries its external coverage, so `ready` cannot be read as a full pass",
     ce.data.items.every((i) => i.external_coverage === "partial" || i.external_coverage === "none"));
+  // The note is customer prose: it names the unobservable state in words; the
+  // records above keep the raw value (#1024).
   ok("090: the scope note refuses certification and names the partial coverage",
-    /does not certify Cyber Essentials/i.test(ce.data.scope_note || "") && /not_externally_assessable/.test(ce.data.scope_note || ""));
+    /does not certify Cyber Essentials/i.test(ce.data.scope_note || "") &&
+    /Coverage is partial/i.test(ce.data.scope_note || "") &&
+    /Not visible externally/.test(ce.data.scope_note || "") &&
+    !/not_externally_assessable/.test(ce.data.scope_note || ""));
   ok("090: unobservable signals are surfaced, not omitted",
     Array.isArray(ce.data.items.find((i) => i.id === "cec-1")?.unknown_signals));
 }
