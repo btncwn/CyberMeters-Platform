@@ -50,12 +50,52 @@ and 1440 widths were proven by real-Layout E2E only.
 Scoped live checks passed in the private record: the CE saved-gap action and
 note, the TLS active list, and an MCP own-case read.
 
+**[#1025](https://github.com/btncwn/CyberMeters-Platform/pull/1025) two frontend test waits and these 27 October docs.**
+Merged as `dd441901` at exact head `d8ca5661` after R0 reviews 5666062050 (on
+`ca31f650`) and 5666367013 (on `d8ca5661`) and 17/17 checks on the final head.
+Tests and documentation only; no runtime change and no Worker deploy. An
+earlier head failed one check (below); that failure is kept on record, not
+waived.
+
+**[#1026](https://github.com/btncwn/CyberMeters-Platform/pull/1026) TLS-RPT record evidence.** Merged as `e23f19f0` at
+exact head `1dad7a08` after R1 CHANGES 5667034505 on `89e7957e` and an
+independent R1 approval recorded as review comment 5667134145 on `1dad7a08`,
+with 17/17 checks on that head. Main CI run 40511522279 on the merge completed
+successfully. Deployed separately; the public app and API versions report the
+merge commit.
+- DNS JSON returns TXT values quoted, so a published `v=TLSRPTv1; rua=…`
+  record was read as missing and customers were told to publish one; a failed
+  or inconclusive lookup also read as missing. Quoted and split TXT values are
+  now decoded with the existing TXT normaliser, TXT answers only, against the
+  RFC 8460 boundary: `v=TLSRPTv1` then `;`, a `rua` field, exactly one record.
+- Only a conclusive DNS answer (Status 0 or 3, not truncated, resolvers
+  agreeing) can say "no valid record". SERVFAIL, REFUSED, a truncated or
+  malformed reply, or a failed query is unavailable: no missing-record finding,
+  no publish advice, no score credit, and the score component is marked
+  unmeasured.
+- The Email Protection status word and card, and the Intelligence TLS-RPT row,
+  read "Not available" / "Not assessed" for an unknown lookup instead of
+  "Not found", "None" or "Not configured". Conclusive results and stored rows
+  from before this change keep their reading.
+- Proven by CI and a production-path validator against a local DNS stub. A
+  fresh functional TLS-RPT scan acceptance is **OPEN**. TLS-RPT report
+  delivery and full RFC 8460 field validation are not claimed.
+
 **Main CI note.** Main push CI run 40485558077 failed one frontend test
 (`WorkspaceEmailProtectionPage.hostedDmarcManualControl.test.jsx`, the
 not-ready advance dialog's initial focus). A scheduled run on the same head
 passed, which does not establish the cause. The test asserted focus before
-`useDialog`'s passive effect moves it; the test now waits for that same focus.
-No product change.
+`useDialog`'s passive effect moves it; #1025 makes the test wait for that same
+focus. A #1025 head then failed `ReportBranding.test.jsx` (the single-business
+form): the heading and intro render while settings are still loading, and the
+test read the form field before it existed. It now waits for the field. No
+product change in either case.
+
+**Acceptance still open.** These are not passed and are not claimed here:
+#1019 live resolved-alert delivery by email; Cyber Essentials case verify and
+reopen on a real control change; the free-check canary's natural morning email
+under #1022; and a fresh TLS-RPT scan under #1026. Journeys already accepted in
+scope stay accepted.
 
 ## 26 October 2026 — production deployments (no release tag)
 
