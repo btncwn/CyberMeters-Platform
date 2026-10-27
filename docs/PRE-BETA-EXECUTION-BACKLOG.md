@@ -57,7 +57,7 @@ GO or public capability claim.
 | --- | --- | --- |
 | [#1021](https://github.com/btncwn/CyberMeters-Platform/pull/1021) | `b4c99e08` | Merged (frontend); live acceptance not recorded here |
 | [#1022](https://github.com/btncwn/CyberMeters-Platform/pull/1022) | `b88e8873` | Deployed; live acceptance not recorded here |
-| [#1023](https://github.com/btncwn/CyberMeters-Platform/pull/1023) | `97398586` | Scoped live acceptance (1440px CSS, 390px journey) |
+| [#1023](https://github.com/btncwn/CyberMeters-Platform/pull/1023) | `97398586` | Scoped live acceptance at CSS 520x1125 and 1440x900; exact 390/768/1024/1440 by real-Layout E2E only |
 | [#1024](https://github.com/btncwn/CyberMeters-Platform/pull/1024) | `90009a21` | Deployed; three scoped live checks passed (CE action, TLS list, MCP own-case read) |
 
 #1019's live resolved-alert acceptance remains OPEN.

@@ -33,8 +33,10 @@ reported every fresh morning. Live acceptance is not recorded in this entry.
 **[#1023](https://github.com/btncwn/CyberMeters-Platform/pull/1023) mobile workspace switcher in the top bar.** Merged as
 `97398586` after 17/17 checks and integrator review 5664249891. Below 1024px
 the workspace card is in the top bar instead of floating over content; from
-1024px it is unchanged. Scoped live acceptance in the private record: the
-deployed CSS at 1440px and the exact 390px journey.
+1024px it is unchanged. Scoped live acceptance in the private record: an
+authenticated narrow viewport of CSS 520x1125 (a requested 390 rendered at 520
+through browser scaling) and a wide viewport of 1440x900. Exact 390, 768, 1024
+and 1440 widths were proven by real-Layout E2E only.
 
 **[#1024](https://github.com/btncwn/CyberMeters-Platform/pull/1024) three P2 fixes.** Merged as `90009a21` after R1 review
 5665107494 on exact head `a89735b9` and 17/17 checks; deployed separately.
