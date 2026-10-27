@@ -799,7 +799,7 @@ export function computeScore(modules, domain) {
     // modules still use completed per-probe evidence. Absent status on an otherwise
     // executed legacy/R2 result keeps the historical present-based read.
     const emailModuleUnobserved = modules.email_security?.skipped === true ||
-      modules.email_security?.executed === false;
+      modules.email_security?.executed === false || Boolean(modules.email_security?.error);
     const spfEvidence = modules.email_security?.spf_evidence_status ?? null;
     const spfUnobserved = emailModuleUnobserved ||
       (spfEvidence ? isEmailProbeUnobserved(spfEvidence) : false);
