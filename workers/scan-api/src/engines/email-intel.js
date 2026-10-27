@@ -263,7 +263,12 @@ async function checkTlsRpt(domain, opts = {}) {
   }
   // Only a conclusive answer (NOERROR or NXDOMAIN, resolvers agreeing) can say a
   // record is missing; SERVFAIL, REFUSED or a malformed reply stays unavailable.
+  // Checked here as well, strictly: Status must be the number 0 or 3 (the shared
+  // classifier reads Number(Status), so null or "" would pass as NOERROR), and a
+  // truncated (TC) answer is incomplete whatever it carries.
   if (dmarcObservationStatusFromDnsResult({ status: "fulfilled", value: res }) !== DMARC_OBSERVATION_STATUS.OBSERVED
+      || (res.Status !== 0 && res.Status !== 3)
+      || res.TC === true
       || (res.Answer != null && !Array.isArray(res.Answer))) {
     result.reason = res && typeof res === "object" ? "dns_inconclusive" : "dns_malformed_response";
     result.errors.push("TLS-RPT could not be verified during this scan.");

@@ -315,6 +315,11 @@ ok("orchestrator mta_sts outcome is unavailable, not absence",
     ["reply without Status", { Answer: [] }],
     ["Answer is not an array", { Status: 0, Answer: { data: RECORD } }],
     ["resolver disagreement", { Status: 0, resolver_agreement: "disagreement", Answer: [] }],
+    ["truncated (TC) with no answers", { Status: 0, TC: true, Answer: [] }],
+    ["truncated (TC) carrying a valid record", { Status: 0, TC: true, Answer: [txt(JSON.stringify(RECORD))] }],
+    ["Status null", { Status: null, TC: false, Answer: [] }],
+    ["Status empty string", { Status: "", TC: false, Answer: [] }],
+    ["Status as the string \"0\"", { Status: "0", TC: false, Answer: [txt(JSON.stringify(RECORD))] }],
   ]) {
     const r = await scan(answer);
     ok(`${label}: unknown, never "not found"`, r.intel.tls_rpt.enabled === false && r.detail.record_found === null &&
