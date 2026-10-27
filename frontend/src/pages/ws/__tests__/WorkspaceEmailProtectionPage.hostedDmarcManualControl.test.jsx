@@ -273,7 +273,9 @@ describe('ManagedDmarcCard — RFC 9989 ladder from the API', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Advance to Reject' }))
     const dialog = await screen.findByRole('alertdialog', { name: 'Move to Reject anyway?' })
     expect(dialog).toHaveTextContent(reason)
-    expect(within(dialog).getByRole('button', { name: 'Stay at Reject (testing)' })).toHaveFocus()
+    // useDialog moves focus in a passive effect after the dialog mounts, so the
+    // dialog can be found a moment before it is focused: wait for that focus.
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Stay at Reject (testing)' })).toHaveFocus())
     fireEvent.click(within(dialog).getByRole('button', { name: 'Move to Reject anyway' }))
     await waitFor(() => expect(api.setHostedDmarcStep).toHaveBeenLastCalledWith(WS_ID, DOMAIN, 'reject', true))
   })

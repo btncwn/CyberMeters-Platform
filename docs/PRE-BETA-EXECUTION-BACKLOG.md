@@ -51,6 +51,17 @@ GO or public capability claim.
 | [#1018](https://github.com/btncwn/CyberMeters-Platform/pull/1018) | `44f38f0f` | Deployed; normal persisted-selector comparison accepted (scoped); fault controls offline only |
 | [#1019](https://github.com/btncwn/CyberMeters-Platform/pull/1019) | `cf77d809` | **DEPLOYED, NOT LIVE-ACCEPTED** — live resolved-alert acceptance OPEN |
 
+**27 October changes** (details in `CHANGELOG.md`):
+
+| PR | Merge | State |
+| --- | --- | --- |
+| [#1021](https://github.com/btncwn/CyberMeters-Platform/pull/1021) | `b4c99e08` | Merged (frontend); live acceptance not recorded here |
+| [#1022](https://github.com/btncwn/CyberMeters-Platform/pull/1022) | `b88e8873` | Deployed; live acceptance not recorded here |
+| [#1023](https://github.com/btncwn/CyberMeters-Platform/pull/1023) | `97398586` | Scoped live acceptance (1440px CSS, 390px journey) |
+| [#1024](https://github.com/btncwn/CyberMeters-Platform/pull/1024) | `90009a21` | Deployed; three scoped live checks passed (CE action, TLS list, MCP own-case read) |
+
+#1019's live resolved-alert acceptance remains OPEN.
+
 **Corrections to stale dated labels:**
 
 - **SPF CIDR Evidence-Fidelity P1** (interlock below, headed "recorded, not
