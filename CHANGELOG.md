@@ -24,6 +24,8 @@ identities recursively against the lockfile. The production dependency graph
 is unchanged, including all 50 production lock entries. Local validation
 passed once: 2,273 tests across 295 files, a valid dependency graph, and npm
 audit reporting zero vulnerabilities. Installation scripts were disabled.
+Refreshed the paired frontend install-attestation hashes after the initial CI
+attempt stopped before tests on stale recorded hashes.
 No production exploit was demonstrated; this entry claims no Worker
 deployment or live acceptance.
 
