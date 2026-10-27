@@ -622,7 +622,10 @@ export default function WorkspaceCyberEssentialsPage() {
   // answer. Only when the answers and readiness loaded; a finding or a case still
   // comes first (ModuleContract fallbackNextAction).
   const selfDeclaredGaps = selfControls.reduce((n, control) => n + (Array.isArray(control?.self_attestation?.gaps) ? control.self_attestation.gaps.length : 0), 0)
-  const questionnaireDone = progress.total > 0 && progress.answered === progress.total
+  // Saved, not drafted (R1 #1024): every question answered on the page AND the
+  // backend's readiness says the saved questionnaire is complete. An answer
+  // ticked but not saved never turns the next action into a review of it.
+  const questionnaireDone = progress.total > 0 && progress.answered === progress.total && readiness?.questionnaire?.complete === true
   const selfDeclaredNext = !loading && !error && readiness && questionnaireDone && selfDeclaredGaps > 0 ? {
     title: 'Review your self-declared answers',
     body: `${selfDeclaredGaps} of your saved answers ${selfDeclaredGaps === 1 ? 'shows' : 'show'} a gap. These are your own answers about internal users, devices and processes: CyberMeters cannot see them from outside, so a new scan does not check them. Review them with your IT provider or internal owner.`,

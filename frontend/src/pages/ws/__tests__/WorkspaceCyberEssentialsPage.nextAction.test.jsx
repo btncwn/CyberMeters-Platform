@@ -2,7 +2,7 @@
 // self-declared gap, the job is reviewing that answer — not a scan, which
 // cannot see an internal answer, and never an all-clear. A finding or a case
 // keeps priority; loading, failed, incomplete and gap-free states stay honest.
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import WorkspaceCyberEssentialsPage from '../WorkspaceCyberEssentialsPage'
@@ -47,7 +47,7 @@ beforeEach(() => {
   api.getSecurityCheckDomains.mockResolvedValue(domains())
   api.getCases.mockResolvedValue({ cases: [] })
 })
-const mount = () => render(<MemoryRouter initialEntries={['/ws/cyber-essentials']}><WorkspaceCyberEssentialsPage /></MemoryRouter>)
+const mount = (path = '/ws/cyber-essentials') => render(<MemoryRouter initialEntries={[path]}><WorkspaceCyberEssentialsPage /></MemoryRouter>)
 
 describe('CE Do this next', () => {
   it('20/20 saved with a self-declared gap: one self-declared review action, no scan, no all-clear, no assurance claim', async () => {
@@ -94,5 +94,30 @@ describe('CE Do this next', () => {
     mount()
     expect(await within(await next()).findByText(/case from earlier is still open/)).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: TITLE })).toBeNull()
+  })
+  it('an unsaved final answer never shows the review; a failed save keeps it hidden; a successful save that reads complete shows it (R1 #1024)', async () => {
+    const nineteen = { firewalls: allAnswered.firewalls, secure_configuration: Object.fromEntries(QUESTIONS[1].questions.slice(0, 9).map((q) => [q.key, 'yes'])) }
+    api.getWorkspaceCyberEssentialsAnswers.mockResolvedValue({ questions: QUESTIONS, answers: nineteen })
+    api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue({ ...readiness(['default_inbound_block']), questionnaire: { complete: false } })
+    mount('/ws/cyber-essentials?tab=findings')
+    expect(await within(await next()).findByText('Finish the readiness questionnaire')).toBeInTheDocument()
+    // Tick the 20th answer without saving.
+    const last = (await screen.findByText('Configuration question 9')).closest('.rounded-2xl')
+    fireEvent.click(within(last).getByRole('button', { name: /^Yes/ }))
+    await waitFor(() => expect(screen.queryByText('Finish the readiness questionnaire')).toBeNull())
+    expect(screen.queryByRole('link', { name: TITLE })).toBeNull()
+    expect(api.saveWorkspaceCyberEssentialsAnswers).toHaveBeenCalledTimes(0)
+    // A failed save changes nothing.
+    api.saveWorkspaceCyberEssentialsAnswers.mockRejectedValueOnce(new Error('save failed'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save answers' }))
+    await waitFor(() => expect(api.saveWorkspaceCyberEssentialsAnswers).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save answers' })).toBeEnabled())
+    expect(screen.queryByRole('link', { name: TITLE })).toBeNull()
+    // A successful save whose refreshed readiness reads complete shows it.
+    api.saveWorkspaceCyberEssentialsAnswers.mockResolvedValueOnce({ questions: QUESTIONS, answers: allAnswered })
+    api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness(['default_inbound_block']))
+    fireEvent.click(screen.getByRole('button', { name: 'Save answers' }))
+    expect(await screen.findByRole('link', { name: TITLE })).toHaveAttribute('href', '/ws/cyber-essentials?tab=findings#questionnaire')
+    expect(api.saveWorkspaceCyberEssentialsAnswers).toHaveBeenCalledTimes(2)
   })
 })
