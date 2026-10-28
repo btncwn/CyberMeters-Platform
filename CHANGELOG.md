@@ -42,6 +42,11 @@ from the latest complete, authoritative own-domain workspace assessment
 (27 October, 11:13:42 UTC); the reported score remains 100. The seven-day limit,
 its test, marketing copy and assessment semantics are unchanged.
 
+The next CI run exposed the Trust-page rendering test's literal old timestamp.
+Align that exact visible-date and dateTime assertion with the same observed
+27 October assessment, and retain an explicit rejection of the old date. No
+assertion is removed or relaxed; the freshness and rendering suites run together.
+
 ## 28 October 2026 — approved landing and Field Guide claim corrections
 
 Preserve the existing landing headline, explanatory paragraph and layout while
