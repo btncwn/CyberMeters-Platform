@@ -9,7 +9,7 @@ describe('Academy content', () => {
 
   it('opens the DMARC impersonation article by its current and earlier address', () => {
     const article = getArticle('dmarc-stop-email-impersonation')
-    expect(article?.title).toBe('DMARC: stop criminals sending email as your business')
+    expect(article?.title).toBe('DMARC: make it much harder for criminals to send email as your business')
     expect(getArticle('dmarc-explained-for-uk-small-businesses')).toBe(article)
     expect(getArticle('no-such-article')).toBeNull()
   })

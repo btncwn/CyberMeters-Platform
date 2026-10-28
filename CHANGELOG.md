@@ -22,8 +22,11 @@ The Founder approved the reviewed copy on 28 October. Internal review notes
 and source-evidence sections are not product content. This change adds no
 scanner, plan entitlement, DNS action or public-beta approval. Frontend only;
 no Worker deployment. Validation: 109 focused cases across four suites and
-the production build passed. Required CI and live publication are recorded
-separately.
+the production build passed. The first CI attempt exposed two stale Identity
+claim-mutation anchors and one article-title expectation; these now follow the
+approved copy, with injected bad claims and exact failure/control sets retained.
+The 46-fixture baseline and both targeted negative controls passed. Required CI
+and live publication are recorded separately.
 
 ## 28 October 2026 — Active Checks history (release verification pending)
 
