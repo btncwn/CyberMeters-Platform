@@ -7,6 +7,30 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 28 October 2026 — free-tool visitor allowance (release verification pending)
+
+Inconclusive, failed or malformed free-tool checks now return a confirmed
+visitor allowance before responding. A later domain/global admission refusal
+also releases the already-claimed visitor allowance. Conclusive good, attention
+and risk results keep their charge. Domain/global work budgets and deferred
+submission limits remain unchanged.
+
+The optional limiter callback supplies an internal request-owned release handle.
+It attempts compensation once, before I/O, and never retries an uncertain write.
+Rolling slots retain a monotonic revision and match the original slot/window;
+fixed windows decrement only their original row, never below zero. Per-user
+admission uses the existing saturating option so concurrent refusals cannot
+consume the allowance returned by a failed admitted check. Crashes and uncertain
+claim writes can still leave allowance consumed; no guaranteed refund is claimed.
+
+Validation: 60 real-SQLite free-tool cases, 8 focused login atomicity cases and
+18 email-worker equivalence checks passed. The pristine-tree login mutation
+driver was not repeated locally; its unchanged mutation anchors remain covered
+by required CI. Shared limiter source is in the routed email Worker's import
+closure, so release verification must record both Worker identities. No schema,
+auth, price, plan limit, public refund endpoint or historical counter rewrite.
+Deployment and live acceptance remain pending.
+
 ## 28 October 2026 — Active Checks history (release verification pending)
 
 Active Checks now opens a hub with permission receipts and the latest 20
