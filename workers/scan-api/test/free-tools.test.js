@@ -18,7 +18,7 @@ import { freeToolsRoutes, processFreeToolDeferredChecks } from "../src/routes/fr
 
 const SHARE_KEY = "k".repeat(40);
 
-function fixture({ failRateLimits = false } = {}) {
+function fixture({ failRateLimits = false, afterRateLimitFirst = null, afterRateLimitRun = null } = {}) {
   const sqlite = new DatabaseSync(":memory:");
   for (const file of ["026-api-rate-limits.sql", "129-free-tool-deferred-checks.sql"]) {
     sqlite.exec(readFileSync(fileURLToPath(new URL(`../../../database/migrations/${file}`, import.meta.url)), "utf8"));
@@ -34,9 +34,17 @@ function fixture({ failRateLimits = false } = {}) {
       if (failRateLimits && /api_rate_limits/.test(sql)) throw new Error("D1 unavailable");
       const statement = sqlite.prepare(sql);
       return { bind(...args) { return {
-        first: async () => statement.get(...args) ?? null,
+        first: async () => {
+          const row = statement.get(...args) ?? null;
+          if (/api_rate_limits/.test(sql)) afterRateLimitFirst?.(sql, args, row);
+          return row;
+        },
         all: async () => ({ results: statement.all(...args) }),
-        run: async () => ({ meta: { changes: Number(statement.run(...args).changes) } }),
+        run: async () => {
+          const changes = Number(statement.run(...args).changes);
+          if (/api_rate_limits/.test(sql)) afterRateLimitRun?.(sql, args, changes);
+          return { meta: { changes } };
+        },
       }; } };
     },
   };
@@ -88,7 +96,7 @@ function harness(env, overrides = {}) {
       ctx: { waitUntil: (promise) => calls.waits.push(promise) },
       json: (data, status = 200) => Response.json(data, { status }),
       requireAuth: async (req) => (req.headers.get("Authorization") === "Bearer member" ? { id: "u1" } : req.headers.get("Authorization") === "Bearer loner" ? { id: "u2" } : null),
-      consumeApiRateLimit, rateLimitScopeId,
+      consumeApiRateLimit: overrides.consumeApiRateLimit || consumeApiRateLimit, rateLimitScopeId,
       turnstileFetch,
       freeToolCache: cache,
       freeToolAlert: async (subject) => { calls.alerts.push(subject); return { sent: true }; },
@@ -97,6 +105,7 @@ function harness(env, overrides = {}) {
         spf: async (domain) => { calls.lookups += 1; return goodResult("spf", domain); },
         headers: async (domain) => { calls.lookups += 1; return goodResult("headers", domain); },
         lookalike: async (domain) => { calls.lookups += 1; return goodResult("lookalike", domain); },
+        ...(overrides.runners || {}),
       },
     });
   };
@@ -186,6 +195,262 @@ test("rolling slots cannot be double-claimed and a refused request writes nothin
   const before = rows(sqlite);
   assert.equal((await consumeApiRateLimit(env, scope, "free_tool_ip_test", 2, 86400, { failClosed: true, rolling: true, peek: true }))?.status, 429);
   assert.deepEqual(rows(sqlite), before);
+});
+
+test("a rolling refund preserves its revision and is attempted once before I/O", async (t) => {
+  const now = Date.parse("2026-10-28T10:00:00.000Z");
+  t.mock.method(Date, "now", () => now);
+  let releases = 0;
+  const { sqlite, env } = fixture({ afterRateLimitRun: (sql) => { if (/SET window_start =/.test(sql)) releases += 1; } });
+  const scope = [{ scope: "ip", scope_id: "visitor" }];
+  let release;
+  await consumeApiRateLimit(env, scope, "free_tool_ip_test", 1, 60,
+    { failClosed: true, rolling: true, onClaim: (claim) => { release = claim; } });
+  const claimed = rows(sqlite)[0];
+  assert.equal(typeof release, "function");
+  assert.equal(JSON.stringify(release), undefined, "the handle is internal, not a JSON counter identity");
+  const results = await Promise.all([release(), release(), release()]);
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(releases, 1);
+  assert.equal(rows(sqlite)[0].request_count, claimed.request_count, "rolling revision is never decremented/reset");
+  assert.equal(rows(sqlite)[0].window_start, new Date(now - 60_000).toISOString());
+  assert.equal(await consumeApiRateLimit(env, scope, "free_tool_ip_test", 1, 60,
+    { failClosed: true, rolling: true }), null);
+  assert.equal(rows(sqlite)[0].window_start, claimed.window_start, "new claim may use the same millisecond");
+  assert.equal(rows(sqlite)[0].request_count, claimed.request_count + 1);
+  assert.equal(await release(), false);
+  assert.equal(releases, 1);
+  assert.equal((await consumeApiRateLimit(env, scope, "free_tool_ip_test", 1, 60,
+    { failClosed: true, rolling: true, peek: true })).status, 429);
+});
+
+test("a stale rolling handle cannot release a newer claim even with the same timestamp", async (t) => {
+  let now = Date.parse("2026-10-28T10:00:00.000Z");
+  t.mock.method(Date, "now", () => now);
+  const { sqlite, env } = fixture();
+  const scope = [{ scope: "ip", scope_id: "visitor" }];
+  let oldRelease;
+  const options = { failClosed: true, rolling: true };
+  await consumeApiRateLimit(env, scope, "free_tool_ip_test", 1, 60,
+    { ...options, onClaim: (claim) => { oldRelease = claim; } });
+  const first = rows(sqlite)[0];
+  // Controlled expiry while Date.now stays fixed makes timestamp-only matching
+  // insufficient: the monotonic request_count revision must discriminate.
+  sqlite.prepare("UPDATE api_rate_limits SET window_start = ? WHERE id = ?")
+    .run(new Date(now - 60_001).toISOString(), first.id);
+  await consumeApiRateLimit(env, scope, "free_tool_ip_test", 1, 60, options);
+  const newer = rows(sqlite)[0];
+  assert.equal(newer.window_start, first.window_start);
+  assert.equal(newer.request_count, first.request_count + 1);
+  assert.equal(await oldRelease(), false);
+  assert.deepEqual(rows(sqlite)[0], newer);
+
+  let expiredRelease;
+  now += 60_001;
+  await consumeApiRateLimit(env, scope, "free_tool_ip_test", 1, 60,
+    { ...options, onClaim: (claim) => { expiredRelease = claim; } });
+  now += 60_001;
+  await consumeApiRateLimit(env, scope, "free_tool_ip_test", 1, 60, options);
+  const reclaimed = rows(sqlite)[0];
+  assert.equal(await expiredRelease(), false);
+  assert.deepEqual(rows(sqlite)[0], reclaimed);
+});
+
+test("a fixed refund uses its original window and never makes a counter negative", async (t) => {
+  let now = Date.parse("2026-10-28T23:59:59.000Z");
+  t.mock.method(Date, "now", () => now);
+  const { sqlite, env } = fixture();
+  const scope = [{ scope: "user", scope_id: "visitor" }], claims = [];
+  const options = { failClosed: true, atomic: true, saturating: true, onClaim: (claim) => claims.push(claim) };
+  await consumeApiRateLimit(env, scope, "free_tool_user_test", 50, 86400, options);
+  await consumeApiRateLimit(env, scope, "free_tool_user_test", 50, 86400, options);
+  const original = rows(sqlite)[0];
+  now += 2000;
+  await consumeApiRateLimit(env, scope, "free_tool_user_test", 50, 86400, options);
+  const current = rows(sqlite).find(row => row.id !== original.id);
+  assert.equal(await claims[0](), true);
+  assert.equal(sqlite.prepare("SELECT request_count FROM api_rate_limits WHERE id = ?").get(original.id).request_count, 1);
+  assert.deepEqual(sqlite.prepare("SELECT * FROM api_rate_limits WHERE id = ?").get(current.id), current);
+  sqlite.prepare("UPDATE api_rate_limits SET request_count = 0 WHERE id = ?").run(original.id);
+  assert.equal(await claims[1](), false);
+  assert.equal(sqlite.prepare("SELECT request_count FROM api_rate_limits WHERE id = ?").get(original.id).request_count, 0);
+  assert.equal(await claims[0](), false);
+});
+
+test("an applied-but-unconfirmed refund is never retried for either window type", async () => {
+  for (const rolling of [false, true]) {
+    let attempts = 0;
+    const { sqlite, env } = fixture({ afterRateLimitRun: (sql) => {
+      if (/UPDATE api_rate_limits/.test(sql)) { attempts += 1; throw new Error("write acknowledgement lost"); }
+    } });
+    const scope = [{ scope: rolling ? "ip" : "user", scope_id: "visitor" }];
+    let release;
+    const options = { failClosed: true, atomic: true, rolling, saturating: true };
+    await consumeApiRateLimit(env, scope, "free_tool_refund_test", 1, 60,
+      { ...options, onClaim: (claim) => { release = claim; } });
+    assert.equal(await release(), false);
+    assert.equal(await release(), false);
+    assert.equal(attempts, 1);
+    assert.equal(await consumeApiRateLimit(env, scope, "free_tool_refund_test", 1, 60, options), null);
+    const newer = rows(sqlite)[0];
+    assert.equal(await release(), false);
+    assert.deepEqual(rows(sqlite)[0], newer);
+    assert.equal(attempts, 1);
+  }
+});
+
+test("peek, denied and uncertain claims never hand out a refund handle", async () => {
+  for (const rolling of [false, true]) {
+    const { env } = fixture();
+    const scopes = [{ scope: rolling ? "ip" : "user", scope_id: "visitor" }];
+    const claims = [];
+    const options = { failClosed: true, atomic: true, rolling, saturating: true, onClaim: (claim) => claims.push(claim) };
+    assert.equal(await consumeApiRateLimit(env, scopes, "free_tool_receipt_test", 1, 60, { ...options, peek: true }), null);
+    assert.equal(claims.length, 0);
+    await consumeApiRateLimit(env, scopes, "free_tool_receipt_test", 1, 60, options);
+    assert.equal(claims.length, 1);
+    assert.equal((await consumeApiRateLimit(env, scopes, "free_tool_receipt_test", 1, 60, options)).status, 429);
+    assert.equal(claims.length, 1);
+  }
+  let claim;
+  const { sqlite, env } = fixture({ afterRateLimitFirst: (sql) => {
+    if (/INSERT INTO api_rate_limits/.test(sql)) throw new Error("claim acknowledgement lost");
+  } });
+  const limited = await consumeApiRateLimit(env, [{ scope: "user", scope_id: "visitor" }], "free_tool_user_test", 50, 86400,
+    { failClosed: true, atomic: true, onClaim: (release) => { claim = release; } });
+  assert.equal(limited.status, 503);
+  assert.equal(claim, undefined);
+  assert.equal(rows(sqlite)[0].request_count, 1, "an uncertain claim cannot be safely guessed/refunded");
+});
+
+test("unknown and thrown checks return only the IP/user allowance before responding", async () => {
+  for (const auth of [null, "member"]) {
+    for (const outcome of ["unknown", "throw"]) {
+      const { sqlite, env } = fixture();
+      let lookups = 0;
+      const h = harness(env, { runners: { dmarc: async (domain) => {
+        lookups += 1;
+        if (outcome === "throw") throw new Error("provider unavailable");
+        return { ...goodResult("dmarc", domain), verdict: { level: "unknown", headline: "Could not check", summary: "No conclusion." } };
+      } } });
+      for (let i = 0; i < 3; i += 1) {
+        const response = await h.check("dmarc", "unavailable.example.com", "good-dmarc", { auth });
+        assert.equal(response.status, outcome === "throw" ? 503 : 200);
+      }
+      assert.equal(lookups, 3, "returned allowance is usable on immediate retry");
+      assert.equal(h.cache.store.size, 0);
+      assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_global'")[0].request_count, 3);
+      assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_domain_dmarc'")[0].request_count, 3);
+      if (auth) assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_user_dmarc'")[0].request_count, 0);
+      else assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM api_rate_limits WHERE action = 'free_tool_ip_dmarc' AND window_start > ?")
+        .get(new Date(Date.now() - FREE_TOOL_POLICY.ipWindowSeconds * 1000).toISOString()).n, 0);
+    }
+  }
+});
+
+test("missing/malformed verdicts fail without caching or retaining visitor allowance", async () => {
+  const invalid = [undefined, null, {}, { verdict: null }, { verdict: [] }, { verdict: "good" }, { verdict: {} }, { verdict: { level: "healthy" } }];
+  for (const result of invalid) {
+    const { sqlite, env } = fixture();
+    const h = harness(env, { runners: { dmarc: async () => result } });
+    const response = await h.check("dmarc", "invalid.example.com", "good-dmarc");
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "lookup_failed");
+    assert.equal(h.cache.store.size, 0);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM api_rate_limits WHERE action = 'free_tool_ip_dmarc' AND window_start > ?")
+      .get(new Date(Date.now() - FREE_TOOL_POLICY.ipWindowSeconds * 1000).toISOString()).n, 0);
+    assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_global'")[0].request_count, 1);
+  }
+});
+
+test("all conclusive builder verdicts retain the allowance and remain cacheable", async () => {
+  for (const level of ["good", "attention", "risk"]) {
+    const { sqlite, env } = fixture();
+    const h = harness(env, { runners: { dmarc: async (domain) => ({ ...goodResult("dmarc", domain), verdict: { level, headline: "Conclusion", summary: "Measured." } }) } });
+    const response = await h.check("dmarc", "conclusive.example.com", undefined, { auth: "member" });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).result.verdict.level, level);
+    assert.equal(h.cache.store.size, 1);
+    assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_user_dmarc'")[0].request_count, 1);
+  }
+});
+
+test("a later domain/global race refusal returns only the visitor allowance", async () => {
+  for (const target of ["free_tool_domain_dmarc", "free_tool_global"]) {
+    const { sqlite, env } = fixture();
+    let raced = false;
+    const h = harness(env, { consumeApiRateLimit: async (e, scopes, action, limit, window, options) => {
+      if (!options.peek && action === target && !raced) {
+        raced = true;
+        await consumeApiRateLimit(e, scopes, action, limit, window, { failClosed: true, atomic: true });
+        sqlite.prepare("UPDATE api_rate_limits SET request_count = ? WHERE action = ?").run(limit, action);
+      }
+      return consumeApiRateLimit(e, scopes, action, limit, window, options);
+    } });
+    const response = await h.check("dmarc", "raced.example.com", "good-dmarc");
+    assert.equal(response.status, 429);
+    assert.equal(h.calls.lookups, 0);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM api_rate_limits WHERE action = 'free_tool_ip_dmarc' AND window_start > ?")
+      .get(new Date(Date.now() - FREE_TOOL_POLICY.ipWindowSeconds * 1000).toISOString()).n, 0);
+    const expected = target === "free_tool_global" ? FREE_TOOL_POLICY.dailyBudget + 1 : FREE_TOOL_POLICY.domainRuns + 1;
+    assert.equal(rows(sqlite, `SELECT request_count FROM api_rate_limits WHERE action = '${target}'`)[0].request_count, expected);
+    if (target === "free_tool_global") assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_domain_dmarc'")[0].request_count, 1);
+    else assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_global'").length, 0);
+  }
+});
+
+test("a later limiter outage releases the acknowledged visitor claim, not uncertain provider budget", async () => {
+  const { sqlite, env } = fixture({ afterRateLimitFirst: (sql, args) => {
+    if (/INSERT INTO api_rate_limits/.test(sql) && args[3] === "free_tool_global") throw new Error("global claim acknowledgement lost");
+  } });
+  const h = harness(env);
+  assert.equal((await h.check("dmarc", "outage.example.com", undefined, { auth: "member" })).status, 503);
+  assert.equal(h.calls.lookups, 0);
+  assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_user_dmarc'")[0].request_count, 0);
+  assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_domain_dmarc'")[0].request_count, 1);
+  assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_global'")[0].request_count, 1);
+});
+
+test("concurrent per-user cap refusals cannot swallow an admitted failed check's refund", async () => {
+  const { sqlite, env } = fixture();
+  const scopeId = await rateLimitScopeId("freetool-user-dmarc", "u1");
+  await consumeApiRateLimit(env, [{ scope: "user", scope_id: scopeId }], "free_tool_user_dmarc", 50, 86400, { atomic: true });
+  sqlite.prepare("UPDATE api_rate_limits SET request_count = 49 WHERE action = 'free_tool_user_dmarc'").run();
+  let peeks = 0, unblockPeeks, finishRunner, nextIsGood = false;
+  const peekGate = new Promise(resolve => { unblockPeeks = resolve; });
+  const runnerGate = new Promise(resolve => { finishRunner = resolve; });
+  const h = harness(env, {
+    cache: null,
+    consumeApiRateLimit: async (e, scopes, action, limit, window, options) => {
+      const result = await consumeApiRateLimit(e, scopes, action, limit, window, options);
+      if (options.peek && action === "free_tool_user_dmarc" && peeks < 2) {
+        peeks += 1;
+        if (peeks === 2) unblockPeeks();
+        await peekGate;
+      }
+      return result;
+    },
+    runners: { dmarc: async (domain) => {
+      if (nextIsGood) return goodResult("dmarc", domain);
+      await runnerGate;
+      return { ...goodResult("dmarc", domain), verdict: { level: "unknown", headline: "Unavailable", summary: "No conclusion." } };
+    } },
+  });
+  const pending = [h.check("dmarc", "one.example.com", undefined, { auth: "member" }), h.check("dmarc", "two.example.com", undefined, { auth: "member" })];
+  try {
+    const refusal = await Promise.race(pending);
+    assert.equal(refusal.status, 429);
+    assert.equal((await refusal.json()).scope, "user");
+    assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_user_dmarc'")[0].request_count, 50);
+  } finally {
+    finishRunner();
+  }
+  const finished = await Promise.all(pending);
+  assert.deepEqual(finished.map(response => response.status).sort(), [200, 429]);
+  assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_user_dmarc'")[0].request_count, 49);
+  nextIsGood = true;
+  assert.equal((await h.check("dmarc", "three.example.com", undefined, { auth: "member" })).status, 200);
+  assert.equal(rows(sqlite, "SELECT request_count FROM api_rate_limits WHERE action = 'free_tool_user_dmarc'")[0].request_count, 50);
 });
 
 test("the per-domain cap trips across IPs", async () => {

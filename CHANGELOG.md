@@ -7,6 +7,46 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 28 October 2026 — free-tool visitor allowance (release verification pending)
+
+Inconclusive, failed or malformed free-tool checks now return a confirmed
+visitor allowance before responding. A later domain/global admission refusal
+also releases the already-claimed visitor allowance. Conclusive good, attention
+and risk results keep their charge. Domain/global work budgets and deferred
+submission limits remain unchanged.
+
+The optional limiter callback supplies an internal request-owned release handle.
+It attempts compensation once, before I/O, and never retries an uncertain write.
+Rolling slots retain a monotonic revision and match the original slot/window;
+fixed windows decrement only their original row, never below zero. Per-user
+admission uses the existing saturating option so concurrent refusals cannot
+consume the allowance returned by a failed admitted check. Crashes and uncertain
+claim writes can still leave allowance consumed; no guaranteed refund is claimed.
+
+Validation: 60 real-SQLite free-tool cases, 8 focused login atomicity cases and
+18 email-worker equivalence checks passed. The pristine-tree login mutation
+driver was not repeated locally; its unchanged mutation anchors remain covered
+by required CI. Shared limiter source is in the routed email Worker's import
+closure, so release verification must record both Worker identities. No schema,
+auth, price, plan limit, public refund endpoint or historical counter rewrite.
+Deployment and live acceptance remain pending.
+
+The initial PR CI stopped on three stale generated entry-point line references.
+The existing builder refreshed those Markdown locations; the machine route,
+guard and scope inventory stayed byte-identical. Its focused validator passed
+312 entries, including the stale-line negative control. No CI check was weakened.
+
+After integration, CI correctly stopped when the dated own-domain Trust summary
+crossed its seven-day freshness limit. Refresh only its measurement timestamp
+from the latest complete, authoritative own-domain workspace assessment
+(27 October, 11:13:42 UTC); the reported score remains 100. The seven-day limit,
+its test, marketing copy and assessment semantics are unchanged.
+
+The next CI run exposed the Trust-page rendering test's literal old timestamp.
+Align that exact visible-date and dateTime assertion with the same observed
+27 October assessment, and retain an explicit rejection of the old date. No
+assertion is removed or relaxed; the freshness and rendering suites run together.
+
 ## 28 October 2026 — approved landing and Field Guide claim corrections
 
 Preserve the existing landing headline, explanatory paragraph and layout while
