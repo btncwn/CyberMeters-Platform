@@ -12,7 +12,7 @@ const STEPS = [
     id: 'discover',
     tab: 'Discover',
     summary: 'What CyberMeters saw',
-    copy: 'CyberMeters reads the public DNS of your domain. Here it finds a DMARC record that only asks receivers to report, not to act.',
+    copy: 'CyberMeters reads your public DNS. In this example, the DMARC record is set to monitor only (p=none), so receivers are not asked to quarantine or reject email that fails DMARC.',
     path: '/ws/email-protection',
   },
   {
@@ -33,7 +33,7 @@ const STEPS = [
     id: 'recheck',
     tab: 'Recheck',
     summary: 'How you know it is fixed',
-    copy: 'When your provider has changed the record, CyberMeters checks the public DNS again. Only what it observes itself is marked as verified. If the issue comes back, the case reopens.',
+    copy: 'After your email provider updates the record, CyberMeters checks the public DNS again and marks the case verified only when it sees the new policy itself. If the issue comes back, the case reopens.',
     path: '/ws/cases',
   },
 ]
@@ -91,9 +91,9 @@ function UnderstandScreen() {
       <ul className="mt-4 mx-5 mb-4 rounded-xl border border-[#E6EAF3]">
         {[
           ['DMARC record', 'Found, one valid record', 'issue', 'Policy: none'],
-          ['SPF record', 'Found, syntax valid', 'ok', 'Assessed healthy'],
-          ['DKIM signing', 'Selectors cannot be listed from outside', 'gap', 'Not assessed'],
-          ['Aggregate reports', 'Reporting address published', 'ok', 'Assessed healthy'],
+          ['SPF record', 'One record found; full SPF evaluation not shown', 'info', 'Record observed'],
+          ['DKIM public keys', 'No selector evidence in this example', 'gap', 'Not assessed'],
+          ['Aggregate reporting', 'Reporting address published; receipt not shown', 'info', 'Address published'],
         ].map(([name, note, tone, state]) => (
           <li key={name} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
             <div className="flex-1 min-w-[180px]">
@@ -115,7 +115,7 @@ function PrioritiseScreen() {
       <dl className="mt-4 mx-5 mb-4 rounded-xl border border-[#E6EAF3]">
         <Row label="Severity"><span className="font-semibold text-[#8A5300]">Medium</span></Row>
         <Row label="Why it matters">A no-action policy asks for reports, but does not ask receivers to quarantine or reject email that fails DMARC.</Row>
-        <Row label="Recommended action">Confirm legitimate senders pass, then ask your DNS or email administrator to move the policy towards quarantine or reject. CyberMeters changes a DNS record only after you explicitly confirm the change.</Row>
+        <Row label="Recommended action">Confirm legitimate senders pass, then ask your DNS or email administrator to move the policy towards quarantine or reject. Your administrator publishes this policy change.</Row>
         <Row label="Owner">Your IT provider</Row>
         <Row label="Effort">Medium</Row>
       </dl>
@@ -130,8 +130,8 @@ function RecheckScreen() {
       <ol className="mt-4 mx-5 mb-4 rounded-xl border border-[#E6EAF3]">
         {[
           ['14 Oct, 10:02', 'Owner recorded the change', 'Awaiting verification', 'wait'],
-          ['14 Oct, 11:30', 'CyberMeters checked public DNS again', 'p=quarantine observed', 'info'],
-          ['14 Oct, 11:30', 'Case closed on CyberMeters’ own observation', 'Verified by CyberMeters', 'ok'],
+          ['14 Oct, 11:30', 'A complete later DNS recheck observed the requested policy', 'p=quarantine observed', 'info'],
+          ['14 Oct, 11:30', 'Published-policy change verified from CyberMeters’ own observation', 'Verified by CyberMeters', 'ok'],
         ].map(([when, what, state, tone]) => (
           <li key={what} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 border-b border-[#EEF1F7] last:border-b-0">
             <span className="w-[110px] text-[14px] text-[#626B80]">{when}</span>
