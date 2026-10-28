@@ -31,6 +31,11 @@ closure, so release verification must record both Worker identities. No schema,
 auth, price, plan limit, public refund endpoint or historical counter rewrite.
 Deployment and live acceptance remain pending.
 
+The initial PR CI stopped on three stale generated entry-point line references.
+The existing builder refreshed those Markdown locations; the machine route,
+guard and scope inventory stayed byte-identical. Its focused validator passed
+312 entries, including the stale-line negative control. No CI check was weakened.
+
 ## 28 October 2026 — Active Checks history (release verification pending)
 
 Active Checks now opens a hub with permission receipts and the latest 20
