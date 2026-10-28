@@ -26,7 +26,7 @@ const SERVICES = inAreaOrder([
   {
     name: 'Identity Exposure',
     q: 'What is visible about my business identities?',
-    copy: 'Review identity-provider relationships, identity-facing hostnames and measured endpoints. HTTP evidence is shown where collected. This is not employee breach or dark-web monitoring.',
+    copy: 'Review identity-provider relationships, identity-facing hostnames and measured endpoints. HTTP evidence is shown where collected. Administrators can also check selected public web files for exposed keys and review what Microsoft makes public about your sign-in setup. This is not employee breach or dark-web monitoring.',
     tags: ['Provider relationships', 'Identity-facing hostnames', 'Measured endpoints'],
     key: 'identity',
   },
@@ -47,7 +47,7 @@ const SERVICES = inAreaOrder([
   {
     name: 'Website Security',
     q: 'Is my website configured safely?',
-    copy: 'HTTPS, redirects, security headers, cookie flags and visible website configuration issues in one place.',
+    copy: 'HTTPS, redirects, security headers, cookie flags and visible website configuration issues in one place. Optional signed-in checks show which pages your configured test account reached.',
     tags: ['HTTPS', 'Headers', 'Cookies'],
     key: 'website',
   },
@@ -61,7 +61,7 @@ const SERVICES = inAreaOrder([
   {
     name: 'Certificates & Trust',
     q: 'Will my site quietly break trust?',
-    copy: 'Track certificate expiry and review live TLS evidence, including hostname matching and checks against the recorded trust store.',
+    copy: 'Track certificate expiry and review live TLS evidence, including hostname matching and checks against the declared trust store. Also review protocol and cipher choices, downgrade checks and hybrid key-exchange results for the endpoint tested.',
     tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
     key: 'certs',
   },
@@ -83,9 +83,9 @@ const SERVICES = inAreaOrder([
 ])
 
 const FACTS = [
-  { big: 'External', small: 'checks only what is publicly visible' },
+  { big: 'External', small: 'domain checks measure internet-facing evidence' },
   { big: 'No agent', small: 'nothing is installed on your systems' },
-  { big: '1 DNS record', small: 'proves that you own the domain' },
+  { big: '1 DNS record', small: 'verifies your control of the domain' },
   { big: 'Gaps named', small: 'every result says what could not be checked' },
 ]
 
@@ -96,7 +96,7 @@ const PRINCIPLES = [
 ]
 
 const STEPS = [
-  { title: 'Check', copy: 'Enter a domain for a one-off check of what is publicly visible; nothing is saved. Verify that you own it before the deeper checks.' },
+  { title: 'Check', copy: 'Enter a domain for a one-off view of public evidence. An account and verified domain control are needed to keep reports and monitor changes.' },
   { title: 'Verify', copy: 'Create an account and add one DNS TXT record. CyberMeters looks for it before it shows full findings for that domain.' },
   { title: 'Understand and act', copy: 'Each area says what was observed, what needs attention and what could not be assessed. Assign the recommended steps to an owner.' },
   { title: 'Check again', copy: 'When the work is done, CyberMeters checks again where the fix can be seen from outside. Scheduled rechecks and alerts keep watching for changes.' },
@@ -110,9 +110,9 @@ const UNSEEN = [
 ]
 
 const FAQS = [
-  { q: 'Do I need to install anything?', a: 'No. CyberMeters looks only at what is publicly visible from the internet: DNS, websites, certificates and similar public evidence. Nothing runs on your systems.' },
+  { q: 'Do I need to install anything?', a: 'No agent or device software is required. Domain checks connect from outside to measure DNS, website and TLS evidence; those connections can appear in your logs. Optional signed-in checks use the test account you configure.' },
   { q: 'Why do I have to verify my domain?', a: 'Full findings and monitoring are shown only to someone who controls the domain. You prove that by adding one DNS TXT record; CyberMeters checks it, and you can check again while the record spreads.' },
-  { q: 'Will CyberMeters change my DNS or fix things for me?', a: 'No. It explains what to change and who usually makes the change, then checks again where the fix can be seen from outside. Your DNS, email or IT provider makes the change.' },
+  { q: 'Will CyberMeters change my DNS or fix things for me?', a: 'Your DNS, email or IT provider normally makes the change. CyberMeters can publish supported SPF, DMARC-reporting and TLS-reporting changes only in the Cloudflare account you connect, after you preview and explicitly approve the change. Other fixes stay with the responsible owner.' },
   { q: 'What happens to the free check?', a: 'You see one snapshot in your browser. To keep results, monitor changes or get reports, create an account and verify the domain.' },
   { q: 'Is this Cyber Essentials certification?', a: 'No. CyberMeters helps you prepare and shows readiness gaps it can evidence. Certification itself comes from an approved Certification Body.' },
 ]
@@ -121,13 +121,13 @@ const FAQS = [
 // Sample rows for the product view. States use the product's own coverage
 // vocabulary; no scores, no live data.
 const SAMPLE_ROWS = inAreaOrder([
-  { name: 'Email Protection', key: 'email', state: 'Issue detected', note: 'DMARC set to monitor only', tone: 'issue' },
-  { name: 'Website Security', key: 'website', state: 'Assessed healthy', note: 'HTTPS and headers in place', tone: 'ok' },
-  { name: 'Certificates & Trust', key: 'certs', state: 'Issue detected', note: 'Renews in 9 days', tone: 'issue' },
+  { name: 'Email Protection', key: 'email', state: 'Action required', note: 'DMARC set to monitor only', tone: 'issue' },
+  { name: 'Website Security', key: 'website', state: 'Established', note: 'HTTPS and headers assessed', tone: 'ok' },
+  { name: 'Certificates & Trust', key: 'certs', state: 'Action required', note: 'Expires in 9 days', tone: 'issue' },
   { name: 'Identity Exposure', key: 'identity', state: 'Evidence insufficient', note: '2 identity-facing hostnames, endpoints not measured', tone: 'gap' },
-  { name: 'Attack Surface', key: 'surface', state: 'Assessed healthy', note: '3 subdomains reviewed', tone: 'ok' },
-  { name: 'Brand Protection', key: 'brand', state: 'Issue detected', note: '1 lookalike candidate', tone: 'issue' },
-  { name: 'Shadow IT & Unmanaged Technology', key: 'shadow_it', state: 'Customer input required', note: 'Classify 4 tools', tone: 'input' },
+  { name: 'Attack Surface', key: 'surface', state: 'Established', note: '3 subdomains reviewed', tone: 'ok' },
+  { name: 'Brand Protection', key: 'brand', state: 'Provisional', note: '1 lookalike candidate', tone: 'gap' },
+  { name: 'Shadow IT & Unmanaged Technology', key: 'shadow_it', state: 'Established', note: 'Classify 4 tools', tone: 'ok' },
   { name: 'Cyber Essentials Readiness', key: 'cyber_essentials', state: 'Customer input required', note: 'Questionnaire not started', tone: 'input' },
 ])
 
@@ -474,7 +474,7 @@ export default function PublicLandingPage() {
           <div className="mt-16 grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-8">
             <div className="rounded-[14px] border border-[#DDE2EE] p-8 lg:p-10">
               <h3 className="font-cm font-normal text-[28px] lg:text-[30px] leading-[1.15]">What CyberMeters does not see</h3>
-              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">It checks only what is publicly visible from the internet. It does not see:</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Domain checks start with internet-facing evidence. Optional signed-in or connected checks use only the access you configure. This is not visibility across:</p>
               <ul className="mt-5 space-y-2.5 text-[17px] text-[#2B3448] list-disc pl-5 marker:text-[#2550B6]">
                 {UNSEEN.map(t => <li key={t}>{t}</li>)}
               </ul>
@@ -523,7 +523,8 @@ export default function PublicLandingPage() {
           <div className="mt-14 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="rounded-[14px] bg-white border border-[#DDE2EE] p-8 flex flex-col">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">Free check</h3>
-              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence. No scan report or monitoring history is saved. We keep only a short record of checks run, to stop misuse.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A one-off snapshot of public evidence. No scan report or monitoring history is saved. Usage records and operational counts are kept to limit misuse and run the service.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Our <Link to="/tools" className="text-[#1D46A8] underline">free tools</Link> allow two free checks per tool every 24 hours. This tool limit does not apply to signed-in workspace users.</p>
               <ul className="mt-6 space-y-3 text-[17px] text-[#2B3448] list-disc pl-5 marker:text-[#2550B6]">
                 {['External checks, nothing installed', 'Shows what could not be assessed', 'No sign-up needed'].map(t => (
                   <li key={t}>{t}</li>
@@ -535,8 +536,8 @@ export default function PublicLandingPage() {
             </div>
             <div className="rounded-[14px] border-2 border-[#2550B6] p-8 bg-white flex flex-col">
               <h3 className="font-cm font-normal text-[30px] leading-[1.15]">With an account</h3>
-              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain.</p>
-              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A new account starts with the 14-day trial of the full product.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">An eligible trial or paid plan provides findings, fix steps, PDF reports and monitoring for domains you verify.</p>
+              <p className="mt-4 text-[17px] leading-[1.6] text-[#46506A]">A new account starts with 14 days of Professional features on one domain, with up to three scans and three reports per UTC day.</p>
               <div className="mt-auto pt-8">
                 <a href={`${APP_URL}/signup`} className="h-[50px] px-6 rounded-[8px] bg-[#2550B6] hover:bg-[#1D46A8] text-white text-[16px] font-semibold inline-flex items-center transition-colors">Start my 14-day trial</a>
               </div>

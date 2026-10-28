@@ -6,7 +6,7 @@
  * Every entry has the same four sections so a reader always knows where to
  * look:
  *   covers   — what the area is about, in a business owner's words
- *   checks   — what CyberMeters observes from outside, why, and what it cannot see
+ *   checks   — what CyberMeters measures, why, and what it cannot establish
  *   reading  — the states and findings as the product shows them, and what they mean
  *   next     — who usually makes the change, and how a fix is verified
  *
@@ -20,22 +20,14 @@
  */
 import { ARTICLES } from './academy'
 import { sortByAreaOrder } from '../../../shared/areas.js'
+import { statusExplanationRows } from '../lib/statusExplanations'
 
 // Shared vocabulary: the coverage states every area can show, as the product
 // labels them, with what each means for the reader. Areas add their own rows.
-const COMMON_STATES = [
-  ['Healthy', 'CyberMeters observed the evidence it needs for this area and found nothing that needs action. Healthy is only ever shown from evidence, never from the absence of evidence.'],
-  ['Issue detected', 'Something observed from outside needs action. The findings below the state say what, why it matters and who usually fixes it.'],
-  ['Provisional', 'A result exists but rests on partial or first-time evidence. Treat it as a first reading, not a settled one.'],
-  ['Evidence insufficient', 'A check could not run or did not finish, so CyberMeters will not say whether you are protected. This is never shown as Healthy.'],
-  ['Input required', 'CyberMeters needs something only you know, such as a classification or a questionnaire answer, before it can go further.'],
-  ['Monitoring', 'CyberMeters is watching for change but has nothing that needs action right now.'],
-  ['Not assessed', 'No completed check exists for this area yet. Run a scan, or wait for the scheduled one.'],
-  ['Unavailable', 'The result could not be loaded. Refresh; if it persists, the scan did not complete.'],
-]
+const COMMON_STATES = statusExplanationRows().map(([, label, meaning]) => [label, meaning])
 
 // Wording shared by every area's "How a fix is verified" section.
-const VERIFIED_MEANS = 'When CyberMeters re-observes the change itself, the case reads Verified. That word is reserved for CyberMeters’ own observation. A change CyberMeters cannot observe from outside is recorded as attested by you and is never shown as verified or green.'
+const VERIFIED_MEANS = 'When CyberMeters re-observes the change itself, the case reads Verified. That word is reserved for CyberMeters’ own observation. Customer statements stay separate from CyberMeters observations. Where the case permits self-attestation, it is labelled as attested by you; other verification methods still need their required evidence.'
 
 const GUIDE_AREA_DEFINITIONS = [
   {
@@ -45,22 +37,22 @@ const GUIDE_AREA_DEFINITIONS = [
     title: 'Email Protection',
     shortTitle: 'Email Protection',
     route: '/ws/email-protection',
-    summary: 'Whether criminals can send email that looks like it came from your domain, and whether your mail travels encrypted.',
-    intro: 'Most attacks on a business start with an email that pretends to come from someone the reader trusts. This area shows whether your domain lets that happen, and whether the records that stop it are complete, consistent and enforced.',
+    summary: 'Your domain’s published email-authentication and mail-transport settings, requested receiver policies and reporting evidence.',
+    intro: 'Email Protection checks the records your domain publishes for authorised senders, message authentication, requested receiver policy and mail transport. It explains the observed configuration and reporting evidence, so you can review legitimate senders and choose the next change.',
     covers: [
-      'Email Protection is about the public records your domain publishes to tell the world which servers may send mail as you, how receiving servers should treat mail that fails those checks, and whether mail to you must travel over an encrypted connection.',
-      'It is about your domain, not your mailbox. A phishing email that arrives in your inbox from someone else’s domain is their problem to fix; an email that leaves the internet wearing your name is yours.',
+      'Email Protection is about the public records your domain publishes to identify authorised senders, request how receiving servers handle messages that fail aligned authentication, and publish mail-transport and reporting policies.',
+      'It assesses domain-level settings and available aggregate authentication evidence. It does not read your mailbox or determine whether an individual message is phishing.',
     ],
     checks: {
       why: [
-        'CyberMeters reads the DNS records your domain publishes and resolves what they actually mean once every include, redirect and lookup is followed. A record that exists is not the same as a record that works: SPF with ten nested includes can fail silently, and a DMARC policy of "none" protects nobody.',
+        'CyberMeters resolves SPF includes and redirects and checks the evaluation budget: no more than ten DNS-lookup-causing terms, including nested evaluations. This is not simply a count of include statements. DMARC p=none requests monitoring without requesting quarantine or rejection; aggregate reports can still help you identify senders and authentication problems.',
         'Each record is checked against the current standard it belongs to, and the result is described as standards-aware rather than as a compliance verdict. CyberMeters checks what it can read; it does not certify your email provider.',
       ],
       observed: [
         'SPF: whether a record exists, which sources it authorises after every include is resolved, whether it stays within the lookup limit, and whether it ends permissively.',
         'DKIM: whether signing keys can be found for common selectors. A key that is not found is reported as not detected, because your provider may sign under a selector CyberMeters cannot guess.',
-        'DMARC: whether a policy exists, whether it is enforced (quarantine or reject) or only monitoring, whether aggregate reporting is set up, and whether reports are sent to a third party you have not authorised.',
-        'MTA-STS and TLS-RPT: whether receiving mail to you must travel encrypted, and whether failures to do so are reported.',
+        'DMARC: whether a policy exists, its requested receiver policy (none, quarantine or reject), aggregate-report configuration and authorisation of external report destinations.',
+        'MTA-STS and TLS-RPT: whether a published policy requests encrypted delivery, and whether transport-failure reporting is configured.',
         'BIMI: whether a brand indicator is configured and whether DMARC enforcement supports it.',
         'If you use CyberMeters hosted DMARC reporting: which services are seen sending as your domain, whether each one is recognised, and whether the hosted record is still connected.',
       ],
@@ -73,7 +65,7 @@ const GUIDE_AREA_DEFINITIONS = [
     },
     reading: {
       intro: [
-        'The area reads Healthy only when SPF, DKIM and DMARC are all present and DMARC is enforced. Monitoring-only DMARC is reported as an issue, because it changes nothing for the recipient.',
+        'Read the area summary alongside its evidence and coverage. A monitoring-only DMARC policy can provide reporting but does not request quarantine or rejection. Published records describe your requested policy; they do not prove how every receiving server handles each message.',
         'Every finding carries the record CyberMeters read, the time it read it, and the exact change needed.',
       ],
       states: [
@@ -82,7 +74,7 @@ const GUIDE_AREA_DEFINITIONS = [
       ],
       findings: [
         'SPF record missing, permissive, duplicated, or over the ten-lookup limit.',
-        'DKIM signing not detected for common selectors.',
+        'DKIM keys not detected for probed selectors; this does not prove messages are unsigned.',
         'DMARC missing, monitoring-only, invalid, duplicated, or sending reports to an unauthorised address.',
         'MTA-STS or TLS-RPT not configured.',
         'A hosted DMARC record disconnected, or a sending source failing authentication.',
@@ -112,7 +104,7 @@ const GUIDE_AREA_DEFINITIONS = [
     title: 'Attack Surface',
     shortTitle: 'Attack Surface',
     route: '/assets',
-    summary: 'Everything on the internet that belongs to your domain, including the systems you forgot about, and the exposures an attacker would look for first.',
+    summary: 'Public hostnames, services and exposures observed for your domain, including unfamiliar systems and changes worth reviewing.',
     intro: 'Your attack surface is every hostname, service and record that answers to your name on the public internet. Attackers map it before they do anything else. This area maps what CyberMeters can see from outside and updates the map with every scan, so a forgotten test server or an expiring domain is easier to spot.',
     covers: [
       'Attack Surface covers discovery (what exists), exposure (what each thing shows to the internet) and change (what appeared, disappeared or changed since last time). The Timeline shows the change history; Scans and Schedules control when CyberMeters looks.',
@@ -120,21 +112,21 @@ const GUIDE_AREA_DEFINITIONS = [
     ],
     checks: {
       why: [
-        'Breaches rarely start at the front door. They start at the subdomain nobody remembers, the admin login on a public hostname, the storage bucket left open, or the domain that quietly expired. CyberMeters looks for these from the outside, the way an attacker would, without touching anything.',
-        'CyberMeters observes with ordinary web and DNS requests only. It does not run port scans, vulnerability exploits or intrusive tests against your systems unless you have explicitly asked for that.',
+        'A forgotten subdomain, exposed administration page, public storage location or expiring registration can need action. CyberMeters makes bounded DNS, web and TLS checks and records what it observes about those public services.',
+        'Normal domain scans include real TLS handshakes. Declared-range port scanning uses separate Network assets consent; the three available intrusive TLS checks require their own scoped Active Checks permission and a scan you start.',
       ],
       observed: [
         'Hostnames under your domain, resolved to whether they still point at something, and whether any points at a service that no longer recognises it (takeover risk).',
         'Hostnames whose names suggest sensitive purposes, such as development, staging or VPN endpoints.',
         'Administration interfaces, developer environments and sensitive tools reachable on your public hostnames.',
         'Public cloud storage that lists its contents or is observed to be exposed.',
-        'Software versions a server announces about itself, matched against known-exploited and high-severity vulnerability lists. The match is based on what the server declares, not on a test of the vulnerability.',
+        'Software and service fingerprints a server announces about itself. The current scan pack does not match these against external CVE or known-exploited-vulnerability databases.',
         'Whether DNSSEC is enabled and valid, and when your domain registration expires.',
       ],
       notObserved: [
         'Anything inside your network, on your devices or behind a login.',
-        'Open ports or services that do not answer ordinary web or DNS requests.',
-        'Whether a vulnerability is actually exploitable on your system. A version match is a reason to look, not proof of compromise.',
+        'A complete inventory of all ports and services. Separate Network assets checks cover only the public targets and port scope you authorise.',
+        'Whether a declared software version is exploitable or a system is compromised. A fingerprint is an observation, not an exploit test.',
         'Hostnames that exist but are not discoverable from public DNS.',
       ],
     },
@@ -146,13 +138,12 @@ const GUIDE_AREA_DEFINITIONS = [
       states: [
         ...COMMON_STATES,
         ['New asset', 'A hostname or service appeared that was not seen before. Confirm you expected it.'],
-        ['Disappeared', 'An asset no longer resolves or answers. This is recorded as a change, never as a verified removal.'],
+        ['Disappeared', 'An asset was not observed. Disappearance alone does not prove removal; a relevant case can be verified when CyberMeters records qualified, complete and trustworthy DNS-removal evidence. A timeout or incomplete check is not that evidence.'],
       ],
       findings: [
         'Subdomain takeover risk: a hostname points at a service that no longer claims it.',
         'Administration interface, developer environment or sensitive tool on a public hostname.',
         'Public cloud storage listing its contents.',
-        'A declared software version with a known-exploited or high-severity vulnerability.',
         'DNSSEC not enabled or misconfigured.',
         'Domain registration expiring soon or expired.',
       ],
@@ -168,7 +159,7 @@ const GUIDE_AREA_DEFINITIONS = [
         'Your domain registrar, for registration renewal and the registrar lock.',
       ],
       verification: [
-        'Attack Surface findings are re-observed on the next scan: the hostname no longer resolves, the storage no longer lists, the admin interface no longer answers, the DNSSEC chain validates. CyberMeters closes the case from that observation.',
+        'CyberMeters re-checks the specific finding using complete, trustworthy evidence, such as qualified DNS removal, a conclusive cleared exposure or a valid DNSSEC observation. Verification follows that finding’s evidence rules. A timeout, unreachable response or partial or stale check does not by itself prove a fix.',
         'A domain renewal is confirmed through the registration record on re-check.',
         VERIFIED_MEANS,
       ],
@@ -185,7 +176,7 @@ const GUIDE_AREA_DEFINITIONS = [
     intro: 'Your website is the one system every customer touches. This area checks the protections a browser relies on when it loads your pages, and whether a sign-in form on your site handles credentials safely. Everything here is observed exactly as a visitor’s browser would see it.',
     covers: [
       'Website Security covers the transport (is HTTP forced to HTTPS, is HSTS set), the response headers that instruct the browser how to behave, the cookie flags that keep sessions private, and the behaviour of any sign-in form on the site.',
-      'It covers your public pages. Anything behind a login, your content management system, or a web application’s own code is out of scope: CyberMeters is not a penetration test and does not attack your site.',
+      'Public-page checks need no account. Optional signed-in scanning uses the test account you configure on a verified domain for a small read-only crawl. It covers only pages that account can reach, not every role or your application’s source code; it is not a penetration test.',
     ],
     checks: {
       why: [
@@ -199,9 +190,10 @@ const GUIDE_AREA_DEFINITIONS = [
         'Sign-in forms: whether they submit over HTTPS, to your own origin, and set secure cookies.',
         'Software versions the server announces in its headers.',
         'Whether the home page exists and could be loaded at all.',
+        'With optional signed-in scanning configured: whether the supplied test account signed in and which pages the bounded read-only crawl checked. This evidence remains private to that workspace.',
       ],
       notObserved: [
-        'Pages behind a login, your admin area, or your application’s source code.',
+        'Pages or roles the supplied test account cannot reach, internal systems and your application’s source code.',
         'Vulnerabilities that require sending attack traffic to find. CyberMeters reads responses; it does not probe for injection or run exploit checks.',
         'Whether a header’s policy is the right one for your application. CyberMeters reports weak or missing policies; what the policy should allow is a decision for whoever built the site.',
       ],
@@ -245,11 +237,11 @@ const GUIDE_AREA_DEFINITIONS = [
     title: 'Identity Exposure',
     shortTitle: 'Identity Exposure',
     route: '/ws/identity-exposure',
-    summary: 'Which identity providers your domain is tied to, which hostnames look identity-related, and whether each one has an owner.',
-    intro: 'Your identity provider is where your passwords live. This area shows what your public DNS and web presence reveal about which providers you use and which of your hostnames look like sign-in or identity endpoints, so you can confirm each one is known, owned and intended.',
+    summary: 'Public identity-provider and hostname evidence, ownership records, and optional authorised account and public-file observations.',
+    intro: 'Identity Exposure brings together public provider and hostname evidence so you can confirm what is known, owned and intended. Optional administrator-requested checks add scoped Microsoft account observations or masked key-pattern evidence from your public web files.',
     covers: [
       'Identity Exposure covers provider relationships (your domain is configured for a particular identity provider), possible identity-facing hostnames (names or records that suggest a sign-in or directory endpoint), and ownership: whether someone in your business is accountable for each one.',
-      'It is deliberately narrow. CyberMeters observes relationships and hostnames from the outside; it does not test sign-in, does not attempt authentication, and does not look for leaked passwords anywhere.',
+      'Automatic discovery observes public relationships, hostnames and bounded OIDC metadata on verified domains. Separately, eligible workspace administrators can request public-file key-pattern checks and authorised Microsoft account observations. These are distinct sources of evidence, not an employee-password breach feed.',
     ],
     checks: {
       why: [
@@ -261,11 +253,14 @@ const GUIDE_AREA_DEFINITIONS = [
         'Possible identity-facing hostnames: names and records that suggest sign-in, autodiscover or directory endpoints.',
         'Changes to a provider relationship between scans.',
         'Which identity items have an assigned owner, and whether a recorded exception has expired.',
+        'Bounded public OIDC discovery metadata on verified domains, when a valid document is observed; advertised login and token endpoints are not followed.',
+        'Optional authorised Microsoft account observations: available direct-role names and MFA registration, subject to Microsoft permissions and licensing. Registration does not establish MFA enforcement.',
+        'On an administrator’s request, one public page and up to three directly linked same-origin JavaScript files for supported secret-key patterns. Candidates are masked and never used or tested.',
       ],
       notObserved: [
-        'Leaked credentials, breached passwords, stealer logs or dark-web data. CyberMeters does not collect or search these.',
-        'Sign-in events, MFA status, conditional access or anything inside your identity provider’s tenant.',
-        'Whether an endpoint accepts a login. CyberMeters does not attempt authentication.',
+        'Employee-password breach feeds, stealer logs or dark-web data. Public-file key-pattern checks do not search these sources.',
+        'MFA enforcement, Conditional Access policy, sign-in history or account compromise. Missing Microsoft permission or licence data remains unavailable.',
+        'Whether an account can sign in from public identity discovery alone. Provider relationships and metadata do not prove successful authentication.',
       ],
     },
     reading: {
@@ -369,15 +364,16 @@ const GUIDE_AREA_DEFINITIONS = [
     title: 'Certificates & Trust',
     shortTitle: 'Certificates',
     route: '/ws/certificates',
-    summary: 'Whether the certificates on your public hostnames are valid, current, expected and controlled, and what about them cannot be seen from outside.',
-    intro: 'A certificate is how a browser knows it is really talking to you. An expired or mismatched one turns every visitor away with a warning. This area tracks the certificates on your public hostnames, who issues them, when they expire, and whether an issuer you did not expect has appeared.',
+    summary: 'Live TLS connections, certificate and trust evidence, protocol and key-exchange choices, and changes on your public endpoints.',
+    intro: 'CyberMeters makes real TLS connections to record certificate, protocol and key-exchange evidence. It tracks expiry, names, issuers and certificate changes, and reports the endpoint, scope and observation time behind the result.',
     covers: [
       'Certificates & Trust covers the live certificate each public hostname presents, its expiry and renewal, the issuer behind it, the CAA record that controls who may issue for your domain, and the Managed Lifecycle that tracks renewals and replacements over time.',
+      'TLS checks also record protocol versions, representative cipher and key-exchange choices, trust-chain evidence, downgrade behaviour and whether a server selects an offered hybrid TLS 1.3 key exchange.',
       'It covers what a connecting browser can see. Private keys, internal certificates and the full trust path are stated as unknown unless evidence supports otherwise.',
     ],
     checks: {
       why: [
-        'Certificate expiry is the most common self-inflicted outage a business suffers, and an unexpected issuer is one of the few outside signs that someone else is obtaining certificates in your name. Both are visible from the outside, so CyberMeters watches both.',
+        'An expired or mismatched certificate can interrupt HTTPS access. Recording certificate changes helps you review renewals and unexpected issuers alongside the actual connection evidence.',
         'Only facts a connecting client can establish are asserted. A certificate that has not expired is not automatically trusted; chain validity, revocation and private-key safety stay unknown unless they were actually checked.',
       ],
       observed: [
@@ -386,6 +382,9 @@ const GUIDE_AREA_DEFINITIONS = [
         'Certificates whose issuer, names or wildcard scope differ from what the hostname previously used.',
         'Concentration on a single issuer, and CAA records that say which authorities may issue for your domain.',
         'Renewal and replacement history in the Managed Lifecycle.',
+        'TLS protocol versions, representative ciphers and key exchanges, and recorded certificate-chain, hostname and trust-store checks.',
+        'Protocol fallback/downgrade behaviour and the group selected when a TLS 1.3 connection offers a hybrid key exchange. This is a connection observation, not a claim that the whole service is quantum-safe.',
+        'Heartbleed, ROBOT and CCS injection checks only when a named domain/host grant, an eligible customer-owned public address and a manually started scan permit them. Shared provider infrastructure is refused; five other active check types remain unavailable and are not offered.',
       ],
       notObserved: [
         'Complete chain validity, trusted-root status, OCSP and revocation status. These read unknown unless checked.',
@@ -397,6 +396,7 @@ const GUIDE_AREA_DEFINITIONS = [
       intro: [
         'Expiry findings carry the date and a countdown. Trust findings carry the exact failure a browser would show. An unexpected-issuer finding is a question to you, not an accusation: did you or your provider request this certificate?',
         'Fields that read unknown are being honest. They are not a defect in your certificate.',
+        'Active Checks shows permissions separately from saved results. Select a saved scan to read explicit results or not-tested states; a grant or a completed scan alone never proves an intrusive check ran.',
       ],
       states: [
         ...COMMON_STATES,
@@ -413,6 +413,7 @@ const GUIDE_AREA_DEFINITIONS = [
     next: {
       intro: [
         'Renew before expiry and, where your host supports it, turn on automatic renewal. Add a CAA record naming only the authorities you use. When an unexpected issuer appears, confirm it with whoever manages your hosting before dismissing it.',
+        'Use Active Checks in the main menu to manage the three available intrusive TLS permissions and read saved check history. Public IP targets and declared-range port scanning use the separate Network assets consent.',
       ],
       owners: [
         'Your hosting provider or CDN, which usually issues and renews certificates for you.',
@@ -520,7 +521,6 @@ const GUIDE_AREA_DEFINITIONS = [
       states: [
         ...COMMON_STATES,
         ['Not externally assessable', 'This control area cannot be observed from the internet. It shows no number and no health; your own answers are the only evidence.'],
-        ['Self-attested', 'Based on your questionnaire answer, which CyberMeters cannot check.'],
       ],
       findings: [
         'A control area whose observable evidence is not ready or has worsened.',

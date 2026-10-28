@@ -50,9 +50,9 @@ describe('ProductTour', () => {
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Awaiting verification')
   })
 
-  it('never claims that CyberMeters makes the change itself', () => {
+  it('does not offer the sample enforcement change as a supported DNS publishing action', () => {
     render(<ProductTour />)
     fireEvent.click(screen.getAllByRole('tab')[2])
-    expect(screen.getByRole('tabpanel')).toHaveTextContent('CyberMeters changes a DNS record only after you explicitly confirm the change.')
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Your administrator publishes this policy change.')
   })
 })
