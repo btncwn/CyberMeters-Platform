@@ -145,7 +145,7 @@ async function limitScopes(rctx, tool, domain, user) {
   ];
 }
 
-async function checkLimits(rctx, scopes, { peek, onGlobalCount = null }) {
+async function checkLimits(rctx, scopes, { peek, onGlobalCount = null, onVisitorClaim = null }) {
   const { env, json, consumeApiRateLimit } = rctx;
   for (const limit of scopes) {
     const limited = await consumeApiRateLimit(env, [limit.key], limit.action, limit.limit, limit.window, {
@@ -153,6 +153,10 @@ async function checkLimits(rctx, scopes, { peek, onGlobalCount = null }) {
       atomic: true,
       rolling: limit.rolling,
       peek,
+      // Only the visitor allowance is refundable. Saturating the fixed user
+      // counter prevents concurrent refusals from swallowing a later refund.
+      ...(limit.scope === "user" ? { saturating: true } : {}),
+      ...(!peek && ["ip", "user"].includes(limit.scope) && onVisitorClaim ? { onClaim: onVisitorClaim } : {}),
       ...(limit.scope === "global" && onGlobalCount ? { onCount: onGlobalCount } : {}),
     });
     const refusal = limiterRefusal(json, env, limit.scope, limited);
@@ -234,18 +238,39 @@ async function handleCheck(rctx, tool) {
   const cached = await readToolCache(cache, tool, domain);
   if (cached) return json({ status: "ok", tool, cached: true, result: cached, share: await withShare(env, cached) });
 
-  const refused = await checkLimits(rctx, scopes, { peek: false, onGlobalCount: budgetWatcher(env, ctx, rctx.freeToolAlert) });
-  if (refused) return refused;
-
-  let result;
+  let releaseVisitor = null;
+  let keepVisitorClaim = false;
   try {
-    result = await runTool(rctx, tool, domain);
-  } catch {
-    return json({ status: "unavailable", code: "lookup_failed", message: "The check could not finish. Nothing was concluded about this domain; please try again." }, 503);
+    const refused = await checkLimits(rctx, scopes, {
+      peek: false,
+      onGlobalCount: budgetWatcher(env, ctx, rctx.freeToolAlert),
+      onVisitorClaim: (release) => { releaseVisitor = release; },
+    });
+    if (refused) return refused;
+
+    let result;
+    try {
+      result = await runTool(rctx, tool, domain);
+      // These are the existing builders' complete verdict vocabulary. A missing
+      // or malformed verdict concludes nothing and must not be cached/charged.
+      if (!result || typeof result !== "object" || Array.isArray(result)
+          || !result.verdict || typeof result.verdict !== "object" || Array.isArray(result.verdict)
+          || !["good", "attention", "risk", "unknown"].includes(result.verdict.level)) {
+        throw new Error("invalid_tool_verdict");
+      }
+    } catch {
+      return json({ status: "unavailable", code: "lookup_failed", message: "The check could not finish. Nothing was concluded about this domain; please try again." }, 503);
+    }
+    const conclusive = result.verdict.level !== "unknown";
+    if (conclusive) await writeToolCache(cache, tool, domain, result);
+    const response = json({ status: "ok", tool, cached: false, result, share: await withShare(env, result) });
+    keepVisitorClaim = conclusive;
+    return response;
+  } finally {
+    // Await before responding so an immediate retry can use a confirmed refund.
+    // Domain/global work and deferred-submission counters are never released.
+    if (!keepVisitorClaim && releaseVisitor) await releaseVisitor();
   }
-  // Only a conclusive result is cached; a failed lookup is retried next time.
-  if (result?.verdict?.level !== "unknown") await writeToolCache(cache, tool, domain, result);
-  return json({ status: "ok", tool, cached: false, result, share: await withShare(env, result) });
 }
 
 async function handleDefer(rctx, tool) {

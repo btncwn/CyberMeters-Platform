@@ -58,6 +58,39 @@ export async function rateLimitScopeId(prefix, value) {
 // is when the oldest claim leaves the window.
 const MAX_ROLLING_SLOTS = 10;
 
+// Internal, request-owned compensation for a confirmed claim. The closure keeps
+// the original identity out of HTTP/JSON and consumes its attempt before I/O:
+// an uncertain D1 write must never be retried and release someone else's use.
+function claimReleaseOnce(env, { id, scope, scopeId, action, windowStart, windowSeconds, revision, expiredAt }) {
+  let attempted = false;
+  return async () => {
+    if (attempted) return false;
+    attempted = true;
+    try {
+      const statement = expiredAt === undefined
+        ? env.cybermeters_db.prepare(
+          `UPDATE api_rate_limits
+           SET request_count = request_count - 1, updated_at = datetime('now')
+           WHERE id = ? AND scope = ? AND scope_id = ? AND action = ?
+             AND window_start = ? AND window_seconds = ? AND request_count > 0`,
+        ).bind(id, scope, scopeId, action, windowStart, windowSeconds)
+        : env.cybermeters_db.prepare(
+          `UPDATE api_rate_limits
+           SET window_start = ?, updated_at = datetime('now')
+           WHERE id = ? AND scope = ? AND scope_id = ? AND action = ?
+             AND window_start = ? AND window_seconds = ? AND request_count = ?`,
+        ).bind(expiredAt, id, scope, scopeId, action, windowStart, windowSeconds, revision);
+      const result = await statement.run();
+      return result?.meta?.changes === 1;
+    } catch {
+      // The allowance may remain consumed; never promise a refund or retry an
+      // update whose outcome could be unknown. No counter/user identity is logged.
+      console.error("[rate-limit] claim release could not be confirmed");
+      return false;
+    }
+  };
+}
+
 async function consumeRollingSlots(env, scopes, action, limit, windowSeconds, options) {
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ROLLING_SLOTS) {
     throw new RangeError(`rolling limit must be 1-${MAX_ROLLING_SLOTS}`);
@@ -106,11 +139,23 @@ async function consumeRollingSlots(env, scopes, action, limit, windowSeconds, op
              request_count = api_rate_limits.request_count + 1,
              updated_at = datetime('now')
            WHERE api_rate_limits.window_start <= ?
-           RETURNING id`,
+           RETURNING id, window_start, request_count`,
         )
         .bind(id, scope.scope, scope.scope_id, action, nowIso, windowSeconds, cutoff)
         .first();
-      if (row) { claimed = true; break; }
+      if (row) {
+        if (options.onClaim) {
+          options.onClaim(claimReleaseOnce(env, {
+            id, scope: scope.scope, scopeId: scope.scope_id, action,
+            windowStart: row.window_start, windowSeconds,
+            // Keep this monotonic revision when releasing a rolling slot; a
+            // same-millisecond reuse must not match an older claim.
+            revision: row.request_count, expiredAt: cutoff,
+          }));
+        }
+        claimed = true;
+        break;
+      }
     }
     if (!claimed) return denied(scope);
   }
@@ -186,6 +231,10 @@ export async function consumeApiRateLimit(
             body: rateLimitExceeded(action, limit, windowSeconds, reset_at),
           };
         }
+        options.onClaim?.(claimReleaseOnce(env, {
+          id, scope: scope.scope, scopeId: scope.scope_id, action,
+          windowStart: window_start, windowSeconds,
+        }));
       }
       return null;
     }
