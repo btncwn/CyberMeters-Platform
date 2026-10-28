@@ -59,9 +59,8 @@ export const MSP_NAV_FEATURE = 'portfolio_monitoring'
 
 // Founder, 17 Oct 2026: /services is gone (its setup steps live on Overview
 // while setup is incomplete), so the direct menu is Overview · Operations · Reports.
-// Active Checks links to the Active Checks page that exists today (the
-// permission record); a hub page, when it ships, takes this link over.
-export const ACTIVE_CHECKS_PATH = '/ws/active-checks/permission'
+// Permissions and recorded results share one home; authorisation stays on its existing route.
+export const ACTIVE_CHECKS_PATH = '/ws/active-checks'
 export const DIRECT_NAV = [
   { to: '/dashboard', label: 'Overview'   },
   { to: '/ws/cases',  label: 'Operations' },

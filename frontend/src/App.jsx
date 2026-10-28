@@ -112,6 +112,7 @@ const WorkspaceCasesPage            = lazy(() => import('./pages/ws/WorkspaceCas
 const WorkspaceCaseDetailPage       = lazy(() => import('./pages/ws/WorkspaceCaseDetailPage'))
 const WorkspaceRelatedChangesPage   = lazy(() => import('./pages/ws/WorkspaceRelatedChangesPage'))
 const ActiveCheckPermissionsPage    = lazy(() => import('./pages/ws/ActiveCheckPermissionsPage'))
+const ActiveChecksPage              = lazy(() => import('./pages/ws/ActiveChecksPage'))
 const WorkspaceRelatedChangeDetailPage = lazy(() => import('./pages/ws/WorkspaceRelatedChangeDetailPage'))
 const WorkspaceRetentionPage        = lazy(() => import('./pages/ws/WorkspaceRetentionPage'))
 
@@ -313,7 +314,7 @@ function AppRoutes() {
           <Route path="ws/cases"                element={<WorkspaceCasesPage />} />
           <Route path="ws/cases/:caseId"        element={<WorkspaceCaseDetailPage />} />
           <Route path="ws/related-changes"      element={<WorkspaceRelatedChangesPage />} />
-          {/* S1-A: reachable by URL; linked from the Active Checks hub once the first engine is live. */}
+          <Route path="ws/active-checks" element={<ActiveChecksPage />} />
           <Route path="ws/active-checks/permission" element={<ActiveCheckPermissionsPage />} />
           <Route path="ws/related-changes/:id"  element={<WorkspaceRelatedChangeDetailPage />} />
           <Route path="ws/alerts"               element={<WorkspaceAlertsPage />} />

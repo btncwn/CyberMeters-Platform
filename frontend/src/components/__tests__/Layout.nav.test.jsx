@@ -87,11 +87,11 @@ describe('selectNav (pure)', () => {
     expect(MSP_NAV_FEATURE).toBe('portfolio_monitoring')
   })
 
-  it('names the destinations the founder fixed — Active Checks to the page that exists today; Field Guide and Billing elsewhere', () => {
+  it('names the destinations the founder fixed — Active Checks opens its hub; Field Guide and Billing elsewhere', () => {
     expect(DIRECT_NAV.map(i => i.label)).toEqual(DIRECT)
-    expect(DIRECT_NAV.map(i => i.to)).toEqual(['/dashboard', '/ws/cases', '/ws/active-checks/permission', '/reports'])
+    expect(DIRECT_NAV.map(i => i.to)).toEqual(['/dashboard', '/ws/cases', '/ws/active-checks', '/reports'])
     expect(MSP_NAV.map(i => i.label)).toEqual(MSP)
-    expect(MSP_NAV.map(i => i.to)).toEqual(['/portfolio', '/workspaces', '/ws/cases', '/ws/active-checks/permission', '/reports'])
+    expect(MSP_NAV.map(i => i.to)).toEqual(['/portfolio', '/workspaces', '/ws/cases', '/ws/active-checks', '/reports'])
   })
 
   it('no two items in one menu share a destination', () => {

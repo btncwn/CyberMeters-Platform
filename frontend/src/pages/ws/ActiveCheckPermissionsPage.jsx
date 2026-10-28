@@ -101,6 +101,8 @@ function Receipt({ consent, labels, availability = {}, authority, canManage, bus
   )
 }
 
+export { Receipt as ActiveCheckReceipt }
+
 export default function ActiveCheckPermissionsPage() {
   const { wsId, wsName, loading } = useWorkspace()
   const { user } = useAuth()
@@ -242,7 +244,8 @@ export default function ActiveCheckPermissionsPage() {
           the prompt opened invisibly, never resolved, and "Revoke permission" did nothing). */}
       {dialog.element}
       <div className="mb-6">
-        <h1 className="text-xl font-semibold text-gray-900">Active Checks permission</h1>
+        <Link to="/ws/active-checks" className="cm-backlink text-sm font-semibold">Active Checks</Link>
+        <h1 className="text-xl font-semibold text-gray-900 mt-3">Active Checks permission</h1>
         <p className="text-sm text-gray-600 mt-1">
           Authorise CyberMeters to run named active checks against your own hosts{wsName ? ` for ${wsName}` : ''}. Checks run only when started; nothing is scheduled.
         </p>
