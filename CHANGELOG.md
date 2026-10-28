@@ -7,6 +7,25 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 28 October 2026 — Active Checks history (release verification pending)
+
+Active Checks now opens a hub with permission receipts and the latest 20
+workspace scans, filtered by domain. Saved results load only when selected.
+Only explicit recorded Heartbleed, ROBOT and CCS controls appear, using the
+same result words as the scan page and PDF. A permission or completed scan
+never supplies a test result. Historical not-tested and unknown states remain
+visible, independent of today's permission or engine availability.
+
+The existing permission/revocation route remains available, with a return link
+to the hub. Network assets retain separate declared-range consent. Metadata and
+report identity checks reject mismatched scans; domain/workspace changes clear
+old results and ignore late responses. No backend, permission or engine change.
+
+Validation: 68 focused cases across eight files and the production build passed.
+The initial run's two failures were ambiguous selectors in a new test; a
+selector-only correction passed that suite without changing product assertions.
+No live acceptance, deployment or launch gate is claimed by this source entry.
+
 ## 27 October 2026 — merges and production deployments (no release tag)
 
 This entry records public merge, review, CI and scoped-acceptance facts only.
