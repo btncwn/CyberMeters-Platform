@@ -7,6 +7,27 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 28 October 2026 — approved landing and Field Guide claim corrections
+
+Preserve the existing landing headline, explanatory paragraph and layout while
+correcting claims to match the current product. The Field Guide no longer
+promises CVE/KEV matching. Explain supported TLS measurements, optional identity
+and signed-in checks, conditional DNS publishing and verification, and the
+separate free-tool and trial limits. Use the product's state vocabulary and
+certificate expiry wording; describe twelve uncited incident examples as
+illustrative. Clarify that DMARC makes impersonation harder rather than stopping
+it outright. The Certificates & Trust card uses “declared trust store”.
+
+The Founder approved the reviewed copy on 28 October. Internal review notes
+and source-evidence sections are not product content. This change adds no
+scanner, plan entitlement, DNS action or public-beta approval. Frontend only;
+no Worker deployment. Validation: 109 focused cases across four suites and
+the production build passed. The first CI attempt exposed two stale Identity
+claim-mutation anchors and one article-title expectation; these now follow the
+approved copy, with injected bad claims and exact failure/control sets retained.
+The 46-fixture baseline and both targeted negative controls passed. Required CI
+and live publication are recorded separately.
+
 ## 28 October 2026 — Active Checks history (release verification pending)
 
 Active Checks now opens a hub with permission receipts and the latest 20

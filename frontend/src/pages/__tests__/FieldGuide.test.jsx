@@ -6,6 +6,7 @@ import { SERVICE_COLORS } from '../../theme/serviceColors'
 import GuideAreaPage from '../GuideAreaPage'
 import GuideEntryPage from '../GuideEntryPage'
 import AcademyPage from '../AcademyPage'
+import { statusExplanationRows } from '../../lib/statusExplanations'
 
 // The sidebar order the founder fixed on 14 Oct 2026. The Field Guide must
 // present the areas in exactly this order, with exactly these titles.
@@ -30,6 +31,7 @@ describe('Field Guide data', () => {
   })
 
   it('gives every area the same four complete sections', () => {
+    expect(COMMON_STATES).toEqual(statusExplanationRows().map(([, label, meaning]) => [label, meaning]))
     for (const area of GUIDE_AREAS) {
       expect(area.route, area.key).toMatch(/^\//)
       expect(area.intro.length, area.key).toBeGreaterThan(40)
@@ -61,7 +63,7 @@ describe('Field Guide data', () => {
     expect(allText).not.toMatch(/fully compliant|RFC compliant|guarantee/i)
     expect(allText).not.toMatch(/certificate transparency|\bCT\b/)
     expect(allText).not.toMatch(/small business|small compan|UK SMB/i)
-    // Identity wording stays at relationship level (see validate-identity-truth-projection).
+    // Public identity discovery and optional connected observations stay scoped.
     expect(allText).not.toMatch(/internet-facing login|publicly reachable admin|login or admin surface|none exposed|credentials are attacked/i)
     // Nobody is told CyberMeters performs the registrar or takedown action.
     expect(getGuideArea('brand-protection').covers.join(' ')).toMatch(/does not file them/i)
@@ -117,7 +119,7 @@ describe('Field Guide pages', () => {
     expect(screen.getByRole('heading', { name: '2. What CyberMeters checks, and why' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '3. Reading your results' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '4. What to do next' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'What CyberMeters observes from outside' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'What CyberMeters measures' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'What CyberMeters cannot see' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Open Certificates in your workspace/ })).toHaveAttribute('href', '/ws/certificates')
     // Previous / next follow founder order.
@@ -128,7 +130,7 @@ describe('Field Guide pages', () => {
   it('shows deeper reading only when an area has articles', () => {
     renderAt('/guide/email-protection')
     expect(screen.getByRole('heading', { name: 'Deeper reading' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /DMARC: stop criminals sending email as your business/ })).toHaveAttribute('href', '/guide/dmarc-stop-email-impersonation')
+    expect(screen.getByRole('link', { name: /DMARC: make it much harder for criminals to send email as your business/ })).toHaveAttribute('href', '/guide/dmarc-stop-email-impersonation')
   })
 
   it('opens an article at /guide/:slug when the slug is not an area', () => {

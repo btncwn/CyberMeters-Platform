@@ -122,7 +122,7 @@ export default function GuideAreaPage() {
           <section id="checks" className="mb-10">
             <h2 className="text-[21px] font-bold text-black">2. {SECTIONS[1].heading}</h2>
             <Paragraphs items={area.checks.why} />
-            <Labelled label="What CyberMeters observes from outside">
+            <Labelled label="What CyberMeters measures">
               <Bullets items={area.checks.observed} colour={colours.icon} />
             </Labelled>
             <Labelled label="What CyberMeters cannot see">

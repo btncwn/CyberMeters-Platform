@@ -147,10 +147,9 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2021, a major healthcare provider suffered a breach traced to a forgotten test server that had been abandoned years earlier following a product sunset. The server still ran unpatched software and was reachable from the public internet. The breach exposed patient records for over 1.5 million individuals. The organisation\'s internal asset inventory had no record of the server — it had been provisioned by a team that no longer existed.'),
-          p('This pattern repeats across industries. The challenge is not always new vulnerabilities — it is unknown assets carrying old vulnerabilities. ASM solves the discovery problem that makes these breaches possible.'),
+          p('Suppose a retired project leaves a public test hostname in DNS. An external inventory reveals the responding host, and its owner confirms that the service is no longer needed. The team removes the exposure and checks the resulting DNS and service evidence; the initial observation alone does not establish that a breach occurred.'),
         ],
       },
       {
@@ -200,7 +199,7 @@ export const ARTICLES = [
     slug: 'spf-explained',
     title: 'SPF Explained',
     category: 'email-security',
-    summary: 'Sender Policy Framework (SPF) is a DNS-based email authentication mechanism that specifies which mail servers are authorised to send email on behalf of your domain. Without SPF, anyone can send email that appears to come from your organisation — enabling phishing, business email compromise, and reputational damage.',
+    summary: 'Sender Policy Framework (SPF) publishes which sending systems are authorised for a domain used in the SMTP envelope sender. Receiving services can check the connecting server against that policy. SPF does not authenticate the visible From address or stop lookalike-domain impersonation.',
     readTime: 7,
     featured: true,
     publishedAt: '2026-06-01',
@@ -208,22 +207,22 @@ export const ARTICLES = [
       {
         heading: 'Why It Matters',
         blocks: [
-          p('Email spoofing is one of the most prevalent attack techniques in use today. Business Email Compromise (BEC) — where attackers impersonate executives or suppliers via email — costs organisations billions of dollars annually. SPF is the first layer of defence that prevents unauthorised parties from using your domain name as a sender.'),
-          p('Without a valid SPF record, your domain can be used to send phishing emails targeting your customers, partners, and employees. Receiving mail servers have no technical basis to reject these messages. With SPF, you define an explicit allowlist of authorised sending infrastructure.'),
-          callout('SPF alone is not sufficient. It must be combined with DMARC to provide enforcement and reporting. SPF without DMARC provides limited protection because SPF only validates the envelope sender, not the displayed "From" address.', 'warning'),
+          p('An attacker can claim a domain in an email sender address without controlling its mail service. SPF gives receiving services an authorisation signal for the envelope-sender domain by identifying permitted sending infrastructure.'),
+          p('Without a valid SPF record, receivers lack that SPF signal. They may still apply DKIM, DMARC, reputation and other filtering. An SPF pass alone does not establish that a message is safe or that its visible From address is authentic.'),
+          callout('SPF checks the envelope sender, not the displayed From address. DMARC checks whether a passing SPF or DKIM identity aligns with that visible address and lets the domain owner request handling and reporting.', 'warning'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
-          p('When SPF is absent or misconfigured, attackers can send email that passes as coming from your domain. In a typical Business Email Compromise attack, an adversary identifies a target company, registers a lookalike domain or exploits the absence of SPF on the real domain, and then sends fraudulent wire transfer requests or credential harvesting emails that appear to come from legitimate internal accounts.'),
-          p('A missing SPF record on a domain used only for web (not for sending email) is equally dangerous. Attackers specifically target non-sending domains because organisations often overlook them. If you own example-hr.com and never use it for email, an attacker can send convincing phishing emails from hr@example-hr.com with no SPF barrier.'),
+          p('An unauthorised server may claim your domain as its envelope sender. A restrictive SPF policy can produce a fail result for that server, but the receiver decides how to handle the message. A forged visible From address or a lookalike domain requires other checks; it is not resolved by SPF alone.'),
+          p('Non-sending domains also need an intentional email policy. Publishing v=spf1 -all declares that no sending server is authorised for that envelope-sender domain. Combine it with an appropriate DMARC policy for visible From alignment.'),
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('The FBI reported that BEC attacks accounted for over $2.9 billion in losses in 2023 alone. A significant proportion of these attacks exploited the absence of SPF or DMARC on the impersonated domains. In one documented case, a European manufacturing firm lost €6 million when an attacker impersonated their CFO via a domain that had no email authentication configured, successfully diverting a supplier payment.'),
+          p('Suppose an unauthorised mail server claims example.com as its envelope-sender domain. A published SPF policy that excludes that server can produce SPF fail. If the visible From address instead uses a lookalike domain, SPF for example.com does not address that impersonation.'),
         ],
       },
       {
@@ -232,9 +231,9 @@ export const ARTICLES = [
           p('CyberMeters checks the SPF record for every domain in your workspace. The following conditions are flagged:'),
           li([
             'Missing SPF record (no TXT record starting with v=spf1)',
-            'SPF soft fail (~all) — mail from unknown sources is accepted with a warning',
+            'SPF soft fail (~all), rather than a hard-fail (-all) policy',
             'SPF neutral (?all) — SPF provides no guidance to receivers',
-            'SPF record exceeds 10 DNS lookup limit (causes intermittent failures)',
+            'SPF evaluation exceeds the budget of 10 DNS-lookup-causing terms, including nested includes and redirects (a permanent SPF evaluation error)',
             'Multiple SPF records (invalid — only one TXT SPF record is permitted)',
             'SPF record includes deprecated mechanisms (ptr:)',
           ]),
@@ -243,14 +242,14 @@ export const ARTICLES = [
       {
         heading: 'Remediation Overview',
         blocks: [
-          p('Add a TXT record to your domain\'s DNS that defines your authorised sending sources. The record must start with v=spf1 and end with -all (hard fail) or ~all (soft fail, not recommended for enforced authentication).'),
+          p('Publish a TXT record beginning with v=spf1 that covers your legitimate sending sources. After validating them, choose an appropriate final all mechanism: -all produces SPF fail for unmatched sources, while ~all produces softfail. Receiving services apply their own delivery policy.'),
           code('# For a domain using Google Workspace:\nv=spf1 include:_spf.google.com -all\n\n# For a domain using Microsoft 365:\nv=spf1 include:spf.protection.outlook.com -all\n\n# For a non-sending domain (no legitimate email):\nv=spf1 -all', 'dns'),
           li([
-            'Use -all (hard fail) not ~all (soft fail) for enforced rejection',
-            'Keep DNS lookups under 10 to prevent SPF permerror',
+            'Use -all to declare unmatched sources unauthorised; it does not guarantee receiver rejection',
+            'Keep SPF evaluation within the budget of 10 DNS-lookup-causing terms, including nested includes and redirects',
             'Use include: mechanisms for third-party senders (CRMs, marketing platforms)',
-            'Audit sending sources before finalising the record — missing a legitimate sender breaks email delivery',
-            'Deploy DMARC alongside SPF to gain enforcement and reporting',
+            'Audit sending sources before finalising the record — omitting a legitimate sender can cause authentication and delivery problems',
+            'Deploy DMARC alongside SPF for visible From alignment, requested handling and requested reporting',
           ]),
         ],
       },
@@ -272,7 +271,7 @@ export const ARTICLES = [
     slug: 'dmarc-explained',
     title: 'DMARC Explained',
     category: 'email-security',
-    summary: 'Domain-based Message Authentication, Reporting, and Conformance (DMARC) builds on SPF and DKIM to give domain owners control over what happens when an email fails authentication checks. It is the enforcement layer that turns email authentication from advisory to mandatory — and the single most impactful configuration you can make to protect your domain against impersonation.',
+    summary: 'Domain-based Message Authentication, Reporting, and Conformance (DMARC) checks whether a passing SPF or DKIM identity aligns with the visible From domain. Domain owners can publish a requested handling policy and reporting addresses; receiving services apply their own delivery and reporting policies.',
     readTime: 10,
     featured: true,
     publishedAt: '2026-06-01',
@@ -280,23 +279,22 @@ export const ARTICLES = [
       {
         heading: 'Why It Matters',
         blocks: [
-          p('SPF and DKIM authenticate email at a technical level, but without DMARC there is no instruction to receiving mail servers about what to do when authentication fails. A DMARC policy of p=reject tells the world\'s mail servers: "If an email claims to be from our domain and does not pass authentication, delete it." This is the definitive protection against domain impersonation.'),
-          p('DMARC also provides reporting. Mail servers send aggregate reports (RUA) and forensic reports (RUF) back to the domain owner, providing visibility into who is sending email on your behalf — including attackers and misconfigured third-party services.'),
-          callout('A DMARC policy of p=none provides visibility but zero enforcement. It is a starting point, not a destination. The goal is p=quarantine or p=reject. Many organisations stop at p=none and believe they are protected — they are not.', 'warning'),
+          p('DMARC checks whether SPF or DKIM passes with an identity aligned to the visible From domain. If neither aligned method passes, p=quarantine or p=reject requests handling by the receiving service. This helps reduce direct-domain spoofing; the receiver applies its own delivery policy, and DMARC does not stop lookalike domains or misuse of an authorised account.'),
+          p('DMARC can request aggregate reports through rua and failure reports through ruf. Reports that arrive can reveal authentication and alignment problems. Publishing an address does not establish that a receiver sends reports or that your reporting service receives them.'),
+          callout('A DMARC policy of p=none requests monitoring without requesting quarantine or rejection. Aggregate reports can help you identify legitimate senders and authentication problems before choosing a stricter requested policy.', 'info'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
-          p('Without DMARC enforcement, attackers can send email with a "From:" header showing any address at your domain. This is distinct from the SPF envelope sender — the From header is what recipients actually see in their email client. DMARC is the only control that aligns the visible From address with authentication results.'),
-          p('A common attack pattern: an attacker sends a phishing email where the From header reads "payroll@yourcompany.com". Even if SPF fails for the sending IP, without DMARC the email may still be delivered. With DMARC p=reject, the receiving server will discard it before it ever reaches the inbox.'),
+          p('An attacker can forge the visible From address independently of the SPF envelope sender. DMARC evaluates alignment between that visible domain and a passing SPF or DKIM identity, then exposes the domain owner\'s requested handling policy to receivers.'),
+          p('A common attack pattern is a message with a forged visible From address such as "payroll@yourcompany.com". When neither SPF nor DKIM passes with an aligned identity, DMARC p=reject requests rejection. It does not prove that every receiver will reject the message.'),
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2022, a healthcare system\'s supplier submitted a fraudulent invoice via email appearing to come from a known internal email address. The domain had an SPF record but no DMARC policy. The receiving server accepted the message because SPF\'s envelope checks passed on the spoofed infrastructure. A $4.2 million payment was diverted. If DMARC had been at p=reject, the email would have been discarded at delivery.'),
-          p('Google and Yahoo mandated DMARC at p=none or stronger for bulk senders in early 2024, making it a de facto requirement for email deliverability — not just security.'),
+          p('Suppose a message displays a From address at example.com but passes SPF only for an unrelated envelope-sender domain and has no aligned DKIM pass. DMARC fails, so a published p=reject policy requests rejection. The receiver decides delivery, and a configured reporting address does not prove a report was received.'),
         ],
       },
       {
@@ -305,10 +303,10 @@ export const ARTICLES = [
           p('CyberMeters evaluates DMARC configuration for every domain in your workspace:'),
           li([
             'Missing DMARC record (no _dmarc.yourdomain TXT record)',
-            'DMARC policy set to p=none (monitoring only, no enforcement)',
+            'DMARC policy set to p=none (monitoring; no quarantine or rejection requested)',
             'A legacy pct tag, which RFC 9989 removed (receivers that follow it ignore the value)',
-            'No reporting address configured (rua, ruf) — missing visibility',
-            'Subdomain policy (sp) not set — subdomains may be unprotected',
+            'No reporting address configured (rua, ruf); configured addresses request reports but do not prove receipt',
+            'Subdomain policy (sp) not separately set — subdomains inherit the applicable DMARC policy',
             'Invalid or malformed DMARC record syntax',
           ]),
         ],
@@ -317,12 +315,12 @@ export const ARTICLES = [
         heading: 'Remediation Overview',
         blocks: [
           p('DMARC is implemented as a TXT record on the _dmarc subdomain of your domain. The recommended migration path is p=none → p=quarantine → p=reject, using reporting data to identify legitimate sending sources before tightening enforcement.'),
-          code('# Step 1: Start with monitoring (p=none)\n_dmarc.example.com TXT "v=DMARC1; p=none; rua=mailto:dmarc@example.com; ruf=mailto:dmarc@example.com; fo=1"\n\n# Step 2: Move to quarantine after 30+ days of clean reports\n_dmarc.example.com TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"\n\n# Step 3: Full enforcement\n_dmarc.example.com TXT "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; sp=reject"', 'dns'),
+          code('# Step 1: Request monitoring (p=none)\n_dmarc.example.com TXT "v=DMARC1; p=none; rua=mailto:dmarc@example.com; ruf=mailto:dmarc@example.com; fo=1"\n\n# Step 2: Request quarantine after validating legitimate senders\n_dmarc.example.com TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"\n\n# Step 3: Request rejection\n_dmarc.example.com TXT "v=DMARC1; p=reject; rua=mailto:dmarc@example.com; sp=reject"', 'dns'),
           li([
-            'Set rua to receive aggregate reports — parse them with dmarcian or Postmark DMARC Digests',
-            'Review reports for 30 days before advancing from p=none to p=quarantine',
-            'Set sp=reject to protect subdomains as well as the root domain',
-            'Do not rely on p=none as a final state — it provides zero protection',
+            'Set rua to request aggregate reports, then separately confirm that reports arrive and can be parsed',
+            'Review received reports and validate legitimate sending paths before requesting stricter handling',
+            'Set sp when you need a distinct requested subdomain policy; otherwise the applicable policy is inherited',
+            'p=none requests monitoring without requesting quarantine or rejection',
           ]),
         ],
       },
@@ -343,7 +341,7 @@ export const ARTICLES = [
     slug: 'dkim-explained',
     title: 'DKIM Explained',
     category: 'email-security',
-    summary: 'DomainKeys Identified Mail (DKIM) signs outgoing email with a cryptographic signature that receiving servers can verify using a public key published in DNS. It proves that an email was sent by an authorised server and that the message content was not altered in transit — making it an essential component of a complete email authentication stack.',
+    summary: 'DomainKeys Identified Mail (DKIM) attaches a cryptographic signature that receivers can verify using a public key in DNS. A valid signature authenticates the signing domain and the signed portions of the message. It does not by itself authenticate the visible From address or establish that the content is safe.',
     readTime: 7,
     featured: false,
     publishedAt: '2026-06-01',
@@ -352,7 +350,7 @@ export const ARTICLES = [
         heading: 'Why It Matters',
         blocks: [
           p('DKIM complements SPF by authenticating the message content rather than just the sending server. Where SPF says "this IP is allowed to send for this domain," DKIM says "this message was signed by the private key held by this domain." Together, they provide two independent authentication signals that DMARC can align.'),
-          p('Without DKIM, even a correctly delivered email cannot prove it has not been tampered with. DKIM signatures survive email forwarding where SPF often does not — making DKIM critical for organisations whose legitimate email is frequently forwarded by recipients.'),
+          p('DKIM provides a message-signature signal separate from SPF. A signature can survive forwarding when the signed content remains compatible with verification; changes by a forwarder or mailing list can invalidate it. DMARC can use a passing aligned DKIM signature even when SPF does not align.'),
         ],
       },
       {
@@ -363,9 +361,9 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2020, a DKIM key rotation failure at a financial services firm caused months of email delivery failures. Their marketing platform had rotated the signing key without updating the DNS record, resulting in DKIM failures and subsequent DMARC quarantine actions on all outbound emails. The resolution required coordination across three teams and caused material business disruption — demonstrating that DKIM operational hygiene matters as much as the initial configuration.'),
+          p('Suppose a mail service changes its DKIM signing key but the published selector still contains the previous key. Signature verification can fail. Delivery depends on the receiver and other authentication results, so the operator checks the selector, signing configuration and test-message headers before declaring the change complete.'),
         ],
       },
       {
@@ -418,22 +416,22 @@ export const ARTICLES = [
       {
         heading: 'Why It Matters',
         blocks: [
-          p('DNS is the address book of the internet — translating human-readable names into IP addresses. It was designed in an era when internet participants were trusted. DNSSEC retrofits authenticity into this system by signing records with cryptographic keys, enabling any resolver to verify the answer came from the authoritative source and was not modified in transit.'),
-          p('DNS hijacking can redirect entire organisations\' internet traffic to attacker-controlled servers — not just web traffic, but email, VPN, authentication systems, and any other service that uses DNS for discovery. DNSSEC prevents this class of attack at the protocol level.'),
-          callout('DNSSEC protects the integrity of DNS responses. It does not provide privacy (DNS over HTTPS/TLS does that), and it does not prevent a legitimate DNS record from pointing to a compromised server.', 'info'),
+          p('DNS translates human-readable names into addresses and other service records. DNSSEC signs DNS data so a validating resolver can check its authenticity through a chain of trust. Requesting DNSSEC records alone does not establish that validation took place.'),
+          p('Forged DNS answers can direct clients to unintended infrastructure. With a valid chain of trust, DNSSEC lets validating resolvers reject answers that fail signature validation. This protection depends on validation and does not cover every way DNS records can change.'),
+          callout('DNSSEC authenticates signed DNS data; it does not encrypt it. Correctly signed changes made through an operator or registrar account can still validate, including changes pointing to a compromised server. DNSSEC is not an approval check for the intended destination.', 'info'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
-          p('DNS cache poisoning attacks inject forged DNS responses into recursive resolvers, causing them to serve malicious IP addresses for legitimate domain names. The Kaminsky attack (2008) demonstrated that DNS resolvers could be poisoned in minutes without DNSSEC. While resolver implementations have improved, the fundamental protocol weakness remains.'),
-          p('In BGP hijacking attacks combined with DNS manipulation, nation-state actors have redirected internet traffic for entire country code top-level domains. State-sponsored groups have used DNS hijacking to intercept email, VPN traffic, and authentication credentials for government agencies and critical infrastructure operators.'),
+          p('A cache-poisoning attempt supplies forged DNS answers so a resolver may cache an unintended destination. DNSSEC validation can reject a forged answer for a securely delegated signed zone when the attacker cannot produce valid signatures.'),
+          p('Compromising a DNS operator or registrar account is a different path: an attacker may alter records or delegation through authorised interfaces. Correctly signed resulting data can pass DNSSEC validation, so account protection and change review remain necessary.'),
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2019, a widespread DNS hijacking campaign (later attributed to Iranian threat actors) targeted dozens of government, military, and private sector organisations globally. The attackers modified DNS A records and MX records to redirect traffic through attacker-controlled infrastructure, intercepting email and credentials before passing traffic to the legitimate destination. Several of the targeted domains lacked DNSSEC, making the modifications undetectable to users and systems.'),
+          p('Suppose an attacker supplies a forged answer for a securely delegated, signed zone. A validating resolver can reject an answer without a valid signature. If an operator account instead changes the authoritative record and the zone signs it correctly, DNSSEC can still validate it; account and change controls address that separate risk.'),
         ],
       },
       {
@@ -478,7 +476,7 @@ export const ARTICLES = [
     slug: 'hsts-explained',
     title: 'HSTS Explained',
     category: 'security-headers',
-    summary: 'HTTP Strict Transport Security (HSTS) instructs browsers to always connect to a domain over HTTPS, even if a user types the HTTP address or follows an HTTP link. It eliminates an entire class of protocol downgrade attacks and is one of the fastest, highest-impact security improvements a web team can deploy.',
+    summary: 'HTTP Strict Transport Security (HSTS) tells supporting browsers to use HTTPS for hosts covered by an active policy. A stored or preloaded policy reduces exposure to HTTP-starting downgrade attacks. It does not replace valid TLS configuration or fix application vulnerabilities.',
     readTime: 6,
     featured: false,
     publishedAt: '2026-06-01',
@@ -486,21 +484,21 @@ export const ARTICLES = [
       {
         heading: 'Why It Matters',
         blocks: [
-          p('When a user visits your website over HTTP (the unencrypted default), an on-path attacker — on the same Wi-Fi network, at a malicious access point, or in a position to intercept traffic — can intercept and modify the connection before the HTTPS redirect occurs. This is known as an SSL stripping attack. HSTS prevents this by storing a browser-side instruction to always use HTTPS, with no opportunity for downgrade.'),
-          p('Without HSTS, HTTPS is only as strong as the initial HTTP request. An attacker positioned between the user and server can strip TLS from the first connection, then proxy all subsequent traffic in cleartext — invisible to the user.'),
+          p('When navigation starts over HTTP, an on-path attacker may intercept that unencrypted request before an HTTPS redirect reaches the browser. A supporting browser with an active HSTS policy upgrades covered requests to HTTPS before sending them.'),
+          p('HSTS learned from a secure response helps subsequent requests while the policy remains active. It does not protect an initial HTTP visit before a policy is known unless an applicable preload policy or another browser protection already covers the host.'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
-          p('sslstrip (developed by Moxie Marlinspike in 2009) demonstrated that HTTPS could be silently stripped from connections in shared network environments. In a corporate Wi-Fi or hotel network scenario, an attacker running a man-in-the-middle proxy can convert all HTTPS connections to HTTP, capturing credentials, session cookies, and sensitive data — while the user\'s browser shows no warning.'),
-          p('Without HSTS, even a perfectly configured TLS server is vulnerable to this attack on every user\'s first visit to a domain. HSTS eliminates this window entirely after the first visit, and HSTS preloading eliminates it even on the first visit.'),
+          p('In an HTTP-starting session without an applicable upgrade protection, an on-path attacker may alter links or redirects to keep the browser on an unencrypted connection. This does not mean an attacker can silently convert an already authenticated HTTPS connection into HTTP.'),
+          p('An active HSTS policy reduces this HTTP-starting path for covered hosts in supporting browsers. Preloading can extend that protection to an initial visit, but the host must be in the browser\'s applicable preload data and continue to serve valid HTTPS.'),
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2017, a penetration testing engagement at a European bank demonstrated that internal employees connecting via the corporate network were susceptible to SSL stripping on the bank\'s own customer-facing portal. The portal had valid TLS but no HSTS header. Testers successfully intercepted session tokens for a simulated customer login. The finding was rated critical. Adding a single HSTS response header resolved the vulnerability.'),
+          p('Suppose a visitor follows an HTTP bookmark. A supporting browser with an active HSTS policy upgrades the covered request to HTTPS before sending it. A browser without that policy may still make the initial HTTP request, and the service must continue to provide valid TLS and secure application behaviour.'),
         ],
       },
       {
@@ -527,7 +525,7 @@ export const ARTICLES = [
             'Test with a staging environment first — HSTS is not easily reversed once the header is cached',
             'Ensure all subdomains support HTTPS before adding includeSubDomains',
           ]),
-          callout('HSTS preloading hardcodes your domain into browsers so users never make an initial HTTP request, even on first visit. Preloading requires a max-age of at least 1 year and includeSubDomains. Removal from the preload list takes months to propagate.', 'info'),
+          callout('HSTS preloading can apply HTTPS upgrade rules before a supporting browser first visits a covered host. Check the preload service requirements and ensure every covered subdomain supports HTTPS. Browser preload updates and removals are not immediate.', 'info'),
         ],
       },
       {
@@ -547,7 +545,7 @@ export const ARTICLES = [
     slug: 'csp-explained',
     title: 'Content Security Policy Explained',
     category: 'security-headers',
-    summary: 'Content Security Policy (CSP) is a browser security mechanism that restricts which resources a web page is allowed to load and execute. It is the primary defence against Cross-Site Scripting (XSS) attacks — where attackers inject malicious scripts into pages viewed by other users — and is one of the most impactful security headers available to web developers.',
+    summary: 'Content Security Policy (CSP) restricts resource loading and script execution in supporting browsers. A carefully configured, enforced policy can reduce some Cross-Site Scripting (XSS) paths and their impact. It complements secure application code; it does not guarantee that all injected content is harmless.',
     readTime: 9,
     featured: false,
     publishedAt: '2026-06-01',
@@ -555,22 +553,22 @@ export const ARTICLES = [
       {
         heading: 'Why It Matters',
         blocks: [
-          p('Cross-Site Scripting (XSS) remains one of the most prevalent web application vulnerabilities. An XSS vulnerability allows attackers to execute arbitrary JavaScript in the browser context of legitimate users — stealing session tokens, capturing keystrokes, redirecting to phishing pages, or exfiltrating data. CSP restricts what code the browser is permitted to execute, neutralising XSS even when injection points exist.'),
-          p('Without CSP, a single XSS vulnerability in a web application gives an attacker full access to the application context — including cookies, local storage, the DOM, and any APIs the page calls. CSP transforms XSS from a full session takeover to a significantly contained event.'),
-          callout('CSP does not prevent XSS injection — it limits the damage. A strict CSP policy means that even if an attacker successfully injects malicious content, the browser refuses to execute it.', 'info'),
+          p('An XSS flaw can let attacker-controlled script run in a page and interact with data or actions available to that page. An enforced CSP can block execution or loading that violates its directives, reducing some exploitation paths.'),
+          p('The result depends on the policy and application. Allowed scripts, trusted script loaders and application behaviour can still expose attack paths. Fix injection flaws and test the policy rather than treating a CSP header as proof that XSS is contained.'),
+          callout('CSP does not remove injection flaws. It can block disallowed script behaviour, but permitted code or policy weaknesses may still be exploitable. Report-only policies record violations without enforcing those restrictions.', 'info'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
           p('In a reflected XSS attack, an attacker crafts a URL containing malicious JavaScript. When a victim clicks the link, the server reflects the script back in the HTML response and the browser executes it. In a stored XSS attack, the malicious content is saved in the application\'s database and executed every time a page loads for any user.'),
-          p('Without CSP, these attacks can achieve account takeover (by stealing session cookies), credential harvesting (by injecting fake login forms), malware distribution (by loading malicious scripts from external domains), and data exfiltration (by sending captured data to attacker-controlled endpoints). CSP with strict-dynamic or nonce-based policies eliminates the ability to execute injected scripts even when they are present in the HTML.'),
+          p('XSS can expose page data or allow actions in the user\'s session. Nonce- or hash-based script policies can block unapproved scripts, but their effectiveness depends on correct deployment and how trusted scripts handle untrusted content. These policies do not replace application fixes.'),
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2021, a major e-commerce platform experienced a Magecart attack — a form of stored XSS where attackers injected a JavaScript payment card skimmer into the checkout page. The script silently captured credit card data from over 40,000 customers before detection. A Content Security Policy that blocked scripts from unauthorised external domains would have prevented the skimmer from loading entirely. The attack cost the company $18 million in settlements and fines.'),
+          p('Suppose a page is altered to load an unapproved external script. A correctly enforced CSP that disallows that source can block the load. If an allowed script is compromised or handles untrusted data unsafely, the policy may not block the resulting behaviour; the underlying application issue still needs remediation.'),
         ],
       },
       {
@@ -579,7 +577,7 @@ export const ARTICLES = [
           p('CyberMeters evaluates the CSP header returned by each web-facing domain:'),
           li([
             'Missing Content-Security-Policy header',
-            'CSP using unsafe-inline for script-src (defeats XSS protection)',
+            'CSP using unsafe-inline for script-src (can weaken restrictions on inline script execution)',
             'CSP using unsafe-eval (allows code evaluation from strings)',
             'CSP using a wildcard (*) in script-src (allows any script source)',
             'CSP present but in report-only mode (no enforcement, monitoring only)',
@@ -596,7 +594,7 @@ export const ARTICLES = [
             'Avoid unsafe-inline — use nonces or hashes to allow specific inline scripts',
             'Start with Content-Security-Policy-Report-Only and fix violations before switching to enforcement',
             'Use strict-dynamic with nonces for modern applications — it automatically trusts scripts loaded by trusted scripts',
-            'Include frame-ancestors \'none\' or \'self\' to prevent clickjacking',
+            'Use frame-ancestors to restrict which sites may embed the page and reduce framing-based attacks',
             'Report violations to a CSP reporting endpoint for ongoing monitoring',
           ]),
         ],
@@ -628,7 +626,7 @@ export const ARTICLES = [
         blocks: [
           p('Subdomain takeover is uniquely dangerous because the attacker operates under the victim\'s trusted domain. A browser visiting https://careers.example.com does not know that example.com\'s IT team forgot to remove a DNS entry. The attacker\'s content appears to originate from a legitimate company domain, complete with a valid TLS certificate obtained in the victim\'s subdomain name.'),
           p('This trust inheritance makes subdomain takeovers ideal for highly credible phishing campaigns, cookie theft (via same-site cookie policies), and bypassing email security controls. It is one of the few attack scenarios where an attacker can serve content under your brand without breaching any of your actual infrastructure.'),
-          callout('Subdomain takeovers are discovered and exploited by bug bounty researchers and malicious actors alike. Vulnerability disclosure programmes at major organisations receive dozens of valid subdomain takeover submissions annually.', 'warning'),
+          callout('A dangling DNS record deserves review, but an error page alone does not prove that an outsider can claim the resource. Check the provider-specific evidence and intended ownership without attempting an unauthorised takeover.', 'warning'),
         ],
       },
       {
@@ -639,10 +637,9 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2018, a researcher demonstrated subdomain takeover vulnerabilities across dozens of Fortune 500 companies, including several where critical subdomains like shop., api., and staging. were pointing to unclaimed Heroku or Azure resources. Multiple companies paid bug bounties of $5,000–$10,000 per finding. In one case, a subdomain was taken over and used to serve a convincing credential harvesting page for several days before detection.'),
-          p('Microsoft\'s own azure.com domain has had subdomain takeover findings reported against it by security researchers, demonstrating that the problem affects organisations of every size and sophistication.'),
+          p('Suppose a retired service leaves a CNAME pointing at an unclaimed hosting resource. The DNS chain and provider response warrant ownership review, but an error response alone does not prove claimability. The owner removes the stale record or restores the intended resource, then checks complete DNS and service evidence without attempting an unauthorised claim.'),
         ],
       },
       {
@@ -707,14 +704,13 @@ export const ARTICLES = [
         heading: 'How Attackers Abuse It',
         blocks: [
           p('Attackers systematically enumerate cloud storage buckets by guessing names based on company domain, product names, and common patterns (e.g., company-backups, company-prod-logs, company-archive). Cloud provider APIs allow public bucket listing and file download without authentication when bucket policies permit it.'),
-          p('Automated tools like S3Scanner, bucket-stream, and cloud_enum can enumerate thousands of bucket names per minute, downloading any publicly accessible files. Once credentials, API keys, or sensitive data are found, attackers use them for lateral movement, data theft, or resale on dark web markets.'),
+          p('Attackers can automate guesses at storage names and test the access permitted by a service. Exposed files may reveal sensitive data or secrets that create further risk. Public metadata, listing permission and access to a particular object are different observations.'),
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2019, Capital One experienced a breach affecting over 100 million customers. While the root cause was a Server-Side Request Forgery (SSRF) vulnerability rather than a public bucket, the attacker was able to extract data from S3 because the compromised IAM role had overly permissive access. The breach cost Capital One over $300 million in settlement, fines, and remediation costs.'),
-          p('In 2020, an unprotected AWS S3 bucket belonging to a US defence contractor was discovered to contain 1.8 billion social media records gathered by a surveillance programme. The data included personal information from Twitter, Facebook, and other platforms — all accessible to anyone who knew the bucket name.'),
+          p('Suppose a backup object is made anonymously readable while publishing public website assets. An unauthenticated read of that object would expose its contents, even if bucket listing were disabled. The owner separates public assets from backups, restricts access and verifies the affected object and listing permissions independently.'),
         ],
       },
       {
@@ -763,7 +759,7 @@ export const ARTICLES = [
     slug: 'microsoft-365-exposure-risks',
     title: 'Microsoft 365 Provider Evidence',
     category: 'identity-discovery',
-    summary: 'How CyberMeters identifies possible Microsoft 365 provider relationships from external DNS and related evidence, and the limits of that observation.',
+    summary: 'Public Microsoft 365 provider and identity-surface evidence, with separately authorised account observations and clear limits on what each source establishes.',
     readTime: 8,
     featured: false,
     publishedAt: '2026-06-01',
@@ -773,13 +769,15 @@ export const ARTICLES = [
         blocks: [
           p('CyberMeters can identify an observed or possible provider relationship from external evidence such as bounded MX, SPF, CNAME and Content Security Policy values. Exact host and label-boundary matches are stronger provider-identification evidence than substring or token matches.'),
           p('A hostname pattern can also create a possible identity-facing hostname for review. DNS resolution is reported separately. Neither provider identification, hostname classification nor DNS resolution establishes that an HTTP endpoint is reachable.'),
+          p('On verified domains, bounded OIDC discovery can record a valid public issuer document and its advertised authorisation endpoint. It does not follow the advertised login or token flows.'),
+          p('Separately, eligible workspace administrators can authorise a Microsoft account read. It can return available direct-role names and MFA registration when Microsoft permissions and licensing allow. Registration is not evidence that MFA is enforced.'),
         ],
       },
       {
         heading: 'What CyberMeters cannot observe',
         blocks: [
-          p('CyberMeters does not currently probe Microsoft tenant metadata, Autodiscover, sign-in or legacy-authentication endpoints. It does not test credentials or determine whether an endpoint is reachable.'),
-          p('CyberMeters cannot see MFA enrolment, Conditional Access, legacy-authentication policy, sign-in telemetry, valid usernames, breached credentials, account compromise or internal identity configuration.'),
+          p('Public provider, hostname and OIDC evidence does not establish successful sign-in, secure tenant policy or account compromise. Automatic public identity discovery does not attempt account authentication.'),
+          p('The optional Microsoft account read does not assess MFA enforcement, Conditional Access or sign-in history, and it does not provide an employee-password breach feed. Missing provider permissions or licence data remains unavailable.'),
           li([
             'Provider relationship: observed, possible or unknown',
             'Hostname classification: possible or unknown',
@@ -789,10 +787,9 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('In 2020, the SolarWinds third-party compromise\'s impact was significantly amplified because attackers used forged SAML tokens to access Microsoft 365 email and documents at hundreds of organisations. Discovery of M365 deployment in reconnaissance phases was the first step in targeting decisions. Organisations without proper M365 security configuration — conditional access policies, legacy auth blocking, and MFA enforcement — were disproportionately affected.'),
-          p('In 2022, Microsoft reported that 99.9% of compromised accounts that used MFA were not breached via credential attacks. Legacy authentication (which bypasses MFA) was the primary vector for the remaining breached accounts.'),
+          p('Suppose public mail records indicate a hosted mail provider. That observation helps an owner locate the relevant administration tools; it does not establish the tenant\'s security settings. A separately authorised account read may show a registered authentication method without proving that policy requires its use.'),
         ],
       },
       {
@@ -824,8 +821,8 @@ export const ARTICLES = [
       {
         heading: 'Verification',
         blocks: [
-          code('# Check if MX record indicates M365\ndig MX example.com +short\n# If result ends in mail.protection.outlook.com = M365 confirmed\n\n# Check autodiscover\ncurl -I https://autodiscover.example.com/autodiscover/autodiscover.xml\n# Should return 401 with HTTPS only, not HTTP redirect', 'bash'),
-          p('Provider configuration and sign-in controls must be verified in the Microsoft administration tools. A later CyberMeters scan may refresh provider, hostname or measured HTTP evidence, but it cannot verify tenant policy or successful sign-in.'),
+          code('# Inspect the MX provider relationship\ndig MX example.com +short\n# A host within mail.protection.outlook.com supports a Microsoft mail-provider relationship\n# It does not establish tenant identity, tenant policy or account security\n\n# Observe an Autodiscover HTTP response without credentials\ncurl -I https://autodiscover.example.com/autodiscover/autodiscover.xml\n# A 401 response or redirect alone does not establish correct configuration or successful sign-in', 'bash'),
+          p('Provider configuration and sign-in controls must be verified in the Microsoft administration tools. An ordinary public scan may refresh provider, hostname, OIDC or measured HTTP evidence; it does not verify tenant policy or successful sign-in. Optional account observations and Website Security test-account checks remain separate scopes.'),
         ],
       },
     ],
@@ -847,22 +844,21 @@ export const ARTICLES = [
         heading: 'Why It Matters',
         blocks: [
           p('Organisations increasingly rely on third-party vendors for critical business functions — cloud infrastructure, payroll, HR, customer data processing, legal services, and software development. Each of these relationships creates a connection between your organisation\'s data and systems and another organisation\'s security posture. A breach at a vendor can expose your data, disrupt your operations, or compromise your customers — even if your own defences are perfect.'),
-          p('Regulators including the ICO, FCA, and SOC 2 auditors hold organisations responsible for the security of personal and sensitive data even when that data is held by third parties. This means third-party risk is not just a security concern — it is a legal and compliance obligation.'),
-          callout('The average organisation shares sensitive data with 583 third-party vendors. Only 34% of organisations have a formal third-party risk management programme that reviews vendor security annually.', 'info'),
+          p('Depending on your organisation, law, contracts or assurance requirements may call for a review of third-party access and data handling. External provider discovery does not establish that those requirements are met.'),
+          callout('Prioritise vendor review by the data, permissions and operational dependency involved. An externally observed provider relationship is a starting point for ownership review, not a rating of the provider\'s security.', 'info'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
-          p('Attackers target the weakest link in the third-party dependency. Instead of attacking a well-defended enterprise directly, they identify which third-party vendors have access to that enterprise\'s data or systems, and attack the vendor. A single successful vendor breach can cascade to hundreds or thousands of downstream customers.'),
+          p('An attacker may target a vendor with access to another organisation\'s data or systems. The downstream impact depends on the compromised permissions, integrations and safeguards; it is not established by the existence of a provider relationship.'),
           p('Attack patterns include: compromising vendor software development pipelines to distribute malicious updates (third-party compromise), breaching vendor infrastructure that holds customer data (data third-party breach), and using stolen vendor credentials or API keys to access customer environments (credential third-party dependency).'),
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('Target\'s 2013 data breach — the largest retail breach in history at the time, affecting 40 million credit card accounts — began through an HVAC vendor. The vendor had remote access to Target\'s network for energy management purposes. Attackers compromised the vendor, used those credentials to enter Target\'s network, and moved laterally to point-of-sale systems. The breach cost Target over $200 million.'),
-          p('The lesson: the security of your most privileged vendors determines the security of your own organisation. Network-connected vendors deserve the same security scrutiny as internal systems.'),
+          p('Suppose a supplier account can access an internal document service. If the account is compromised, the data exposed depends on its granted permissions and the surrounding controls. The customer reviews access, removes unnecessary privileges and checks activity; observing the supplier in public DNS does not reveal those internal controls.'),
         ],
       },
       {
@@ -908,7 +904,7 @@ export const ARTICLES = [
     slug: 'supply-chain-attacks-explained',
     title: 'Attacks through third parties explained',
     category: 'supply-chain-intelligence',
-    summary: 'Third-party compromises target the software, services, or infrastructure that organisations rely on — rather than attacking the organisation directly. By compromising a trusted supplier, attackers gain access to all downstream customers simultaneously. They represent one of the most sophisticated and impactful threat categories in modern cybersecurity.',
+    summary: 'Third-party compromises target software, services or infrastructure that an organisation relies on. Compromising a supplier can expose customers through trusted updates or access. The impact depends on the affected dependency, permissions and safeguards.',
     readTime: 11,
     featured: true,
     publishedAt: '2026-06-01',
@@ -917,15 +913,15 @@ export const ARTICLES = [
         heading: 'Why It Matters',
         blocks: [
           p('Software third-party compromises exploit the trust organisations place in their vendors and development tools. Every software dependency, development platform, CI/CD tool, and managed service represents a potential third-party dependency entry point. When attackers compromise the third-party dependency, they inherit all of the trust relationships downstream customers have built with the compromised vendor.'),
-          p('Third-party compromises are particularly dangerous because they are difficult to detect (malicious code is signed by the legitimate vendor), difficult to scope (the blast radius is all downstream customers), and difficult to remediate (the fix requires both the vendor and every customer to take action simultaneously).'),
-          callout('Third-party compromises often have a long dwell time. The SolarWinds attack had a backdoor active for at least 9 months before detection. During this time, attackers had persistent access to thousands of organisations.', 'warning'),
+          p('A compromised build may produce malicious code signed with a legitimate release key, so a signature alone does not establish that the code is safe. Response requires identifying affected versions and access paths, then coordinating action with the supplier and affected customers.'),
+          callout('Trusted suppliers and signed updates still need scoped access, change review and incident response planning. External provider evidence alone cannot establish that a supplier is compromised or uncompromised.', 'warning'),
         ],
       },
       {
         heading: 'How Attackers Abuse It',
         blocks: [
           p('Third-party compromises take several forms. Software dependency attacks inject malicious code into open-source libraries (npm, PyPI, RubyGems) — either by compromising maintainer accounts or by registering typosquatting packages that developers accidentally install. Build pipeline attacks compromise CI/CD infrastructure to insert malicious code during the build and packaging phase. Update mechanism attacks modify legitimate software updates to distribute backdoors.'),
-          p('In service third-party compromises, attackers compromise a managed service provider (MSP) or SaaS platform to gain access to all downstream clients. Once inside an MSP\'s infrastructure, a single set of credentials can provide access to hundreds or thousands of client environments.'),
+          p('A compromised managed service provider (MSP) or SaaS account may expose downstream environments reachable with its permissions. Segmentation, tenant isolation and limited privileges can restrict that reach; compromise does not automatically establish access to every client.'),
           li([
             'Malicious npm package published with legitimate-looking name (typosquatting)',
             'Compromised build server injects malicious code into signed release',
@@ -936,11 +932,9 @@ export const ARTICLES = [
         ],
       },
       {
-        heading: 'Real World Example',
+        heading: 'Illustrative example',
         blocks: [
-          p('SolarWinds (2020): Attackers (later attributed to Russian SVR) compromised SolarWinds\' build pipeline and inserted malicious code into the Orion software update package. The update was distributed to approximately 18,000 organisations. Approximately 100 organisations were subsequently targeted for deeper exploitation, including US government agencies, major technology companies, and defence contractors. The attack went undetected for 9 months.'),
-          p('MOVEit (2023): A zero-day SQL injection vulnerability in Progress Software\'s MOVEit Transfer file transfer software was exploited by the Cl0p ransomware group. Over 2,000 organisations were affected across healthcare, finance, government, and education sectors. The attackers did not need to breach each organisation individually — they exploited a single product and harvested data from all customers using it.'),
-          p('Kaseya VSA (2021): A zero-day vulnerability in Kaseya\'s IT management software was exploited to distribute REvil ransomware to approximately 1,500 organisations through 60 MSP customers. Attackers specifically targeted an MSP management platform to maximise blast radius from a single intrusion point.'),
+          p('Suppose an attacker alters a software supplier\'s build process and a customer installs the resulting update. Impact depends on the affected software and the permissions it runs with. Release verification, scoped access and an incident response plan help manage the risk; a public provider inventory cannot determine whether the update is compromised.'),
         ],
       },
       {
@@ -1038,7 +1032,7 @@ export const ARTICLES = [
   {
     slug: 'dmarc-stop-email-impersonation',
     aliases: ['dmarc-explained-for-uk-small-businesses'],
-    title: 'DMARC: stop criminals sending email as your business',
+    title: 'DMARC: make it much harder for criminals to send email as your business',
     category: 'email-security',
     summary: 'DMARC helps stop criminals sending emails that appear to come from your domain. It is one of the most practical ways to reduce impersonation risk and improve trust in business email.',
     readTime: 6,
@@ -1048,9 +1042,9 @@ export const ARTICLES = [
       {
         heading: 'What DMARC Does',
         blocks: [
-          p('DMARC stands for Domain-based Message Authentication, Reporting and Conformance. In plain English, it tells receiving mail services what to do when an email claims to come from your domain but fails authentication checks.'),
-          p('DMARC works with SPF and DKIM. SPF lists the systems allowed to send email for your domain. DKIM adds a cryptographic signature to messages. DMARC checks whether those results line up with the visible From address that recipients see.'),
-          callout('SPF and DKIM are important, but DMARC is the policy layer that tells receiving mail services whether to monitor, quarantine or reject suspicious messages.', 'info'),
+          p('DMARC stands for Domain-based Message Authentication, Reporting and Conformance. It lets a domain owner request handling when a message fails to authenticate with an identity aligned to the visible From domain. Receiving services apply their own delivery policy.'),
+          p('SPF checks sending infrastructure for an envelope-sender domain. DKIM verifies a signing domain and signed message content. DMARC checks whether a passing SPF or DKIM identity aligns with the visible From domain that recipients see.'),
+          callout('DMARC publishes a requested handling policy and can request reporting. A DNS record proves neither that every receiver follows the request nor that reports have arrived.', 'info'),
         ],
       },
       {
@@ -1071,9 +1065,9 @@ export const ARTICLES = [
         blocks: [
           p('A DMARC record usually starts in monitoring mode, then moves towards enforcement once you understand your legitimate senders.'),
           li([
-            'p=none means monitor only. You receive reports, but suspicious messages are not blocked because of DMARC.',
-            'p=quarantine tells receiving mail services to treat failing messages as suspicious, often placing them in spam or junk.',
-            'p=reject tells receiving mail services to reject failing messages before they reach the inbox.',
+            'p=none requests no quarantine or rejection; reports may arrive when reporting is configured and receivers send them.',
+            'p=quarantine requests that receivers quarantine messages that fail DMARC.',
+            'p=reject requests that receivers reject messages that fail DMARC; receivers retain their own delivery policy.',
           ]),
           callout('For many businesses, p=none is a useful starting point, but it is not the final goal. Protection improves when you move carefully towards quarantine or reject.', 'info'),
         ],

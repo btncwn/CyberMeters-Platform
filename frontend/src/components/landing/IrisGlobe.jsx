@@ -17,7 +17,7 @@ import { GLOBE } from './globeSizing'
 const TAU = Math.PI * 2
 
 export const EXAMPLE_FINDINGS = [
-  { area: 'Certificates & Trust', text: 'Certificate renews in 9 days', lat: 47, lon: 8 },
+  { area: 'Certificates & Trust', text: 'Certificate expires in 9 days', lat: 47, lon: 8 },
   { area: 'Email Protection', text: 'DMARC is set to monitor only', lat: 38, lon: -96 },
   { area: 'Brand Protection', text: 'Lookalike domain observed', lat: 22, lon: 79 },
   { area: 'Attack Surface', text: 'New subdomain found', lat: 34, lon: 106 },

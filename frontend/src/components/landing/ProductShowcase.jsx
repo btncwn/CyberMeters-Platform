@@ -11,13 +11,10 @@ export const TONE = {
   input: 'bg-[#E6E8FD] text-[#3D45A8]',
 }
 
-// The app's sidebar order (canonical presentation order).
-const NAV_ORDER = ['identity', 'surface', 'email', 'website', 'shadow_it', 'certs', 'brand', 'cyber_essentials']
-
 const NOTES = [
-  { title: 'What was observed', copy: 'Every area gets a plain state from public evidence, with the date it was seen.' },
+  { title: 'What was observed', copy: 'Each area shows an assessment state and the recorded basis behind it.' },
   { title: 'What could not be checked', copy: 'Gaps are named as gaps. Missing evidence is never shown as healthy.' },
-  { title: 'What to do next', copy: 'The first thing to fix comes with who usually does it and how CyberMeters checks it again.' },
+  { title: 'What to do next', copy: 'The first thing to fix comes with who usually does it and how its outcome can be checked.' },
 ]
 
 export default function ProductShowcase({ rows }) {
@@ -34,7 +31,7 @@ export default function ProductShowcase({ rows }) {
           <nav aria-label="Sample workspace areas" className="hidden lg:block bg-white border-r border-[#E6EAF3] py-5 px-3">
             <p className="px-3 text-[17px] font-bold text-[#121A2E]">example.co.uk</p>
             <ul className="mt-4 space-y-1">
-              {NAV_ORDER.map(key => rows.find(r => r.key === key)).filter(Boolean).map(r => {
+              {rows.map(r => {
                 const c = SERVICE_COLORS[r.key]
                 const active = r.key === 'email'
                 return (

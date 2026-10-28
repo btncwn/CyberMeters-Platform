@@ -51,9 +51,9 @@ describe('PublicLandingPage', () => {
   it('describes the free check as a bounded one-off snapshot, with full access only after verification', () => {
     renderLanding()
     expect(screen.getByText(/A one-off snapshot of public evidence. No scan report or monitoring history is saved/)).toBeInTheDocument()
-    expect(screen.getByText(/Full findings, fix steps, PDF reports and monitoring unlock once you verify that you own the domain/i)).toBeInTheDocument()
+    expect(screen.getByText(/An eligible trial or paid plan provides findings, fix steps, PDF reports and monitoring for domains you verify/i)).toBeInTheDocument()
     expect(screen.getByText(/Scheduled checks, alerts and PDF reports come with paid plans and the 14-day trial/i)).toBeInTheDocument()
-    expect(screen.getByText(/a one-off check of what is publicly visible; nothing is saved/i)).toBeInTheDocument()
+    expect(screen.getByText(/An account and verified domain control are needed to keep reports and monitor changes/i)).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/bounded, (non-persistent|honest)/i)
     expect(screen.getAllByText(/what could not be assessed/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/Nothing is marked as passed on silence/i)).toBeInTheDocument()
@@ -113,7 +113,7 @@ describe('PublicLandingPage', () => {
 
   it('limits the free-check storage promise to reports and monitoring history', () => {
     renderLanding()
-    expect(screen.getByText(/No scan report or monitoring history is saved/)).toHaveTextContent('We keep only a short record of checks run, to stop misuse.')
+    expect(screen.getByText(/No scan report or monitoring history is saved/)).toHaveTextContent('Usage records and operational counts are kept to limit misuse and run the service.')
     expect(document.body.textContent).not.toContain('nothing is stored')
   })
 
@@ -166,7 +166,7 @@ describe('PublicLandingPage product story', () => {
   it('answers the questions that stop people starting, without promising fixes', () => {
     renderLanding()
     expect(screen.getByText('Will CyberMeters change my DNS or fix things for me?')).toBeInTheDocument()
-    expect(screen.getByText(/Your DNS, email or IT provider makes the change/)).toBeInTheDocument()
+    expect(screen.getByText(/Your DNS, email or IT provider normally makes the change/)).toBeInTheDocument()
   })
 
   it('opens the main navigation on small screens', () => {
