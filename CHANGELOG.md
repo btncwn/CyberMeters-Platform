@@ -7,6 +7,32 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 28 October 2026 — #1033 manual paired release and bounded live acceptance
+
+Supersedes the release-pending status in the preparation entry below. Merged
+as `a641c189ec8ce62fc008b05c1af9c62de544dbd0` from exact head `b62d06b9`
+after all 17 checks passed. The merge tree equals the tested tree. Both Workers
+were released manually through the existing source-stamping scripts; API
+health/readiness and the frontend version identify the expected merged source.
+Deployment identities, both rollback identities and raw proof remain in the
+private operations record.
+
+One signed-in, company-controlled inconclusive headers check was observed
+through the actual UI and read-only counter receipts: the confirmed visitor
+claim returned to zero while domain/global work counters each retained one.
+The UI stated that it could not check and drew no conclusion about the site's
+headers. This is bounded live acceptance of that allowance-return path, not
+live proof of every refusal, race, anonymous or deferred-email branch.
+
+The standalone email entrypoint, inbound parser, DMARC/TLS-RPT ingestion and
+event helpers are unchanged from the reconciled historical source. A narrow
+independent review accepted the reachable shared-source delta; existing
+shared-module reviews and 18 equivalence checks remain supporting evidence.
+No migration or account, DNS, secret or billing change was performed. This
+release does not close the separate resolved-email, TLS-RPT reporting,
+primary-email-failure, Cyber Essentials lifecycle or final customer gates.
+No release tag, engineering seal, clean observation period or HOLD release.
+
 ## 28 October 2026 — free-tool visitor allowance (release verification pending)
 
 Inconclusive, failed or malformed free-tool checks now return a confirmed
