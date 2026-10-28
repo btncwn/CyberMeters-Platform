@@ -36,6 +36,12 @@ The existing builder refreshed those Markdown locations; the machine route,
 guard and scope inventory stayed byte-identical. Its focused validator passed
 312 entries, including the stale-line negative control. No CI check was weakened.
 
+After integration, CI correctly stopped when the dated own-domain Trust summary
+crossed its seven-day freshness limit. Refresh only its measurement timestamp
+from the latest complete, authoritative own-domain workspace assessment
+(27 October, 11:13:42 UTC); the reported score remains 100. The seven-day limit,
+its test, marketing copy and assessment semantics are unchanged.
+
 ## 28 October 2026 — approved landing and Field Guide claim corrections
 
 Preserve the existing landing headline, explanatory paragraph and layout while
