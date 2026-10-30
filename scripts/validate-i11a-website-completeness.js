@@ -241,7 +241,8 @@ const wsTimeout = resolveSecurityCheckDomainStates({
   findings: [],
 }).find((d) => d.domain_key === "website_security");
 ok("C1_SURFACE_TIMEOUT_SAYS_DID_NOT_COMPLETE",
-   /did not complete within the scan budget/.test(wsTimeout?.summary || ""),
+   /did not complete.*not assessed/.test(wsTimeout?.summary || "") &&
+   !/budget|deadline|timed out/i.test(wsTimeout?.summary || ""),
    `summary=${wsTimeout?.summary}`);
 ok("C1_SURFACE_TIMEOUT_DOES_NOT_CLAIM_UNUSABLE_EVIDENCE",
    !/was not usable this scan/.test(wsTimeout?.summary || ""),

@@ -199,7 +199,7 @@ const MUTANTS = Object.freeze([
     defect: "the timeout case collapses back into the insufficient-evidence wording",
     file: "domains",
     mutate: (s) => once(s,
-      "        clauses.push(`Required checks (${withoutReason.join(\", \")}) did not complete within the scan budget \u2014 not assessed`);",
+      "        clauses.push(`Required checks (${withoutReason.join(\", \")}) did not complete \u2014 not assessed`);",
       "        clauses.push(`Required evidence (${withoutReason.join(\", \")}) was not usable this scan`);", "MS4"),
     expect: [
       "C1_SURFACE_TIMEOUT_SAYS_DID_NOT_COMPLETE",

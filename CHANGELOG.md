@@ -27,6 +27,11 @@ review, required CI, manual deployment and genuine live acceptance are recorded
 separately; offline controls do not close the real-event or Founder launch gates.
 No migration, authentication, billing, DNS or verification-state change.
 
+The initial CI run caught three legacy assertion/anchor locations that still
+required the old scan-budget sentence. Align those with neutral non-completion
+and explicitly reject an unrecorded cause; retain the healthy controls, phase
+completion checks and exact mutation failure sets. No gate is skipped.
+
 ## 28 October 2026 — #1033 manual paired release and bounded live acceptance
 
 Supersedes the release-pending status in the preparation entry below. Merged
