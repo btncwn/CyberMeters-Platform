@@ -374,6 +374,13 @@ export function resolveSecurityCheckDomainStates(report, opts = {}) {
       report?.monitoring_states,
       d.monitoring_signals
     );
+    // Email's canonical signal records primary and supplementary collection.
+    // Carry that provenance into the frozen domain metadata without changing
+    // the assessment dependency/precedence rules below (required primary
+    // evidence and canonical DMARC conclusions retain their existing gates).
+    const monitoringMetadata = d.domain_key === "email_protection"
+      ? resolveSignalMonitoringCoverage(report?.monitoring_states, ["email_protection"])
+      : monitoringCoverage;
     const signalCoverageLimited = !monitoringCoverage.complete;
     // The signal message remains canonical monitoring provenance, but a domain
     // conclusion explains the effect in that domain's own language.
@@ -410,8 +417,8 @@ export function resolveSecurityCheckDomainStates(report, opts = {}) {
       finding_ids: [],
       // Additive evidence-coverage provenance. This is not a posture verdict:
       // it records whether this domain's declared monitoring inputs completed.
-      monitoring_state: monitoringCoverage.state,
-      monitoring_signals: monitoringCoverage.signals,
+      monitoring_state: monitoringMetadata.state,
+      monitoring_signals: monitoringMetadata.signals,
     };
     if (d.domain_key === 'attack_surface' && report?.modules?.external_exposure?.coverage?.non_resolving_hosts > 0)
       base.limitations.push('A name did not resolve in DNS; its web service was not assessed and earlier findings on that name remain open.');
@@ -781,9 +788,9 @@ export function resolveSecurityCheckDomainStates(report, opts = {}) {
       // worded alike:
       //   reason present — the module ran and what it observed could not support a
       //                    conclusion (e.g. origin_error_no_serviceable_response);
-      //   reason absent  — the module did NOT complete within the scan budget, so
-      //                    nothing was observed at all. Calling that "not usable"
-      //                    would assert an observation that never happened.
+      //   reason absent  — the module did not complete; a budget/deadline cause
+      //                    is not established. A thrown producer has this shape
+      //                    too, so absence of a reason cannot name the cause.
       // Neither wording carries a favourable or unfavourable inference.
       const withReason = requiredInsufficient.filter((n) => report?.modules?.[n]?.incomplete_reason);
       const withoutReason = requiredInsufficient.filter((n) => !report?.modules?.[n]?.incomplete_reason);
@@ -794,7 +801,7 @@ export function resolveSecurityCheckDomainStates(report, opts = {}) {
         clauses.push(`Required evidence (${detail.join(", ")}) was not usable this scan`);
       }
       if (withoutReason.length > 0) {
-        clauses.push(`Required checks (${withoutReason.join(", ")}) did not complete within the scan budget — not assessed`);
+        clauses.push(`Required checks (${withoutReason.join(", ")}) did not complete — not assessed`);
       }
       base.summary = `${clauses.join(". ")} — not enough to assess.`;
       return base;

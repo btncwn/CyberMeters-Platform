@@ -7,6 +7,26 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 30 October 2026 — incomplete-email evidence presentation (release pending)
+
+An incomplete required check without a recorded cause now says that it did not
+complete, rather than asserting a scan-budget timeout. Recorded incomplete
+reasons remain visible. Frozen Email Protection monitoring provenance now
+retains the canonical email collection signal, including supplementary gaps.
+
+The existing snapshot evidence-grade ceiling consequently applies: otherwise
+completed primary email evidence with incomplete supplementary provenance is
+capped at L0 instead of L1. This changes the evidence-strength label, not the
+domain assessment, coverage or numeric score. A primary email exception remains
+evidence-insufficient/degraded. Existing immutable snapshots are not rewritten.
+
+Focused controls cover the neutral explanation, canonical provenance, positive
+and incomplete snapshot-grade boundaries, and the actual engine-to-snapshot,
+Executive and PDF path with a synthetic primary-producer exception. Independent
+review, required CI, manual deployment and genuine live acceptance are recorded
+separately; offline controls do not close the real-event or Founder launch gates.
+No migration, authentication, billing, DNS or verification-state change.
+
 ## 28 October 2026 — #1033 manual paired release and bounded live acceptance
 
 Supersedes the release-pending status in the preparation entry below. Merged
