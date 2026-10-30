@@ -719,8 +719,14 @@ const parity = states.map(parityOutputs);
 // registry stamp (r122 -> r123) in this certificate-only fixture. With ONLY
 // remediation-registry.js reverted the previous hashes (73f0e348… / 802bb585…)
 // reproduce (30/30).
-const GOLDEN_F13 = "0432ee13a697c6f0d97026cf676fd154a84bdb38c41b765746fdc84f6b9828ee";
-const GOLDEN_F14 = "bfd55ed8768a1201aceadf79c93213bace45b27b54f30b5d00c8ae5fceb2555d";
+// Canonical Email provenance (30 Oct 2026): restoring ONLY security-check-domains.js
+// and report-snapshot.js to 5425de7b reproduces both preceding hashes across all
+// five SAN states. This fixture changes only Email monitoring metadata and the
+// builder stamp (2026-10-22.1 -> 2026-10-30.1); its technical PDF changes only that
+// version line. SAN assessments/evidence, non-presentation facts, workspace PDF
+// and scorecard remain unchanged. No mutation expectation is changed.
+const GOLDEN_F13 = "c9d2c2e141a0ad78bfb96e5dc3ca73a6232fe548131aad7cd8a48380b28f6127";
+const GOLDEN_F14 = "70589c759fedc06cd3991e8f717e29f51568197124f6c907b0299206f458d3d0";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 

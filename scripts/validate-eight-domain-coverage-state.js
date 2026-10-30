@@ -204,6 +204,49 @@ const cleanComplete = () => ({
     partialWebsite.coverage === "partial" && partialWebsite.finding_count === 0);
 }
 
+// 12d. A real primary-email exception is incomplete evidence, not an observed
+// budget timeout. Its frozen per-domain monitoring metadata must agree with the
+// canonical signal without adding a new assessment/verification dependency.
+{
+  const failed = cleanComplete();
+  failed.scan_quality = { status: "partial", warnings: [], modules_skipped: [] };
+  failed.modules.email_security = { error: "Email module failed" };
+  failed.monitoring_states = healthyMonitoringStates({ email_protection: "evidence_incomplete" });
+  const email = byKey(resolveSecurityCheckDomainStates(failed), "email_protection");
+  ok("12d: primary exception retains evidence_insufficient/degraded and no findings",
+    email.state === SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT &&
+    email.coverage === "degraded" && email.finding_count === 0);
+  ok("12d: primary exception does not invent a budget/deadline cause",
+    /did not complete.*not assessed/.test(email.summary) &&
+    !/budget|deadline|timed out/i.test(email.summary));
+  ok("12d: domain monitoring metadata retains the canonical incomplete email signal",
+    email.monitoring_state === "evidence_incomplete" &&
+    email.monitoring_signals.email_protection?.state === "evidence_incomplete");
+
+  const noReason = cleanComplete();
+  noReason.modules.email_security = { incomplete: true };
+  ok("12d: reasonless incomplete evidence also makes no unsupported budget claim",
+    !/budget|deadline|timed out/i.test(byKey(resolveSecurityCheckDomainStates(noReason), "email_protection").summary));
+
+  const observedReason = cleanComplete();
+  observedReason.modules.email_security = { incomplete: true, incomplete_reason: "source_unavailable" };
+  ok("12d: recorded incomplete_reason remains in the customer explanation",
+    /source unavailable/.test(byKey(resolveSecurityCheckDomainStates(observedReason), "email_protection").summary));
+
+  const supplementalGap = cleanComplete();
+  supplementalGap.monitoring_states = healthyMonitoringStates({ email_protection: "evidence_incomplete" });
+  const completeEmail = byKey(resolveSecurityCheckDomainStates(supplementalGap), "email_protection");
+  ok("12d: metadata correction does not add a new assessment gate or alter completed primary evidence",
+    completeEmail.state === HEALTHY && completeEmail.coverage === "complete" &&
+    completeEmail.monitoring_state === "evidence_incomplete");
+  ok("12d: normal positive metadata remains monitoring_healthy",
+    byKey(resolveSecurityCheckDomainStates(cleanComplete()), "email_protection").monitoring_state === "monitoring_healthy");
+
+  delete supplementalGap.monitoring_states;
+  ok("12d: absent legacy monitoring provenance is not invented as healthy metadata",
+    byKey(resolveSecurityCheckDomainStates(supplementalGap), "email_protection").monitoring_state === "evidence_incomplete");
+}
+
 // 13. Brand watchlist-only candidates (no material finding) do not become active abuse.
 {
   const rep = cleanComplete();

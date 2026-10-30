@@ -141,7 +141,9 @@ def main():
                  '--openssldir=' + str(prefix / 'ssl')], source_dir, log)
             if identity == 'legacy':
                 run(['make', 'depend'], source_dir, log)
-            run(['make', '-j' + str(args.jobs)], source_dir, log)
+            # Legacy recursive rules can write libcrypto.a concurrently; keep them serial.
+            jobs = 1 if identity == 'legacy' else args.jobs
+            run(['make', '-j' + str(jobs)], source_dir, log)
             run(['make', 'install_sw'], source_dir, log)
         if not args.libraries_only:
             lib = prefix / ('lib64' if (prefix / 'lib64/libssl.a').exists() else 'lib')

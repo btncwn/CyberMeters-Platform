@@ -54,6 +54,30 @@ describe('canonical Checks disclosure', () => {
   it('keeps all-completed wording for a complete backend assessment', async () => {
     await renderFixture({ scan: scanFixture({ scan_quality: 'complete' }), report: completeRawReport(COMPLETE_ASSESSMENT) })
     await waitFor(() => expect(checksRow()).toHaveTextContent('All completed'))
+    expect(screen.queryByText('Scan coverage incomplete')).not.toBeInTheDocument()
+  })
+
+  it.each([undefined, null])('does not invent a budget cause when an incomplete module has reason %s', async (incomplete_reason) => {
+    await renderFixture({ report: reportFixture({
+      modules: { email_security: { error: 'Email checks unavailable' } },
+      scan_quality: { status: 'partial', modules_skipped: ['email_security'],
+        modules_incomplete: [{ module: 'email_security', incomplete_reason }], warnings: [] },
+    }) })
+    const warning = screen.getByText('Scan coverage incomplete').parentElement
+    expect(warning).toHaveTextContent('did not complete — not assessed')
+    expect(warning).not.toHaveTextContent(/scan budget|timed out|timeout/i)
+    expect(warning).not.toHaveTextContent('Checks not completed:')
+    expect(checksRow()).not.toHaveTextContent('All completed')
+  })
+
+  it('preserves the recorded evidence reason instead of replacing it with noncompletion', async () => {
+    await renderFixture({ report: reportFixture({
+      scan_quality: { status: 'partial', modules_skipped: [],
+        modules_incomplete: [{ module: 'subdomain_takeover', incomplete_reason: 'host_probe_unconfirmed' }], warnings: [] },
+    }) })
+    const warning = screen.getByText('Scan coverage incomplete').parentElement
+    expect(warning).toHaveTextContent('subdomain takeover checks: ran, but evidence was insufficient — some hosts gave an answer that could not be confirmed')
+    expect(warning).not.toHaveTextContent('did not complete — not assessed')
   })
 
   it('shows all backend degraded-area messages without inventing a cause', async () => {

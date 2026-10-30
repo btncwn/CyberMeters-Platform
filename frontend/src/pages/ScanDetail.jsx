@@ -1267,7 +1267,7 @@ function ReportView({ report, canonicalScore = null, canonicalQuality = null, ca
                   /* it ran, and what it observed could not support a conclusion */
                   ? customerEvidenceText(`${module}: ran, but evidence was insufficient — ${incomplete_reason}`)
                   /* it never finished, so nothing was observed — not an evidence verdict */
-                  : customerEvidenceText(`${module}: did not complete within the scan budget — not assessed`)}
+                  : customerEvidenceText(`${module}: did not complete — not assessed`)}
               </p>
             ))}
             {qualityWarnings.slice(0, 2).map((warning, i) => (

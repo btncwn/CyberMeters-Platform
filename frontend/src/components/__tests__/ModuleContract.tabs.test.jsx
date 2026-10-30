@@ -1,4 +1,4 @@
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import ModuleContract, { MODULE_TABS, matchesFilter, tabForLocation, useAreaAnchor } from '../module/ModuleContract'
@@ -269,5 +269,97 @@ describe('ModuleContract — head and tabs', () => {
       '/ws/website-security?tab=settings#sign-in-settings',
     ])
     expect(screen.getByRole('heading', { level: 1, name: 'Website Security' })).toBeInTheDocument()
+  })
+})
+
+describe('bounded deep-link settling', () => {
+  let view
+  let targetTop
+  let originalScroll
+  let originalRect
+  let scroll
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    targetTop = 0
+    originalScroll = Element.prototype.scrollIntoView
+    originalRect = Element.prototype.getBoundingClientRect
+    scroll = vi.fn(function () { if (this.id === 'late-anchor') targetTop = 0 })
+    Element.prototype.scrollIntoView = scroll
+    Element.prototype.getBoundingClientRect = function () {
+      return this.id === 'late-anchor'
+        ? { top: targetTop, bottom: targetTop + 100, height: 100 }
+        : originalRect.call(this)
+    }
+  })
+
+  afterEach(() => {
+    view?.unmount()
+    Element.prototype.scrollIntoView = originalScroll
+    Element.prototype.getBoundingClientRect = originalRect
+    vi.useRealTimers()
+  })
+
+  const showAnchor = async () => {
+    view = render(
+      <MemoryRouter initialEntries={['/ws/email-protection#late-anchor']}>
+        <ModuleContract domainKey="email_protection" workspaceId="ws1" workspaceName="Customer A">
+          <p id="late-anchor">Late-loading target</p>
+        </ModuleContract>
+      </MemoryRouter>,
+    )
+    await act(async () => {})
+    expect(scroll).toHaveBeenCalledTimes(1)
+  }
+
+  it('keeps watching an initially aligned target and re-settles after content arrives at 1200 ms', async () => {
+    await showAnchor()
+    act(() => vi.advanceTimersByTime(1200))
+    expect(scroll).toHaveBeenCalledTimes(1)
+    targetTop = 2000
+    act(() => vi.advanceTimersByTime(450))
+    expect(scroll).toHaveBeenCalledTimes(2)
+    expect(targetTop).toBe(0)
+  })
+
+  it.each(['wheel', 'touchstart', 'keydown', 'mousedown'])('does not re-scroll after the customer sends %s', async (event) => {
+    await showAnchor()
+    act(() => vi.advanceTimersByTime(1200))
+    fireEvent(window, new Event(event))
+    targetTop = 2000
+    act(() => vi.advanceTimersByTime(1000))
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(targetTop).toBe(2000)
+  })
+
+  it('allows at most three corrective scrolls after the initial deep-link scroll', async () => {
+    await showAnchor()
+    for (let corrections = 1; corrections <= 3; corrections++) {
+      targetTop = 2000
+      act(() => vi.advanceTimersByTime(450))
+      expect(scroll).toHaveBeenCalledTimes(1 + corrections)
+    }
+    targetTop = 2000
+    act(() => vi.advanceTimersByTime(1000))
+    expect(scroll).toHaveBeenCalledTimes(4)
+    expect(targetTop).toBe(2000)
+  })
+
+  it('stops observing after the existing forty-tick window', async () => {
+    await showAnchor()
+    act(() => vi.advanceTimersByTime(41 * 150))
+    targetTop = 2000
+    act(() => vi.advanceTimersByTime(1000))
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('clears the settling interval when the area is unmounted', async () => {
+    await showAnchor()
+    expect(vi.getTimerCount()).toBe(1)
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(scroll).toHaveBeenCalledTimes(1)
   })
 })

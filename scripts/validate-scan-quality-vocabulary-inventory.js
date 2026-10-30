@@ -445,7 +445,11 @@ const EXPECTED = Object.freeze({
     // reads scan.scan_quality and report?.scan_quality once each to record the
     // run's quality beside its findings. Keyed two-tree diff (with vs without the
     // file) adds exactly those two reads in one new file; nothing removed.
-    governance: { occurrence_count: 143, source_file_count: 46, fingerprint: "f92389874768c95297847b2d6b93f4148f3da3e2bf92b9f6fa2ee40f5cecb0b0" },
+    // Email reporting R1 (#1038, 30 Oct): 143 -> 144, same 46 files. The M5.c
+    // primary-exception fixture reads report.scan_quality to assign status="partial".
+    // Removing that one member-access reproduces the preceding exact fingerprint;
+    // runtime reads, comparisons and all SQL inventories are unchanged.
+    governance: { occurrence_count: 144, source_file_count: 46, fingerprint: "4727634121faa02565559cd5234c2e68e0d8a6e62859de027ee0c270f99e5b88" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper

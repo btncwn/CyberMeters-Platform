@@ -306,7 +306,9 @@ export default function ModuleContract({ domainKey, workspaceId, workspaceName, 
         last = { top, height }
         if (still < 2) return
         const margin = parseFloat(window.getComputedStyle(el).scrollMarginTop) || 0
-        if (Math.abs(top - margin) <= 4 || rescrolls >= 3) { clearInterval(poll); return }
+        if (rescrolls >= 3) { clearInterval(poll); return }
+        // Alignment now does not rule out another shift within the bounded window.
+        if (Math.abs(top - margin) <= 4) return
         rescrolls += 1
         el.scrollIntoView({ block: 'start' })
         last = null

@@ -161,6 +161,7 @@ async function main() {
   const { SECURITY_CHECK_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "security-check-state-history.js")).href);
   const { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "business-risk.js")).href);
   const { CYBER_METRICS_SCORE_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "scoring.js")).href);
+  const { healthyMonitoringStates } = await import("./lib/monitoring-fixture.mjs");
   const { CE_QUESTION_SET_VERSION } = await import(pathToFileURL(srcPath("lib", "cyber-essentials.js")).href);
   const { remediationRegistryFingerprint, listRegisteredFindingTypes, resolveRemediation } = await import(pathToFileURL(srcPath("engines", "remediation-registry.js")).href);
   // The whole worker: real fetch handler (route contract tests) + the purge engine.
@@ -344,6 +345,64 @@ async function main() {
   // 21 Oct 2026: an L0 limit states the actual reason, never the generic
   // "missing, degraded, provider-unavailable" sentence when no evidence failed.
   const GENERIC_L0 = "Decisive evidence was missing, degraded, provider-unavailable or not fully assessed in this snapshot.";
+  // Email provenance is also a grade input. The canonical supplementary signal
+  // intentionally caps the composite evidence grade, not the completed primary
+  // assessment verdict. A primary exception must remain an honest evidence gap.
+  const emailGradeCases = ["healthy", "supplementary-incomplete", "primary-exception"].map((variant) => {
+    const report = makeReport(`scan-email-grade-${variant}`, "dom1", "shared.example", {
+      findings: [],
+      modules: {
+        email_security: { dmarc_state: completeDmarc }, dns: {}, headers: {},
+        ssl: { https_available: true, https_probe_executed: true },
+        subdomains: { count: 3 }, admin_surface_detection: {}, cloud_storage_discovery: {},
+        certificate_intelligence: {}, identity_discovery: {},
+        saas_exposure: { observed_total: 2 }, third_party_assets: { count: 3 },
+        technology_detection: { technologies: ["a", "b", "c", "d", "e"] },
+      },
+    });
+    report.cyber_metrics_score = 95;
+    report.monitoring_states = healthyMonitoringStates(
+      variant === "healthy" ? {} : { email_protection: "evidence_incomplete" }
+    );
+    if (variant === "primary-exception") {
+      report.modules.email_security = { error: "Email module failed" };
+      report.scan_quality.status = "partial";
+    }
+    const snapshot = composeSnapshot({
+      snapshotId: `snap-email-grade-${variant}`, workspaceId: "ws1", domainId: "dom1",
+      scanId: report.scan_id, domain: report.domain, report,
+      cyberEssentials: null, ceReadiness: null, caseRows: [], questionSetVersions: [],
+      builtAt: "2026-10-30T11:00:00.000Z",
+    });
+    return { variant, report, snapshot, email: snapshot.domains.find((d) => d.domain_key === "email_protection") };
+  });
+  const [healthyEmailGrade, supplementaryEmailGrade, failedEmailGrade] = emailGradeCases;
+  ok("healthy canonical Email evidence remains L1 with complete primary assessment",
+     healthyEmailGrade.email.state === "assessed_healthy" && healthyEmailGrade.email.coverage === "complete" &&
+     healthyEmailGrade.email.monitoring_state === "monitoring_healthy" && healthyEmailGrade.email.evidence_grade.grade === "L1" &&
+     !healthyEmailGrade.email.evidence_grade.limits.includes(GENERIC_L0));
+  ok("supplementary-incomplete canonical Email signal intentionally caps the domain grade at L0",
+     supplementaryEmailGrade.email.monitoring_state === "evidence_incomplete" &&
+     supplementaryEmailGrade.email.monitoring_signals.email_protection.state === "evidence_incomplete" &&
+     supplementaryEmailGrade.email.evidence_grade.grade === "L0" &&
+     supplementaryEmailGrade.email.evidence_grade.limits.includes(GENERIC_L0));
+  const domainVerdicts = (domains) => domains.map(({ domain_key, state, coverage }) => ({ domain_key, state, coverage }));
+  ok("supplementary Email grade cap leaves every domain verdict and coverage unchanged",
+     JSON.stringify(domainVerdicts(supplementaryEmailGrade.snapshot.domains)) ===
+     JSON.stringify(domainVerdicts(healthyEmailGrade.snapshot.domains)));
+  ok("primary Email exception is L0 evidence-insufficient/degraded, with canonical incomplete provenance",
+     failedEmailGrade.email.state === "evidence_insufficient" && failedEmailGrade.email.coverage === "degraded" &&
+     failedEmailGrade.email.monitoring_state === "evidence_incomplete" &&
+     failedEmailGrade.email.evidence_grade.grade === "L0" && failedEmailGrade.email.evidence_grade.limits.includes(GENERIC_L0));
+  ok("primary Email exception invents no scan-budget or deadline cause in frozen customer copy",
+     /did not complete/.test(failedEmailGrade.email.state_reason) &&
+     !/budget|deadline|timeout|timed out/i.test(JSON.stringify([
+       failedEmailGrade.email.summary, failedEmailGrade.email.state_reason, failedEmailGrade.email.evidence_grade.limits,
+     ])));
+  ok("Email grade boundary preserves the numeric score and the canonical eight-domain resolver output",
+     emailGradeCases.every(({ report, snapshot }) => snapshot.overall.cyber_metrics_score === 95 &&
+       JSON.stringify(domainVerdicts(snapshot.domains)) ===
+       JSON.stringify(domainVerdicts(resolveSecurityCheckDomainStates(report)))));
   ok("CE awaiting the questionnaire says so in its L0 limit, not a generic failure",
      ceDomain?.state !== "customer_input_required" || (
        ceDomain?.evidence_grade?.limits?.includes("The Cyber Essentials questionnaire has not been completed, so readiness is not assessed yet.") &&
@@ -1400,7 +1459,7 @@ async function main() {
       signedInScanning: scanAttempt([page("/account", "refused")]),
     });
     ok("signed-in report: the snapshot carries website_signed_in", composed.website_signed_in?.pages_checked === 1 && composed.website_signed_in?.anonymous_access_refused === true);
-    ok("signed-in report: the builder version moved with the new section", SNAPSHOT_BUILDER_VERSION === "2026-10-22.1" && composed.methodology.snapshot_builder_version === "2026-10-22.1");
+    ok("signed-in report: current builder version preserves the signed-in section", SNAPSHOT_BUILDER_VERSION === "2026-10-30.1" && composed.methodology.snapshot_builder_version === "2026-10-30.1");
 
     // The loader reads codes, counts and times from the real schema; tenant-scoped.
     const { loadSignedInScanningForSnapshot } = await import(pathToFileURL(srcPath("engines", "website-sign-in-profiles.js")).href);

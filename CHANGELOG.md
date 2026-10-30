@@ -7,6 +7,55 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 30 October 2026 — incomplete-email evidence presentation (release pending)
+
+An incomplete required check without a recorded cause now says that it did not
+complete, rather than asserting a scan-budget timeout. Recorded incomplete
+reasons remain visible. Frozen Email Protection monitoring provenance now
+retains the canonical email collection signal, including supplementary gaps.
+
+The existing snapshot evidence-grade ceiling consequently applies: otherwise
+completed primary email evidence with incomplete supplementary provenance is
+capped at L0 instead of L1. This changes the evidence-strength label, not the
+domain assessment, coverage or numeric score. A primary email exception remains
+evidence-insufficient/degraded. Existing immutable snapshots are not rewritten.
+
+Focused controls cover the neutral explanation, canonical provenance, positive
+and incomplete snapshot-grade boundaries, and the actual engine-to-snapshot,
+Executive and PDF path with a synthetic primary-producer exception. Independent
+review, required CI, manual deployment and genuine live acceptance are recorded
+separately; offline controls do not close the real-event or Founder launch gates.
+No migration, authentication, billing, DNS or verification-state change.
+
+The initial CI run caught three legacy assertion/anchor locations that still
+required the old scan-budget sentence. Align those with neutral non-completion
+and explicitly reject an unrecorded cause; retain the healthy controls, phase
+completion checks and exact mutation failure sets. No gate is skipped.
+
+The corrected CI then exposed a native OpenSSL 1.0.2u link failure with missing
+object-identifier symbols. Its pinned recursive Makefiles permit concurrent
+writes to one archive; the retained compiler tail does not identify the exact
+interleaving. Build the legacy library with one make job, matching the existing
+container build, while preserving requested parallelism for the modern library.
+Source checksums, configure options, native engines and handshake gates stay
+unchanged. Fresh build and exact-head CI are required before release.
+
+The new primary-exception snapshot fixture adds one governed scan-quality read.
+Reconcile only that test-inventory count/fingerprint (143 to 144 in the same
+46 files); runtime, SQL and semantic comparison inventories are unchanged.
+
+The existing cold-link browser test also exposed an early exit in area-anchor
+settling: an initially aligned target stopped being watched before late content
+could move it. Keep watching through the existing bounded window, preserving
+the three-correction limit, user-interaction cancellation and cleanup. The
+existing late-content browser expectation and timeout remain unchanged.
+
+The final runtime gate also exposed two certificate-fixture output digests that
+include the changed snapshot provenance. Restoring only the reviewed resolver
+and snapshot-builder files reproduces both previous digests exactly. Reconcile
+only those two expected outputs, retaining SAN evidence, non-presentation facts,
+all thirty fixtures and the existing exact mutation contracts.
+
 ## 28 October 2026 — #1033 manual paired release and bounded live acceptance
 
 Supersedes the release-pending status in the preparation entry below. Merged

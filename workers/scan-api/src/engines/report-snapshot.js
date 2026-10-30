@@ -74,7 +74,9 @@ export const SNAPSHOT_SCHEMA_VERSION = "1";
 // the frozen customer evidence-completeness record.
 // 2026-10-22.1 adds the website_signed_in section (signed-in scanning facts for this
 // scan; counts, codes and times only). Additive: older snapshots keep their bytes.
-export const SNAPSHOT_BUILDER_VERSION = "2026-10-22.1";
+// 2026-10-30.1 carries canonical Email monitoring provenance into domain grades:
+// incomplete supplementary evidence caps the composite at L0; primary verdicts stay unchanged.
+export const SNAPSHOT_BUILDER_VERSION = "2026-10-30.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 
 // Scan-finalize work that did not finish before THIS snapshot (P1 25 Oct 2026,

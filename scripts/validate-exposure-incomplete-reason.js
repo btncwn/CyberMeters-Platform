@@ -121,11 +121,13 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
   ok('X1_CARD_NEVER_HEALTHY', ws?.state !== 'assessed_healthy');
   ok('X1_CARD_NO_FALSE_BUDGET_SENTENCE', !BUDGET_SENTENCE.test(ws?.summary || ''), `summary=${ws?.summary}`);
   ok('X1_CARD_STATES_CONCLUSIVE_COUNT', /1 of 381 external content checks/.test(ws?.summary || ''), `summary=${ws?.summary}`);
-  // Stored-report shape: a report whose exposure module carries NO reason must
-  // still fall back to the budget sentence — that fallback is correct for a job
-  // the scan cut off, and this pins that the two cases remain distinguishable.
+  // Stored-report shape: NO reason establishes non-completion, not its cause.
+  // Keep that separate from a finished but inconclusive observation without
+  // inferring a budget timeout from an absent reason.
   const cutOff = card({ ...module, job_state: 'pending', phase_state: 'pending', incomplete_reason: null });
-  ok('X1_CONTROL_NO_REASON_STILL_READS_NOT_FINISHED', BUDGET_SENTENCE.test(cutOff?.summary || ''));
+  ok('X1_CONTROL_NO_REASON_STILL_READS_NOT_FINISHED',
+    /did not complete.*not assessed/.test(cutOff?.summary || '') &&
+    !BUDGET_SENTENCE.test(cutOff?.summary || ''));
 }
 
 // ── X2: reason table ────────────────────────────────────────────────────────
@@ -312,8 +314,12 @@ const BUDGET_SENTENCE = /did not complete within the scan budget/;
   ok('X5_MUTATION_TLS_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/security-check-domains.js',
     'report.modules.tls_assessment?.phase_state === "complete"',
     'report.modules.tls_assessment?.phase_state === "budget_exhausted"',
-    m => /did not complete within the scan budget/.test(m.resolveSecurityCheckDomainStates(report)
-      .find(d => d.domain_key === 'certificates_trust')?.summary || '')));
+    m => {
+      const mutated = m.resolveSecurityCheckDomainStates(report).find(d => d.domain_key === 'certificates_trust');
+      return mutated?.state === 'evidence_insufficient' &&
+        /did not complete.*not assessed/.test(mutated?.summary || '') &&
+        !BUDGET_SENTENCE.test(mutated?.summary || '');
+    }));
   ok('X5_MUTATION_HTTP_PHASE_GATE_CAUGHT', await mutant('../workers/scan-api/src/engines/security-check-domains.js',
     'report.modules.external_exposure?.phase_state === "complete"',
     'report.modules.external_exposure?.phase_state === "budget_exhausted"',
