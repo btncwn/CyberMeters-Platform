@@ -50,6 +50,12 @@ could move it. Keep watching through the existing bounded window, preserving
 the three-correction limit, user-interaction cancellation and cleanup. The
 existing late-content browser expectation and timeout remain unchanged.
 
+The final runtime gate also exposed two certificate-fixture output digests that
+include the changed snapshot provenance. Restoring only the reviewed resolver
+and snapshot-builder files reproduces both previous digests exactly. Reconcile
+only those two expected outputs, retaining SAN evidence, non-presentation facts,
+all thirty fixtures and the existing exact mutation contracts.
+
 ## 28 October 2026 — #1033 manual paired release and bounded live acceptance
 
 Supersedes the release-pending status in the preparation entry below. Merged
