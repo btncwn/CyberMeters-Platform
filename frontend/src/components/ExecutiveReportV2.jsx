@@ -5,8 +5,7 @@ import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
 import SignedInScanningSummary from './SignedInScanningSummary'
 import { bandMeta } from '../lib/score-presentation'
-import { scoreHeadline, SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
-import { businessRiskNarrative } from '../lib/businessRiskNarrative'
+import { businessRiskNarrative, scoreHeadline, SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
 import {
   HOW_TO_READ_REPORT,
   customerEvidenceText,

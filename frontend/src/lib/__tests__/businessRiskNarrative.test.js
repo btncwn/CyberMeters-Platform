@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { businessRiskNarrative, coverageIsIncomplete } from '../businessRiskNarrative'
+import { businessRiskNarrative, coverageIsIncomplete } from '../scoreHonesty'
 
 const LOW = 'Business risk is low. No major gaps detected across email security, website trust, operational continuity, attack surface, or brand protection.'
 const HIGH = 'Business risk is high. The top risks are: Domain can be spoofed and Website certificate expired.'
