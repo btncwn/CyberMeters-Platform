@@ -160,7 +160,7 @@ const EXPECTED = Object.freeze({
     // `scanQuality?.status !== "complete"` (fail closed). Two-tree --dump-current
     // diff vs f8a694cf, ignoring line/offset/cluster positions: that one addition,
     // none removed; partial_only fingerprint unchanged.
-    fingerprint: "07f6587c3be6890e837fcf1ce5e9bd6a9555c14187e881a4992b7b46278cfb0a",
+    fingerprint: "98682310475f938920d66e1484576758d31e91dddbb398ab97839ea01e17fc70",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
