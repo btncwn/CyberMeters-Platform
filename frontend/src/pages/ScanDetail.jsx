@@ -17,6 +17,7 @@ import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import InternalIdCopyButton from '../components/InternalIdCopyButton'
 import ExecutiveReportV2, { ActionList as CanonicalActionList } from '../components/ExecutiveReportV2'
+import { businessRiskNarrative } from '../lib/businessRiskNarrative'
 import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import SecurityCheckDomains from '../components/SecurityCheckDomains'
 import LiveTlsEvidence, { TlsAssessmentEvidence } from '../components/LiveTlsEvidence'
@@ -1073,7 +1074,7 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
 
 // ── Business Risk Card ───────────────────────────────────────────────────────
 
-function BusinessRiskCard({ businessRisk }) {
+function BusinessRiskCard({ businessRisk, coverageReport }) {
   if (!businessRisk) return null
   const { score, band, summary, categories = {}, top_business_risks: topRisks = [] } = businessRisk
 
@@ -1117,7 +1118,7 @@ function BusinessRiskCard({ businessRisk }) {
           </div>
         </div>
         {summary && (
-          <p className="text-xs text-gray-500 mt-2 leading-relaxed line-clamp-3">{summary}</p>
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed">{businessRiskNarrative(summary, coverageReport)}</p>
         )}
         <p className="text-xs text-gray-400 mt-2 leading-relaxed">
           Business Risk estimates likely business impact. The Cyber Metrics Score above measures technical external posture.
@@ -1936,7 +1937,7 @@ export default function ScanDetail() {
 
               {/* Business Risk Score */}
               {report?.business_risk && (
-                <BusinessRiskCard businessRisk={report.business_risk} />
+                <BusinessRiskCard businessRisk={report.business_risk} coverageReport={reportV2} />
               )}
 
             </div>

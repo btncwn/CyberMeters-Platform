@@ -49,3 +49,14 @@ it('without a canonical report, a running placeholder never shows its zero as a 
   await screen.findAllByText('Cyber Metrics Score')
   expect(document.body.textContent).not.toMatch(/(^|\D)0\/100/)
 })
+
+it('the Business Risk card bounds "no major gaps" by the canonical report\'s coverage', async () => {
+  const summary = 'Business risk is low. No major gaps detected across email security, website trust, operational continuity, attack surface, or brand protection.'
+  api.getScanReport.mockResolvedValue({ ...placeholder, status: 'completed', business_risk: { score: 100, band: 'Low Business Risk', summary, categories: {} } })
+  api.getExecutiveReportV2.mockResolvedValue({ ...v2,
+    evidence_completeness: { scan_quality: 'complete', assessment_quality: 'complete', monitoring_state: 'monitoring_healthy', modules_skipped: [] },
+    executive_summary: { not_fully_assessed: [{ domain_key: 'identity_exposure' }] } })
+  render(<MemoryRouter initialEntries={[`/scans/${ID}`]}><Routes><Route path="/scans/:id" element={<ScanDetail />} /></Routes></MemoryRouter>)
+  expect(await screen.findByText(/No major gaps were identified in the evidence available/)).toHaveTextContent('Coverage is incomplete')
+  expect(document.body.textContent).not.toContain('No major gaps detected')
+})
