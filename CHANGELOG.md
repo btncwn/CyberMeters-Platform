@@ -32,6 +32,18 @@ required the old scan-budget sentence. Align those with neutral non-completion
 and explicitly reject an unrecorded cause; retain the healthy controls, phase
 completion checks and exact mutation failure sets. No gate is skipped.
 
+The corrected CI then exposed a native OpenSSL 1.0.2u link failure with missing
+object-identifier symbols. Its pinned recursive Makefiles permit concurrent
+writes to one archive; the retained compiler tail does not identify the exact
+interleaving. Build the legacy library with one make job, matching the existing
+container build, while preserving requested parallelism for the modern library.
+Source checksums, configure options, native engines and handshake gates stay
+unchanged. Fresh build and exact-head CI are required before release.
+
+The new primary-exception snapshot fixture adds one governed scan-quality read.
+Reconcile only that test-inventory count/fingerprint (143 to 144 in the same
+46 files); runtime, SQL and semantic comparison inventories are unchanged.
+
 ## 28 October 2026 — #1033 manual paired release and bounded live acceptance
 
 Supersedes the release-pending status in the preparation entry below. Merged
