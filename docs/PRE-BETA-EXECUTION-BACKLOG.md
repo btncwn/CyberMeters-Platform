@@ -16,6 +16,35 @@ Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
 Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
 re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
+## Dated status reconciliation — 30 October 2026
+
+This dated status overlay preserves the canonical order, item contracts, older
+status history and Founder-only gates below. It adds no queue or governance
+rule. Release facts are recorded in `CHANGELOG.md`; MERGED or DEPLOYED alone
+never means LIVE-ACCEPTED. The later #1038 release receipt supersedes only its
+preparation entry's release-pending label.
+
+| Item | Engineering/release record | Acceptance boundary still in force |
+| --- | --- | --- |
+| [#1033](https://github.com/btncwn/CyberMeters-Platform/pull/1033), receipt [#1035](https://github.com/btncwn/CyberMeters-Platform/pull/1035) | Manually released; one company-controlled signed-in inconclusive headers allowance-return path accepted in scope | Other refusal, race, anonymous and deferred-email branches are not thereby live-accepted |
+| [#1038](https://github.com/btncwn/CyberMeters-Platform/pull/1038) | Manually released from product merge `90796ad4`; health, source-version and auth-gate smoke passed; reviewed head `80d72a39`; exact public merge/CI/source-version receipt in `CHANGELOG.md` | Presentation, grade-provenance, build-order and bounded anchor-settling corrections do not close real-event gates |
+| [#1019](https://github.com/btncwn/CyberMeters-Platform/pull/1019) — resolved-case email | Deployed correction; actual new resolved-case email event remains OPEN | Require the real lifecycle transition and delivered customer email; an offline rendering, historical event or route check is insufficient |
+| [#1026](https://github.com/btncwn/CyberMeters-Platform/pull/1026) — TLS-RPT reporting | Positive persisted/backend evidence and local rendering are supporting evidence | Full current customer UI and report-download acceptance remains OPEN |
+| [#1028](https://github.com/btncwn/CyberMeters-Platform/pull/1028) — primary-email failure | Controlled primary-producer exception tooling prepared and checked offline | Actual normally admitted company-QA failure event and its persisted/report evidence remain OPEN |
+| Cyber Essentials lifecycle | Preparation and existing accepted journeys remain preserved | A real control-change verification/closure and subsequent reopening remain OPEN |
+| Historical acceptance interlocks | Existing implementations and dated scoped acceptances remain preserved | First-TLS live acceptance, readable SPF CIDR evidence after a real authorisation change, and failed/partial public-check acceptance remain OPEN; a no-address DNS preflight is not a failed HTTP probe |
+| Natural canary email | Existing canary implementation is preserved | Natural scheduled delivery remains OPEN; a manual or synthetic delivery does not substitute |
+| Item 19 / source-fidelity aggregate | Current scope distinguishes 12 retained sources from 2 excluded sources | This is not 14 PASS. Aggregate source/freshness acceptance remains OPEN. The historical 43-producer count is not a current remeasurement |
+| Final source, security and customer acceptances (Group C) | Assemble existing proof and name each missing customer-flow receipt | OPEN and Founder-gated; no entitled-MSP demonstration, customer activation or engineering seal is implied |
+
+Agent-owned implementation and preparation continue within their existing
+scope; Founder-only prerequisites remain last. Production/customer `HOLD`
+remains in force. Nothing here starts a clean-observation period, changes the
+last-production-deploy deadline or three-full-clean-day requirement, approves
+repository privacy or CI-policy changes, or authorises advertising/public-beta
+claims. Existing scoped acceptances are not revoked, and no aggregate zero-open
+P0/P1/P2 or engineering-complete declaration is made.
+
 ## Dated status reconciliation — 26 October 2026
 
 This is a status overlay, not a new feature queue, constitution or order. Every

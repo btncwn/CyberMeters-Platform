@@ -7,6 +7,44 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 30 October 2026 — #1038 manual release receipt and bounded verification
+
+Supersedes the release-pending status of the preparation entry below.
+[PR #1038](https://github.com/btncwn/CyberMeters-Platform/pull/1038) merged as
+`90796ad425306e01f031a83818b5587988dbbbe8` from reviewed head
+[`80d72a39`](https://github.com/btncwn/CyberMeters-Platform/commit/80d72a395f63d079260243e120877772fe6b0dc7).
+The exact-head [required CI](https://github.com/btncwn/CyberMeters-Platform/actions/runs/41065525339) passed, and
+[main CI](https://github.com/btncwn/CyberMeters-Platform/actions/runs/41083804247) recorded `IN_PROGRESS at the recorded post-release observation; not credited as passed` for the merged source.
+The tested-tree/merge-tree relationship is `identical full tree (14beed4003664d2e4f5f3d720f568931f09966f6)`.
+
+Manual release scope: scan-api and the routed email Worker from the same merged source, followed by Pages source-version verification. Public source/version evidence
+identified `2026.10.30-90796ad42530.c1c8e3c3c4c0` at `https://api.cybermeters.com/health`;
+API health and readiness returned 200, the unauthenticated workspace route retained its 401 gate, and the app version endpoint identified the same merged source. Deployment and rollback identities and raw
+operational proof remain in the private operations record. This documentation
+receipt does not create another Worker release.
+
+Reasonless incomplete required checks now report non-completion without an
+invented scan-budget cause. Frozen Email Protection monitoring provenance uses
+the canonical collection signal. The existing grade ceiling intentionally caps
+completed primary evidence with incomplete supplementary provenance at L0;
+domain verdicts, coverage and the numeric score retain their existing rules.
+The snapshot builder is stamped `2026-10-30.1`; existing immutable snapshots
+are not rewritten. The same release serialises the pinned legacy TLS archive
+build and retains bounded deep-link settling for late content. It introduces
+no migration or new authentication, billing, DNS or verification-state rule.
+
+The exact candidate passed all 17 checks, including 147 browser tests. Current deployment metadata and the generated 119-file email source manifest match the explicit release stamp. This is release/source/integrator-smoke evidence only: no new controlled primary exception, case transition, customer email delivery or report-download event was performed by the release. Email source binding uses the exact manifest, explicit stamp and version metadata; no public email-health or provider-configuration attestation is claimed.
+
+The real-event acceptance gates remain separate and OPEN: a new resolved-case
+email delivery; full TLS-RPT customer UI and report-download acceptance;
+a controlled primary-email failure; Cyber Essentials verify/reopen; historical
+first-TLS, readable CIDR-change and failed/partial public-check acceptance; and
+natural canary-email delivery. Existing bounded #1033 allowance-return
+acceptance is preserved. Offline controls, successful CI and release/version
+checks do not establish these real events or the final source/security/customer
+acceptances. No engineering seal, clean-observation start, repository privacy
+change, entitled-MSP demonstration, advertising claim or HOLD release is recorded.
+
 ## 30 October 2026 — incomplete-email evidence presentation (release pending)
 
 An incomplete required check without a recorded cause now says that it did not
