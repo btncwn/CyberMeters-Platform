@@ -44,6 +44,12 @@ The new primary-exception snapshot fixture adds one governed scan-quality read.
 Reconcile only that test-inventory count/fingerprint (143 to 144 in the same
 46 files); runtime, SQL and semantic comparison inventories are unchanged.
 
+The existing cold-link browser test also exposed an early exit in area-anchor
+settling: an initially aligned target stopped being watched before late content
+could move it. Keep watching through the existing bounded window, preserving
+the three-correction limit, user-interaction cancellation and cleanup. The
+existing late-content browser expectation and timeout remain unchanged.
+
 ## 28 October 2026 — #1033 manual paired release and bounded live acceptance
 
 Supersedes the release-pending status in the preparation entry below. Merged
