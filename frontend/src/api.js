@@ -55,29 +55,47 @@ export function registerUnauthorizedHandler(fn) {
 }
 
 /**
+ * Thrown when the server could not say whether the session is valid: the API
+ * was unreachable, or answered with anything other than a user or a 401.
+ */
+export class SessionUnavailableError extends Error {
+  constructor() {
+    super('The session could not be checked.')
+    this.name = 'SessionUnavailableError'
+  }
+}
+
+/**
  * Validate the current session token against /api/auth/me.
- * Returns the user object on success, or null if the token is missing/expired.
+ * Returns the user object on success, or null if the token is missing or the
+ * server refused it (401). Throws SessionUnavailableError when neither is known,
+ * so a passing outage is never mistaken for a sign-out.
  *
  * Deliberately bypasses the 401 auto-logout handler so AuthContext can
  * manage the React state transition itself (soft React Router redirect
  * instead of a hard window.location redirect, preserving the intended URL).
  * @returns {Promise<User | null>}
+ * @throws {SessionUnavailableError}
  */
 export async function validateSession() {
   const token = localStorage.getItem(TOKEN_KEY)
   if (!token) return null
+  let res
+  let user
   try {
-    const res = await fetch(`${BASE}/auth/me`, {
+    res = await fetch(`${BASE}/auth/me`, {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
     })
-    if (!res.ok) return null
-    return res.json()
+    if (res.status === 401) return null
+    if (res.ok) user = await res.json()
   } catch {
-    return null
+    throw new SessionUnavailableError()
   }
+  if (!user?.id) throw new SessionUnavailableError()
+  return user
 }
 
 /**
