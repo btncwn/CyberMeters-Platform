@@ -1,4 +1,5 @@
 import { formatDate } from '../utils/dates'
+import { mtaStsWords, tlsRptWords } from '../../../shared/email/mail-transport-words.js'
 
 // Mail transport encryption: what the private collector observed when it
 // connected to each MX host (STARTTLS offered, the TLS handshake and the
@@ -14,7 +15,6 @@ const NOT_TESTED = {
 
 export function MailTransportCard({ transport, mtaSts, tlsRpt, embedded = false }) {
   const hosts = Array.isArray(transport?.hosts) ? transport.hosts : []
-  const enforce = mtaSts?.policy_found === true && mtaSts?.mode === 'enforce'
   return <section className={embedded ? 'px-6 py-4' : 'card p-5'} data-testid="mail-transport-encryption">
     {!embedded && <h3 className="text-sm font-semibold text-gray-900">Mail transport encryption</h3>}
     <p className="text-xs text-gray-600 mt-2">One address per mail server is tested. Other addresses are not assessed here. Offering STARTTLS does not prove that all mail delivery is encrypted. Mandatory encrypted delivery requires an active MTA-STS enforce policy.</p>
@@ -37,8 +37,8 @@ export function MailTransportCard({ transport, mtaSts, tlsRpt, embedded = false 
         </li>)}
       </ul>}
     <div className="mt-4 border-t border-gray-100 pt-3 space-y-1 text-xs text-gray-600">
-      <p>MTA-STS: {enforce ? 'enforce policy observed; DNS activation not separately checked' : mtaSts?.policy_found ? `${mtaSts.mode || 'policy'} policy observed` : 'enforcement not confirmed'}.</p>
-      <p>TLS-RPT: {tlsRpt?.record_found ? 'reporting record observed' : 'reporting record not confirmed'}.</p>
+      <p>MTA-STS: {mtaStsWords(mtaSts)}.</p>
+      <p>TLS-RPT: {tlsRptWords(tlsRpt)}.</p>
     </div>
   </section>
 }

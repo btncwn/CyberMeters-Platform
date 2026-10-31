@@ -23,6 +23,7 @@ import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-pr
 // PDF and every other surface state the workspace scope with one voice.
 import { RELATED_CHANGES_WORKSPACE_SCOPE_NOTE } from "./related-changes.js";
 import { authorisedActiveCheckRows } from "../../../../shared/tls/special-check-words.js";
+import { mtaStsWords, tlsRptWords } from "../../../../shared/email/mail-transport-words.js";
 
 // Typographic → ASCII transliteration (trust-closure episode, July 2026).
 // The stream encoder is ASCII-only, and the old behaviour replaced EVERY
@@ -1155,6 +1156,14 @@ const RELATED_CHANGE_LABELS = {
 // the scan ran any. Per host:port, the check, its result in the same words as
 // the scan page (shared/tls/special-check-words.js), and when it was observed.
 // No raw engine output and no vector detail.
+// Read from the scan's stored report, as the Technical Details tab reads it. A
+// report without it says so rather than leaving the two records unmentioned.
+function sectionMailTransportRecords(w, modules) {
+  w.heading("Mail transport records");
+  w.proseKeep(`MTA-STS: ${mtaStsWords(modules?.email_security?.mta_sts_detail)}.`, { size: 9 });
+  w.proseKeep(`TLS-RPT: ${tlsRptWords(modules?.email_security?.tls_rpt_detail)}.`, { size: 9 });
+}
+
 function sectionAuthorisedActiveChecks(w, rows) {
   if (!rows.length) return;
   w.heading("Authorised active checks");
@@ -1608,6 +1617,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
     ["attack", "6. Attack-surface evidence & lifecycle"],
     ...(dmarcPresentation ? [["dmarc", "7. Email policy evidence"]] : []),
     ["certificates", `${dmarcPresentation ? "8" : "7"}. Certificate evidence & trust`],
+    ["mailTransport", "Mail transport records"],
     ...(activeChecks.length ? [["activeChecks", "Authorised active checks"]] : []),
     ...(relatedChanges?.items?.length ? [["changes", "Workspace-related changes"]] : []),
     ["methodology", "Scope, methodology & limitations"],
@@ -1651,6 +1661,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
     section("attack", () => { w.heading("Technical Evidence"); sectionAttackSurfaceAssurance(w, snap); }, true);
     if (dmarcPresentation) section("dmarc", () => sectionDmarcPolicy(w, dmarcPresentation));
     section("certificates", () => sectionCertificateAssurance(w, snap));
+    section("mailTransport", () => sectionMailTransportRecords(w, read.customerModules));
     if (activeChecks.length) section("activeChecks", () => sectionAuthorisedActiveChecks(w, activeChecks));
     if (relatedChanges?.items?.length) section("changes", () => sectionRelatedChanges(w, relatedChanges, { reportSubjectDomain: s.domain || scan?.domain || null }));
     section("methodology", () => sectionMethodology(w, snap));

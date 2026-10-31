@@ -725,7 +725,10 @@ const parity = states.map(parityOutputs);
 // builder stamp (2026-10-22.1 -> 2026-10-30.1); its technical PDF changes only that
 // version line. SAN assessments/evidence, non-presentation facts, workspace PDF
 // and scorecard remain unchanged. No mutation expectation is changed.
-const GOLDEN_F13 = "c9d2c2e141a0ad78bfb96e5dc3ca73a6232fe548131aad7cd8a48380b28f6127";
+// Mail transport records (31 Oct 2026): the technical PDF gains one section stating
+// MTA-STS and TLS-RPT, so only F13 moves. With ONLY pdf.js reverted the previous
+// hash (c9d2c2e1…) reproduces across all five SAN states; F14 is unchanged.
+const GOLDEN_F13 = "87d7c2e9ca52b1d8132b609a76d536bcf31e1d9acf372b9756b5a4221900982b";
 const GOLDEN_F14 = "70589c759fedc06cd3991e8f717e29f51568197124f6c907b0299206f458d3d0";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
