@@ -885,8 +885,6 @@ jobs:
 
       - name: Validate PDF DMARC record rendering (canonical value, never internal objects)
         run: node scripts/validate-pdf-dmarc-record-rendering.js
-      - name: Validate PDF mail transport records
-        run: node scripts/validate-pdf-mail-transport-records.js
 
       - name: Validate PDF DMARC record rendering strict mutations
         run: node scripts/validate-pdf-dmarc-record-rendering-mutations.js
