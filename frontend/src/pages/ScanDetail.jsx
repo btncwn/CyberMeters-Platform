@@ -1073,94 +1073,32 @@ function ChangesPanel({ changes, assessment = null, scanQuality = null }) {
 
 // ── Business Risk Card ───────────────────────────────────────────────────────
 
-function BusinessRiskCard({ businessRisk, coverageReport }) {
-  if (!businessRisk) return null
-  const { score, band, summary, categories = {}, top_business_risks: topRisks = [] } = businessRisk
-
-  const bandColor =
-    score >= 90 ? 'text-brand-900 bg-brand-200 border-brand-200' :
-    score >= 70 ? 'text-blue-700   bg-blue-50   border-blue-200'   :
-    score >= 40 ? 'text-brand-700  bg-transparent  border-[1.5px] border-brand-700'  :
-                  'text-red-700    bg-red-50    border-red-200'
-
-  const scoreColor =
-    score >= 90 ? 'text-brand-700' :
-    score >= 70 ? 'text-blue-600'   :
-    score >= 40 ? 'text-brand-700'  :
-                  'text-red-700'
-
-  const CAT_LABELS = {
-    email_trust:             'Email Trust',
-    website_trust:           'Website Trust',
-    operational_continuity:  'Continuity',
-    attack_surface_exposure: 'Attack Surface',
-    brand_reputation_risk:   'Brand Risk',
-  }
-
-  const catEntries = Object.entries(CAT_LABELS).map(([key, label]) => ({
-    key, label, score: categories[key]?.score ?? null,
-  }))
+function BusinessRiskCard({ canonicalReport }) {
+  const indicator = canonicalReport?.business_risk_indicator ?? null
+  // One-score rule: the indicator is the canonical band + explanation. The raw
+  // report's number and category scores are internal metrics, never shown here,
+  // and never a fallback when the canonical indicator is absent or provisional.
+  const band = indicator?.provisional === true ? null : (indicator?.band ?? null)
+  const explanation = band
+    ? businessRiskNarrative(indicator.explanation, canonicalReport)
+    : (indicator?.explanation || 'No Business Risk Indicator is available for this scan, because the assessment could not be read or was not authoritative.')
 
   return (
     <div className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-        <h3 className="text-sm font-bold text-gray-900">Business Risk Score</h3>
+        <h3 className="text-sm font-bold text-gray-900">Business Risk Indicator</h3>
       </div>
-
-      {/* Score badge */}
-      <div className="px-6 pt-4 pb-3">
-        <div className={`inline-flex items-center gap-3 rounded-xl border px-4 py-3 w-full ${bandColor}`}>
-          <span className={`text-3xl font-black leading-none ${scoreColor}`}>{score}</span>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-widest opacity-60 leading-tight">/ 100</p>
-            <p className="text-xs font-semibold leading-tight mt-0.5">{band}</p>
-          </div>
-        </div>
-        {summary && (
-          <p className="text-xs text-gray-500 mt-2 leading-relaxed">{businessRiskNarrative(summary, coverageReport)}</p>
+      <div className="px-6 pt-4 pb-4">
+        {band
+          ? <span className="text-xs font-bold px-3 py-1 rounded-full border bg-gray-100 text-gray-500 border-gray-200">{String(band).toUpperCase()}</span>
+          : <span className="text-xs text-gray-400">Not available</span>}
+        {explanation && (
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed">{customerEvidenceText(explanation)}</p>
         )}
         <p className="text-xs text-gray-400 mt-2 leading-relaxed">
           Business Risk estimates likely business impact. The Cyber Metrics Score above measures technical external posture.
         </p>
       </div>
-
-      {/* Category mini-scores */}
-      <div className="px-6 pb-3 space-y-1.5">
-        {catEntries.map(({ key, label, score: catScore }) => {
-          if (catScore === null) return null
-          const pct = Math.max(0, Math.min(100, catScore))
-          const bar = catScore >= 80 ? 'bg-brand-700' : catScore >= 60 ? 'bg-blue-500' : catScore >= 40 ? 'bg-brand-700' : 'bg-red-500'
-          const txt = catScore >= 80 ? 'text-brand-700' : catScore >= 60 ? 'text-blue-700' : catScore >= 40 ? 'text-brand-700' : 'text-red-700'
-          return (
-            <div key={key}>
-              <div className="flex justify-between items-center mb-0.5">
-                <span className="text-xs text-gray-500">{label}</span>
-                <span className={`text-xs font-bold ${txt}`}>{catScore}</span>
-              </div>
-              <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
-                <div className={`h-full ${bar} transition-all`} style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Top 3 risks */}
-      {topRisks.length > 0 && (
-        <div className="border-t border-gray-100 px-6 py-3 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Top Risks</p>
-          {topRisks.slice(0, 3).map((r, i) => {
-            const sev = r.severity ?? 'medium'
-            const dot = sev === 'critical' ? 'bg-red-500' : sev === 'high' ? 'bg-red-500' : 'bg-brand-700'
-            return (
-              <div key={i} className="flex items-start gap-2">
-                <div className={`w-1.5 h-1.5 rounded-full ${dot} shrink-0 mt-1.5`} />
-                <p className="text-xs text-gray-600 leading-snug">{r.title ?? r.category ?? ''}</p>
-              </div>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }
@@ -1934,9 +1872,9 @@ export default function ScanDetail() {
                 </div>
               </div>
 
-              {/* Business Risk Score */}
-              {report?.business_risk && (
-                <BusinessRiskCard businessRisk={report.business_risk} coverageReport={reportV2} />
+              {/* Business Risk Indicator */}
+              {(reportV2?.business_risk_indicator || report?.business_risk) && (
+                <BusinessRiskCard canonicalReport={reportV2} />
               )}
 
             </div>
