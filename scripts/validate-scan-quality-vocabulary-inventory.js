@@ -100,7 +100,13 @@ const EXPECTED = Object.freeze({
     // `latestScan?.scan_quality !== 'complete'` (backend-recorded quality,
     // presentation only). Two-tree semantic diff against origin/main: that one
     // addition; none removed.
-    comparison_occurrences: 73,
+    // BUSINESS-RISK NARRATIVE SUCCESSION (30 Oct 2026): 73 -> 75, files unchanged.
+    // scoreHonesty.js coverageIsIncomplete adds `scan_quality !== 'complete'` and
+    // `assessment_quality !== 'complete'`, the same frozen coverage facts the
+    // technical PDF reads, so the scan page bounds the "no major gaps" sentence the
+    // same way (presentation only). Direct reads 147 -> 151 for the same two
+    // conditions. partial_only fingerprint unchanged; no gate removed or reclassified.
+    comparison_occurrences: 75,
     source_file_count: 30,
     // SUCCESSOR-3: re-measured on the integrated tree (D1 + the #416 surface work).
     // Counts land at 48/22 exactly as the D1 succession above predicted.
@@ -154,7 +160,7 @@ const EXPECTED = Object.freeze({
     // `scanQuality?.status !== "complete"` (fail closed). Two-tree --dump-current
     // diff vs f8a694cf, ignoring line/offset/cluster positions: that one addition,
     // none removed; partial_only fingerprint unchanged.
-    fingerprint: "07f6587c3be6890e837fcf1ce5e9bd6a9555c14187e881a4992b7b46278cfb0a",
+    fingerprint: "98682310475f938920d66e1484576758d31e91dddbb398ab97839ea01e17fc70",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
   sql: {
@@ -395,7 +401,7 @@ const EXPECTED = Object.freeze({
     // destructured `scanQuality = null` parameter of assessDnsRecordRemovalVerification
     // (asm-cases.js), read by its strict complete check above. Two-tree diff vs
     // f8a694cf: this read only; every other read differs by position only.
-    runtime: { occurrence_count: 147, source_file_count: 49, fingerprint: "389dc5ccde68e34e13c4ac99ef684373673369a6556e67de9430110dc7946aff" },
+    runtime: { occurrence_count: 151, source_file_count: 49, fingerprint: "abd0e03d68e96add4dfe4b68e91d6f5393cb8d4e0d1654e6bbc43fe6ae195f1c" },
     // D1 SUCCESSION: 89 -> 91, additive from the new D1 validators.
     // SUCCESSOR-3: 91 -> 104 across 34 -> 36 files, additive from the PR #414/#416 validators.
     // P1.1 SUCCESSION: 104 -> 108 across 36 -> 37 files, additive from the P1.1 validators.

@@ -5,7 +5,7 @@ import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import CertificateAssuranceSummary from './CertificateAssuranceSummary'
 import SignedInScanningSummary from './SignedInScanningSummary'
 import { bandMeta } from '../lib/score-presentation'
-import { scoreHeadline, SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
+import { businessRiskNarrative, scoreHeadline, SCORE_PENDING_LABEL } from '../lib/scoreHonesty'
 import {
   HOW_TO_READ_REPORT,
   customerEvidenceText,
@@ -504,7 +504,7 @@ export default function ExecutiveReportV2({ report, hasTlsAssessment = false }) 
               {bri.band
                 ? <span className={`text-xs font-bold px-3 py-1 rounded-full border ${BRI_PILL[bri.band] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>{String(bri.band).toUpperCase()}</span>
                 : <span className="text-xs text-gray-400">Not available</span>}
-              {bri.explanation && <p className="text-xs text-gray-500 mt-2 leading-relaxed">{customerEvidenceText(bri.explanation)}</p>}
+              {bri.explanation && <p className="text-xs text-gray-500 mt-2 leading-relaxed">{customerEvidenceText(bri.band ? businessRiskNarrative(bri.explanation, report) : bri.explanation)}</p>}
             </div>
           </div>
         </div>

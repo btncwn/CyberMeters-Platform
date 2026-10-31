@@ -699,13 +699,17 @@ function sectionAssessmentScore(w, snap) {
     // An indicator: band + explanation. Never a second numeric score.
     w.text(`Business Risk Indicator: ${String(bri.band).toUpperCase()}`, { size: 11, bold: true });
     // Evidence-honest narrative. The band is a frozen indicator; the EXPLANATION must
-    // not imply a complete absence of gaps when the frozen evidence is incomplete. When
-    // coverage is incomplete we present an evidence-bounded statement instead of the
-    // frozen (unqualified) "no major gaps" summary — no scoring change, frozen facts only.
-    if (coverageIncomplete) {
+    // not imply a complete absence of gaps when the frozen evidence is incomplete. Only
+    // the frozen (unqualified) "no major gaps" sentence is replaced; an explanation that
+    // names risks is kept, so a high band never reads as "no major gaps". No scoring
+    // change, frozen facts only.
+    if (coverageIncomplete && /No major gaps detected/.test(bri.explanation || "")) {
       w.proseKeep("No major gaps were identified in the evidence available. Coverage is incomplete - some checks did not run or still need customer input - so this provisional indicator is not confirmation that no other material gaps exist.", { size: 9 });
-    } else if (bri.explanation) {
-      w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
+    } else {
+      if (bri.explanation) w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
+      if (coverageIncomplete) {
+        w.proseKeep("Coverage is incomplete - some checks did not run or still need customer input - so this provisional indicator is not confirmation that no other material gaps exist.", { size: 9 });
+      }
     }
   } else if (bri.provisional) {
     w.text("Business Risk Indicator: NOT AUTHORITATIVE", { size: 11, bold: true });

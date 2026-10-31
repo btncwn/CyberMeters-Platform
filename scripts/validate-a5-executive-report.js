@@ -120,6 +120,22 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
      !t.includes("No major gaps were identified in the evidence available"));
 }
 
+// ── A. A band that names risks never reads as "no major gaps" ─────────────────
+{
+  const named = "Business risk is high. The top risks are: Domain can be spoofed and Website certificate expired.";
+  const snap = mkSnap({ complete: true });
+  snap.overall.business_risk_indicator = { band: "High Business Risk", explanation: named };
+  snap.overall.not_fully_assessed = [{ domain_key: "identity_exposure" }];
+  const t = norm(pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(snap))).join(" "));
+  ok("A high band: technical PDF never says no major gaps", !t.includes("No major gaps"));
+  ok("A high band: technical PDF keeps the named risks", t.includes("Domain can be spoofed"));
+  ok("A high band: technical PDF still states incomplete coverage", t.includes("Coverage is incomplete"));
+  const low = mkSnap({ complete: true });
+  low.overall.not_fully_assessed = [{ domain_key: "identity_exposure" }];
+  const lowText = norm(pageTexts(buildScanReportPdf({ domain: "cybermeters.com" }, readOf(low))).join(" "));
+  ok("A low band: technical PDF bounds the no-gaps sentence", lowText.includes("No major gaps were identified in the evidence available") && !lowText.includes("No major gaps detected"));
+}
+
 // ── B. Concise executive scope; full limitations remain in technical PDF ──
 {
   const snap = mkSnap({ complete: false, pad: 6 });
