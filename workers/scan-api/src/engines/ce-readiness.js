@@ -713,7 +713,8 @@ export function presentCyberEssentialsQuestionnaireReadiness(readiness, answersM
 // are indicative, not a readiness verdict. So the snapshot carries both flags:
 //   • no answers            → { has_answers:false, complete:false } → customer_input_required;
 //   • partial answers       → { has_answers:true,  complete:false } → customer_input_required;
-//   • complete questionnaire → { has_answers:true,  complete:true, status } → readiness verdict.
+//   • complete questionnaire → { has_answers:true,  complete:true, status } → readiness verdict;
+//   • multi-domain workspace → status not_assessed plus containment, at any answer count.
 // The readiness (heavier) computation only runs once the questionnaire is complete.
 export async function getCyberEssentialsSnapshot(wsId, env) {
   let rows = [];
@@ -725,7 +726,6 @@ export async function getCyberEssentialsSnapshot(wsId, env) {
   } catch { rows = []; }
 
   const has_answers = rows.length > 0;
-  if (!has_answers) return { has_answers: false, complete: false, status: null, top_gaps: [] };
 
   const answersMap = {};
   for (const r of rows) {
@@ -733,6 +733,22 @@ export async function getCyberEssentialsSnapshot(wsId, env) {
     answersMap[r.control_key][r.question_key] = r.answer;
   }
   const complete = isCyberEssentialsQuestionnaireComplete(answersMap);
+
+  // A multi-domain workspace gets no readiness verdict however many questions are
+  // answered, so "complete the questionnaire to assess readiness" would be untrue.
+  if (!complete) {
+    const domainCount = await resolveCeWorkspaceDomainCount(env, wsId);
+    if (ceWorkspaceContainmentReason(domainCount) === CE_WORKSPACE_MULTI_DOMAIN_REASON) {
+      const contained = cyberEssentialsContainedResponse(wsId, CE_WORKSPACE_MULTI_DOMAIN_REASON);
+      return {
+        has_answers, complete, status: contained.status, top_gaps: [], assessable: false,
+        containment_reason: contained.containment_reason,
+        summary: contained.summary,
+        limitations: contained.limitations,
+      };
+    }
+  }
+  if (!has_answers) return { has_answers: false, complete: false, status: null, top_gaps: [] };
 
   let readiness = null;
   if (complete) {
