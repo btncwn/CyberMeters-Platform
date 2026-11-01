@@ -149,7 +149,7 @@ eq("the score methodology stamp records the change", scoring.CYBER_METRICS_SCORE
 // The one outside service a scan still asks besides DNS. A registry that does
 // not answer leaves the registration notes out and nothing more: no error, no
 // request URL in the result, and no effect on whether the scan completed.
-const { REGISTRATION_DATA_OPTIONAL, runWhoisModule } = await eng("whois-scan.js");
+const { REGISTRATION_DATA_OPTIONAL, runWhoisModule, whoisReportFindings } = await eng("whois-scan.js");
 const { buildScanQuality } = await eng("scan-engine.js");
 const { markDeadlineDeferred } = await eng("scan-budget.js");
 const realFetch = globalThis.fetch;
@@ -178,6 +178,73 @@ ok("an unanswered or deferred registry never makes the scan incomplete",
 const storedLegacy = buildScanQuality({ ...coreModules, whois_intelligence: { error: "All RDAP providers failed: operation timed out" } });
 ok("a stored result from before registration data was optional keeps its recorded grading",
   storedLegacy.modules_skipped.includes("whois_intelligence"), JSON.stringify(storedLegacy));
+
+// A serviceable registry response still needs to identify the registration.
+// Exercise the actual fetch -> extraction -> customer-finding path, not a
+// duplicate parser. All responses are synthetic and no real request is made.
+const expirySoon = new Date(Date.now() + 10 * 86_400_000).toISOString();
+const expiryLater = new Date(Date.now() + 400 * 86_400_000).toISOString();
+const rdap = (name, expiry = expirySoon) => ({
+  objectClassName: "domain", ldhName: name,
+  events: [{ eventAction: "expiration", eventDate: expiry }],
+});
+async function registrationFrom(responses, domain = "example.co.uk") {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    const value = responses[Math.min(calls++, responses.length - 1)];
+    return value === "unreadable-json" ? new Response("{", { status: 200 }) : Response.json(value);
+  };
+  try { return { result: await runWhoisModule(domain), calls }; }
+  finally { globalThis.fetch = realFetch; }
+}
+for (const [label, answer, domain] of [
+  ["exact LDH", rdap("example.co.uk"), "example.co.uk"],
+  ["DNS case and root dot", rdap("EXAMPLE.CO.UK."), "sub.example.co.uk"],
+  ["Unicode-only identity", { ...rdap(undefined), unicodeName: "b\u00fccher.example" }, "xn--bcher-kva.example"],
+  ["equivalent LDH and Unicode", { ...rdap("xn--bcher-kva.example"), unicodeName: "b\u00fccher.example" }, "xn--bcher-kva.example"],
+  ["identity without optional class field", { ...rdap("example.co.uk"), objectClassName: undefined }, "example.co.uk"],
+]) {
+  const { result, calls } = await registrationFrom([answer], domain);
+  const findings = whoisReportFindings(result);
+  ok(`matching ${label} keeps genuine expiry detection`, calls === 1 && !result.unavailable &&
+    findings.length === 1 && findings[0].id === "whois_expiry_critical" && findings[0].score_impact === 0 &&
+    findings[0].evidence.some((item) => item.label === "Expiration Date" && item.value === expirySoon));
+}
+for (const [label, answer] of [
+  ["different expiring domain", rdap("unrelated.co.uk")],
+  ["different long-lived domain", rdap("unrelated.co.uk", expiryLater)],
+  ["unidentified dates", { events: rdap("example.co.uk").events }],
+  ["empty object", {}], ["null", null], ["array", [rdap("example.co.uk")]],
+  ["non-domain object", { ...rdap("example.co.uk"), objectClassName: "nameserver" }],
+  ["contradictory Unicode", { ...rdap("example.co.uk"), unicodeName: "unrelated.co.uk" }],
+  ["null LDH", { ...rdap(null), unicodeName: "example.co.uk" }],
+  ["nested identity only", { events: rdap("example.co.uk").events, nameservers: [{ ldhName: "example.co.uk" }] }],
+  ["URL-shaped identity", rdap("https://example.co.uk")],
+  ["userinfo identity", rdap("unrelated.co.uk@example.co.uk")],
+  ["whitespace identity", rdap(" example.co.uk")],
+  ["percent-encoded identity", rdap("%65xample.co.uk")],
+]) {
+  const { result, calls } = await registrationFrom([answer]);
+  ok(`${label} cannot ground expiry or healthy registration`, calls === 2 && result.unavailable === true &&
+    result.optional === true && result.reason === "registry_not_answering" && !result.risk_level &&
+    whoisReportFindings(result).length === 0 && result.registries_asked.every((row) => row.outcome === "unmatched_domain_answer"));
+  ok(`${label} remains optional without changing scan completeness`,
+    buildScanQuality({ ...coreModules, whois_intelligence: result }).modules_incomplete.length ===
+      buildScanQuality(coreModules).modules_incomplete.length);
+}
+const fallback = await registrationFrom([rdap("unrelated.co.uk", expiryLater), rdap("example.co.uk")]);
+ok("mismatched first provider cannot hide genuine expiry from the matching fallback",
+  fallback.calls === 2 && !fallback.result.unavailable && fallback.result.expiration_date === expirySoon &&
+  whoisReportFindings(fallback.result)[0]?.id === "whois_expiry_critical" &&
+  JSON.stringify(fallback.result.registries_asked.map((row) => row.outcome)) ===
+    JSON.stringify(["unmatched_domain_answer", "answered"]));
+const unreadableFallback = await registrationFrom(["unreadable-json", rdap("example.co.uk")]);
+ok("unreadable first provider still reaches matching fallback", unreadableFallback.calls === 2 &&
+  whoisReportFindings(unreadableFallback.result)[0]?.id === "whois_expiry_critical");
+const sparse = await registrationFrom([{ objectClassName: "domain", ldhName: "example.co.uk" }]);
+ok("matching domain with unpublished dates stays an observation without invented expiry",
+  !sparse.result.unavailable && sparse.result.expiration_date === null &&
+  sparse.result.days_until_expiry === null && whoisReportFindings(sparse.result).length === 0);
 
 console.log(`outside vulnerability data: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

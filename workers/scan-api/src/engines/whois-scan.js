@@ -68,6 +68,23 @@ function registryHost(url) {
   try { return new URL(url).hostname; } catch { return null; }
 }
 
+// Bind registration evidence to the requested domain, not merely to a 200.
+// RFC 9083 domain objects may name it in LDH and/or Unicode form. Compare DNS
+// names (case, root dot and IDNA equivalents), never URL-like input or a
+// nested nameserver/entity name. Missing or contradictory names prove nothing.
+function rdapDomainMatches(data, registeredDomain) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  if (data.objectClassName !== undefined && data.objectClassName !== "domain") return false;
+  const normalize = (value) => {
+    if (typeof value !== "string" || !value || /[\s/:?#@\\%\[\]]/.test(value)) return null;
+    try { return new URL(`https://${value}`).hostname.toLowerCase().replace(/\.$/, ""); }
+    catch { return null; }
+  };
+  const expected = normalize(registeredDomain);
+  const names = [data.ldhName, data.unicodeName].filter((name) => name !== undefined);
+  return expected !== null && names.length > 0 && names.every((name) => normalize(name) === expected);
+}
+
 function registrationUnavailable(reason, registriesAsked = [], registeredDomain = null) {
   return {
     ...REGISTRATION_DATA_OPTIONAL,
@@ -168,7 +185,7 @@ export async function runWhoisModule(domain, opts = {}) {
     //      app.blackbullbarbers.co.uk → blackbullbarbers.co.uk
     const registeredDomain = getRegisteredDomain(domain);
 
-    // Try each RDAP provider in order; stop at the first 200 response.
+    // Try each RDAP provider in order; stop at the first matching domain object.
     // Skip on 403/404 and continue — only fail if every provider fails.
     const rdapUrls  = getRdapUrls(registeredDomain);
     let   data      = null;
@@ -192,12 +209,18 @@ export async function runWhoisModule(domain, opts = {}) {
       }
 
       if (res && res.ok) {
+        let candidate;
         try {
-          data = await res.json();
+          candidate = await res.json();
         } catch {
           asked.push({ registry, outcome: "unreadable_answer" });
           continue;
         }
+        if (!rdapDomainMatches(candidate, registeredDomain)) {
+          asked.push({ registry, outcome: "unmatched_domain_answer" });
+          continue;
+        }
+        data = candidate;
         asked.push({ registry, outcome: "answered" });
         break; // success — stop trying further providers
       }
