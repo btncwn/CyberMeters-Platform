@@ -34,6 +34,10 @@ const RECHECK_METHOD_LABELS = Object.freeze({
   unsupported: "There is no way to check this fix from outside today.",
 });
 
+// A live TLS control re-runs the control itself, which for a protocol or cipher
+// condition does not involve reading the certificate.
+const TLS_CONTROL_RECHECK_LABEL = "CyberMeters repeats the same TLS check on the same endpoint.";
+
 // The re-check of a management-page exposure (engines/exposure-recheck.js).
 const HOST_RECHECK_RULE = "A timeout, a refused or blocked connection, or a filter's 401, 403 or 429 never closes the case: none of them shows the tool is gone. It closes when the host answers without the tool, or when the name is confirmed removed (three checks at least a day apart, then checked again). If you limited access to trusted addresses, CyberMeters cannot see that from outside; removing the public name, or having it answer without the tool, lets CyberMeters verify the fix.";
 
@@ -248,7 +252,9 @@ export function caseGuidance(row, { phase = null, support = null, events = [], h
     recheck: method
       ? {
         method,
-        label: RECHECK_METHOD_LABELS[method] || null,
+        label: entry?.supporting_evidence_types?.includes("tls_endpoint_measurement")
+          ? TLS_CONTROL_RECHECK_LABEL
+          : RECHECK_METHOD_LABELS[method] || null,
         fixed_when: short(entry?.verification_evidence_requirements, 400),
         rule: hostRecheck ? HOST_RECHECK_RULE : null,
       }
