@@ -2083,6 +2083,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           source: "cloudflare_workers_fetch",
           contract: mtaStsEvidence.serviceability.contract_version,
         }],
+        ...(mtaStsEvidence.reason === "policy_host_no_address" ? {
+          evidence: [{
+            type: "dns_observation",
+            target: `mta-sts.${domain}`,
+            outcome: mtaStsEvidence.policy_host_dns.outcome,
+            reason: "policy_host_no_address",
+            source: "authoritative_negative_answer",
+          }],
+        } : {}),
       });
     }
     if (emailIntelUsable) {
