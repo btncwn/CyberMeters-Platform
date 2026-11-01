@@ -444,7 +444,9 @@ export function mtaStsAdmission(mtaSts = {}) {
   const coherent = rawState === "present"
     ? status === 200 && reason === "origin_response" && maySupportHealthyConclusion(serviceability)
     : rawState === "definitive_absent"
-      ? status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability)
+      ? (status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability))
+        || (status == null && reason === "policy_host_no_address"
+          && ["nxdomain", "nodata"].includes(mtaSts?.policy_host_dns?.outcome))
       : rawState === "unavailable"
         ? !maySupportHealthyConclusion(serviceability) && !mayGroundAbsence(serviceability)
           && typeof reason === "string"
