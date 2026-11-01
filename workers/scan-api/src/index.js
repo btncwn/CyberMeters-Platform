@@ -173,6 +173,13 @@ function validateFrontendRedirectUrl(value, env) {
  * requireWorkspaceAccess and requireWorkspaceRole enforce scope + workspace binding
  * whenever token_scope is present on the resolved identity.
  */
+// A lookup that could not run says nothing about the credential. requireAuth
+// throws, so nothing protected runs; some routes catch that throw and answer with
+// their own status, so the request is also remembered here and the entry point
+// answers 503 whatever the route returned.
+class AuthUnavailableError extends Error {}
+const authLookupFailed = new WeakSet();
+
 async function requireAuth(request, env) {
   const authHeader = request.headers.get("Authorization") || "";
   if (!authHeader.startsWith("Bearer ")) return null;
@@ -235,7 +242,8 @@ async function requireAuth(request, env) {
       .catch(() => {});
     return session;
   } catch {
-    return null;
+    authLookupFailed.add(request);
+    throw new AuthUnavailableError("auth_unavailable");
   }
 }
 
@@ -2708,6 +2716,20 @@ function isStagingMcpAuthMaintenanceAllowed(request, env) {
   } catch { return false; }
 }
 
+function authUnavailableResponse(request, env, ctx) {
+  const url = new URL(request.url);
+  const data = { error: "Service temporarily unavailable. Please try again shortly.", code: "auth_unavailable" };
+  try {
+    const observed = observeApiResponse(env, { pathname: url.pathname, method: request.method, status: 503, data });
+    if (observed && ctx?.waitUntil) ctx.waitUntil(observed.catch(() => null));
+  } catch { /* observation never breaks a response */ }
+  const corsHeaders = buildRequestCorsHeaders(request.headers.get("Origin"), request.method, url.pathname, env);
+  return Response.json(data, {
+    status: 503,
+    headers: { ...buildJsonHeaders(corsHeaders), "Retry-After": "30", "X-Request-ID": crypto.randomUUID() },
+  });
+}
+
 const scanApi = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -3178,7 +3200,13 @@ const scanApi = {
 export default {
   ...scanApi,
   async fetch(request, env, ctx) {
-    const response = await scanApi.fetch(request, env, ctx);
+    let response;
+    try {
+      response = await scanApi.fetch(request, env, ctx);
+    } catch (error) {
+      if (!(error instanceof AuthUnavailableError)) throw error;
+    }
+    if (!response || authLookupFailed.has(request)) response = authUnavailableResponse(request, env, ctx);
     const robots = buildJsonHeaders()["X-Robots-Tag"];
     if (response.headers.get("X-Robots-Tag") === robots) return response;
     const headers = new Headers(response.headers);

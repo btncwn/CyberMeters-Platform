@@ -397,6 +397,58 @@ async function main() {
   const foreignRead = await call("GET", "/api/workspaces/ws1/cases/mc-cert", T.foreign);
   ok("a foreign caller still gets the same 404", foreignRead.status === 404 || foreignRead.status === 403);
 
+  // Auth lookup failure: a broken lookup is not a bad credential. Real requireAuth
+  // and real routes; only the identity SELECT fails, and only in this block.
+  section("Auth lookup failure answers 503, never 401 or data");
+  const tokenRow = (id, uid, raw, status, expires) => hashToken(raw).then((hash) => db.prepare(
+    "INSERT INTO api_tokens (id, user_id, name, token_hash, status, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?, 'read')"
+  ).run(id, uid, id, hash, status, expires));
+  await tokenRow("t-good", "admin", "cm_good", "active", null);
+  await tokenRow("t-revoked", "admin", "cm_revoked", "revoked", null);
+  await tokenRow("t-expired", "admin", "cm_expired", "active", "2020-01-01T00:00:00Z");
+  seedUser("gone", "gone@x.co", "Gone");
+  db.prepare("UPDATE users SET status = 'suspended' WHERE id = 'gone'").run();
+  await seedSession("s-gone", "gone", "raw-gone");
+  await tokenRow("t-gone", "gone", "cm_gone", "active", null);
+  db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s-old', 'admin', ?, datetime('now','-1 day'))").run(await hashToken("raw-old"));
+
+  ok("a live session still signs in", (await call("GET", "/api/auth/me", T.admin)).status === 200);
+  ok("a live API token still signs in", (await call("GET", "/api/auth/me", "cm_good")).status === 200);
+  for (const [label, raw] of [
+    ["no credential", null], ["an unknown session", "raw-unknown"], ["an expired session", "raw-old"],
+    ["a suspended session", "raw-gone"], ["an unknown API token", "cm_unknown"], ["a revoked API token", "cm_revoked"],
+    ["an expired API token", "cm_expired"], ["a suspended API token", "cm_gone"],
+  ]) ok(`${label} is still 401`, (await call("GET", "/api/auth/me", raw)).status === 401);
+  ok("a role refusal is unchanged", (await call("POST", "/api/workspaces/ws1/invitations", T.viewer, { email: "x@a.co", role: "viewer" })).status === 403);
+  ok("a foreign workspace refusal is unchanged", denied(await call("GET", "/api/workspaces/ws1", T.foreign), "Alpha-SECRET"));
+
+  const realPrepare = env.cybermeters_db.prepare;
+  const workspacesBefore = db.prepare("SELECT COUNT(*) AS n FROM workspaces").get().n;
+  const LOOKUP_FAILURE = "D1_ERROR: no such column: raw-admin FROM user_sessions";
+  env.cybermeters_db.prepare = (sql) => {
+    const statement = realPrepare(sql);
+    if (!/FROM (user_sessions s|api_tokens t)\b/.test(sql)) return statement;
+    const failing = { first: async () => { throw new Error(LOOKUP_FAILURE); } };
+    return { ...statement, ...failing, bind: () => ({ ...statement, ...failing }) };
+  };
+  const unavailable = async (label, method, path, token, body) => {
+    const r = await call(method, path, token, body);
+    ok(`${label} answers 503`, r.status === 503);
+    ok(`${label} shows no data or failure detail`, r.data?.code === "auth_unavailable" &&
+      !/Alpha-SECRET|D1_ERROR|raw-admin|user_sessions|api_tokens/.test(JSON.stringify(r.data ?? r.text ?? "")));
+    return r;
+  };
+  await unavailable("/auth/me with a session", "GET", "/api/auth/me", T.admin);
+  await unavailable("/auth/me with an API token", "GET", "/api/auth/me", "cm_good");
+  await unavailable("a protected read", "GET", "/api/workspaces/ws1", T.admin);
+  // Routes whose own catch would otherwise turn the failure into a 500 or a 404.
+  await unavailable("a route with its own catch", "GET", "/api/workspaces/ws1/domains/secret1.example/dmarc-summary", T.admin);
+  await unavailable("a protected write", "POST", "/api/workspaces", T.admin, { name: "Should-Not-Exist" });
+  ok("the write did nothing", db.prepare("SELECT COUNT(*) AS n FROM workspaces").get().n === workspacesBefore);
+  ok("a request with no credential is still 401 during the failure", (await call("GET", "/api/auth/me", null)).status === 401);
+  env.cybermeters_db.prepare = realPrepare;
+  ok("the same session works once the lookup recovers", (await call("GET", "/api/auth/me", T.admin)).status === 200);
+
   // ── Report ──
   const bySection = {};
   for (const line of results) { const s = line.match(/\[(.*?)\]/)[1]; (bySection[s] ??= { p: 0, f: 0 })[line.startsWith("PASS") ? "p" : "f"]++; }
