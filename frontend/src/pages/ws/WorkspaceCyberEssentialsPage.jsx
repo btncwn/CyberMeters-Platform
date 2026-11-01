@@ -488,6 +488,7 @@ function ExternallyObservedControls({ data, error }) {
 
 function ResultSummary({ readiness }) {
   const questionnaireIncomplete = readiness?.questionnaire?.complete === false
+  const contained = Boolean(readiness?.containment_reason)
   return (
     <section id="ce-indicator" className={`rounded-2xl border p-5 ${overallTone(readiness)}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -499,7 +500,7 @@ function ResultSummary({ readiness }) {
               {readiness?.grade ? <span className="ml-3">Grade {readiness.grade}</span> : null}
             </h2>}
             <p className="mt-2 max-w-3xl text-sm leading-relaxed">{readiness?.summary || 'Complete the questionnaire to improve the readiness view for this workspace.'}</p>
-            {questionnaireIncomplete && <Link to="/ws/cyber-essentials?tab=findings#questionnaire" className="mt-2 inline-block text-sm font-semibold underline">Complete the questionnaire</Link>}
+            {questionnaireIncomplete && !contained && <Link to="/ws/cyber-essentials?tab=findings#questionnaire" className="mt-2 inline-block text-sm font-semibold underline">Complete the questionnaire</Link>}
             {/* The denominator, next to the number it qualifies. Backend-owned: a screen that
                 worked out its own coverage would be a second source of truth. */}
             {readiness?.external_coverage_statement ? (
@@ -644,7 +645,7 @@ export default function WorkspaceCyberEssentialsPage() {
           /* The area template (18 Oct 2026): until every question is answered, the
              questionnaire IS the next action — one card, one button. */
           figures={ceSummaryFigures({ readiness, readinessLoaded: !loading && !error, notAssessed: readinessIsNotAssessed(readiness), progress, controls, controlsError })}
-          nextAction={progress.total > 0 && progress.answered < progress.total ? {
+          nextAction={!readiness?.containment_reason && progress.total > 0 && progress.answered < progress.total ? {
             title: progress.answered === 0 ? 'Answer the readiness questionnaire' : 'Finish the readiness questionnaire',
             body: `${progress.answered} of ${progress.total} questions answered. Your answers are self-declared and combine with external evidence for readiness guidance.`,
             label: 'Start questionnaire',

@@ -166,6 +166,19 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
     expect(screen.queryByText(/workspace_multi_domain_not_aggregatable/i)).not.toBeInTheDocument()
   })
 
+  it('a multi-domain workspace is not told the questionnaire will produce a readiness result', async () => {
+    api.getWorkspaceCyberEssentialsAnswers.mockResolvedValue({ questions: [{ control_key: 'boundary_protection', questions: [{ key: 'q1', text: 'Question' }] }], answers: {} })
+    api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness({
+      containment_reason: 'workspace_multi_domain_not_aggregatable',
+      summary: 'Cyber Essentials readiness cannot currently be assessed for this workspace because it has more than one linked domain.',
+      questionnaire: { answered: 0, total: 20, complete: false },
+    }))
+    mountOverview()
+    expect(await screen.findByText(/because it has more than one linked domain/i)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Complete the questionnaire' })).toBeNull()
+    expect(screen.queryByText('Answer the readiness questionnaire')).toBeNull()
+  })
+
   it('single-domain positive readiness and control presentation remains available', async () => {
     api.getWorkspaceCyberEssentialsReadiness.mockResolvedValue(readiness({
       assessable: true,
