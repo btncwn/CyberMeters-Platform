@@ -182,6 +182,7 @@ export async function fetchMtaSts(domain, opts = {}) {
     // The policy host resolves to a public address before any connection, as
     // for the other probes (hardening, 24 Oct 2026). Covers every caller.
     const res = await fetcher(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
+      redirect: "manual", // RFC 8461 §3.3: a policy fetch MUST NOT follow redirects.
       signal: AbortSignal.timeout(10_000),
       accounting,
       dnsResolver,

@@ -386,6 +386,40 @@ ok("orchestrator mta_sts outcome is unavailable, not absence",
   ]) ok(`admission refuses incoherent no-address row ${JSON.stringify(forged.policy_host_dns ?? null)}/${forged.status_code}`, mtaStsAdmission(forged).state === "unavailable");
 }
 
+// The actual shared fetcher must return the first redirect, not borrow a policy
+// (or a 404) from its destination. Only the fixed policy URL is authoritative.
+{
+  const saved = globalThis.fetch;
+  const dnsResolver = async (name, family) => ({
+    Status: 0, TC: false, Question: [{ name, type: family === "AAAA" ? 28 : 1 }],
+    Answer: [{ name, type: family === "AAAA" ? 28 : 1, TTL: 60,
+      data: family === "AAAA" ? "2606:4700:4700::1111" : "1.1.1.1" }],
+  });
+  try {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const calls = [];
+      globalThis.fetch = async (url) => {
+        calls.push(String(url));
+        return calls.length === 1
+          ? new Response(null, { status, headers: { Location: "https://policy-provider.example.net/policy" } })
+          : policy();
+      };
+      const result = await fetchMtaSts("example.com", { dnsResolver });
+      const admission = mtaStsAdmission(result);
+      ok(`policy redirect ${status}: destination is never fetched`, calls.length === 1 &&
+        calls[0] === "https://mta-sts.example.com/.well-known/mta-sts.txt");
+      ok(`policy redirect ${status}: neither healthy nor absent is admitted`,
+        result.status_code === status && result.observation_state === "unavailable" && !result.enabled &&
+        !admission.score_admitted && !admission.missing_finding && !admission.remediation_admitted &&
+        buildEmailTransportDetails({ mta_sts: result }).mta_sts_detail.policy_found === null);
+    }
+    globalThis.fetch = async () => policy();
+    const direct = await fetchMtaSts("example.com", { dnsResolver });
+    ok("direct policy positive control remains admitted through the real shared fetcher",
+      direct.observation_state === "present" && direct.policy_mode === "enforce" && mtaStsAdmission(direct).score_admitted);
+  } finally { globalThis.fetch = saved; }
+}
+
 if (failures.length > 0) {
   console.error(`mta-sts-tristate: ${failures.length} assertions FAILED, ${passed} passed`);
   process.exit(1);
