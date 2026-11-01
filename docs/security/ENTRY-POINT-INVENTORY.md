@@ -73,15 +73,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 2772 | preflight | public | — |
-| DELETE | `(none)` | 2778 | unknown | **GAP** | — |
-| GET | `(none)` | 2778 | unknown | **GAP** | — |
-| HEAD | `(none)` | 2778 | unknown | **GAP** | — |
-| PATCH | `(none)` | 2778 | unknown | **GAP** | — |
-| POST | `(none)` | 2778 | unknown | **GAP** | — |
-| PUT | `(none)` | 2778 | unknown | **GAP** | — |
-| GET | `/health` | 2783 | public-or-global | public | — |
-| GET | `/ready` | 2802 | public-or-global | public | — |
+| OPTIONS | `(none)` | 2796 | preflight | public | — |
+| DELETE | `(none)` | 2802 | unknown | **GAP** | — |
+| GET | `(none)` | 2802 | unknown | **GAP** | — |
+| HEAD | `(none)` | 2802 | unknown | **GAP** | — |
+| PATCH | `(none)` | 2802 | unknown | **GAP** | — |
+| POST | `(none)` | 2802 | unknown | **GAP** | — |
+| PUT | `(none)` | 2802 | unknown | **GAP** | — |
+| GET | `/health` | 2807 | public-or-global | public | — |
+| GET | `/ready` | 2826 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -298,9 +298,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/api/tools/config` | 330 | public-or-global | public | — |
-| POST | `/api/tools/share` | 340 | public-or-global | public | — |
-| POST | `/^\/api\/tools\/([a-z]+)\/(check\|defer)$/` | 351 | public-or-global | public | — |
+| GET | `/api/tools/config` | 332 | public-or-global | public | — |
+| POST | `/api/tools/share` | 342 | public-or-global | public | — |
+| POST | `/^\/api\/tools\/([a-z]+)\/(check\|defer)$/` | 353 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/global-billing.js`
 
@@ -527,16 +527,16 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| GET | `/^\/api\/workspaces\/([^/` | 72 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/^\/api\/workspaces\/([^/` | 106 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 355 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^/` | 387 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 449 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 514 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `/api/invitations/preview` | 719 | public-or-global | public | — |
-| POST | `/api/invitations/accept` | 724 | public-or-global | ✓ | requireAuth |
-| GET | `/^\/api\/invitations\/([^/` | 732 | public-or-global | public | — |
-| POST | `/^\/api\/invitations\/([^/` | 738 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/workspaces\/([^/` | 73 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/^\/api\/workspaces\/([^/` | 107 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 356 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^/` | 388 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PATCH | `/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/` | 450 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/` | 515 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `/api/invitations/preview` | 723 | public-or-global | public | — |
+| POST | `/api/invitations/accept` | 728 | public-or-global | ✓ | requireAuth |
+| GET | `/^\/api\/invitations\/([^/` | 736 | public-or-global | public | — |
+| POST | `/^\/api\/invitations\/([^/` | 742 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/workspace-reports.js`
 

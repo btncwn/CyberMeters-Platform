@@ -34,7 +34,7 @@ import { dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValues, compute
 import { buildDnsOperationalResilience } from "./engines/dns-resilience.js";
 import { SCANNER_REGRESSION_FIXTURES } from "./engines/regression-fixtures.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS, POSTURE_WEIGHTS } from "./engines/scoring-config.js";
-import { customerSafeFailure } from "./lib/errors.js";
+import { AuthUnavailableError, customerSafeFailure } from "./lib/errors.js";
 import { runDnsModule } from "./engines/dns-scan.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, normalizeHostname, parseCertificateSanNames } from "./engines/hostnames.js";
 import { runSslModule } from "./engines/ssl-scan.js";
@@ -173,6 +173,13 @@ function validateFrontendRedirectUrl(value, env) {
  * requireWorkspaceAccess and requireWorkspaceRole enforce scope + workspace binding
  * whenever token_scope is present on the resolved identity.
  */
+// A lookup that could not run says nothing about the credential. requireAuth
+// throws, so nothing protected runs; some routes catch that throw and build their
+// own answer, so the request is also remembered here. The request's json() and
+// serverError() then record nothing, and the entry point sends and counts the one
+// 503.
+const authLookupFailed = new WeakSet();
+
 async function requireAuth(request, env) {
   const authHeader = request.headers.get("Authorization") || "";
   if (!authHeader.startsWith("Bearer ")) return null;
@@ -235,7 +242,8 @@ async function requireAuth(request, env) {
       .catch(() => {});
     return session;
   } catch {
-    return null;
+    authLookupFailed.add(request);
+    throw new AuthUnavailableError("auth_unavailable");
   }
 }
 
@@ -2708,6 +2716,20 @@ function isStagingMcpAuthMaintenanceAllowed(request, env) {
   } catch { return false; }
 }
 
+function authUnavailableResponse(request, env, ctx) {
+  const url = new URL(request.url);
+  const data = { error: "Service temporarily unavailable. Please try again shortly.", code: "auth_unavailable" };
+  try {
+    const observed = observeApiResponse(env, { pathname: url.pathname, method: request.method, status: 503, data });
+    if (observed && ctx?.waitUntil) ctx.waitUntil(observed.catch(() => null));
+  } catch { /* observation never breaks a response */ }
+  const corsHeaders = buildRequestCorsHeaders(request.headers.get("Origin"), request.method, url.pathname, env);
+  return Response.json(data, {
+    status: 503,
+    headers: { ...buildJsonHeaders(corsHeaders), "Retry-After": "30", "X-Request-ID": crypto.randomUUID() },
+  });
+}
+
 const scanApi = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -2727,6 +2749,7 @@ const scanApi = {
     // Shadow the module-level json() so every route in this handler uses the
     // correct per-request origin without touching individual call sites.
     const json = (data, status = 200) => {
+      if (authLookupFailed.has(request)) return new Response(null, { status: 503 });
       // Refusals, 5xx and free-scan/free-tool outcomes are counted here, in one
       // place (lib/ops-counters.js): route families and codes, never values.
       try {
@@ -2739,6 +2762,7 @@ const scanApi = {
       });
     };
     const serverError = (scope, error, message = "Request failed. Please try again.") => {
+      if (authLookupFailed.has(request)) return json(null, 503);
       console.error("[request-error]", redactedJson({
         request_id: requestId,
         version: env.APP_VERSION || "dev",
@@ -3178,7 +3202,13 @@ const scanApi = {
 export default {
   ...scanApi,
   async fetch(request, env, ctx) {
-    const response = await scanApi.fetch(request, env, ctx);
+    let response;
+    try {
+      response = await scanApi.fetch(request, env, ctx);
+    } catch (error) {
+      if (!(error instanceof AuthUnavailableError)) throw error;
+    }
+    if (!response || authLookupFailed.has(request)) response = authUnavailableResponse(request, env, ctx);
     const robots = buildJsonHeaders()["X-Robots-Tag"];
     if (response.headers.get("X-Robots-Tag") === robots) return response;
     const headers = new Headers(response.headers);
