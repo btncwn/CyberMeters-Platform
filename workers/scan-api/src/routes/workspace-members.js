@@ -7,6 +7,7 @@
 import { getEffectivePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { generateInviteToken, hashToken } from "../lib/auth-crypto.js";
+import { AuthUnavailableError } from "../lib/errors.js";
 import { maskEmail } from "../lib/invitation-return.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
@@ -587,7 +588,10 @@ export async function workspaceMembersRoutes(rctx) {
         try {
           const viewer = await requireAuth(request, env);
           if (viewer?.email) signedInMatches = viewer.email.trim().toLowerCase() === String(invite.invited_email || "").trim().toLowerCase();
-        } catch { signedInMatches = null; }
+        } catch (error) {
+          if (error instanceof AuthUnavailableError) throw error;
+          signedInMatches = null;
+        }
 
         return json({
           workspace_name:   invite.workspace_name,

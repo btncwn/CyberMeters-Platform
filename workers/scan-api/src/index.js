@@ -34,7 +34,7 @@ import { dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValues, compute
 import { buildDnsOperationalResilience } from "./engines/dns-resilience.js";
 import { SCANNER_REGRESSION_FIXTURES } from "./engines/regression-fixtures.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS, POSTURE_WEIGHTS } from "./engines/scoring-config.js";
-import { customerSafeFailure } from "./lib/errors.js";
+import { AuthUnavailableError, customerSafeFailure } from "./lib/errors.js";
 import { runDnsModule } from "./engines/dns-scan.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, normalizeHostname, parseCertificateSanNames } from "./engines/hostnames.js";
 import { runSslModule } from "./engines/ssl-scan.js";
@@ -174,10 +174,10 @@ function validateFrontendRedirectUrl(value, env) {
  * whenever token_scope is present on the resolved identity.
  */
 // A lookup that could not run says nothing about the credential. requireAuth
-// throws, so nothing protected runs; some routes catch that throw and answer with
-// their own status, so the request is also remembered here and the entry point
-// answers 503 whatever the route returned.
-class AuthUnavailableError extends Error {}
+// throws, so nothing protected runs; some routes catch that throw and build their
+// own answer, so the request is also remembered here. The request's json() and
+// serverError() then record nothing, and the entry point sends and counts the one
+// 503.
 const authLookupFailed = new WeakSet();
 
 async function requireAuth(request, env) {
@@ -2749,6 +2749,7 @@ const scanApi = {
     // Shadow the module-level json() so every route in this handler uses the
     // correct per-request origin without touching individual call sites.
     const json = (data, status = 200) => {
+      if (authLookupFailed.has(request)) return new Response(null, { status: 503 });
       // Refusals, 5xx and free-scan/free-tool outcomes are counted here, in one
       // place (lib/ops-counters.js): route families and codes, never values.
       try {
@@ -2761,6 +2762,7 @@ const scanApi = {
       });
     };
     const serverError = (scope, error, message = "Request failed. Please try again.") => {
+      if (authLookupFailed.has(request)) return json(null, 503);
       console.error("[request-error]", redactedJson({
         request_id: requestId,
         version: env.APP_VERSION || "dev",

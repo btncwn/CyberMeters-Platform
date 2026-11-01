@@ -446,8 +446,74 @@ async function main() {
   await unavailable("a protected write", "POST", "/api/workspaces", T.admin, { name: "Should-Not-Exist" });
   ok("the write did nothing", db.prepare("SELECT COUNT(*) AS n FROM workspaces").get().n === workspacesBefore);
   ok("a request with no credential is still 401 during the failure", (await call("GET", "/api/auth/me", null)).status === 401);
+
+  // Optional auth: a failed lookup is not an anonymous visitor. Nothing may start
+  // or be charged, and the one request is counted once, as what was sent.
+  const realFetch = globalThis.fetch;
+  const outbound = { turnstile: 0, dns: 0 };
+  env.TURNSTILE_SECRET_KEY = "synthetic-key";
+  globalThis.fetch = async (input) => {
+    const target = String(input?.url ?? input);
+    if (target.startsWith("https://challenges.cloudflare.com/turnstile/")) {
+      outbound.turnstile++;
+      return Response.json({ success: true, action: "tool_spf" });
+    }
+    if (target.includes("dns-query") || target.includes("dns.google")) {
+      outbound.dns++;
+      return Response.json({ Status: 0, Answer: [{ type: 16, data: '"v=spf1 -all"' }] });
+    }
+    throw new Error("network disabled");
+  };
+  const toolQuota = () => db.prepare("SELECT COALESCE(SUM(request_count),0) AS n FROM api_rate_limits WHERE action LIKE 'free_tool_%'").get().n;
+  const counters = (metric) => Object.fromEntries(db.prepare("SELECT label, SUM(count) AS n FROM ops_daily_counters WHERE metric = ? GROUP BY label").all(metric).map((row) => [row.label, row.n]));
+  const counted = (before, after) => Object.keys(after).filter((label) => after[label] !== before[label]).map((label) => `${label}+${after[label] - (before[label] || 0)}`).sort();
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const spfCheck = (token, domain) => call("POST", "/api/tools/spf/check", token, { domain, turnstile_token: "synthetic-token" });
+
+  await settle();
+  const quotaBefore = toolQuota();
+  let toolsBefore = counters("free_tool");
+  let errorsBefore = counters("http_5xx");
+  await unavailable("a free tool with a session", "POST", "/api/tools/spf/check", T.admin, { domain: "first.example.co.uk", turnstile_token: "synthetic-token" });
+  await settle();
+  ok("a free tool starts no Turnstile or DNS work", outbound.turnstile === 0 && outbound.dns === 0);
+  ok("a free tool consumes no allowance", toolQuota() === quotaBefore);
+  ok("a free tool request is counted once, as the 503 it sent",
+     counted(toolsBefore, counters("free_tool")).length === 1 && counted(toolsBefore, counters("free_tool"))[0].endsWith("auth_unavailable+1"));
+  ok("a free tool request is one 5xx", counted(errorsBefore, counters("http_5xx")).length === 1 && counted(errorsBefore, counters("http_5xx"))[0].startsWith("503:"));
+
+  errorsBefore = counters("http_5xx");
+  const metricEvents = [];
+  env.METRICS = { writeDataPoint: (point) => metricEvents.push(point.blobs.slice(0, 2).join(":")) };
+  await unavailable("a route whose catch answers 500", "GET", "/api/workspaces/ws1/domains/secret1.example/dmarc-summary", T.admin);
+  await settle();
+  delete env.METRICS;
+  ok("a caught failure writes one metric, the 503 refusal", metricEvents.length === 1 && metricEvents[0] === "api_rejection:503");
+  const caughtFailure = counted(errorsBefore, counters("http_5xx"));
+  ok("a caught failure is one 5xx, as the 503 it sent", caughtFailure.length === 1 && caughtFailure[0].startsWith("503:") && caughtFailure[0].endsWith("+1"));
+
+  const previewInvite = "raw-preview-invite";
+  db.prepare("INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at) VALUES ('inv-preview','ws1','preview@a.co','viewer',?,'admin','pending',datetime('now','+1 day'),datetime('now'))").run(await hashToken(previewInvite));
+  const previewRoute = `/api/invitations/${previewInvite}`;
+  const previewFailed = await call("GET", previewRoute, T.admin);
+  ok("an invitation preview with a session answers 503 without its details",
+     previewFailed.status === 503 && previewFailed.data?.code === "auth_unavailable" && !/Alpha-SECRET|preview@a/.test(previewFailed.text));
+  ok("an invitation preview with no credential still answers", (await call("GET", previewRoute, null)).status === 200);
+
+  toolsBefore = counters("free_tool");
+  const anonymous = await spfCheck(null, "anonymous.example.co.uk");
+  await settle();
+  ok("a visitor with no credential still gets the tool during the failure", anonymous.status === 200 && outbound.turnstile === 1 && outbound.dns > 0);
+  ok("the visitor's allowance is charged", toolQuota() > quotaBefore);
+  const anonymousCounted = counted(toolsBefore, counters("free_tool"));
+  ok("the visitor's request is counted once", anonymousCounted.length === 1 && anonymousCounted[0].endsWith("+1") && !anonymousCounted[0].includes("auth_unavailable"));
   env.cybermeters_db.prepare = realPrepare;
   ok("the same session works once the lookup recovers", (await call("GET", "/api/auth/me", T.admin)).status === 200);
+  const invalidToken = await spfCheck("raw-unknown", "invalid-token.example.co.uk");
+  ok("an invalid token is still an anonymous visitor to a free tool", invalidToken.status === 200 && outbound.turnstile === 2);
+  ok("a signed-in member still gets the tool without Turnstile",
+     (await spfCheck(T.admin, "signed-in.example.co.uk")).status === 200 && outbound.turnstile === 2);
+  globalThis.fetch = realFetch;
 
   // ── Report ──
   const bySection = {};

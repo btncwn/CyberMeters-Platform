@@ -13,6 +13,7 @@
 // safeFetch (every hop re-resolved, private and reserved addresses refused);
 // the SSL/TLS tool makes one TLS handshake to port 443 through the
 // network-probe free_tool profile (runFreeToolTlsCheck, called only here).
+import { AuthUnavailableError } from "../lib/errors.js";
 import { sendAlertEmail } from "../engines/alerts.js";
 import { dnsQuery } from "../engines/dns.js";
 import { runDmarcCheck } from "../engines/free-tools/dmarc-check.js";
@@ -94,7 +95,8 @@ async function signedInWorkspaceUser(rctx) {
        WHERE wm.user_id = ? AND w.deleted_at IS NULL LIMIT 1`,
     ).bind(user.id).first();
     return membership ? user : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthUnavailableError) throw error;
     return null;
   }
 }
