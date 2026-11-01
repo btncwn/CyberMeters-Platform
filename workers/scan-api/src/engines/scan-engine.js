@@ -2085,7 +2085,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         }],
         ...(mtaStsEvidence.reason === "policy_host_no_address" ? {
           evidence: [{
-            type: "dns_observation",
+            type: "dns_lookup",
             target: `mta-sts.${domain}`,
             outcome: mtaStsEvidence.policy_host_dns.outcome,
             reason: "policy_host_no_address",
