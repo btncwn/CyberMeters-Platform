@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = (...p) => path.join(root, "workers", "scan-api", "src", ...p);
 const eng = (f) => pathToFileURL(src("engines", f)).href;
-const EXPECTED_ASSERTIONS = 28;
+const EXPECTED_ASSERTIONS = 30;
 const EXPECTED_RUNTIME_CONSUMER_COUNT = 27;
 // RESCUE SUCCESSION: the semantic inventory remains unchanged at 27 consumers;
 // no CE consumer was added, removed or reclassified. Exact source anchors still
@@ -526,6 +526,45 @@ const tests = [
     seedRecord(db, { ws: "ws1", state: "ready" }); const { env } = envFor(db, { "reports/scan_gap.json": GAPS() }); const before = durableState(db, "ws1");
     const runs = []; for (let i = 0; i < 3; i++) runs.push(await evaluateCyberEssentialsLifecycle(env, "ws1", { scanId: "scan_gap" }));
     return { ok: runs.every((x) => x.skipped === "workspace_domain_containment") && JSON.stringify(before) === JSON.stringify(durableState(db, "ws1")), detail: JSON.stringify(runs) };
+  }],
+  ["unanswered and partial questionnaires in a multi-domain workspace never promise a readiness result", async () => {
+    const results = [];
+    for (const partial of [false, true]) {
+      const db = buildDb(); seedWorkspace(db, "ws1", [{ id: "d1" }, { id: "d2" }]);
+      if (partial) {
+        const control = CE_QUESTIONS[0];
+        db.prepare(`INSERT INTO cyber_essentials_answers
+          (id,workspace_id,control_key,question_key,answer,updated_at)
+          VALUES ('a1',?,?,?, 'yes', datetime('now'))`)
+          .run("ws1", control.control_key, control.questions[0].key);
+      }
+      const { env } = envFor(db, {});
+      const snapshot = await getCyberEssentialsSnapshot("ws1", env);
+      const current = securityCheckMod.resolveSecurityCheckDomainStates(
+        { ...HEALTHY(), findings: [], scan_quality: { status: "complete" }, completed_at: "2026-08-02T01:15:00Z" },
+        { scanId: "scan-contained", cyberEssentials: snapshot },
+      ).find((state) => state.domain_key === "cyber_essentials_readiness");
+      results.push(snapshot.has_answers === partial && snapshot.complete === false &&
+        snapshot.containment_reason === CE_WORKSPACE_MULTI_DOMAIN_REASON &&
+        current?.state === securityCheckMod.SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT &&
+        /more than one linked domain/i.test(current?.summary || "") &&
+        !/questionnaire/i.test(current?.summary || ""));
+    }
+    return { ok: results.every(Boolean), detail: JSON.stringify(results) };
+  }],
+  ["a single-domain workspace is still asked for its answers, snapshot shape unchanged", async () => {
+    const db = buildDb(); seedWorkspace(db, "ws1", [{ id: "d1" }]);
+    const { env } = envFor(db, {});
+    const snapshot = await getCyberEssentialsSnapshot("ws1", env);
+    const current = securityCheckMod.resolveSecurityCheckDomainStates(
+      { ...HEALTHY(), findings: [], scan_quality: { status: "complete" }, completed_at: "2026-08-02T01:15:00Z" },
+      { scanId: "scan-single", cyberEssentials: snapshot },
+    ).find((state) => state.domain_key === "cyber_essentials_readiness");
+    return {
+      ok: JSON.stringify(snapshot) === JSON.stringify({ has_answers: false, complete: false, status: null, top_gaps: [] }) &&
+        current?.state === securityCheckMod.SECURITY_CHECK_STATES.CUSTOMER_INPUT_REQUIRED,
+      detail: JSON.stringify(snapshot),
+    };
   }],
   ["complete-questionnaire containment degrades canonical state and maturity writers honestly", async () => {
     const db = buildDb(); seedWorkspace(db, "ws1", [{ id: "d1" }, { id: "d2" }]);

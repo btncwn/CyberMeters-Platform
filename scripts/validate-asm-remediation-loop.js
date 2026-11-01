@@ -761,6 +761,17 @@ await import("./remote-admin-exposure-fixture.js");
   ok("case titles: the universal list projection uses the canonical display title", /display_title: display\?\.display_title \?\? caseDisplayTitleFor\(row\)/.test(route));
 }
 
+// A protocol condition is re-checked by its TLS control, not by reading a certificate.
+{
+  const tlsRow = { case_type: "certificate_case", status: "open", source_finding_type: `tls_legacy_protocol__${"a".repeat(64)}`, finding_id: `tls_legacy_protocol__${"a".repeat(64)}` };
+  const tlsLabel = caseGuidanceForRow(tlsRow, { phase: "open", support: "automated", events: [] })?.guidance?.recheck?.label
+    ?? caseGuidanceForRow(tlsRow, { phase: "open", support: "automated", events: [] })?.recheck?.label;
+  ok("TLS control case: the re-check names the TLS check, not the certificate", /repeats the same TLS check/.test(tlsLabel || "") && !/certificate/i.test(tlsLabel || ""));
+  const certRow = { case_type: "certificate_case", status: "open", source_finding_type: "certificate_expiring_soon", finding_id: "certificate_expiring_soon" };
+  const certLabel = caseGuidanceForRow(certRow, { phase: "open", support: "automated", events: [] })?.recheck?.label;
+  ok("certificate case: the re-check still reads the certificate", /reads the certificate/.test(certLabel || ""));
+}
+
 // ── Per-module verification (22 Oct 2026, Executive 11:50 (b)) ──────────────
 // sheshire.co.uk batch 2: HSTS was present and the Website module complete, but
 // the scan was partial only because deep TLS was inconclusive, and the global

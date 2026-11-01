@@ -17,8 +17,9 @@ const securityCheck = path.join(root, "workers", "scan-api", "src", "engines", "
 const frontend = path.join(root, "frontend", "src", "pages", "ws", "WorkspaceCyberEssentialsPage.jsx");
 const targets = [readiness, lifecycle, securityCheck, frontend];
 const EXPECTED_MUTANTS = 20;
-// 28 since #921 (CE case not-assessed note: two added assertions, no mutant change).
-const EXPECTED_ASSERTIONS = 28;
+// 30: two added incomplete-questionnaire containment/compatibility controls;
+// all 20 existing strict mutants and their named failure requirements remain.
+const EXPECTED_ASSERTIONS = 30;
 
 const original = new Map(targets.map((file) => [file, fs.readFileSync(file)]));
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");

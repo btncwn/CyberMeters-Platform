@@ -355,6 +355,71 @@ ok("orchestrator mta_sts outcome is unavailable, not absence",
   })());
 }
 
+// ── Policy host with no address: the shared resolver's strict negative proof ──
+{
+  const soa = { name: "example.com", type: 6, TTL: 1800, data: "ns.example.com. dns.example.com. 1 10000 2400 604800 1800" };
+  const typeOf = (family) => (family === "AAAA" ? 28 : 1);
+  const negative = (status) => async (name, family) => ({ Status: status, Question: [{ name, type: typeOf(family) }], Answer: [], Authority: [soa], TC: false });
+  const realFetchNever = async () => { throw new Error("no connection may be attempted"); };
+  const withResolver = async (dnsResolver) => {
+    const saved = globalThis.fetch;
+    globalThis.fetch = realFetchNever;
+    try { return await fetchMtaSts("example.com", { dnsResolver }); } finally { globalThis.fetch = saved; }
+  };
+  for (const [name, status, outcome] of [["NXDOMAIN", 3, "nxdomain"], ["NODATA", 0, "nodata"]]) {
+    const r = await withResolver(negative(status));
+    const a = mtaStsAdmission(r);
+    ok(`policy host ${name}: conclusive absence`, r.observation_state === "definitive_absent" && r.reason === "policy_host_no_address" && r.policy_host_dns?.outcome === outcome);
+    ok(`policy host ${name}: finding and remediation admitted, nothing scored`, a.state === "definitive_absent" && a.missing_finding && a.remediation_admitted && !a.score_admitted);
+    ok(`policy host ${name}: customer detail says no policy, not an unfinished check`, buildEmailTransportDetails({ mta_sts: r }).mta_sts_detail.policy_found === false);
+  }
+  const servfail = await withResolver(async (name, family) => ({ Status: 2, Question: [{ name, type: typeOf(family) }], Answer: [], TC: false }));
+  ok("policy host SERVFAIL stays unavailable", servfail.observation_state === "unavailable" && !mtaStsAdmission(servfail).missing_finding);
+  const thrown = await withResolver(async () => { throw new TypeError("resolver down"); });
+  ok("policy host resolver failure stays unavailable", thrown.observation_state === "unavailable" && !mtaStsAdmission(thrown).missing_finding);
+  const noSoa = await withResolver(async (name, family) => ({ Status: 3, Question: [{ name, type: typeOf(family) }], Answer: [], TC: false }));
+  ok("policy host negative answer without SOA proof stays unavailable", noSoa.observation_state === "unavailable");
+  for (const forged of [
+    { observation_state: "definitive_absent", status_code: null, reason: "policy_host_no_address" },
+    { observation_state: "definitive_absent", status_code: null, reason: "policy_host_no_address", policy_host_dns: { outcome: "servfail" } },
+    { observation_state: "definitive_absent", status_code: 503, reason: "policy_host_no_address", policy_host_dns: { outcome: "nxdomain" } },
+  ]) ok(`admission refuses incoherent no-address row ${JSON.stringify(forged.policy_host_dns ?? null)}/${forged.status_code}`, mtaStsAdmission(forged).state === "unavailable");
+}
+
+// The actual shared fetcher must return the first redirect, not borrow a policy
+// (or a 404) from its destination. Only the fixed policy URL is authoritative.
+{
+  const saved = globalThis.fetch;
+  const dnsResolver = async (name, family) => ({
+    Status: 0, TC: false, Question: [{ name, type: family === "AAAA" ? 28 : 1 }],
+    Answer: [{ name, type: family === "AAAA" ? 28 : 1, TTL: 60,
+      data: family === "AAAA" ? "2606:4700:4700::1111" : "1.1.1.1" }],
+  });
+  try {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const calls = [];
+      globalThis.fetch = async (url) => {
+        calls.push(String(url));
+        return calls.length === 1
+          ? new Response(null, { status, headers: { Location: "https://policy-provider.example.net/policy" } })
+          : policy();
+      };
+      const result = await fetchMtaSts("example.com", { dnsResolver });
+      const admission = mtaStsAdmission(result);
+      ok(`policy redirect ${status}: destination is never fetched`, calls.length === 1 &&
+        calls[0] === "https://mta-sts.example.com/.well-known/mta-sts.txt");
+      ok(`policy redirect ${status}: neither healthy nor absent is admitted`,
+        result.status_code === status && result.observation_state === "unavailable" && !result.enabled &&
+        !admission.score_admitted && !admission.missing_finding && !admission.remediation_admitted &&
+        buildEmailTransportDetails({ mta_sts: result }).mta_sts_detail.policy_found === null);
+    }
+    globalThis.fetch = async () => policy();
+    const direct = await fetchMtaSts("example.com", { dnsResolver });
+    ok("direct policy positive control remains admitted through the real shared fetcher",
+      direct.observation_state === "present" && direct.policy_mode === "enforce" && mtaStsAdmission(direct).score_admitted);
+  } finally { globalThis.fetch = saved; }
+}
+
 if (failures.length > 0) {
   console.error(`mta-sts-tristate: ${failures.length} assertions FAILED, ${passed} passed`);
   process.exit(1);

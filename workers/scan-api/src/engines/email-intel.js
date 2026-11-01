@@ -5,6 +5,7 @@
 // verbatim from index.js (monolith decomposition, Phase 1c). Only fetchMtaSts +
 // runEmailIntelModule are public; the enrich/compute/build helpers are module-internal.
 import { safeFetch } from "../lib/http.js";
+import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../lib/ssrf.js";
 import { runDnsModule } from "./dns-scan.js";
 import { dnsQuery } from "./dns.js";
 import { DMARC_INTEL_STATUS, isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
@@ -176,13 +177,15 @@ export async function fetchMtaSts(domain, opts = {}) {
     observation_state: "not_observed", status_code: null, reason: null, serviceability: null,
   };
   const fetcher = opts.fetcher || safeFetch;
+  const dnsResolver = typeof opts.dnsResolver === "function" ? opts.dnsResolver : dnsQuery;
   try {
     // The policy host resolves to a public address before any connection, as
     // for the other probes (hardening, 24 Oct 2026). Covers every caller.
     const res = await fetcher(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
+      redirect: "manual", // RFC 8461 §3.3: a policy fetch MUST NOT follow redirects.
       signal: AbortSignal.timeout(10_000),
       accounting,
-      dnsResolver: typeof opts.dnsResolver === "function" ? opts.dnsResolver : dnsQuery,
+      dnsResolver,
       dnsCache: opts.cache || null,
     });
     const observation = classifyFetchObservation({ response: res });
@@ -190,6 +193,20 @@ export async function fetchMtaSts(domain, opts = {}) {
     result.status_code = observation.origin_status;
     result.serviceability = serviceability;
     if (!res) {
+      // An authoritative "this name has no address" is an answer, not a failed
+      // check: no server can publish a policy file at a host that does not exist.
+      // The test seam stays transport-only unless a test supplies its own resolver.
+      if (!opts.fetcher || opts.dnsResolver) {
+        const resolution = await resolvePublicDnsTarget(`mta-sts.${domain}`, dnsResolver, {
+          cache: opts.cache || null, accounting, signal: AbortSignal.timeout(10_000),
+        });
+        if (resolution.state === STRICT_DNS_STATES.NO_ADDRESS) {
+          result.observation_state = "definitive_absent";
+          result.reason = "policy_host_no_address";
+          result.policy_host_dns = { outcome: resolution.dns_evidence?.outcome ?? null, observed_at: resolution.dns_evidence?.observed_at ?? null };
+          return result;
+        }
+      }
       result.observation_state = "unavailable";
       result.reason = "transport_error";
       result.errors.push("MTA-STS policy fetch was unavailable.");
