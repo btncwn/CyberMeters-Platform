@@ -100,8 +100,8 @@ const mutants = [
     // (conclusion_class ignored). Dies on the conclusive-class probe.
     id: "MTA-M8-private-eligibility-predicate",
     file: "analysis",
-    from: '  const coherent = rawState === "present"\n    ? status === 200 && reason === "origin_response" && maySupportHealthyConclusion(serviceability)\n    : rawState === "definitive_absent"\n      ? status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability)',
-    to:   '  const privateServiceable = serviceability?.serviceable === true;\n  const coherent = rawState === "present"\n    ? status === 200 && reason === "origin_response" && privateServiceable\n    : rawState === "definitive_absent"\n      ? status === 404 && reason === "well_known_404" && privateServiceable',
+    from: '  const coherent = rawState === "present"\n    ? status === 200 && reason === "origin_response" && maySupportHealthyConclusion(serviceability)\n    : rawState === "definitive_absent"\n      ? (status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability))',
+    to:   '  const privateServiceable = serviceability?.serviceable === true;\n  const coherent = rawState === "present"\n    ? status === 200 && reason === "origin_response" && privateServiceable\n    : rawState === "definitive_absent"\n      ? (status === 404 && reason === "well_known_404" && privateServiceable)',
     mustContain: "FAIL conclusive-class gate: serviceable-true non-conclusive present is not admitted",
   },
 ];
