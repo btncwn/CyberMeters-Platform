@@ -1176,8 +1176,8 @@
     {
       "type": "library",
       "name": "vite",
-      "version": "6.4.4",
-      "bom-ref": "cybermeters-frontend@1.0.0|vite@6.4.4",
+      "version": "6.4.5",
+      "bom-ref": "cybermeters-frontend@1.0.0|vite@6.4.5",
       "author": "Evan You",
       "description": "Native-ESM powered web dev build tool",
       "licenses": [
@@ -1188,7 +1188,7 @@
           }
         }
       ],
-      "purl": "pkg:npm/vite@6.4.4",
+      "purl": "pkg:npm/vite@6.4.5",
       "externalReferences": [
         {
           "url": "git+https://github.com/vitejs/vite.git#packages/vite",
@@ -1206,7 +1206,7 @@
           "comment": "as detected from PackageJson property \"bugs.url\""
         },
         {
-          "url": "https://registry.npmjs.org/vite/-/vite-6.4.4.tgz",
+          "url": "https://registry.npmjs.org/vite/-/vite-6.4.5.tgz",
           "type": "distribution",
           "comment": "as detected from npm-ls property \"resolved\""
         }
@@ -1226,7 +1226,7 @@
           "type": "library",
           "name": "fdir",
           "version": "6.5.0",
-          "bom-ref": "cybermeters-frontend@1.0.0|vite@6.4.4|fdir@6.5.0",
+          "bom-ref": "cybermeters-frontend@1.0.0|vite@6.4.5|fdir@6.5.0",
           "author": "thecodrr",
           "description": "The fastest directory crawler & globbing alternative to glob, fast-glob, & tiny-glob. Crawls 1m files in < 1s",
           "licenses": [
@@ -11044,7 +11044,7 @@
         "cybermeters-frontend@1.0.0|recharts@3.8.1",
         "cybermeters-frontend@1.0.0|tailwindcss@4.3.3",
         "cybermeters-frontend@1.0.0|typescript@6.0.3",
-        "cybermeters-frontend@1.0.0|vite@6.4.4",
+        "cybermeters-frontend@1.0.0|vite@6.4.5",
         "cybermeters-frontend@1.0.0|vitest@4.1.12"
       ]
     },
@@ -11142,7 +11142,7 @@
         "cybermeters-frontend@1.0.0|@rolldown/pluginutils@1.0.0-rc.3",
         "cybermeters-frontend@1.0.0|@types/babel__core@7.20.5",
         "cybermeters-frontend@1.0.0|react-refresh@0.18.0",
-        "cybermeters-frontend@1.0.0|vite@6.4.4"
+        "cybermeters-frontend@1.0.0|vite@6.4.5"
       ]
     },
     {
@@ -11244,10 +11244,10 @@
       "ref": "cybermeters-frontend@1.0.0|typescript@6.0.3"
     },
     {
-      "ref": "cybermeters-frontend@1.0.0|vite@6.4.4",
+      "ref": "cybermeters-frontend@1.0.0|vite@6.4.5",
       "dependsOn": [
         "cybermeters-frontend@1.0.0|esbuild@0.25.12",
-        "cybermeters-frontend@1.0.0|vite@6.4.4|fdir@6.5.0",
+        "cybermeters-frontend@1.0.0|vite@6.4.5|fdir@6.5.0",
         "cybermeters-frontend@1.0.0|fsevents@2.3.3",
         "cybermeters-frontend@1.0.0|jiti@2.7.0",
         "cybermeters-frontend@1.0.0|lightningcss@1.32.0",
@@ -11258,7 +11258,7 @@
       ]
     },
     {
-      "ref": "cybermeters-frontend@1.0.0|vite@6.4.4|fdir@6.5.0",
+      "ref": "cybermeters-frontend@1.0.0|vite@6.4.5|fdir@6.5.0",
       "dependsOn": [
         "cybermeters-frontend@1.0.0|picomatch@4.0.7"
       ]
@@ -11286,7 +11286,7 @@
         "cybermeters-frontend@1.0.0|tinyexec@1.3.1",
         "cybermeters-frontend@1.0.0|tinyglobby@0.2.17",
         "cybermeters-frontend@1.0.0|tinyrainbow@3.2.0",
-        "cybermeters-frontend@1.0.0|vite@6.4.4",
+        "cybermeters-frontend@1.0.0|vite@6.4.5",
         "cybermeters-frontend@1.0.0|why-is-node-running@2.3.0"
       ]
     },
@@ -11748,7 +11748,7 @@
         "cybermeters-frontend@1.0.0|@vitest/spy@4.1.12",
         "cybermeters-frontend@1.0.0|estree-walker@3.0.3",
         "cybermeters-frontend@1.0.0|magic-string@0.30.21",
-        "cybermeters-frontend@1.0.0|vite@6.4.4"
+        "cybermeters-frontend@1.0.0|vite@6.4.5"
       ]
     },
     {
