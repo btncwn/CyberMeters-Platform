@@ -441,12 +441,21 @@ export function mtaStsAdmission(mtaSts = {}) {
   // private `serviceable === true` re-check, which is strictly weaker (the
   // authority also requires conclusion_class "conclusive"; a serviceable-true
   // record whose conclusion class is non-conclusive admits nothing).
+  // No HTTP origin answered, so serviceability cannot speak here: the authoritative
+  // DNS answer recorded by fetchMtaSts is the only ground for this absence.
+  if (rawState === "definitive_absent" && status == null && reason === "policy_host_no_address"
+      && ["nxdomain", "nodata"].includes(mtaSts?.policy_host_dns?.outcome)) {
+    return Object.freeze({
+      state: "definitive_absent",
+      missing_finding: true,
+      score_admitted: false,
+      remediation_admitted: true,
+    });
+  }
   const coherent = rawState === "present"
     ? status === 200 && reason === "origin_response" && maySupportHealthyConclusion(serviceability)
     : rawState === "definitive_absent"
-      ? (status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability))
-        || (status == null && reason === "policy_host_no_address"
-          && ["nxdomain", "nodata"].includes(mtaSts?.policy_host_dns?.outcome))
+      ? status === 404 && reason === "well_known_404" && mayGroundAbsence(serviceability)
       : rawState === "unavailable"
         ? !maySupportHealthyConclusion(serviceability) && !mayGroundAbsence(serviceability)
           && typeof reason === "string"
