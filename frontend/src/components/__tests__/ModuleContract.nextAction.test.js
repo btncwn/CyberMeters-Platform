@@ -10,6 +10,30 @@ describe('resolveNextAction: the area’s primary job', () => {
     expect(next).toMatchObject({ label: 'Set up MTA-STS', to: '/ws/email-protection?tab=settings#mta-sts-setup' })
   })
 
+  it('a high DMARC finding leads over a low MTA-STS set-up step', () => {
+    const next = resolveNextAction({ request: 'ok', entry: entry('email_protection', { highest_severity: 'high', finding_count: 2, finding_details: [
+      { ...resolved('email_intel_mta_sts_missing', 'Enable MTA-STS'), severity: 'low' },
+      { ...resolved('email_missing_dmarc', 'Publish a DMARC policy'), severity: 'high' },
+    ] }) })
+    expect(next).toMatchObject({ title: 'Publish a DMARC policy', label: 'Review this finding', tab: 'findings' })
+  })
+
+  it('a high DMARC finding leads with no per-finding severity from an older API too', () => {
+    const next = resolveNextAction({ request: 'ok', entry: entry('email_protection', { highest_severity: 'high', finding_count: 2, finding_details: [
+      resolved('email_missing_dmarc', 'Publish a DMARC policy'), resolved('email_intel_mta_sts_missing', 'Enable MTA-STS'),
+    ] }) })
+    expect(next).toMatchObject({ title: 'Publish a DMARC policy' })
+  })
+
+  it('a contained area says so and offers no scan, in the resolved row or a failed read', () => {
+    const summary = 'Cyber Essentials readiness cannot currently be assessed for this workspace because it has more than one linked domain.'
+    const next = resolveNextAction({ request: 'ok', entry: entry('cyber_essentials_readiness', { state: 'evidence_insufficient', containment_reason: 'workspace_multi_domain_not_aggregatable', summary }) })
+    expect(next).toMatchObject({ title: 'This area cannot be assessed for this workspace', label: null })
+    expect(next.body).toContain(summary)
+    expect(next.body).toMatch(/A new scan does not change this/)
+    expect(resolveNextAction({ request: 'error' })).toMatchObject({ title: 'The latest assessment could not be read' })
+  })
+
   it('a registry-mapped finding elsewhere still reviews the finding', () => {
     const next = resolveNextAction({ request: 'ok', entry: entry('website_security', { finding_count: 1, finding_details: [resolved('header_weak_hsts', 'Add or strengthen HSTS')] }) })
     expect(next).toMatchObject({ title: 'Add or strengthen HSTS', label: 'Review this finding', tab: 'findings' })

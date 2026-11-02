@@ -4,7 +4,8 @@ import { test } from 'node:test'
 import { latestScoreWithheld } from '../workers/scan-api/src/engines/current-posture.js'
 import { presentCyberEssentialsQuestionnaireReadiness } from '../workers/scan-api/src/engines/ce-readiness.js'
 import { CE_QUESTIONS } from '../workers/scan-api/src/lib/cyber-essentials.js'
-import { withShadowItInventoryCount } from '../workers/scan-api/src/routes/executive-dashboard.js'
+import { withEvidenceFreshness, withShadowItInventoryCount } from '../workers/scan-api/src/routes/executive-dashboard.js'
+import { findingSeveritiesById, resolveSecurityCheckDomainStates } from '../workers/scan-api/src/engines/security-check-domains.js'
 import { aggregateDmarcTrafficBySource } from '../workers/scan-api/src/routes/email-protection.js'
 import { PLAN_FEATURES, PLAN_LIMITS } from '../workers/scan-api/src/engines/entitlements.js'
 
@@ -32,6 +33,36 @@ test('external control alignment cannot publish a grade before all answers exist
   const complete = presentCyberEssentialsQuestionnaireReadiness(base, answers)
   assert.equal(complete.questionnaire.complete, true)
   assert.equal(complete.grade, 'A')
+})
+
+test('Each finding keeps its own severity; the area rating and the frozen resolver rows are unchanged', () => {
+  const report = { scan_quality: { status: 'complete' }, findings: [
+    { id: 'email_missing_dmarc', severity: 'high', category: 'email', title: 'Missing DMARC Policy', finding_type: 'finding' },
+    { id: 'email_intel_mta_sts_missing', severity: 'low', category: 'email', title: 'MTA-STS policy not published', finding_type: 'finding' },
+  ] }
+  const severities = findingSeveritiesById(report)
+  assert.equal(severities.get('email_missing_dmarc'), 'high')
+  assert.equal(severities.get('email_intel_mta_sts_missing'), 'low')
+  const rows = resolveSecurityCheckDomainStates(report)
+  const email = rows.find((d) => d.domain_key === 'email_protection')
+  assert.equal(email.highest_severity, 'high')
+  assert.equal('finding_severities' in email, false)
+  const projected = withEvidenceFreshness(rows, { findingSeverities: severities }).find((d) => d.domain_key === 'email_protection')
+  assert.equal(projected.highest_severity, 'high')
+  const bySeverity = Object.fromEntries(projected.finding_details.map((d) => [d.finding_id, d.severity]))
+  assert.equal(bySeverity.email_intel_mta_sts_missing, 'low')
+  assert.equal(bySeverity.email_missing_dmarc, 'high')
+  // No source: unknown stays unknown, never the area rating.
+  assert.ok(withEvidenceFreshness(rows).find((d) => d.domain_key === 'email_protection').finding_details.every((d) => d.severity === null))
+})
+
+test('Cyber Essentials containment reaches only its own read-route row, never a frozen resolver row', () => {
+  const reason = 'workspace_multi_domain_not_aggregatable'
+  const rows = resolveSecurityCheckDomainStates({ scan_quality: { status: 'complete' }, findings: [] }, { cyberEssentials: { status: 'not_assessed', containment_reason: reason, summary: 'Contained.' } })
+  assert.equal(rows.some((d) => 'containment_reason' in d), false)
+  const projected = withEvidenceFreshness(rows, { ceContainmentReason: reason })
+  assert.deepEqual(projected.filter((d) => d.containment_reason).map((d) => d.domain_key), ['cyber_essentials_readiness'])
+  assert.equal(withEvidenceFreshness(rows).some((d) => 'containment_reason' in d), false)
 })
 
 test('Shadow IT evidence count uses the current inventory grain', () => {

@@ -1,6 +1,6 @@
 import { formatDay } from '../../utils/dates'
 import ScanNowButton from '../ScanNowButton'
-import { buildNextActions } from '../overview/NextActionsList'
+import { buildNextActions, mostSevereFirst } from '../overview/NextActionsList'
 // ModuleContract — the ONE template every /ws/<area> page renders (founder,
 // 18 Oct 2026), in this order:
 //
@@ -92,6 +92,16 @@ const VERIFY_BODY = {
   external: 'An independent party certifies this. Open the case to record their evidence.',
 }
 
+// Cyber Essentials is not aggregated across a multi-domain workspace. Say that, and
+// that a scan does not change it; no scan, questionnaire or domain step is offered.
+export function containedNextAction(summary) {
+  return {
+    title: 'This area cannot be assessed for this workspace',
+    body: `${summary || 'Cyber Essentials readiness cannot currently be assessed for this workspace.'} A new scan does not change this.`,
+    label: null,
+  }
+}
+
 // `fallbackNextAction` is a page's own job for when the assessment has nothing
 // for the customer to act on: it never outranks a finding or a case, and it
 // replaces only the generic "run a scan" / all-clear endings.
@@ -99,11 +109,14 @@ export function resolveNextAction({ nextAction = null, fallbackNextAction = null
   if (nextAction) return nextAction
   if (request === 'loading') return { title: 'Reading the latest assessment…', body: null, label: null }
   if (request !== 'ok' || !entry) return { title: 'The latest assessment could not be read', body: 'Nothing is assumed in the meantime. A new scan reads this area again.', label: 'Run a scan', to: '/scans/new' }
+  if (entry.containment_reason) return containedNextAction(entry.summary)
   // The same rows the Overview's "Your next actions" shows, so both screens agree:
-  // a step done in a specific place (Set up MTA-STS, the DMARC policy steps) opens it.
-  const specific = buildNextActions({ domains: [entry] }).find((r) => r.action?.to && !r.action.to.endsWith('?tab=findings'))
+  // the area's top row, when it is a step done in a specific place (Set up MTA-STS,
+  // the DMARC policy steps), opens it.
+  const top = buildNextActions({ domains: [entry] })[0]
+  const specific = top?.action?.to && !top.action.to.endsWith('?tab=findings') ? top : null
   if (specific) return { title: specific.title, body: specific.body, label: specific.action.label, to: specific.action.to, source: 'registry' }
-  const mapped = (entry.finding_details || []).find((d) => d?.status === 'resolved' && d.recommended_action)
+  const mapped = mostSevereFirst(entry.finding_details || []).find((d) => d?.status === 'resolved' && d.recommended_action)
   if (mapped) return { title: mapped.customer_title, body: mapped.recommended_action, label: 'Review this finding', tab: 'findings', source: 'registry' }
   if ((entry.finding_count ?? 0) > 0) return { title: 'Review the findings in the latest assessment', body: 'No registered remediation is mapped for these findings yet, so none is invented here.', label: 'Review findings', tab: 'findings' }
   // Only this area's own cases; a case from another area never becomes this page's job.

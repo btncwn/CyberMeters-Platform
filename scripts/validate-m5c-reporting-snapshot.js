@@ -214,6 +214,16 @@ async function main() {
   // A managed case linked to the SPF finding (automated support via dns_recheck).
   db.prepare(`INSERT INTO managed_cases (id, workspace_id, case_type, domain_key, domain, finding_id, remediation_id, severity, status, evidence_json, recommended_actions_json, created_at, updated_at)
               VALUES ('mc1','ws1','email_case','email_protection','shared.example','email_missing_spf','email.spf.publish','high','open','{}','[]',datetime('now'),datetime('now'))`).run();
+  // Real builder/SQLite regression: completed Website cases remain in history,
+  // but must not be counted as work still open. The other tenant shares a host.
+  for (const [id, wsId, status] of [
+    ['website-verified-1', 'ws1', 'verified'], ['website-verified-2', 'ws1', 'verified'],
+    ['website-other-tenant', 'ws2', 'reopened'],
+  ]) {
+    db.prepare(`INSERT INTO managed_cases (id, workspace_id, case_type, domain_key, domain, severity, status, evidence_json, recommended_actions_json, created_at, updated_at)
+                VALUES (?,?,'website_case','website_security','shared.example','medium',?,'{}','[]',datetime('now'),datetime('now'))`)
+      .run(id, wsId, status);
+  }
 
   const ceSnapFor = async (wsId) => {
     const { getCyberEssentialsSnapshot } = await import(pathToFileURL(srcPath("engines", "ce-readiness.js")).href);
@@ -231,6 +241,58 @@ async function main() {
   ok("snapshot JSON persisted to a tenant-prefixed R2 key",
      !!put1 && put1.key.startsWith("reports/snapshots/ws1/scan1/"));
   const snap1 = put1 ? JSON.parse(put1.body) : null;
+
+  const websiteWorkflow = snap1?.domains?.find((d) => d.domain_key === 'website_security')?.managed_workflow;
+  ok('snapshot workflow counts two verified Website cases as zero open, retaining both statuses',
+     websiteWorkflow?.total_cases === 2 && websiteWorkflow?.open_cases === 0 && websiteWorkflow?.statuses?.verified === 2,
+     JSON.stringify(websiteWorkflow));
+  ok('snapshot workflow keeps unrelated actionable cases open and excludes the other tenant',
+     snap1?.domains?.find((d) => d.domain_key === 'email_protection')?.managed_workflow?.open_cases === 1 &&
+     websiteWorkflow?.statuses?.reopened === undefined);
+  const { buildScanReportPdf } = await import(pathToFileURL(srcPath('engines', 'pdf.js')).href);
+  const frozenBeforePdf = JSON.stringify(snap1);
+  const workflowPdf = new TextDecoder().decode(buildScanReportPdf(
+    { id: 'scan1', domain: 'shared.example' }, { status: 'ok', snapshot: snap1 }));
+  ok('actual Technical PDF retains the one open Email case without presenting two verified Website cases as open',
+     workflowPdf.includes('1 open managed case') && !workflowPdf.includes('2 open managed cases') &&
+     JSON.stringify(snap1) === frozenBeforePdf);
+
+  const workflowCases = [
+    { case_type: 'website_case', status: 'verified' },
+    { case_type: 'website_case', status: 'monitoring' },
+    { case_type: 'email_case', status: 'accepted_risk' },
+    { case_type: 'asm_exposure', status: 'resolved' },
+    { case_type: 'asm_exposure', status: 'risk_accepted' },
+    { case_type: 'brand_abuse', status: 'resolved' },
+    { case_type: 'brand_abuse', status: 'duplicate' },
+    { case_type: 'website_case', status: 'reopened' },
+    { case_type: 'brand_abuse', status: 'reappeared' },
+    { case_type: 'website_case', status: 'awaiting_verification' },
+    { case_type: 'unrecognised_type', status: 'unrecognised_state' },
+  ].map((c, i) => ({ ...c, id: `workflow-case-${i}`, domain_key: ({
+    website_case: 'website_security', email_case: 'email_protection',
+    asm_exposure: 'attack_surface', brand_abuse: 'brand_protection',
+  })[c.case_type] || 'website_security' }));
+  const workflowSnapshot = (reconstruction = false) => composeSnapshot({
+    snapshotId: 'workflow-snapshot', workspaceId: 'ws1', domainId: 'dom1', scanId: report1.scan_id,
+    domain: report1.domain, report: report1, cyberEssentials: null, ceReadiness: null,
+    caseRows: workflowCases, questionSetVersions: [], reconstruction,
+    builtAt: '2026-11-02T08:00:00.000Z',
+  });
+  const mixedWorkflows = workflowSnapshot().domains.map((d) => d.managed_workflow);
+  const mixedWorkflow = mixedWorkflows.reduce((total, w) => ({
+    total_cases: total.total_cases + w.total_cases,
+    open_cases: total.open_cases + w.open_cases,
+    statuses: Object.fromEntries([...new Set([...Object.keys(total.statuses), ...Object.keys(w.statuses)])]
+      .map((status) => [status, (total.statuses[status] || 0) + (w.statuses[status] || 0)])),
+  }), { total_cases: 0, open_cases: 0, statuses: {} });
+  ok('snapshot workflow folds ASM/Brand phases and retains reopened, awaiting and unknown cases as open',
+     mixedWorkflow.total_cases === 11 && mixedWorkflow.open_cases === 4 &&
+     mixedWorkflow.statuses.resolved === 2 && mixedWorkflow.statuses.verified === 1 &&
+     mixedWorkflow.statuses.unrecognised_state === 1, JSON.stringify(mixedWorkflow));
+  ok('snapshot workflow reconstruction stays unavailable, never a claimed zero-open result',
+     workflowSnapshot(true).domains.every((d) => d.managed_workflow.unavailable === true &&
+       !('open_cases' in d.managed_workflow)));
 
   ok("exactly eight domains, canonical keys, fixed order",
      !!snap1 && Array.isArray(snap1.domains) &&
@@ -1459,7 +1521,7 @@ async function main() {
       signedInScanning: scanAttempt([page("/account", "refused")]),
     });
     ok("signed-in report: the snapshot carries website_signed_in", composed.website_signed_in?.pages_checked === 1 && composed.website_signed_in?.anonymous_access_refused === true);
-    ok("signed-in report: current builder version preserves the signed-in section", SNAPSHOT_BUILDER_VERSION === "2026-10-30.1" && composed.methodology.snapshot_builder_version === "2026-10-30.1");
+    ok("signed-in report: current builder version preserves the signed-in section", SNAPSHOT_BUILDER_VERSION === "2026-11-02.1" && composed.methodology.snapshot_builder_version === "2026-11-02.1");
 
     // The loader reads codes, counts and times from the real schema; tenant-scoped.
     const { loadSignedInScanningForSnapshot } = await import(pathToFileURL(srcPath("engines", "website-sign-in-profiles.js")).href);
