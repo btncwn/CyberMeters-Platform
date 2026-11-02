@@ -174,9 +174,15 @@ describe('WorkspaceCyberEssentialsPage — Stage-1 containment', () => {
       questionnaire: { answered: 0, total: 20, complete: false },
     }))
     mountOverview()
-    expect(await screen.findByText(/because it has more than one linked domain/i)).toBeInTheDocument()
+    expect((await screen.findAllByText(/because it has more than one linked domain/i)).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByRole('link', { name: 'Complete the questionnaire' })).toBeNull()
     expect(screen.queryByText('Answer the readiness questionnaire')).toBeNull()
+    // Nor that a scan will: it says why, and offers no scan or other step.
+    expect(await screen.findByText('This area cannot be assessed for this workspace')).toBeInTheDocument()
+    expect(screen.getByText(/A new scan does not change this/)).toBeInTheDocument()
+    expect(screen.queryByText('Run a scan to assess this area')).toBeNull()
+    expect(screen.queryByTestId('module-next-action')).toBeNull()
+    expect(screen.queryByTestId('module-next-action-scan')).toBeNull()
   })
 
   it('single-domain positive readiness and control presentation remains available', async () => {

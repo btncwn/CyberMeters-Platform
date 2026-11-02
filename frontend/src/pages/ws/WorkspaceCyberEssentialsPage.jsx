@@ -8,7 +8,7 @@ import {
   toneClass as ceToneClass, controlLabel as ceControlLabel, EXTERNAL_SECTION_NOTE,
 } from '../../lib/ceControlDisplay'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
-import ModuleContract from '../../components/module/ModuleContract'
+import ModuleContract, { containedNextAction } from '../../components/module/ModuleContract'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { PlanGate } from '../../components/PlanUsageCard'
 import { ceSummaryFigures } from '../../lib/ceSummary'
@@ -645,7 +645,7 @@ export default function WorkspaceCyberEssentialsPage() {
           /* The area template (18 Oct 2026): until every question is answered, the
              questionnaire IS the next action — one card, one button. */
           figures={ceSummaryFigures({ readiness, readinessLoaded: !loading && !error, notAssessed: readinessIsNotAssessed(readiness), progress, controls, controlsError })}
-          nextAction={!readiness?.containment_reason && progress.total > 0 && progress.answered < progress.total ? {
+          nextAction={readiness?.containment_reason ? containedNextAction(readiness.summary) : progress.total > 0 && progress.answered < progress.total ? {
             title: progress.answered === 0 ? 'Answer the readiness questionnaire' : 'Finish the readiness questionnaire',
             body: `${progress.answered} of ${progress.total} questions answered. Your answers are self-declared and combine with external evidence for readiness guidance.`,
             label: 'Start questionnaire',

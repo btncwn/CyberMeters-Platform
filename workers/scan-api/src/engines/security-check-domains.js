@@ -349,6 +349,23 @@ function completeDomainDespiteUnrelatedPhase(report, domain, skippedSet) {
 }
 
 /**
+ * Each actionable finding id's own recorded severity, from the same projected
+ * findings the resolver reads (the highest if an id repeats). For read routes that
+ * label a single finding; deliberately not on the resolver rows, which report
+ * snapshots freeze verbatim.
+ * @returns {Map<string, string>}
+ */
+export function findingSeveritiesById(report) {
+  const severities = new Map();
+  for (const f of projectTlsFindingsForCustomer(report?.findings, report?.modules)) {
+    const severity = String(f?.severity || "").toLowerCase();
+    if (!f?.id || !isActionableFinding(f) || SEV_RANK[severity] == null) continue;
+    if (!severities.has(f.id) || SEV_RANK[severity] > SEV_RANK[severities.get(f.id)]) severities.set(f.id, severity);
+  }
+  return severities;
+}
+
+/**
  * resolveSecurityCheckDomainStates — the canonical eight-domain resolver.
  * @param {object} report  the R2 scan report (modules + findings + scan_quality). May be null.
  * @param {object} [opts.cyberEssentials]  optional CE readiness output ({grade,status,top_gaps,limitations}).

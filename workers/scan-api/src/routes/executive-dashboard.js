@@ -6,7 +6,7 @@
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { readShadowItInventoryCounts, withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
 export { withShadowItInventoryCount } from "../engines/shadow-it-inventory-count.js";
-import { resolveSecurityCheckDomainStates } from "../engines/security-check-domains.js";
+import { findingSeveritiesById, resolveSecurityCheckDomainStates } from "../engines/security-check-domains.js";
 import { resolveRemediation } from "../engines/remediation-registry.js";
 import { evidenceFreshness } from "../engines/security-check-state-history.js";
 import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
@@ -25,18 +25,25 @@ import {
 // evidenceFreshness the portfolio matrix uses) so a screen never has to
 // compute staleness itself. Not a posture verdict; a stale healthy must read
 // as stale, never as a current all-clear.
-export function withEvidenceFreshness(domains) {
+// A finding's own severity and the Cyber Essentials containment reason are added
+// here, not on the resolver rows, because report snapshots freeze those verbatim.
+export function withEvidenceFreshness(domains, { findingSeverities = null, ceContainmentReason = null } = {}) {
   return domains.map((d) => {
     const f = evidenceFreshness(d.last_assessed_at ?? null);
     const finding_details = (d.finding_ids || []).map((finding_id) => {
       const remediation = resolveRemediation({ finding_type: finding_id, domain_key: d.domain_key });
+      const severity = findingSeverities?.get(finding_id) ?? null;
       return remediation.status === "resolved" && remediation.applicable !== false
-        ? { finding_id, status: "resolved", customer_title: remediation.customer_title,
+        ? { finding_id, severity, status: "resolved", customer_title: remediation.customer_title,
             recommended_action: remediation.recommended_action, owner_type: remediation.owner_type,
             verification_method: remediation.verification_method }
-        : { finding_id, status: "unmapped" };
+        : { finding_id, severity, status: "unmapped" };
     });
-    return { ...d, evidence_freshness: f.freshness, evidence_age_days: f.age_days, freshness_reason: f.reason, finding_details };
+    return {
+      ...d,
+      evidence_freshness: f.freshness, evidence_age_days: f.age_days, freshness_reason: f.reason, finding_details,
+      ...(d.domain_key === "cyber_essentials_readiness" && ceContainmentReason ? { containment_reason: ceContainmentReason } : {}),
+    };
   });
 }
 
@@ -82,7 +89,10 @@ export async function executiveDashboardRoutes(rctx) {
         // count of "technologies".
         const inventoryCount = await readShadowItInventoryCounts(env.cybermeters_db, wsId);
         const domains = withShadowItInventoryCount(
-          withEvidenceFreshness(resolveSecurityCheckDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap })),
+          withEvidenceFreshness(resolveSecurityCheckDomainStates(report, { scanId: sourceScanId, cyberEssentials: ceSnap }), {
+            findingSeverities: findingSeveritiesById(report),
+            ceContainmentReason: ceSnap?.containment_reason ?? null,
+          }),
           inventoryCount, Boolean(sourceScanId),
         );
         return json({

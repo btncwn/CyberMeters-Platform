@@ -33,6 +33,78 @@ describe('buildNextActions', () => {
     expect(rows.find((r) => r.key === 'email-dmarc-policy').action).toEqual({ label: 'Review DMARC policy steps', to: '/ws/email-protection?tab=settings#dmarc-enforcement' })
   })
 
+  describe('a row carries the severity of its own findings', () => {
+    const rated = (finding_id, customer_title, severity) => ({ ...mapped(finding_id, customer_title), severity })
+    const email = (finding_details, highest_severity = 'high') => eight({
+      email_protection: row('email_protection', 'issue_detected', { highest_severity, finding_count: finding_details.length, finding_details }),
+    })
+
+    it('a low MTA-STS stays low and after a high DMARC finding', () => {
+      const rows = buildNextActions({ domains: email([
+        rated('email_intel_mta_sts_missing', 'Enable MTA-STS', 'low'), rated('email_missing_dmarc', 'Publish a DMARC policy', 'high'),
+      ]) })
+      expect(rows.map((r) => [r.key, r.severity])).toEqual([['email-findings', 'high'], ['email-mta-sts', 'low']])
+    })
+
+    it('a low MTA-STS sorts after another area’s high finding and a low-priority row keeps its place', () => {
+      const domains = eight({
+        email_protection: row('email_protection', 'issue_detected', { highest_severity: 'low', finding_count: 1, finding_details: [rated('email_intel_mta_sts_missing', 'Enable MTA-STS', 'low')] }),
+        certificates_trust: row('certificates_trust', 'issue_detected', { highest_severity: 'high', finding_count: 1, finding_details: [rated('ssl_expiring', 'Renew the certificate', 'high')] }),
+      })
+      expect(buildNextActions({ domains }).map((r) => r.key)).toEqual(['certificates_trust-findings', 'email-mta-sts'])
+    })
+
+    it('a genuinely high MTA-STS finding keeps its own rating', () => {
+      const rows = buildNextActions({ domains: email([rated('email_intel_mta_sts_missing', 'Enable MTA-STS', 'high')]) })
+      expect(rows[0]).toMatchObject({ key: 'email-mta-sts', severity: 'high' })
+    })
+
+    it('a grouped row is titled by, and rated as, its most severe finding', () => {
+      const rows = buildNextActions({ domains: eight({
+        certificates_trust: row('certificates_trust', 'issue_detected', { highest_severity: 'high', finding_count: 2, finding_details: [
+          rated('a_low', 'The low one', 'low'), rated('b_high', 'The high one', 'high'),
+        ] }),
+      }) })
+      expect(rows[0]).toMatchObject({ title: 'The high one', severity: 'high', more: 1 })
+    })
+
+    it('an older API without per-finding severity never lends the area rating to a partial row', () => {
+      const rows = buildNextActions({ domains: email([
+        mapped('email_intel_mta_sts_missing', 'Enable MTA-STS'), mapped('email_missing_dmarc', 'Publish a DMARC policy'),
+      ]) })
+      expect(rows.map((r) => [r.key, r.severity])).toEqual([['email-findings', null], ['email-mta-sts', null]])
+    })
+
+    it('an unknown severity value is not shown; the area rating still labels a row covering the whole area', () => {
+      const rows = buildNextActions({ domains: email([rated('email_intel_mta_sts_missing', 'Enable MTA-STS', 'bogus')], 'low') })
+      expect(rows[0]).toMatchObject({ key: 'email-mta-sts', severity: 'low' })
+    })
+
+    it('an unmapped finding beside a mapped one does not lend its rating to the mapped row', () => {
+      const rows = buildNextActions({ domains: email([
+        rated('email_intel_mta_sts_missing', 'Enable MTA-STS', 'low'), { finding_id: 'x', status: 'unmapped', severity: 'high' },
+      ]) })
+      expect(rows[0]).toMatchObject({ key: 'email-mta-sts', severity: 'low' })
+    })
+  })
+
+  describe('Cyber Essentials containment', () => {
+    const contained = row('cyber_essentials_readiness', 'evidence_insufficient', { containment_reason: 'workspace_multi_domain_not_aggregatable' })
+
+    it('a contained area is not offered a scan; other areas keep theirs', () => {
+      expect(buildNextActions({ domains: eight({ cyber_essentials_readiness: contained }) })).toEqual([])
+      const rows = buildNextActions({ domains: eight({ cyber_essentials_readiness: contained, identity_exposure: row('identity_exposure', 'evidence_insufficient') }) })
+      const scan = rows.find((r) => r.key === 'scan')
+      expect(scan.body).toMatch(/Identity Exposure/)
+      expect(scan.body).not.toMatch(/Cyber Essentials/)
+    })
+
+    it('without containment, an unestablished area still asks for a scan', () => {
+      const rows = buildNextActions({ domains: eight({ cyber_essentials_readiness: row('cyber_essentials_readiness', 'evidence_insufficient') }) })
+      expect(rows.find((r) => r.key === 'scan').body).toMatch(/Cyber Essentials/)
+    })
+  })
+
   it('Shadow IT classification and DMARC reporting come from their own signals', () => {
     const rows = buildNextActions({ domains: eight(), unclassified: 7, dmarcConnected: false })
     expect(rows.find((r) => r.key === 'shadow-it-classify')).toMatchObject({ title: '7 technologies not yet classified', action: { label: 'Classify', to: '/ws/shadow-it' } })
