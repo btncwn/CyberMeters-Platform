@@ -728,8 +728,12 @@ const parity = states.map(parityOutputs);
 // Mail transport records (31 Oct 2026): the technical PDF gains one section stating
 // MTA-STS and TLS-RPT, so only F13 moves. With ONLY pdf.js reverted the previous
 // hash (c9d2c2e1…) reproduces across all five SAN states; F14 is unchanged.
-const GOLDEN_F13 = "87d7c2e9ca52b1d8132b609a76d536bcf31e1d9acf372b9756b5a4221900982b";
-const GOLDEN_F14 = "70589c759fedc06cd3991e8f717e29f51568197124f6c907b0299206f458d3d0";
+// Open-case counting (2 Nov 2026): this case-free certificate fixture changes
+// only the builder stamp (2026-10-30.1 -> 2026-11-02.1). Reverting ONLY
+// that stamp reproduces both preceding goldens across all five SAN states
+// (30/30). Certificate evidence is byte-identical; no mutant is weakened.
+const GOLDEN_F13 = "84fcaf5edf8f92c449158b18e141cce3e8c059d2fb9a2e6ab3eba779f19693fe";
+const GOLDEN_F14 = "a82bdf7fa24aa38383225b80716f8929a023596524bc9cc4438b09a61d5e26e6";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
