@@ -42,7 +42,7 @@ import { buildCyberEssentialsReadiness, getCyberEssentialsSnapshot } from "./ce-
 import { CE_QUESTION_SET_VERSION } from "../lib/cyber-essentials.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { findingRemediation, getRemediationById, remediationRegistryFingerprint } from "./remediation-registry.js";
-import { verificationSupportForMethod } from "./managed-case-model.js";
+import { verificationSupportForMethod, canonicalPhaseFor, CANONICAL_TERMINAL_STATES } from "./managed-case-model.js";
 import { SECURITY_CHECK_DOMAINS } from "./security-check-domains.js";
 import { createId } from "../lib/util.js";
 import { normalizeSignalMonitoringStates } from "./signal-monitoring-state.js";
@@ -76,7 +76,9 @@ export const SNAPSHOT_SCHEMA_VERSION = "1";
 // scan; counts, codes and times only). Additive: older snapshots keep their bytes.
 // 2026-10-30.1 carries canonical Email monitoring provenance into domain grades:
 // incomplete supplementary evidence caps the composite at L0; primary verdicts stay unchanged.
-export const SNAPSHOT_BUILDER_VERSION = "2026-10-30.1";
+// 2026-11-02.1 counts current workflow using canonical case phases: verified,
+// monitoring and exceptional outcomes are retained, but are not open work.
+export const SNAPSHOT_BUILDER_VERSION = "2026-11-02.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 
 // Scan-finalize work that did not finish before THIS snapshot (P1 25 Oct 2026,
@@ -873,13 +875,22 @@ export function composeSnapshot({
   for (const c of rows) {
     if (c.finding_id && !caseByFindingId.has(c.finding_id)) caseByFindingId.set(c.finding_id, c);
   }
+  // Existing remediation linkage is independent of the open-work count below:
+  // a verified case may still be the finding's linked historical case.
   const TERMINAL_CASE_STATUSES = new Set(["closed", "false_positive", "risk_accepted"]);
+  const NON_OPEN_CASE_PHASES = new Set([
+    ...CANONICAL_TERMINAL_STATES, "verified", "monitoring",
+    // Preserve the legacy raw aliases when the case type cannot be resolved.
+    "closed", "risk_accepted",
+  ]);
   const workflowByDomain = new Map();
   for (const c of rows) {
     if (!c.domain_key) continue;
     const w = workflowByDomain.get(c.domain_key) || { total_cases: 0, open_cases: 0, statuses: {} };
     w.total_cases += 1;
-    if (!TERMINAL_CASE_STATUSES.has(c.status)) w.open_cases += 1;
+    const phase = canonicalPhaseFor(c.case_type, c.status) ?? c.status;
+    // Unknown states remain open for review, never silently concluded.
+    if (!NON_OPEN_CASE_PHASES.has(phase)) w.open_cases += 1;
     w.statuses[c.status] = (w.statuses[c.status] || 0) + 1;
     workflowByDomain.set(c.domain_key, w);
   }
