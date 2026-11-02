@@ -19,6 +19,22 @@ const SEVERITY_WORD = { critical: 'Critical', high: 'High', medium: 'Medium', lo
 
 const isMtaSts = (id) => /mta_sts/i.test(String(id || ''))
 const isDmarcPolicy = (id) => /dmarc_(policy|reporting_only|partial)|weak_dmarc/i.test(String(id || ''))
+const severityRank = (detail) => SEVERITY_RANK[detail?.severity] ?? 5
+
+/** Findings with the most severe first; findings of unknown severity keep their order, last. */
+export function mostSevereFirst(details) {
+  return [...details].sort((a, b) => severityRank(a) - severityRank(b))
+}
+
+// A row carries the severity of its own findings. The area's highest severity is
+// only true of a row that covers every finding in the area, so an older API that
+// sends no per-finding severity never lends another finding's rating to a row.
+function rowSeverity(rowDetails, details, areaSeverity) {
+  const known = rowDetails.filter((d) => severityRank(d) < 5)
+  if (known.length === rowDetails.length) return mostSevereFirst(known)[0]?.severity ?? null
+  if (rowDetails.length === details.length) return areaSeverity
+  return mostSevereFirst(known)[0]?.severity ?? null
+}
 
 /** The ordered rows. Pure: tested on its own. */
 export function buildNextActions({ domains = [], request = 'ok', unclassified = null, dmarcConnected = null, mcp = null } = {}) {
@@ -32,21 +48,23 @@ export function buildNextActions({ domains = [], request = 'ok', unclassified = 
     const severity = SEVERITY_RANK[entry.highest_severity] != null ? entry.highest_severity : null
     const base = { area: module.title, domainKey: module.domainKey, severity, evidence: entry.state }
     const details = Array.isArray(entry.finding_details) ? entry.finding_details : []
-    const mapped = details.filter((d) => d?.status === 'resolved' && d.customer_title)
+    const mapped = mostSevereFirst(details.filter((d) => d?.status === 'resolved' && d.customer_title))
     if (module.domainKey === 'email_protection') {
       const mta = mapped.find((d) => isMtaSts(d.finding_id))
-      if (mta) rows.push({ ...base, key: 'email-mta-sts', title: 'Set up MTA-STS', body: mta.recommended_action, action: { label: 'Set up MTA-STS', to: '/ws/email-protection?tab=settings#mta-sts-setup' } })
       const policy = mapped.find((d) => isDmarcPolicy(d.finding_id))
-      if (policy) rows.push({ ...base, key: 'email-dmarc-policy', title: policy.customer_title, body: policy.recommended_action, action: { label: 'Review DMARC policy steps', to: '/ws/email-protection?tab=settings#dmarc-enforcement' } })
+      if (policy) rows.push({ ...base, severity: rowSeverity([policy], details, severity), key: 'email-dmarc-policy', title: policy.customer_title, body: policy.recommended_action, action: { label: 'Review DMARC policy steps', to: '/ws/email-protection?tab=settings#dmarc-enforcement' } })
       const rest = mapped.filter((d) => d !== mta && d !== policy)
-      if (rest.length) rows.push({ ...base, key: 'email-findings', title: rest[0].customer_title, body: rest[0].recommended_action, more: rest.length - 1, action: { label: 'View fix', to: `${module.to}?tab=findings` } })
+      if (rest.length) rows.push({ ...base, severity: rowSeverity(rest, details, severity), key: 'email-findings', title: rest[0].customer_title, body: rest[0].recommended_action, more: rest.length - 1, action: { label: 'View fix', to: `${module.to}?tab=findings` } })
+      // Added last: MTA-STS builds on SPF, DKIM and DMARC, so it never leads an equal rating.
+      if (mta) rows.push({ ...base, severity: rowSeverity([mta], details, severity), key: 'email-mta-sts', title: 'Set up MTA-STS', body: mta.recommended_action, action: { label: 'Set up MTA-STS', to: '/ws/email-protection?tab=settings#mta-sts-setup' } })
     } else if (mapped.length) {
-      rows.push({ ...base, key: `${module.domainKey}-findings`, title: mapped[0].customer_title, body: mapped[0].recommended_action, more: mapped.length - 1, action: { label: 'View fix', to: `${module.to}?tab=findings` } })
+      rows.push({ ...base, severity: rowSeverity(mapped, details, severity), key: `${module.domainKey}-findings`, title: mapped[0].customer_title, body: mapped[0].recommended_action, more: mapped.length - 1, action: { label: 'View fix', to: `${module.to}?tab=findings` } })
     }
     if (!mapped.length && (entry.finding_count ?? 0) > 0) {
       rows.push({ ...base, key: `${module.domainKey}-unmapped`, title: `Review the findings in ${module.title}`, body: 'No registered remediation is mapped for these findings yet, so none is invented here.', action: { label: 'Review findings', to: `${module.to}?tab=findings` } })
     }
-    if (NEEDS_SCAN.has(String(entry.state || '').toLowerCase()) || entry.evidence_freshness === 'stale') needsScan.push(module.title)
+    // A multi-domain workspace is a structural limit on Cyber Essentials: a scan cannot lift it.
+    if (!entry.containment_reason && (NEEDS_SCAN.has(String(entry.state || '').toLowerCase()) || entry.evidence_freshness === 'stale')) needsScan.push(module.title)
   }
   if (Number.isFinite(unclassified) && unclassified > 0) {
     rows.push({ area: 'Shadow IT & Unmanaged Technology', domainKey: 'shadow_it_unmanaged_technology', severity: 'low', evidence: 'provisional', key: 'shadow-it-classify', title: `${unclassified} technolog${unclassified === 1 ? 'y' : 'ies'} not yet classified`, body: 'Approve, reject or record an exception for each, so CyberMeters knows what you expect to see.', action: { label: 'Classify', to: '/ws/shadow-it' } })
