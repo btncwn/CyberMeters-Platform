@@ -91,7 +91,7 @@ const EXPECTED_ARM2_MUTANT_IDS = Object.freeze([
 const EXPECTED_ARM2_MUTANT_COUNT = 39;
 const EXPECTED_ARM2_MUTATION_CASE_COUNT = 40;
 const EXPECTED_ARM2_MUTATION_REPLACEMENT_COUNT = 41;
-const EXPECTED_VALIDATOR_ASSERTIONS = 130;
+const EXPECTED_VALIDATOR_ASSERTIONS = 133;
 const EXPECTED_CUSTOMER_PARITY_ASSERTIONS = 258;
 const EXPECTED_PORTFOLIO_ASSERTIONS = 81;
 const EXPECTED_HARNESS_SAFETY_ASSERTIONS = 3;
@@ -157,6 +157,7 @@ const EXPECTED_FAILURES = Object.freeze({
     "SQLite UTC and equivalent zoned ISO share epoch",
     "SQLite timestamp canonicalises to UTC",
     "sqlite_space_timestamp_is_utc_across_sql_worker_node",
+    "D1-bounded timestamp SQL preserves all six shapes and parser refusals",
     "mixed-format replay preserves supported reappearance",
     "mixed_format_replay_preserves_supported_reappearance",
   ],
