@@ -60,12 +60,18 @@ const SQLITE_UTC = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d{3})
 // accepts formats and normalisations that the frozen Worker parser rejects.
 export function lifecycleTimestampValiditySql(columnExpression) {
   const value = `CAST(${columnExpression} AS TEXT)`;
-  const sqliteSeconds = `(${value} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]')`;
-  const sqliteMillis = `(${value} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]')`;
-  const isoZuluSeconds = `(${value} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z')`;
-  const isoZuluMillis = `(${value} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z')`;
-  const isoOffsetSeconds = `(${value} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9][+-][0-9][0-9]:[0-9][0-9]')`;
-  const isoOffsetMillis = `(${value} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][+-][0-9][0-9]:[0-9][0-9]')`;
+  // D1 limits each LIKE/GLOB pattern to 50 bytes. Match fixed-width pieces,
+  // retaining the same digit/separator envelope and exact total lengths.
+  const dateShape = `(substr(${value}, 1, 10) GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')`;
+  const timeShape = `(substr(${value}, 12, 8) GLOB '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]')`;
+  const millisShape = `(substr(${value}, 20, 4) GLOB '.[0-9][0-9][0-9]')`;
+  const sqliteSeconds = `(length(${value}) = 19 AND substr(${value}, 11, 1) = ' ')`;
+  const sqliteMillis = `(length(${value}) = 23 AND substr(${value}, 11, 1) = ' ' AND ${millisShape})`;
+  const isoZuluSeconds = `(length(${value}) = 20 AND substr(${value}, 11, 1) = 'T' AND substr(${value}, 20, 1) = 'Z')`;
+  const isoZuluMillis = `(length(${value}) = 24 AND substr(${value}, 11, 1) = 'T' AND ${millisShape} AND substr(${value}, 24, 1) = 'Z')`;
+  const offsetShape = `(substr(${value}, -6, 6) GLOB '[+-][0-9][0-9]:[0-9][0-9]')`;
+  const isoOffsetSeconds = `(length(${value}) = 25 AND substr(${value}, 11, 1) = 'T' AND ${offsetShape})`;
+  const isoOffsetMillis = `(length(${value}) = 29 AND substr(${value}, 11, 1) = 'T' AND ${millisShape} AND ${offsetShape})`;
   const isOffset = `(length(${value}) IN (25,29) AND substr(${value}, -6, 1) IN ('+','-'))`;
   const offsetHour = `CAST(substr(${value}, -5, 2) AS INTEGER)`;
   const offsetMinute = `CAST(substr(${value}, -2, 2) AS INTEGER)`;
@@ -77,6 +83,7 @@ export function lifecycleTimestampValiditySql(columnExpression) {
   const second = `CAST(substr(${value}, 18, 2) AS INTEGER)`;
   const lastDay = `CAST(strftime('%d', date(substr(${value}, 1, 7) || '-01', '+1 month', '-1 day')) AS INTEGER)`;
   return `(typeof(${columnExpression}) = 'text'
+    AND ${dateShape} AND ${timeShape}
     AND (${sqliteSeconds} OR ${sqliteMillis} OR ${isoZuluSeconds} OR ${isoZuluMillis}
       OR ${isoOffsetSeconds} OR ${isoOffsetMillis})
     AND ${year} >= 1

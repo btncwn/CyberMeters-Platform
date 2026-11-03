@@ -100,6 +100,59 @@ if (support) {
     sqlEpoch("2026-08-03 10:00:01.000"), sqlite.epoch_ms);
   eq("zoned_timestamp_epoch_matches_sql_and_worker",
     sqlEpoch("2026-08-03T11:00:01.000+01:00"), zoned.epoch_ms);
+
+  // Node SQLite permits longer patterns than D1. Enforce D1's 50-byte cap
+  // while delegating matching itself to a separate, unmodified SQLite engine.
+  const nativeGlobDb = new DatabaseSync(":memory:");
+  const nativeGlob = nativeGlobDb.prepare("SELECT ? GLOB ? AS matched");
+  timestampDb.function("glob", { deterministic: true }, (pattern, value) => {
+    if (Buffer.byteLength(pattern, "utf8") > 50) {
+      throw new Error("LIKE or GLOB pattern too complex");
+    }
+    return nativeGlob.get(value, pattern).matched;
+  });
+  let longGlobRejected = false;
+  try { timestampDb.prepare("SELECT 'x' GLOB ?").get("?".repeat(51)); }
+  catch { longGlobRejected = true; }
+  ok("timestamp fixture enforces D1's actual GLOB limit", longGlobRejected);
+  eq("timestamp fixture accepts the GLOB boundary",
+    timestampDb.prepare("SELECT ? GLOB ? AS matched").get("x".repeat(50), "?".repeat(50)).matched, 1);
+
+  const timestampStatement = timestampDb.prepare(
+    `SELECT ${support.lifecycleTimestampValiditySql("value")} AS valid FROM (SELECT ? AS value)`,
+  );
+  const acceptedShapes = [
+    "2026-08-03 10:00:01", "2026-08-03 10:00:01.000",
+    "2026-08-03T10:00:01Z", "2026-08-03T10:00:01.000Z",
+    "2026-08-03T11:00:01+01:00", "2026-08-03T11:00:01.000+01:00",
+  ];
+  const timestampCorpus = new Set([
+    ...acceptedShapes, null, 123,
+    "0000-01-01 00:00:00", "2024-02-29T00:00:00Z", "2026-02-29T00:00:00Z",
+    "2026-08-03T10:00:01+14:00", "2026-08-03T10:00:01-14:00",
+    "2026-08-03T10:00:01+14:01", "2026-08-03T10:00:01+15:00",
+    "2026-08-03T24:00:00Z", "2026-08-03T10:00:60Z",
+  ]);
+  for (const value of acceptedShapes) {
+    timestampCorpus.add(` ${value}`);
+    timestampCorpus.add(`${value} `);
+    for (let i = 0; i < value.length; i += 1) {
+      for (const replacement of ["x", "0", "9", " ", "T", "Z", "+", "−"]) {
+        timestampCorpus.add(value.slice(0, i) + replacement + value.slice(i + 1));
+      }
+    }
+  }
+  const timestampMismatches = [];
+  for (const value of timestampCorpus) {
+    try {
+      const actual = timestampStatement.get(value).valid === 1;
+      if (actual !== ts(value).valid) timestampMismatches.push({ value, actual });
+    } catch (error) { timestampMismatches.push({ value, error: error.message }); }
+  }
+  eq("D1-bounded timestamp SQL preserves all six shapes and parser refusals",
+    timestampMismatches, []);
+  console.log(`D1_TIMESTAMP_CORPUS=${timestampCorpus.size}`);
+  nativeGlobDb.close();
   timestampDb.close();
   for (const invalid of [
     "2026-02-30 10:00:00",
