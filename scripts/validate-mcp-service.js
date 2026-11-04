@@ -248,7 +248,7 @@ test("two real tenant rows enforce binding, membership, revocation, budget, and 
         description TEXT, metadata_json TEXT, created_at TEXT);
       CREATE TABLE workspace_domains (workspace_id TEXT NOT NULL, domain_id TEXT NOT NULL);
       CREATE TABLE managed_cases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
-        status TEXT NOT NULL);
+        case_type TEXT, status TEXT NOT NULL);
       CREATE TABLE scans (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
         domain TEXT, domain_id TEXT, status TEXT NOT NULL, score INTEGER,
         rating TEXT, scan_quality TEXT, created_at TEXT);
@@ -273,6 +273,7 @@ test("two real tenant rows enforce binding, membership, revocation, budget, and 
         const prepared = sql.prepare(statement);
         return {
           async first() { return prepared.get(...values) ?? null; },
+          async all() { return { results: prepared.all(...values) }; },
           async run() { return { meta: { changes: prepared.run(...values).changes } }; },
         };
       } };
