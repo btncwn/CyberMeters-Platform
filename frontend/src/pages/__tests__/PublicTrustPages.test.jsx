@@ -27,7 +27,7 @@ describe('Founder and public assurance pages', () => {
   it('shows the latest complete own-domain assessment, dated, separate from the illustrative landing score', () => {
     mount(TrustPage)
     expect(screen.getByText('cybermeters.com', { exact: true })).toBeInTheDocument()
-    expect(screen.getByText('28 October 2026 at 21:22 UTC')).toHaveAttribute('dateTime', '2026-10-28T21:22:43.000Z')
+    expect(screen.getByText('3 November 2026 at 23:39 UTC')).toHaveAttribute('dateTime', '2026-11-03T23:39:27.000Z')
     expect(screen.queryByText('21 October 2026 at 18:45 UTC')).not.toBeInTheDocument()
     expect(screen.getByText('100 out of 100')).toBeInTheDocument()
     expect(screen.getByText(/^Complete — every planned check/)).toBeInTheDocument()

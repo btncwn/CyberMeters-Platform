@@ -5,7 +5,7 @@
 // can never quietly go stale again.
 export const OWN_DOMAIN_SUMMARY = Object.freeze({
   domain: 'cybermeters.com',
-  measuredAt: '2026-10-28T21:22:43.000Z',
+  measuredAt: '2026-11-03T23:39:27.000Z',
   score: 100,
   coverage: 'complete',
 })
