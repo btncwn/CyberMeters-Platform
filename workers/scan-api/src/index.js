@@ -1,5 +1,5 @@
 import { handleMtaStsSelf, isMtaStsSelfHost } from "./routes/mta-sts-self.js";
-import { handleSiteProof, isSiteProofHost } from "./routes/site-proof.js";
+const RETIRED_PROOF_HOST = "sheshire.co.uk"; // retired proof site: apex kept bound only to answer 404 (wrangler.toml)
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { handleScanDispatchBatch, dispatchAdmittedScan, isScheduledQueueDispatchMode } from "./engines/scan-dispatch.js";
@@ -2736,8 +2736,8 @@ const scanApi = {
     // mta-sts.cybermeters.com serves one policy file and nothing else; it is
     // checked before any API routing (routes/mta-sts-self.js).
     if (isMtaStsSelfHost(url)) return handleMtaStsSelf(request, env);
-    // sheshire.co.uk apex: one temporary live-proof site (routes/site-proof.js).
-    if (isSiteProofHost(url)) return handleSiteProof(request, env);
+    // Retired sheshire.co.uk proof site: every request on the apex is a bare 404, before any API route.
+    if (url.hostname.toLowerCase() === RETIRED_PROOF_HOST) return new Response("Not found\n", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
     // Build CORS headers once per request, honouring the ALLOWED_ORIGIN binding.
     const corsHeaders = buildRequestCorsHeaders(
       request.headers.get("Origin"),

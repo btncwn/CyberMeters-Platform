@@ -218,7 +218,8 @@ ok("wrangler.toml declares a custom_domain route (the thing that makes a hostnam
 // fetch handler must test the host as the very first thing after parsing the URL.
 const NON_API_HOSTS = Object.freeze({
   "mta-sts.cybermeters.com": "    if (isMtaStsSelfHost(url)) return handleMtaStsSelf(request, env);",
-  "sheshire.co.uk": "    if (isSiteProofHost(url)) return handleSiteProof(request, env);",
+  // Retired proof site: still bound only so the apex answers a bare 404.
+  "sheshire.co.uk": "    if (url.hostname.toLowerCase() === RETIRED_PROOF_HOST) return new Response(\"Not found\\n\", { status: 404,",
 });
 const workerIndex = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
 const fetchHead = workerIndex.slice(workerIndex.indexOf("async fetch(request, env, ctx) {")).split("\n").slice(1, 8).join("\n");
@@ -226,6 +227,25 @@ for (const [host, guard] of Object.entries(NON_API_HOSTS)) {
   if (!customDomains.includes(host)) continue;
   ok(`${host} is cut off before any API route`, fetchHead.includes("const url = new URL(request.url);") && fetchHead.includes(guard),
      `${host} is a custom domain but the fetch handler does not short-circuit it first`);
+}
+// The retired proof site stays retired: the guard names exactly that host, the
+// route module is gone, and no source/config still reads a SITE_PROOF_* switch,
+// credential or session key.
+if (customDomains.includes("sheshire.co.uk")) {
+  ok("sheshire.co.uk guard is pinned to that exact host",
+     workerIndex.includes('const RETIRED_PROOF_HOST = "sheshire.co.uk";'),
+     "RETIRED_PROOF_HOST must name sheshire.co.uk exactly");
+}
+ok("the retired proof-site route module does not exist",
+   !fs.existsSync(path.join(root, "workers", "scan-api", "src", "routes", "site-proof.js")),
+   "workers/scan-api/src/routes/site-proof.js is back");
+{
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
+    d.isDirectory() ? walk(path.join(dir, d.name)) : [path.join(dir, d.name)]);
+  const leaks = [...walk(path.join(root, "workers", "scan-api", "src")), path.join(root, "workers", "scan-api", "wrangler.toml")]
+    .filter((f) => /SITE_PROOF_|cm_proof_session|isSiteProofHost|handleSiteProof/.test(fs.readFileSync(f, "utf8")));
+  ok("no Worker source or config references the retired proof site's switches, credentials or session",
+     leaks.length === 0, leaks.map((f) => path.relative(root, f)).join(", "));
 }
 const apiHosts = customDomains.filter((host) => !(host in NON_API_HOSTS));
 ok("wrangler.toml declares exactly one canonical API host",
