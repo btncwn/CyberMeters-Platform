@@ -67,9 +67,11 @@ custom_domain = true
 pattern = "mta-sts.cybermeters.com"
 custom_domain = true
 
-# TEMPORARY (S2-5 Website/CE live proof, founder-authorised 21 Oct 2026): the
-# sheshire.co.uk apex serves one static, clearly marked CyberMeters test page
-# (routes/site-proof.js). Apex only. Remove after the proof.
+# RETIRED proof site (5 Nov 2026). The sheshire.co.uk apex no longer serves any
+# page, form or sign-in: the Worker answers every request on it with a bare 404
+# before any API route (src/index.js, RETIRED_PROOF_HOST). The binding is kept
+# only so the apex returns that 404 instead of failing at DNS/edge; delete this
+# block and that guard together when the apex is released.
 [[routes]]
 pattern = "sheshire.co.uk"
 custom_domain = true
