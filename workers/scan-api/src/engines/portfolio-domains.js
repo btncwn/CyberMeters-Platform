@@ -170,18 +170,20 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
     // 4. The overall score/rating of the latest COMPLETE scan per (workspace, domain).
     //    scan_quality='complete' only — a partial scan never establishes a rating
     //    (partial-scan honesty); the row still renders, with no score and a reason.
+    //    Attributed by the scan's OWN workspace before ranking: a co-linked domain
+    //    must never let another tenant's newer scan be ranked (or shown) here.
     db.prepare(
       `SELECT workspace_id, domain_id, scan_id, score, rating, scan_quality, created_at
        FROM (
-         SELECT wd.workspace_id, s.domain_id, s.id AS scan_id, s.score, s.rating,
+         SELECT s.workspace_id, s.domain_id, s.id AS scan_id, s.score, s.rating,
                 s.scan_quality, s.created_at,
                 ROW_NUMBER() OVER (
-                  PARTITION BY wd.workspace_id, s.domain_id
+                  PARTITION BY s.workspace_id, s.domain_id
                   ORDER BY s.created_at DESC, s.id DESC
                 ) AS rn
          FROM scans s
-         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-         WHERE wd.workspace_id IN (${wsIn})
+         JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+         WHERE s.workspace_id IN (${wsIn})
            AND s.status = 'completed' AND s.scan_quality = 'complete'
        ) WHERE rn = 1`
     ).bind(...workspaceIds).all(),

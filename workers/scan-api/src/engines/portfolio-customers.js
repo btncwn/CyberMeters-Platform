@@ -70,18 +70,27 @@ export async function readPortfolioWorkspaceSources(db, workspaceIds, sources = 
   return output;
 }
 
-// Deterministic "latest completed scan per domain" CTE body. Selecting on
-// MAX(created_at) alone double-counts a domain when two completed scans share the
-// SAME timestamp (both match `created_at = mx`). Ranking by (created_at DESC, id
-// DESC) and taking rn=1 picks EXACTLY ONE scan per domain — the scan id is the
-// deterministic tie-break. Consumers write:
-//   `WITH ${LATEST_SCAN_CTE} SELECT ... JOIN lpd ON lpd.scan_id = s.id`
+// Deterministic "latest completed scan per (owner workspace, domain)" CTE body.
+// Selecting on MAX(created_at) alone double-counts a domain when two completed
+// scans share the SAME timestamp (both match `created_at = mx`). Ranking by
+// (created_at DESC, id DESC) and taking rn=1 picks EXACTLY ONE scan per partition
+// — the scan id is the deterministic tie-break.
+//
+// Tenant isolation: one domain_id may be linked to several workspaces
+// (workspace_domains PK is (workspace_id, domain_id)). The ranking is therefore
+// partitioned by the scan's OWN workspace_id, never by domain alone: a globally
+// newest foreign scan must neither be attributed to a co-linked workspace nor
+// displace that workspace's own older scan. NULL owner = unknown, never ranked.
+// Consumers write:
+//   `WITH ${LATEST_SCAN_CTE} SELECT ... JOIN lpd ON lpd.scan_id = s.id
+//    JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+//    WHERE s.workspace_id IN (...)`
 // Shared by portfolio.js (overview) and the queries below so both agree.
 export const LATEST_SCAN_CTE = `lpd AS (
-    SELECT scan_id, domain_id FROM (
-      SELECT id AS scan_id, domain_id,
-             ROW_NUMBER() OVER (PARTITION BY domain_id ORDER BY created_at DESC, id DESC) AS rn
-      FROM scans WHERE status='completed'
+    SELECT scan_id, workspace_id, domain_id FROM (
+      SELECT id AS scan_id, workspace_id, domain_id,
+             ROW_NUMBER() OVER (PARTITION BY workspace_id, domain_id ORDER BY created_at DESC, id DESC) AS rn
+      FROM scans WHERE status='completed' AND workspace_id IS NOT NULL
     ) WHERE rn = 1
   )`;
 
@@ -103,29 +112,31 @@ export async function computePortfolioCustomerRows(db, workspaceIds, { env = nul
     { key: "brand_assets", sql: (wsIn) =>
       `SELECT workspace_id, COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id` },
     { key: "findings", sql: (wsIn) => `WITH ${LATEST_SCAN_CTE}
-       SELECT wd.workspace_id, f.severity, COUNT(*) AS cnt
+       SELECT s.workspace_id, f.severity, COUNT(*) AS cnt
        FROM findings f JOIN scans s ON f.scan_id = s.id
        JOIN lpd ON lpd.scan_id = s.id
-       JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+       JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
        WHERE f.severity IN ('critical','high')
          AND ${visibleFindingSql("f", "s")}
-         AND wd.workspace_id IN (${wsIn})
-       GROUP BY wd.workspace_id, f.severity` },
+         AND s.workspace_id IN (${wsIn})
+       GROUP BY s.workspace_id, f.severity` },
     // Authoritative per-customer posture uses the latest COMPLETE scan per domain — a
     // partial/degraded latest never establishes the customer's rating (honesty).
+    // Ranked per (owner workspace, domain) — see LATEST_SCAN_CTE for why.
     { key: "scores", sql: (wsIn) => `WITH lcd AS (
          SELECT scan_id, domain_id FROM (
            SELECT id AS scan_id, domain_id,
-                  ROW_NUMBER() OVER (PARTITION BY domain_id ORDER BY created_at DESC, id DESC) AS rn
+                  ROW_NUMBER() OVER (PARTITION BY workspace_id, domain_id ORDER BY created_at DESC, id DESC) AS rn
            FROM scans WHERE status='completed' AND scan_quality='complete'
+             AND workspace_id IS NOT NULL
          ) WHERE rn = 1
        )
-       SELECT wd.workspace_id, s.id AS scan_id, s.score, s.rating,
+       SELECT s.workspace_id, s.id AS scan_id, s.score, s.rating,
               s.scan_quality, s.created_at
        FROM scans s JOIN lcd ON lcd.scan_id = s.id
-       JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-       WHERE s.score IS NOT NULL AND wd.workspace_id IN (${wsIn})
-       ORDER BY wd.workspace_id, s.created_at DESC` },
+       JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+       WHERE s.score IS NOT NULL AND s.workspace_id IN (${wsIn})
+       ORDER BY s.workspace_id, s.created_at DESC` },
     { key: "reports", sql: (wsIn) =>
       `SELECT workspace_id, MAX(generated_at) AS last_report_at FROM workspace_reports
        WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn}) GROUP BY workspace_id` },

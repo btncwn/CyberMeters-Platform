@@ -286,8 +286,8 @@ export async function getAssessmentContext(env, workspaceId) {
   const completeRow = await db
     .prepare(
       `SELECT COUNT(*) AS c FROM scans s
-         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-        WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.scan_quality = 'complete'`
+         JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+        WHERE s.workspace_id = ? AND s.status = 'completed' AND s.scan_quality = 'complete'`
     )
     .bind(workspaceId)
     .first()
@@ -295,8 +295,8 @@ export async function getAssessmentContext(env, workspaceId) {
   const latestRow = await db
     .prepare(
       `SELECT s.scan_quality AS q FROM scans s
-         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-        WHERE wd.workspace_id = ? AND s.status = 'completed'
+         JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+        WHERE s.workspace_id = ? AND s.status = 'completed'
         ORDER BY s.created_at DESC LIMIT 1`
     )
     .bind(workspaceId)

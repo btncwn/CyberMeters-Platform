@@ -113,14 +113,16 @@ async function loadLatestDomainEmailModules(env, workspaceId, domain) {
   try {
     if (!env.cybermeters_reports) return null;
     const scan = await env.cybermeters_db
+      // Only this workspace's OWN scans, chosen before the R2 key is derived. The
+      // former `OR wd.workspace_id = ?` domain-link branch let a co-linked
+      // workspace's newer scan supply this workspace's email modules.
       .prepare(`SELECT s.id
                 FROM scans s
-                LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
                 WHERE s.status = 'completed'
                   AND s.domain = ?
-                  AND (s.workspace_id = ? OR wd.workspace_id = ?)
+                  AND s.workspace_id = ?
                 ORDER BY s.created_at DESC LIMIT 1`)
-      .bind(domain, workspaceId, workspaceId).first();
+      .bind(domain, workspaceId).first();
     if (!scan?.id) return null;
     const obj = await env.cybermeters_reports.get(`reports/${scan.id}.json`);
     if (!obj) return null;
