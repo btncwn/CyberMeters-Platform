@@ -525,7 +525,13 @@ const EXPECTED = Object.freeze({
   // PDF authorised active checks (24 Oct 2026): the PDF route's frozen
   // tls_assessment read shifts later scans.js projection sites; the two-tree
   // --dump-current diff is identical ignoring line (24 projections, same snippets).
-  sql_reads: { projection_occurrences: 24, fingerprint: "e8f5f2414f611b4243fd5f709fa0161bec738317864a7c96ab8c95220e1d607d" },
+  // MCP open-case-count canonical fix (4 Nov 2026): projectMcpSummary's
+  // managed_cases open-work projection changed text — from the raw-status
+  // `SELECT COUNT(*) ... status NOT IN (...)` to the canonical-phase aggregate
+  // `SELECT case_type, status, COUNT(*) ... GROUP BY case_type, status`. Same
+  // projection SITE (still 24 projections, none added or removed); only the one
+  // snippet's text changed, so the fingerprint moves and the count is unchanged.
+  sql_reads: { projection_occurrences: 24, fingerprint: "b3d6ea0feadb699e4b9de70e17142a0a173d1eac4bd7bbbab9ba10f9d27fa7b5" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

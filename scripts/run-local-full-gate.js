@@ -61,6 +61,7 @@ const MCP_LOCAL_CHECKS = Object.freeze([
   "node --test workers/scan-api/test/mcp-oauth-admission.test.js",
   "node --test workers/scan-api/test/mcp-customer-service.test.js",
   "node --test workers/scan-api/test/mcp-read.test.js",
+  "node --test workers/scan-api/test/mcp-open-case-count.test.js",
   "node --test workers/scan-api/test/mcp-customer-status.test.js",
   "npm test --prefix workers/mcp-server",
 ]);

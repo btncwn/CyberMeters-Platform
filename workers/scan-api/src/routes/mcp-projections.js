@@ -6,7 +6,7 @@ import { resolveSecurityCheckDomainStates } from "../engines/security-check-doma
 import { readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { projectPhase5ScanRowsForCustomer } from "../engines/phase5-evidence.js";
 import {
-  CANONICAL_DOMAIN_KEYS, canonicalPhaseFor, caseTypeEntry,
+  CANONICAL_DOMAIN_KEYS, CANONICAL_TERMINAL_STATES, canonicalPhaseFor, caseTypeEntry,
   verificationSupportForCase,
 } from "../engines/managed-case-model.js";
 
@@ -22,6 +22,33 @@ const MAX_REPORT_BYTES = 2_000_000;
 const MAX_REPORT_READS = 16;
 const MAX_TOTAL_REPORT_BYTES = 8_000_000;
 const DOMAIN_KEYS = new Set(CANONICAL_DOMAIN_KEYS);
+
+// Workspace summary "open work" must equal the Operations / report-snapshot
+// workflow count, not raw non-terminal status. This mirrors report-snapshot.js's
+// 2026-11-02.1 contract exactly: a case's canonical phase is resolved per its
+// case_type (so legacy ASM/Brand/base status mappings are honoured), and
+// verified, monitoring and every canonical terminal/exceptional outcome are
+// retained records but NOT open work. The legacy raw aliases are preserved for a
+// case_type that cannot be resolved, and an unknown/empty/new phase stays OPEN —
+// it is never silently concluded. Keep this set in step with that contract.
+const NON_OPEN_CASE_PHASES = new Set([
+  ...CANONICAL_TERMINAL_STATES, "verified", "monitoring",
+  // Legacy raw aliases, kept non-open when the case_type cannot be resolved.
+  "closed", "risk_accepted",
+]);
+
+// Fold a workspace-scoped (case_type, status, count) aggregate onto the canonical
+// open-work count. The aggregate keeps the query bounded and parameterised while
+// giving a correct total regardless of row count (never a first-N partial).
+function openCaseCountFromAggregate(rows) {
+  let open = 0;
+  for (const row of rows) {
+    const n = safeCount(row?.n);
+    const phase = canonicalPhaseFor(row?.case_type, row?.status) ?? row?.status;
+    if (!NON_OPEN_CASE_PHASES.has(phase)) open += n;
+  }
+  return open;
+}
 
 // A list of scans must not need every full report. Plan the reads from object
 // metadata, newest row first: a report is admitted while the running total
@@ -257,17 +284,21 @@ export async function projectMcpSummary(env, grant, facts) {
   const db = env.cybermeters_db;
   const workspaceId = grant.workspaceId;
   const reports = boundedReportReads(env);
-  const [domains, cases, latest, posture] = await Promise.all([
+  const [domains, caseGroups, latest, posture] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?")
       .bind(workspaceId).first(),
-    db.prepare("SELECT COUNT(*) AS n FROM managed_cases WHERE workspace_id = ? AND status NOT IN ('closed','false_positive','risk_accepted')")
-      .bind(workspaceId).first(),
+    // Count open work by canonical phase, not raw non-terminal status: a bounded,
+    // workspace-scoped aggregate over (case_type, status) folded through
+    // openCaseCountFromAggregate. verified/monitoring/terminal cases are excluded
+    // the same way the Operations / report-snapshot workflow count excludes them.
+    db.prepare("SELECT case_type, status, COUNT(*) AS n FROM managed_cases WHERE workspace_id = ? GROUP BY case_type, status")
+      .bind(workspaceId).all(),
     db.prepare("SELECT created_at FROM scans WHERE workspace_id = ? AND status = 'completed' ORDER BY created_at DESC, id DESC LIMIT 1")
       .bind(workspaceId).first(),
     getCurrentPosturePresentation(reports.env, { workspaceId }),
   ]);
   reports.assertWithinBudget();
-  if (!domains || !cases) throw new Error("invalid_projection");
+  if (!domains || !Array.isArray(caseGroups?.results)) throw new Error("invalid_projection");
   const state = scoreState(posture);
   const snapshot = state === "assessed" && posture?.authoritative_scan_id
     ? await verifiedPostureSnapshot(reports.env, workspaceId, posture.authoritative_scan_id)
@@ -284,7 +315,7 @@ export async function projectMcpSummary(env, grant, facts) {
     workspace_id: workspaceId,
     display_name: safeName(facts.workspace?.name),
     domain_count: safeCount(domains.n),
-    open_case_count: safeCount(cases.n),
+    open_case_count: openCaseCountFromAggregate(caseGroups.results),
     score_state: presentedState,
     score_value: established ? Math.round(score) : null,
     latest_measurement_at: latestAt,
