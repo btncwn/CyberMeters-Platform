@@ -28,10 +28,9 @@
 // rather than suppressed — a suppressed score would make "A's score is absent"
 // vacuous.
 //
-import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildDb as harnessBuildDb } from "./security/lib/worker-harness.js";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerPath = path.join(root, "workers", "scan-api", "src", "index.js");
@@ -42,15 +41,10 @@ async function loadWorker() {
   return import(pathToFileURL(workerPath).href);
 }
 
-function buildDb() {
-  const db = new DatabaseSync(":memory:");
-  const apply = (p) => { try { db.exec(fs.readFileSync(p, "utf8")); } catch { /* ordering/dup — schema converges */ } };
-  apply(path.join(root, "database", "schema.sql"));
-  for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((f) => f.endsWith(".sql")).sort()) {
-    apply(path.join(root, "database", "migrations", f));
-  }
-  return db;
-}
+// Schema + migrations via the governed F-025/F-035 terminal apply path: a
+// migration error is fatal unless it is the exact reviewed tolerated statement,
+// so no assertion below can run on a silently broken schema.
+const buildDb = harnessBuildDb;
 
 function makeD1(db) {
   const wrap = (sql, args) => ({
