@@ -79,8 +79,8 @@ try {
     assert.equal(db.prepare(`SELECT ${plainComparison(quota)} AS allowed`).get('owner', month, 'owner', month, 4).allowed, 1);
     for (const completed of [false, true]) {
       const display = literal('routes/workspace-insights.js', ['COUNT(DISTINCT s.id)', completed ? "s.status = 'completed'" : 'WHERE julianday(s.created_at)']);
-      assert.equal(db.prepare(display).get(month, 'ws', 'ws').n, 3);
-      assert.equal(db.prepare(plainComparison(display)).get(month, 'ws', 'ws').n, 1);
+      assert.equal(db.prepare(display).get(month, 'ws').n, 3);
+      assert.equal(db.prepare(plainComparison(display)).get(month, 'ws').n, 1);
     }
     db.close();
   });

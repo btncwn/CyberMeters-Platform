@@ -88,26 +88,26 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `/api/account/onboarding-state` | 28 | account | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| POST | `/api/account/bootstrap` | 138 | account | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/account/profile` | 207 | account | ✓ | requireAuth |
-| PATCH | `/api/account/profile` | 258 | account | ✓ | requireAuth |
-| GET | `/api/account/company` | 302 | account | ✓ | requireAuth |
-| PUT | `/api/account/company` | 322 | account | ✓ | requireAuth |
-| GET | `/api/account/report-branding` | 409 | account | ✓ | requireAuth |
-| PUT | `/api/account/report-branding` | 439 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription` | 524 | account | ✓ | requireAuth |
-| GET | `/api/account/usage` | 559 | account | ✓ | requireAuth |
-| GET | `/api/account/subscription/limits` | 580 | account | ✓ | requireAuth |
-| GET | `/api/admin/subscriptions` | 605 | admin | ✓ | isPlatformAdmin, requireAuth |
-| GET | `/api/account/api-tokens` | 659 | account | ✓ | requireAuth |
-| POST | `/api/account/api-tokens` | 681 | account | ✓ | requireAuth, requireWorkspaceAccess |
-| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 752 | account | ✓ | requireAuth |
-| GET | `/api/account/login-history` | 790 | account | ✓ | requireAuth |
-| GET | `/api/account/sessions` | 849 | account | ✓ | requireAuth |
-| POST | `/^\/api\/account\/sessions\/([^/` | 899 | account | ✓ | requireAuth |
-| GET | `/api/account/export` | 945 | account | ✓ | requireAuth |
-| POST | `/api/account/delete-request` | 1041 | account | ✓ | requireAuth |
-| GET | `/api/platform/accuracy` | 1101 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| POST | `/api/account/bootstrap` | 134 | account | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/account/profile` | 203 | account | ✓ | requireAuth |
+| PATCH | `/api/account/profile` | 254 | account | ✓ | requireAuth |
+| GET | `/api/account/company` | 298 | account | ✓ | requireAuth |
+| PUT | `/api/account/company` | 318 | account | ✓ | requireAuth |
+| GET | `/api/account/report-branding` | 405 | account | ✓ | requireAuth |
+| PUT | `/api/account/report-branding` | 435 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription` | 520 | account | ✓ | requireAuth |
+| GET | `/api/account/usage` | 555 | account | ✓ | requireAuth |
+| GET | `/api/account/subscription/limits` | 576 | account | ✓ | requireAuth |
+| GET | `/api/admin/subscriptions` | 601 | admin | ✓ | isPlatformAdmin, requireAuth |
+| GET | `/api/account/api-tokens` | 655 | account | ✓ | requireAuth |
+| POST | `/api/account/api-tokens` | 677 | account | ✓ | requireAuth, requireWorkspaceAccess |
+| DELETE | `/^\/api\/account\/api-tokens\/([^/` | 748 | account | ✓ | requireAuth |
+| GET | `/api/account/login-history` | 786 | account | ✓ | requireAuth |
+| GET | `/api/account/sessions` | 845 | account | ✓ | requireAuth |
+| POST | `/^\/api\/account\/sessions\/([^/` | 895 | account | ✓ | requireAuth |
+| GET | `/api/account/export` | 941 | account | ✓ | requireAuth |
+| POST | `/api/account/delete-request` | 1037 | account | ✓ | requireAuth |
+| GET | `/api/platform/accuracy` | 1097 | admin | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 
 ### `workers/scan-api/src/routes/active-check-consents.js`
 
@@ -504,8 +504,8 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 |---|---|---:|---|---|---|
 | GET | `/api/validation/benchmark` | 48 | public-or-global | ✓ | isPlatformAdmin, requireAuth |
 | GET | `/^\/api\/workspaces\/([^/` | 187 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 283 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/^\/api\/workspaces\/([^/` | 387 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 281 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/^\/api\/workspaces\/([^/` | 385 | workspace | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/workspace-intel.js`
 
@@ -560,12 +560,12 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `(none)` | 61 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| PATCH | `(none)` | 188 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| DELETE | `(none)` | 220 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 305 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| POST | `(none)` | 391 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| POST | `/^\/api\/workspaces\/([^/` | 480 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/api/account/deleted-workspaces` | 580 | account | ✓ | requireAuth |
-| POST | `/^\/api\/workspaces\/([^/` | 647 | workspace | ✓ | requireAuth |
+| PATCH | `(none)` | 177 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `(none)` | 209 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 294 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 380 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| POST | `/^\/api\/workspaces\/([^/` | 469 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/api/account/deleted-workspaces` | 569 | account | ✓ | requireAuth |
+| POST | `/^\/api\/workspaces\/([^/` | 636 | workspace | ✓ | requireAuth |
 
 _`*` = workspace-scoping helper (getAccessibleWorkspaceIds / getWorkspaceBillingUserId)._

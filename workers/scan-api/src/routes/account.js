@@ -53,14 +53,10 @@ export async function accountRoutes(rctx) {
 	            .prepare(
 	              `SELECT COUNT(DISTINCT s.id) AS count
 	               FROM scans s
-	               LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
 	               WHERE s.status = 'completed'
-	                 AND (
-	                   s.workspace_id IN (${wsPlaceholders})
-	                   OR (s.workspace_id IS NULL AND wd.workspace_id IN (${wsPlaceholders}))
-	                 )`
+	                 AND s.workspace_id IN (${wsPlaceholders})`
 	            )
-	            .bind(...workspaceIds, ...workspaceIds)
+	            .bind(...workspaceIds)
 		            .first();
 		          completedScanCount = Number(scanRow?.count ?? 0);
 
@@ -1129,12 +1125,10 @@ export async function accountRoutes(rctx) {
             `SELECT DISTINCT f.id, f.title, f.confidence, f.evidence_json
              FROM findings f
              JOIN scans s ON s.id = f.scan_id
-             LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
-             WHERE (s.workspace_id IN (${placeholders})
-                OR (s.workspace_id IS NULL AND wd.workspace_id IN (${placeholders})))
+             WHERE s.workspace_id IN (${placeholders})
                AND ${visibleFindingSql("f", "s")}`
           )
-          .bind(...workspaceIds, ...workspaceIds)
+          .bind(...workspaceIds)
           .all();
 
         const findings = rows.results || [];

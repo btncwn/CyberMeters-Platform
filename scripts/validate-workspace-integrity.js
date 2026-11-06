@@ -31,13 +31,12 @@ const insights = read("workers/scan-api/src/routes/workspace-insights.js");
 
 // ── 1. total_scans is the workspace's OWN retained total, tenant-safe ────────
 // Extract the total_scans query block (from its comment to its .bind).
-const scansBlock = norm((core.match(/SELECT COUNT\(DISTINCT s\.id\) AS n[\s\S]{0,600}?\.bind\(workspaceId, workspaceId\)/) || [""])[0]);
+const scansBlock = norm((core.match(/SELECT COUNT\(DISTINCT s\.id\) AS n[\s\S]{0,600}?\.bind\(workspaceId\)/) || [""])[0]);
 ok("total_scans query block is present", scansBlock.length > 0);
 ok("total_scans counts scans directly attributed to this workspace (ownership branch)",
    /s\.workspace_id = \?/.test(scansBlock));
-ok("total_scans includes historical NULL-workspace scans only for CURRENT domains of this workspace",
-   /s\.workspace_id IS NULL/.test(scansBlock) &&
-   /domain_id IN \(\s*SELECT domain_id FROM workspace_domains WHERE workspace_id = \?/.test(scansBlock));
+ok("total_scans never treats a current domain link as ownership of an unattributed scan",
+   !/s\.workspace_id IS NULL/.test(scansBlock) && !/workspace_domains/.test(scansBlock));
 ok("total_scans no longer INNER-JOINs workspace_domains (the under-count cause is gone)",
    !/JOIN workspace_domains/.test(scansBlock));
 ok("total_scans never uses hostname-only ownership",
@@ -45,8 +44,8 @@ ok("total_scans never uses hostname-only ownership",
 
 // ── 2. latest_scan / cyber_score stay workspace-scoped (no leak, no global fallback) ─
 const latestBlock = norm((core.match(/latest_scan[\s\S]{0,700}?\.bind\(workspaceId, workspaceId\)/) || [""])[0]);
-ok("latest_scan remains workspace-scoped (own or NULL-for-current-domain)",
-   /s\.workspace_id = \?/.test(latestBlock) && /wd\.workspace_id = \?/.test(latestBlock));
+ok("latest_scan requires both direct ownership and current workspace-domain membership",
+   /s\.workspace_id = \?/.test(latestBlock) && /wd\.workspace_id = \?/.test(latestBlock) && !/s\.workspace_id IS NULL/.test(latestBlock));
 ok("latest_scan never selects a scan by hostname alone", !/s\.domain\s*=\s*\?/.test(latestBlock));
 // No unscoped global-latest fallback anywhere in the detail stats.
 ok("the detail stats never fall back to a global latest scan",
@@ -81,14 +80,10 @@ ok("delete-request emits an audit event",
 // Re-implement the fixed total_scans semantics and prove the invariants on data that
 // mirrors the live "Deneme" situation (0 current domains; 22 own scans; a foreign
 // workspace scanning the SAME hostname must never be counted).
-function countTotalScans(workspaceId, scans, workspaceDomains) {
-  const currentDomainIds = new Set(
-    workspaceDomains.filter((wd) => wd.workspace_id === workspaceId).map((wd) => wd.domain_id),
-  );
+function countTotalScans(workspaceId, scans) {
   const ids = new Set();
   for (const s of scans) {
     if (s.workspace_id === workspaceId) ids.add(s.id);                              // own attribution
-    else if (s.workspace_id == null && currentDomainIds.has(s.domain_id)) ids.add(s.id); // historical for current domain
   }
   return ids.size;
 }
@@ -107,10 +102,10 @@ ok("simulation: own retained scans are counted even with 0 current domains (22, 
    countTotalScans(DENEME, scans, wsDomainsEmpty) === 22, `got ${countTotalScans(DENEME, scans, wsDomainsEmpty)}`);
 ok("simulation: a foreign workspace's scans of the same hostname are never counted",
    countTotalScans(OTHER, scans, wsDomainsEmpty) === 34, `got ${countTotalScans(OTHER, scans, wsDomainsEmpty)}`);
-// Now give Deneme a current domain that owns the NULL-workspace historical scan.
+// A current domain link does not establish ownership of a NULL-workspace scan.
 const wsDomainsWithCurrent = [{ workspace_id: DENEME, domain_id: "dom_current" }];
-ok("simulation: a NULL-workspace historical scan counts only for the workspace currently owning its domain",
-   countTotalScans(DENEME, scans, wsDomainsWithCurrent) === 23 &&
+ok("simulation: a NULL-workspace historical scan is excluded despite a current domain link",
+   countTotalScans(DENEME, scans, wsDomainsWithCurrent) === 22 &&
    countTotalScans(OTHER, scans, wsDomainsWithCurrent) === 34,
    `deneme ${countTotalScans(DENEME, scans, wsDomainsWithCurrent)} / other ${countTotalScans(OTHER, scans, wsDomainsWithCurrent)}`);
 ok("simulation: hostname alone never confers ownership",

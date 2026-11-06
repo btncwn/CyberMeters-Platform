@@ -181,7 +181,7 @@ const mutants = [
   },
   {
     name: 'cross-workspace score state is accepted', file: 'workspaces',
-    anchor: '                   AND (workspace_id = wd.workspace_id OR workspace_id IS NULL)',
+    anchor: '                   AND workspace_id = wd.workspace_id',
     replacement: '                   AND workspace_id IS NOT NULL',
     expected: [A.tenant],
   },
