@@ -1192,14 +1192,15 @@ export async function attackSurfaceRoutes(rctx) {
               )
               .bind(wsId),
 
-            // Critical findings from scans in the last 30 days (via workspace_domains join)
+            // Critical findings from this workspace's OWN scans in the last 30 days (scan
+            // ownership, not the domain link: one domain may be co-linked to several workspaces)
             env.cybermeters_db
               .prepare(
                 `SELECT COUNT(f.id) AS n
                  FROM findings f
                  JOIN scans s ON f.scan_id = s.id
-                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-                 WHERE wd.workspace_id = ?
+                 JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+                 WHERE s.workspace_id = ?
                    AND f.severity = 'critical'
                    AND ${visibleFindingSql("f", "s")}
                    AND s.created_at >= datetime('now', '-30 days')`
@@ -1212,8 +1213,8 @@ export async function attackSurfaceRoutes(rctx) {
                 `SELECT COUNT(f.id) AS n
                  FROM findings f
                  JOIN scans s ON f.scan_id = s.id
-                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-                 WHERE wd.workspace_id = ?
+                 JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+                 WHERE s.workspace_id = ?
                    AND f.severity = 'critical'
                    AND ${visibleFindingSql("f", "s")}
                    AND s.created_at >= datetime('now', '-60 days')
@@ -1226,8 +1227,8 @@ export async function attackSurfaceRoutes(rctx) {
               .prepare(
                 `SELECT s.id, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
-                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-                 WHERE wd.workspace_id = ?
+                 JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+                 WHERE s.workspace_id = ?
                    AND s.status = 'completed'
                    AND s.score IS NOT NULL
                    AND s.created_at >= datetime('now', '-30 days')`
@@ -1239,8 +1240,8 @@ export async function attackSurfaceRoutes(rctx) {
               .prepare(
                 `SELECT s.id, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
-                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-                 WHERE wd.workspace_id = ?
+                 JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+                 WHERE s.workspace_id = ?
                    AND s.status = 'completed'
                    AND s.score IS NOT NULL
                    AND s.created_at >= datetime('now', '-60 days')
@@ -1350,8 +1351,8 @@ export async function attackSurfaceRoutes(rctx) {
                 `SELECT date(s.created_at) AS day, COUNT(f.id) AS critical_findings
                  FROM findings f
                  JOIN scans s ON f.scan_id = s.id
-                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-                 WHERE wd.workspace_id = ?
+                 JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+                 WHERE s.workspace_id = ?
                    AND f.severity = 'critical'
                    AND ${visibleFindingSql("f", "s")}
                    AND s.created_at >= datetime('now', '-90 days')

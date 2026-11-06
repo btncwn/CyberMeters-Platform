@@ -157,8 +157,8 @@ export async function executiveDashboardRoutes(rctx) {
             .prepare(
               `SELECT s.id, s.domain, s.score, s.rating, s.created_at
                FROM scans s
-               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-               WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL
+               JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+               WHERE s.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL
                ORDER BY s.created_at DESC LIMIT 1`
             )
             .bind(wsId),
@@ -177,8 +177,8 @@ export async function executiveDashboardRoutes(rctx) {
               `SELECT COUNT(f.id) AS n
                FROM findings f
                JOIN scans s ON f.scan_id = s.id
-               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-               WHERE wd.workspace_id = ? AND f.severity = 'critical'
+               JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+               WHERE s.workspace_id = ? AND f.severity = 'critical'
                  AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}`
             )
@@ -190,8 +190,8 @@ export async function executiveDashboardRoutes(rctx) {
               `SELECT COUNT(f.id) AS n
                FROM findings f
                JOIN scans s ON f.scan_id = s.id
-               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-               WHERE wd.workspace_id = ? AND f.severity = 'high'
+               JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+               WHERE s.workspace_id = ? AND f.severity = 'high'
                  AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}`
             )
@@ -214,8 +214,8 @@ export async function executiveDashboardRoutes(rctx) {
               `SELECT f.severity, COUNT(*) AS n
                FROM findings f
                JOIN scans s ON f.scan_id = s.id
-               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-               WHERE wd.workspace_id = ?
+               JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+               WHERE s.workspace_id = ?
                  AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}
                GROUP BY f.severity`
@@ -229,8 +229,8 @@ export async function executiveDashboardRoutes(rctx) {
               `SELECT f.title, f.severity, f.created_at, s.domain
                FROM findings f
                JOIN scans s ON f.scan_id = s.id
-               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-               WHERE wd.workspace_id = ?
+               JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+               WHERE s.workspace_id = ?
                  AND f.severity IN ('critical', 'high', 'medium')
                  AND ${visibleFindingSql("f", "s")}
                  AND ${LATEST_COMPLETED_SCAN_SCOPE}
@@ -269,8 +269,8 @@ export async function executiveDashboardRoutes(rctx) {
               `SELECT ri.priority, ri.title, ri.reason, s.domain, ri.created_at
                FROM remediation_items ri
                JOIN scans s ON ri.scan_id = s.id
-               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-               WHERE wd.workspace_id = ?
+               JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+               WHERE s.workspace_id = ?
                  AND s.status = 'completed'
                  AND s.created_at >= datetime('now', '-30 days')
                  AND NOT ${suppressedLegacyTlsRemediationSql("ri")}

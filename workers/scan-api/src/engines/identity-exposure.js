@@ -73,12 +73,21 @@ export async function computeIdentityExposure(env, workspaceId) {
 
   // ── 3. Email spoofing exposure (from the latest scan report per domain) ────
   const scanRows = (await db
-    .prepare(`WITH lpd AS (SELECT domain_id, MAX(created_at) mx FROM scans WHERE status='completed' GROUP BY domain_id)
+    // Latest completed scan per domain AMONG THIS WORKSPACE'S OWN scans. Ownership
+    // is applied before the latest-pick (and so before any R2 key is derived): a
+    // co-linked domain's newer foreign scan must neither be read nor hide ours.
+    .prepare(`WITH lpd AS (
+                SELECT scan_id FROM (
+                  SELECT id AS scan_id,
+                         ROW_NUMBER() OVER (PARTITION BY domain_id ORDER BY created_at DESC, id DESC) AS rn
+                  FROM scans WHERE status='completed' AND workspace_id = ?
+                ) WHERE rn = 1
+              )
               SELECT s.id AS scan_id, s.domain
-              FROM scans s JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
-              JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-              WHERE wd.workspace_id = ? LIMIT ${MAX_DOMAINS_FOR_EMAIL}`)
-    .bind(workspaceId).all().catch(() => { scansUnavailable = true; return { results: [] }; })).results ?? [];
+              FROM scans s JOIN lpd ON lpd.scan_id = s.id
+              JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
+              WHERE s.workspace_id = ? LIMIT ${MAX_DOMAINS_FOR_EMAIL}`)
+    .bind(workspaceId, workspaceId).all().catch(() => { scansUnavailable = true; return { results: [] }; })).results ?? [];
   const emailDetails = [];
   for (const row of scanRows) {
     try {

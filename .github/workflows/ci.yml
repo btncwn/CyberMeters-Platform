@@ -216,6 +216,12 @@ jobs:
       - name: Validate F-021 scan-read isolation mutations (three leaks reintroduced must fail)
         run: node scripts/validate-f021-scan-read-tenant-isolation-mutations.js
 
+      - name: Validate aggregate scan-ownership isolation (co-linked domain; owner-scoped before latest/aggregate/R2)
+        run: node scripts/validate-aggregate-scan-ownership-isolation.js
+
+      - name: Validate aggregate scan-ownership isolation mutations (each pre-fix query reintroduced must fail by name)
+        run: node scripts/validate-aggregate-scan-ownership-isolation-mutations.js
+
       - name: Validate F-009 admin-service ip_address is not projected (current + historical)
         run: node scripts/validate-f009-admin-service-ip-projection.js
 

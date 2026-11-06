@@ -167,10 +167,10 @@ export async function portfolioRoutes(rctx) {
             FROM findings f
             JOIN scans s ON f.scan_id = s.id
             JOIN lpd ON lpd.scan_id = s.id
-            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+            JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
             WHERE f.severity IN ('critical','high')
               AND ${visibleFindingSql("f", "s")}
-              AND wd.workspace_id IN (${wsIn})
+              AND s.workspace_id IN (${wsIn})
             GROUP BY f.severity
           ` },
           { key: "new_assets_7d", sql: (wsIn) => `SELECT COUNT(*) AS count FROM workspace_assets WHERE first_seen >= datetime('now','-7 days') AND workspace_id IN (${wsIn})` },
@@ -187,29 +187,29 @@ export async function portfolioRoutes(rctx) {
             SELECT s.id AS scan_id, s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
             JOIN lpd ON lpd.scan_id = s.id
-            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+            JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
             WHERE s.score IS NOT NULL
               AND s.scan_quality = 'complete'
-              AND wd.workspace_id IN (${wsIn})
+              AND s.workspace_id IN (${wsIn})
           ` },
           // Workspace with most critical findings from latest scans
           { key: "highest_risk_workspace", sql: (wsIn) => `
             WITH ${LATEST_SCAN_CTE},
             crit AS (
-              SELECT s.domain_id, COUNT(*) AS cnt
+              SELECT s.workspace_id, s.domain_id, COUNT(*) AS cnt
               FROM findings f
               JOIN scans s ON f.scan_id = s.id
               JOIN lpd ON lpd.scan_id = s.id
               WHERE f.severity = 'critical'
                 AND ${visibleFindingSql("f", "s")}
-              GROUP BY s.domain_id
+              GROUP BY s.workspace_id, s.domain_id
             ),
             ws_crit AS (
-              SELECT wd.workspace_id, SUM(c.cnt) AS total_crit
+              SELECT c.workspace_id, SUM(c.cnt) AS total_crit
               FROM crit c
-              JOIN workspace_domains wd ON c.domain_id = wd.domain_id
-              WHERE wd.workspace_id IN (${wsIn})
-              GROUP BY wd.workspace_id
+              JOIN workspace_domains wd ON wd.workspace_id = c.workspace_id AND wd.domain_id = c.domain_id
+              WHERE c.workspace_id IN (${wsIn})
+              GROUP BY c.workspace_id
             )
             SELECT w.id, w.name, wc.total_crit
             FROM ws_crit wc
@@ -531,12 +531,12 @@ export async function portfolioRoutes(rctx) {
             SELECT s.id AS scan_id, date(s.created_at) AS day,
                    s.score, s.rating, s.scan_quality, s.created_at
             FROM scans s
-            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+            JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
             WHERE s.status = 'completed'
               AND s.scan_quality = 'complete'
               AND s.created_at >= datetime('now', '-30 days')
               AND s.score IS NOT NULL
-              AND wd.workspace_id IN (${wsIn})
+              AND s.workspace_id IN (${wsIn})
             ORDER BY s.created_at
           ` },
           // Critical + high finding counts per day from scans in last 30 days
@@ -544,13 +544,13 @@ export async function portfolioRoutes(rctx) {
             SELECT date(s.created_at) AS day, f.severity, COUNT(*) AS cnt
             FROM findings f
             JOIN scans s ON f.scan_id = s.id
-            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+            JOIN workspace_domains wd ON wd.workspace_id = s.workspace_id AND wd.domain_id = s.domain_id
             WHERE s.status = 'completed'
               AND s.scan_quality = 'complete'
               AND s.created_at >= datetime('now', '-30 days')
               AND f.severity IN ('critical', 'high')
               AND ${visibleFindingSql("f", "s")}
-              AND wd.workspace_id IN (${wsIn})
+              AND s.workspace_id IN (${wsIn})
             GROUP BY date(s.created_at), f.severity
             ORDER BY day
           ` },

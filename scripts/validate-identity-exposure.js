@@ -45,7 +45,9 @@ idA("ib", "ws_b", "vpn.other.co.uk", "vpn");
 db.prepare(`INSERT INTO workspace_brand_assets (id, workspace_id, domain, candidate_domain, status, dns_resolves, mx_present, https_available, classification, first_seen, last_seen, created_at, updated_at) VALUES ('b1','ws_a','acme.co.uk','acme-login.co.uk','active',1,1,0,'suspicious', datetime('now'), datetime('now'), datetime('now'), datetime('now'))`).run();
 // ws_a: a domain + latest completed scan whose report shows DMARC p=none (spoofable)
 db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_a','d_a')").run();
-db.prepare("INSERT INTO scans (id, domain_id, domain, status, created_at) VALUES ('sc_a','d_a','acme.co.uk','completed', datetime('now','-1 day'))").run();
+// Directly attributed to ws_a: aggregate reads use scan ownership (s.workspace_id),
+// never the domain link alone — a NULL-owner scan is unknown, not ws_a's.
+db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES ('sc_a','ws_a','d_a','acme.co.uk','completed', datetime('now','-1 day'))").run();
 
 // R2 stub: the latest scan report with a spoofable email posture.
 const reports = { "reports/sc_a.json": { modules: { email_security: { spf: { present: true }, dmarc: { present: true, policy: "none" } } } } };
@@ -119,7 +121,7 @@ result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
 ok("invalid DMARC reject is not promoted to an enforcing policy", result.identity_exposure_level === "Unavailable" && result.signals.email_spoofing.policy_observed_domains === 0);
 delete reports["reports/sc_a.json"].modules.email_security.dmarc_detail;
 db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_a','d_unreadable')").run();
-db.prepare("INSERT INTO scans (id, domain_id, domain, status, created_at) VALUES ('sc_unreadable','d_unreadable','unreadable.example','completed', datetime('now'))").run();
+db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, status, created_at) VALUES ('sc_unreadable','ws_a','d_unreadable','unreadable.example','completed', datetime('now'))").run();
 result = (await get("/api/workspaces/ws_a/identity-exposure", TOKEN)).body;
 ok("partial report failure preserves evidence gap", result.identity_exposure_level === "Unavailable" && result.signals.email_spoofing.checked_domains === 1);
 

@@ -240,9 +240,18 @@ const EXPECTED = Object.freeze({
     // orders timestamps with julianday(). Two-tree --dump-current vs main:
     // exactly that SQL snippet changes; its scan_quality predicate, all counts,
     // projections, direct reads and non-SQL fingerprints remain unchanged.
-    fingerprint: "ea44eb72b955348b6ea388e68edb38c70cff0bd044087262a6d39469a4145954",
+    // P0 aggregate scan ownership (#1055, 6 Nov 2026): ten existing SQL sites in
+    // executive-dashboard.js (4), portfolio.js (3), portfolio-customers.js (1),
+    // portfolio-domains.js (1) and related-changes.js (1) now attribute scans by
+    // s.workspace_id (and rank per (workspace_id, domain_id)) instead of the
+    // workspace_domains link. Keyed two-tree --dump-current diff (origin/main
+    // 72128d6a vs this head): sql_sites / sql_static_sites 10 removed + 10 added,
+    // sql_query_sink_sites 6 + 6, all the same files with the same
+    // scan_quality = 'complete' predicates; only snippet text changes. Counts
+    // unchanged (41 predicates, 30 sites, 18 files, 23 sinks).
+    fingerprint: "9b75c21022ebfb28877d6ba169d8d854d643a78f601759e4ff85a345299e0ee0",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "4eb21227b6cc5c23f7909e67f04dc71ab947db29812f74f0fa06cc8186265f60",
+    resolved_query_sink_fingerprint: "5d5f09bd223bfd47585253475d386226620dce509af4f30bd15f67115ef60fb8",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -281,8 +290,13 @@ const EXPECTED = Object.freeze({
     // governed assertion (quality.status === "complete"); keyed two-tree diff shows exactly that one. 87 -> 88.
     // No-web-service stated limit (22 Oct 2026): the deadline-lifecycle validator asserts
     // sshOnly.status === "complete"; keyed two-tree diff shows exactly that one added. 88 -> 89.
-    comparison_occurrences: 89,
-    source_file_count: 31,
+    // P0 aggregate scan ownership (#1055, 6 Nov 2026): the new
+    // validate-aggregate-scan-ownership-isolation.js asserts
+    // d.assessment.latest_scan_quality === "complete" (B's own latest quality, not
+    // A's partial). Keyed two-tree diff: exactly that one added, 0 removed.
+    // 89 -> 90, 31 -> 32 files.
+    comparison_occurrences: 90,
+    source_file_count: 32,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
@@ -301,7 +315,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "b17f3123ffe9d7c9144e475649dcc0f85f352fb49842ac60bdf40aef84e8c490",
+    fingerprint: "ae5d8949e05a93372985edc21f01c1566cf7b7bb4958db5acb2c5237f4427a0e",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -455,7 +469,11 @@ const EXPECTED = Object.freeze({
     // primary-exception fixture reads report.scan_quality to assign status="partial".
     // Removing that one member-access reproduces the preceding exact fingerprint;
     // runtime reads, comparisons and all SQL inventories are unchanged.
-    governance: { occurrence_count: 144, source_file_count: 46, fingerprint: "4727634121faa02565559cd5234c2e68e0d8a6e62859de027ee0c270f99e5b88" },
+    // P0 aggregate scan ownership (#1055): 144 -> 145, 46 -> 47 files. The same
+    // isolation-suite assertion's d.assessment.latest_scan_quality member read;
+    // keyed two-tree diff shows exactly that one added, nothing removed; runtime
+    // direct reads (151/49) and runtime comparisons are unchanged.
+    governance: { occurrence_count: 145, source_file_count: 47, fingerprint: "39ddf31e06295296eca219e112375182e142738d6e95ac2b867d396c73c0452e" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -531,7 +549,12 @@ const EXPECTED = Object.freeze({
   // `SELECT case_type, status, COUNT(*) ... GROUP BY case_type, status`. Same
   // projection SITE (still 24 projections, none added or removed); only the one
   // snippet's text changed, so the fingerprint moves and the count is unchanged.
-  sql_reads: { projection_occurrences: 24, fingerprint: "b3d6ea0feadb699e4b9de70e17142a0a173d1eac4bd7bbbab9ba10f9d27fa7b5" },
+  // P0 aggregate scan ownership (#1055, 6 Nov 2026): three existing projection
+  // sites (related-changes latest-quality read; attack-surface 0-30 d and 30-60 d
+  // score reads) now join workspace_domains on wd.workspace_id = s.workspace_id
+  // and filter s.workspace_id = ?. Keyed diff: 3 snippets changed, none added or
+  // removed; count unchanged at 24, only the fingerprint moves.
+  sql_reads: { projection_occurrences: 24, fingerprint: "e5b8fbd58ebf4146d53767a5cc0d1ed7e7d48c514132450163a5418c3e37b855" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

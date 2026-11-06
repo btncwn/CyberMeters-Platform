@@ -402,6 +402,7 @@ postureDb.exec(`
   );
   CREATE TABLE scans (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT,
     domain_id TEXT,
     domain TEXT,
     status TEXT,
