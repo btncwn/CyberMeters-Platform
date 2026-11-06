@@ -90,6 +90,56 @@ for (const t of ["169.254.169.254", "localhost", "http://127.0.0.1/", "file:///e
   ok(`free-scan rejects SSRF target ${t} with 4xx (no scan started)`, r.status >= 400 && r.status < 500);
 }
 
+// Public malformed JSON/shape errors are clean refusals, never exceptions or
+// internal errors. Exercise the full Worker boundary with no external network.
+for (const [name, body] of [
+  ["null", "null"], ["array", "[]"], ["number", "42"],
+  ["boolean", "false"], ["string", '"example.com"'],
+  ["missing domain", "{}"], ["null domain", '{"domain":null}'],
+  ["number domain", '{"domain":42}'], ["array domain", '{"domain":[]}'],
+  ["object domain", '{"domain":{}}'], ["boolean domain", '{"domain":false}'],
+  ["empty domain", '{"domain":""}'], ["invalid JSON", "{"],
+]) {
+  const response = await worker.default.fetch(new Request("https://app.cybermeters.com/api/free-scan", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body,
+  }), env, ctx).catch(() => Response.json({ error: "exception escaped" }, { status: 500 }));
+  const value = await response.json();
+  eq(`malformed ${name} returns 400`, response.status, 400);
+  ok(`malformed ${name} returns a safe structured error`, typeof value.error === "string"
+    && !/TypeError|\.trim|stack|SQL|D1|Cloudflare|at .*\.js/i.test(JSON.stringify(value)));
+}
+
+// Use the canonical limiter against an actually failing local store at each
+// successive ceiling. A dependency failure is 503, NOT quota exhaustion; no
+// DNS/module/report work may begin. This is not a manufactured response stub.
+for (const [index, action] of ["free_scan", "free_scan_domain", "free_scan_global"].entries()) {
+  let rateCalls = 0, probeCalls = 0;
+  const request = new Request("https://app.cybermeters.com/api/free-scan", {
+    method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": "198.51.100.23" },
+    body: JSON.stringify({ domain: "synthetic.example.com" }),
+  });
+  const response = await billingRoutes({
+    request, url: new URL(request.url),
+    env: { cybermeters_db: { prepare() { throw new Error("synthetic-private-database-marker"); } } },
+    json: (body, status = 200) => Response.json(body, { status }),
+    rateLimitScopeId: async (kind) => `fixture:${kind}`,
+    consumeApiRateLimit: async (...args) => {
+      rateCalls += 1;
+      return args[2] === action ? canonicalConsumeApiRateLimit(...args) : null;
+    },
+    freeScanDnsQuery: async () => { probeCalls += 1; throw new Error("unexpected probe"); },
+    freeScanModuleRunners: Object.fromEntries(["dns", "ssl", "headers", "email_security", "technology_detection"]
+      .map((module) => [module, async () => { probeCalls += 1; throw new Error("unexpected module"); }])),
+  });
+  const value = await response.json();
+  eq(`${action} store failure returns 503`, response.status, 503);
+  eq(`${action} store failure preserves unavailable classification`, value.code, "rate_limit_unavailable");
+  ok(`${action} store failure never claims quota exhaustion`, !/wait an hour|too many|high demand|rate_limit_exceeded/.test(JSON.stringify(value)));
+  ok(`${action} store failure contains no private error detail`, !/synthetic-private|stack|SQL|D1|Cloudflare/.test(JSON.stringify(value)));
+  eq(`${action} store failure stops at the failed ceiling`, rateCalls, index + 1);
+  eq(`${action} store failure launches zero probes`, probeCalls, 0);
+}
+
 // ── 3. Public preview guardrails: rebinding, fail-closed throttle, no storage ─
 const safeModuleResults = {
   dns: {
@@ -177,7 +227,7 @@ async function runDirectPreview({
     rateLimitScopeId: async (kind, value) => `${kind}:${value}`,
     consumeApiRateLimit: async (_env, scopes, operation, limit, windowSeconds, options) => {
       rateCalls.push({ scopes, operation, limit, windowSeconds, options });
-      return operation === denyOperation ? { limited: true } : null;
+      return operation === denyOperation ? { status: 429, body: { code: "rate_limit_exceeded" } } : null;
     },
     freeScanDnsQuery: dnsQueryImpl || (async (name, type) => {
       if (resolverUnavailable) throw new Error("resolver unavailable");
