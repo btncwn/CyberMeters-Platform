@@ -69,10 +69,9 @@ export async function workspacesCoreRoutes(rctx) {
             // total_scans — the workspace's own RETAINED scan total (lifetime),
             // including scans whose domains were later removed and are no longer in
             // workspace_domains. Tenant-safe by construction:
-            //   • branch 1 counts only scans directly attributed to THIS workspace_id
-            //     (ownership; never a foreign scan, never hostname-only);
-            //   • branch 2 counts historical UNATTRIBUTED (workspace_id IS NULL) scans
-            //     for domains CURRENTLY monitored by this workspace.
+            // Count only directly owned scans, including retained history for
+            // removed domains. A current domain link cannot establish who owns
+            // an unattributed legacy scan; those rows remain excluded.
             // The earlier INNER JOIN to workspace_domains under-counted, because it
             // dropped a workspace's own scans once their domain was removed — the
             // "Total Scans: 12 (should be 22)" defect. No hostname join, no global
@@ -81,15 +80,9 @@ export async function workspacesCoreRoutes(rctx) {
               .prepare(
                 `SELECT COUNT(DISTINCT s.id) AS n
                  FROM scans s
-                 WHERE s.workspace_id = ?
-                    OR (
-                      s.workspace_id IS NULL
-                      AND s.domain_id IN (
-                        SELECT domain_id FROM workspace_domains WHERE workspace_id = ?
-                      )
-                    )`
+                 WHERE s.workspace_id = ?`
               )
-              .bind(workspaceId, workspaceId).first(),
+              .bind(workspaceId).first(),
 
             // Latest complete candidate per domain. The average is calculated
             // only after each row is projected through immutable Phase-5
@@ -107,10 +100,8 @@ export async function workspacesCoreRoutes(rctx) {
                    FROM scans s
                    JOIN domains d ON d.id = s.domain_id
                    JOIN workspace_domains wd ON wd.domain_id = d.id
-                   WHERE (
-                     s.workspace_id = ?
-                     OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
-                   )
+                   WHERE s.workspace_id = ?
+                     AND wd.workspace_id = ?
                      AND s.status = 'completed'
                      AND s.score IS NOT NULL
                      AND s.scan_quality = 'complete'
@@ -119,17 +110,15 @@ export async function workspacesCoreRoutes(rctx) {
               )
               .bind(workspaceId, workspaceId).all(),
 
-            // latest_scan — direct attribution + fallback for NULL workspace_id
+            // latest_scan — direct ownership within currently monitored domains
             env.cybermeters_db
               .prepare(
                 `SELECT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
                  FROM scans s
                  JOIN domains d ON d.id = s.domain_id
                  JOIN workspace_domains wd ON wd.domain_id = d.id
-                 WHERE (
-                   s.workspace_id = ?
-                   OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
-                 )
+                 WHERE s.workspace_id = ?
+                   AND wd.workspace_id = ?
                  ORDER BY s.created_at DESC
                  LIMIT 1`
               )
@@ -336,7 +325,7 @@ export async function workspacesCoreRoutes(rctx) {
                LEFT JOIN scans s ON s.id = (
                  SELECT id FROM scans
                  WHERE  domain_id = d.id
-                   AND (workspace_id = wd.workspace_id OR workspace_id IS NULL)
+                   AND workspace_id = wd.workspace_id
                  ORDER  BY created_at DESC, id DESC LIMIT 1
                )
                WHERE wd.workspace_id = ?

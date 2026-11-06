@@ -163,6 +163,10 @@ const EXPECTED = Object.freeze({
     fingerprint: "98682310475f938920d66e1484576758d31e91dddbb398ab97839ea01e17fc70",
     partial_only_fingerprint: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   },
+  // NULL-owner follow-up: predicates/sites/counts unchanged (41/30/18/23).
+  // Keyed AST diff: core average ownership narrowed; two insights sites move
+  // lines only. Two core projections narrow ownership (24 projections retained).
+  // Runtime/governance comparisons, direct reads and negative controls unchanged.
   sql: {
     // Change notifications: 35 -> 36 predicates, 26 -> 27 query sites, 15 -> 16
     // files, 19 -> 20 sinks — exactly one addition: timeline-trust.js picks the
@@ -249,9 +253,9 @@ const EXPECTED = Object.freeze({
     // sql_query_sink_sites 6 + 6, all the same files with the same
     // scan_quality = 'complete' predicates; only snippet text changes. Counts
     // unchanged (41 predicates, 30 sites, 18 files, 23 sinks).
-    fingerprint: "9b75c21022ebfb28877d6ba169d8d854d643a78f601759e4ff85a345299e0ee0",
+    fingerprint: "75602f3e2aeef2477ff97103f4e83acbb119ebb96fe087ff9d112e90004fa768",
     resolved_query_sink_count: 23,
-    resolved_query_sink_fingerprint: "5d5f09bd223bfd47585253475d386226620dce509af4f30bd15f67115ef60fb8",
+    resolved_query_sink_fingerprint: "64427729b2e23af7df8827090a70421cc606c6213cc06d7875b18ddbbfeee355",
   },
   governance: {
     // D1 SUCCESSION: 61 -> 63 across 21 -> 23 files. Purely ADDITIVE: the new D1
@@ -554,7 +558,7 @@ const EXPECTED = Object.freeze({
   // score reads) now join workspace_domains on wd.workspace_id = s.workspace_id
   // and filter s.workspace_id = ?. Keyed diff: 3 snippets changed, none added or
   // removed; count unchanged at 24, only the fingerprint moves.
-  sql_reads: { projection_occurrences: 24, fingerprint: "e5b8fbd58ebf4146d53767a5cc0d1ed7e7d48c514132450163a5418c3e37b855" },
+  sql_reads: { projection_occurrences: 24, fingerprint: "63f8bf33d98a41e5a98ca28b9c945b36d874be984b3a4a04fe5711b0208a4c5d" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

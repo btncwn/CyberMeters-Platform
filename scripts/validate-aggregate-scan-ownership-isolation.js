@@ -351,6 +351,91 @@ async function main() {
   ok("alice does not see B's remediation", !aDash.body.includes("REMEDIATION-B-"));
   ok("alice does not see the NULL-owner remediation", !aDash.body.includes("REMEDIATION-NULL"));
 
+  // ── 8. NULL-owner fallback siblings: ownership BEFORE ranking/projection ─
+  // Keep the existing foreign-owner checks above, and exercise the real detail,
+  // onboarding, accuracy and usage routes. A current domain link cannot prove
+  // who created an unowned legacy scan, including when it sorts newest or ties.
+  const nullPaths = ["/api/workspaces/wsB", "/api/workspaces/wsB/domains",
+    "/api/account/onboarding-state", "/api/platform/accuracy", "/api/workspaces/wsB/usage"];
+  const scanCount = (ws, since = null) => Object.values(SCANS)
+    .filter((s) => s.ws === ws && (!since || s.created_at >= since)).length;
+  const ownFindings = (ws) => Object.values(SCANS).filter((s) => s.ws === ws)
+    .reduce((n, s) => n + s.findings.length, 0);
+  const checkNullRoutes = async (label) => {
+    await probe(`null-detail-${label}`, nullPaths[0], [
+      ["retained total counts only B-owned scans", (d) => d.stats.total_scans === 2],
+      ["published average keeps B's older scans", (d) => d.stats.cyber_score_average === B_AVG],
+      ["latest scan belongs to B", (d) => d.stats.latest_scan?.id === "scan_b_tie"],
+    ]);
+    await probe(`null-domains-${label}`, nullPaths[1], [
+      ["shared domain retains B's older scan", (d) => d.domains.find((x) => x.domain_id === "dom1")?.last_scan_id === "scan_b_old"],
+      ["tie domain retains B's own scan", (d) => d.domains.find((x) => x.domain_id === "dom2")?.last_scan_id === "scan_b_tie"],
+    ]);
+    await probe(`null-onboarding-${label}`, nullPaths[2], [
+      ["completed count excludes foreign and unknown ownership", (d) => d.completed_scan_count === 2],
+    ]);
+    await probe(`null-accuracy-${label}`, nullPaths[3], [
+      ["findings count is only B's complete owned findings", (d) => d.findings_total === ownFindings("wsB")],
+    ]);
+    await probe(`null-usage-${label}`, nullPaths[4], [
+      ["period scan count excludes foreign and unknown ownership", (d) => d.current_period.scans_used === scanCount("wsB", d.period_start.replace("T", " ").slice(0, 19))],
+      ["completed period count is owned", (d) => d.current_period.scans_completed === scanCount("wsB", d.period_start.replace("T", " ").slice(0, 19))],
+    ]);
+  };
+  await checkNullRoutes("newest");
+  db.prepare("UPDATE scans SET domain_id='dom2', domain=?, created_at=? WHERE id='scan_x_null'")
+    .run(TIE, tieAt);
+  section = "null-tie-precondition";
+  ok("unknown owner's equal-time id outranks both legitimate ids", "scan_x_null" > "scan_x_a_tie"
+    && db.prepare("SELECT created_at FROM scans WHERE id='scan_x_null'").get().created_at === tieAt);
+  await checkNullRoutes("tie");
+
+  section = "null-auth-controls";
+  for (const p of nullPaths) {
+    r2Gets.length = 0;
+    const r = await call(p, null);
+    ok(`anonymous is refused ${p}`, r.status === 401);
+    ok(`anonymous refusal reads no report ${p}`, r2Gets.length === 0);
+  }
+  for (const p of ["/api/workspaces/wsA", "/api/workspaces/wsA/domains", "/api/workspaces/wsA/usage"]) {
+    r2Gets.length = 0;
+    const r = await call(p, T.bob);
+    ok(`B is refused foreign workspace ${p}`, r.status === 403);
+    ok(`foreign refusal reads no report ${p}`, r2Gets.length === 0);
+  }
+  section = "null-owner-positive";
+  for (const [p, check] of [
+    ["/api/workspaces/wsA", (d) => d.stats.total_scans === scanCount("wsA")],
+    ["/api/workspaces/wsA/domains", (d) => d.domains.find((x) => x.domain_id === "dom1")?.last_scan_id === "scan_x_a_partial"],
+    ["/api/account/onboarding-state", (d) => d.completed_scan_count === scanCount("wsA")],
+    ["/api/platform/accuracy", (d) => d.findings_total === ownFindings("wsA")],
+    ["/api/workspaces/wsA/usage", (d) => d.current_period.scans_used === scanCount("wsA", d.period_start.replace("T", " ").slice(0, 19))],
+  ]) {
+    const r = await call(p, T.alice);
+    ok(`A still sees its own values ${p}`, r.status === 200 && check(r.data), r.body.slice(0, 250));
+  }
+
+  // Retained direct-owned history survives removing every current domain link.
+  db.exec("DELETE FROM workspace_domains WHERE workspace_id='wsB'");
+  for (const [p, check] of [
+    [nullPaths[0], (d) => d.stats.total_scans === 2 && d.stats.cyber_score_average === null && d.stats.latest_scan === null],
+    [nullPaths[1], (d) => d.domains.length === 0],
+    [nullPaths[2], (d) => d.completed_scan_count === 2],
+    [nullPaths[3], (d) => d.findings_total === ownFindings("wsB")],
+    [nullPaths[4], (d) => d.current_period.scans_used === scanCount("wsB", d.period_start.replace("T", " ").slice(0, 19))],
+  ]) {
+    await probe("null-retained-history", p, [[`keeps intended retained/current distinction ${p}`, check]]);
+  }
+
+  // Unknown-only history cannot make an authenticated user appear to have run
+  // a scan, and must not derive a report key before denying attribution.
+  db.exec("DELETE FROM findings WHERE scan_id IN ('scan_b_old','scan_b_tie'); DELETE FROM remediation_items WHERE scan_id IN ('scan_b_old','scan_b_tie'); DELETE FROM scans WHERE workspace_id='wsB'; INSERT INTO workspace_domains (workspace_id,domain_id,verification_status) VALUES ('wsB','dom2','verified')");
+  await probe("null-only-detail", nullPaths[0], [["does not invent scan history", (d) => d.stats.total_scans === 0 && d.stats.latest_scan === null && d.stats.cyber_score_average === null]]);
+  await probe("null-only-domains", nullPaths[1], [["does not select an unowned scan", (d) => d.domains.every((x) => x.last_scan_id === null)]]);
+  await probe("null-only-onboarding", nullPaths[2], [["still requires a first owned scan", (d) => !d.has_completed_scan && d.completed_scan_count === 0 && d.next_step === "run_first_scan"]]);
+  await probe("null-only-accuracy", nullPaths[3], [["does not invent owned findings", (d) => d.findings_total === 0]]);
+  await probe("null-only-usage", nullPaths[4], [["does not consume another scan's usage", (d) => d.current_period.scans_used === 0 && d.current_period.scans_completed === 0]]);
+
   console.log(results.join("\n"));
   console.log(`\nAggregate scan-ownership isolation: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);
