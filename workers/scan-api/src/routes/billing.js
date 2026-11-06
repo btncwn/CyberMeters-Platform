@@ -72,6 +72,9 @@ export async function billingRoutes(rctx) {
     if (request.method === "POST" && url.pathname === "/api/free-scan") {
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.domain !== "string") {
+        return json({ error: "Please enter a valid domain (e.g. example.com)" }, 400);
+      }
 
       // "www." is the website, not the business domain: check the apex the
       // account would verify (www.example.co.uk -> example.co.uk).
@@ -100,6 +103,8 @@ export async function billingRoutes(rctx) {
         { failClosed: true, atomic: true },
       );
       if (rateLimitResult) {
+        // The canonical limiter's safe 503 is a dependency failure, not a quota verdict.
+        if (rateLimitResult.status !== 429) return json(rateLimitResult.body, rateLimitResult.status);
         // Honest copy: a free account raises limits and saves results — it is
         // not unlimited (free plan has monthly caps). Never overpromise here.
         return json({
@@ -119,6 +124,7 @@ export async function billingRoutes(rctx) {
         { failClosed: true, atomic: true },
       );
       if (domainLimited) {
+        if (domainLimited.status !== 429) return json(domainLimited.body, domainLimited.status);
         return json({
           error: "This domain has already been checked recently. Please wait an hour before trying again.",
           code: "rate_limit_exceeded",
@@ -142,6 +148,7 @@ export async function billingRoutes(rctx) {
         { failClosed: true, atomic: true },
       );
       if (globalLimited) {
+        if (globalLimited.status !== 429) return json(globalLimited.body, globalLimited.status);
         return json({
           error: "Free checks are experiencing high demand right now. Please try again shortly, or start a 14-day trial to run your scan.",
           code: "rate_limit_exceeded",
