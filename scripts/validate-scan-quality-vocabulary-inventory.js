@@ -558,7 +558,12 @@ const EXPECTED = Object.freeze({
   // score reads) now join workspace_domains on wd.workspace_id = s.workspace_id
   // and filter s.workspace_id = ?. Keyed diff: 3 snippets changed, none added or
   // removed; count unchanged at 24, only the fingerprint moves.
-  sql_reads: { projection_occurrences: 24, fingerprint: "63f8bf33d98a41e5a98ca28b9c945b36d874be984b3a4a04fe5711b0208a4c5d" },
+  // Scorecard owner boundary: replacing the optional interpolated scope with an
+  // unconditional owner predicate makes this existing scan_quality projection
+  // statically resolvable. Two-tree AST diff adds exactly scorecard.js's SELECT;
+  // all 24 prior projection snippets remain, and predicate/read counts elsewhere
+  // are unchanged. No inventory classifier or negative control is relaxed.
+  sql_reads: { projection_occurrences: 25, fingerprint: "49b0eb42af6bf94210582671121d7e746727c580d77df478a41dc9908ac2ebf0" },
 });
 
 const ALLOWED_QUALITY_STATUSES = new Set([

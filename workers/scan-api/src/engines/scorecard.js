@@ -67,29 +67,13 @@ function certificateInformationSummary(observations, { includePreview = false } 
  *   - R2 (1 get)  — module-level data (saas_exposure, admin_surface_detection,
  *                    certificate_intelligence, third_party_assets, cloud assets)
  */
-// ── scanScope — WHOSE scan may supply this workspace's evidence ─────────────
-// "linked_domains" (default, unchanged): the newest completed scan of any domain
-//   this workspace links, whoever ran it. workspace_domains is PK (workspace_id,
-//   domain_id), so one domain may be linked by several workspaces — an MSP and its
-//   client both owning acme.com is a supported configuration. For a computed
-//   posture VIEW of a domain both parties verifiably own, sharing the newest scan
-//   is defensible: it is external observation of their own domain.
-//
-// "workspace": only scans this workspace itself ran (scans.workspace_id). Required
-//   wherever evidence becomes an ATTRIBUTED CLAIM rather than a view — persisted
-//   lifecycle state, or anything that emails a customer. Cyber Essentials passes
-//   this, because "your readiness fell" must be graded from evidence the customer
-//   actually owns, on a clock they control; an MSP scanning hourly must not decide
-//   what its client is told about itself.
-//
-//   Legacy scans predating migration 021 carry workspace_id NULL. Under this scope
-//   they belong to nobody and are excluded — the honest result, since they cannot
-//   be attributed to a tenant at all. Callers must treat "no evidence" as unknown,
-//   never as a pass (see buildCyberEssentialsReadiness' not_assessed return).
-export async function buildScorecardData(wsId, env, { scanScope = "linked_domains" } = {}) {
-  const scanScopePredicate = scanScope === "workspace"
-    ? "AND s.workspace_id = ?"
-    : "";
+// A domain link, even a verified one, does not grant this workspace another
+// workspace's scan-derived findings, recommendations or stored report. Resolve
+// scan ownership before selecting the latest row and before deriving an R2 key.
+// NULL-owner legacy scans cannot be attributed; no owned evidence stays unknown.
+// The former optional scanScope argument is accepted by JS callers but cannot
+// widen this boundary. Explicit "workspace" callers retain the same behavior.
+export async function buildScorecardData(wsId, env) {
   const now30dAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   // ── D1 Batch 1 ─────────────────────────────────────────────────────────────
@@ -103,9 +87,9 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
          JOIN domains d ON d.id = wd.domain_id
          JOIN scans   s ON s.domain_id = d.id
          WHERE wd.workspace_id = ? AND s.status = 'completed'
-         ${scanScopePredicate}
+         AND s.workspace_id = ?
          ORDER BY s.created_at DESC LIMIT 1`
-      ).bind(...(scanScope === "workspace" ? [wsId, wsId] : [wsId])),
+      ).bind(wsId, wsId),
 
       // 1. Workspace name
       env.cybermeters_db.prepare(
