@@ -261,6 +261,7 @@ function spfEvents(currentEmail) {
   const current = await runEmailWithRootTxt({ value: { Status: 2, Answer: [] } }, "spf-servfail");
   eq("SPF SERVFAIL root lookup records temperror resolution", current.spf.resolution_status, "temperror");
   eq("SPF SERVFAIL root lookup has null resolved set", current.spf.resolved_pass_authorisations, null);
+  eq("SPF SERVFAIL root lookup has unknown persisted presence", current.spf.present, null);
   const events = spfEvents(current);
   eq("SPF SERVFAIL emits zero SPF events", events.length, 0);
 }
@@ -337,8 +338,25 @@ const spfFailureCollapseMutation = {
   const mutated = replaceOnce(source, spfFailureCollapseMutation.from, spfFailureCollapseMutation.to, spfFailureCollapseMutation.name);
   const current = await runEmailWithRootTxt({ value: { Status: 2, Answer: [] } }, "mut-spf-servfail", mutated);
   const events = spfEvents(current);
+  // Nullable presence independently prevents a root-record removal claim, but
+  // corrupting authorization evidence still creates a false authorization-set
+  // change. Keep that real downstream witness as well as the producer check.
+  ok("mutation spf_root_failure_collapsed_to_observed_absent violates resolution contract",
+    current.spf.resolution_status !== "temperror" && Array.isArray(current.spf.resolved_pass_authorisations));
+  eq("nullable presence contains corrupted authorization evidence", current.spf.present, null);
+  ok("corrupted authorization is caught by a false authorization-change event",
+    events.some((event) => event.event_type === "email_spf_authorization_changed"));
+  eq("nullable presence prevents a false root-record removal", events.filter((event) => event.event_type === "email_spf_changed").length, 0);
+
+  // Recreate the full old false-absence representation: both the failed lookup
+  // admission and its persisted presence must be corrupted. Retain the actual
+  // downstream false-removal witness rather than deleting that negative proof.
+  const collapsedPresence = replaceOnce(mutated,
+    `present: hasSPF\n        ? true\n        : spfObservationStatus === DMARC_OBSERVATION_STATUS.OBSERVED ? false : null,`,
+    "present: hasSPF,", "spf_failed_presence_collapsed_to_absent");
+  const collapsed = await runEmailWithRootTxt({ value: { Status: 2, Answer: [] } }, "mut-spf-servfail-full-collapse", collapsedPresence);
   ok("mutation spf_root_failure_collapsed_to_observed_absent is caught by false-removal event",
-    events.some((event) => event.event_type === "email_spf_changed"));
+    spfEvents(collapsed).some((event) => event.event_type === "email_spf_changed"));
 }
 
 let mutationFailures = 0;
