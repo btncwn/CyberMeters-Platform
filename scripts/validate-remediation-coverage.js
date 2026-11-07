@@ -137,11 +137,11 @@ ok("informational set is non-empty and explicit", REMEDIATION_NOT_REQUIRED.size 
 const overlap = ACTIONABLE.filter((ft) => REMEDIATION_NOT_REQUIRED.has(ft));
 ok("no finding type is both actionable and remediation_not_required", overlap.length === 0, overlap.join(", "));
 
-// B1 registry identity: exactly four entries move to v2 and every other entry remains v1.
+// B1's four v2 entries plus PHP's advisory-backed temporary guidance; all others stay v1.
 const byId = new Map(REMEDIATION_REGISTRY.map((entry) => [entry.remediation_id, entry]));
 const v2Ids = REMEDIATION_REGISTRY.filter((entry) => entry.version === 2).map((entry) => entry.remediation_id).sort();
-ok("exactly the four B1 remediation identities are version 2",
-  JSON.stringify(v2Ids) === JSON.stringify(["cert.expiry.expired", "cert.expiry.expiring", "web.cookie.flags", "web.header.csp"]));
+ok("exactly the four B1 and PHP remediation identities are version 2",
+  JSON.stringify(v2Ids) === JSON.stringify(["cert.expiry.expired", "cert.expiry.expiring", "web.cookie.flags", "web.header.csp", "web.php.runtime_release"]));
 ok("all other remediation identities remain version 1",
   REMEDIATION_REGISTRY.filter((entry) => !v2Ids.includes(entry.remediation_id)).every((entry) => entry.version === 1));
 // The original 67 records are unchanged; live hostname/trust findings add two;
@@ -162,7 +162,8 @@ ok("registry has exactly 123 entries including portal, runtime and cloud-DNS gui
 // Outside vulnerability data retired (check-pack.js): asm.vuln.kev and
 // asm.vuln.cve become deprecated historical entries, r74-ad711388 -> r74-c8030e1a.
 // The23 local public-content rules add canonical remediations; legacy entries stay unchanged.
-ok("registry fingerprint including portal, runtime and cloud-DNS guidance is exact", remediationRegistryFingerprint() === "r123-b65158b7", remediationRegistryFingerprint());
+// PHP runtime guidance v1 -> v2 is the sole identity change; the count stays 123.
+ok("registry fingerprint including portal, runtime and cloud-DNS guidance is exact", remediationRegistryFingerprint() === "r123-a57266fe", remediationRegistryFingerprint());
 ok("vulnerability-database remediations are historical only",
   ["asm.vuln.kev", "asm.vuln.cve"].every((id) => byId.get(id)?.status === "deprecated"));
 ok("certificate_expiring_critical maps to expiring, never expired",
