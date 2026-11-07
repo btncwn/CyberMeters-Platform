@@ -181,7 +181,7 @@ const MUTANTS = Object.freeze([
     defect: "engine emits the module name but drops the reason, reducing it to a bare skip again",
     file: "engine",
     mutate: (s) => once(s,
-      "    incomplete_reason: modules[name]?.incomplete_reason ?? null,",
+      "    incomplete_reason: modules[name]?.incomplete_reason ??\n      (name === \"email_security\" && isEmailSpfEvidenceIncomplete(modules[name]) ? \"spf_evidence_incomplete\" : null),",
       "    incomplete_reason: null,", "MS2"),
     expect: ["C1_SURFACE_INCOMPLETE_CARRIES_MODULE_AND_REASON", "C1_SURFACE_REASON_IS_NOT_NULL"],
   },
