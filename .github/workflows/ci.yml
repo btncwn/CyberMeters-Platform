@@ -733,6 +733,9 @@ jobs:
       - name: Validate email deadline evidence honesty (conforming fallback + primary-module gate + refusal, pinned mutants)
         run: node scripts/validate-email-deadline-evidence.js
 
+      - name: Validate email posture unknown evidence (real producers and persisted consumer parity)
+        run: node scripts/validate-email-posture-evidence.js
+
       - name: Validate report-copy live triage (D1 DMARC/SPF template · D2 wrong-reason axis · D3 score-suppression · D4 self-RUA)
         run: node scripts/validate-report-copy-live-triage.js
 

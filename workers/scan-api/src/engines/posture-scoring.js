@@ -4,6 +4,9 @@
 // decomposition, Phase 1c). scoreStatus is module-internal.
 import { ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import { isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
+import { DMARC_ENFORCEMENT_LEVELS } from "./dmarc-state.js";
+import { dmarcTestingMode, isEmailProbeEvidenceUnknown } from "./email-analysis.js";
 import {
   isHttpRedirectPositivelyAbsent,
   resolveTlsRuntimeState,
@@ -81,24 +84,53 @@ export function computeSecurityPosture(sc, report) {
   if (em === null) {
     emailScore = null;
   } else {
-    if (!em.spf?.present) {
+    // Share presence admission with the canonical SPF consumers. Missing or
+    // nonboolean evidence, explicit probe failures and unexecuted modules are
+    // unknown. DMARC uses its canonical level whenever a state is supplied;
+    // unsupported levels fail closed instead of falling back to raw fields.
+    // Historical reports without a canonical state retain known boolean reads.
+    const moduleUnobserved = em.skipped === true || em.executed === false || Boolean(em.error);
+    const probeUnknown = (signal, status) => moduleUnobserved ||
+      isEmailProbeEvidenceUnknown(signal?.present, status);
+    const spfUnknown = probeUnknown(em.spf, em.spf_evidence_status);
+    const dkimUnknown = probeUnknown(em.dkim, em.dkim_evidence_status);
+    const hasCanonicalDmarc = em.dmarc_state != null;
+    const dmarcLevel = em.dmarc_state?.enforcement_level ?? null;
+    const dmarcUnknown = hasCanonicalDmarc
+      ? !DMARC_ENFORCEMENT_LEVELS.includes(dmarcLevel) || isDmarcScoreNeutral(dmarcLevel)
+      : probeUnknown(em.dmarc, em.dmarc_evidence_status);
+    const missingDmarc = !dmarcUnknown && (hasCanonicalDmarc
+      ? dmarcLevel === 'no_record'
+      : em.dmarc?.present === false);
+    const dmarcMonitorOnly = !dmarcUnknown && !missingDmarc && (hasCanonicalDmarc
+      ? dmarcLevel === 'monitoring'
+      : em.dmarc?.policy === 'none');
+
+    if (!spfUnknown && em.spf?.present !== true) {
       emailScore -= 25;
       emailReasons.push('Missing SPF record — any server can send mail as this domain');
       pushRem(emailRem, 'email_missing_spf');
     }
-    if (!em.dmarc?.present) {
+    if (missingDmarc) {
       emailScore -= 30;
       emailReasons.push('Missing DMARC policy — email spoofing is not prevented');
       pushRem(emailRem, 'email_missing_dmarc');
-    } else if (em.dmarc.policy === 'none') {
+    } else if (dmarcMonitorOnly) {
       emailScore -= 10;
-      emailReasons.push('DMARC policy is p=none (monitor-only) — spoofed mail is not rejected');
+      emailReasons.push(dmarcTestingMode(em.dmarc_detail) && em.dmarc_detail?.policy === 'quarantine'
+        ? 'DMARC policy is p=quarantine in testing mode (t=y, monitor-only) — spoofed mail is not rejected'
+        : 'DMARC policy is p=none (monitor-only) — spoofed mail is not rejected');
       pushRem(emailRem, 'email_dmarc_policy_none');
     }
-    if (!em.dkim?.present) {
+    if (!dkimUnknown && em.dkim?.present !== true) {
       emailReasons.push('DKIM could not be verified using common selectors; a custom selector may be in use');
     }
-    emailScore = clamp(emailScore);
+    // A definite finding always keeps its deduction (never hidden, as for admin
+    // exposure below). With no definite finding, unknown required SPF/DMARC
+    // evidence is excluded from the denominator rather than graded a clean 100.
+    emailScore = emailScore === 100 && (spfUnknown || dmarcUnknown)
+      ? null
+      : clamp(emailScore);
   }
 
   // ── 2. SSL & Certificates ────────────────────────────────────────────────────

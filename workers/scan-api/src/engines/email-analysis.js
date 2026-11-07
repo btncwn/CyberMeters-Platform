@@ -237,6 +237,14 @@ export function isEmailProbeUnobserved(status) {
   return status === "unavailable" || status === "not_yet_assessed";
 }
 
+// Presence is an evidence contract: only booleans can establish presence or
+// absence. New module results persist null when a probe did not conclude; the
+// non-enumerable live status does not survive JSON. Known legacy booleans keep
+// their meaning when no status is available.
+export function isEmailProbeEvidenceUnknown(present, status) {
+  return typeof present !== "boolean" || isEmailProbeUnobserved(status);
+}
+
 export function parseSpfRecord(record, recordCount = record ? 1 : 0) {
   const raw = normalizeDnsTxtValue(record);
   const tokens = raw.split(/\s+/).filter(Boolean);
