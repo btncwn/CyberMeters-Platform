@@ -78,7 +78,7 @@ function partialReport() {
   return {scan_quality: {status: 'partial', degradations: [], modules_incomplete: [
     {module: 'tls_assessment', incomplete_reason: 'tls_checks_inconclusive'}],
   modules_skipped: ['tls_assessment'], warnings: ['Module incomplete: tls_assessment']},
-  modules: {email_security: {dmarc_state: {enforcement_level: 'reject_enforced'}},
+  modules: {email_security: {spf: {present: true}, dmarc_state: {enforcement_level: 'reject_enforced'}},
     email_security_intelligence: {}, brand_monitoring: {candidates_validated: true,
       validation: {state: 'complete', checked: 1, unchecked: 0}},
     subdomains: {checked: 9}, dns: {resolves: true}, admin_surface_detection: {checked: 4},
