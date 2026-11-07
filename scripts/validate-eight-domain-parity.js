@@ -43,7 +43,7 @@ const cleanComplete = () => ({
   scan_id: "scan_parity", completed_at: "2026-07-14T10:00:00Z",
   scan_quality: { status: "complete", warnings: [], modules_skipped: [] },
   modules: {
-    email_security: { dmarc_state: { enforcement_level: "reject_enforced" } }, dns: {},
+    email_security: { spf: { present: true }, dmarc_state: { enforcement_level: "reject_enforced" } }, dns: {},
     brand_monitoring: { candidates_validated: true, candidates: [] },
     ssl: { https_available: true, https_probe_executed: true },
     headers: {},

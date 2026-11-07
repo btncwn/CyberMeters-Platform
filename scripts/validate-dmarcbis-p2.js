@@ -513,13 +513,13 @@ ok("serialized network envelope fits executable budget",
       dns: {},
       ssl: {},
       headers: {},
-      email_security: {},
+      email_security: { spf: { present: true } },
       dmarc_core: coreOnlyModule,
     }).status,
     "complete");
   const monitoring = deriveSignalMonitoringStates({
     modules: {
-      email_security: {},
+      email_security: { spf: { present: true } },
       dmarc_core: coreOnlyModule,
       email_security_intelligence: {},
     },
@@ -530,7 +530,7 @@ ok("serialized network envelope fits executable budget",
   eq("unavailable core becomes incomplete Email evidence, never healthy",
     deriveSignalMonitoringStates({
       modules: {
-        email_security: {},
+        email_security: { spf: { present: true } },
         dmarc_core: {
           core_completeness: "unavailable",
           outcome: "unavailable",

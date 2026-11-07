@@ -3,7 +3,9 @@
 // validate-email-posture-evidence.js
 //
 // Email unknown-evidence correction for the executive posture breakdown
-// (computeSecurityPosture, served by the registered /scorecard path).
+// (computeSecurityPosture, served by the registered /scorecard path), plus
+// required SPF coverage through quality, monitoring and canonical domain/snapshot
+// customer rendering.
 //
 // THE DEFECT. computeSecurityPosture read `!em.spf.present` / `!em.dmarc.present`
 // directly, so:
@@ -25,13 +27,22 @@
 // DoH zone. Every non-DoH fetch throws: zero network. Node 24+.
 // ─────────────────────────────────────────────────────────────────────────────
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => pathToFileURL(path.join(ROOT, "workers/scan-api/src/engines", f)).href;
 
+// Import the engine first too: leaf coverage helpers must not introduce an
+// import-order cycle through the remediation registry and domain resolver.
+const { buildScanQuality } = await import(eng("scan-engine.js"));
 const { computeSecurityPosture } = await import(eng("posture-scoring.js"));
 const { computeScore } = await import(eng("scoring.js"));
+const { isEmailProbeEvidenceUnknown, isSpfEvidenceUnknown } = await import(eng("email-evidence.js"));
+const { runDnsModule } = await import(eng("dns-scan.js"));
+const { deriveSignalMonitoringStates } = await import(eng("signal-monitoring-state.js"));
+const { resolveSecurityCheckDomainStates, SECURITY_CHECK_RESOLVER_VERSION } = await import(eng("security-check-domains.js"));
+const { composeSnapshot } = await import(eng("report-snapshot.js"));
 const { enrichSpf, enrichDkim, buildEmailIntelFindings, buildEmailBusinessImpacts } = await import(eng("email-intel.js"));
 const {
   applyDmarcbisEmailCompatibilityProjection,
@@ -60,7 +71,8 @@ const DMARC_NONE = "v=DMARC1; p=none; rua=mailto:dmarc-reports@example.com";
 const DMARC_QUARANTINE_NO_RUA = "v=DMARC1; p=quarantine";
 
 let ZONE = {};          // "name|TYPE" → array of TXT strings
-let FAIL_NAMES = new Set();   // names answered SERVFAIL
+let FAIL_NAMES = new Set();   // TXT questions answered SERVFAIL
+let REFUSE_NAMES = new Set(); // TXT questions answered REFUSED
 const quote = (s) => `"${s}"`;
 const json = (body) => new Response(JSON.stringify(body), {
   status: 200, headers: { "content-type": "application/dns-json" },
@@ -72,7 +84,9 @@ globalThis.fetch = async (input) => {
   }
   const name = String(url.searchParams.get("name") || "").toLowerCase().replace(/\.$/, "");
   const type = String(url.searchParams.get("type") || "A").toUpperCase();
-  if (FAIL_NAMES.has(name)) return json({ Status: 2, Question: [{ name, type: 16 }] });
+  if (type === "TXT" && (FAIL_NAMES.has(name) || REFUSE_NAMES.has(name))) {
+    return json({ Status: REFUSE_NAMES.has(name) ? 5 : 2, Question: [{ name, type: 16 }] });
+  }
   const txt = ZONE[`${name}|${type}`];
   if (type === "TXT" && txt) {
     return json({
@@ -82,16 +96,19 @@ globalThis.fetch = async (input) => {
     });
   }
   if (name === "example.com" || name === "mail.example.com") {
-    return json({ Status: 0, Question: [{ name, type: 1 }], Answer: type === "A" ? [{ name, type: 1, TTL: 300, data: "192.0.2.10" }] : [] });
+    return json({ Status: 0, Question: [{ name, type: 1 }], Answer: type === "A" ? [{ name, type: 1, TTL: 300, data: "192.0.2.10" }]
+      : type === "MX" ? [{ name, type: 15, TTL: 300, data: "10 mail.example.com" }] : [] });
   }
   return json({ Status: 0, Question: [{ name, type: 16 }] });
 };
-const zone = ({ spf = null, dmarc = null, orgDmarc = null, fail = [] } = {}) => {
+const zone = ({ spf = null, dmarc = null, orgDmarc = null, fail = [], refuse = [] } = {}) => {
   ZONE = {};
   if (spf) ZONE["example.com|TXT"] = [spf];
+  ZONE["_spf.google.com|TXT"] = ["v=spf1 -all"];
   if (dmarc) ZONE["_dmarc.example.com|TXT"] = [dmarc];
   if (orgDmarc) ZONE["_dmarc.example.com|TXT"] = [orgDmarc];
   FAIL_NAMES = new Set(fail);
+  REFUSE_NAMES = new Set(refuse);
 };
 
 // Real producer run of the scan-engine shape: email module with core-owned
@@ -403,6 +420,213 @@ console.log("\n── P. positive controls ──");
     ok(`P10 SPF ${label}: enrichment retains observed presence/absence`,
       present ? spf.status === "PASS" : spf.status === "MISSING" && spf.observation_unavailable === false);
   }
+}
+
+// ── C. Required SPF coverage through actual producers and customer surfaces ──
+// Real DNS/email/core producers above; the supplementary module is a declared
+// complete stub so this bounded proof isolates the primary SPF coverage gate.
+// This is not an admitted full runScanEngine or production-persistence proof.
+console.log("\n── C. required SPF coverage: producers → quality/monitoring/domain/snapshot/render ──");
+{
+  const workerRequire = createRequire(path.join(ROOT, "workers/scan-api/package.json"));
+  const frontendRequire = createRequire(path.join(ROOT, "frontend/package.json"));
+  const { buildSync } = workerRequire("esbuild");
+  const React = frontendRequire("react");
+  const { renderToStaticMarkup } = frontendRequire("react-dom/server");
+  const compiled = buildSync({
+    entryPoints: [path.join(ROOT, "frontend/src/components/SecurityCheckDomains.jsx")],
+    bundle: true, platform: "node", format: "cjs", write: false,
+    external: ["react"], logLevel: "silent",
+  }).outputFiles[0].text;
+  const componentModule = { exports: {} };
+  new Function("require", "module", "exports", compiled)(frontendRequire, componentModule, componentModule.exports);
+  const SecurityCheckDomains = componentModule.exports.default;
+  const renderEmail = (domains) => {
+    const html = renderToStaticMarkup(React.createElement(SecurityCheckDomains, { domains }));
+    // Keep the real Email row, excluding the next domain and its conclusion.
+    return html.split('>Email Protection</div>')[1]?.split('>Attack Surface</div>')[0] || "";
+  };
+  const reportFor = (email, core, dns) => {
+    const modules = { dns, email_security: email, dmarc_core: core, email_security_intelligence: {} };
+    const scored = computeScore(modules, "example.com");
+    return {
+      domain: "example.com", scan_id: "synthetic-spf-coverage", completed_at: "2026-11-07T12:00:00.000Z",
+      modules, findings: scored.findings, recommendations: scored.recommendations,
+      cyber_metrics_score: scored.score, scan_quality: buildScanQuality(modules),
+      monitoring_states: deriveSignalMonitoringStates({ modules }),
+    };
+  };
+  const snapshotFor = (report) => composeSnapshot({
+    snapshotId: "synthetic-spf-snapshot", workspaceId: "synthetic-workspace", domainId: "synthetic-domain",
+    scanId: report.scan_id, domain: report.domain, report,
+    cyberEssentials: null, ceReadiness: null, caseRows: [], questionSetVersions: [],
+    builtAt: "2026-11-07T12:00:01.000Z",
+  });
+  const cases = [
+    ["observed SPF + enforcing DMARC", { spf: SPF, dmarc: DMARC_REJECT }, "complete", "assessed_healthy"],
+    ["SPF present + include lookup unavailable", { spf: SPF, dmarc: DMARC_REJECT, fail: ["_spf.google.com"] }, "complete", "assessed_healthy"],
+    ["SPF SERVFAIL + enforcing independent DMARC", { dmarc: DMARC_REJECT, fail: ["example.com"] }, "partial", "evidence_insufficient"],
+    // Captured legacy producer shape: b3ef13a7f4ff82a3be2be708dd10f82b50cfcf42
+    // email-scan.js assigned hasSPF=false after a failed root lookup while its
+    // SPF authorisation fallback recorded temperror. Reuse the real current
+    // producer module, changing only that historical presence field; a local
+    // diagnostic separately executes the immutable old producer source.
+    ["legacy false SPF root failure + enforcing independent DMARC", { dmarc: DMARC_REJECT, fail: ["example.com"] }, "partial", "evidence_insufficient", "legacy-root-failed"],
+    ["legacy false SPF root failure + observed DMARC issue", { dmarc: DMARC_NONE, fail: ["example.com"] }, "partial", "issue_detected", "legacy-root-failed"],
+    ["SPF REFUSED + enforcing independent DMARC", { dmarc: DMARC_REJECT, refuse: ["example.com"] }, "partial", "evidence_insufficient"],
+    ["SPF not run + enforcing independent DMARC", { spf: SPF, dmarc: DMARC_REJECT }, "partial", "evidence_insufficient", "not-run"],
+    ["whole email module deferred + independently observed DMARC issue", { dmarc: DMARC_NONE }, "partial", "issue_detected", "not-run"],
+    ["observed SPF absence + enforcing DMARC", { dmarc: DMARC_REJECT }, "complete", "issue_detected"],
+    ["SPF unknown + observed DMARC issue", { dmarc: DMARC_NONE, fail: ["example.com"] }, "partial", "issue_detected"],
+    ["optional external RUA timeout", { spf: SPF, dmarc: DMARC_REJECT }, "complete", "assessed_healthy", "optional-rua"],
+  ];
+  for (const [name, z, expectedQuality, expectedState, variant] of cases) {
+    let { email, core } = await scanEmail("example.com", z);
+    const dns = await runDnsModule("example.com");
+    if (variant === "legacy-root-failed") {
+      const status = email.spf_evidence_status;
+      email = { ...email, spf: { ...email.spf, present: false } };
+      Object.defineProperty(email, "spf_evidence_status", { value: status, enumerable: false });
+      ok(`C ${name}: exact persisted legacy root-failure marker`,
+        email.spf.present === false && email.spf.record === null && email.spf.record_count === 0 &&
+        email.spf.resolution_status === "temperror" && email.spf.resolved_pass_authorisations === null);
+    }
+    if (variant === "not-run") {
+      email = applyDmarcbisEmailCompatibilityProjection("example.com", deadlineDeferredEmailModuleResult(), core);
+    }
+    if (variant === "optional-rua") {
+      core = attachDmarcbisExternalResult(core, await budgetRefusedDmarcbisExternal(core, "provider_timeout"));
+      email = applyDmarcbisEmailCompatibilityProjection("example.com", email, core);
+    }
+    ok(`C ${name}: actual DNS A/MX evidence remains usable`,
+      dns.has_mx === true && dns.resolution_assessed === true && dns.resolves === true, JSON.stringify(dns));
+    ok(`C ${name}: independent DMARC conclusion retained`,
+      email.dmarc_state?.enforcement_level === (z.dmarc === DMARC_NONE ? "monitoring" : "reject_enforced"));
+    for (const [shape, em] of [["live", email], ["JSON", persisted(email)]]) {
+      const label = `C ${name} (${shape})`;
+      const liveReport = reportFor(em, core, dns);
+      const report = shape === "JSON" ? persisted(liveReport) : liveReport;
+      const beforeCoverage = JSON.stringify(report.modules.email_security);
+      if (variant === "legacy-root-failed") {
+        const category = postureFor(report.modules.email_security);
+        if (z.dmarc === DMARC_REJECT) unknownCategory(`${label}: legacy root failure posture`, category);
+        else ok(`${label}: known DMARC posture deduction retained, no false SPF action`,
+          category.score === 90 && remIds(category).includes(REM.email_dmarc_policy_none) &&
+          !remIds(category).includes(REM.email_missing_spf));
+        const spf = enrichSpf(report.modules.email_security);
+        const dkim = enrichDkim({ dkim: { present: true, selector: "s1" } });
+        const dmarc = { status: "FULLY_PROTECTED", observation_unavailable: false };
+        ok(`${label}: legacy SPF enrichment marks observation unavailable`, spf.observation_unavailable === true);
+        ok(`${label}: no false legacy missing-SPF intelligence finding or impact`,
+          !buildEmailIntelFindings(spf, dmarc, dkim, { enabled: true }, { enabled: true })
+            .some((f) => f.id === "email_intel_spf_missing") &&
+          !buildEmailBusinessImpacts(spf, dmarc, dkim, { enabled: true }, { enabled: true })
+            .some((i) => i.technical === "SPF Missing"));
+      }
+      if (variant === "legacy-root-failed" && shape === "JSON") {
+        // Captured pre-correction report metadata said complete/healthy even
+        // though the producer recorded the root failure. A current raw-report
+        // read must recognise that marker without editing the stored bytes.
+        const stored = persisted(reportFor(email, core, dns));
+        stored.scan_quality = { status: "complete", warnings: [], degradations: [], modules_skipped: [], modules_incomplete: [] };
+        stored.monitoring_states.signals.email_protection.state = "monitoring_healthy";
+        const storedBytes = JSON.stringify(stored);
+        const readDomain = resolveSecurityCheckDomainStates(stored).find((d) => d.domain_key === "email_protection");
+        const readSnapshot = snapshotFor(stored).domains.find((d) => d.domain_key === "email_protection");
+        ok(`${label}: raw legacy whole-report read rejects its old healthy metadata`,
+          readDomain.state === expectedState && readSnapshot.state === expectedState &&
+          (z.dmarc !== DMARC_NONE || readDomain.coverage === "partial"));
+        ok(`${label}: raw legacy read leaves stored report bytes unchanged`, JSON.stringify(stored) === storedBytes);
+      }
+      const domains = resolveSecurityCheckDomainStates(report);
+      const domain = domains.find((d) => d.domain_key === "email_protection");
+      const snapshot = snapshotFor(report);
+      const frozen = snapshot.domains.find((d) => d.domain_key === "email_protection");
+      ok(`${label}: coverage readers preserve producer evidence`,
+        JSON.stringify(report.modules.email_security) === beforeCoverage);
+      if (name.includes("include lookup")) {
+        ok(`${label}: only the include resolution failed, root SPF remains observed`,
+          em.spf.present === true && em.spf.resolution_status === "temperror");
+      }
+      // Keep the expected vocabulary statically governed; both branches assert
+      // the real recorded status, never a test-only normalized replacement.
+      if (expectedQuality === "complete") {
+        ok(`${label}: scan quality complete`, report.scan_quality.status === "complete", JSON.stringify(report.scan_quality));
+      } else if (expectedQuality === "partial") {
+        ok(`${label}: scan quality partial`, report.scan_quality.status === "partial", JSON.stringify(report.scan_quality));
+      } else {
+        throw new Error(`Unexpected coverage fixture quality: ${expectedQuality}`);
+      }
+      const expectedMonitoring = expectedQuality === "partial" ? "evidence_incomplete"
+        : variant === "optional-rua" ? "monitoring_degraded" : "monitoring_healthy";
+      ok(`${label}: monitoring ${expectedMonitoring}`,
+        report.monitoring_states.signals.email_protection.state === expectedMonitoring,
+        JSON.stringify(report.monitoring_states.signals.email_protection));
+      ok(`${label}: canonical domain ${expectedState}`, domain.state === expectedState, JSON.stringify(domain));
+      ok(`${label}: frozen snapshot matches canonical domain and methodology`,
+        frozen.state === expectedState && frozen.coverage === domain.coverage &&
+        snapshot.methodology?.cyber_mot_resolver_version === SECURITY_CHECK_RESOLVER_VERSION,
+        JSON.stringify({ frozen, methodology: snapshot.methodology }));
+      const expectedLabel = { assessed_healthy: "Healthy", evidence_insufficient: "Evidence insufficient", issue_detected: "Issue detected" }[expectedState];
+      for (const [surface, entries] of [["resolved", domains], ["snapshot JSON", persisted(snapshot).domains]]) {
+        const html = renderEmail(entries);
+        ok(`${label}: actual ${surface} component renders ${expectedLabel}`,
+          html.includes(expectedLabel) && (expectedState === "assessed_healthy" || !html.includes('>Healthy<')), html);
+      }
+      ok(`${label}: SPF finding reflects observed absence only`,
+        report.findings.some((f) => f.id === "email_missing_spf") === (expectedQuality === "complete" && email.spf.present === false));
+      if (expectedQuality === "partial") {
+        ok(`${label}: quality names incomplete email evidence`,
+          report.scan_quality.modules_incomplete.some((m) => m.module === "email_security"));
+        ok(`${label}: no missing-SPF action for unknown SPF`,
+          !em.remediation_actions.some((a) => a.id === "spf_missing") &&
+          !snapshot.observed_findings.some((f) => f.finding_id === "email_missing_spf"));
+      }
+      if (z.dmarc === DMARC_NONE) {
+        ok(`${label}: observed DMARC finding + canonical action survive partial SPF coverage`,
+          domain.coverage === "partial" && frozen.coverage === "partial" &&
+          report.findings.some((f) => f.id === "email_dmarc_policy_none") &&
+          report.recommendations.some((a) => a.module === "email_security") &&
+          (variant === "not-run" || em.remediation_actions.some((a) => a.id === "dmarc_policy_monitoring_only")) &&
+          snapshot.observed_findings.some((f) => f.finding_id === "email_dmarc_policy_none") &&
+          frozen.remediation_ids.includes(REM.email_dmarc_policy_none) &&
+          snapshot.remediation_actions.some((a) => a.remediation_id === REM.email_dmarc_policy_none), JSON.stringify(frozen));
+      }
+    }
+  }
+}
+
+// The root marker does not depend on unrelated nullable counters. The original
+// two-argument classifier remains the generic presence/status API (including DKIM).
+{
+  const rootFailure = { present: false, record: null, record_count: 0, resolution_status: "temperror" };
+  const email = { spf: rootFailure, dkim: { present: true }, dmarc: { present: true, policy: "reject" } };
+  unknownCategory("C legacy minimal root-probe marker", postureFor(email));
+  ok("C legacy minimal root-probe marker needs no optional lookup counters",
+    isSpfEvidenceUnknown(rootFailure) === true && enrichSpf(email).observation_unavailable === true &&
+    buildScanQuality({ email_security: email }).status === "partial");
+  ok("C generic two-argument presence/status API remains unchanged",
+    isEmailProbeEvidenceUnknown(false) === false && isEmailProbeEvidenceUnknown(true) === false &&
+    isEmailProbeEvidenceUnknown(false, "unavailable") === true &&
+    isEmailProbeEvidenceUnknown(true, "not_yet_assessed") === true);
+}
+
+// Generic status fragments are not the captured legacy root-probe marker.
+// Existing boolean compatibility and the generic DKIM API must remain intact.
+for (const [name, spf] of [
+  ["plain boolean false", { present: false }],
+  ["generic temperror", { present: false, resolution_status: "temperror" }],
+  ["missing record count", { present: false, record: null, resolution_status: "temperror" }],
+  ["missing record value", { present: false, record_count: 0, resolution_status: "temperror" }],
+  ["non-numeric count", { present: false, record: null, record_count: "0", resolution_status: "temperror" }],
+]) {
+  const email = { spf, dkim: { present: true }, dmarc: { present: true, policy: "reject" } };
+  const scored = computeScore({ dns: { has_mx: true }, email_security: email }, "example.com");
+  ok(`C compatibility ${name}: known boolean absence keeps its finding, action and complete coverage`,
+    scored.findings.some((f) => f.id === "email_missing_spf") &&
+    remIds(postureFor(email)).includes(REM.email_missing_spf) &&
+    enrichSpf(email).observation_unavailable === false &&
+    buildScanQuality({ email_security: email }).status === "complete");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

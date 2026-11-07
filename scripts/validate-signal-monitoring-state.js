@@ -46,7 +46,11 @@ async function loadStateModule() {
   const relinked = mutated.replace(statedImport,
     `import { isStatedAccessLimit, statedLimitMessage } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
   if (relinked === mutated) throw new Error("state stated-limit import anchor missing");
-  return import(`data:text/javascript;base64,${Buffer.from(relinked).toString("base64")}#${mutation}`);
+  const evidenceImport = 'import { isEmailSpfEvidenceIncomplete } from "./email-evidence.js";';
+  const withEvidence = relinked.replace(evidenceImport,
+    `import { isEmailSpfEvidenceIncomplete } from "${pathToFileURL(path.join(worker, "engines", "email-evidence.js")).href}";`);
+  if (withEvidence === relinked) throw new Error("state email-evidence import anchor missing");
+  return import(`data:text/javascript;base64,${Buffer.from(withEvidence).toString("base64")}#${mutation}`);
 }
 
 async function loadPresentationModule() {
@@ -103,7 +107,7 @@ function completeModules() {
     subdomains: {},
     ssl: { https_probe_executed: true },
     headers: {},
-    email_security: {},
+    email_security: { spf: { present: true } },
     dmarc_core: { core_completeness: "complete", outcome: "available" },
     email_security_intelligence: {},
     dns_bruteforce: {},
@@ -450,7 +454,7 @@ if (!mutation) {
 // was degraded and the score withheld. One shared rule (scan-stated-limits.js).
 if (mutation === null) {
   const batch4 = {
-    dns: {}, ssl: {}, headers: {}, email_security: {}, dmarc_core: {}, email_security_intelligence: {},
+    dns: {}, ssl: {}, headers: {}, email_security: { spf: { present: true } }, dmarc_core: {}, email_security_intelligence: {},
     technology_detection: {}, whois_intelligence: {},
     dns_bruteforce: {}, asset_exposure: {}, cloud_storage_discovery: {},
     subdomain_takeover: { incomplete: true, incomplete_reason: "host_probe_unconfirmed", incomplete_reasons: ["host_probe_unconfirmed"], error: null,
@@ -470,7 +474,11 @@ if (mutation === null) {
   ok("stated-limit mutant anchor present once", source.split(anchor).length === 2);
   const mutated = source.replace(anchor, "  if (false) {").replace('import { isStatedAccessLimit, statedLimitMessage } from "./scan-stated-limits.js";',
     `import { isStatedAccessLimit, statedLimitMessage } from "${pathToFileURL(path.join(worker, "engines", "scan-stated-limits.js")).href}";`);
-  const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#stated-limit-ignored`);
+  const evidenceImport = 'import { isEmailSpfEvidenceIncomplete } from "./email-evidence.js";';
+  const linkedEvidence = mutated.replace(evidenceImport,
+    `import { isEmailSpfEvidenceIncomplete } from "${pathToFileURL(path.join(worker, "engines", "email-evidence.js")).href}";`);
+  if (linkedEvidence === mutated) throw new Error("stated-limit mutant email-evidence import anchor missing");
+  const mutant = await import(`data:text/javascript;base64,${Buffer.from(linkedEvidence).toString("base64")}#stated-limit-ignored`);
   eq("mutant (stated limit ignored) is caught: attack surface reads incomplete again",
     mutant.deriveSignalMonitoringStates({ modules: batch4, scanQuality: { status: "complete", modules_skipped: [] } }).signals.attack_surface.state, "evidence_incomplete");
 }

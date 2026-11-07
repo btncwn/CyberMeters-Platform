@@ -114,7 +114,7 @@ globalThis.fetch = realFetch;
 
 // ── 7. buildScanQuality — incomplete exposure forces partial, not skipped ────
 const qPartial = buildScanQuality({
-  dns: { resolves: true }, ssl: {}, headers: { accessible: true }, email_security: {},
+  dns: { resolves: true }, ssl: {}, headers: { accessible: true }, email_security: { spf: { present: true } },
   asset_exposure: { checked: 5, reachable: 0, incomplete: true, incomplete_reason: "subrequest_budget_exhausted" },
 });
 ok("scan_quality → partial when exposure incomplete", qPartial.status === "partial");
@@ -122,7 +122,7 @@ ok("scan_quality → attempted asset_exposure not listed as skipped", !qPartial.
   qPartial.modules_incomplete.some(item => item.module === "asset_exposure"));
 
 const qComplete = buildScanQuality({
-  dns: { resolves: true }, ssl: {}, headers: { accessible: true }, email_security: {},
+  dns: { resolves: true }, ssl: {}, headers: { accessible: true }, email_security: { spf: { present: true } },
   asset_exposure: { checked: 5, reachable: 2 },   // genuine, complete
 });
 ok("scan_quality → NOT partial on a genuine complete exposure", qComplete.status !== "partial");

@@ -224,12 +224,13 @@ ok("every canonical enforcement level has a consumer mapping", assertConsumerMap
   assertConsumerMappingsComplete().join(","));
 
 // ── 7. MUTATION HARNESS — external security check mappings are load-bearing ────────────────
-// security-check-domains.js imports ONLY dmarc-canonical-consumers.js, so a mutant map
-// wired into a mutant resolver proves each §7 mapping actually drives the verdict.
+// A mutant DMARC map is wired into the real resolver; its other evidence
+// dependencies remain bound to the originals, so each mapping drives the verdict.
 const mapSrc = fs.readFileSync(p("dmarc-canonical-consumers.js"), "utf8");
 const motSrc = fs.readFileSync(p("security-check-domains.js"), "utf8");
 const stateUrl = pathToFileURL(p("dmarc-state.js")).href;
 const monitoringUrl = pathToFileURL(p("signal-monitoring-state.js")).href;
+const emailEvidenceUrl = pathToFileURL(p("email-evidence.js")).href;
 const cookieObservationUrl = pathToFileURL(p("cookie-observation.js")).href;
 const tlsEvidenceUrl = pathToFileURL(p("tls-evidence.js")).href;
 const identityEvidenceUrl = pathToFileURL(p("identity-evidence-contract.js")).href;
@@ -272,8 +273,10 @@ async function motFromMutantMap(mutateMap, scn) {
       .replace('from "./cookie-observation.js"', `from ${JSON.stringify(cookieObservationUrl)}`)
       .replace('from "./tls-evidence.js"', `from ${JSON.stringify(tlsEvidenceUrl)}`)
       .replace('from "./identity-evidence-contract.js"', `from ${JSON.stringify(identityEvidenceUrl)}`);
+    const withEmailEvidence = replaceExactImport(mMot,
+      'from "./email-evidence.js"', `from ${JSON.stringify(emailEvidenceUrl)}`, "email-evidence.js");
     const portableMot = replaceExactImport(
-      mMot,
+      withEmailEvidence,
       findingsImportAnchor,
       findingsImportReplacement,
       "findings.js",

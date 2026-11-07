@@ -8,6 +8,8 @@
 // never fork from the canonical eligibility contract). Heavily covered by the
 // accuracy + pipeline regression harnesses.
 import { resolveRemediation } from "./remediation-registry.js";
+import { isEmailProbeUnobserved } from "./email-evidence.js";
+export { isEmailProbeEvidenceUnknown, isEmailProbeUnobserved } from "./email-evidence.js";
 import { isPublishableModuleEvidence } from "./scan-budget.js";
 import { mayGroundAbsence, maySupportHealthyConclusion } from "../lib/serviceability.js";
 
@@ -223,26 +225,6 @@ export function buildDmarcPolicyUpgradeValue(record, fallbackRua, targetPolicy =
   if (!sawPolicy) out.push(`p=${targetPolicy}`);
   if (!sawRua) out.push(`rua=${fallbackRua}`);
   return out.join("; ").slice(0, 4096);
-}
-
-// ── Email probe evidence-status (A1) ─────────────────────────────────────────
-// Shared, dependency-free classifier used by BOTH the SPF and DKIM truth
-// consumers (scoring + email-intel) to tell "we could not observe this probe"
-// apart from "we observed it and there is no record". The observation status
-// itself is produced at the probe boundary (email-scan.js) reusing the DMARC
-// observation-status pattern; this leaf helper only answers "is it unobserved?".
-// unavailable = probe/DNS failure; not_yet_assessed = probe never executed.
-// Both are score-neutral and must never become a missing/failed conclusion.
-export function isEmailProbeUnobserved(status) {
-  return status === "unavailable" || status === "not_yet_assessed";
-}
-
-// Presence is an evidence contract: only booleans can establish presence or
-// absence. New module results persist null when a probe did not conclude; the
-// non-enumerable live status does not survive JSON. Known legacy booleans keep
-// their meaning when no status is available.
-export function isEmailProbeEvidenceUnknown(present, status) {
-  return typeof present !== "boolean" || isEmailProbeUnobserved(status);
 }
 
 export function parseSpfRecord(record, recordCount = record ? 1 : 0) {

@@ -136,7 +136,7 @@ function makeD1(db) {
   db.prepare(`INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
               VALUES ('act_ws1','ws1','website_security','2020-01-01 00:00:00',0,datetime('now'))`).run();
   const env = { cybermeters_db: makeD1(db), ALERT_EMAIL_FROM: "alerts@cybermeters.com", RESEND_API_KEY: "re_test", FRONTEND_URL: "https://app.cybermeters.com" };
-  const MODULES = { dns: { resolves: true }, ssl: { https_available: true, https_probe_executed: true }, headers: { accessible: true, headers_assessed: true }, email_security: {} };
+  const MODULES = { dns: { resolves: true }, ssl: { https_available: true, https_probe_executed: true }, headers: { accessible: true, headers_assessed: true }, email_security: { spf: { present: true } } };
   const run = (scan, discovery, { quality = buildScanQuality(MODULES) } = {}) => {
     const modules = { ...MODULES, page_discovery: discovery };
     const findings = S.signInPageFindings(discovery, { domain: "acme.test" });

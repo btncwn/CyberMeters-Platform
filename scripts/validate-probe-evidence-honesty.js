@@ -186,29 +186,29 @@ const sslPositivelyAbsent = () => ({
 
 // ── 2. scan_quality: a probe that did not execute can never be `complete` ───
 {
-  const timedOut = buildScanQuality({ dns: { resolves: true }, ssl: sslHealthy(), headers: headersNotExecuted(), email_security: {} });
+  const timedOut = buildScanQuality({ dns: { resolves: true }, ssl: sslHealthy(), headers: headersNotExecuted(), email_security: { spf: { present: true } } });
   eq("headers timeout => scan_quality is NOT complete", timedOut.status, "partial");
   ok("headers timeout => the module is incomplete, not skipped", !timedOut.modules_skipped.includes("headers") &&
     timedOut.modules_incomplete.some(item => item.module === "headers"));
 
-  const sslOut = buildScanQuality({ dns: { resolves: true }, ssl: sslNotExecuted(), headers: headersHealthy(), email_security: {} });
+  const sslOut = buildScanQuality({ dns: { resolves: true }, ssl: sslNotExecuted(), headers: headersHealthy(), email_security: { spf: { present: true } } });
   eq("HTTPS probe timeout => scan_quality is NOT complete", sslOut.status, "partial");
   ok("HTTPS probe timeout => the module is incomplete", sslOut.modules_incomplete.some(item => item.module === "ssl"));
 
   // Redirect exhaustion and a blocked target reach the module the SAME way — via
   // safeFetch returning null — so they produce the identical non-executed shape.
   // Asserted explicitly because the founder's contract names them separately.
-  const redirectLoop = buildScanQuality({ dns: { resolves: true }, ssl: sslHealthy(), headers: { ...headersNotExecuted(), incomplete_reason: "probe_not_executed" }, email_security: {} });
+  const redirectLoop = buildScanQuality({ dns: { resolves: true }, ssl: sslHealthy(), headers: { ...headersNotExecuted(), incomplete_reason: "probe_not_executed" }, email_security: { spf: { present: true } } });
   eq("redirect exhaustion => NOT complete", redirectLoop.status, "partial");
 
-  const healthy = buildScanQuality({ dns: { resolves: true }, ssl: sslHealthy(), headers: headersHealthy(), email_security: {} });
+  const healthy = buildScanQuality({ dns: { resolves: true }, ssl: sslHealthy(), headers: headersHealthy(), email_security: { spf: { present: true } } });
   eq("a genuinely reachable scan is still complete (no false partial)", healthy.status, "complete");
   eq("a healthy scan lists nothing skipped", healthy.modules_skipped, []);
 }
 
 // ── 3. THE HEADLINE — an unreachable site is never reported healthy ─────────
 {
-  const modules = { dns: { resolves: true }, ssl: sslHealthy(), headers: headersNotExecuted(), email_security: {} };
+  const modules = { dns: { resolves: true }, ssl: sslHealthy(), headers: headersNotExecuted(), email_security: { spf: { present: true } } };
   const report = { scan_quality: buildScanQuality(modules), modules, findings: [], completed_at: "2026-07-15T00:00:00Z" };
   const ws = resolveSecurityCheckDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "website_security");
 
@@ -221,7 +221,7 @@ const sslPositivelyAbsent = () => ({
 
   // The same scan, reachable: the domain must still work normally. A fix that
   // makes everything unknown is not a fix.
-  const okModules = { dns: { resolves: true }, ssl: sslHealthy(), headers: headersHealthy(), email_security: {} };
+  const okModules = { dns: { resolves: true }, ssl: sslHealthy(), headers: headersHealthy(), email_security: { spf: { present: true } } };
   const okReport = { scan_quality: buildScanQuality(okModules), modules: okModules, findings: [], completed_at: "2026-07-15T00:00:00Z" };
   const okWs = resolveSecurityCheckDomainStates(okReport, { scanId: "s2" }).find((d) => d.domain_key === "website_security");
   eq("a reachable, clean site is still assessed_healthy", okWs.state, SECURITY_CHECK_STATES.ASSESSED_HEALTHY);
@@ -254,19 +254,19 @@ const sslPositivelyAbsent = () => ({
 // a probe that never executed, a timeout reads as "the customer fixed it".
 {
   const modules = { ssl: sslHealthy(), headers: headersNotExecuted() };
-  const gate = moduleCompletionGate(modules, buildScanQuality({ ...modules, dns: { resolves: true }, email_security: {} }));
+  const gate = moduleCompletionGate(modules, buildScanQuality({ ...modules, dns: { resolves: true }, email_security: { spf: { present: true } } }));
   ok("canVerify('headers') is FALSE when the probe did not execute — no false recovery",
      gate.canVerify("headers") === false);
   ok("the gate lists headers as incomplete", gate.incomplete.has("headers"));
 
   const sslModules = { ssl: sslNotExecuted(), headers: headersHealthy() };
-  const sslGate = moduleCompletionGate(sslModules, buildScanQuality({ ...sslModules, dns: { resolves: true }, email_security: {} }));
+  const sslGate = moduleCompletionGate(sslModules, buildScanQuality({ ...sslModules, dns: { resolves: true }, email_security: { spf: { present: true } } }));
   ok("canVerify('ssl') is FALSE when the HTTPS probe did not execute", sslGate.canVerify("ssl") === false);
 
   // A later successful probe restores assessability — without the gate inventing
   // anything. Recovery is the evaluator's decision on real evidence, not the gate's.
   const healed = { ssl: sslHealthy(), headers: headersHealthy() };
-  const healedGate = moduleCompletionGate(healed, buildScanQuality({ ...healed, dns: { resolves: true }, email_security: {} }));
+  const healedGate = moduleCompletionGate(healed, buildScanQuality({ ...healed, dns: { resolves: true }, email_security: { spf: { present: true } } }));
   ok("a later successful probe restores canVerify('headers')", healedGate.canVerify("headers") === true);
   ok("a later successful probe restores canVerify('ssl')", healedGate.canVerify("ssl") === true);
 }
@@ -418,7 +418,7 @@ const sslPositivelyAbsent = () => ({
 
 // ── 7. The eight-domain contract stays consistent ──────────────────────────
 {
-  const modules = { dns: { resolves: true }, ssl: sslNotExecuted(), headers: headersNotExecuted(), email_security: {} };
+  const modules = { dns: { resolves: true }, ssl: sslNotExecuted(), headers: headersNotExecuted(), email_security: { spf: { present: true } } };
   const report = { scan_quality: buildScanQuality(modules), modules, findings: [], completed_at: "2026-07-15T00:00:00Z" };
   const states = resolveSecurityCheckDomainStates(report, { scanId: "s1", cyberEssentials: { status: "not_assessed" } });
   eq("the resolver still returns exactly eight domains", states.length, 8);
@@ -454,7 +454,7 @@ const sslPositivelyAbsent = () => ({
     // stored HSTS policy (not_observed) still keeps Website Security from
     // reading healthy.
     {
-      const flagOnly = { dns: { resolves: true }, ssl: sslHealthy(), headers: { ...mutantHeaders }, email_security: {} };
+      const flagOnly = { dns: { resolves: true }, ssl: sslHealthy(), headers: { ...mutantHeaders }, email_security: { spf: { present: true } } };
       const flagOnlyWs = resolveSecurityCheckDomainStates({ scan_quality: buildScanQuality(flagOnly), modules: flagOnly, findings: [],
         completed_at: "2026-07-15T00:00:00Z" }, { scanId: "s1" }).find((d) => d.domain_key === "website_security");
       ok("DEFENCE IN DEPTH: with only the incomplete flag removed, the not-observed HSTS policy still blocks healthy",
@@ -465,7 +465,7 @@ const sslPositivelyAbsent = () => ({
     delete mutantHeaders.hsts_policy;
     delete mutantHeaders.validation_uncertain;
 
-    const modules = { dns: { resolves: true }, ssl: sslHealthy(), headers: mutantHeaders, email_security: {} };
+    const modules = { dns: { resolves: true }, ssl: sslHealthy(), headers: mutantHeaders, email_security: { spf: { present: true } } };
     const q = buildScanQuality(modules);
     eq("MUTANT: a timed-out probe grades the scan `complete` — the defect, reproduced", q.status, "complete");
 
@@ -501,7 +501,7 @@ const CERT_DOMAIN = "acme.example.com";
 const sslWithoutLeaf = () => sslHealthy();
 const sslWithLeaf = () => liveTlsSsl({ domain: CERT_DOMAIN }, sslHealthy());
 const certModulesFor = (ssl) => ({
-  dns: { resolves: true }, ssl, headers: headersHealthy(), email_security: {},
+  dns: { resolves: true }, ssl, headers: headersHealthy(), email_security: { spf: { present: true } },
   subdomains: { count: 0, items: [], sensitive: [], source: "dns_discovery" },
   certificate_intelligence: runCertificateIntelligenceModule({ ssl, subdomains: {} }, CERT_DOMAIN),
 });

@@ -8,7 +8,8 @@ import { assetFingerprintSignals } from "./asset-intel.js";
 import { resolveDnsResolution } from "./attack-surface-signal-completeness.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
-import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, inferMxProvider, isEmailProbeEvidenceUnknown, isEmailProbeUnobserved } from "./email-analysis.js";
+import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, inferMxProvider, isEmailProbeUnobserved } from "./email-analysis.js";
+import { isSpfEvidenceUnknown } from "./email-evidence.js";
 import { applyEvidenceQuality } from "./findings.js";
 import { classifyCspPolicy, classifyHeaderStrength, effectiveHstsValue, hstsPolicyOf } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
@@ -797,13 +798,13 @@ export function computeScore(modules, domain) {
     // never a spread/JSON copy). Explicit module skip/non-execution and a failed
     // SPF probe are unobserved → score-neutral, NOT a missing record. Merely partial
     // modules still use completed per-probe evidence. Persisted nullable presence
-    // stays unknown after JSON drops the status; known legacy booleans retain
-    // their historical meaning.
+    // stays unknown after JSON drops the status; the legacy root-failure marker
+    // also stays unknown. Other known legacy booleans retain their meaning.
     const emailModuleUnobserved = modules.email_security?.skipped === true ||
       modules.email_security?.executed === false || Boolean(modules.email_security?.error);
     const spfEvidence = modules.email_security?.spf_evidence_status ?? null;
     const spfUnobserved = emailModuleUnobserved ||
-      isEmailProbeEvidenceUnknown(modules.email_security?.spf?.present, spfEvidence);
+      isSpfEvidenceUnknown(modules.email_security?.spf, spfEvidence);
     if (!spfUnobserved && !modules.email_security?.spf?.present) {
       finding({
         id:           "email_missing_spf",

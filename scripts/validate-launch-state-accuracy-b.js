@@ -74,7 +74,7 @@ const projectedEmail = applyDmarcbisEmailCompatibilityProjection("fixture.exampl
 });
 check("CM-P1-003 projected decision survives JSON storage",
   roundTrip(projectedEmail).dmarc_state?.enforcement_level === "quarantine_enforced");
-const legacyReport = reportWith({ email_security: { dmarc: { present: true, policy: "quarantine" } } });
+const legacyReport = reportWith({ email_security: { spf: { present: true }, dmarc: { present: true, policy: "quarantine" } } });
 check("CM-P1-003 legacy missing decision is insufficient",
   domainState(legacyReport, "email_protection") === "evidence_insufficient");
 check("CM-P1-003 legacy snapshot is insufficient",
@@ -487,7 +487,7 @@ check("CM-P1-010 sender alerts are read per source, tenant-scoped, within the co
   alertDb.calls.length === 1 && JSON.stringify(alertDb.calls[0].args) === JSON.stringify(["ws_fixture", alertPrefix.length, "spf_unauthorised:fixture.example:"]) &&
   /w\.deleted_at IS NULL/.test(alertDb.calls[0].sql) && /n\.type = 'email_spf_unauthorised_source'/.test(alertDb.calls[0].sql) &&
   /datetime\('now', '-30 days'\)/.test(alertDb.calls[0].sql) && /LIMIT \d+/.test(alertDb.calls[0].sql));
-const healthyEmail = { dmarc_state: { enforcement_level: "reject_enforced" } };
+const healthyEmail = { spf: { present: true }, dmarc_state: { enforcement_level: "reject_enforced" } };
 const emailEntryOf = (emailModule) => resolveSecurityCheckDomainStates(reportWith({ email_security: emailModule })).find((entry) => entry.domain_key === "email_protection");
 const emailBaseline = emailEntryOf(healthyEmail);
 const emailWithAlert = emailEntryOf({ ...healthyEmail, unauthorised_sending_sources: senderAlerts });

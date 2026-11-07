@@ -675,7 +675,7 @@ function EmailControl({ label, status, statusCls, detail, mono, warning }) {
   )
 }
 
-function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage = null }) {
+export function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage = null }) {
   if (!intel || intel.error || !isPhase5EvidenceAvailable(intel)) {
     return (
       <div className="card overflow-hidden">
@@ -695,8 +695,16 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
 
   const bizRisk      = intel.business_email_risk
   const bizBadgeCls  = BIZ_RISK_STYLE[bizRisk]?.bg || 'bg-gray-100 text-gray-500 border-gray-200'
-  const dmarcStyle   = DMARC_STATUS_STYLE[dmarc?.status]   || DMARC_STATUS_STYLE.ERROR
-  const spfStyle     = SPF_STATUS_STYLE[spf?.status]        || SPF_STATUS_STYLE.MISSING
+  // The backend can publish reliable sibling evidence while one probe was
+  // unavailable. Preserve that per-probe boundary instead of rendering its
+  // legacy fallback enum as an observed absence or failed verification.
+  const spfUnavailable = spf?.observation_unavailable === true
+  const dmarcUnavailable = dmarc?.observation_unavailable === true
+  const dkimUnavailable = dkim?.observation_unavailable === true
+  const dmarcStyle = dmarcUnavailable ? DMARC_STATUS_STYLE.ERROR
+    : DMARC_STATUS_STYLE[dmarc?.status] || DMARC_STATUS_STYLE.ERROR
+  const spfStyle = spfUnavailable ? DMARC_STATUS_STYLE.ERROR
+    : SPF_STATUS_STYLE[spf?.status] || SPF_STATUS_STYLE.MISSING
 
   // Build a human-readable DMARC detail line
   const dmarcDetail = [
@@ -742,21 +750,23 @@ function EmailIntelSection({ intel, dmarcPresentation = null, assessmentMessage 
         <div className="divide-y divide-gray-50">
           <EmailControl
             label="SPF"
-            status={spf?.status || 'MISSING'}
+            status={spfUnavailable ? 'Not assessed' : spf?.status || 'MISSING'}
             statusCls={spfStyle}
-            detail={spf?.record || undefined}
-            warning={spf?.issue || undefined}
+            detail={spfUnavailable ? 'SPF observation was unavailable in this scan.' : spf?.record || undefined}
+            warning={spfUnavailable ? undefined : spf?.issue || undefined}
             mono
           />
           <EmailControl
             label="DMARC"
-            status={dmarc?.status?.replace('_', ' ') || 'MISSING'}
+            status={dmarcUnavailable ? 'Not assessed' : dmarc?.status?.replace('_', ' ') || 'MISSING'}
             statusCls={dmarcStyle}
-            detail={dmarcDetail || dmarc?.message || undefined}
+            detail={dmarcUnavailable ? 'DMARC observation was unavailable in this scan.' : dmarcDetail || dmarc?.message || undefined}
           />
           <div className="px-5 py-3 flex items-center justify-between border-b border-gray-50">
             <span className="text-xs font-semibold text-gray-500">DKIM</span>
-            {dkim ? (
+            {dkimUnavailable ? (
+              <span className={`inline-flex items-center text-xs font-semibold border px-2 py-0.5 rounded-full ${DMARC_STATUS_STYLE.ERROR}`}>Not assessed</span>
+            ) : dkim ? (
               <StatusPill value={dkim.status === 'VERIFIED'} trueLabel="Verified" falseLabel="Not verified" />
             ) : (
               <StatusPill value={false} trueLabel="Verified" falseLabel="Not verified" />

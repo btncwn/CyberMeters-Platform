@@ -122,7 +122,7 @@ async function observe(router) {
     const headers = await runHeadersModule(DOMAIN);
     const technology_detection = await runTechModule(DOMAIN);
     const ssl = await runSslModule(DOMAIN);
-    const modules = { dns: { resolves: true }, ssl, headers, technology_detection, email_security: {} };
+    const modules = { dns: { resolves: true }, ssl, headers, technology_detection, email_security: { spf: { present: true } } };
     const scan_quality = buildScanQuality(modules);
     const report = { scan_quality, modules, findings: [], completed_at: "2026-08-16T00:00:00Z" };
     const website = resolveSecurityCheckDomainStates(report, { scanId: "f42" })

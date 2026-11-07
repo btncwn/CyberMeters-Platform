@@ -7,6 +7,7 @@ import { resolveRemediation } from "./remediation-registry.js";
 import { isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
 import { DMARC_ENFORCEMENT_LEVELS } from "./dmarc-state.js";
 import { dmarcTestingMode, isEmailProbeEvidenceUnknown } from "./email-analysis.js";
+import { isSpfEvidenceUnknown } from "./email-evidence.js";
 import {
   isHttpRedirectPositivelyAbsent,
   resolveTlsRuntimeState,
@@ -92,7 +93,7 @@ export function computeSecurityPosture(sc, report) {
     const moduleUnobserved = em.skipped === true || em.executed === false || Boolean(em.error);
     const probeUnknown = (signal, status) => moduleUnobserved ||
       isEmailProbeEvidenceUnknown(signal?.present, status);
-    const spfUnknown = probeUnknown(em.spf, em.spf_evidence_status);
+    const spfUnknown = moduleUnobserved || isSpfEvidenceUnknown(em.spf, em.spf_evidence_status);
     const dkimUnknown = probeUnknown(em.dkim, em.dkim_evidence_status);
     const hasCanonicalDmarc = em.dmarc_state != null;
     const dmarcLevel = em.dmarc_state?.enforcement_level ?? null;

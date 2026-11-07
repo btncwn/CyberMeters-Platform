@@ -7,6 +7,62 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 7 November 2026 — RECORDED AFTER THE FACT: #1058 paired Worker release
+
+Recorded on 7 November 2026 from retained deployment and verification receipts.
+The original deployment times below are preserved; this entry does not backdate
+the recording or grant retrospective acceptance.
+
+[PR #1058](https://github.com/btncwn/CyberMeters-Platform/pull/1058) merged as
+`b3ef13a7f4ff82a3be2be708dd10f82b50cfcf42` from reviewed head
+`5544f5ee3baadbf87cba961545beb49e7191e54c`. The tested and merged full tree is
+`095dedc44e783baca015c20389b3b42751a44cbd`. The 15 jobs in
+[PR CI](https://github.com/btncwn/CyberMeters-Platform/actions/runs/42322017299)
+record 15/15 SUCCESS in the retained job and merge receipts. [Merged-main CI](https://github.com/btncwn/CyberMeters-Platform/actions/runs/42323660938)
+also passed all 15 jobs; its receipt was updated at `2026-11-07T01:39:53Z`.
+
+The R0 change adds remediation wording and limitations for the existing PHP-version
+finding. The exact-host/path passive HTTPS recheck remains the verification
+contract; application of mitigation remains customer-asserted. The email source
+reconciliation also includes the previously merged `getAssessmentContext` SQL
+change in `related-changes.js`; its HTTP caller is outside the email closure.
+
+Schema/migrations: none for the #1058 additive registry-copy delta. No production
+migration or historical-data rewrite is recorded for this release.
+
+Both Workers were deployed manually from the merged source. Deployment receipts
+record the coordinated expected `APP_VERSION` `2026.11.07-b3ef13a7f4ff.aa1fea084816` and email closure
+SHA-256 `aa1fea08481642a9720d77d874d90458630ebdfd82186ab66f5ad0a861661a20`.
+
+| Component | Live Worker Version ID | Rollback Worker Version ID | Deployment created, UTC |
+| --- | --- | --- | --- |
+| scan-api | `bfe194dc-cca0-48ff-833a-251d7441e5c9` | `cc244cd3-e805-4105-8bb3-eadb0e2258a1` | `2026-11-07T01:23:21.938178Z` |
+| cybermeters-email | `89bcdb60-5995-4d4d-bece-5b0c9be8188a` | `b370e467-7228-48eb-8f31-b513c91ecc07` | `2026-11-07T01:24:21.059468Z` |
+
+At `2026-11-07T01:25:55.183031+00:00`, API health returned 200 and identified the merged
+commit, expected stamp and API Version ID; readiness returned 200/ready, and the
+anonymous workspace route retained its 401 gate. Filtered provider receipts
+separately confirmed the email Version ID. No independent public email-health
+attestation is claimed.
+
+Pages was verified separately at that observation: production deployment
+`3f4f2455-39dd-4fdd-a9e7-6c7d2cdc7468` on `main` and the app version endpoint identified
+`b3ef13a7f4ff82a3be2be708dd10f82b50cfcf42`. The app reported build time
+`2026-11-07T01:22:04.398Z`; the supported Pages receipt did not return an exact
+deployment-created timestamp. These are the historical Pages facts from this
+release, not a claim about later Pages deployments.
+
+This is source, deployment and integrator-smoke evidence. No new scan or customer
+email was triggered by the verification, and authenticated customer-flow acceptance
+remained open. The receipts record no clean-observation pass, engineering seal or
+HOLD release. This documentation receipt creates no additional Worker release.
+
+Annotated release tag `v2026.11.07-1` was recorded after the fact at
+`2026-11-07T14:49:33Z`. Tag object `b641447bc051512ed713afe9b7c0bb41a8282fac`
+targets the exact deployed commit `b3ef13a7f4ff82a3be2be708dd10f82b50cfcf42`;
+the remote tag and its peeled target were independently read back. The annotation
+uses its actual recording date and does not change the original deployment time.
+
 ## 30 October 2026 — #1038 manual release receipt and bounded verification
 
 Supersedes the release-pending status of the preparation entry below.

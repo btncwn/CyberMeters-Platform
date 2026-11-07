@@ -266,7 +266,7 @@ ok("C9 end-to-end: all-CF-edge exposure → module complete, admin assessed (nev
 // ── SECTION D — buildScanQuality + moduleCompletionGate ──────────────────────
 const qIncomplete = buildScanQuality({ asset_exposure: { checked: 5, reachable: 0, incomplete: true, incomplete_reason: "probe_timeout" } });
 ok("D1 incomplete exposure → scan_quality partial", qIncomplete.status === "partial");
-const qComplete = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: {}, email_security: {}, asset_exposure: { checked: 5, reachable: 2 } });
+const qComplete = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: {}, email_security: { spf: { present: true } }, asset_exposure: { checked: 5, reachable: 2 } });
 ok("D2 complete exposure (+clean core) → scan_quality complete", qComplete.status === "complete");
 const gatePartial = moduleCompletionGate({ asset_exposure: { incomplete: true } }, { status: "partial" });
 ok("D3 partial scan → gate.canVerify false (case defers, never resolves on a failed probe)",
@@ -281,7 +281,7 @@ ok("D5 module flagged incomplete → gate.canVerify false for that module",
 setFetch(() => edgeResponse(530));
 const edgeOnlyMod = await runExposureModule("example.com", ["reports.example.com", "send.example.com"]);
 setFetch(realFetch);
-const qEdge = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: {}, email_security: {}, asset_exposure: edgeOnlyMod });
+const qEdge = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: {}, email_security: { spf: { present: true } }, asset_exposure: edgeOnlyMod });
 ok("D6 CF-edge-only exposure pass (+clean core) → scan_quality complete (P1 regression repro)",
   qEdge.status === "complete" && !qEdge.modules_skipped.includes("asset_exposure"));
 
@@ -410,7 +410,7 @@ const mfetch = (fn, run, dnsFixture = false) => { const prev = globalThis.fetch;
     'error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed")');
   ok("mutation M5 (throw catch drops incomplete) → anchor present (throw path un-flagged)", m.anchor);
   // buildScanQuality proof: without incomplete, a non-core exposure error does not go partial.
-  const qNoFlag = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: {}, email_security: {}, asset_exposure: { checked: 0, reachable: 0, error: "Asset exposure module failed" } });
+  const qNoFlag = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: {}, email_security: { spf: { present: true } }, asset_exposure: { checked: 0, reachable: 0, error: "Asset exposure module failed" } });
   ok("mutation M5 corollary → exposure error WITHOUT incomplete leaves scan_quality non-partial — CAUGHT",
     qNoFlag.status !== "partial");
 }

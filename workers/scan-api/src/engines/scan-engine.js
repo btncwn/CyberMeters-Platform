@@ -41,6 +41,7 @@ import { buildDnsOperationalResilience } from "./dns-resilience.js";
 import { dnsQuery, domainDefinitelyDoesNotExist } from "./dns.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
+import { isEmailSpfEvidenceIncomplete } from "./email-evidence.js";
 import { buildEmailRemediationActions, buildEmailTransportDetails, isPublishableEmailEvidence, mtaStsAdmission } from "./email-analysis.js";
 import { persistFindingsWithIdentity } from "./finding-identity.js";
 import { runEmailIntelModule } from "./email-intel.js";
@@ -276,7 +277,8 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   const cloudLimit = cloudCheckStatedLimit(modules);
   if (cloudLimit) statedLimits.push(cloudLimit);
   const incompleteModules = Object.entries(modules)
-    .filter(([name, value]) => value?.incomplete === true && !isOptionalEvidence(name, value))
+    .filter(([name, value]) => (value?.incomplete === true ||
+      (name === "email_security" && isEmailSpfEvidenceIncomplete(value))) && !isOptionalEvidence(name, value))
     .filter(([name, value]) => !isStatedAccessLimit(name, value))
     .map(([name]) => name);
   // The evidence proposition, kept SEPARATE from the execution proposition.
@@ -285,7 +287,8 @@ export function buildScanQuality(modules = {}, observedAt = undefined, capacity 
   // the evidence it observed supports a conclusion. Preserve both propositions.
   const modulesIncomplete = incompleteModules.map((name) => ({
     module: name,
-    incomplete_reason: modules[name]?.incomplete_reason ?? null,
+    incomplete_reason: modules[name]?.incomplete_reason ??
+      (name === "email_security" && isEmailSpfEvidenceIncomplete(modules[name]) ? "spf_evidence_incomplete" : null),
   }));
   for (const name of incompleteModules) {
     warnings.push(`Module incomplete: ${name}`);
