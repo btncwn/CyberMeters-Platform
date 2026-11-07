@@ -41,7 +41,7 @@ for (const [header, expected] of [
     assert.equal(remediation.customer_title, findings[0].title);
     assert.equal(remediation.technical_explanation, findings[0].title);
     assert.equal(remediation.business_impact, 'The NCSC warned on 21 October 2026 about two critical flaws in PHP itself that can allow code to be run on a web server without signing in; they are being exploited.');
-    assert.equal(remediation.recommended_action, 'Update PHP, or confirm with your hosting provider that their patched build is installed.');
+    assert(remediation.recommended_action.startsWith('Update PHP, or confirm with your hosting provider that their patched build is installed.'));
     assert.equal(resolveRemediation({ finding_type: findings[0].id }).case_type, 'website_case');
   }
   if (expected === 'hidden') {
@@ -59,6 +59,31 @@ for (const [header, expected] of [
     assert.equal(remediation.case_type, null);
     assert.equal(remediation.managed_workflow_compatible, false);
   }
+}
+// Temporary advice is canonical copy only; it cannot establish a patched build
+// or change the existing passive recheck contract.
+const temporaryAdvice = resolveRemediation({ finding_type: 'tech_php2shell_outdated' });
+assert.equal(temporaryAdvice.version, 2);
+for (const setting of ['memory_limit=-1', 'php_admin_value', 'post_max_size=8M', 'post_max_size=32M',
+  'upload_max_filesize', 'session.upload_progress.enabled=0', 'fatal_error_backtraces=0']) {
+  assert(temporaryAdvice.recommended_action.includes(setting), `official temporary guidance: ${setting}`);
+}
+assert.match(temporaryAdvice.recommended_action, /PHP 8\.5[^.]*fatal_error_backtraces=0/);
+assert.match(temporaryAdvice.recommended_action, /Restart all workers/);
+assert.match(temporaryAdvice.recommended_action, /container\/cgroup/);
+assert.match(temporaryAdvice.recommended_action, /not RLIMIT_AS or RLIMIT_DATA/);
+assert.match(temporaryAdvice.recommended_action, /ini_set\(\).*FPM \.user\.ini/);
+assert.match(temporaryAdvice.recommended_action, /only complete fix.*customer-asserted.*cannot verify/);
+assert.match(temporaryAdvice.limitations.join(' '), /temporary.*updating.*complete fix/i);
+assert.match(temporaryAdvice.limitations.join(' '), /customer-asserted.*cannot verify/i);
+assert(temporaryAdvice.limitations.includes('Only the reported version is compared. Backported fixes and the actual installed build cannot be verified remotely. This is not a claim of vulnerability or exploitability.'));
+assert.equal(temporaryAdvice.verification_method, 'https_recheck');
+assert.equal(temporaryAdvice.verification_evidence_requirements, 'A serviceable response at the exact original HTTPS host and path reports a fixed upstream release, or no longer reports PHP. A hidden, ambiguous or unsupported version is inconclusive.');
+assert.deepEqual(temporaryAdvice.references, [PHP_UPSTREAM_FIXES[0].advisory]);
+for (const surface of ['scan_detail', 'scorecard', 'executive_report', 'pdf', 'managed_case']) {
+  const resolved = resolveRemediation({ finding_type: 'tech_php2shell_outdated', surface });
+  assert.equal(resolved.recommended_action, temporaryAdvice.recommended_action, surface);
+  assert.deepEqual(resolved.limitations, temporaryAdvice.limitations, surface);
 }
 assert.equal(classifyPhpRuntime({ server: 'Apache/2.4.63 (Unix) PHP/8.2.34' }).state, 'outdated');
 assert.equal(classifyPhpRuntime({ poweredBy: 'PHP/8.2.35', server: 'PHP/8.2.34' }).state, 'unreadable');

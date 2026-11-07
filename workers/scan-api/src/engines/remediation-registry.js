@@ -1229,13 +1229,24 @@ export const REMEDIATION_REGISTRY = Object.freeze([
 
   entry({
     remediation_id: "web.php.runtime_release",
+    version: 2,
     introduced_at: "2026-10-24",
     domain_key: "website_security",
     finding_types: ["tech_php2shell_outdated"],
     customer_title: PHP_RUNTIME_TITLE,
     technical_explanation: PHP_RUNTIME_TITLE,
     business_impact: PHP_RUNTIME_NCSC_FACTS,
-    recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed.",
+    recommended_action: "Update PHP, or confirm with your hosting provider that their patched build is installed." +
+      " While awaiting an update or patched-build confirmation, ask your hosting administrator to apply the official PHP advisory's applicable temporary measures." +
+      " For CVE-2026-109618, set memory_limit=-1, preferably enforced with php_admin_value; rule out finite-limit overrides. Allocation failures can still reach the flaw." +
+      " Use post_max_size=8M when file uploads are unnecessary or post_max_size=32M when needed; keep upload_max_filesize lower." +
+      " Limit decoded request size, field/multipart-part/header counts and nesting at the server/proxy, even without usable Content-Length." +
+      " Use container/cgroup limits for availability, preferably terminating only the affected worker, not RLIMIT_AS or RLIMIT_DATA." +
+      " For CVE-2026-109619, apply session.upload_progress.enabled=0 in php.ini/pool/server configuration before parsing requests; do not rely on ini_set() or FPM .user.ini." +
+      " On PHP 8.5, also apply fatal_error_backtraces=0. Restart all workers after either setting. These address specific paths only." +
+      " Remove per-request invalid/deprecated settings emitting early diagnostics; hiding diagnostics is ineffective." +
+      " Resolve reachable fatal errors and execution timeouts in callbacks, uploads, imports and cleanup." +
+      " Updating remains the only complete fix. Mitigation use is customer-asserted; CyberMeters cannot verify these changes remotely.",
     effort: "medium",
     owner_type: "customer_it",
     verification_method: "https_recheck",
@@ -1243,7 +1254,11 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     managed_workflow_compatible: true,
     verification_evidence_requirements: "A serviceable response at the exact original HTTPS host and path reports a fixed upstream release, or no longer reports PHP. A hidden, ambiguous or unsupported version is inconclusive.",
     supporting_evidence_types: ["http_header_probe"],
-    limitations: ["Only the reported version is compared. Backported fixes and the actual installed build cannot be verified remotely. This is not a claim of vulnerability or exploitability."],
+    limitations: [
+      "Only the reported version is compared. Backported fixes and the actual installed build cannot be verified remotely. This is not a claim of vulnerability or exploitability.",
+      "These measures are temporary reductions for selected paths; updating PHP remains the only complete fix.",
+      "Mitigation use is customer-asserted: CyberMeters cannot verify configuration changes or worker restarts remotely. It does not satisfy the fixed-release recheck.",
+    ],
     references: ["https://www.php.net/archive/2026.php#2026-10-21-5"],
   }),
   entry({

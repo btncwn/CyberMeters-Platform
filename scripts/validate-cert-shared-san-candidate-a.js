@@ -732,8 +732,12 @@ const parity = states.map(parityOutputs);
 // only the builder stamp (2026-10-30.1 -> 2026-11-02.1). Reverting ONLY
 // that stamp reproduces both preceding goldens across all five SAN states
 // (30/30). Certificate evidence is byte-identical; no mutant is weakened.
-const GOLDEN_F13 = "84fcaf5edf8f92c449158b18e141cce3e8c059d2fb9a2e6ab3eba779f19693fe";
-const GOLDEN_F14 = "a82bdf7fa24aa38383225b80716f8929a023596524bc9cc4438b09a61d5e26e6";
+// PHP temporary guidance (7 Nov 2026): only its registry entry moves v1 -> v2,
+// changing the snapshot fingerprint r123-b65158b7 -> r123-a57266fe. Restoring
+// ONLY that entry version reproduces both preceding hashes; this fixture has
+// no PHP finding. Certificate evidence and every mutation assertion are unchanged.
+const GOLDEN_F13 = "41e2f835398561a5126c9529d0fb3b3f3ea690e70679092ee47bf5954d9685c8";
+const GOLDEN_F14 = "b181d070f1f01574bc5f7be1aff163c66c71302b482c936399b2985323f5a33b";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
