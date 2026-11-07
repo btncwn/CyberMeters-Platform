@@ -7,6 +7,67 @@ suffix is not a Git commit. Production releases are git-tagged
 `vYYYY.MM.DD-n`; Worker Version IDs are recorded from the release deployment and
 surfaced at `GET /health`.
 
+## 7 November 2026 — #1061 paired Worker release and bounded verification
+
+[PR #1061](https://github.com/btncwn/CyberMeters-Platform/pull/1061) merged as
+`9659777147414ad6dbf1010a66c40a24b24e0f95` from reviewed head
+`364bfac7bf0393a3f3e75683a5a16cb1baa955d7`. The tested and merged full tree is
+`bb55e97ab49d58dffc0a6a9fc65c91ea11c37874`. The exact candidate passed all 15
+[CI jobs](https://github.com/btncwn/CyberMeters-Platform/actions/runs/42387128254)
+and the separate [Frontend E2E run](https://github.com/btncwn/CyberMeters-Platform/actions/runs/42387128256);
+the final source/tree review recorded ACCEPT. Merged-main
+[CI 42388768333](https://github.com/btncwn/CyberMeters-Platform/actions/runs/42388768333)
+passed all 15 jobs on the actual merged commit; the terminal run was updated
+at `2026-11-07T16:14:02Z`. This is separate from the candidate CI and E2E results.
+
+The product change corrects the scorecard owner predicate and Email evidence
+coverage: unknown remains an explicit third state, SPF evidence is required, and
+explicitly unavailable SPF/DMARC/DKIM rows show Not assessed. Genuine absence and
+independent observed findings remain available. Scoring weights are unchanged. No database
+migration or historical report rewrite is part of this release. The published
+Worker source also includes the earlier merged #1059 (`c3448f0e4a56bb6e0b326e38285d650e67ebcbc2`)
+and #1060 (`9199bba0dfa19eb88d2ccbef549fb2ff17759725`); their inclusion grants no new severity
+or acceptance classification.
+
+Before deployment, the previous `b3ef13a7` release record and its tag target were
+reconciled and read back on main. That after-the-fact entry remains preserved.
+Both Workers were then deployed manually from the new merged source. Deployment
+receipts record coordinated expected `APP_VERSION` `2026.11.07-965977714741.fa8f79603af5` and email closure
+SHA-256 `fa8f79603af5e25bc4deae04f16baa5f45d313b5fd6ceccccd820edf170ee0fe`.
+
+| Component | Live Worker Version ID | Rollback Worker Version ID | Deployment created, UTC |
+| --- | --- | --- | --- |
+| scan-api | `aa23ad1b-ea71-405e-93f6-4c2bb0458f87` | `bfe194dc-cca0-48ff-833a-251d7441e5c9` | `2026-11-07T15:58:20.758555Z` |
+| cybermeters-email | `7dc1e759-4a55-4d34-b11b-81c28a19bf06` | `89bcdb60-5995-4d4d-bece-5b0c9be8188a` | `2026-11-07T16:00:15.635406Z` |
+
+At `2026-11-07T16:01:45.914507+00:00`, API health returned 200 with the expected source,
+stamp and API Version ID; readiness returned 200/ready, and the anonymous workspace
+route retained its 401 gate. Filtered provider receipts separately confirmed the
+email Version ID. No public email-health or provider-configuration attestation is
+claimed.
+
+Pages was checked separately: production deployment `f44c2f44-43a6-4b91-b92a-851b346bd6b1`
+on `main` and the app version endpoint identified `9659777147414ad6dbf1010a66c40a24b24e0f95`.
+The app reported build time `2026-11-07T15:56:36.449Z`. The supported Pages receipt
+did not return an exact deployment-created timestamp; the verification time above
+is the conservative observation anchor.
+
+These are reviewed-code, source, deployment and integrator-smoke facts. This
+verification triggered no new scan or customer email. Genuine-event, authenticated
+customer-flow, public free-check and Item19 acceptances remain separate and OPEN.
+The receipt records no clean 72-hour observation pass; its conditional not-before
+bound is `2026-11-10T16:01:45.914507+00:00`, not a completed acceptance.
+Every later actual production change requires a fresh observation anchor, including
+any later Pages deployment of this receipt. HOLD and seal remain unchanged; no
+claim that all engineering is finished is made.
+
+Annotated release tag `v2026.11.07-2` was created in this release session at
+`2026-11-07T16:11:07Z`. Tag object `f5b2e54e234904c136220964da6bafafe547ed38`
+targets the actual deployed commit `9659777147414ad6dbf1010a66c40a24b24e0f95`;
+the remote annotated object and peeled target were read back. This canonical
+receipt is recorded in the same release session and preserves the preceding
+after-the-fact record without rewriting it.
+
 ## 7 November 2026 — RECORDED AFTER THE FACT: #1058 paired Worker release
 
 Recorded on 7 November 2026 from retained deployment and verification receipts.
