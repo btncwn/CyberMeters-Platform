@@ -399,6 +399,267 @@ try {
   globalThis.fetch = originalFetch;
 }
 
+// ── Real module-to-route flow (no injected module runners) ──────────────────
+// The fixtures above inject finished module outputs. These cases inject none:
+// billingRoutes runs its own default runners (the production DNS, HTTPS,
+// headers, email and technology modules), its own evidence classification and
+// its own preview rendering. Only the transport underneath is replaced — DoH
+// answers and the target's HTTP/HTTPS responses — so a regression anywhere from
+// a module's failure handling to the response is visible here. Any request
+// outside the fixture's DoH providers or the fixture host fails the case.
+{
+  const HOST = "route-fixture.example.com";
+  const ADDRESS = "93.184.216.34";
+  const DOH = new Map([
+    ["cloudflare-dns.com", "/dns-query"],
+    ["dns.google", "/resolve"],
+    ["dns.quad9.net", "/dns-query"],
+  ]);
+  const TYPE_CODES = { A: 1, AAAA: 28 };
+  const soa = [{ name: "example.com", type: 6, TTL: 300, data: "ns.example.com. hostmaster.example.com. 1 7200 3600 1209600 300" }];
+
+  function dohAnswer(url) {
+    const name = String(url.searchParams.get("name") || "").replace(/\.$/, "").toLowerCase();
+    const type = String(url.searchParams.get("type") || "").toUpperCase();
+    const question = [{ name, type: TYPE_CODES[type] ?? 0 }];
+    if (name === HOST && type === "A") {
+      return { Status: 0, TC: false, Question: question, Answer: [{ name: HOST, type: 1, TTL: 60, data: ADDRESS }] };
+    }
+    // The host exists but publishes nothing else (NODATA); every other name,
+    // www.<host> included, is NXDOMAIN, so no sibling host is ever contacted.
+    return { Status: name === HOST ? 0 : 3, TC: false, Question: question, Answer: [], Authority: soa };
+  }
+
+  const refused = () => { throw new TypeError("Network connection lost."); };
+  const page = (status, headers = {}) => new Response(
+    status >= 500 ? "<html><body>Service Unavailable</body></html>" : "<html><head><title>fixture</title></head><body>ok</body></html>",
+    { status, headers: { "content-type": "text/html; charset=utf-8", server: "nginx", ...headers } },
+  );
+  const SECURE_HEADERS = {
+    "strict-transport-security": "max-age=31536000; includeSubDomains",
+    "content-security-policy": "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "permissions-policy": "camera=(), microphone=(), geolocation=()",
+  };
+
+  // origin(protocol, method) answers one request to the fixture host.
+  const ORIGINS = {
+    refused: () => refused(),
+    origin503: () => page(503),
+    httpsRefusedHttp200: (protocol) => (protocol === "https:" ? refused() : page(200)),
+    observed: (protocol) => (protocol === "http:"
+      ? new Response(null, { status: 301, headers: { location: `https://${HOST}/`, server: "nginx" } })
+      : page(200, SECURE_HEADERS)),
+  };
+
+  async function runRealRoute(originName) {
+    const origin = ORIGINS[originName];
+    const unexpected = [];
+    const targetRequests = [];
+    const savedFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init = {}) => {
+      const raw = typeof input === "string" ? input : (input?.url ?? String(input));
+      const url = new URL(raw);
+      const method = String(init.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
+      if (DOH.has(url.hostname)) {
+        if (url.protocol !== "https:" || url.pathname !== DOH.get(url.hostname) || method !== "GET") {
+          unexpected.push(`${method} ${raw}`);
+          throw new Error(`unexpected DoH request in real-route fixture: ${method} ${raw}`);
+        }
+        return Response.json(dohAnswer(url));
+      }
+      if (url.hostname === HOST && ["http:", "https:"].includes(url.protocol) && ["GET", "HEAD"].includes(method)) {
+        targetRequests.push(`${method} ${url.protocol}//${url.host}${url.pathname}`);
+        return origin(url.protocol, method);
+      }
+      unexpected.push(`${method} ${raw}`);
+      throw new Error(`unexpected network request in real-route fixture: ${method} ${raw}`);
+    };
+    try {
+      const request = new Request("https://app.cybermeters.com/api/free-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.10" },
+        body: JSON.stringify({ domain: HOST }),
+      });
+      const rateCalls = [];
+      const response = await billingRoutes({
+        request,
+        url: new URL(request.url),
+        env: {},
+        json: (body, status = 200) => Response.json(body, { status }),
+        serverError: (_area, error) => Response.json({ error: error?.message || "server error" }, { status: 500 }),
+        consumeApiRateLimit: async (_env, scopes, operation, limit, windowSeconds, options) => {
+          rateCalls.push({ scope: scopes?.[0]?.scope, operation, limit, windowSeconds, failClosed: options?.failClosed === true });
+          return null;
+        },
+        rateLimitScopeId: async (kind, value) => `${kind}:${value}`,
+        requireAuth: async () => null,
+        requireWorkspaceRole: async () => null,
+        // Deliberately NO freeScanModuleRunners and NO freeScanDnsQuery.
+      });
+      const body = await response.json();
+      return { status: response.status, body, unexpected, targetRequests, rateCalls };
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+  }
+
+  const evidenceOf = (body, module) => body.module_evidence?.find((entry) => entry.module === module);
+  const cardOf = (body, key) => body.security_domains?.find((entry) => entry.domain_key === key);
+  const exposedIds = (body) => [
+    ...(body.shown_findings || []).map((finding) => finding.id),
+    ...(body.security_domains || []).flatMap((entry) =>
+      (entry.samples || []).filter((sample) => sample.kind === "finding").map((sample) => sample.id)),
+  ].map(String);
+  const HEADER_FINDING = /^(header_|csp_|security_headers_|dse_hsts)/;
+  const HTTPS_FINDING = /(https|ssl|tls|certificate|redirect)/i;
+  const TECH_FINDING = /(technolog|tech_|server_|powered_by|version)/i;
+  const HTTP_MODULES = ["ssl", "headers", "technology_detection"];
+
+  function commonRouteContract(label, run) {
+    eq(`REAL ${label}: route admits the public target (200)`, run.status, 200);
+    eq(`REAL ${label}: no request escapes the fixture`, run.unexpected.join(" | "), "");
+    ok(`REAL ${label}: the real HTTP modules actually probed the target`,
+      run.targetRequests.some((entry) => entry.includes(`https://${HOST}/`))
+        && run.targetRequests.some((entry) => entry.includes(`http://${HOST}/`)),
+      run.targetRequests.join(" | "));
+    eq(`REAL ${label}: all five bounded modules attempted`,
+      [...(run.body.modules_attempted || [])].sort().join(","),
+      "dns,email_security,headers,ssl,technology_detection");
+    eq(`REAL ${label}: admission ran the three fail-closed limiters in order`,
+      run.rateCalls.map((call) => `${call.scope}:${call.operation}:${call.limit}:${call.failClosed}`).join(","),
+      "ip:free_scan:5:true,domain:free_scan_domain:3:true,global:free_scan_global:500:true");
+    eq(`REAL ${label}: score is null`, run.body.score, null);
+    eq(`REAL ${label}: risk level is null`, run.body.risk_level, null);
+    eq(`REAL ${label}: nothing is persisted`, run.body.persistence, "none");
+    ok(`REAL ${label}: preview never reports no_issues_observed`,
+      run.body.preview_state !== "no_issues_observed", run.body.preview_state);
+    ok(`REAL ${label}: every non-completed module carries a closed-set reason`,
+      run.body.module_evidence.every((entry) =>
+        entry.state === "completed" ? !entry.reason : typeof entry.reason === "string" && entry.reason.length > 0),
+      JSON.stringify(run.body.module_evidence.map((entry) => [entry.module, entry.state, entry.reason])));
+    eq(`REAL ${label}: modules_scanned is exactly the completed modules`,
+      [...run.body.modules_scanned].sort().join(","),
+      run.body.module_evidence.filter((entry) => entry.state === "completed").map((entry) => entry.module).sort().join(","));
+    const ui = deriveFreeScanPresentation(run.body);
+    ok(`REAL ${label} route→UI: no score and no no-issues verdict`, !ui.showScore && !ui.noIssuesObserved);
+    return ui;
+  }
+
+  function websiteNotHealthy(label, body) {
+    for (const key of ["website_security", "certificates_trust"]) {
+      const card = cardOf(body, key);
+      eq(`REAL ${label}: ${key} is evidence_insufficient`, card?.state, "evidence_insufficient");
+      ok(`REAL ${label}: ${key} never displays assessed_healthy`,
+        card?.display_state !== "assessed_healthy", card?.display_state);
+    }
+    eq(`REAL ${label}: website signal is evidence_incomplete`,
+      body.monitoring_states?.signals?.website_security?.state, "evidence_incomplete");
+  }
+
+  // 1. Admitted target; every HTTP and HTTPS connection is refused.
+  const refusedRun = await runRealRoute("refused");
+  const refusedUi = commonRouteContract("REFUSED", refusedRun);
+  eq("REAL REFUSED: HTTPS module incomplete because no probe came back",
+    `${evidenceOf(refusedRun.body, "ssl")?.state}/${evidenceOf(refusedRun.body, "ssl")?.reason}`,
+    "incomplete/https_probe_not_executed");
+  eq("REAL REFUSED: headers module incomplete because no probe came back",
+    `${evidenceOf(refusedRun.body, "headers")?.state}/${evidenceOf(refusedRun.body, "headers")?.reason}`,
+    "incomplete/probe_not_executed");
+  eq("REAL REFUSED: technology module incomplete because no origin was observed",
+    `${evidenceOf(refusedRun.body, "technology_detection")?.state}/${evidenceOf(refusedRun.body, "technology_detection")?.reason}`,
+    "incomplete/origin_not_observed");
+  ok("REAL REFUSED: DNS and email still complete (independent evidence kept)",
+    evidenceOf(refusedRun.body, "dns")?.state === "completed"
+      && evidenceOf(refusedRun.body, "email_security")?.state === "completed");
+  ok("REAL REFUSED: no HTTP module is listed as scanned",
+    HTTP_MODULES.every((module) => !refusedRun.body.modules_scanned.includes(module)),
+    refusedRun.body.modules_scanned.join(","));
+  websiteNotHealthy("REFUSED", refusedRun.body);
+  ok("REAL REFUSED: no header, HTTPS or technology finding is fabricated",
+    exposedIds(refusedRun.body).every((id) => !HEADER_FINDING.test(id) && !HTTPS_FINDING.test(id) && !TECH_FINDING.test(id)),
+    exposedIds(refusedRun.body).join(","));
+  const refusedCopy = `${refusedUi.headline} ${refusedUi.summary}`;
+  ok("REAL REFUSED route→UI: copy never calls the result healthy or issue-free",
+    !/no issues|excellent|out of 100/i.test(refusedCopy) && !/(?<!not a )healthy/i.test(refusedCopy),
+    refusedCopy);
+
+  // 2. Origin answers 503 on every protocol: TLS transport is observed, content is not.
+  const errorRun = await runRealRoute("origin503");
+  commonRouteContract("ORIGIN-5XX", errorRun);
+  // ssl-scan.js only reaches http_redirect_* when https_available === true, i.e.
+  // an origin answered over TLS. A failed-TLS reading would be one of the
+  // https_* transport reasons instead.
+  eq("REAL ORIGIN-5XX: HTTPS transport observed; only the redirect decision is withheld",
+    `${evidenceOf(errorRun.body, "ssl")?.state}/${evidenceOf(errorRun.body, "ssl")?.reason}`,
+    "incomplete/http_redirect_not_observed");
+  ok("REAL ORIGIN-5XX: TLS is not labelled failed, unavailable or not executed",
+    !/^https_/.test(String(evidenceOf(errorRun.body, "ssl")?.reason)), evidenceOf(errorRun.body, "ssl")?.reason);
+  eq("REAL ORIGIN-5XX: headers state the origin served no usable page",
+    `${evidenceOf(errorRun.body, "headers")?.state}/${evidenceOf(errorRun.body, "headers")?.reason}`,
+    "incomplete/origin_error_no_serviceable_response");
+  eq("REAL ORIGIN-5XX: technology states the origin served no usable page",
+    `${evidenceOf(errorRun.body, "technology_detection")?.state}/${evidenceOf(errorRun.body, "technology_detection")?.reason}`,
+    "incomplete/origin_error_no_serviceable_response");
+  websiteNotHealthy("ORIGIN-5XX", errorRun.body);
+  ok("REAL ORIGIN-5XX: no header, HTTPS or technology finding read off an error page",
+    exposedIds(errorRun.body).every((id) => !HEADER_FINDING.test(id) && !HTTPS_FINDING.test(id) && !TECH_FINDING.test(id)),
+    exposedIds(errorRun.body).join(","));
+
+  // 3. HTTPS refused, plain HTTP serves the page.
+  const httpOnlyRun = await runRealRoute("httpsRefusedHttp200");
+  commonRouteContract("HTTPS-REFUSED/HTTP-200", httpOnlyRun);
+  eq("REAL HTTPS-REFUSED/HTTP-200: HTTPS remains unobserved, not failed",
+    `${evidenceOf(httpOnlyRun.body, "ssl")?.state}/${evidenceOf(httpOnlyRun.body, "ssl")?.reason}`,
+    "incomplete/https_probe_not_executed");
+  eq("REAL HTTPS-REFUSED/HTTP-200: headers observed over HTTP stay completed",
+    evidenceOf(httpOnlyRun.body, "headers")?.state, "completed");
+  ok("REAL HTTPS-REFUSED/HTTP-200: the observed headers module is listed as scanned, HTTPS is not",
+    httpOnlyRun.body.modules_scanned.includes("headers") && !httpOnlyRun.body.modules_scanned.includes("ssl"),
+    httpOnlyRun.body.modules_scanned.join(","));
+  ok("REAL HTTPS-REFUSED/HTTP-200: a real header finding from the observed page survives",
+    exposedIds(httpOnlyRun.body).some((id) => HEADER_FINDING.test(id)),
+    exposedIds(httpOnlyRun.body).join(","));
+  ok("REAL HTTPS-REFUSED/HTTP-200: no HTTPS/TLS/HSTS finding is manufactured from an unobserved channel",
+    exposedIds(httpOnlyRun.body).every((id) => !HTTPS_FINDING.test(id) && !/hsts|strict_transport/i.test(id)),
+    exposedIds(httpOnlyRun.body).join(","));
+  websiteNotHealthy("HTTPS-REFUSED/HTTP-200", httpOnlyRun.body);
+
+  // 4. Positive control: a well-behaved origin is observed, not forced incomplete.
+  const observedRun = await runRealRoute("observed");
+  commonRouteContract("OBSERVED control", observedRun);
+  for (const module of HTTP_MODULES) {
+    eq(`REAL OBSERVED control: ${module} completes on a real origin response`,
+      evidenceOf(observedRun.body, module)?.state, "completed");
+  }
+  eq("REAL OBSERVED control: every bounded module is scanned",
+    [...observedRun.body.modules_scanned].sort().join(","),
+    "dns,email_security,headers,ssl,technology_detection");
+  eq("REAL OBSERVED control: website signal is monitored, not incomplete",
+    observedRun.body.monitoring_states?.signals?.website_security?.state, "monitoring_healthy");
+  ok("REAL OBSERVED control: website card is assessed rather than evidence_insufficient",
+    cardOf(observedRun.body, "website_security")?.state !== "evidence_insufficient",
+    cardOf(observedRun.body, "website_security")?.state);
+  ok("REAL OBSERVED control: no missing-header finding for headers the origin sent",
+    exposedIds(observedRun.body).every((id) => !/^header_missing_/.test(id)),
+    exposedIds(observedRun.body).join(","));
+
+  console.log("\nReal module-to-route traces:");
+  console.log(JSON.stringify(Object.fromEntries([
+    ["refused", refusedRun], ["origin_5xx", errorRun], ["https_refused_http_200", httpOnlyRun], ["observed", observedRun],
+  ].map(([name, run]) => [name, {
+    status: run.status,
+    module_evidence: run.body.module_evidence.map(({ module, state, reason }) => ({ module, state, ...(reason ? { reason } : {}) })),
+    modules_scanned: run.body.modules_scanned,
+    website_security: cardOf(run.body, "website_security")?.state,
+    certificates_trust: cardOf(run.body, "certificates_trust")?.state,
+    exposed_finding_ids: exposedIds(run.body),
+    target_requests: run.targetRequests,
+  }])), null, 2));
+}
+
 // The public free tools (/tools/*) share this lane: same anonymous audience,
 // same honesty rule. Their gate and engine tests run here.
 {
