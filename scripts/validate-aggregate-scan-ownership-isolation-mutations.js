@@ -27,6 +27,7 @@ const ATTACK = src("routes", "attack-surface.js");
 const IDENTITY = src("engines", "identity-exposure.js");
 const SENDER = src("engines", "sender-provenance.js");
 const RELATED = src("engines", "related-changes.js");
+const SCORECARD = src("engines", "scorecard.js");
 const sha = (p) => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 
 function runSuite() {
@@ -196,6 +197,12 @@ const MUTANTS = [
         WHERE s.workspace_id = ? AND s.status = 'completed'`,
     `         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
         WHERE wd.workspace_id = ? AND s.status = 'completed'`, 2]] },
+  { name: "M16_SCORECARD_DOMAIN_LINK", file: SCORECARD, expect: ["scorecard-verified-links", "scorecard-unverified-links", "scorecard-no-owned-evidence"], edits: [[
+    `         WHERE wd.workspace_id = ? AND s.status = 'completed'
+         AND s.workspace_id = ?
+         ORDER BY s.created_at DESC LIMIT 1\`\n      ).bind(wsId, wsId),`,
+    `         WHERE wd.workspace_id = ? AND s.status = 'completed'
+         ORDER BY s.created_at DESC LIMIT 1\`\n      ).bind(wsId),`]] },
 ];
 const CONTROL = { name: "CONTROL_COSMETIC_COMMENT", file: CUSTOMERS,
   from: "// Shared by portfolio.js (overview) and the queries below so both agree.",
