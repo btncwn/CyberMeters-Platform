@@ -1,4 +1,5 @@
 import { isStatedAccessLimit, statedLimitMessage } from "./scan-stated-limits.js";
+import { isEmailSpfEvidenceIncomplete } from "./email-evidence.js";
 // ── Canonical within-scan signal monitoring state ────────────────────────────
 //
 // This is the ONE backend-owned resolver for customer-facing monitoring health.
@@ -265,7 +266,8 @@ function moduleEvidenceState(modules, moduleName, skipped) {
     value.incomplete === true ||
     value.executed === false ||
     value.skipped === true ||
-    nonEmptyError(value.error)
+    nonEmptyError(value.error) ||
+    (moduleName === "email_security" && isEmailSpfEvidenceIncomplete(value))
   ) {
     return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
   }

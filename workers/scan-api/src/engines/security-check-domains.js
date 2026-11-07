@@ -1,4 +1,5 @@
 import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
+import { isEmailSpfEvidenceIncomplete } from "./email-evidence.js";
 import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 import { isCookieFindingType } from "./cookie-observation.js";
 import { isActionableFinding, isUnvalidatedHeaderObservation } from "./findings.js";
@@ -122,7 +123,10 @@ import {
 // not validate (validation_uncertain) or the apex's own HSTS policy was not
 // observed, even when no header finding was raised (item 15 re-run: a 403 apex
 // made HSTS not_observed, no finding fired, and the domain read healthy).
-export const SECURITY_CHECK_RESOLVER_VERSION = "2026-10-24.1";
+// `2026-11-07.1`: required SPF root-probe coverage gates Email Protection's
+// healthy conclusion and marks observed independent issues as partial. Frozen
+// snapshots keep their recorded state; cross-version trends remain incomparable.
+export const SECURITY_CHECK_RESOLVER_VERSION = "2026-11-07.1";
 
 // THE HONESTY BOUNDARY IS A FIXED FLOOR, NOT A MOVING ONE.
 //
@@ -289,6 +293,7 @@ function moduleAssessed(report, name, skippedSet) {
   }
   if (name === "tls_assessment") return m.quality === "complete" && m.coverage?.completed > 0;
   if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return false;
+  if (name === "email_security" && isEmailSpfEvidenceIncomplete(m)) return false;
   if (m.error) return false;
   if (m.skipped === true || m.incomplete === true) return false;
   if (skippedSet.has(name)) return false;
@@ -301,6 +306,7 @@ function moduleAttempted(report, name, skippedSet) {
   if (name === "external_exposure") return !moduleAssessed(report, name, skippedSet);
   if (name === "tls_assessment") return !moduleAssessed(report, name, skippedSet);
   if (name === "ssl" && resolveTlsRuntimeState(m).state === TLS_RUNTIME_STATES.UNAVAILABLE) return true;
+  if (name === "email_security" && isEmailSpfEvidenceIncomplete(m)) return true;
   return !!(m.error || m.skipped === true || m.incomplete === true || skippedSet.has(name));
 }
 
@@ -654,6 +660,16 @@ export function resolveSecurityCheckDomainStates(report, opts = {}) {
         base.coverage = "degraded";
         base.summary = dmarcState.canonical_summary ||
           "DMARC could not be observed this scan (the DNS lookup did not complete) — not enough to assess.";
+        return base;
+      }
+      const email = report?.modules?.email_security;
+      // Preserve an existing whole-module failure/reason below; this sentence
+      // describes only a completed module whose required SPF probe is unknown.
+      if (email && !email.error && email.incomplete !== true && email.skipped !== true &&
+          email.executed !== false && !skippedSet.has("email_security") && isEmailSpfEvidenceIncomplete(email)) {
+        base.state = SECURITY_CHECK_STATES.EVIDENCE_INSUFFICIENT;
+        base.coverage = "degraded";
+        base.summary = "SPF could not be assessed in this run, so email protection cannot be confirmed healthy.";
         return base;
       }
     }

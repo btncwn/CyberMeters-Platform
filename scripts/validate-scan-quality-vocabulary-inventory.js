@@ -299,8 +299,12 @@ const EXPECTED = Object.freeze({
     // d.assessment.latest_scan_quality === "complete" (B's own latest quality, not
     // A's partial). Keyed two-tree diff: exactly that one added, 0 removed.
     // 89 -> 90, 31 -> 32 files.
-    comparison_occurrences: 90,
-    source_file_count: 32,
+    // Required SPF coverage (7 Nov 2026): the existing email evidence validator
+    // adds exactly two literal complete/partial comparisons in its live/JSON
+    // coverage fixtures. Two-tree AST diff: runtime and SQL sets unchanged;
+    // no prior comparison removed or reclassified.
+    comparison_occurrences: 92,
+    source_file_count: 33,
     // SEQ-167 SUCCESSION: counts UNCHANGED (63 comparisons across 23 files); only the
     // fingerprint moves, because the type/value matrix adds governed comparisons in
     // the successor validator. Nothing was added to or removed from the runtime set.
@@ -319,7 +323,7 @@ const EXPECTED = Object.freeze({
     // Cloud cap: two actual scan-quality assertions in the existing F041 validator.
     // Subtracting these two sites reproduces the preceding exact fingerprint;
     // runtime, SQL and direct-read inventories are unchanged.
-    fingerprint: "ae5d8949e05a93372985edc21f01c1566cf7b7bb4958db5acb2c5237f4427a0e",
+    fingerprint: "16430d3b520b06f57abfebc6e9cc0c5ecf1fc195b7bcb07992a13b86fae9434d",
   },
   // Certificate logs retired: the deleted provider-cache module leaves the
   // runtime source set, 33 -> 32.
@@ -477,7 +481,10 @@ const EXPECTED = Object.freeze({
     // isolation-suite assertion's d.assessment.latest_scan_quality member read;
     // keyed two-tree diff shows exactly that one added, nothing removed; runtime
     // direct reads (151/49) and runtime comparisons are unchanged.
-    governance: { occurrence_count: 145, source_file_count: 47, fingerprint: "39ddf31e06295296eca219e112375182e142738d6e95ac2b867d396c73c0452e" },
+    // Same required-SPF fixtures add five report.scan_quality member reads
+    // (three assertions plus their diagnostic payloads); no existing read is
+    // removed. Runtime151/49, SQL41/30/18/23 and projections25 are unchanged.
+    governance: { occurrence_count: 150, source_file_count: 48, fingerprint: "db54d3da8f01ca261141be98cd8bd50554a47139513ea9bf47c758bdc8351034" },
   },
   // F-021 R1 corrective: projection count remains 23; consolidating four
   // workspace aggregate scan selectors into one direct-attribution helper
@@ -631,7 +638,8 @@ const REVIEWED_NON_STATUS_PRESENCE_COMPARISONS = new Map([
 ]);
 // The signal-monitoring-state entry is the same reviewed presentation assertion;
 // only its line moves (257 -> 301 -> 276 -> 290) as that validator's fixtures above it
-// change; it now proves module-owned degraded evidence.
+// change; it now proves module-owned degraded evidence. The required-SPF leaf
+// loader adds four lines above the same assertion (296 -> 300), text unchanged.
 const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   // C-61: the local corpus preserves inconclusive exposure results as unknown;
   // this is the collector module's quality, not canonical scan_quality.
@@ -655,7 +663,7 @@ const EXPECTED_UNRESOLVED_GOVERNANCE = Object.freeze([
   "scripts/validate-msp-portfolio-domains.js:436:detail.data?.phase5_assessment?.quality === listIncomplete?.phase5_assessment?.quality",
   "scripts/validate-partial-scan-honesty.js:244:stale.quality === \"unknown\"",
   "scripts/validate-phase5-evidence-honesty.js:235:presentation.quality === \"partial\"",
-  "scripts/validate-signal-monitoring-state.js:296:degraded.quality === \"degraded\"",
+  "scripts/validate-signal-monitoring-state.js:300:degraded.quality === \"degraded\"",
   // The lab's measurements: the certificate world's unreachable-certificate scan
   // is partial, and the load lab counts partial scans. Both read the quality the
   // engine recorded; neither decides a status.

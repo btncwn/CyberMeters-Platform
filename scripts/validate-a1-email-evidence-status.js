@@ -127,11 +127,13 @@ ok("intel impact: DKIM observed-not-found → 'DKIM Not Verified' impact",
 
 // ── 4. MUTATION HARNESS — the evidence gate is load-bearing ──────────────────
 // Rewrite a consumer's relative imports to absolute originals, optionally swapping
-// email-analysis.js for a mutant, then apply a mutation and re-run computeScore on
+// the shared evidence leaf (and its email-analysis re-export) for a mutant, then
+// apply a mutation and re-run computeScore on
 // the SPF-unavailable case. If the gate were removed, unavailable would regress to a
 // missing finding + penalty.
 const scoringSrc = fs.readFileSync(path.join(ENG, "scoring.js"), "utf8");
 const analysisSrc = fs.readFileSync(path.join(ENG, "email-analysis.js"), "utf8");
+const evidenceSrc = fs.readFileSync(path.join(ENG, "email-evidence.js"), "utf8");
 const rewriteRel = (src, overrides = {}) =>
   src
     .replace(/from "\.\/([^"]+)"/g, (_m, f) => `from ${JSON.stringify(overrides[f] || absUrl(f))}`)
@@ -140,30 +142,46 @@ const rewriteRel = (src, overrides = {}) =>
     // temp copy must consume the real canonical module, never a stub.
     .replace(/from "\.\.\/([^"]+)"/g, (_m, f) => `from ${JSON.stringify(pathToFileURL(path.join(ENG, "..", f)).href)}`);
 
-async function scoringMutant({ scoringMutate = (s) => s, analysisMutate = null }) {
+async function scoringMutant({ scoringMutate = (s) => s, evidenceMutate = null }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "a1-"));
-  let eaOverride = {};
-  if (analysisMutate) {
-    const eaSrc = rewriteRel(analysisMutate(analysisSrc));
-    const eaFile = path.join(dir, "email-analysis.mjs");
-    fs.writeFileSync(eaFile, eaSrc);
-    eaOverride = { "email-analysis.js": pathToFileURL(eaFile).href };
+  try {
+    const overrides = {};
+    if (evidenceMutate) {
+      const evidenceFile = path.join(dir, "email-evidence.mjs");
+      const mutatedEvidence = evidenceMutate(evidenceSrc);
+      if (mutatedEvidence === evidenceSrc) throw new Error("evidence mutation anchor missing");
+      fs.writeFileSync(evidenceFile, rewriteRel(mutatedEvidence));
+      overrides["email-evidence.js"] = pathToFileURL(evidenceFile).href;
+
+      // Both direct leaf imports and the preserved email-analysis re-exports
+      // must resolve to this SAME mutant, never to an unchanged real leaf.
+      const eaFile = path.join(dir, "email-analysis.mjs");
+      fs.writeFileSync(eaFile, rewriteRel(analysisSrc, overrides));
+      overrides["email-analysis.js"] = pathToFileURL(eaFile).href;
+      const leaf = await import(overrides["email-evidence.js"]);
+      const analysis = await import(overrides["email-analysis.js"]);
+      if (analysis.isEmailProbeUnobserved !== leaf.isEmailProbeUnobserved ||
+          analysis.isEmailProbeEvidenceUnknown !== leaf.isEmailProbeEvidenceUnknown) {
+        throw new Error("evidence mutant re-export is not bound to the mutated leaf");
+      }
+    }
+    const scSrc = scoringMutate(rewriteRel(scoringSrc, overrides));
+    const scFile = path.join(dir, "scoring.mjs");
+    fs.writeFileSync(scFile, scSrc);
+    const mod = await import(`${pathToFileURL(scFile).href}?t=${Date.now()}-${dir}`);
+    const r = mod.computeScore(modulesFor({ spfPresent: false, spfEvidence: "unavailable" }), DOMAIN);
+    return { spfMissing: r.findings.some((f) => f.id === "email_missing_spf"), score: r.score };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
-  const scSrc = scoringMutate(rewriteRel(scoringSrc, eaOverride));
-  const scFile = path.join(dir, "scoring.mjs");
-  fs.writeFileSync(scFile, scSrc);
-  const mod = await import(`${pathToFileURL(scFile).href}?t=${Date.now()}-${dir}`);
-  const r = mod.computeScore(modulesFor({ spfPresent: false, spfEvidence: "unavailable" }), DOMAIN);
-  fs.rmSync(dir, { recursive: true, force: true });
-  return { spfMissing: r.findings.some((f) => f.id === "email_missing_spf"), score: r.score };
 }
 
-// M1: neuter isEmailProbeUnobserved (email-analysis) → unavailable treated as observed.
+// M1: neuter isEmailProbeUnobserved (email-evidence) → unavailable treated as observed.
 const m1Src = (s) => s.replace(
   'return status === "unavailable" || status === "not_yet_assessed";',
   "return false;");
-ok("mutation anchor M1 present", m1Src(analysisSrc) !== analysisSrc);
-const m1 = await scoringMutant({ analysisMutate: m1Src });
+ok("mutation anchor M1 present", m1Src(evidenceSrc) !== evidenceSrc);
+const m1 = await scoringMutant({ evidenceMutate: m1Src });
 ok("M1: collapse unavailable→missing is CAUGHT (missing finding reappears)", m1.spfMissing === true);
 ok("M1: penalise unavailable is CAUGHT (score drops below baseline)", m1.score < basePresent.score);
 
