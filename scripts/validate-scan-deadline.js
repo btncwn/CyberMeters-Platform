@@ -783,7 +783,7 @@ await withEngineFetchFixture(async () => {
     dns:            { resolves: true },                       // completed, healthy
     ssl:            { grade: "A" },                            // completed, healthy
     headers:        { present: true },                        // completed, healthy
-    email_security: { spf: true },                            // completed, healthy
+    email_security: { spf: { present: true } },                            // completed, healthy
     known_exploited_vulnerabilities: markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" }),
   };
   const q = buildScanQuality(modules);
@@ -1077,7 +1077,7 @@ await withEngineFetchFixture(async () => {
   ok("fast path: deadline not exceeded", dl.exceeded() === false);
   // With every module completing normally, scan_quality is 'complete'.
   const modules = {
-    dns: { resolves: true }, ssl: { grade: "A" }, headers: { present: true }, email_security: { spf: true },
+    dns: { resolves: true }, ssl: { grade: "A" }, headers: { present: true }, email_security: { spf: { present: true } },
     known_exploited_vulnerabilities: { matches: [], checked: 1638, matched: 0, source: "cisa_kev" },
   };
   eq("fast path: scan_quality complete", buildScanQuality(modules).status, "complete");
@@ -1176,7 +1176,7 @@ const neverTimer = { setTimer: () => ({}), clearTimer: () => { neverCleared++; }
   const env = stubEnv();
   const latch = createFinalizeLatch();
   const modules = {
-    dns: { resolves: true }, ssl: { grade: "A" }, headers: { present: true }, email_security: { spf: true },
+    dns: { resolves: true }, ssl: { grade: "A" }, headers: { present: true }, email_security: { spf: { present: true } },
     asset_exposure: exposure,   // deferred
   };
   const scanQuality = buildScanQuality(modules);

@@ -165,7 +165,7 @@ ok("the result names each registry service asked and how it answered",
   JSON.stringify(unanswered.registries_asked));
 ok("no request URL or raw network error is kept", !/https?:\/\/|network refused/.test(JSON.stringify(unanswered)));
 const coreModules = {
-  dns: { resolves: true }, ssl: {}, headers: {}, email_security: {}, dmarc_core: {},
+  dns: { resolves: true }, ssl: {}, headers: {}, email_security: { spf: { present: true } }, dmarc_core: {},
 };
 const withUnanswered = buildScanQuality({ ...coreModules, whois_intelligence: unanswered });
 const withDeferred = buildScanQuality({ ...coreModules, whois_intelligence: markDeadlineDeferred({ ...REGISTRATION_DATA_OPTIONAL }) });

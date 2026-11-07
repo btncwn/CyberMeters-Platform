@@ -214,7 +214,7 @@ async function observe(router) {
     const headers = await runHeadersModule(DOMAIN);
     const technology_detection = await runTechModule(DOMAIN);
     const ssl = await runSslModule(DOMAIN);
-    const modules = { dns: { resolves: true }, ssl, headers, technology_detection, email_security: {} };
+    const modules = { dns: { resolves: true }, ssl, headers, technology_detection, email_security: { spf: { present: true } } };
     const scan_quality = buildScanQuality(modules);
     const findings = computeScore(modules, DOMAIN)?.findings || [];
     const website = resolveSecurityCheckDomainStates(
