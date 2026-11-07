@@ -9,7 +9,7 @@ import { resolvePublicDnsTarget, STRICT_DNS_STATES } from "../lib/ssrf.js";
 import { runDnsModule } from "./dns-scan.js";
 import { dnsQuery } from "./dns.js";
 import { DMARC_INTEL_STATUS, isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
-import { buildDkimDetail, isEmailProbeUnobserved, mtaStsAdmission, parseDmarcRecord, parseSpfRecord, parseTlsRptAnswers, tlsRptAdmission } from "./email-analysis.js";
+import { buildDkimDetail, isEmailProbeEvidenceUnknown, isEmailProbeUnobserved, mtaStsAdmission, parseDmarcRecord, parseSpfRecord, parseTlsRptAnswers, tlsRptAdmission } from "./email-analysis.js";
 import { DMARC_OBSERVATION_STATUS, dmarcObservationStatusFromDnsResult, runEmailModule } from "./email-scan.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeScore } from "./scoring.js";
@@ -28,7 +28,7 @@ export function enrichSpf(emailMod) {
     // A1: a failed/unexecuted SPF probe (unavailable / not_yet_assessed) is NOT a
     // missing record. Status stays MISSING for the (excluded) frontend display, but
     // observation_unavailable gates the missing finding + business impact below.
-    const observation_unavailable = isEmailProbeUnobserved(emailMod?.spf_evidence_status);
+    const observation_unavailable = isEmailProbeEvidenceUnknown(spf.present, emailMod?.spf_evidence_status);
     return { status: "MISSING", record: null, score: 0, issue: "No SPF record found.", detail, observation_unavailable };
   }
   if (!detail.valid || detail.record_count > 1) {

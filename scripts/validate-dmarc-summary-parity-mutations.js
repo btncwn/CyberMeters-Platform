@@ -146,12 +146,10 @@ const MUTANTS = Object.freeze([
     "DMARC-PARITY-SPF-DKIM-UNCHANGED",
   ], (source) => replaceOnce(
     source,
-    `  result.dmarc = {
-    present: candidates.length > 0,`,
+    `  result.dmarc = {`,
     `  result.spf = { present: false, record: null };
   result.dkim = { present: false, selector: null };
-  result.dmarc = {
-    present: candidates.length > 0,`,
+  result.dmarc = {`,
   )),
   M("read path rewrites immutable snapshot bytes", snapshotFile, [
     "DMARC-PARITY-HISTORICAL-READ-RAW",

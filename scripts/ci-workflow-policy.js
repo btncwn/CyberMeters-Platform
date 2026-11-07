@@ -20,9 +20,10 @@ export const EXPECTED_CLASSIFIER_RUN_SHA256 = "e49f164ef02bd9d4f7dead6a939dd81d5
 // validator is renamed for the local list. The exposure incomplete-reason
 // validator joins runtime-security and its mutation harness joins report-cx.
 // Prior assignments remain.
-export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 422;
-export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "611563298f2ceb2d3f787a33dd02753be43cf1f5aa7a5de063a18e01e3449b4c";
-export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "8813225cceb41f919fd773c531d4bc97ff239824a92744f53e7f89bceb348f9b";
+// Add exactly one real-producer/persisted email-posture validator to report-cx.
+export const EXPECTED_EXECUTABLE_VALIDATOR_COUNT = 423;
+export const EXPECTED_EXECUTABLE_VALIDATOR_SHA256 = "f9406ae364a15f3027b7705e49202d3c436e9ac45ce1ab28674ea77f79e72b78";
+export const EXPECTED_SHARD_ASSIGNMENT_SHA256 = "7df74e40ba99e677ab5430953602910fba82e65a72ba27721d6a214ff1726950";
 
 export const F004_MATRIX_JOB_ID = "validate_f004_recovery_mutations";
 export const F004_MATRIX_VALIDATOR_PATH = "scripts/validate-f004-recovery-instrumentation-mutations.js";
@@ -71,7 +72,7 @@ const EXECUTABLE_VALIDATOR_JOB_IDS = Object.freeze([
 
 export const EXPECTED_SHARD_COUNTS = Object.freeze({
   validate_runtime_security: 109,
-  validate_report_cx: 87,
+  validate_report_cx: 88,
   validate_data_migrations: 107,
   validate_frontend_build: 91,
   validate_integration_assurance: 27,

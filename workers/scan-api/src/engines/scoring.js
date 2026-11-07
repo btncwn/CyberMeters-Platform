@@ -8,7 +8,7 @@ import { assetFingerprintSignals } from "./asset-intel.js";
 import { resolveDnsResolution } from "./attack-surface-signal-completeness.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { brandCandidateHasOpenAbuseCase, brandCandidateIsLive } from "./brand-validation-state.js";
-import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, inferMxProvider, isEmailProbeUnobserved } from "./email-analysis.js";
+import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, dmarcTestingMode, inferMxProvider, isEmailProbeEvidenceUnknown, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
 import { classifyCspPolicy, classifyHeaderStrength, effectiveHstsValue, hstsPolicyOf } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
@@ -796,13 +796,14 @@ export function computeScore(modules, domain) {
     // A1: SPF evidence status (NON-ENUMERABLE — direct read off the source object,
     // never a spread/JSON copy). Explicit module skip/non-execution and a failed
     // SPF probe are unobserved → score-neutral, NOT a missing record. Merely partial
-    // modules still use completed per-probe evidence. Absent status on an otherwise
-    // executed legacy/R2 result keeps the historical present-based read.
+    // modules still use completed per-probe evidence. Persisted nullable presence
+    // stays unknown after JSON drops the status; known legacy booleans retain
+    // their historical meaning.
     const emailModuleUnobserved = modules.email_security?.skipped === true ||
       modules.email_security?.executed === false || Boolean(modules.email_security?.error);
     const spfEvidence = modules.email_security?.spf_evidence_status ?? null;
     const spfUnobserved = emailModuleUnobserved ||
-      (spfEvidence ? isEmailProbeUnobserved(spfEvidence) : false);
+      isEmailProbeEvidenceUnknown(modules.email_security?.spf?.present, spfEvidence);
     if (!spfUnobserved && !modules.email_security?.spf?.present) {
       finding({
         id:           "email_missing_spf",

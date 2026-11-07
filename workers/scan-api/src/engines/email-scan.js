@@ -256,7 +256,13 @@ export async function runEmailModule(domain, opts = {}) {
   Object.defineProperty(details, "dmarc_evidence_status", { value: dmarcEvidence.observation_status, enumerable: false });
   const result = {
     spf: {
-      present: hasSPF,
+      // Tri-state, as in the deadline fallback: an observed record is true, a
+      // completed lookup with no record is false, and a failed/unexecuted root
+      // TXT lookup is null — the persisted report carries no evidence status, so
+      // false here would read as a measured absence downstream.
+      present: hasSPF
+        ? true
+        : spfObservationStatus === DMARC_OBSERVATION_STATUS.OBSERVED ? false : null,
       record:  spfRecord,
       record_count: spfRecs.length,
       // Additive resolved-authorisation snapshot (PR-A). Null only if the resolver
@@ -334,8 +340,14 @@ export function applyDmarcbisEmailCompatibilityProjection(
   const exactDetail = parseDmarcRecord(exactRecord, candidates.length);
   // The compatibility policy remains the exact record's p. A parent p/sp/np is
   // available only in dmarc_core until the additive v2 API lands in P3.
+  // Presence is tri-state: any exact candidate is true; false only when the
+  // exact-domain record set was actually evaluated and complete (a confirmed
+  // exact absence, which an inherited policy still is); otherwise the exact
+  // lookup was unavailable, refused or incomplete and presence is unknown.
   result.dmarc = {
-    present: candidates.length > 0,
+    present: candidates.length > 0
+      ? true
+      : exactSet?.complete === true ? false : null,
     policy: exactSet?.selected?.p?.normalized ?? null,
     record: candidates.length === 1 ? exactRecord : null,
     record_count: candidates.length,
