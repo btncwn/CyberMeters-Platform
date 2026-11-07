@@ -107,6 +107,7 @@ function reportFor(id) {
       },
       known_exploited_vulnerabilities: {},
       email_security_intelligence: {},
+      saas_exposure: { total: s.ws === "wsB" ? 13 : s.ws === "wsA" ? 71 : 99 },
       email_security: {
         spf: { present: true, status: "valid" },
         dkim: { present: true, status: "valid" },
@@ -214,7 +215,8 @@ async function main() {
   section = "authz-controls";
   for (const p of ["/api/workspaces/wsA/executive-dashboard", "/api/workspaces/wsA/posture",
                    "/api/workspaces/wsA/posture/timeline", "/api/workspaces/wsA/identity-exposure",
-                   `/api/workspaces/wsA/domains/${SHARED}/bec-exposure`, "/api/workspaces/wsA/related-changes"]) {
+                   `/api/workspaces/wsA/domains/${SHARED}/bec-exposure`, "/api/workspaces/wsA/related-changes",
+                   "/api/workspaces/wsA/scorecard", "/api/workspaces/wsA/scorecard/report"]) {
     r2Gets.length = 0;
     const r = await call(p, T.bob);
     ok(`bob is refused A's ${p} (403)`, r.status === 403, `status ${r.status}`);
@@ -293,6 +295,41 @@ async function main() {
     ["complete_scans counts B's own scans only", (d) => d.assessment.complete_scans === 2],
     ["latest_scan_quality is B's own ('complete', not A's 'partial')", (d) => d.assessment.latest_scan_quality === "complete"],
   ]);
+
+  // Scorecard and structured-report reads must select the owner BEFORE LIMIT.
+  // A verified domain link is not a grant to another workspace's scan evidence;
+  // an unverified co-link must not be one either. Both public GET paths use the
+  // same helper, including callers that still pass the old scanScope option.
+  const scorecardPaths = ["/api/workspaces/wsB/scorecard", "/api/workspaces/wsB/scorecard/report"];
+  const unwrapScorecard = (d) => d.scorecard ?? d;
+  const checkScorecards = async (label) => {
+    for (const p of scorecardPaths) {
+      await probe(`scorecard-${label}`, p, [
+        ["keeps B's own latest completed scan", (d) => unwrapScorecard(d).last_scan_at === SCANS.scan_b_tie.created_at],
+        ["findings are B's latest scan only", (d) => unwrapScorecard(d).critical_findings === 1 && unwrapScorecard(d).high_findings === 0],
+        ["retains B's older legitimate remediation", (d) => unwrapScorecard(d).top_recommendations.some((x) => x.title === "REMEDIATION-B-TIE")],
+        ["module counts are B's own report", (d) => unwrapScorecard(d).saas_exposures === 13],
+        ["at least one B report was actually read", () => r2Gets.includes("reports/scan_b_tie.json")],
+      ]);
+    }
+  };
+  await checkScorecards("verified-links");
+  db.prepare("UPDATE workspace_domains SET verification_status='pending', verified_at=NULL WHERE workspace_id='wsB'").run();
+  await checkScorecards("unverified-links");
+  db.prepare("UPDATE workspace_domains SET verification_status='verified', verified_at=datetime('now') WHERE workspace_id='wsB'").run();
+  const { buildScorecardData } = await import(pathToFileURL(path.join(root, "workers/scan-api/src/engines/scorecard.js")).href);
+  section = "scorecard-helper-options";
+  for (const scanScope of ["workspace", "linked_domains", "unknown-mode"]) {
+    r2Gets.length = 0;
+    const card = await buildScorecardData("wsB", env, { scanScope });
+    ok(`${scanScope} keeps B's older owned scan`, card?.last_scan_at === SCANS.scan_b_tie.created_at && card?.saas_exposures === 13);
+    ok(`${scanScope} cannot read foreign or unowned reports`, foreignKeysRead().length === 0);
+  }
+  for (const p of scorecardPaths) {
+    r2Gets.length = 0;
+    const r = await call(p, null);
+    ok(`scorecard anonymous refusal ${p}`, r.status === 401 && r2Gets.length === 0);
+  }
 
   // ── 6. Portfolio (bob's accessible set is exactly [wsB]) ──────────────────
   await probe("portfolio-overview", "/api/portfolio/overview", [
@@ -435,6 +472,14 @@ async function main() {
   await probe("null-only-onboarding", nullPaths[2], [["still requires a first owned scan", (d) => !d.has_completed_scan && d.completed_scan_count === 0 && d.next_step === "run_first_scan"]]);
   await probe("null-only-accuracy", nullPaths[3], [["does not invent owned findings", (d) => d.findings_total === 0]]);
   await probe("null-only-usage", nullPaths[4], [["does not consume another scan's usage", (d) => d.current_period.scans_used === 0 && d.current_period.scans_completed === 0]]);
+  for (const p of scorecardPaths) {
+    await probe("scorecard-no-owned-evidence", p, [
+      ["no foreign or NULL scan becomes B's latest", (d) => unwrapScorecard(d).last_scan_at === null && unwrapScorecard(d).last_scanned_domain === null],
+      ["does not invent an assessed score", (d) => unwrapScorecard(d).security_score === null],
+      ["does not expose recommendations from another scan", (d) => unwrapScorecard(d).top_recommendations.length === 0],
+      ["does not read any report without owned evidence", () => r2Gets.length === 0],
+    ]);
+  }
 
   console.log(results.join("\n"));
   console.log(`\nAggregate scan-ownership isolation: ${passed} passed, ${failed} failed`);
