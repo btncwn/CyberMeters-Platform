@@ -736,8 +736,14 @@ const parity = states.map(parityOutputs);
 // changing the snapshot fingerprint r123-b65158b7 -> r123-a57266fe. Restoring
 // ONLY that entry version reproduces both preceding hashes; this fixture has
 // no PHP finding. Certificate evidence and every mutation assertion are unchanged.
-const GOLDEN_F13 = "41e2f835398561a5126c9529d0fb3b3f3ea690e70679092ee47bf5954d9685c8";
-const GOLDEN_F14 = "b181d070f1f01574bc5f7be1aff163c66c71302b482c936399b2985323f5a33b";
+// Required SPF coverage (7 Nov 2026): the resolver methodology is now
+// 2026-11-07.1. This certificate-only partial fixture has no Email module;
+// all SAN facts, states, findings, scores and coverage remain byte-identical.
+// Normalizing ONLY resolver-version values/text to 2026-10-24.1 reproduces
+// both preceding hashes across all five SAN states. Workspace PDF, scorecard
+// sections and GOLDEN_EVIDENCE_V2 remain byte-identical; no assertion changes.
+const GOLDEN_F13 = "c85b96b1138d2f7dbc135f6fc47ef67de8bcf6c80266abf2dd1a4d5ca84c151e";
+const GOLDEN_F14 = "b49c0929c012d36efa056fc483cbb77899948b5d687e0ced5d4c4621d7138a96";
 fixture("F13", parity.every((row) => row.f13 === GOLDEN_F13));
 fixture("F14", parity.every((row) => row.f14 === GOLDEN_F14));
 
